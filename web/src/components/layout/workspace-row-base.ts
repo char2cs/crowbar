@@ -8,7 +8,7 @@ export const ROW_BASE =
 // selected and a flat hover-accent when not. Keep both in sync here, never inline.
 export const ROW_ACTIVE =
   'border-background bg-background text-foreground shadow-xs shadow-black/10 ' +
-  'not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] ' +
+  'not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] ' +
   'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 
 export const ROW_INACTIVE = 'border-transparent text-foreground hover:bg-accent'

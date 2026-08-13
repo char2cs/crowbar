@@ -107,6 +107,57 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.AgentChat, error)
+	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
+	// off and its dense index within that sibling space.
+	//
+	// It is on the ordinary async Send path, and it has to be: a single drag
+	// renumbers a whole level, so one gesture is N of these, and blocking each on
+	// its projection would serialise the drag behind the read model. Nothing reads
+	// back through the read model to decide the next write — the caller planned the
+	// whole move from ONE snapshot before the first command went out — so there is
+	// no barrier to owe.
+	// LoadChat folds the chat directly from the EVENT LOG, so it is always
+	// current — the same source every command validates against.
+	//
+	// It exists beside GetChat because the two answer different questions and one
+	// of them is not safe for every caller. GetChat serves the read-model
+	// projection, which is asynchronous: SetPlacement is deliberately on the async
+	// Send path (see its doc), so a chat read back straight after a placement can
+	// still be serving the placement it had BEFORE. That is fine for rendering a
+	// list and fatal for a DECISION taken on it — a spawn resolving what a new
+	// thread inherits read ParentID as "" and injected nothing, so the thread's
+	// first session came up not knowing it was a thread. Anything deciding on a
+	// chat's placement must read it here.
+	//
+	// It mirrors workspace.Get and reviewthread.Get, which fold per-id reads from
+	// the log for exactly this reason (§3.7). Unlike those, this aggregate's list
+	// is hot enough (every hook resolves its chat) that the projected read is kept
+	// as the default rather than replaced.
+	LoadChat(
+		ctx context.Context,
+		id string,
+	) (domain.AgentChat, error)
+	SetPlacement(
+		ctx context.Context,
+		chatID string,
+		parentID string,
+		order int,
+	) (domain.AgentChat, error)
+	// SetOrder writes a chat's index within the sibling space it is already in
+	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
+	//
+	// A drag renumbers a whole level and re-parents one row. Writing the rest of
+	// that level through SetPlacement made every renumber restate a parent the
+	// caller had read rather than decided, and the caller reads the asynchronous
+	// projection: a second drag landing inside the first one's projection window
+	// wrote a stale parent back and returned a just-filed thread to the panel
+	// root. The parent this preserves comes from the log fold the command
+	// validates against, so it is current rather than merely untouched.
+	SetOrder(
+		ctx context.Context,
+		chatID string,
+		order int,
+	) (domain.AgentChat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -286,6 +337,42 @@ func (r *eventSourced) SetTitle(
 	return evt.Aggregate, nil
 }
 
+func (r *eventSourced) LoadChat(
+	ctx context.Context,
+	id string,
+) (domain.AgentChat, error) {
+	chat, err := r.ax.Get(ctx, id)
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: load chat: %w", mapNotFound(err))
+	}
+	return chat, nil
+}
+
+func (r *eventSourced) SetPlacement(
+	ctx context.Context,
+	chatID string,
+	parentID string,
+	order int,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: set placement: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetOrder(
+	ctx context.Context,
+	chatID string,
+	order int,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: set order: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
 // Forget purges the chat aggregate via ax.Forget (hard delete), mirroring
 // reviewthread's DeleteThread. See the EventStore interface doc for details.
 func (r *eventSourced) Forget(
@@ -331,13 +418,14 @@ func (r *eventSourced) ListByWorkspace(
 }
 
 // mapNotFound bridges the store package's local ErrNotFound sentinel (kept
-// local there to avoid an import cycle back into this package) to this
-// package's own ErrNotFound, so every EventStore caller sees one sentinel
-// regardless of which read path served the miss.
+// local there to avoid an import cycle back into this package) AND the log-fold
+// sentinel asynx raises for an unknown aggregate to this package's own
+// ErrNotFound, so every EventStore caller sees one sentinel regardless of which
+// of the two read paths served the miss.
 func mapNotFound(
 	err error,
 ) error {
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, asynxModels.ErrNotFound) {
 		return ErrNotFound
 	}
 	return err

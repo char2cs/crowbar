@@ -1,6 +1,13 @@
 import { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { AGENT_CHAT_ROW_HEIGHT } from './agent-chat-drop-geometry'
+
+/**
+ * The fixed vertical pitch of one row: ROW_BASE's `h-9` (36px) plus its `my-0.5`
+ * (4px). Every row in this tree is that tall — chats and folders alike, and a
+ * row indented four levels no less than a root one — which is what lets the list
+ * stay windowed as a tree: `estimateSize` is exact, so nothing is ever measured.
+ */
+export const AGENT_CHAT_ROW_HEIGHT = 40
 
 /**
  * Windows the agent-chats sidebar list: only the visible slice (+ overscan) of

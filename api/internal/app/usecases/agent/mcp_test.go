@@ -179,7 +179,7 @@ func TestDispatchMCP_NotificationIsSilent(
 func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 	t *testing.T,
 ) {
-	u := agentusecase.New(nil, nil, nil, nil, nil, nil, nil, nil, nil, agenttools.Deps{})
+	u := agentusecase.New(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, agenttools.Deps{})
 
 	_, send, err := u.DispatchMCP(t.Context(), "seg-1", "tok",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))

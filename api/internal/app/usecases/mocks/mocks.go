@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -1122,4 +1123,370 @@ func (s *TerminalProfileStore) FindAll(
 		return nil, s.FindAllErr
 	}
 	return s.Saved, nil
+}
+
+// AgentChatFolderStore is a fake agentchatfolder.Store backed by an in-memory
+// slice.
+//
+// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
+// cross-workspace classification path resolves a single row by key after the
+// workspace-scoped list has already succeeded, and collapsing the two would make
+// that branch unreachable.
+type AgentChatFolderStore struct {
+	Rows         []domain.AgentChatFolder
+	SaveErr      error
+	FindErr      error
+	FindByKeyErr error
+	DeleteErr    error
+}
+
+// NewAgentChatFolderStore returns an empty AgentChatFolderStore.
+func NewAgentChatFolderStore() *AgentChatFolderStore {
+	return &AgentChatFolderStore{}
+}
+
+func (s *AgentChatFolderStore) FindByKey(
+	ctx context.Context,
+	id string,
+) (*domain.AgentChatFolder, error) {
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			row := s.Rows[i]
+			return &row, nil
+		}
+	}
+	return nil, nil
+}
+
+// FindWhere mirrors the real store's prototype-scoped query over the field the
+// chat-folder usecase actually narrows by.
+func (s *AgentChatFolderStore) FindWhere(
+	ctx context.Context,
+	match domain.AgentChatFolder,
+) ([]domain.AgentChatFolder, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	rows := make([]domain.AgentChatFolder, 0, len(s.Rows))
+	for _, f := range s.Rows {
+		if match.WorkspaceID != "" && f.WorkspaceID != match.WorkspaceID {
+			continue
+		}
+		rows = append(rows, f)
+	}
+	return rows, nil
+}
+
+func (s *AgentChatFolderStore) Save(
+	ctx context.Context,
+	folder domain.AgentChatFolder,
+) error {
+	if s.SaveErr != nil {
+		return s.SaveErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == folder.ID {
+			s.Rows[i] = folder
+			return nil
+		}
+	}
+	s.Rows = append(s.Rows, folder)
+	return nil
+}
+
+func (s *AgentChatFolderStore) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	if s.DeleteErr != nil {
+		return s.DeleteErr
+	}
+	kept := s.Rows[:0]
+	for _, f := range s.Rows {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+	s.Rows = kept
+	return nil
+}
+
+// AgentChatPlacements is a fake agentchatfolder.Chats AND agentchatfolder.Agent:
+// it holds the chat rows a Chats-panel move has to carry along, records the
+// placement writes made against them, mints and starts the ones a create asks
+// for, erases the ones a cascade purges, and records the lineage notes a move
+// asks for.
+//
+// Purged is kept in call order, because the cascade's whole contract is that a
+// chat is erased only once every chat below it already has been.
+//
+// Noted is kept in call order too, and records the LINEAGE each note carried
+// rather than merely that one happened: a note naming the wrong ancestors is
+// worse than no note, since the record it writes into the chat's conversation is
+// permanent and is what a reader would believe afterwards.
+type AgentChatPlacements struct {
+	Rows      []domain.AgentChat
+	Purged    []string
+	Noted     []LineageNote
+	Spawned   []string
+	Minted    []string
+	Started   []StartCall
+	ListErr   error
+	GetErr    error
+	LoadErr   error
+	SetErr    error
+	OrderErr  error
+	PurgeErr  error
+	NoteErr   error
+	SpawnErr  error
+	MintErr   error
+	StartErr  error
+	SetCalls  int
+	MissingID string
+	// Placed and Ordered record the two placement writes SEPARATELY, because the
+	// difference between them is the contract: a renumber may write an index and
+	// must be unable to write a parent.
+	Placed  []PlacementWrite
+	Ordered []OrderWrite
+	// Stale is the PROJECTED placement of a chat — what ListByWorkspace and
+	// GetChat answer while the read model is behind the log. A placement write
+	// returns as soon as the aggregate has it, so this is the daemon's ordinary
+	// state for the microseconds after every one, not an exotic interleaving.
+	Stale map[string]domain.AgentChat
+	// NextID is the id the next MintChat hands back, so a test can name the chat a
+	// create is about to make instead of discovering it from the return value.
+	NextID string
+}
+
+// StartCall is one recorded call to StartRunner: the chat a CLI was started on,
+// the provider it was started for, and — read AT THE MOMENT OF THE CALL — where
+// that chat was sitting in the tree.
+//
+// ParentAtStart is the whole point of recording anything here. A create that
+// placed the chat AFTER starting its CLI produces exactly the same end state as
+// one that placed it before: same chat, same parent, same runner. The only thing
+// that tells them apart is where the row was when the CLI came up, because that is
+// what the spawn read to decide what the new chat inherits.
+type StartCall struct {
+	ChatID        string
+	ProviderID    string
+	ParentAtStart string
+}
+
+// PlacementWrite is one recorded call to SetPlacement: a row the caller MOVED,
+// and where to.
+type PlacementWrite struct {
+	ChatID   string
+	ParentID string
+	Order    int
+}
+
+// OrderWrite is one recorded call to SetOrder: a row a densify renumbered, and
+// the index it was given. It carries no parent, which is the whole point.
+type OrderWrite struct {
+	ChatID string
+	Order  int
+}
+
+// LineageNote is one recorded call to NoteThreadLineage: which chat was told,
+// and what it was told it now reads.
+type LineageNote struct {
+	ChatID    string
+	Ancestors []string
+}
+
+// NewAgentChatPlacements returns an empty AgentChatPlacements.
+func NewAgentChatPlacements() *AgentChatPlacements {
+	return &AgentChatPlacements{}
+}
+
+func (s *AgentChatPlacements) ListByWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) ([]domain.AgentChat, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.AgentChat, 0, len(s.Rows))
+	for _, c := range s.Rows {
+		if c.WorkspaceID == workspaceID && c.ID != s.MissingID {
+			rows = append(rows, s.projected(c))
+		}
+	}
+	return rows, nil
+}
+
+// projected answers with the row as the READ MODEL has it, which is the row
+// itself unless a test is holding the projection behind the log.
+func (s *AgentChatPlacements) projected(
+	row domain.AgentChat,
+) domain.AgentChat {
+	stale, ok := s.Stale[row.ID]
+	if !ok {
+		return row
+	}
+	return stale
+}
+
+func (s *AgentChatPlacements) GetChat(
+	ctx context.Context,
+	id string,
+) (domain.AgentChat, error) {
+	if s.GetErr != nil {
+		return domain.AgentChat{}, s.GetErr
+	}
+	for _, c := range s.Rows {
+		if c.ID == id {
+			return s.projected(c), nil
+		}
+	}
+	return domain.AgentChat{}, apperr.ErrNotFound
+}
+
+// LoadChat is the log fold: it answers with the row as it actually stands,
+// whatever the projection is still serving.
+func (s *AgentChatPlacements) LoadChat(
+	ctx context.Context,
+	id string,
+) (domain.AgentChat, error) {
+	if s.LoadErr != nil {
+		return domain.AgentChat{}, s.LoadErr
+	}
+	for _, c := range s.Rows {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	return domain.AgentChat{}, apperr.ErrNotFound
+}
+
+func (s *AgentChatPlacements) SetPlacement(
+	ctx context.Context,
+	chatID string,
+	parentID string,
+	order int,
+) (domain.AgentChat, error) {
+	s.SetCalls++
+	if s.SetErr != nil {
+		return domain.AgentChat{}, s.SetErr
+	}
+	s.Placed = append(s.Placed, PlacementWrite{ChatID: chatID, ParentID: parentID, Order: order})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].ParentID = parentID
+			s.Rows[i].Order = order
+			return s.Rows[i], nil
+		}
+	}
+	return domain.AgentChat{}, nil
+}
+
+// SetOrder writes the index and leaves the parent exactly as it stands, like the
+// command it stands in for: the aggregate applies it to the row folded from the
+// log, so there is no parent in the call to be stale.
+func (s *AgentChatPlacements) SetOrder(
+	ctx context.Context,
+	chatID string,
+	order int,
+) (domain.AgentChat, error) {
+	if s.OrderErr != nil {
+		return domain.AgentChat{}, s.OrderErr
+	}
+	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].Order = order
+			return s.Rows[i], nil
+		}
+	}
+	return domain.AgentChat{}, nil
+}
+
+func (s *AgentChatPlacements) PurgeChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	if s.PurgeErr != nil {
+		return s.PurgeErr
+	}
+	s.Purged = append(s.Purged, chatID)
+	kept := s.Rows[:0]
+	for _, c := range s.Rows {
+		if c.ID != chatID {
+			kept = append(kept, c)
+		}
+	}
+	s.Rows = kept
+	return nil
+}
+
+func (s *AgentChatPlacements) NoteThreadLineage(
+	ctx context.Context,
+	chatID string,
+	ancestors []string,
+) error {
+	if s.NoteErr != nil {
+		return s.NoteErr
+	}
+	s.Noted = append(s.Noted, LineageNote{ChatID: chatID, Ancestors: ancestors})
+	return nil
+}
+
+func (s *AgentChatPlacements) SpawnChat(
+	ctx context.Context,
+	workspaceID string,
+	providerID string,
+) (string, string, error) {
+	if s.SpawnErr != nil {
+		return "", "", s.SpawnErr
+	}
+	s.Spawned = append(s.Spawned, providerID)
+	id := s.NextID
+	s.Rows = append(s.Rows, domain.AgentChat{ID: id, WorkspaceID: workspaceID})
+	return id, "runner-" + id, nil
+}
+
+func (s *AgentChatPlacements) MintChat(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	if s.MintErr != nil {
+		return "", s.MintErr
+	}
+	s.Minted = append(s.Minted, workspaceID)
+	s.Rows = append(s.Rows, domain.AgentChat{ID: s.NextID, WorkspaceID: workspaceID})
+	return s.NextID, nil
+}
+
+func (s *AgentChatPlacements) StartRunner(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	if s.StartErr != nil {
+		return "", s.StartErr
+	}
+	s.Started = append(s.Started, StartCall{
+		ChatID:        chatID,
+		ProviderID:    providerID,
+		ParentAtStart: s.parentOf(chatID),
+	})
+	return "runner-" + chatID, nil
+}
+
+func (s *AgentChatPlacements) parentOf(
+	chatID string,
+) string {
+	for _, c := range s.Rows {
+		if c.ID == chatID {
+			return c.ParentID
+		}
+	}
+	return ""
 }

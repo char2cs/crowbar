@@ -1,5 +1,27 @@
+import {
+  ALL_MODES,
+  EDGE_BAND_CONTAINER,
+  EDGE_BAND_HEAVY,
+  INTO_MODES,
+  NO_MODES,
+  REORDER_MODES,
+  dropModeAt,
+  resolvesToFirstChild,
+  type AllowedModes,
+  type DragSubjectBase,
+  type DropMode,
+  type DropPolicy,
+  type DropTargetBase,
+} from '@/components/tree-dnd/drop-core'
+
 /**
- * What a drag may do to a row, and where the indicator goes.
+ * What a drag may do to a SIDEBAR row, and where the indicator goes.
+ *
+ * This is the sidebar's matrix and nothing else. The band arithmetic, the mode
+ * resolver and the first-child rule are the same in any tree and live in
+ * `tree-dnd/drop-core.ts`; what is here is the part no other tree may inherit —
+ * four kinds that do not mix, a same-repo rule, and the locked rule that stops a
+ * protected branch's worktree being re-parented.
  *
  * Kept as pure functions with no DOM and no React so the whole matrix — every
  * permitted move and, more importantly, every refusal — is testable without a
@@ -7,16 +29,14 @@
  * then asks these two questions; it decides nothing itself.
  */
 
+export { resolvesToFirstChild }
+export type { AllowedModes, DropMode }
+
 /** The four movable classes. They do not mix. */
 export type DropKind = 'workspace' | 'folder' | 'repo' | 'project'
 
-export type DropMode = 'before' | 'after' | 'into'
-
-export type AllowedModes = Record<DropMode, boolean>
-
-export interface DragSubject {
+export interface DragSubject extends DragSubjectBase {
   kind: DropKind
-  id: string
   /** Repo scope, for the same-repo rule. Absent on repos and projects. */
   repoId?: string
   /** A protected branch: reorders among its own siblings and nothing else. */
@@ -25,29 +45,9 @@ export interface DragSubject {
   parentId?: string
 }
 
-export interface DropTarget {
+export interface DropTarget extends DropTargetBase {
   kind: DropKind
-  id: string
   repoId?: string
-  parentId?: string
-  /** Whether this row is currently showing its children. */
-  expanded?: boolean
-  hasChildren?: boolean
-}
-
-const NONE: AllowedModes = { before: false, after: false, into: false }
-const REORDER_ONLY: AllowedModes = { before: true, after: true, into: false }
-const INTO_ONLY: AllowedModes = { before: false, after: false, into: true }
-const ANY: AllowedModes = { before: true, after: true, into: true }
-
-/**
- * Dropping *after* a row that is showing children does not put the row after
- * that subtree — the gap under an expanded parent is the slot before its first
- * child, which is where the indicator is drawn. So "after" an expanded parent
- * is a re-parent, and anything that may not re-parent may not do it.
- */
-export function resolvesToFirstChild(target: DropTarget, mode: DropMode): boolean {
-  return mode === 'after' && !!target.expanded && !!target.hasChildren
 }
 
 /**
@@ -58,52 +58,52 @@ export function resolvesToFirstChild(target: DropTarget, mode: DropMode): boolea
  * and nothing else — including not "after" an expanded sibling, because that
  * would nest it.
  */
-export function allowedModes(subjects: DragSubject[], target: DropTarget): AllowedModes {
-  if (subjects.length === 0) return NONE
+export function allowedModes(subjects: readonly DragSubject[], target: DropTarget): AllowedModes {
+  if (subjects.length === 0) return NO_MODES
   const kind = subjects[0].kind
   // A mixed selection is not a thing the sidebar can express; refuse rather
   // than guess which class wins.
-  if (subjects.some((s) => s.kind !== kind)) return NONE
+  if (subjects.some((s) => s.kind !== kind)) return NO_MODES
   // Never drop onto a row being dragged.
-  if (subjects.some((s) => s.id === target.id)) return NONE
+  if (subjects.some((s) => s.id === target.id)) return NO_MODES
 
-  if (kind === 'project') return target.kind === 'project' ? REORDER_ONLY : NONE
+  if (kind === 'project') return target.kind === 'project' ? REORDER_MODES : NO_MODES
 
   if (kind === 'repo') {
-    if (target.kind === 'repo') return REORDER_ONLY
-    if (target.kind === 'project') return INTO_ONLY
-    return NONE
+    if (target.kind === 'repo') return REORDER_MODES
+    if (target.kind === 'project') return INTO_MODES
+    return NO_MODES
   }
 
   // workspace | folder
-  if (target.kind === 'project') return NONE
-  if (subjects.some((s) => s.repoId !== target.repoId)) return NONE
+  if (target.kind === 'project') return NO_MODES
+  if (subjects.some((s) => s.repoId !== target.repoId)) return NO_MODES
 
   const hasLocked = subjects.some((s) => s.locked)
 
   if (target.kind === 'repo') {
     // Landing at the repo root is a re-parent, which a protected branch refuses.
-    return hasLocked ? NONE : INTO_ONLY
+    return hasLocked ? NO_MODES : INTO_MODES
   }
 
   if (hasLocked) {
     const sameParent = subjects.every((s) => s.parentId === target.parentId)
-    if (!sameParent) return NONE
+    if (!sameParent) return NO_MODES
     return { before: true, after: !resolvesToFirstChild(target, 'after'), into: false }
   }
 
-  return ANY
+  return ALL_MODES
 }
 
 /**
  * The outer band of a row reorders; the middle nests.
  *
- * A folder gets a 20% band because nesting into one is cheap and common. A
- * workspace gets 30% because nesting under one re-parents a fork, which is the
- * heavier action and deserves a harder-to-hit target.
+ * A folder gets the container band because nesting into one is cheap and
+ * common. A workspace gets the heavy one because nesting under one re-parents a
+ * fork, which is the heavier action and deserves a harder-to-hit target.
  */
 export function edgeBandFor(kind: DropKind): number {
-  return kind === 'folder' ? 0.2 : 0.3
+  return kind === 'folder' ? EDGE_BAND_CONTAINER : EDGE_BAND_HEAVY
 }
 
 /**
@@ -117,17 +117,17 @@ export function resolveDropMode(
   target: DropTarget,
   allowed: AllowedModes,
 ): DropMode | null {
-  let mode: DropMode
-  if (!allowed.into) {
-    // Nothing to nest into, so the row is a straight 50/50 split.
-    mode = ratio < 0.5 ? 'before' : 'after'
-  } else if (!allowed.before && !allowed.after) {
-    mode = 'into'
-  } else {
-    const edge = edgeBandFor(target.kind)
-    if (ratio < edge) mode = 'before'
-    else if (ratio > 1 - edge) mode = 'after'
-    else mode = 'into'
-  }
-  return allowed[mode] ? mode : null
+  return dropModeAt(ratio, allowed, edgeBandFor(target.kind))
+}
+
+/**
+ * The sidebar's half of the drag contract, as the shared hit test consumes it.
+ *
+ * Handing the core a policy object rather than letting it import this module is
+ * what keeps the locked rule out of every other tree: the core can only ask
+ * these two questions, and it asks them of whichever tree the pointer is over.
+ */
+export const SIDEBAR_DROP_POLICY: DropPolicy<DragSubject, DropTarget> = {
+  allowedModes,
+  edgeBandFor,
 }

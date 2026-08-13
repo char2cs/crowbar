@@ -13,21 +13,25 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestCreate_Success proves Create reads the workspace id from the :wsId
-// path param (Task 3: nested under .../workspaces/:wsId/agent/chats) and
-// provider from the body, calls SpawnChat with both, and responds 201 with
-// the mutation envelope carrying the new chat's id.
+// TestCreate_Success proves Create reads the workspace id from the :wsId path
+// param (Task 3: nested under .../workspaces/:wsId/agent/chats) and the provider
+// from the body, forwards both to the create, and responds 201 with the mutation
+// envelope carrying the new chat's id.
+//
+// A body with no parentId names the panel root, and the handler must forward that
+// as the empty string rather than inventing anything — that is the path every
+// plain new chat still takes.
 func TestCreate_Success(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{spawnChatID: "chat-1", spawnSegID: "seg-1"}
-	h := handlers.New(uc)
+	tree := &fakeChatTree{placed: domain.AgentChat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
@@ -46,9 +50,29 @@ func TestCreate_Success(
 	assert.True(t, envelope.Success)
 	assert.Equal(t, "chat-1", envelope.Data.ID)
 
-	require.Len(t, uc.spawnCalls, 1)
-	assert.Equal(t, "ws-1", uc.spawnCalls[0].workspaceID)
-	assert.Equal(t, "vendor-a", uc.spawnCalls[0].provider)
+	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2)
+}
+
+// The parent is the half of a create that decides whether the new chat is a
+// THREAD, so it has to reach the usecase intact. A handler that dropped it would
+// still create a chat, still answer 201, and produce a chat at the panel root that
+// the user asked to be a thread — the failure this asserts against.
+func TestCreate_ForwardsTheParentTheChatIsBornUnder(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.AgentChat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t,
+		createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"},
+		tree.gotCreate2)
 }
 
 // TestCreate_BadJSON proves a malformed body is rejected 400 without reaching
@@ -56,8 +80,8 @@ func TestCreate_Success(
 func TestCreate_BadJSON(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	tree := &fakeChatTree{}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
@@ -65,16 +89,16 @@ func TestCreate_BadJSON(
 	h.Create(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.spawnCalls)
+	assert.Equal(t, createChatCall{}, tree.gotCreate2)
 }
 
-// TestCreate_UsecaseError proves a SpawnChat failure surfaces as a mapped
-// error response.
+// TestCreate_UsecaseError proves a create failure surfaces as a mapped error
+// response.
 func TestCreate_UsecaseError(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{spawnErr: errors.New("boom")}
-	h := handlers.New(uc)
+	tree := &fakeChatTree{err: errors.New("boom")}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
@@ -250,7 +274,7 @@ func TestList_Success(
 			{ID: "c2", WorkspaceID: "ws1", CreatedAt: time.Unix(2, 0).UTC()},
 		},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -276,7 +300,7 @@ func TestList_UsecaseError(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -319,7 +343,7 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 			},
 		},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -360,7 +384,7 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1"}},
 		},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -388,7 +412,7 @@ func TestList_ChatWithNoRunnerEverIsEmpty(
 	uc := &configurableListGetUsecase{
 		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -415,7 +439,7 @@ func TestList_LiveRunnerLookupError(
 		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
 		liveErr: errors.New("projection down"),
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -434,7 +458,7 @@ func TestList_ConversationsLookupError(
 		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
 		convErr: errors.New("projection down"),
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
@@ -459,7 +483,7 @@ func TestGet_Success(
 			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()}},
 		},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
@@ -503,7 +527,7 @@ func TestGet_ConversationsIsNeverNull(
 	uc := &configurableListGetUsecase{
 		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
@@ -525,7 +549,7 @@ func TestGet_RuntimeLookupError(
 		chat:    domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
 		liveErr: errors.New("projection down"),
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
@@ -545,7 +569,7 @@ func TestGet_WrongWorkspace404s(
 	uc := &configurableListGetUsecase{
 		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws-other"},
 	}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
@@ -561,7 +585,7 @@ func TestGet_ChatNotFound(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{getErr: agentchat.ErrNotFound}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/agent/chats/missing", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
@@ -578,7 +602,7 @@ func TestRename_PostsTitleAndSource(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename?source=agent", body)
@@ -602,7 +626,7 @@ func TestRename_WrongWorkspace404s(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1/rename", body)
@@ -620,7 +644,7 @@ func TestRename_BadJSON(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
@@ -637,7 +661,7 @@ func TestRename_UsecaseError(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{renameErr: agentchat.ErrNotFound}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/missing/rename", body)
@@ -648,13 +672,18 @@ func TestRename_UsecaseError(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestDelete_Success proves Delete forwards the path id to PurgeChat and
-// responds 202 with an empty body on success (Task 5).
+// TestDelete_Success proves Delete forwards the path id to the tree usecase's
+// cascading delete and responds 202 with an empty body on success (Task 5).
+//
+// It goes through the TREE and not straight to PurgeChat because a chat's
+// children are threads of it and go with it — see Handlers.Delete.
 func TestDelete_Success(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	tree := &fakeChatTree{}
+	var frames []folderFrame
+	h := newFolderHandlersWith(uc, tree, &frames)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
@@ -663,7 +692,31 @@ func TestDelete_Success(
 
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
-	assert.Equal(t, []string{"c-1"}, uc.purgeCalls)
+	assert.Equal(t, "c-1", tree.gotPurge)
+	assert.Empty(t, uc.purgeCalls, "the handler must not purge behind the tree's back")
+}
+
+// A chat delete takes any folder inside its subtree with it, and those folders
+// are a plain row with no projection to announce them — so the handler does.
+func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
+	tree := &fakeChatTree{deletion: agentchatfolder.ChatDeletion{
+		Chats:   []string{"c-2", "c-1"},
+		Folders: []string{"f-1"},
+		Shifted: []domain.AgentChatFolder{{ID: "f-0", WorkspaceID: "ws-1"}},
+	}}
+	var frames []folderFrame
+	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-1"}}
+	h := newFolderHandlersWith(uc, tree, &frames)
+
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/c-1", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c-1"}}
+
+	h.Delete(ctx)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Len(t, frames, 2)
+	assert.Equal(t, folderFrame{folderID: "f-1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[0])
+	assert.Equal(t, folderFrame{folderID: "f-0", workspaceID: "ws-1", kind: "folder_updated"}, frames[1])
 }
 
 // TestDelete_WrongWorkspace404s proves the by-id scope check
@@ -673,7 +726,9 @@ func TestDelete_WrongWorkspace404s(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := handlers.New(uc)
+	tree := &fakeChatTree{}
+	var frames []folderFrame
+	h := newFolderHandlersWith(uc, tree, &frames)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
@@ -682,15 +737,17 @@ func TestDelete_WrongWorkspace404s(
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, uc.purgeCalls, "PurgeChat must never be called once the scope check 404s")
+	assert.Empty(t, tree.gotPurge, "and neither must the cascade behind it")
 }
 
-// TestDelete_UsecaseError proves a PurgeChat failure surfaces as a mapped
-// error response rather than a 202.
+// TestDelete_UsecaseError proves a cascade failure surfaces as a mapped error
+// response rather than a 202.
 func TestDelete_UsecaseError(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{purgeErr: agentchat.ErrNotFound}
-	h := handlers.New(uc)
+	uc := &fakeAgentUsecase{}
+	var frames []folderFrame
+	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound}, &frames)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/missing", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}

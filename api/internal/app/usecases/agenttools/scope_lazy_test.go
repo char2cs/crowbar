@@ -149,6 +149,7 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 				Chats:     &spyRenamer{},
 				ChatReads: chats,
 				ChatLogs:  &stubChatLogs{turns: chatTurns(1)},
+				Lineage:   &stubLineage{},
 			}, "RUN", m.Mint("RUN"))
 
 			_, err = ts.Call(context.Background(), tc.tool, json.RawMessage(tc.args))

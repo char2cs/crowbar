@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -36,8 +37,10 @@ import (
 //     agent chat/segment id the agentic-chat repo has no row for), and
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
 //     live row, either never spawned or already exited).
-//   - 400 Bad Request    — folder.ErrFolderNameRequired (a folder create or
-//     rename with a blank name), enginesearch.ErrBadPattern,
+//   - 400 Bad Request    — folder.ErrFolderNameRequired and
+//     agentchatfolder.ErrNameRequired (a folder create or rename with a blank
+//     name, in the sidebar and the Chats panel respectively),
+//     enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
 //     (a workspace-relative fs path that is absolute or traverses outside the
 //     workspace root via ".." or a symlink — the fs engine containment guard),
@@ -156,6 +159,7 @@ func isBadRequest(
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, folder.ErrFolderNameRequired) ||
+		errors.Is(err, agentchatfolder.ErrNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
 
@@ -197,15 +201,19 @@ func isConflict(
 	return isGitConflict(err)
 }
 
-// isPlacementConflict reports whether err is one of the sidebar-placement
-// sentinels that map to HTTP 409: a move that would make a row unreachable from
-// the repo root, cross a repo boundary, or split a fork chain.
+// isPlacementConflict reports whether err is one of the tree-placement sentinels
+// that map to HTTP 409: a move that would make a row unreachable from its tree's
+// root, cross a repo or workspace boundary, or split a fork chain. Both trees
+// are covered — the sidebar's (folder) and the Chats panel's (agentchatfolder) —
+// because a refused drag is the same answer to the user either way.
 func isPlacementConflict(
 	err error,
 ) bool {
 	return errors.Is(err, folder.ErrFolderCycle) ||
 		errors.Is(err, folder.ErrFolderCrossRepo) ||
-		errors.Is(err, folder.ErrForkChainSplit)
+		errors.Is(err, folder.ErrForkChainSplit) ||
+		errors.Is(err, agentchatfolder.ErrCycle) ||
+		errors.Is(err, agentchatfolder.ErrCrossWorkspace)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

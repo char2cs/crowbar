@@ -5,7 +5,7 @@ import {
   selectEnabledProviders,
 } from '@/features/workspace/stores/slices/agent-chats-slice'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, createdAt: string): AgentChat => ({
   id,
@@ -15,6 +15,7 @@ const chat = (id: string, createdAt: string): AgentChat => ({
   terminalSessionId: '',
   activeProviderId: 'claude',
   createdAt,
+  order: 0,
 })
 
 /** A chat with a runner placed on it: liveRunnerId names the process, and carries
@@ -346,5 +347,123 @@ describe('agent-chats-slice', () => {
       },
     } as unknown as WorkspaceState
     expect(selectEnabledProviders(s)).toEqual([])
+  })
+})
+
+// ── folders: the chats-tree grouping rows chat-tree-commit.ts writes through ──
+// Beside the chats rather than inside them (see AgentChatsState.folders) — a
+// folder is a peer of a chat, and the two interleave on one shared `order`.
+
+const folder = (id: string, parentId: string, order: number, name = id): AgentChatFolder => ({
+  id,
+  workspaceId: 'w1',
+  parentId,
+  name,
+  order,
+})
+
+describe('agent-chats-slice: folders', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('starts with an empty folder list', () => {
+    const s = createWorkspaceStore('w1')
+    expect(s.getState().agentChats.folders).toEqual([])
+  })
+
+  it('seedAgentChatFolders REPLACES the whole list — an authoritative GET, not a merge', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0)])
+    s.getState().seedAgentChatFolders([folder('f2', '', 0)]) // f1 must be dropped, not kept
+    expect(s.getState().agentChats.folders.map((f) => f.id)).toEqual(['f2'])
+  })
+
+  it('applyAgentChatFolders inserts a folder the store has never seen', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().applyAgentChatFolders([folder('f1', '', 0)])
+    expect(s.getState().agentChats.folders).toEqual([folder('f1', '', 0)])
+  })
+
+  it('applyAgentChatFolders replaces an existing folder BY ID in place — a rename/renumber must not duplicate the row', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0), folder('f2', '', 1)])
+    s.getState().applyAgentChatFolders([folder('f2', '', 5, 'F2 renamed')])
+    const folders = s.getState().agentChats.folders
+    expect(folders).toHaveLength(2)
+    expect(folders.find((f) => f.id === 'f2')).toMatchObject({ order: 5, name: 'F2 renamed' })
+    expect(folders.find((f) => f.id === 'f1')).toMatchObject({ order: 0 }) // untouched sibling
+  })
+
+  it('applyAgentChatFolders upserts several rows in one call — the row a write named PLUS every sibling its dense renumber shifted', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0)])
+    s.getState().applyAgentChatFolders([folder('f1', '', 1), folder('f9', '', 0)]) // f9 is new, f1 renumbered
+    const folders = s.getState().agentChats.folders
+    expect(folders.find((f) => f.id === 'f1')?.order).toBe(1)
+    expect(folders.find((f) => f.id === 'f9')?.order).toBe(0)
+  })
+
+  it('removeAgentChatFolder is a no-op for an id the store does not hold', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0)])
+    s.getState().removeAgentChatFolder('ghost')
+    expect(s.getState().agentChats.folders.map((f) => f.id)).toEqual(['f1'])
+  })
+
+  it('removeAgentChatFolder deletes the folder and PROMOTES its chat children to its own parent — a folder holds no conversation, so the chat outlives it', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0)])
+    s.getState().upsertAgentChat({
+      ...chat('c1', '2026-01-01T00:00:00Z'),
+      parentId: 'f1',
+      order: 0,
+    })
+
+    s.getState().removeAgentChatFolder('f1')
+
+    expect(s.getState().agentChats.folders).toEqual([])
+    expect(s.getState().agentChats.chats.find((c) => c.id === 'c1')?.parentId).toBe('')
+  })
+
+  it('removeAgentChatFolder promotes nested FOLDER children too, not only chats', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([folder('f1', '', 0), folder('f2', 'f1', 0)])
+
+    s.getState().removeAgentChatFolder('f1')
+
+    expect(s.getState().agentChats.folders.map((f) => f.id)).toEqual(['f2'])
+    expect(s.getState().agentChats.folders[0].parentId).toBe('')
+  })
+
+  it('removeAgentChatFolder promotes children to the GRANDPARENT, not the tree root, when the deleted folder was itself nested', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChatFolders([
+      folder('root-folder', '', 0),
+      folder('f1', 'root-folder', 0),
+    ])
+    s.getState().upsertAgentChat({
+      ...chat('c1', '2026-01-01T00:00:00Z'),
+      parentId: 'f1',
+      order: 0,
+    })
+
+    s.getState().removeAgentChatFolder('f1')
+
+    // f1's own parent was root-folder, not '' — its child must land THERE.
+    expect(s.getState().agentChats.chats.find((c) => c.id === 'c1')?.parentId).toBe('root-folder')
+  })
+
+  it('setAgentChatPlacement moves a known chat, writing parentId and order', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().setAgentChatPlacement('c1', 'f1', 3)
+    expect(s.getState().agentChats.chats[0]).toMatchObject({ parentId: 'f1', order: 3 })
+  })
+
+  it('setAgentChatPlacement is a no-op for an unknown chat id — nothing to move, nothing thrown', () => {
+    const s = createWorkspaceStore('w1')
+    expect(() => s.getState().setAgentChatPlacement('ghost', 'f1', 0)).not.toThrow()
+    expect(s.getState().agentChats.chats).toEqual([])
   })
 })

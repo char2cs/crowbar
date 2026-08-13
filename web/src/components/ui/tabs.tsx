@@ -43,7 +43,7 @@ export function TabsList({
           'absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
           variant === 'underline'
             ? 'z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px'
-            : '-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]',
+            : '-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]',
         )}
         data-slot="tab-indicator"
       />
@@ -107,7 +107,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
         'disabled:pointer-events-none disabled:opacity-64',
         isActive
-          ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
+          ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
           : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
         className,
       )}

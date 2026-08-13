@@ -1,6 +1,6 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
-import { readDropRow, type DropRow } from './drop-target-dom'
+import { readDropRows, type DropRow } from './drop-target-dom'
 import { foldAway, releaseOnExpand, snapshotOnCollapse, type TreeIndex } from './keep-set'
 
 /**
@@ -20,12 +20,7 @@ import { foldAway, releaseOnExpand, snapshotOnCollapse, type TreeIndex } from '.
  * keyboard cannot end up walking the tree in three slightly different orders.
  */
 export function visibleRows(root: ParentNode = document): DropRow[] {
-  const out: DropRow[] = []
-  for (const el of root.querySelectorAll('[role="treeitem"]')) {
-    const row = readDropRow(el)
-    if (row) out.push(row)
-  }
-  return out
+  return readDropRows('[role="treeitem"]', root)
 }
 
 /**

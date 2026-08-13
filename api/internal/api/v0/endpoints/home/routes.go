@@ -41,12 +41,14 @@ func Register(
 	threadBroadcast threadhandlers.ThreadBroadcaster,
 	threadsWS gin.HandlerFunc,
 	agentUsecase agenthandlers.AgentUsecase,
+	agentFolders agenthandlers.ChatTreeUsecase,
+	agentBroadcastFolder func(folderID, workspaceID, kind string),
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := homehandlers.New(workspaces, projects, files, termEng, working)
 	th := threadhandlers.New(threadStore, threadBroadcast)
-	ah := agenthandlers.New(agentUsecase)
+	ah := agenthandlers.New(agentUsecase, agentFolders, agentBroadcastFolder)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)
@@ -101,7 +103,16 @@ func Register(
 	home.POST("/agent/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
 	home.POST("/agent/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
 	home.GET("/agent/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
+	home.PATCH("/agent/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
 	home.DELETE("/agent/chats/:id", h.RequireHomeWorkspace, ah.Delete)
+	// Chat FOLDERS, mounted here for the reason the chats above are: the project
+	// home is the surface that accumulates the most chats, so it is the one that
+	// most needs somewhere to put them. Mounting them only on the workspace group
+	// would have left the home with a Chats panel that cannot be organised at all.
+	home.GET("/agent/folders", h.RequireHomeWorkspace, ah.ListFolders)
+	home.POST("/agent/folders", h.RequireHomeWorkspace, ah.CreateFolder)
+	home.PATCH("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
+	home.DELETE("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/agent/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
 	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
 	home.GET("/agent/providers", h.RequireHomeWorkspace, ah.Providers)

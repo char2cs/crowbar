@@ -101,20 +101,6 @@ export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function Dra
   )
 })
 
-/** A plain text chip, for a list whose rows are windowed and cannot be cloned. */
-export function DragGhostChip({ label, className }: { label: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        'max-w-56 truncate rounded-md border border-border bg-secondary px-2 py-1 text-[13px] text-secondary-foreground opacity-90 shadow-md',
-        className,
-      )}
-    >
-      {label}
-    </div>
-  )
-}
-
 /** The grabbed rows, cloned. See {@link DragGhostRows}. */
 export interface GhostRows {
   /** Detached clones, front-most first. Already styled for the stack. */

@@ -7,8 +7,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
@@ -32,6 +34,7 @@ type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
+	AgentChatFolders         store.ScopedStore[domain.AgentChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -59,6 +62,11 @@ type Container struct {
 	// those runners between chats as their hooks report conversation changes, and
 	// serving the /v0/agent REST surface.
 	Agent *agent.Usecase
+	// AgentChatFolder is the Chats panel's tree usecase: folder CRUD, chat
+	// placement, and the cascading chat delete. It is built AFTER Agent because it
+	// holds it: erasing a chat is the agent usecase's job, and this one only
+	// decides which chats a delete takes with it.
+	AgentChatFolder agentchatfolder.Usecase
 	// AgentWorkspaceReader is the SAME agent.WorkspaceReader (AgentChatsDir +
 	// WorktreeDir) instance Agent was built with, exposed so the app layer can
 	// wire the workspace-delete cascade's on-disk reap seam
@@ -164,33 +172,10 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentWSReader := &agentWorkspaceReader{
-		workspaces:  repos.Workspace,
-		repos:       gormStores.Repositories,
-		crowbarHome: crowbarHome,
-	}
-	agentMinter, err := agenttools.NewTokenMinter()
-	if err != nil {
-		return nil, fmt.Errorf("usecases: new container: %w", err)
-	}
-	agentToolDeps, err := newAgentToolDeps(agentMinter, repos, branchReview, threadBroadcast)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast)
 	if err != nil {
 		return nil, err
 	}
-	agentUsecase := agent.New(
-		repos.AgentChat,
-		repos.AgentRunner,
-		engineagent.NewRegistry(),
-		engines.Terminal,
-		agentWSReader,
-		gormStores.AgentProviderPreferences,
-		crowbarHome,
-		// nil probe → the usecase defaults to engineagent.Connected, the real
-		// install probe. Only tests inject a stub to isolate from the host PATH.
-		nil,
-		agentMinter,
-		agentToolDeps,
-	)
 	return &Container{
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,
@@ -204,9 +189,80 @@ func New(
 		Worktree:             worktreeUsecase,
 		BranchReview:         branchReview,
 		TerminalMeta:         terminalMeta,
-		Agent:                agentUsecase,
-		AgentWorkspaceReader: agentWSReader,
-		agentToolMetrics:     agentToolDeps.Metrics,
+		Agent:                agentic.usecase,
+		AgentChatFolder:      agentic.chatTree,
+		AgentWorkspaceReader: agentic.wsReader,
+		agentToolMetrics:     agentic.metrics,
+	}, nil
+}
+
+// agentWiring is the agentic surface as one value: the chat usecase, the Chats
+// panel's tree usecase built on top of it, and the two handles the container has
+// to keep hold of beside them — the workspace reader the app layer reuses for the
+// delete cascade's on-disk reap, and the tool metrics nothing else can reach.
+type agentWiring struct {
+	usecase  *agent.Usecase
+	chatTree agentchatfolder.Usecase
+	wsReader agent.WorkspaceReader
+	metrics  *agenttools.Metrics
+}
+
+// newAgentWiring assembles the agentic usecases in dependency order. It is split
+// out of New only to keep that constructor within its length budget, mirroring
+// newProjectImport; the wiring is otherwise unchanged.
+//
+// The order is not incidental: the Chats-panel tree usecase HOLDS the agent
+// usecase, because deleting a chat there takes every chat threaded below it and
+// erasing a chat is the agent usecase's job. The tree decides which chats go; it
+// never learns how they are torn down.
+func newAgentWiring(
+	repos *repositories.Container,
+	gormStores GORMStores,
+	engines *engine.Container,
+	crowbarHome func() (string, error),
+	review agenttools.ReviewReader,
+	threadBroadcast agenttools.ThreadBroadcast,
+) (agentWiring, error) {
+	wsReader := &agentWorkspaceReader{
+		workspaces:  repos.Workspace,
+		repos:       gormStores.Repositories,
+		crowbarHome: crowbarHome,
+	}
+	minter, err := agenttools.NewTokenMinter()
+	if err != nil {
+		return agentWiring{}, fmt.Errorf("usecases: new container: %w", err)
+	}
+	// The Chats-panel lineage read, built FIRST and from the two stores directly.
+	// Both things below need it — the spawn path, to tell a thread which chats it
+	// reads, and the tool surface, to refuse a chat its own threads — and it is
+	// deliberately not taken off the tree usecase, which already holds the agent
+	// usecase for the delete cascade and would close a construction cycle if the
+	// agent usecase reached back into it.
+	lineage := chatlineage.New(gormStores.AgentChatFolders, repos.AgentChat)
+	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, lineage)
+	if err != nil {
+		return agentWiring{}, err
+	}
+	usecase := agent.New(
+		repos.AgentChat,
+		repos.AgentRunner,
+		engineagent.NewRegistry(),
+		engines.Terminal,
+		wsReader,
+		lineage,
+		gormStores.AgentProviderPreferences,
+		crowbarHome,
+		// nil probe → the usecase defaults to engineagent.Connected, the real
+		// install probe. Only tests inject a stub to isolate from the host PATH.
+		nil,
+		minter,
+		toolDeps,
+	)
+	return agentWiring{
+		usecase:  usecase,
+		chatTree: agentchatfolder.New(gormStores.AgentChatFolders, repos.AgentChat, usecase),
+		wsReader: wsReader,
+		metrics:  toolDeps.Metrics,
 	}, nil
 }
 
@@ -266,10 +322,13 @@ func newAgentToolDeps(
 	repos *repositories.Container,
 	review agenttools.ReviewReader,
 	threadBroadcast agenttools.ThreadBroadcast,
+	lineage agenttools.ChatLineageReader,
 ) (agenttools.Deps, error) {
 	switch {
 	case minter == nil:
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
+	case lineage == nil:
+		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no chat lineage reader")
 	case repos.AgentRunner == nil:
 		return agenttools.Deps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
 	case repos.AgentChat == nil:
@@ -297,6 +356,7 @@ func newAgentToolDeps(
 		Idempotency:     agenttools.NewIdempotency(),
 		ThreadBroadcast: threadBroadcast,
 		ChatReads:       chatReader,
+		Lineage:         lineage,
 		Metrics:         agenttools.NewMetrics(),
 	}, nil
 }

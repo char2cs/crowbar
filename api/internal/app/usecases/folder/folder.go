@@ -201,7 +201,7 @@ func (u *folderUsecase) Create(
 	if id == "" {
 		id = uuid.NewString()
 	}
-	target := len(snapshot.members(in.ParentID))
+	target := snapshot.plan.NextSlot(in.ParentID)
 	snapshot.add(domain.Folder{
 		ID:        id,
 		RepoID:    in.RepoID,
@@ -210,12 +210,12 @@ func (u *folderUsecase) Create(
 		Name:      name,
 		Order:     target,
 	})
-	snapshot.reorder(in.ParentID, id, target)
+	snapshot.plan.Reorder(in.ParentID, id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Folder{}, nil, err
 	}
-	return *snapshot.folder(id), without(written, id), nil
+	return *snapshot.placedFolder(id), without(written, id), nil
 }
 
 func (u *folderUsecase) NextSlot(
@@ -228,7 +228,7 @@ func (u *folderUsecase) NextSlot(
 	if err != nil {
 		return 0, err
 	}
-	return len(snapshot.members(container)), nil
+	return snapshot.plan.NextSlot(container), nil
 }
 
 func (u *folderUsecase) Rename(
@@ -272,16 +272,16 @@ func (u *folderUsecase) Move(
 		return domain.Folder{}, nil, mErr
 	}
 	target := placementTarget(in.Order, snapshot, current.ParentID, destination, id)
-	snapshot.setFolderParent(id, destination)
-	snapshot.reorder(destination, id, target)
+	snapshot.plan.SetParent(id, destination)
+	snapshot.plan.Reorder(destination, id, target)
 	if destination != current.ParentID {
-		snapshot.reorder(current.ParentID, "", -1)
+		snapshot.plan.Reorder(current.ParentID, "", -1)
 	}
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Folder{}, nil, err
 	}
-	return *snapshot.folder(id), without(written, id), nil
+	return *snapshot.placedFolder(id), without(written, id), nil
 }
 
 func (u *folderUsecase) Delete(
@@ -300,9 +300,9 @@ func (u *folderUsecase) Delete(
 		return nil, fmt.Errorf("folder: delete %s: %w", id, err)
 	}
 	folderDest, workspaceDest := snapshot.reparentChildren(id, current.ParentID)
-	snapshot.reorder(folderDest, "", -1)
+	snapshot.plan.Reorder(folderDest, "", -1)
 	if workspaceDest != folderDest {
-		snapshot.reorder(workspaceDest, "", -1)
+		snapshot.plan.Reorder(workspaceDest, "", -1)
 	}
 	return u.persist(ctx, snapshot)
 }
@@ -333,15 +333,15 @@ func (u *folderUsecase) PlaceWorkspace(
 	container := snapshot.containerFor(current, destination)
 	target := placementTarget(in.Order, snapshot, origin, container, wsID)
 	snapshot.setWorkspaceFolder(wsID, destination)
-	snapshot.reorder(container, wsID, target)
+	snapshot.plan.Reorder(container, wsID, target)
 	if container != origin {
-		snapshot.reorder(origin, "", -1)
+		snapshot.plan.Reorder(origin, "", -1)
 	}
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Workspace{}, nil, err
 	}
-	return *snapshot.workspace(wsID), written, nil
+	return *snapshot.placedWorkspace(wsID), written, nil
 }
 
 // resolvePlacement returns the folder a workspace should carry and refuses the
@@ -362,7 +362,7 @@ func (u *folderUsecase) resolvePlacement(
 	if err := u.checkFolderTarget(ctx, snapshot, current, *requested); err != nil {
 		return "", err
 	}
-	if snapshot.reaches(*requested, current.ID) {
+	if snapshot.plan.Reaches(*requested, current.ID) {
 		return "", fmt.Errorf("folder: place workspace %s under %s: %w", current.ID, *requested, ErrFolderCycle)
 	}
 	if snapshot.folderWorkspaceAnchor(*requested) != snapshot.visibleWorkspaceParent(current) {
@@ -385,7 +385,7 @@ func (u *folderUsecase) checkMove(
 	if err := u.checkContainer(ctx, snapshot, destination); err != nil {
 		return err
 	}
-	if snapshot.reaches(destination, current.ID) {
+	if snapshot.plan.Reaches(destination, current.ID) {
 		return fmt.Errorf("folder: move %s under %s: %w", current.ID, destination, ErrFolderCycle)
 	}
 	if !snapshot.folderMovePreservesForks(current.ID, destination) {
@@ -484,8 +484,9 @@ func (u *folderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 ) ([]domain.Folder, error) {
-	written := make([]domain.Folder, 0, len(snapshot.dirty))
-	for _, id := range snapshot.dirtyIDs() {
+	ids := snapshot.plan.Dirty()
+	written := make([]domain.Folder, 0, len(ids))
+	for _, id := range ids {
 		row, err := u.writeRow(ctx, snapshot, id)
 		if err != nil {
 			return nil, err
@@ -502,13 +503,13 @@ func (u *folderUsecase) writeRow(
 	snapshot *treeSnapshot,
 	id string,
 ) (*domain.Folder, error) {
-	if row := snapshot.folder(id); row != nil {
+	if row := snapshot.placedFolder(id); row != nil {
 		if err := u.folders.Save(ctx, *row); err != nil {
 			return nil, fmt.Errorf("folder: save %s: %w", id, err)
 		}
 		return row, nil
 	}
-	row := snapshot.workspace(id)
+	row := snapshot.placedWorkspace(id)
 	if row == nil {
 		return nil, nil
 	}
@@ -547,9 +548,9 @@ func placementTarget(
 		return *requested
 	}
 	if origin == destination {
-		return snapshot.indexOf(destination, id)
+		return snapshot.plan.IndexOf(destination, id)
 	}
-	return len(snapshot.members(destination))
+	return snapshot.plan.NextSlot(destination)
 }
 
 func cleanName(

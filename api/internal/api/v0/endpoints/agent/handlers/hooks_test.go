@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -41,7 +40,7 @@ func TestHooks_DecodesAndDispatches(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"session_start","payload_raw":"{\"sessionId\":\"sess-1\"}"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
@@ -64,7 +63,7 @@ func TestHooks_BadJSON(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", []byte("{not json"))
 
@@ -80,7 +79,7 @@ func TestHooks_UsecaseError(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{ingestErr: errors.New("boom")}
-	h := handlers.New(uc)
+	h := newChatHandlers(uc)
 
 	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"turn_stop","payload_raw":"{}"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
@@ -96,11 +95,6 @@ func TestHooks_UsecaseError(
 type fakeAgentUsecase struct {
 	ingestCalls []ingestCall
 	ingestErr   error
-
-	spawnChatID string
-	spawnSegID  string
-	spawnErr    error
-	spawnCalls  []spawnCall
 
 	switchCalls    []switchCall
 	switchNewSegID string
@@ -149,11 +143,6 @@ type ingestCall struct {
 	raw      []byte
 }
 
-type spawnCall struct {
-	workspaceID string
-	provider    string
-}
-
 type switchCall struct {
 	chatID   string
 	provider string
@@ -169,18 +158,6 @@ type dispatchMCPCall struct {
 	runnerID string
 	token    string
 	message  []byte
-}
-
-func (f *fakeAgentUsecase) SpawnChat(
-	_ context.Context,
-	workspaceID string,
-	provider string,
-) (string, string, error) {
-	f.spawnCalls = append(f.spawnCalls, spawnCall{workspaceID: workspaceID, provider: provider})
-	if f.spawnErr != nil {
-		return "", "", f.spawnErr
-	}
-	return f.spawnChatID, f.spawnSegID, nil
 }
 
 func (f *fakeAgentUsecase) IngestHook(

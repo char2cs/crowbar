@@ -48,6 +48,7 @@ const chat = (id: string, providerId: string): AgentChat => ({
   terminalSessionId: `${id}-pty`,
   activeProviderId: providerId,
   createdAt: '2026-01-01T00:00:00Z',
+  order: 0,
 })
 
 const state = () => getOrCreateWorkspaceStore('w1').getState()

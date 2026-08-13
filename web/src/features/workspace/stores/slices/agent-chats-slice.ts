@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
 
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
 
@@ -69,6 +69,15 @@ export interface AgentChatsState {
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
+  /**
+   * The workspace's chat FOLDERS, straight from the daemon.
+   *
+   * Beside the chats rather than inside them because a folder is a peer of a
+   * chat: the two interleave at every level of the tree and sort on one shared
+   * `order`. Nothing here is derived — the tree is built from these two arrays by
+   * a pure function the panel memoises.
+   */
+  folders: AgentChatFolder[]
 }
 
 export interface AgentChatsSlice {
@@ -82,6 +91,27 @@ export interface AgentChatsSlice {
   hydrateAgentChatOrder: () => void
   setActiveAgentChatId: (chatId: string | null) => void
   setAgentProviders: (providers: AgentProvider[]) => void
+  /** Replace the folder list from an authoritative GET. */
+  seedAgentChatFolders: (folders: AgentChatFolder[]) => void
+  /**
+   * Write folders that a server round trip returned — the row that was created or
+   * renamed, and every sibling its dense renumber displaced.
+   *
+   * One action for both halves because they are one answer: applying the row and
+   * dropping the `shifted` beside it is how a level ends up holding two rows that
+   * both think they are third.
+   */
+  applyAgentChatFolders: (folders: readonly AgentChatFolder[]) => void
+  /**
+   * Delete a folder, promoting its children to the folder's own parent.
+   *
+   * A folder holds no conversation, so the chats outlive it. Deliberately UNLIKE
+   * a chat delete, which takes its threads: a thread exists to continue its
+   * parent, and outliving it would strand it reading a context that is gone.
+   */
+  removeAgentChatFolder: (folderId: string) => void
+  /** Move a chat in the tree. Optimistic; the daemon's answer overwrites it. */
+  setAgentChatPlacement: (chatId: string, parentId: string, order: number) => void
 }
 
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
@@ -90,6 +120,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   order: [],
   activeChatId: null,
   providers: [],
+  folders: [],
 }
 
 export const createAgentChatsSlice: StateCreator<
@@ -228,5 +259,46 @@ export const createAgentChatsSlice: StateCreator<
   setAgentProviders: (providers) =>
     set((s) => {
       s.agentChats.providers = providers
+    }),
+
+  seedAgentChatFolders: (folders) =>
+    set((s) => {
+      s.agentChats.folders = folders
+    }),
+
+  applyAgentChatFolders: (folders) =>
+    set((s) => {
+      const at = new Map(s.agentChats.folders.map((f, i) => [f.id, i]))
+      for (const folder of folders) {
+        const i = at.get(folder.id)
+        if (i === undefined) {
+          at.set(folder.id, s.agentChats.folders.length)
+          s.agentChats.folders.push(folder)
+        } else {
+          s.agentChats.folders[i] = folder
+        }
+      }
+    }),
+
+  removeAgentChatFolder: (folderId) =>
+    set((s) => {
+      const gone = s.agentChats.folders.find((f) => f.id === folderId)
+      if (!gone) return
+      const grandparent = gone.parentId ?? ''
+      s.agentChats.folders = s.agentChats.folders.filter((f) => f.id !== folderId)
+      for (const f of s.agentChats.folders) {
+        if ((f.parentId ?? '') === folderId) f.parentId = grandparent
+      }
+      for (const c of s.agentChats.chats) {
+        if ((c.parentId ?? '') === folderId) c.parentId = grandparent
+      }
+    }),
+
+  setAgentChatPlacement: (chatId, parentId, order) =>
+    set((s) => {
+      const chat = s.agentChats.chats.find((c) => c.id === chatId)
+      if (!chat) return
+      chat.parentId = parentId
+      chat.order = order
     }),
 })

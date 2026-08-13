@@ -122,6 +122,21 @@ type WorkspaceReader interface {
 	) (string, error)
 }
 
+// ChatLineage resolves a chat's CHAT ancestors in the Chats panel, nearest
+// parent first, with any folders it is filed in filtered out.
+//
+// The spawn path needs it to answer one question: is this chat a THREAD, and of
+// what? A thread is told its lineage at spawn (see threadContext) and reads
+// those chats itself; nothing is copied for it. The port is narrow because that
+// is the entire dependency — the tree the answer comes out of belongs to the
+// Chats-panel usecase, and this package must not learn how it is shaped.
+type ChatLineage interface {
+	Ancestors(
+		ctx context.Context,
+		chatID string,
+	) ([]string, error)
+}
+
 // Usecase is the agentic-chat engine: spawning vendor CLIs, ingesting their hooks
 // through the context-move reducer, moving the runner that results, and appending
 // the ledger. It does NOT broadcast: every agentchat.* and agentrunner.* event is
@@ -134,6 +149,9 @@ type Usecase struct {
 	registry *engineagent.Registry
 	term     TerminalCommander
 	ws       WorkspaceReader
+	// lineage answers "what does this chat read" at spawn time. See ChatLineage
+	// and threadContext.
+	lineage ChatLineage
 	// providerPrefs is the global (per user/machine) priority+enabled table read by
 	// ResolveProviders and rewritten by ReplaceProviderPreferences. It is keyed by
 	// provider id; a provider with no row is enabled and ordered after every
@@ -177,12 +195,20 @@ type Usecase struct {
 // deliberately NOT a caller's responsibility — the usecase IS the ChatRenamer AND
 // the ChatLogReader (see ReadChatLog), so New fills both in and no caller can drop
 // either tool by forgetting to hand the usecase back to itself.
+//
+// lineage is what makes a threaded chat read the chat it hangs off. A nil one is
+// a chat panel with no tree behind it: every chat spawns as a standalone chat,
+// which is exactly the behaviour of a daemon that predates threads and is the
+// only shape a hand-assembled test Usecase needs. Production always wires it —
+// the container builds it before this constructor runs, from the two stores the
+// tree lives in.
 func New(
 	chats agentchat.EventStore,
 	runners agentrunner.EventStore,
 	registry *engineagent.Registry,
 	term TerminalCommander,
 	ws WorkspaceReader,
+	lineage ChatLineage,
 	providerPrefs store.Store[domain.AgentProviderPreference, string],
 	home func() (string, error),
 	connected func(cmd string) bool,
@@ -198,6 +224,7 @@ func New(
 		registry:      registry,
 		term:          term,
 		ws:            ws,
+		lineage:       lineage,
 		providerPrefs: providerPrefs,
 		home:          home,
 		connected:     connected,
@@ -216,10 +243,17 @@ func New(
 	return u
 }
 
-// SpawnChat creates a fresh AgentChat and starts a runner on it, launching the
-// provider's vendor CLI in a PTY. The returned runnerID is the crowbarSegmentID
-// every hook from that CLI carries, and it is stable for the life of the process —
-// including across every conversation move it makes.
+// SpawnChat creates a fresh AgentChat AT THE PANEL ROOT and starts a runner on it,
+// launching the provider's vendor CLI in a PTY. The returned runnerID is the
+// crowbarSegmentID every hook from that CLI carries, and it is stable for the life
+// of the process — including across every conversation move it makes.
+//
+// It mints the chat AFTER the CLI is live, and that ordering is only correct
+// because this chat has nowhere to be placed. A chat born UNDER something is a
+// different shape of create and takes a different route: agentchatfolder.CreateChat
+// mints it, places it, and only then calls StartRunner, because a thread has to
+// carry its parent edge before any CLI reads it. Keeping the two apart is
+// deliberate — a plain new chat is created in exactly the order it always was.
 func (u *Usecase) SpawnChat(
 	ctx context.Context,
 	workspaceID string,
@@ -233,6 +267,62 @@ func (u *Usecase) SpawnChat(
 		return "", "", err
 	}
 	return chatID, runnerID, nil
+}
+
+// MintChat creates a chat aggregate and starts NOTHING. It is the first half of a
+// create whose second half is StartRunner, and it exists so the Chats-panel usecase
+// can PLACE the new chat in the tree between the two.
+//
+// That gap is the entire reason for the split. A chat created under another chat is
+// a thread of it, and a thread is told its lineage at spawn (threadContext) — so the
+// parent edge has to be on the aggregate before any CLI starts, or the thread spends
+// its whole first session believing it is a standalone chat. SpawnChat cannot open
+// that gap: it necessarily writes the chat AFTER the process exists, because a pure
+// command cannot fork one. That ordering is right for a chat with nowhere to be
+// placed and impossible for a chat that has somewhere.
+//
+// A minted chat with no runner is not a broken state. It is the DORMANT chat the
+// panel already models — liveness is the query LiveRunnerForChat, never a flag — so
+// nothing has to be undone if the caller stops here. A caller that meant to start a
+// CLI and could not is the one that has to decide what to do about that.
+func (u *Usecase) MintChat(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	chatID := uuid.NewString()
+	if _, err := u.chats.Create(ctx, agentchat.CreateInput{
+		ID:          chatID,
+		WorkspaceID: workspaceID,
+		Now:         time.Now(),
+	}); err != nil {
+		return "", fmt.Errorf("agent: mint chat: %w", err)
+	}
+	return chatID, nil
+}
+
+// StartRunner launches providerID's vendor CLI on a chat that ALREADY EXISTS and
+// returns the runner now placed on it — the second half of the create MintChat
+// opens, and the door every chat born inside the Chats tree comes up through.
+//
+// It resolves the workspace FROM the chat rather than taking one, so no caller can
+// start a CLI against a workspace the chat does not belong to.
+//
+// Because the chat is on disk and already placed by the time this runs, the spawn
+// resolves what that chat reads the ordinary way and injects it — which is what
+// makes a thread's FIRST session know it is a thread. Nothing here special-cases
+// that; it falls out of the chat existing first.
+func (u *Usecase) StartRunner(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	defer u.spawns.lock(chatID)()
+
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: start runner: chat: %w", err)
+	}
+	return u.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, nil, "", "", false, false)
 }
 
 // RenameChat sets a chat's title under user>agent>derived precedence:
@@ -830,6 +920,14 @@ func (u *Usecase) spawnRunner(
 	if err != nil {
 		return "", err
 	}
+	// WHAT this chat reads besides its own conversation: the chats it hangs off in
+	// the Chats panel, if any. Resolved here, beside the preference read and before
+	// any of this function's IO, for the same reason — a thread whose lineage cannot
+	// be resolved must fail before there is a tmp dir or a process to unwind.
+	threads, err := u.threadContext(ctx, chatID, create)
+	if err != nil {
+		return "", err
+	}
 	// The runner's id IS the crowbarSegmentID passed to every hook, minted here,
 	// before the process exists — so a hook fired the instant the CLI comes up can
 	// always name its runner. It is stable for the whole life of the process,
@@ -904,8 +1002,13 @@ func (u *Usecase) spawnRunner(
 	// would dump the whole handed-off exchange into the chat for the user to scroll
 	// past. An agent reads files.
 	tctx.ContextPointer = engineagent.Expand(config.GetPrompts().HandoffPointer, tctx)
+	// The preamble first (which tools exist), then the lineage (which OTHER chats
+	// this one reads), then the handoff (what was said here already). Orientation
+	// before history: a model should know it has get_chat_log and which ids to
+	// point it at before it reads a conversation it is told not to act on.
 	tctx.Context = composeContext(
 		engineagent.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
+		threads,
 		conversation,
 	)
 	// WHETHER to deliver that document at all, which is a separate question from what
@@ -1652,17 +1755,92 @@ func (u *Usecase) appendTurn(
 	}
 	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("agent: ingest hook: chats dir: %w", err)
+		return fmt.Errorf("agent: append turn: chats dir: %w", err)
 	}
 	dir := worktreepath.AgentLedgerDir(chatsDir, chat.ID)
 	led, err := ledger.Open(dir)
 	if err != nil {
-		return fmt.Errorf("agent: ingest hook: ledger open: %w", err)
+		return fmt.Errorf("agent: append turn: ledger open: %w", err)
 	}
 	if _, err := led.AppendTurn(role, providerID, time.Now(), text); err != nil {
-		return fmt.Errorf("agent: ingest hook: ledger append: %w", err)
+		return fmt.Errorf("agent: append turn: ledger append: %w", err)
 	}
 	return nil
+}
+
+// NoteThreadLineage records, in chatID's OWN ledger, that a placement change has
+// just given it a new chat ancestor: it is a thread of those chats FROM HERE ON.
+//
+// Re-parenting is not retroactive, and this is what makes that visible. Dragging a
+// chat with fifty turns behind it under another chat does not mean those fifty turns
+// were had with that context, and nothing rewrites them to pretend otherwise — a
+// silent retroactive rewrite of what a chat has already read is the version nobody
+// can audit afterwards. So the move is written down where everything else that
+// happened to this chat is written down, in the append-only record its next spawn
+// hands back to whatever CLI picks the chat up.
+//
+// It appends to the ledger and NOT to the aggregate. The lineage itself already
+// lives on the aggregate as ParentID and needs no second copy; what is recorded here
+// is the EVENT, at the position in the conversation where it happened, which is the
+// only place the distinction between "read this all along" and "reads this from now
+// on" can be expressed at all.
+//
+// A chat that has said NOTHING gets no note, which is the same rule read from the
+// other end. The note dates the moment a chat began reading something it had not
+// been reading; a chat with no turns has read nothing, so there is nothing above the
+// line for "everything above this line" to refer to and nothing that a retroactive
+// rewrite could have falsified. That covers the create path exactly: a chat born
+// under a parent is placed before its CLI ever starts and is TOLD its lineage at
+// spawn, so a note announcing a move it did not experience would be the only untrue
+// line in its record.
+func (u *Usecase) NoteThreadLineage(
+	ctx context.Context,
+	chatID string,
+	ancestors []string,
+) error {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note thread lineage: chat: %w", err)
+	}
+	led, err := u.openLedger(ctx, chat)
+	if err != nil {
+		return fmt.Errorf("agent: note thread lineage: %w", err)
+	}
+	turns, err := led.Turns()
+	if err != nil {
+		return fmt.Errorf("agent: note thread lineage: turns: %w", err)
+	}
+	if len(turns) == 0 {
+		return nil
+	}
+	return u.appendTurn(ctx, chat, lineageNoteProvider, "user", lineageNoteText(ancestors))
+}
+
+// lineageNoteProvider tags the ledger entries Crowbar writes ITSELF, as opposed to
+// the ones it records from a vendor CLI's hooks. It can never collide with a real
+// provider id, which matters more than it looks: Ledger.LastTurnAt(provider) decides
+// whether a provider has a conversation on disk worth resuming, and a Crowbar note
+// tagged with a provider's name would answer yes on that provider's behalf for a
+// session it never held.
+const lineageNoteProvider = "crowbar"
+
+// lineageNoteText is the note itself, written in Go rather than in config.yaml's
+// prompts like every other agent-facing text here. Those are prompts a user may
+// blank or rewrite to taste; this one is a RECORD, and a record a user can silently
+// empty is not one.
+//
+// It reads as a user-side turn because that is the side Crowbar speaks from when it
+// addresses the agent (the handoff pointer is delivered as a user message for the
+// same reason), and it opens with the [Crowbar] marker those messages carry so a
+// model can tell the daemon apart from the person it is talking to.
+func lineageNoteText(
+	ancestors []string,
+) string {
+	return "[Crowbar] This chat was moved in the Chats panel and is a THREAD of " +
+		strings.Join(ancestors, ", ") + " (nearest parent first) from this point on. " +
+		"Read those chats with get_chat_log. Everything above this line was said BEFORE the move, " +
+		"without any of that context: the move changes what this chat reads from now on and " +
+		"rewrites nothing it has already read."
 }
 
 // AssembleHandoff resolves chatID's ledger directory, reads every entry, and wraps
@@ -2133,32 +2311,97 @@ func (u *Usecase) assembleConversation(
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
 
-// composeContext builds the ONE {context} document a spawning CLI is given.
+// composeContext builds the ONE {context} document a spawning CLI is given, out of
+// the sections its caller decided on, in the order it handed them over.
 //
 // One document, not one per concern, because a provider may only have a single such
 // channel — codex delivers preamble and handoff through the same
 // developer_instructions key, so two independent injections would collide and the
 // second would silently win.
 //
-// The preamble LEADS the document it joins: it says which tools this CLI has and when
-// to prefer them, and a model should read that before it reads a handoff it is
-// explicitly told not to act on.
-//
-// Either half may be empty — a user can blank capabilities_instruction in their own
-// config.yaml, and a brand-new chat has no conversation — so the pieces are joined
-// rather than formatted, and an absent one leaves no stray blank line for a model to
-// read as a missing section. WHETHER the result is delivered is spawnRunner's
-// decision, not this function's: it turns on whether the CLI is being resumed, which
-// nothing in the text can say.
-func composeContext(preamble, conversation string) string {
-	parts := make([]string, 0, 2)
-	if preamble != "" {
-		parts = append(parts, preamble)
-	}
-	if conversation != "" {
-		parts = append(parts, conversation)
+// ANY section may be empty, and most spawns have at least one that is: a user can
+// blank capabilities_instruction in their own config.yaml, a chat that is not a
+// thread has no lineage, and a brand-new chat has no conversation. So the sections
+// are joined rather than formatted, and an absent one leaves no stray blank line for
+// a model to read as a missing section. WHETHER the result is delivered is
+// spawnRunner's decision, not this function's: it turns on whether the CLI is being
+// resumed, which nothing in the text can say.
+func composeContext(sections ...string) string {
+	parts := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if section != "" {
+			parts = append(parts, section)
+		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// threadContext renders the standing directive a THREAD is spawned with: the ids of
+// every chat above it in the Chats panel, nearest parent first, and the instruction
+// to read them with get_chat_log.
+//
+// It hands over a POINTER and never a paste, which is the whole difference between a
+// thread and a fork. Nothing is copied at spawn — the ancestors' turns are fetched
+// when the agent asks — so a thread reads its parent AS IT STANDS at the moment of
+// the question, including everything that parent has said since this spawn. Pasting
+// the ledger here would freeze the parent at the instant the thread started and
+// quietly turn a live relationship into a snapshot nobody could refresh.
+//
+// Empty for a chat with no chat ancestors, which is nearly every chat: one at the
+// panel root and one merely filed in a folder both inherit nothing, and neither may
+// pay a token for the fact. Folders are transparent to the walk (chatlineage.Walk),
+// so filing a thread away never changes what it reads.
+//
+// A lineage that cannot be READ fails the spawn. Getting no answer is not the same
+// fact as having no ancestors, and a thread that comes up silently believing itself
+// standalone is the exact failure this path exists to prevent — it would then work
+// the whole task without the context it was created to continue.
+//
+// minting says this spawn is CREATING the chat, and skips the read entirely. Not as
+// an optimisation: SpawnChat writes the aggregate only AFTER the CLI is live, since
+// a pure command cannot fork a process, so at this point the chat has an id and
+// nothing else — no row to read a parent off.
+//
+// It is not a hole, because that path is only ever taken by a chat with no parent
+// to read. A chat that is BORN somewhere is minted and placed first and started
+// second (agentchatfolder.CreateChat → MintChat, PlaceChat, StartRunner), so it
+// arrives here with create=false and resolves its lineage like any other chat —
+// which is what lets a new thread know what it continues on its very FIRST session.
+// A chat that is MOVED under another later resolves it on every spawn after the
+// move: a provider switch, a revive, a reopened tab.
+func (u *Usecase) threadContext(
+	ctx context.Context,
+	chatID string,
+	minting bool,
+) (string, error) {
+	if minting || u.lineage == nil {
+		return "", nil
+	}
+	ancestors, err := u.lineage.Ancestors(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: spawn runner: chat lineage: %w", err)
+	}
+	if len(ancestors) == 0 {
+		return "", nil
+	}
+	return strings.ReplaceAll(config.GetPrompts().ThreadLineage, "{lineage}", renderLineage(ancestors)), nil
+}
+
+// renderLineage lists the ancestor ids one per line, nearest parent first, as the
+// order they arrive in already says.
+//
+// Ids and nothing else. A title would read better and is deliberately absent: a
+// title is user-editable and agent-editable prose that can be blank, stale, or the
+// same on two chats, whereas the id is the argument get_chat_log actually takes.
+// A model given both reaches for the readable one.
+func renderLineage(
+	ancestors []string,
+) string {
+	lines := make([]string, 0, len(ancestors))
+	for _, id := range ancestors {
+		lines = append(lines, "- "+id)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // contextInject picks the descriptor channel that carries the {context} document:

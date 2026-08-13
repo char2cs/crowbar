@@ -5,13 +5,16 @@ import (
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Conformance assertions: verify each command implements asynxModels.Command[domain.AgentChat].
-var _ asynxModels.Command[domain.AgentChat] = commands.StartTurn{}
-var _ asynxModels.Command[domain.AgentChat] = commands.StopTurn{}
+var (
+	_ asynxModels.Command[domain.AgentChat] = commands.StartTurn{}
+	_ asynxModels.Command[domain.AgentChat] = commands.StopTurn{}
+)
 
 func TestStartStopTurn_TogglesWorking(t *testing.T) {
 	chat := &domain.AgentChat{ID: "c1"}

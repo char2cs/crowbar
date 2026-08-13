@@ -3,6 +3,7 @@ import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
+import { isChatRemoval, sendChatRemoval } from '@/features/agent/lib/chat-removal'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -76,6 +77,12 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
       return deleteProject(entry.projectId, ...opts)
+    // A chat is not one DELETE but a subtree of them, deepest first, plus the
+    // pane tabs the doomed chats had open — so the Chats tree owns its own send
+    // and this only routes to it.
+    case 'chat':
+    case 'chatFolder':
+      return sendChatRemoval(entry, ...opts)
   }
 }
 
@@ -101,6 +108,12 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
 export function flushDrainingRemovals(): void {
   for (const entry of useRemovalTrayStore.getState().entries) {
     if (entry.deadlineAt === null) continue
+    // Settled BEFORE the send, which makes this idempotent: the tray is drawn in
+    // two places now (the workspace tree and the Chats panel), both are mounted
+    // at once inside the sidebar carousel, and both register the pagehide
+    // handler that calls this — so without it one unload would post every
+    // pending delete twice.
+    useRemovalTrayStore.getState().settle(entry.entryId)
     // No await and no catch: the document is unloading, there is nobody left to
     // tell and nothing left to roll back to.
     void sendRemoval(entry, { keepalive: true }).catch(() => {})
@@ -128,7 +141,11 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
     return
   }
 
-  releaseWhenGone(entry.hiddenIds)
+  // A chat is not a sidebar row, so there is no tree to watch it leave — the
+  // send above already took it out of the workspace store, and waiting on a
+  // tombstone that never arrives would leave its rows hidden for good.
+  if (isChatRemoval(entry)) useRemovalTrayStore.getState().release(entry.hiddenIds)
+  else releaseWhenGone(entry.hiddenIds)
   leaveIfRemoved(entry, context)
 }
 

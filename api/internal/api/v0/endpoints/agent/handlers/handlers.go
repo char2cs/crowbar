@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -13,15 +14,6 @@ import (
 // chat and the vendor CLI (the RUNNER) that talks to it, ingesting that CLI's
 // hooks, and reading chats back.
 type AgentUsecase interface {
-	// SpawnChat mints a chat and starts a runner on it. runnerID is the
-	// crowbarSegmentID every hook from that CLI carries — stable for the life of the
-	// process, including across every conversation it moves between.
-	SpawnChat(
-		ctx context.Context,
-		workspaceID string,
-		providerID string,
-	) (chatID, runnerID string, err error)
-
 	IngestHook(
 		ctx context.Context,
 		runnerID string,
@@ -143,14 +135,85 @@ type AgentUsecase interface {
 	) ([]dto.AgentProviderDTO, error)
 }
 
-// Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase.
-type Handlers struct {
-	usecase AgentUsecase
+// ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder
+// CRUD, chat placement, and the cascading chat delete.
+//
+// The DELETE it serves is the one on .../agent/chats/:id, and it goes through
+// here rather than straight to AgentUsecase.PurgeChat because a chat delete in
+// this panel is not one chat: a chat's children are THREADS of it, so they go
+// with it. Only something holding the tree can know which chats those are.
+type ChatTreeUsecase interface {
+	ListInWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) ([]domain.AgentChatFolder, error)
+	Create(
+		ctx context.Context,
+		in agentchatfolder.CreateInput,
+	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	Rename(
+		ctx context.Context,
+		workspaceID string,
+		id string,
+		name string,
+	) (domain.AgentChatFolder, error)
+	Move(
+		ctx context.Context,
+		workspaceID string,
+		id string,
+		in agentchatfolder.MoveInput,
+	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	Delete(
+		ctx context.Context,
+		workspaceID string,
+		id string,
+	) ([]domain.AgentChatFolder, error)
+	// CreateChat mints a chat, places it under parentID (a chat, a folder, or "" for
+	// the panel root) and starts providerID's CLI on it — in that order, so a chat
+	// created as a THREAD carries the parent edge before its first CLI exists and is
+	// told what it reads on its very first session. runnerID is the crowbarSegmentID
+	// every hook from that CLI carries.
+	CreateChat(
+		ctx context.Context,
+		workspaceID string,
+		providerID string,
+		parentID string,
+	) (chatID, runnerID string, err error)
+	PlaceChat(
+		ctx context.Context,
+		workspaceID string,
+		chatID string,
+		in agentchatfolder.PlaceInput,
+	) (domain.AgentChat, []domain.AgentChatFolder, error)
+	DeleteChat(
+		ctx context.Context,
+		chatID string,
+	) (agentchatfolder.ChatDeletion, error)
 }
 
-// New builds the agent Handlers from the agent usecase.
+// Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase
+// and the Chats-panel tree usecase.
+type Handlers struct {
+	usecase         AgentUsecase
+	folders         ChatTreeUsecase
+	broadcastFolder func(folderID, workspaceID, kind string)
+}
+
+// New builds the agent Handlers from the agent usecase, the Chats-panel tree
+// usecase, and the chat-folder broadcast seam.
+//
+// A nil broadcast degrades to a no-op so the handler never panics when wired
+// without a hub (tests). A nil tree usecase does NOT degrade: every route that
+// takes one would have to answer some fiction about a tree it cannot read, and
+// the daemon wires it unconditionally — so the routes are simply not mounted
+// without it (see agent.Register).
 func New(
 	usecase AgentUsecase,
+	folders ChatTreeUsecase,
+	broadcastFolder func(folderID, workspaceID, kind string),
 ) *Handlers {
-	return &Handlers{usecase: usecase}
+	if broadcastFolder == nil {
+		broadcastFolder = func(_, _, _ string) {}
+	}
+	return &Handlers{usecase: usecase, folders: folders, broadcastFolder: broadcastFolder}
 }

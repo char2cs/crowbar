@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -30,6 +31,76 @@ type dispatchRecord struct {
 	runnerID string
 	token    string
 	message  []byte
+}
+
+// stubChatTree answers every Chats-panel tree call with an empty result. These
+// tests are about the routing table — that a URL reaches a handler at all — so
+// the tree behind it only has to exist.
+type stubChatTree struct{}
+
+func (stubChatTree) CreateChat(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) (string, string, error) {
+	return "c1", "run-1", nil
+}
+
+func (stubChatTree) ListInWorkspace(
+	_ context.Context,
+	_ string,
+) ([]domain.AgentChatFolder, error) {
+	return nil, nil
+}
+
+func (stubChatTree) Create(
+	_ context.Context,
+	_ agentchatfolder.CreateInput,
+) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+	return domain.AgentChatFolder{}, nil, nil
+}
+
+func (stubChatTree) Rename(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) (domain.AgentChatFolder, error) {
+	return domain.AgentChatFolder{}, nil
+}
+
+func (stubChatTree) Move(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ agentchatfolder.MoveInput,
+) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+	return domain.AgentChatFolder{}, nil, nil
+}
+
+func (stubChatTree) Delete(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]domain.AgentChatFolder, error) {
+	return nil, nil
+}
+
+func (stubChatTree) PlaceChat(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ agentchatfolder.PlaceInput,
+) (domain.AgentChat, []domain.AgentChatFolder, error) {
+	return domain.AgentChat{}, nil, nil
+}
+
+func (stubChatTree) DeleteChat(
+	_ context.Context,
+	_ string,
+) (agentchatfolder.ChatDeletion, error) {
+	return agentchatfolder.ChatDeletion{}, nil
 }
 
 // stubUsecase is a VALUE receiver stub throughout, so recording goes through a
@@ -169,7 +240,7 @@ func TestRegisterMountsRoutes(
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
 	wsHit := false
-	agent.Register(wsScoped, settingsRG, stubUsecase{}, func(c *gin.Context) {
+	agent.Register(wsScoped, settingsRG, stubUsecase{}, stubChatTree{}, nil, func(c *gin.Context) {
 		wsHit = true
 		c.Status(http.StatusOK)
 	})
@@ -185,7 +256,12 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/agent/chats/c1/switch"},
 		{http.MethodPost, base + "/agent/chats/c1/rename"},
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},
+		{http.MethodPatch, base + "/agent/chats/c1/placement"},
 		{http.MethodDelete, base + "/agent/chats/c1"},
+		{http.MethodGet, base + "/agent/folders"},
+		{http.MethodPost, base + "/agent/folders"},
+		{http.MethodPatch, base + "/agent/folders/f1"},
+		{http.MethodDelete, base + "/agent/folders/f1"},
 		{http.MethodPost, base + "/agent/runners/seg-1/mcp"},
 		{http.MethodPost, base + "/agent/hooks"},
 		{http.MethodGet, base + "/agent/providers"},
@@ -219,7 +295,7 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	agent.Register(wsScoped, settingsRG, stubUsecase{dispatch: got}, func(c *gin.Context) {
+	agent.Register(wsScoped, settingsRG, stubUsecase{dispatch: got}, stubChatTree{}, nil, func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 

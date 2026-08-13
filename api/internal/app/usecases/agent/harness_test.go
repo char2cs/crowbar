@@ -21,7 +21,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
@@ -235,6 +237,8 @@ type fakeBroadcaster struct {
 	calls []broadcastCall
 }
 
+func (f *fakeBroadcaster) BroadcastAgentChatFolder(_, _, _ string) {}
+
 func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string, working bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -333,6 +337,20 @@ type fakeChatStore struct {
 	failGetChat   error
 	failCreate    error
 	failListChats error
+	// staleProjection makes GetChat — the READ-MODEL read — answer with the
+	// placement every chat had before it was placed anywhere, while LoadChat (the
+	// event-log fold, reached through the embedded store) keeps answering
+	// correctly.
+	//
+	// It models the real daemon's ordinary state rather than a broken one:
+	// SetPlacement is deliberately on the async Send path, so between that write
+	// returning and its projection folding, the read model genuinely serves the old
+	// parent. Live, that window is microseconds wide and a test racing it passes
+	// half the time — which is how a spawn that decided on projected state, and
+	// therefore threaded nothing, survived a suite. Forcing the window open turns
+	// the property into one a test can actually hold: whatever the projection says,
+	// a decision about placement must not come from it.
+	staleProjection bool
 
 	mu           sync.Mutex
 	abandonedIDs []string
@@ -368,7 +386,12 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentCha
 	if s.failGetChat != nil {
 		return domain.AgentChat{}, s.failGetChat
 	}
-	return s.EventStore.GetChat(ctx, id)
+	chat, err := s.EventStore.GetChat(ctx, id)
+	if err != nil || !s.staleProjection {
+		return chat, err
+	}
+	chat.ParentID = ""
+	return chat, nil
 }
 
 func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.AgentChat, error) {
@@ -490,6 +513,9 @@ type testFixture struct {
 	// minter is the SAME token minter the usecase's MCP seam verifies against, so
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
+	// folders is the in-memory chat-folder table the lineage resolver reads, so a
+	// test can file a thread inside folders and prove the walk steps through them.
+	folders *mocks.AgentChatFolderStore
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -882,10 +908,17 @@ func newFixtureUsing(
 		chatReader,
 		fixtureWorkspaceLister{},
 	)
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, providerPrefs, homeFn, probe,
+	// The REAL lineage resolver, over the same chat store and an in-memory folder
+	// table, so a threaded chat in this package resolves its ancestors exactly the
+	// way production does — folders and all. A stub here would have let the walk
+	// and the spawn path agree with each other while both were wrong.
+	folders := mocks.NewAgentChatFolderStore()
+	lineage := chatlineage.New(folders, usedChats)
+	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, lineage, providerPrefs, homeFn, probe,
 		minter, agenttools.Deps{
 			Resolver:        resolver,
 			ChatReads:       chatReader,
+			Lineage:         lineage,
 			Review:          fixtureReviewReader{},
 			Threads:         fixtureThreadReader{},
 			ThreadWrites:    fixtureThreadWriter{},
@@ -906,6 +939,7 @@ func newFixtureUsing(
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
+		folders:       folders,
 	}
 	return f, realChats, realRunners
 }

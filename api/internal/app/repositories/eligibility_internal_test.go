@@ -49,6 +49,7 @@ func (h *discardHub) BroadcastTerminalSession(_ dto.TerminalSessionDTO) {}
 func (h *discardHub) BroadcastGit(_ string, _ gitdomain.GitStatus)      {}
 func (h *discardHub) BroadcastFile(_ domain.FileChangeEvent)            {}
 func (h *discardHub) BroadcastAgentChat(_, _, _ string, _ bool)         {}
+func (h *discardHub) BroadcastAgentChatFolder(_, _, _ string)           {}
 
 func (h *discardHub) BroadcastAgentRunner(_, _, _, _ string) {}
 

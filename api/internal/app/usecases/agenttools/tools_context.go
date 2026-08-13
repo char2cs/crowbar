@@ -3,7 +3,9 @@ package agenttools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -37,6 +39,27 @@ type ChatLogReader interface {
 	ReadChatLog(ctx context.Context, chatID string) ([]ChatTurn, error)
 }
 
+// ChatLineageReader resolves a chat's CHAT ancestors, nearest first, with the
+// folders it may be filed in filtered out.
+//
+// get_chat_log needs it for the one thing workspace scope cannot answer: whether
+// the chat being asked for hangs BELOW the caller's own. Both chats are in the
+// same workspace when they are related at all, so CanSee admits a descendant as
+// readily as a sibling — the tree edge is the only thing that tells them apart,
+// and it is not visible from the workspace model at any point.
+//
+// It is asked about the TARGET rather than the caller, which is the same
+// question read from the cheaper end: a caller is a descendant's ancestor
+// exactly when the descendant's lineage names it. Walking down from the caller
+// instead would have to enumerate a subtree to answer what one upward walk
+// answers directly.
+type ChatLineageReader interface {
+	Ancestors(
+		ctx context.Context,
+		chatID string,
+	) ([]string, error)
+}
+
 // NoChatTurnsText is what get_chat_log renders for a chat that has not spoken
 // yet — a NORMAL state, not an error and not empty text. A model handed an
 // error would try to work around a failure that is not one; handed an empty
@@ -52,10 +75,16 @@ const NoChatTurnsText = "This chat has no turns yet."
 //
 // list_workspaces needs only ChatReads: it folds each visible workspace's chats
 // in via ListByWorkspace rather than getting its own tool, to stay under the
-// tool ceiling. get_chat_log needs BOTH ChatReads (to resolve a chat id to the
-// workspace it belongs to, before anything is read from disk) and ChatLogs (the
-// actual ledger read) — with either missing, reading another chat's log is not a
-// capability that safely exists.
+// tool ceiling. get_chat_log needs THREE — ChatReads (to resolve a chat id to
+// the workspace it belongs to, before anything is read from disk), Lineage (to
+// refuse a chat below the caller's own; see ErrOwnThread) and ChatLogs (the
+// actual ledger read) — with any of them missing, reading another chat's log is
+// not a capability that safely exists.
+//
+// Lineage counts among them rather than merely degrading the refusal, because a
+// tool that cannot tell a thread from a sibling would serve a parent its own
+// threads and call it a sibling read. An authority port that cannot answer must
+// take its tool with it.
 func contextTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.ChatReads != nil {
@@ -68,7 +97,7 @@ func contextTools(deps Deps) []toolDef {
 }
 
 func canReadChatLog(deps Deps) bool {
-	return deps.ChatReads != nil && deps.ChatLogs != nil
+	return deps.ChatReads != nil && deps.ChatLogs != nil && deps.Lineage != nil
 }
 
 func listWorkspacesTool(deps Deps) toolDef {
@@ -141,8 +170,9 @@ func chatsByWorkspace(
 
 func getChatLogTool(deps Deps) toolDef {
 	return toolDef{
-		name:        "get_chat_log",
-		description: "Read the conversation of another chat you can see. Get chat ids from list_workspaces.",
+		name: "get_chat_log",
+		description: "Read the conversation of another chat you can see — a chat this one is threaded under, " +
+			"or any other chat in reach. This chat's OWN threads are not readable. Get chat ids from list_workspaces.",
 		schema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -172,6 +202,15 @@ type getChatLogArgs struct {
 // ChatLogs.ReadChatLog — the thing that actually touches disk — get called.
 // A rejection here must never reach ChatLogs at all.
 //
+// TWO refusals stand between the id and the disk, and they are different
+// questions. Workspace scope asks what this caller may reach at all, and is
+// deliberately WIDE: a chat may read any chat in a workspace it can see,
+// including one in a sibling workspace, which is the cross-chat comparison this
+// tool exists for. The lineage check asks the one thing workspace scope cannot,
+// and is narrow to a single case: a chat may not read its own DESCENDANTS. Both
+// run before ChatLogs, in that order, because the cheap membership test should
+// not be preceded by two table reads to answer a caller that was never in scope.
+//
 // offset and limit page the RENDERING only. They cannot reach a chat the CanSee
 // check above did not already admit, which is what keeps pagination from
 // becoming a scope argument: the id is authorized first, the window is applied
@@ -193,6 +232,9 @@ func getChatLog(
 	if !c.CanSee(chat.WorkspaceID) {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", ErrOutOfScope)
 	}
+	if err := refuseOwnThread(ctx, deps, c, in.ChatID); err != nil {
+		return "", err
+	}
 	turns, err := deps.ChatLogs.ReadChatLog(ctx, in.ChatID)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", err)
@@ -211,4 +253,33 @@ func getChatLog(
 		return note, nil
 	}
 	return note + renderChatLog(turns[w.start:w.end]), nil
+}
+
+// refuseOwnThread rejects a chat that hangs below the caller's own in the Chats
+// tree, and is the ONLY direction this tool closes.
+//
+// It reads the target's lineage and looks for the caller in it, so folders cost
+// nothing: they are transparent to that walk, and a thread filed two folders
+// deep under this chat is refused exactly as one sitting directly under it. A
+// check written against the parent id alone would have missed every filed
+// thread, which is the same as not having the check.
+//
+// A lineage that cannot be READ refuses, for the reason CanSee denies on a
+// failed load: an unreadable tree is not an empty one, and treating it as no
+// restriction would open the one direction that is closed at the exact moment
+// the daemon lost the ability to tell a thread from a sibling.
+func refuseOwnThread(
+	ctx context.Context,
+	deps Deps,
+	c Caller,
+	chatID string,
+) error {
+	ancestors, err := deps.Lineage.Ancestors(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agenttools: get_chat_log: lineage: %w", errors.Join(ErrOwnThread, err))
+	}
+	if slices.Contains(ancestors, c.ChatID) {
+		return fmt.Errorf("agenttools: get_chat_log: %w", ErrOwnThread)
+	}
+	return nil
 }

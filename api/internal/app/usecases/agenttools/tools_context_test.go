@@ -3,6 +3,7 @@ package agenttools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -213,12 +214,49 @@ func chatTurns(n int) []agenttools.ChatTurn {
 	return out
 }
 
+// stubLineage is an agenttools.ChatLineageReader whose answer is fixed per chat
+// id. An id with no entry has no chat ancestors, which is what nearly every chat
+// in these fixtures is: unthreaded, at the panel root.
+//
+// It records what it was ASKED about, not merely how often. get_chat_log has to
+// resolve the TARGET's lineage rather than the caller's — a caller is an
+// ancestor exactly when the target's chain names it — and a stub that only
+// counted calls would pass just as happily on the walk taken from the wrong end.
+type stubLineage struct {
+	byChat map[string][]string
+	err    error
+	asked  []string
+}
+
+func (s *stubLineage) Ancestors(
+	_ context.Context,
+	chatID string,
+) ([]string, error) {
+	s.asked = append(s.asked, chatID)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.byChat[chatID], nil
+}
+
 // chatLogToolsOn builds a ToolSet on ws-a whose ChatReader resolves the named
-// chat into the given workspace.
+// chat into the given workspace, and whose target chat is threaded off nobody.
 func chatLogToolsOn(
 	t *testing.T,
 	target domain.AgentChat,
 	logs *stubChatLogs,
+) *agenttools.ToolSet {
+	t.Helper()
+	return chatLogToolsUnder(t, target, logs, &stubLineage{})
+}
+
+// chatLogToolsUnder is chatLogToolsOn with the Chats-panel tree spelled out, for
+// the tests that turn on where the target sits relative to the caller.
+func chatLogToolsUnder(
+	t *testing.T,
+	target domain.AgentChat,
+	logs *stubChatLogs,
+	lineage *stubLineage,
 ) *agenttools.ToolSet {
 	t.Helper()
 	m, err := agenttools.NewTokenMinter()
@@ -228,7 +266,7 @@ func chatLogToolsOn(
 		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		chats, stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
-		Resolver: res, ChatReads: chats, ChatLogs: logs,
+		Resolver: res, ChatReads: chats, ChatLogs: logs, Lineage: lineage,
 	}, "RUN", m.Mint("RUN"))
 }
 
@@ -274,4 +312,144 @@ func TestGetChatLog_EmptyLedgerIsExplicitNotAnError(t *testing.T) {
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
 	require.Contains(t, out, "no turns")
+}
+
+// ---------------------------------------------------------------------------
+// get_chat_log: the one direction that is closed
+// ---------------------------------------------------------------------------
+
+// A thread reads the chat it hangs off. This is the permission the whole feature
+// rests on, and it is asserted rather than assumed: threads live in the same
+// workspace as their parent, so workspace scope was always expected to admit it
+// — but "expected to" is not a test, and the descendant refusal added beside it
+// is exactly the kind of check that overshoots.
+func TestGetChatLog_AThreadReadsTheChatItHangsOff(t *testing.T) {
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "the parent's plan"}}}
+	// CHAT is the caller. Its own lineage names PARENT; PARENT's names nobody.
+	lineage := &stubLineage{byChat: map[string][]string{"CHAT": {"PARENT"}}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "PARENT", WorkspaceID: "ws-a"}, logs, lineage)
+
+	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"PARENT"}`))
+	require.NoError(t, err)
+	require.Contains(t, out, "the parent's plan")
+	require.Equal(t, []string{"PARENT"}, lineage.asked,
+		"the refusal is decided from the TARGET's chain, since a caller is an ancestor exactly when the target names it")
+}
+
+// The refusal. A parent must not read its own threads: it is never handed them,
+// and it may not go and fetch them either — otherwise three threads off one chat
+// stop being three independent attempts.
+func TestGetChatLog_AChatCannotReadItsOwnThread(t *testing.T) {
+	logs := &stubChatLogs{turns: chatTurns(3)}
+	lineage := &stubLineage{byChat: map[string][]string{"THREAD": {"CHAT"}}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
+
+	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"THREAD"}`))
+	require.ErrorIs(t, err, agenttools.ErrOwnThread)
+	require.Empty(t, logs.read, "a refused read must never reach the ledger on disk")
+}
+
+// The refusal reaches all the way down, not just one level: a thread of a thread
+// is still this chat's descendant.
+func TestGetChatLog_AChatCannotReadAThreadOfItsOwnThread(t *testing.T) {
+	logs := &stubChatLogs{turns: chatTurns(3)}
+	lineage := &stubLineage{byChat: map[string][]string{"DEEP": {"THREAD", "CHAT"}}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "DEEP", WorkspaceID: "ws-a"}, logs, lineage)
+
+	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"DEEP"}`))
+	require.ErrorIs(t, err, agenttools.ErrOwnThread)
+}
+
+// And it survives the folders a user files a thread into, because the lineage it
+// is decided from steps straight through them. A check written against a stored
+// parent id would have missed every filed thread, which is the same as not
+// having a check.
+func TestGetChatLog_AFiledThreadIsStillThisChatsThread(t *testing.T) {
+	logs := &stubChatLogs{turns: chatTurns(3)}
+	// THREAD sits in a folder in a folder under CHAT; folders never appear in a
+	// lineage, so what the walk hands back is the caller and nothing else.
+	lineage := &stubLineage{byChat: map[string][]string{"THREAD": {"CHAT"}}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
+
+	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"THREAD"}`))
+	require.ErrorIs(t, err, agenttools.ErrOwnThread)
+}
+
+// Siblings read each other, and that is DELIBERATE — it is what this tool was
+// built for, and it predates threads entirely. Two threads off one chat are two
+// agents that may compare notes; only the direction DOWN from a chat into its
+// own threads is closed.
+func TestGetChatLog_SiblingThreadsStillReadEachOther(t *testing.T) {
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "the other attempt"}}}
+	// CHAT and SIBLING are both threads of PARENT. Neither is below the other.
+	lineage := &stubLineage{byChat: map[string][]string{
+		"CHAT":    {"PARENT"},
+		"SIBLING": {"PARENT"},
+	}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "SIBLING", WorkspaceID: "ws-a"}, logs, lineage)
+
+	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"SIBLING"}`))
+	require.NoError(t, err)
+	require.Contains(t, out, "the other attempt")
+}
+
+// An unrelated chat in a workspace the caller can see stays readable too: the
+// new check narrows the tool to one case and must not become a general "only
+// your ancestors" rule.
+func TestGetChatLog_AnUnrelatedChatInScopeStaysReadable(t *testing.T) {
+	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "somebody else's work"}}}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"},
+		logs, &stubLineage{})
+
+	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
+	require.NoError(t, err)
+	require.Contains(t, out, "somebody else's work")
+}
+
+// A tree the daemon cannot read is not an empty tree. Serving the log anyway
+// would open the one closed direction at the exact moment nothing could tell a
+// thread from a sibling.
+func TestGetChatLog_ALineageThatCannotBeReadRefuses(t *testing.T) {
+	logs := &stubChatLogs{turns: chatTurns(2)}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a"},
+		logs, &stubLineage{err: errors.New("tree unreadable")})
+
+	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
+	require.ErrorIs(t, err, agenttools.ErrOwnThread)
+	require.ErrorContains(t, err, "tree unreadable")
+	require.Empty(t, logs.read)
+}
+
+// The scope check runs FIRST, so a caller that was never allowed to see the
+// workspace is turned away without the tree being read at all.
+func TestGetChatLog_AnOutOfScopeChatIsRefusedBeforeTheLineageIsRead(t *testing.T) {
+	lineage := &stubLineage{}
+	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-b"},
+		&stubChatLogs{}, lineage)
+
+	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
+	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
+	require.Empty(t, lineage.asked)
+}
+
+// The port is an authority, so its absence withdraws the tool rather than
+// serving it with the refusal silently switched off.
+func TestGetChatLog_IsNotAdvertisedWithoutTheLineagePort(t *testing.T) {
+	m, err := agenttools.NewTokenMinter()
+	require.NoError(t, err)
+	chats := stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}}
+	res := agenttools.NewResolver(m,
+		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		chats, stubWorkspaces{all: tree()})
+	ts := agenttools.NewToolSet(agenttools.Deps{
+		Resolver: res, ChatReads: chats, ChatLogs: &stubChatLogs{},
+	}, "RUN", m.Mint("RUN"))
+
+	names := []string{}
+	for _, tool := range ts.Tools() {
+		names = append(names, tool.Name)
+	}
+	require.NotContains(t, names, "get_chat_log")
+	require.Contains(t, names, "list_workspaces",
+		"the sibling tool has its own dependency and must not be withdrawn with this one")
 }

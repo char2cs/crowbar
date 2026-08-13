@@ -311,6 +311,8 @@
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 6%, transparent);
   --sidebar-element-hover: oklch(0 0 0 / 8%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --elevated-highlight: color-mix(in oklch, var(--foreground) 16%, transparent);
+
   --code: var(--color-white);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);

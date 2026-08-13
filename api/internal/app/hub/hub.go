@@ -147,6 +147,34 @@ func (h *Hub) BroadcastAgentChat(
 	}
 }
 
+// BroadcastAgentChatFolder fans a CHAT FOLDER lifecycle event
+// (folder_created/folder_updated/folder_deleted) out on the SAME workspace-scoped
+// agent-chat WebSocket as BroadcastAgentChat. A chat folder is a plain GORM row
+// with no aggregate projection to ride, so the mutating handler calls this
+// itself right after the write — exactly as the sidebar's folder handlers call
+// BroadcastFolder.
+//
+// A second socket for folders would buy nothing and would have to be kept in
+// ORDER with the first: one gesture moves both kinds (they share a sibling
+// space), so a folder frame and the chat frames its densify caused have to
+// arrive in a sequence the client can reconcile.
+//
+// The frame names the folder and nothing more. The Chats feed carries no
+// snapshot, so a client cannot hold folders from it alone; putting the row on
+// the frame would create a second way to learn a placement, and the two would
+// disagree the first time a frame was dropped.
+func (h *Hub) BroadcastAgentChatFolder(
+	folderID string,
+	workspaceID string,
+	kind string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatFolder(folderID, workspaceID, kind)
+	}
+}
+
 // BroadcastAgentRunner fans an agent-RUNNER lifecycle event
 // (started/session_bound/moved/displaced/exited) out to every subscriber. Fed solely by
 // the agentrunner hub projection, which derives the kind from the emitting command's

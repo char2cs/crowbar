@@ -118,22 +118,34 @@ func TestNewGORMStores_FolderStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: folder store:")
 }
 
-// TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
+// TestNewGORMStores_AgentChatFolderStoreError triggers the "agent chat folder
 // store" error branch by allowing the first three ExecContext calls (Project,
 // Repository and Folder CREATE TABLE) to succeed before injecting a failure.
-func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
+func TestNewGORMStores_AgentChatFolderStoreError(t *testing.T) {
 	db := newFailAfterExecDB(t, 3)
+	_, err := newGORMStores(db)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "app: agent chat folder store:")
+}
+
+// TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
+// store" error branch by allowing the first five ExecContext calls (Project,
+// Repository and Folder CREATE TABLE, then AgentChatFolder's CREATE TABLE and
+// the CREATE INDEX its workspace_id column carries) to succeed before injecting
+// a failure.
+func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
+	db := newFailAfterExecDB(t, 5)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal profile store:")
 }
 
 // TestNewGORMStores_TerminalSessionStoreError triggers the "terminal session
-// store" error branch by allowing the first four ExecContext calls (Project,
-// Repository, Folder, and TerminalProfile CREATE TABLE) to succeed before
-// injecting a failure.
+// store" error branch by allowing the first six ExecContext calls (everything up
+// to and including TerminalProfile's CREATE TABLE) to succeed before injecting a
+// failure.
 func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 4)
+	db := newFailAfterExecDB(t, 6)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal session store:")
@@ -156,6 +168,30 @@ func TestNewGORMStores_FolderRoundTrips(t *testing.T) {
 	// The repo-scoped query is the sidebar read path: it must narrow at the DB,
 	// not hand back the whole table for the caller to filter.
 	scoped, err := stores.Folders.FindWhere(ctx, domain.Folder{ProjectID: "p1", RepoID: "r1"})
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	assert.Equal(t, "spikes", scoped[0].Name)
+	assert.Equal(t, 3, scoped[0].Order, "order survives the round trip through a reserved-word column")
+}
+
+// The Chats panel reads ONE workspace's folders, so the scoped query has to
+// narrow at the DB exactly as the sidebar's does — a whole-table read here would
+// grow with the install rather than with the request.
+func TestNewGORMStores_AgentChatFolderRoundTrips(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	stores, err := newGORMStores(db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.AgentChatFolder{
+		ID: "cf1", WorkspaceID: "w1", Name: "spikes", Order: 3,
+	}))
+	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.AgentChatFolder{
+		ID: "cf2", WorkspaceID: "w2", Name: "elsewhere",
+	}))
+
+	scoped, err := stores.AgentChatFolders.FindWhere(ctx, domain.AgentChatFolder{WorkspaceID: "w1"})
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	assert.Equal(t, "spikes", scoped[0].Name)

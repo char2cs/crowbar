@@ -27,6 +27,13 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   deleteChat: vi.fn(),
   renameChat: vi.fn(),
   stopChat: vi.fn(async () => {}),
+  // The panel seeds its folders from a GET of its own; without it the mounted
+  // hook calls `undefined` and the render throws.
+  listChatFolders: vi.fn(async () => []),
+  createChatFolder: vi.fn(),
+  updateChatFolder: vi.fn(),
+  deleteChatFolder: vi.fn(),
+  setChatPlacement: vi.fn(),
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
@@ -91,6 +98,7 @@ const chat = (id: string, providerId: string, createdAt: string): AgentChat => (
   terminalSessionId: `${id}-pty`,
   activeProviderId: providerId,
   createdAt,
+  order: 0,
 })
 
 const PROVIDERS = [

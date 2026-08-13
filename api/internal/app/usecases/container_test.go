@@ -21,6 +21,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -127,7 +128,8 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
-	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast,
+		chatlineage.New(gormStores.AgentChatFolders, repos.AgentChat))
 	require.NoError(t, err)
 	deps.Chats = c.Agent
 	deps.ChatLogs = c.Agent
@@ -181,17 +183,26 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	require.NoError(t, err)
 	review := stubReviewReaderForContainer{}
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast)
+	lineage := chatlineage.New(nil, nil)
+
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast, lineage)
 	require.Error(t, err, "no review reader")
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil, lineage)
 	require.Error(t, err, "no thread broadcaster")
 
-	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast)
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast, lineage)
 	require.Error(t, err, "no token minter")
 
+	// A nil lineage reader is refused for the same reason as any other port, and
+	// it is the one whose absence would not narrow the tool list but WIDEN what
+	// get_chat_log serves: without it the tool cannot refuse a caller its own
+	// threads. Except it never gets that far — the tool is withdrawn instead.
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, noopThreadBroadcast, nil)
+	require.Error(t, err, "no chat lineage reader")
+
 	bare := &repositories.Container{}
-	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast, lineage)
 	require.Error(t, err, "no repository stores")
 }
 

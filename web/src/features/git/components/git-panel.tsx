@@ -58,7 +58,7 @@ export function GitPanel() {
   return (
     <Tabs defaultValue="changes" className="flex flex-1 flex-col overflow-hidden">
       {wsId && branch && (
-        <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]">
+        <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]">
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
             <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>

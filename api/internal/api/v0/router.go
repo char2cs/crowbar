@@ -118,8 +118,13 @@ func (c *Container) Register(
 		// home group so project-home workspaces get agentic chats too (the same
 		// usecase + WS broadcaster agent.Register uses on the workspace-scoped
 		// group); home.Register injects the resolved home :wsId so both scope
-		// correctly.
+		// correctly. The chat-FOLDER surface is re-mounted with it, for the same
+		// reason and then some: the home accumulates the most chats of any
+		// workspace, so a home without folders is the one place the panel most
+		// needs them and would not have them.
 		c.app.Usecases.Agent,
+		c.app.Usecases.AgentChatFolder,
+		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 		ws.DualServe,
 	)
@@ -174,7 +179,14 @@ func (c *Container) Register(
 	// :wsId path param is available to agentChatDef's Filter (container.go). rg
 	// carries the GLOBAL provider-preferences write route (/settings/agent/providers),
 	// mounted once outside the entity hierarchy like /settings/terminal/profiles.
-	agent.Register(wsScoped, rg, c.app.Usecases.Agent, c.agentChats.Handle)
+	agent.Register(
+		wsScoped,
+		rg,
+		c.app.Usecases.Agent,
+		c.app.Usecases.AgentChatFolder,
+		c.app.Hub.BroadcastAgentChatFolder,
+		c.agentChats.Handle,
+	)
 	search.Register(
 		repoScoped,
 		c.eng.Search,
