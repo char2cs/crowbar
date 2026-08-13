@@ -66,6 +66,7 @@ const chat = (id: string, title: string): AgentChat => ({
   terminalSessionId: '',
   activeProviderId: 'zeta-cli',
   createdAt: '2026-01-01T00:00:00Z',
+  order: 0,
 })
 
 const state = () => getOrCreateWorkspaceStore(WS).getState()

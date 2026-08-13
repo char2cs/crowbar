@@ -41,8 +41,7 @@ import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { WorkspaceTree } from '@/components/layout/workspace-tree'
-import { PANE_ARM_MS } from '@/components/layout/workspace-tree-context'
-import { EditorRemovalOverlay } from '@/components/layout/editor-removal-overlay'
+import { EditorRemovalOverlay, PANE_ARM_MS } from '@/components/layout/editor-removal-overlay'
 import type { Project } from '@/lib/types'
 
 const ROW_HEIGHT = 36

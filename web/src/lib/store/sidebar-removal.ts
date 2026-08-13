@@ -31,8 +31,17 @@ const NO_IDS: ReadonlySet<string> = new Set<string>()
  * store depends on nothing in `components/`.
  */
 export interface RemovalDraft {
-  kind: 'workspace' | 'folder' | 'repo' | 'project'
-  /** The row itself: a workspace, folder, repo or project id. */
+  /**
+   * What is going.
+   *
+   * The first four are the sidebar's rows; `chat` and `chatFolder` are the Chats
+   * panel's, which drop onto the SAME editor pane and wait out the same eight
+   * seconds here. They share this tray rather than growing a second one because
+   * a user who has just dragged something away has one place to look for it, and
+   * two trays with two undo clocks would be two answers to that.
+   */
+  kind: 'workspace' | 'folder' | 'repo' | 'project' | 'chat' | 'chatFolder'
+  /** The row itself: a workspace, folder, repo, project, chat or chat-folder id. */
   id: string
   /** What the row reads as, for the tray row and the pane's overlay. */
   label: string
@@ -40,6 +49,28 @@ export interface RemovalDraft {
   /** The owning repo; for a repo removal this is the repo itself, and for a
    *  project removal there is no single one, so it is ''. */
   repoId: string
+  /**
+   * The workspace a chat row belongs to — what its DELETE is addressed to.
+   *
+   * '' on every sidebar row: a workspace, a repo and a project are not scoped to
+   * one, and a chat's delete route is workspace-nested. Required rather than
+   * optional so the commit path reads it as a string and never has to invent a
+   * fallback for a case its own planner cannot produce.
+   */
+  wsId: string
+  /**
+   * The chat's provider artwork, as the SVG string the daemon serves.
+   *
+   * '' on every sidebar row, and on a chat whose provider has gone — the tray
+   * falls back to the chat glyph there, exactly as the sidebar row does.
+   *
+   * Carried on the draft rather than looked up by the tray, because the tray is
+   * in `components/layout` and the provider list is a workspace-store fact the
+   * agent feature owns. The panel already holds the id→icon map at the moment it
+   * builds the draft, so this costs a lookup it was doing anyway — and it is
+   * what stops the tray drawing a stand-in that does not match the row.
+   */
+  providerIcon: string
   /** Every row hidden while this waits — the row and whatever it takes with it. */
   hiddenIds: readonly string[]
   /** How many rows go with it beyond itself; 0 draws no count. */
@@ -96,6 +127,9 @@ export const useRemovalTrayStore = create<RemovalTrayState>()((set) => ({
         ...draft,
         entryId: crypto.randomUUID(),
         // A repo or a project waits on Cancel / Remove; everything else drains.
+        // A chat drains too — it cascades to its threads, but a conversation is
+        // one row's worth of work, not a project's, and eight seconds of undo is
+        // a proportionate net for it.
         deadlineAt:
           draft.kind === 'repo' || draft.kind === 'project' ? null : now + REMOVAL_DRAIN_MS,
       }))

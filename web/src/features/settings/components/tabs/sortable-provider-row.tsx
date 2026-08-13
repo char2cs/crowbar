@@ -1,7 +1,7 @@
 import { DotsSixVertical } from '@phosphor-icons/react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ProviderIcon } from '@/features/agent/components/provider-icon'
+import { ProviderIcon } from '@/components/ui/provider-icon'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'

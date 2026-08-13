@@ -79,6 +79,10 @@ function draftFor(
       projectId: project.id,
       // A project spans every repo under it, so there is no single owning one.
       repoId: '',
+      // Sidebar rows are not workspace-scoped; only a chat's delete route is,
+      // and only a chat has provider artwork to carry.
+      wsId: '',
+      providerIcon: '',
       // The project's own row AND every repo row inside it: the delete cascades
       // server-side, so hiding only the header would leave its repos on screen
       // with nothing above them.
@@ -97,6 +101,8 @@ function draftFor(
       label: repo.name,
       projectId: repo.projectId,
       repoId: repo.id,
+      wsId: '',
+      providerIcon: '',
       hiddenIds: [repo.id],
       extra: repo.workspaces.length,
       fallbackWsId: null,
@@ -115,6 +121,8 @@ function draftFor(
       label: folder.name,
       projectId: repo.projectId,
       repoId: repo.id,
+      wsId: '',
+      providerIcon: '',
       hiddenIds: [folder.id],
       extra: 0,
       fallbackWsId: null,
@@ -137,6 +145,8 @@ function draftFor(
     label: workspace.branch,
     projectId: repo.projectId,
     repoId: repo.id,
+    wsId: '',
+    providerIcon: '',
     hiddenIds: [workspace.id, ...descendants],
     extra: descendants.length,
     // Resolved now, against a tree that still has the row in it.

@@ -141,6 +141,7 @@ function liveChat(o: {
     terminalSessionId: o.pty,
     activeProviderId: o.provider ?? 'codex',
     createdAt: '',
+    order: 0,
   }
 }
 
@@ -155,6 +156,7 @@ function dormantChat(o: { id: string; title?: string; provider?: string }): Agen
     terminalSessionId: '',
     activeProviderId: o.provider ?? 'codex',
     createdAt: '',
+    order: 0,
   }
 }
 

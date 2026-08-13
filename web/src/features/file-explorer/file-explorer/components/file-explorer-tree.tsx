@@ -1139,7 +1139,10 @@ function FileExplorerTreeComponent({
       <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-stretch gap-1.5">
           <span className="relative flex min-w-0 flex-1 items-center">
-            <Search className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72" />
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72"
+            />
             <Input
               nativeInput
               ref={searchInputRef}

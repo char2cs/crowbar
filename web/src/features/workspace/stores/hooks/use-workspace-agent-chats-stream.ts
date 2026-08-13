@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-import { listChats, getChat, listProviders } from '@/features/agent/api/agent-api'
+import { listChats, getChat, listProviders, listChatFolders } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   isLatestProviderWrite,
@@ -57,12 +57,14 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
   return st.agentChats.providers.find((p) => p.id === providerId)?.displayName ?? 'The agent'
 }
 
-// One wire frame on the workspace-scoped agent feed. TWO vocabularies ride it:
+// One wire frame on the workspace-scoped agent feed. THREE vocabularies ride it:
 //
 //   CHAT frames    — created / turn_started / turn_stopped / title_set / session_bound /
 //                    deleted. About the conversation. They name no process.
 //   RUNNER frames  — started / session_bound / moved / displaced / exited. About the
 //                    vendor-CLI PROCESS, which is a thing that moves between chats.
+//   FOLDER frames  — folder_created / folder_updated / folder_deleted. About the tree the
+//                    chats are arranged in, which is a second aggregate on its own route.
 //
 // runnerId IS THE DISCRIMINATOR, and it is not an optimisation to be tidied away:
 // `session_bound` exists in BOTH vocabularies, so kind alone is ambiguous and would
@@ -89,8 +91,24 @@ interface AgentStreamEvent {
     | 'moved'
     | 'displaced'
     | 'exited'
+    | 'folder_created'
+    | 'folder_updated'
+    | 'folder_deleted'
   /** Set only on runner frames. Present ⟺ this frame is about a process. */
   runnerId?: string
+  /**
+   * Set only on folder frames. Present ⟺ this frame is about the tree.
+   *
+   * The same discriminator rule the runner half uses, and for the same reason: a
+   * folder frame names no chat, so keying off `kind` alone would put it through a
+   * switch that assumes one.
+   *
+   * The frame carries NO ROW — deliberately. This stream has no snapshot, and a
+   * placement travelling on it would be a second source of truth that drifts from
+   * the REST list the moment two windows write in the same breath. It says only
+   * "the tree moved"; the answer is refetched.
+   */
+  folderId?: string
   /**
    * The chat's folded busy state as of this event, straight from the aggregate
    * (domain.AgentChat.Working) — the server's answer to the spinner.
@@ -209,6 +227,32 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         } catch {
           return /* seed failure is non-fatal — the WS stream still pushes */
         }
+      }
+    }
+
+    // The chats' TREE — folders, and nothing else.
+    //
+    // A full re-read rather than a patch, because the frame that triggers it names
+    // only the folder that moved and carries no row: the list IS the answer, and
+    // asking for it again is how two windows converge on one arrangement instead
+    // of each keeping its own.
+    //
+    // The initial read is NOT here. The Chats panel takes it on mount
+    // (use-agent-chat-folders.ts), and duplicating it would mean two GETs every
+    // time the sidebar renders for the sake of a list that has not changed.
+    //
+    // Sequenced like the chat seed: two mutations in quick succession are two
+    // reads in flight, and resolution order is not issue order — an older answer
+    // landing last would put the folder that was just deleted back on screen.
+    let folderSeq = 0
+    const seedFolders = async () => {
+      const seq = ++folderSeq
+      try {
+        const folders = await listChatFolders(wsId)
+        if (cancelled || seq !== folderSeq) return
+        getOrCreateWorkspaceStore(wsId).getState().seedAgentChatFolders(folders)
+      } catch {
+        /* non-fatal: the tree keeps the arrangement it has until the next frame */
       }
     }
 
@@ -399,6 +443,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // reseed so pushes missed during the outage aren't lost.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
         void seedChats()
+        // Folders too, and for exactly the reason the chat list is reseeded here:
+        // every folder frame dropped during the outage is a rearrangement this
+        // client never heard about, and nothing else would ever ask again.
+        void seedFolders()
         // Providers too: the outage that dropped the socket is the same one that
         // can have emptied them, and this is the app's own signal that the daemon
         // is answering again. Without it a workspace that lost its providers
@@ -410,6 +458,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // The discriminator, and the first branch for that reason — see AgentStreamEvent.
       if (ev.runnerId) {
         onRunnerFrame({ ...ev, runnerId: ev.runnerId })
+        return
+      }
+      // The tree's own discriminator. It has to be read BEFORE the chatId guard
+      // below: a folder frame names no chat, so that guard would drop every one of
+      // them — which is precisely how folders came to not sync across windows.
+      //
+      // All three kinds do the same thing, because all three mean the same thing
+      // here: the arrangement is not what this client thinks it is.
+      if (ev.folderId) {
+        void seedFolders()
         return
       }
       if (!ev.chatId) return

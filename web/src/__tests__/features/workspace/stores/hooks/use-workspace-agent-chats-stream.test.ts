@@ -7,7 +7,9 @@ const {
   listChatsFn,
   getChatFn,
   listProvidersFn,
+  listChatFoldersFn,
   seedAgentChats,
+  seedAgentChatFolders,
   upsertAgentChat,
   removeAgentChat,
   setAgentChatWorking,
@@ -22,7 +24,9 @@ const {
   listChatsFn: vi.fn(),
   getChatFn: vi.fn(),
   listProvidersFn: vi.fn(),
+  listChatFoldersFn: vi.fn(),
   seedAgentChats: vi.fn(),
+  seedAgentChatFolders: vi.fn(),
   upsertAgentChat: vi.fn(),
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
@@ -69,6 +73,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listChats: (...a: unknown[]) => listChatsFn(...a),
   getChat: (...a: unknown[]) => getChatFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
+  listChatFolders: (...a: unknown[]) => listChatFoldersFn(...a),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -83,6 +88,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     getState: () => ({
       agentChats: { chats: storeChats, providers: storeProviders },
       seedAgentChats,
+      seedAgentChatFolders,
       upsertAgentChat,
       removeAgentChat,
       setAgentChatWorking,
@@ -107,6 +113,7 @@ type Frame = {
   workspaceId?: string
   kind?: string
   runnerId?: string
+  folderId?: string
   reconnected?: boolean
   /** The server's folded busy state, carried on the chat kinds. Optional on the wire. */
   working?: boolean
@@ -121,6 +128,8 @@ const chat = (id: string) => ({
   activeProviderId: 'claude',
   createdAt: '2026-01-01T00:00:00Z',
 })
+
+const FOLDER = { id: 'f1', workspaceId: 'w1', parentId: '', name: 'Spikes', order: 0 }
 
 // Drain the microtask queue. This is NOT a clock: every promise in the hook's
 // chains resolves from an already-settled mock, so a fixed number of ticks settles
@@ -174,6 +183,7 @@ beforeEach(() => {
     Promise.resolve({ ...chat(id), conversations: [] }),
   )
   listProvidersFn.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+  listChatFoldersFn.mockResolvedValue([FOLDER])
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
@@ -948,6 +958,217 @@ describe('useWorkspaceAgentChatsStream', () => {
     await flush()
 
     expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+  })
+
+  it('closes a chat tab that no pane is holding', async () => {
+    // A buffer can outlive its pane placement — the tab was closed out of the
+    // pane but the buffer is still in the list. The delete has to drop it
+    // anyway, and must not ask a pane that does not hold it to remove it.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    panes = {}
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'deleted' })
+    await flush()
+
+    expect(removeAgentChat).toHaveBeenCalledWith('c1')
+    expect(closeBuffer).toHaveBeenCalledWith('buf1')
+    expect(removeBufferFromPane).not.toHaveBeenCalled()
+  })
+
+  it('re-points a taker whose own tab sits in no pane, without activating one', async () => {
+    // The eviction path, with the surviving tab held by nothing: there is no
+    // pane to bring forward, and asking a pane record that does not contain it
+    // would activate some other pane's tab.
+    listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
+    buffers = [openTab('taker', 'c1', 'r1'), openTab('sitting', 'c2', 'r2')]
+    panes = { p1: { id: 'p1', bufferIds: ['sitting'] } }
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // r1 walks into c2, which `sitting` is already showing — so `sitting` is
+    // evicted and `taker` follows the runner into it.
+    captureCb()({ runnerId: 'r1', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
+    await flush()
+
+    expect(repointAgentChatBuffer).toHaveBeenCalledWith('taker', { chatId: 'c2', runnerId: 'r1' })
+    expect(closeBuffer).toHaveBeenCalledWith('sitting')
+    expect(activatePaneBuffer).not.toHaveBeenCalled()
+  })
+
+  it('does not re-read the chat a runner LEFT when it is the one it entered', async () => {
+    // /resume back into the same conversation: the frame is a real move, and the
+    // chat it names is both halves of it. One read, not two.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    storeChats = [{ id: 'c1', liveRunnerId: 'r1' }]
+    buffers = [openTab('buf1', 'c1', 'r1')]
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    getChatFn.mockClear()
+
+    captureCb()({ runnerId: 'r1', chatId: 'c1', workspaceId: 'w1', kind: 'moved' })
+    await flush()
+
+    expect(getChatFn).toHaveBeenCalledTimes(1)
+    expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  // ── `moved`, in the two shapes that name nothing to act on ─────────
+  it('ignores a move that names no destination', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    getChatFn.mockClear()
+
+    captureCb()({ runnerId: 'r1', chatId: '', workspaceId: 'w1', kind: 'moved' })
+    await flush()
+
+    // A move always names the chat it walked INTO; one that does not is a frame
+    // about nothing, and refetching '' would ask the daemon for a chat with no id.
+    expect(getChatFn).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing for a move whose refetch lands after the workspace is gone', async () => {
+    let release: (v: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    buffers = [openTab('buf1', 'c1', 'r1')]
+    const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    repointAgentChatBuffer.mockClear()
+
+    captureCb()({ runnerId: 'r1', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
+    unmount()
+    release({ ...chat('c2'), conversations: [] })
+    await flush()
+
+    // The tab belongs to a workspace nobody is looking at any more; re-pointing it
+    // now would move a tab in a store the user has left.
+    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+  })
+
+  // ── Folder frames: the tree is a SECOND aggregate on this one socket ────
+  //
+  // The daemon broadcasts folder mutations on the chats socket, carrying a
+  // folderId and no row. The hook used to start its chat routing with
+  // `if (!ev.chatId) return`, which dropped every one of them — so a folder made
+  // in one window never appeared in another, and none of it survived a reconnect.
+  describe('folder frames', () => {
+    const folderFrame = (kind: string): Frame => ({
+      folderId: 'f1',
+      chatId: '',
+      workspaceId: 'w1',
+      kind,
+    })
+
+    it.each(['folder_created', 'folder_updated', 'folder_deleted'])(
+      're-reads the folder list on %s',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        listChatFoldersFn.mockClear()
+        seedAgentChatFolders.mockClear()
+
+        captureCb()(folderFrame(kind))
+        await flush()
+
+        // The frame carries no row on purpose — this stream has no snapshot, and a
+        // placement travelling on it would be a second truth that drifts from the
+        // REST list. It says only that the tree moved.
+        expect(listChatFoldersFn).toHaveBeenCalledWith('w1')
+        expect(seedAgentChatFolders).toHaveBeenCalledWith([FOLDER])
+      },
+    )
+
+    it('leaves the chat list alone — the tree moved, the conversations did not', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      seedAgentChats.mockClear()
+      getChatFn.mockClear()
+
+      captureCb()(folderFrame('folder_created'))
+      await flush()
+
+      expect(seedAgentChats).not.toHaveBeenCalled()
+      expect(getChatFn).not.toHaveBeenCalled()
+    })
+
+    it('re-reads folders on the reconnect sentinel, beside the chats', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      listChatFoldersFn.mockClear()
+
+      captureCb()({ reconnected: true })
+      await flush()
+
+      // Every folder frame dropped during the outage is a rearrangement this
+      // client never heard about, and nothing else would ever ask again.
+      expect(listChatFoldersFn).toHaveBeenCalledWith('w1')
+      expect(seedAgentChatFolders).toHaveBeenCalledWith([FOLDER])
+    })
+
+    it('a failed folder read is non-fatal — the tree keeps the arrangement it has', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      seedAgentChatFolders.mockClear()
+      listChatFoldersFn.mockRejectedValue(new Error('boom'))
+
+      captureCb()(folderFrame('folder_updated'))
+      await flush()
+
+      expect(seedAgentChatFolders).not.toHaveBeenCalled()
+    })
+
+    it('discards an older read that lands after a newer one', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      seedAgentChatFolders.mockClear()
+
+      // Two mutations in quick succession are two reads in flight, and resolution
+      // order is not issue order: an older answer landing last would put the
+      // folder that was just deleted back on screen.
+      let releaseFirst: (v: unknown) => void = () => {}
+      const first = new Promise((resolve) => {
+        releaseFirst = resolve
+      })
+      listChatFoldersFn.mockReturnValueOnce(first).mockResolvedValueOnce([])
+
+      const onFrame = captureCb()
+      onFrame(folderFrame('folder_created'))
+      onFrame(folderFrame('folder_deleted'))
+      await flush()
+      expect(seedAgentChatFolders).toHaveBeenCalledWith([])
+
+      releaseFirst([FOLDER])
+      await flush()
+
+      // The stale answer is dropped, not applied on top of the fresh one.
+      expect(seedAgentChatFolders).toHaveBeenCalledTimes(1)
+    })
+
+    it('writes nothing once the workspace has been unmounted', async () => {
+      let release: (v: unknown) => void = () => {}
+      const pending = new Promise((resolve) => {
+        release = resolve
+      })
+      const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      seedAgentChatFolders.mockClear()
+      listChatFoldersFn.mockReturnValueOnce(pending)
+
+      captureCb()(folderFrame('folder_created'))
+      unmount()
+      release([FOLDER])
+      await flush()
+
+      // A workspace switch is not a reason to write one workspace's tree into
+      // another's store.
+      expect(seedAgentChatFolders).not.toHaveBeenCalled()
+    })
   })
 
   it('tears down and re-subscribes when wsId changes', () => {

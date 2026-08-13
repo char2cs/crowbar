@@ -45,6 +45,47 @@ export interface AgentChat {
    *  back). '' only on a chat no runner has ever been placed on. */
   activeProviderId: string
   createdAt: string
+  /**
+   * The row this chat hangs off — another CHAT (making this one a thread of it) or
+   * a FOLDER. '' is the workspace root.
+   *
+   * Domain truth, not a view preference: a thread reads its parent's turns, so
+   * parentage decides what an agent SEES. It is stored on the aggregate and it is
+   * why the panel's arrangement is no longer in localStorage.
+   */
+  parentId?: string
+  /** Dense index within this chat's sibling space, SHARED with folders. */
+  order: number
+}
+
+/**
+ * A grouping row in the Chats tree.
+ *
+ * It holds no turns, which is the whole reason it may live anywhere a chat may —
+ * including inside a chat, where it orders that chat's threads. Context lineage
+ * is the ancestor chain filtered to chats and steps straight through one, so
+ * filing threads into folders cannot change what any of them reads.
+ */
+export interface AgentChatFolder {
+  id: string
+  workspaceId: string
+  /** A chat id, a folder id, or '' at the workspace root. */
+  parentId?: string
+  name: string
+  /** Dense index within its sibling space, SHARED with chats. */
+  order: number
+}
+
+/**
+ * The rows a dense renumber MOVED that the caller did not ask about.
+ *
+ * Every placement write renumbers the level it touched, so a client that applies
+ * only its own row holds stale orders for every sibling until the next reconnect —
+ * and stale orders are a list that re-sorts itself into the wrong sequence the
+ * next time anything re-renders. Apply these.
+ */
+export interface FolderShift {
+  shifted: AgentChatFolder[]
 }
 
 export interface AgentChatDetail extends AgentChat {
@@ -94,7 +135,28 @@ function mapChat(c: AgentChat): AgentChat {
     terminalSessionId: c.terminalSessionId,
     activeProviderId: c.activeProviderId,
     createdAt: c.createdAt,
+    // Grounded here, once, so nothing downstream has to remember that an absent
+    // parent and a root parent are the same thing. `order` defaults to 0, which
+    // ties every chat on a daemon that has not placed them yet — the tree breaks
+    // that tie by recency, which is the arrangement the panel had before.
+    parentId: c.parentId ?? '',
+    order: c.order ?? 0,
   }
+}
+
+function mapFolder(f: AgentChatFolder): AgentChatFolder {
+  return {
+    id: f.id,
+    workspaceId: f.workspaceId,
+    parentId: f.parentId ?? '',
+    name: f.name,
+    order: f.order ?? 0,
+  }
+}
+
+/** The `shifted` half of every folder write, grounded the same way. */
+function mapShift(raw: Partial<FolderShift> | null): AgentChatFolder[] {
+  return (raw?.shifted ?? []).map(mapFolder)
 }
 
 // ── Reads ───────────────────────────────────────────────────────────
@@ -150,11 +212,26 @@ export async function updateProviderPreferences(
 }
 
 // ── Writes ──────────────────────────────────────────────────────────
-export async function createChat(wsId: string, provider: string): Promise<string> {
+/**
+ * Start a chat, optionally UNDER `parentId` — a chat (making the new one a
+ * thread of it) or a folder ("new chat in here"). '' is the workspace root.
+ *
+ * Placement belongs on the create and not in a second call after it. The daemon
+ * mints the chat, writes the edge, and only then starts the runner — so a thread
+ * has its lineage before its first CLI is spawned and gets its ancestors
+ * injected on that very first session. Creating and then placing meant the first
+ * turn — the one right after the user asked for a thread — ran with no lineage
+ * at all and the agent opened as a stranger. It also left a window in which a
+ * failed second call stranded the new chat at the root.
+ *
+ * A folder INSIDE a chat still yields a thread of that chat: folders carry no
+ * turns, so lineage steps straight through them.
+ */
+export async function createChat(wsId: string, provider: string, parentId = ''): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${agentBase(wsId)}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider, parentId }),
   })
   return res.id
 }
@@ -210,8 +287,97 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
   })
 }
 
-export async function deleteChat(wsId: string, id: string): Promise<void> {
+// Deleting a chat CASCADES to the threads hanging off it — a thread exists to
+// continue the conversation above it, and leaving it behind strands it reading a
+// context that no longer exists.
+//
+// `init` exists for one caller: the removal tray's pagehide flush, which sends
+// with `keepalive` so an eight-second undo window that ends in a reload still
+// posts the delete the user already walked away from.
+export async function deleteChat(wsId: string, id: string, init?: RequestInit): Promise<void> {
   await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    ...init,
   })
+}
+
+// ── The chats tree: folders, and where a row sits ───────────────────
+//
+// Parentage and folders are SERVER state, per workspace, exactly as the
+// sidebar's folders are. An earlier client-persisted version of this was
+// rejected: a thread reads its parent's turns, so which row a chat hangs off
+// decides what an agent sees, and that cannot live in a browser key that another
+// window — or another machine — never learns about.
+//
+// Every write answers with the rows a dense renumber MOVED as well as the row
+// asked about. Apply both halves or the level paints in its old order.
+
+export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
+  const raw = await apiFetch<AgentChatFolder[]>(`${agentBase(wsId)}/folders`)
+  return (raw ?? []).map(mapFolder)
+}
+
+export async function createChatFolder(
+  wsId: string,
+  name: string,
+  parentId: string,
+): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
+  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+    `${agentBase(wsId)}/folders`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parentId }),
+    },
+  )
+  return { folder: mapFolder(raw.folder), shifted: mapShift(raw) }
+}
+
+/** Rename, re-parent or reorder a folder. Only the named fields are written. */
+export async function updateChatFolder(
+  wsId: string,
+  folderId: string,
+  patch: { name?: string; parentId?: string; order?: number },
+): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
+  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+    `${agentBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  )
+  return { folder: mapFolder(raw.folder), shifted: mapShift(raw) }
+}
+
+// Deleting a folder PROMOTES its children to the folder's own parent — a folder
+// holds no conversation, so the chats outlive it. That is deliberately unlike
+// deleting a CHAT, which takes its threads with it.
+export async function deleteChatFolder(
+  wsId: string,
+  folderId: string,
+  init?: RequestInit,
+): Promise<AgentChatFolder[]> {
+  const raw = await apiFetch<Partial<FolderShift> | null>(
+    `${agentBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
+    { method: 'DELETE', ...init },
+  )
+  return mapShift(raw)
+}
+
+/** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. */
+export async function setChatPlacement(
+  wsId: string,
+  chatId: string,
+  patch: { parentId?: string; order?: number },
+): Promise<{ chat: AgentChat; shifted: AgentChatFolder[] }> {
+  const raw = await apiFetch<{ chat: AgentChat } & Partial<FolderShift>>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(chatId)}/placement`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  )
+  return { chat: mapChat(raw.chat), shifted: mapShift(raw) }
 }

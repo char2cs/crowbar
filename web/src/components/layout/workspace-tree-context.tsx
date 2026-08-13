@@ -45,7 +45,7 @@ import {
 import { planDrop, type PlacementCall } from './drop-plan'
 import { createEdgeScroller, findScrollParent, type EdgeScroller } from './edge-scroll'
 import { DropIndicator, dropLineBox } from './drop-indicator'
-import { paintRemovalOverlay } from './editor-removal-overlay'
+import { PANE_ARM_MS, paintRemovalOverlay } from './editor-removal-overlay'
 import { describeRemoval, planRemoval } from './removal-plan'
 import { watchReparent } from './reparent-settle'
 import { useSidebarSelectionStore } from '@/lib/store/sidebar-selection'
@@ -74,24 +74,6 @@ export interface PendingCreate {
 const NO_IDS: ReadonlySet<string> = new Set<string>()
 
 const DRAG_THRESHOLD_PX = 5
-
-/**
- * How long the pointer must rest inside the editor pane before a drop there
- * means removal.
- *
- * Short, because the dwell is no longer the only thing standing between a
- * pointer and a deletion. It was 400ms when the zone was INVISIBLE until it
- * armed: the wait was the whole guard, and it had to be long enough to sit out
- * an accidental transit. Now the veil is up from the first frame of the drag,
- * naming what would go, so arriving over the pane confirms something the user
- * has already been told — and 400ms of nothing happening on arrival read as lag
- * rather than as caution.
- *
- * Not zero: a flick that clips the pane on its way somewhere else must still not
- * arm. 150ms is under the ~200ms most people register as a delay while still
- * being far longer than a pointer crossing an edge.
- */
-export const PANE_ARM_MS = 150
 
 /** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'

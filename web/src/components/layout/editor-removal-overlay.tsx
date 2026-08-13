@@ -24,6 +24,28 @@ import { cn } from '@/lib/utils'
  * editor pane in the middle of a drag to change two strings.
  */
 
+/**
+ * How long the pointer must rest inside the editor pane before a drop there
+ * means removal.
+ *
+ * Short, because the dwell is no longer the only thing standing between a
+ * pointer and a deletion. It was 400ms when the zone was INVISIBLE until it
+ * armed: the wait was the whole guard, and it had to be long enough to sit out
+ * an accidental transit. Now the veil is up from the first frame of the drag,
+ * naming what would go, so arriving over the pane confirms something the user
+ * has already been told — and 400ms of nothing happening on arrival read as lag
+ * rather than as caution.
+ *
+ * Not zero: a flick that clips the pane on its way somewhere else must still not
+ * arm. 150ms is under the ~200ms most people register as a delay while still
+ * being far longer than a pointer crossing an edge.
+ *
+ * It lives HERE, beside the veil it gates, because BOTH trees that can reach
+ * this pane have to wait exactly as long — a chats drag that armed on a
+ * different beat from a workspace drag would make one pane behave like two.
+ */
+export const PANE_ARM_MS = 150
+
 const OVERLAY_ATTR = 'data-pane-removal'
 const TITLE_ATTR = 'data-pane-removal-title'
 const DETAIL_ATTR = 'data-pane-removal-detail'

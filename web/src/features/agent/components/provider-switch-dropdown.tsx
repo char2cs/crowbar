@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
 import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
-import { ProviderIcon } from './provider-icon'
+import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 // The trigger's width AND its menu's — one number so they cannot drift apart. The shared
