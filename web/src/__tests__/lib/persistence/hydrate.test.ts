@@ -431,7 +431,7 @@ describe('hydrateSidebar', () => {
   })
 
   it('restores collapsedRepos from IDB', async () => {
-    await saveSidebarUI(['crowbar', 'quiver-core'], [])
+    await saveSidebarUI({ collapsedRepos: ['crowbar', 'quiver-core'], collapsedWorkspaces: [] })
     await hydrateSidebar()
     const { collapsedRepos } = useSidebarStore.getState()
     expect(collapsedRepos.has('crowbar')).toBe(true)
@@ -457,7 +457,7 @@ describe('hydrateSidebar', () => {
   })
 
   it('restores collapsedWorkspaces from IDB', async () => {
-    await saveSidebarUI([], ['ws3', 'ws1'])
+    await saveSidebarUI({ collapsedRepos: [], collapsedWorkspaces: ['ws3', 'ws1'] })
     await hydrateSidebar()
     const { collapsedWorkspaces } = useSidebarStore.getState()
     expect(collapsedWorkspaces.has('ws3')).toBe(true)
@@ -465,11 +465,30 @@ describe('hydrateSidebar', () => {
   })
 
   it('restores collapsedProjects from IDB', async () => {
-    await saveSidebarUI([], [], ['p2', 'p3'])
+    await saveSidebarUI({
+      collapsedRepos: [],
+      collapsedWorkspaces: [],
+      collapsedProjects: ['p2', 'p3'],
+    })
     await hydrateSidebar()
     const { collapsedProjects } = useSidebarStore.getState()
     expect(collapsedProjects.has('p2')).toBe(true)
     expect(collapsedProjects.has('p3')).toBe(true)
+  })
+
+  it('restores collapsedChatRows from IDB', async () => {
+    await saveSidebarUI({ collapsedRepos: [], collapsedChatRows: ['f1', 'c7'] })
+    await hydrateSidebar()
+    const { collapsedChatRows } = useSidebarStore.getState()
+    expect(collapsedChatRows.has('f1')).toBe(true)
+    expect(collapsedChatRows.has('c7')).toBe(true)
+  })
+
+  it('replays a record written before the Chats panel was collapsible as "all open"', async () => {
+    useSidebarStore.setState({ collapsedChatRows: new Set(['stale']) })
+    await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
   it('replays a record written before projects were collapsible as "all open"', async () => {

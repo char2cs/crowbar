@@ -61,6 +61,19 @@ export interface SidebarUI {
    * and is rewritten on the next toggle. No migration code.
    */
   collapsedProjects?: string[]
+  /**
+   * Chats-panel rows the user has folded — folder ids and chat ids in ONE list,
+   * because both kinds hold children and both collapse the same way.
+   *
+   * Not keyed by workspace: every id here is a uuid minted by the daemon, so a
+   * flat set is already workspace-unique and an id that outlives its row simply
+   * matches nothing. Same shape, and the same reasoning, as `collapsedWorkspaces`
+   * spanning every repo.
+   *
+   * Absent on a record written before the Chats panel was collapsible — replays
+   * as "nothing folded", which is the product default.
+   */
+  collapsedChatRows?: string[]
   updatedAt: number
 }
 

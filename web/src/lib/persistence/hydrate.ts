@@ -163,6 +163,9 @@ export async function hydrateSidebar(): Promise<void> {
       // as "nothing collapsed", i.e. every project open, which is the product
       // default (see sidebar.ts `collapsedProjects`).
       collapsedProjects: new Set(sidebarUI.collapsedProjects ?? []),
+      // Absent on a record written before the Chats panel was collapsible —
+      // replays as "nothing folded", the product default (see schemas.ts).
+      collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
     })
   }
 

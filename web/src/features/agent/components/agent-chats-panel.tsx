@@ -35,6 +35,7 @@ import {
 } from '@/features/agent/lib/chat-removal'
 import { RemovalTray } from '@/components/layout/removal-tray'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { useSidebarStore } from '@/lib/store/sidebar'
 import type { ChatDragSubject, ResolvedChatDrop } from '@/features/agent/lib/chat-drop'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
@@ -70,7 +71,10 @@ export function AgentChatsPanel({ wsId }: AgentChatsPanelProps = {}) {
   const activeWsId = useActiveWorkspaceState((s) => s.workspaceId, null)
   const resolved = wsId ?? activeWsId
 
-  // Keyed: a workspace switch must not carry this panel's drag/rename/fold state over.
+  // Keyed: a workspace switch must not carry this panel's drag, rename or
+  // selection over. What the user FOLDED is deliberately not among them — it
+  // outlives the remount in the sidebar store, and is persisted (see
+  // `collapsedChatRows` in lib/store/sidebar.ts).
   return resolved ? <AgentChatsPanelInner key={resolved} wsId={resolved} /> : null
 }
 
@@ -94,7 +98,10 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(NO_IDS)
+  // Folded rows survive this panel: the workspace switch above remounts it, so
+  // component state re-opened every folder on the way back. Narrow selector —
+  // nothing else in that store re-renders the tree.
+  const collapsed = useSidebarStore((s) => s.collapsedChatRows)
   const [foldedAway, setFoldedAway] = useState<ReadonlySet<string>>(NO_IDS)
   const [selected, setSelected] = useState<ReadonlySet<string>>(NO_IDS)
 
@@ -209,11 +216,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
   }, [])
 
   const toggleRow = useCallback((id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
+    useSidebarStore.getState().toggleChatRow(id)
     // Opening a row hands back whatever it was holding, so a fold-away it is
     // carrying from last time must not survive into the next fold.
     setFoldedAway((prev) => {
@@ -252,14 +255,7 @@ function AgentChatsPanelInner({ wsId }: { wsId: string }) {
       if (!provider) return
       // Putting something into a row you cannot see is not what "+ in here"
       // means, so open it first.
-      if (parentId) {
-        setCollapsed((prev) => {
-          if (!prev.has(parentId)) return prev
-          const next = new Set(prev)
-          next.delete(parentId)
-          return next
-        })
-      }
+      if (parentId) useSidebarStore.getState().openChatRow(parentId)
       // ONE call. The parentage rides on the create, so the daemon mints the
       // chat, writes the edge and only then starts the runner — a thread has its
       // lineage before its first CLI exists and gets its ancestors injected on

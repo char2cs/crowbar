@@ -190,6 +190,16 @@ interface SidebarState {
    * repo scope whether or not the row is folded.
    */
   collapsedProjects: Set<string>
+  /**
+   * Chats-panel rows the user has folded — folder ids and chat ids together,
+   * since both kinds hold children. Same polarity as the three sets above.
+   *
+   * It lives HERE, in a store the workspace switch does not touch, rather than
+   * in the panel: the panel is keyed by workspace id so a switch remounts it
+   * (deliberately — a drag, a rename and a selection must not ride along), and
+   * component state died with it, so every folder sprang open on the way back.
+   */
+  collapsedChatRows: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
@@ -208,6 +218,16 @@ interface SidebarState {
   toggleRepo: (repoId: string) => void
   toggleWorkspace: (wsId: string) => void
   toggleProject: (projectId: string) => void
+  /** Fold a Chats-panel row away, or open it again. */
+  toggleChatRow: (rowId: string) => void
+  /**
+   * Open a Chats-panel row, whatever it was.
+   *
+   * Its own call rather than a toggle, because the caller is putting something
+   * INSIDE the row — filing into a box you cannot see is not what "+ in here"
+   * means — and a toggle there would close a row that was already open.
+   */
+  openChatRow: (rowId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
   /**
@@ -480,8 +500,36 @@ export function getInitialState() {
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
+    collapsedChatRows: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
+}
+
+/** The four sets `sidebar-ui` holds; every one of them a fold-away list. */
+type CollapseSets = Pick<
+  SidebarState,
+  'collapsedRepos' | 'collapsedWorkspaces' | 'collapsedProjects' | 'collapsedChatRows'
+>
+
+/**
+ * Apply one collapse change and write the WHOLE record.
+ *
+ * One writer for all four sets, so a toggle can never persist its own list over
+ * a record whose other three it forgot to carry — which four independent call
+ * sites assembling the same four arrays is one edit away from at any time.
+ */
+function persist<K extends keyof CollapseSets>(
+  state: CollapseSets,
+  change: Pick<CollapseSets, K>,
+): Pick<CollapseSets, K> {
+  const next = { ...state, ...change }
+  void saveSidebarUI({
+    collapsedRepos: [...next.collapsedRepos],
+    collapsedWorkspaces: [...next.collapsedWorkspaces],
+    collapsedProjects: [...next.collapsedProjects],
+    collapsedChatRows: [...next.collapsedChatRows],
+  })
+  return change
 }
 
 export const useSidebarStore = create<SidebarState>()((set) => ({
@@ -611,24 +659,36 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set((s) => {
       const next = new Set(s.collapsedRepos)
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
-      void saveSidebarUI([...next], [...s.collapsedWorkspaces], [...s.collapsedProjects])
-      return { collapsedRepos: next }
+      return persist(s, { collapsedRepos: next })
     }),
 
   toggleWorkspace: (wsId) =>
     set((s) => {
       const next = new Set(s.collapsedWorkspaces)
       next.has(wsId) ? next.delete(wsId) : next.add(wsId)
-      void saveSidebarUI([...s.collapsedRepos], [...next], [...s.collapsedProjects])
-      return { collapsedWorkspaces: next }
+      return persist(s, { collapsedWorkspaces: next })
     }),
 
   toggleProject: (projectId) =>
     set((s) => {
       const next = new Set(s.collapsedProjects)
       next.has(projectId) ? next.delete(projectId) : next.add(projectId)
-      void saveSidebarUI([...s.collapsedRepos], [...s.collapsedWorkspaces], [...next])
-      return { collapsedProjects: next }
+      return persist(s, { collapsedProjects: next })
+    }),
+
+  toggleChatRow: (rowId) =>
+    set((s) => {
+      const next = new Set(s.collapsedChatRows)
+      next.has(rowId) ? next.delete(rowId) : next.add(rowId)
+      return persist(s, { collapsedChatRows: next })
+    }),
+
+  openChatRow: (rowId) =>
+    set((s) => {
+      if (!s.collapsedChatRows.has(rowId)) return s
+      const next = new Set(s.collapsedChatRows)
+      next.delete(rowId)
+      return persist(s, { collapsedChatRows: next })
     }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),
