@@ -1,21 +1,28 @@
+import { SIDEBAR_DROP_POLICY, type DragSubject, type DropKind, type DropMode } from './drop-rules'
 import {
-  allowedModes,
-  resolveDropMode,
-  type DragSubject,
-  type DropKind,
-  type DropMode,
-  type DropTarget,
-} from './drop-rules'
+  createDropHitTest,
+  createDropRowDom,
+  type DropRowSpec,
+  type RowHit,
+} from '@/components/tree-dnd/drop-dom'
+import {
+  dragSubjectsFor as coreDragSubjectsFor,
+  sameDrop as coreSameDrop,
+} from '@/components/tree-dnd/drop-core'
 import type { DropLineRect } from './drop-indicator'
 
 /**
- * The DOM half of drag and drop: what a row publishes about itself, and what a
- * pointer position resolves to.
+ * The sidebar's row table, and the hit test bound to it.
  *
- * Every fact the drop matrix needs rides on the row element itself rather than
- * being looked up in a store at pointer rate. A hit test is then one
- * `elementsFromPoint`, one `getAttribute` sweep and one rect — no tree walk, no
- * store read, nothing that scales with how many workspaces you have.
+ * The mechanics — publish these attributes, read them back, resolve a pointer
+ * against the matrix — are `tree-dnd/drop-dom.ts` and are the same for any tree.
+ * What is here is only the sidebar's half: which attribute names its rows carry,
+ * and that a drop on the editor pane means removal.
+ *
+ * The attribute names are the tree's identity. A second tree publishes its own
+ * and is therefore invisible to this hit test and this one invisible to it, so
+ * two trees can be on screen at once without either having to know the other
+ * exists.
  */
 
 /** The attribute that marks a row droppable, one per movable class. */
@@ -26,14 +33,16 @@ export const DROP_KIND_ATTR: Record<DropKind, string> = {
   project: 'data-project-drop',
 }
 
-const DROP_KINDS = Object.keys(DROP_KIND_ATTR) as DropKind[]
-
-const REPO_ATTR = 'data-drop-repo'
-const PARENT_ATTR = 'data-drop-parent'
-const EXPANDED_ATTR = 'data-drop-expanded'
-const CHILDREN_ATTR = 'data-drop-children'
-const LOCKED_ATTR = 'data-drop-locked'
-const LABEL_ATTR = 'data-row-label'
+export const SIDEBAR_ROW_SPEC: DropRowSpec = {
+  kinds: DROP_KIND_ATTR,
+  parentAttr: 'data-drop-parent',
+  strings: { repoId: 'data-drop-repo', label: 'data-row-label' },
+  flags: {
+    locked: 'data-drop-locked',
+    expanded: 'data-drop-expanded',
+    hasChildren: 'data-drop-children',
+  },
+}
 
 /**
  * The editor pane, published as a drop target.
@@ -42,6 +51,9 @@ const LABEL_ATTR = 'data-row-label'
  * no rect — it is one flag, read by the same hit test every row goes through.
  */
 export const PANE_DROP_ATTR = 'data-pane-drop'
+
+/** What the multiselection declares itself as, and what a drag reads back. */
+const SELECTED_SELECTOR = '[aria-selected="true"]'
 
 /**
  * A row, as both a drag subject and a drop target — the same handful of facts
@@ -84,6 +96,17 @@ export interface ResolvedDrop extends DropRow {
  */
 export type DropHit = { kind: 'pane' } | { kind: 'row'; row: ResolvedDrop; rect: DropLineRect }
 
+const rows = createDropRowDom<DropRow>(SIDEBAR_ROW_SPEC)
+
+const hitTest = createDropHitTest<DragSubject, DropRow, { kind: 'pane' }>(
+  rows,
+  SIDEBAR_DROP_POLICY,
+  {
+    attr: PANE_DROP_ATTR,
+    hit: (subjects) => (isRemovableByDrag(subjects) ? { kind: 'pane' } : null),
+  },
+)
+
 /**
  * The attributes a droppable row spreads onto its own element.
  *
@@ -91,60 +114,33 @@ export type DropHit = { kind: 'pane' } | { kind: 'row'; row: ResolvedDrop; rect:
  * neither locked nor expanded carries no attribute at all.
  */
 export function dropRowProps(row: DropRow): Record<string, string | undefined> {
-  return {
-    [DROP_KIND_ATTR[row.kind]]: row.id,
-    [REPO_ATTR]: row.repoId,
-    [PARENT_ATTR]: row.parentId ?? '',
-    [LABEL_ATTR]: row.label,
-    [EXPANDED_ATTR]: row.expanded ? '' : undefined,
-    [CHILDREN_ATTR]: row.hasChildren ? '' : undefined,
-    [LOCKED_ATTR]: row.locked ? '' : undefined,
-  }
+  return rows.props(row)
 }
 
 /** Read back what {@link dropRowProps} wrote, or null if this is not a row. */
 export function readDropRow(el: Element): DropRow | null {
-  for (const kind of DROP_KINDS) {
-    const id = el.getAttribute(DROP_KIND_ATTR[kind])
-    if (id === null) continue
-    return {
-      kind,
-      id,
-      repoId: el.getAttribute(REPO_ATTR) ?? undefined,
-      parentId: el.getAttribute(PARENT_ATTR) ?? '',
-      label: el.getAttribute(LABEL_ATTR) ?? undefined,
-      locked: el.hasAttribute(LOCKED_ATTR),
-      expanded: el.hasAttribute(EXPANDED_ATTR),
-      hasChildren: el.hasAttribute(CHILDREN_ATTR),
-    }
-  }
-  return null
+  return rows.read(el)
+}
+
+/** Every sidebar row matching `selector`, top to bottom as they are drawn. */
+export function readDropRows(selector: string, root: ParentNode = document): DropRow[] {
+  return rows.readAll(selector, root)
+}
+
+/** The live row element for a subject, for cloning it into the drag ghost. */
+export function rowElementFor(
+  subject: DragSubject,
+  root: ParentNode = document,
+): HTMLElement | null {
+  return rows.elementFor(subject, root)
 }
 
 /**
  * What a pointer at (x, y) would drop onto, with the before/after/into decision
  * already made.
- *
- * The topmost row under the pointer is the answer whether or not it accepts the
- * drag: a refusal returns null rather than falling through to whatever sits
- * behind it, because "this row says no" is the honest reading and drawing an
- * indicator on some ancestor would be the indicator lying.
  */
 export function findDrop(x: number, y: number, subjects: readonly DragSubject[]): DropHit | null {
-  for (const el of document.elementsFromPoint(x, y)) {
-    if (el.hasAttribute(PANE_DROP_ATTR)) {
-      return isRemovableByDrag(subjects) ? { kind: 'pane' } : null
-    }
-    const row = readDropRow(el)
-    if (!row) continue
-    const allowed = allowedModes(subjects as DragSubject[], row as DropTarget)
-    if (!allowed.before && !allowed.after && !allowed.into) return null
-    const rect = el.getBoundingClientRect()
-    if (rect.height <= 0) return null
-    const mode = resolveDropMode((y - rect.top) / rect.height, row as DropTarget, allowed)
-    return mode === null ? null : { kind: 'row', row: { ...row, mode }, rect }
-  }
-  return null
+  return hitTest(x, y, subjects)
 }
 
 /**
@@ -165,26 +161,6 @@ export function isRemovableByDrag(subjects: readonly DragSubject[]): boolean {
   return subjects.length > 0 && subjects.every((s) => !s.locked)
 }
 
-/** Whether two resolved drops would draw and commit the same thing. */
-export function sameDrop(a: ResolvedDrop | null, b: ResolvedDrop | null): boolean {
-  if (a === null || b === null) return a === b
-  return a.id === b.id && a.kind === b.kind && a.mode === b.mode
-}
-
-/**
- * The rows a drag carries.
- *
- * Grabbing a row that is part of the selection moves the whole selection;
- * grabbing one outside it moves that row alone and leaves the selection be —
- * pressing on an unselected row is not a way to extend a selection.
- */
-export function dragSubjectsFor(
-  grabbed: DragSubject,
-  selection: readonly DragSubject[],
-): DragSubject[] {
-  return selection.some((s) => s.id === grabbed.id) ? [...selection] : [grabbed]
-}
-
 /**
  * The multiselected rows, read off the tree.
  *
@@ -193,18 +169,31 @@ export function dragSubjectsFor(
  * structure that can disagree.
  */
 export function readSelectedSubjects(root: ParentNode = document): DragSubject[] {
-  const out: DragSubject[] = []
-  for (const el of root.querySelectorAll('[aria-selected="true"]')) {
-    const row = readDropRow(el)
-    if (row) out.push(row)
-  }
-  return out
+  return rows.readAll(SELECTED_SELECTOR, root)
 }
 
-/** The live row element for a subject, for cloning it into the drag ghost. */
-export function rowElementFor(
-  subject: DragSubject,
-  root: ParentNode = document,
-): HTMLElement | null {
-  return root.querySelector<HTMLElement>(`[${DROP_KIND_ATTR[subject.kind]}="${subject.id}"]`)
+/**
+ * The rows a drag carries.
+ *
+ * Grabbing a row that is part of the selection moves the whole selection;
+ * grabbing one outside it moves that row alone and leaves the selection be —
+ * pressing on an unselected row is not a way to extend a selection.
+ *
+ * Pinned to the sidebar's own types rather than re-exported generic: the two
+ * callers hand it a `DropRow` read off the DOM and a `DragSubject[]` read off
+ * the selection, and inference across those two would widen the result to a
+ * union nothing downstream accepts.
+ */
+export function dragSubjectsFor(
+  grabbed: DragSubject,
+  selection: readonly DragSubject[],
+): DragSubject[] {
+  return coreDragSubjectsFor(grabbed, selection)
 }
+
+/** Whether two resolved drops would draw and commit the same thing. */
+export function sameDrop(a: ResolvedDrop | null, b: ResolvedDrop | null): boolean {
+  return coreSameDrop(a, b)
+}
+
+export type { RowHit }

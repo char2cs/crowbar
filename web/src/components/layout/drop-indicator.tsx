@@ -1,7 +1,7 @@
 import { forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import type { DropMode } from './drop-rules'
+import type { DropMode, RowRect } from '@/components/tree-dnd/drop-core'
 
 /**
  * The reorder signal: a 2px hairline with a circle end-cap, marking the slot a
@@ -61,13 +61,14 @@ export interface DropLineBox {
   width: number
 }
 
-/** The rect of a row, as the line needs to read it. */
-export interface DropLineRect {
-  top: number
-  bottom: number
-  left: number
-  width: number
-}
+/**
+ * The rect of a row, as the line needs to read it.
+ *
+ * The shared hit test already measured exactly this to make its decision, so
+ * the two are one type rather than two identical ones that could drift — the
+ * indicator is drawn from the same numbers the decision was made from.
+ */
+export type DropLineRect = RowRect
 
 /**
  * Place the line against the row a drop would land beside.
