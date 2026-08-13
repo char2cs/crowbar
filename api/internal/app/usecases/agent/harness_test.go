@@ -337,6 +337,20 @@ type fakeChatStore struct {
 	failGetChat   error
 	failCreate    error
 	failListChats error
+	// staleProjection makes GetChat — the READ-MODEL read — answer with the
+	// placement every chat had before it was placed anywhere, while LoadChat (the
+	// event-log fold, reached through the embedded store) keeps answering
+	// correctly.
+	//
+	// It models the real daemon's ordinary state rather than a broken one:
+	// SetPlacement is deliberately on the async Send path, so between that write
+	// returning and its projection folding, the read model genuinely serves the old
+	// parent. Live, that window is microseconds wide and a test racing it passes
+	// half the time — which is how a spawn that decided on projected state, and
+	// therefore threaded nothing, survived a suite. Forcing the window open turns
+	// the property into one a test can actually hold: whatever the projection says,
+	// a decision about placement must not come from it.
+	staleProjection bool
 
 	mu           sync.Mutex
 	abandonedIDs []string
@@ -372,7 +386,12 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentCha
 	if s.failGetChat != nil {
 		return domain.AgentChat{}, s.failGetChat
 	}
-	return s.EventStore.GetChat(ctx, id)
+	chat, err := s.EventStore.GetChat(ctx, id)
+	if err != nil || !s.staleProjection {
+		return chat, err
+	}
+	chat.ParentID = ""
+	return chat, nil
 }
 
 func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.AgentChat, error) {

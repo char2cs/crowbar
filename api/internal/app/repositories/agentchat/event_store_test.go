@@ -347,3 +347,83 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string, string, bool) {})
 	require.Error(t, err)
 }
+
+// TestLoadChat_AnswersWhileTheProjectionIsStillBehind pins the one property
+// LoadChat exists for, and pins it as a PROPERTY rather than as a race.
+//
+// SetPlacement is deliberately on the async Send path (a single drag renumbers a
+// whole level, and blocking each write on its projection would serialise the drag
+// behind the read model). So between that write returning and the projection
+// folding, agent_chats_read genuinely still holds the placement the chat had
+// BEFORE — and that window is exactly when a create asks what the new chat
+// inherits, microseconds later.
+//
+// Live, the window is too narrow to test against: a spawn that resolved placement
+// from the read model, and therefore threaded nothing, passed about half the time
+// and survived a suite that way. So the window is held open here instead of raced,
+// by writing the pre-placement row back over the folded one. That is not a broken
+// state being simulated — it is the ordinary state of this table for a moment
+// after every placement, made to stand still long enough to assert against.
+func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
+	ctx, repo, db, _ := newRepoWithDeps(t)
+
+	_, err := repo.Create(ctx, agentchat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, agentchat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Now: time.Now()})
+	require.NoError(t, err)
+	agentchat.WaitQuiescentForTest(repo)
+
+	// The read-model row as it stands BEFORE the placement: the exact bytes the
+	// projection serves during the window.
+	var unplaced []byte
+	require.NoError(t,
+		db.Raw("SELECT data FROM agent_chats_read WHERE id = ?", "c2").Row().Scan(&unplaced))
+
+	_, err = repo.SetPlacement(ctx, "c2", "c1", 0)
+	require.NoError(t, err)
+	agentchat.WaitQuiescentForTest(repo)
+	require.NoError(t,
+		db.Exec("UPDATE agent_chats_read SET data = ? WHERE id = ?", unplaced, "c2").Error)
+
+	projected, err := repo.GetChat(ctx, "c2")
+	require.NoError(t, err)
+	require.Empty(t, projected.ParentID,
+		"the fixture only means anything while the read model is behind — this is that state")
+
+	loaded, err := repo.LoadChat(ctx, "c2")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", loaded.ParentID,
+		"LoadChat folds from the event log, so a decision taken on it is never one taken on a stale projection")
+	assert.Equal(t, 0, loaded.Order)
+}
+
+// A miss arrives as this package's own sentinel whichever read served it, so no
+// caller has to know that one folds from the log and the other reads a table.
+func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
+	ctx, repo, _, _ := newRepoWithDeps(t)
+
+	_, err := repo.LoadChat(ctx, "no-such-chat")
+	assert.ErrorIs(t, err, agentchat.ErrNotFound)
+}
+
+// A read that FAILS is not a read that missed. Both paths funnel through the
+// same not-found mapping, and a failure mapped to ErrNotFound would surface as a
+// 404 — telling a user their chat no longer exists because a database was
+// briefly unreadable, and inviting every caller to act on a deletion that never
+// happened.
+func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
+	ctx, repo, db, _ := newRepoWithDeps(t)
+
+	_, err := repo.Create(ctx, agentchat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	require.NoError(t, err)
+	agentchat.WaitQuiescentForTest(repo)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.GetChat(ctx, "c1")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, agentchat.ErrNotFound,
+		"a chat that cannot be READ is not a chat that is gone")
+}

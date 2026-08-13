@@ -362,3 +362,35 @@ func TestNoteThreadLineage_SurfacesAnUnreadableLedger(t *testing.T) {
 
 	require.Error(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}))
 }
+
+// The same regression one layer up, through the REAL spawn: a chat that is
+// already placed must have its lineage injected even while the read model still
+// reports it unplaced.
+//
+// The projection is forced stale rather than raced. Live, the window between a
+// placement being written and its projection folding is microseconds wide, so a
+// test that merely places and spawns passes about half the time — which is how a
+// spawn that resolved lineage from the read model, and therefore threaded
+// nothing, survived a whole suite. Holding the window open makes the property
+// testable at all: a spawn must not decide what a chat inherits on projected
+// state, whatever the projection happens to say.
+func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) {
+	f, chatStore, _ := newFaultFixture(t)
+
+	parentID, _ := f.spawn(t, "claude")
+	threadID, err := f.usecase.MintChat(f.ctx, "ws1")
+	require.NoError(t, err)
+	f.wait()
+	thread(t, f, threadID, parentID)
+
+	// Everything the projection could have folded, it has. What it reports from
+	// here is a deliberate lie, and the only truthful source left is the log.
+	chatStore.staleProjection = true
+
+	_, err = f.usecase.StartRunner(f.ctx, threadID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	assert.Contains(t, injectedContext(t, f, 1), lineageBlock(parentID),
+		"the spawn must resolve placement from the event log, never from the projection it just outran")
+}

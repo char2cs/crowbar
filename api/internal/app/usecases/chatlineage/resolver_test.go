@@ -14,9 +14,10 @@ import (
 
 const workspaceID = "ws-1"
 
-// stubChats is the chat read port with the two reads answered independently, so
-// a test can make them DISAGREE — which is the state the read model is really in
-// for a moment after every placement write.
+// stubChats is the chat read port with its two reads answered independently, so
+// a test can make them DISAGREE — which is the state the daemon is really in for
+// a moment after every placement write: the log fold (LoadChat) already has the
+// new parent while the projection the list serves has not folded it yet.
 type stubChats struct {
 	keyed  map[string]domain.AgentChat
 	listed []domain.AgentChat
@@ -25,7 +26,7 @@ type stubChats struct {
 	lists  int
 }
 
-func (s *stubChats) GetChat(
+func (s *stubChats) LoadChat(
 	_ context.Context,
 	id string,
 ) (domain.AgentChat, error) {
@@ -157,22 +158,29 @@ func TestAncestors_AChatFiledInARootFolderInheritsNothing(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// The list is a projection and the keyed read is not. A chat placed a moment ago
-// can still be LISTED at its old placement, and the answer must come from the
-// read that cannot be stale — otherwise the first spawn after a drag resolves the
-// lineage the chat had before it.
-func TestAncestors_ThePlacementComesFromTheKeyedReadNotTheStaleList(t *testing.T) {
-	fresh := chat("c2", "c1")
-	stale := chat("c2", "")
+// The list is a projection and the log fold is not, and the subject is the row
+// that must never be taken from the projection: it is the one the operation
+// asking the question just WROTE. A chat placed a moment ago is still LISTED at
+// its old placement, so a create — which asks microseconds after placing — reads
+// "no parent" and inherits nothing.
+//
+// The early exit is where that bites, because it is the branch that decides on
+// this field ALONE and returns before the walk that would have compensated ever
+// runs. So the list here is maximally wrong about the subject and the answer must
+// still be right.
+func TestAncestors_ThePlacementComesFromTheLogFoldNotTheStaleList(t *testing.T) {
+	placed := chat("c2", "c1")
+	unplaced := chat("c2", "")
 	cs := &stubChats{
-		keyed:  map[string]domain.AgentChat{"c1": chat("c1", ""), "c2": fresh},
-		listed: []domain.AgentChat{chat("c1", ""), stale},
+		keyed:  map[string]domain.AgentChat{"c1": chat("c1", ""), "c2": placed},
+		listed: []domain.AgentChat{chat("c1", ""), unplaced},
 	}
 	resolver := chatlineage.New(&stubFolders{}, cs)
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"c1"}, got)
+	assert.Equal(t, []string{"c1"}, got,
+		"a placement decision taken on the projection is wrong exactly when it is asked: right after the write")
 }
 
 func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {

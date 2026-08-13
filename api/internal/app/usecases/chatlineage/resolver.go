@@ -34,7 +34,16 @@ func New(
 // filtered out. Empty for a chat at the panel root and for one filed in a folder
 // — neither inherits anything.
 //
-// A chat with no parent at all costs ONE keyed read and no table scans. That
+// The subject is read through LoadChat, which folds it from the event log. That
+// is not interchangeable with the projected read, and the early exit below is
+// exactly why: it DECIDES, on this one field, that there is no lineage and that
+// none of the reads underneath it are worth doing. Taken on projected state that
+// decision is wrong precisely when it matters — straight after the placement was
+// written, which is when a create asks — and it returns before the walk that
+// would have compensated ever runs. A guard positioned behind an early exit that
+// consults the same stale value is not a guard.
+//
+// A chat with no parent at all costs ONE log fold and no table scans. That
 // matters because this runs on every spawn and nearly every chat is such a chat:
 // the price of the feature must be paid by the threads that use it, not by every
 // chat in the daemon.
@@ -42,7 +51,7 @@ func (r *Resolver) Ancestors(
 	ctx context.Context,
 	chatID string,
 ) ([]string, error) {
-	chat, err := r.chats.GetChat(ctx, chatID)
+	chat, err := r.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("chat lineage: chat %s: %w", chatID, err)
 	}
@@ -66,8 +75,8 @@ func (r *Resolver) Ancestors(
 //
 // The subject chat is stamped in LAST, over whatever the list said about it. The
 // list is a projection and can still be serving the placement this chat had
-// before the move that prompted the question; the keyed read that reached this
-// function cannot. Seeding it first would let a stale row overwrite the one
+// before the move that prompted the question; the log-folded chat that reached
+// this function cannot. Seeding it first would let a stale row overwrite the one
 // authoritative answer in the whole map.
 func (r *Resolver) lookups(
 	ctx context.Context,
