@@ -134,6 +134,7 @@ import {
   useRemovalTrayStore,
   type RemovalEntry,
 } from '@/lib/store/sidebar-removal'
+import { useSidebarStore } from '@/lib/store/sidebar'
 import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
 
 // ── Fixtures / helpers ──────────────────────────────────────────────
@@ -480,6 +481,10 @@ beforeEach(() => {
   // The tray is a GLOBAL store shared with the workspace sidebar; a row left
   // held by one test would hide it in the next.
   useRemovalTrayStore.setState(getInitialRemovalState())
+  // Folded rows are a GLOBAL store too, and deliberately so — they outlive the
+  // workspace switch that remounts this panel. A row left folded by one test
+  // would start the next one folded.
+  useSidebarStore.setState({ collapsedChatRows: new Set<string>() })
   createChatFn.mockReset().mockResolvedValue('c-new')
   deleteChatFn.mockReset().mockResolvedValue(undefined)
   renameChatFn.mockReset().mockResolvedValue(undefined)
@@ -693,6 +698,61 @@ describe('AgentChatsPanel', () => {
     expect(rowIds()).toEqual(['p1'])
     fireEvent.click(screen.getAllByRole('button', { name: /expand/i })[0])
     expect(rowIds()).toEqual(['p1', 't1', 't2', 't2a'])
+  })
+
+  // Reported after the tree shipped: every folded folder sprang open on the way
+  // back to a workspace. The panel is keyed by workspace id, so the switch
+  // remounts it — and what the user had folded lived in component state, which
+  // the remount threw away. The fold now outlives the panel.
+  it('keeps folded rows folded across a workspace switch and back', () => {
+    seed(
+      [CHAT_1, chat('cf', 'Filed', 'claude', '2026-01-05T00:00:00Z', { parentId: 'f1' })],
+      [folder('f1', 'Spikes')],
+    )
+    seed(
+      [chat('h1', 'Home chat', 'claude', '2026-03-01T00:00:00Z', { workspaceId: 'hw1' })],
+      [],
+      'hw1',
+    )
+    render(<Shell />)
+    expect(rowIds()).toEqual(['f1', 'cf', 'c1'])
+
+    fireEvent.click(screen.getAllByRole('button', { name: /collapse/i })[0])
+    expect(rowIds()).toEqual(['f1', 'c1'])
+
+    activate('hw1')
+    expect(rowIds()).toEqual(['h1'])
+
+    activate('w1')
+    expect(rowIds()).toEqual(['f1', 'c1'])
+    // And it is still a FOLD, not a row that lost its control: it opens again.
+    fireEvent.click(screen.getAllByRole('button', { name: /expand/i })[0])
+    expect(rowIds()).toEqual(['f1', 'cf', 'c1'])
+  })
+
+  // The other half of the keyed remount: a fold survives it, a SELECTION must
+  // not. Asserted here because both now hang off the same switch.
+  it('drops the selection across a workspace switch even though the fold survives', () => {
+    seed(
+      [CHAT_1, chat('cf', 'Filed', 'claude', '2026-01-05T00:00:00Z', { parentId: 'f1' })],
+      [folder('f1', 'Spikes')],
+    )
+    seed(
+      [chat('h1', 'Home chat', 'claude', '2026-03-01T00:00:00Z', { workspaceId: 'hw1' })],
+      [],
+      'hw1',
+    )
+    render(<Shell />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /collapse/i })[0])
+    fireEvent.click(rowFor('c1'), { metaKey: true })
+    expect(rowFor('c1').getAttribute('aria-selected')).toBe('true')
+
+    activate('hw1')
+    activate('w1')
+
+    expect(rowIds()).toEqual(['f1', 'c1'])
+    expect(rowFor('c1').getAttribute('aria-selected')).toBe('false')
   })
 
   it('renders a folder’s contents under it, and folders sort above chats at the same order', () => {
