@@ -203,11 +203,60 @@ func newBareSession(
 // spawnParams carries exactly one of the two birth modes (§9.1): create (Blob == nil,
 // size+scrollback from Cols/Rows/ScrollbackLines) or restore (Blob != nil, size+scrollback
 // parsed from the blob's CRWB1 header, the rest ignored).
+//
+// ThemeBg/ThemeFg are orthogonal to that choice and apply to both: they are the host
+// terminal's default colours, seeded via WithTheme.
 type spawnParams struct {
 	Cols            int
 	Rows            int
 	ScrollbackLines int
 	Blob            []byte
+	ThemeBg         color.Color
+	ThemeFg         color.Color
+}
+
+// Option customises a session's birth. It exists so the host theme can be threaded into
+// the three constructors without every call site that has no theme to give (every test,
+// and any future backend) having to pass a pair of nils.
+type Option func(*spawnParams)
+
+// WithTheme seeds the host terminal's default background/foreground — the colours an
+// OSC 10/11 QUERY answers with — into the session's model AT BIRTH, before the io pump
+// goroutine exists to feed it a single byte.
+//
+// That ordering is the whole point, and it is why this is a constructor option rather than
+// a post-construction call. A vendor CLI that detects light/dark by querying the background
+// (codex 0.146.0, Claude Code's `auto`) asks within milliseconds of exec, and Session.SetTheme
+// cannot beat it: the process is already running by the time any caller holds the *Session.
+// Seeding here closes the window by construction instead of narrowing it — the model is
+// already answering with the truth before it can be asked.
+//
+// A nil channel is a no-op for that channel, matching model.SetDefaultColors: an unknown
+// host theme must leave the emulator's own default in place, never reset it.
+func WithTheme(
+	bg color.Color,
+	fg color.Color,
+) Option {
+	return func(p *spawnParams) {
+		p.ThemeBg, p.ThemeFg = bg, fg
+	}
+}
+
+// applyBirthTheme installs the host's default colours on a freshly built model. Called from
+// spawn/spawnCmd between newModel and `go s.pump()`, so no PTY byte — and therefore no query
+// — can have reached the model yet. Guarded like every other optional-interface access
+// (ModelHealth, ThemeAware in Session.SetTheme): a backend or test model that implements
+// neither simply keeps its own defaults.
+func applyBirthTheme(
+	m model.TerminalModel,
+	p spawnParams,
+) {
+	if m == nil || (p.ThemeBg == nil && p.ThemeFg == nil) {
+		return
+	}
+	if ta, ok := m.(model.ThemeAware); ok {
+		ta.SetDefaultColors(p.ThemeBg, p.ThemeFg)
+	}
 }
 
 // New spawns a PTY subprocess at cols×rows, builds the screen model at that size and the
@@ -223,9 +272,14 @@ func New(
 	cols int,
 	rows int,
 	scrollbackLines int,
+	opts ...Option,
 ) (*Session, error) {
 	s := newBareSession(id, shell, cwd, profileID)
-	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
+	p := spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}
+	for _, o := range opts {
+		o(&p)
+	}
+	if err := s.spawn(env, p); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -242,9 +296,14 @@ func NewRestored(
 	profileID string,
 	env []string,
 	rawBlob []byte,
+	opts ...Option,
 ) (*Session, error) {
 	s := newBareSession(id, shell, cwd, profileID)
-	if err := s.spawn(env, spawnParams{Blob: rawBlob}); err != nil {
+	p := spawnParams{Blob: rawBlob}
+	for _, o := range opts {
+		o(&p)
+	}
+	if err := s.spawn(env, p); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -292,6 +351,7 @@ func (s *Session) spawn(
 	if len(redraw) > 0 {
 		m.Write(redraw)
 	}
+	applyBirthTheme(m, p)
 
 	s.ptmx = ptmx
 	s.cmd = cmd
@@ -317,13 +377,18 @@ func NewCommand(
 	cols int,
 	rows int,
 	scrollbackLines int,
+	opts ...Option,
 ) (*Session, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("session: NewCommand requires non-empty argv")
 	}
 	s := newBareSession(id, strings.Join(argv, " "), cwd, "")
 	s.command = true
-	if err := s.spawnCmd(argv, env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
+	p := spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}
+	for _, o := range opts {
+		o(&p)
+	}
+	if err := s.spawnCmd(argv, env, p); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -347,6 +412,7 @@ func (s *Session) spawnCmd(argv []string, env []string, p spawnParams) error {
 	if len(redraw) > 0 {
 		m.Write(redraw)
 	}
+	applyBirthTheme(m, p)
 	s.ptmx = ptmx
 	s.cmd = cmd
 	s.model = m

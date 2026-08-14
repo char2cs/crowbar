@@ -37,6 +37,11 @@ func Register(
 	wsScoped.DELETE("/terminals/:sessionId", h.KillSession)
 	wsScoped.GET("/terminals/:sessionId/ws", h.WS)
 
+	// The host terminal theme is a single global truth (one Crowbar window, one theme), so
+	// it mounts on settingsRG beside the profiles rather than under a workspace: it is
+	// pushed BEFORE any session exists, which is the entire point — see Handlers.SetHostTheme.
+	settingsRG.PUT("/settings/terminal/theme", h.SetHostTheme)
+
 	settingsRG.GET("/settings/terminal/profiles", h.ListProfiles)
 	settingsRG.GET("/settings/terminal/profiles/:id", h.GetProfile)
 	settingsRG.POST("/settings/terminal/profiles", h.CreateProfile)

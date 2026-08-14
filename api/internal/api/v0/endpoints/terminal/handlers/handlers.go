@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"image/color"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -41,6 +42,14 @@ type TerminalEngine interface {
 	// StateOf returns the current lifecycle state ("active", "detached",
 	// "suspended") for the given session and true; ("", false) if not found.
 	StateOf(sessionID string) (string, bool)
+	// SetHostTheme records the host terminal's default colours as the OSC 10/11 query
+	// answers every subsequently spawned session is BORN with — the half of theme
+	// propagation the per-session push cannot reach, since the process is already
+	// running before any client attaches.
+	SetHostTheme(
+		bg color.Color,
+		fg color.Color,
+	)
 }
 
 // TerminalBroadcaster receives terminal-session lifecycle DTOs so the v0

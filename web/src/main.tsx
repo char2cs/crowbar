@@ -10,6 +10,7 @@ import { routeTree } from './routeTree.gen'
 import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
+import { startHostThemeSync } from '@/features/terminal/lib/host-theme'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
 import { initViewStoreSubscription } from '@/features/editor/stores/view-store'
@@ -36,6 +37,15 @@ if (import.meta.hot) {
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
 ensureStartupAppearanceApplied()
+
+// Tell the daemon the host terminal's colours, and keep telling it on every theme change.
+// This must happen at BOOT rather than when a terminal opens: the daemon seeds these into
+// each PTY it spawns, and an agentic CLI that detects light/dark by querying the background
+// (codex has no DEC 2031 fallback) has already asked by the time any client can attach.
+const stopHostThemeSync = startHostThemeSync()
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopHostThemeSync())
+}
 
 // Register all built-in icon themes with the registry before React renders
 // so the icon theme dropdown in settings is populated when first opened

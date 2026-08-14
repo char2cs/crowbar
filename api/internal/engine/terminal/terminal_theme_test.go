@@ -33,9 +33,9 @@ func TestParseHexColor(t *testing.T) {
 		{"#gggggg", 0, 0, 0, false},
 	}
 	for _, tc := range cases {
-		r, g, b, ok := rgb8(parseHexColor(tc.in))
+		r, g, b, ok := rgb8(ParseHexColor(tc.in))
 		if ok != tc.ok || (ok && (r != tc.r || g != tc.g || b != tc.b)) {
-			t.Errorf("parseHexColor(%q) = (%d,%d,%d ok=%v), want (%d,%d,%d ok=%v)",
+			t.Errorf("ParseHexColor(%q) = (%d,%d,%d ok=%v), want (%d,%d,%d ok=%v)",
 				tc.in, r, g, b, ok, tc.r, tc.g, tc.b, tc.ok)
 		}
 	}
