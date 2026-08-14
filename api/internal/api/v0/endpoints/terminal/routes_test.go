@@ -2,6 +2,7 @@ package terminal_test
 
 import (
 	"context"
+	"image/color"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,6 +64,11 @@ func (stubEngine) ListSessionsForWorkspace(
 ) []string {
 	return nil
 }
+
+// SetHostTheme is a no-op here: the host theme's behaviour is covered where it has an
+// observable effect (a session's OSC 11 answer at birth, in the terminal engine's own
+// tests) and at the endpoint, by the recording engine in hosttheme_test.go.
+func (stubEngine) SetHostTheme(_ color.Color, _ color.Color) {}
 
 func (stubEngine) StateOf(_ string) (string, bool) {
 	return "active", true

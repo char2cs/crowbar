@@ -298,6 +298,13 @@ func extraRoutes() []string {
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
 		// counterpart of the workspace-scoped enriched GET .../agent/providers.
 		"PUT /v0/settings/agent/providers",
+		// The host terminal's light/dark colours, and a GLOBAL setting for the same
+		// reason: one Crowbar window renders every session, so there is one theme, and
+		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
+		// at birth so a CLI that detects its theme by querying the background (OSC 10/11)
+		// reads the truth on its first frame — the per-session push cannot cover that,
+		// since the process is already running by the time a client can attach.
+		"PUT /v0/settings/terminal/theme",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home

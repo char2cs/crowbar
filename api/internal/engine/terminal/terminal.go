@@ -104,12 +104,15 @@ func DefaultLocaleForTest(
 	return defaultLocale(base, goos)
 }
 
-// parseHexColor converts the frontend's resolved CSS colour ("#rgb", "#rrggbb", or
+// ParseHexColor converts the frontend's resolved CSS colour ("#rgb", "#rrggbb", or
 // "#rrggbbaa" — the form resolve-css-color.ts emits) into a color.Color, or nil when the
 // string is empty/unparseable. Alpha is dropped: the value feeds an OSC 11/10 default-colour
-// report, which is RGB-only. A nil result is a safe no-op downstream — Session.SetTheme →
-// model.SetDefaultColors leaves a nil channel unchanged rather than resetting it.
-func parseHexColor(s string) color.Color {
+// report, which is RGB-only. A nil result is a safe no-op downstream — Session.SetTheme and
+// SetHostTheme both leave a nil channel unchanged rather than resetting it.
+//
+// Exported because the hex string is the wire form on BOTH theme channels: the per-session
+// WS frame handled below, and the host-theme REST push the API layer serves.
+func ParseHexColor(s string) color.Color {
 	if len(s) == 0 || s[0] != '#' {
 		return nil
 	}
@@ -241,6 +244,15 @@ type Engine interface {
 		sessionID string,
 	) error
 
+	// SetHostTheme records the host terminal's default background/foreground colours, which
+	// every session born afterwards answers an OSC 10/11 query with from the moment it
+	// exists. See the implementation for why this is separate from the per-session
+	// Session.SetTheme push.
+	SetHostTheme(
+		bg color.Color,
+		fg color.Color,
+	)
+
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
 
@@ -371,6 +383,21 @@ type terminalEngine struct {
 	// outlive the running process, not just an idle-detach.
 	cmdCleanups sync.Map // map[string]func()
 
+	// themeMu guards the host theme below. It is deliberately NOT e.mu: the host theme is
+	// read on the session-birth path (spawn/CreateCommand), and e.mu is held across
+	// callback dispatch — sharing it would put a lock used by every PTY birth behind
+	// unrelated notification work.
+	themeMu sync.RWMutex
+	// themeBg/themeFg are the HOST TERMINAL's default colours — the single light/dark
+	// truth shared by every session in the Crowbar window, not per-session state. They are
+	// held here, on the engine, because they must be known BEFORE a session exists: a
+	// vendor CLI is already running by the time CreateCommand returns an id, and one that
+	// detects its theme by querying the background does so within milliseconds of exec.
+	//
+	// Nil (never pushed) means "unknown", and unknown must stay unknown: the seed is
+	// skipped and the emulator keeps its own default, so nothing here can invent a colour.
+	themeBg, themeFg color.Color
+
 	// reaps tracks the reapOnDone goroutines so Shutdown can JOIN them: every exit
 	// callback the engine still owes has RUN by the time Shutdown returns. See
 	// reapTracker — this is what makes "the databases outlive their writers" a
@@ -491,6 +518,44 @@ func New() Engine {
 	return e
 }
 
+// SetHostTheme records the host terminal's default background/foreground colours as the
+// values every SUBSEQUENTLY BORN session answers an OSC 10/11 query with.
+//
+// It is the "future sessions" half of theme propagation, and it is a different job from
+// Session.SetTheme, which is the "sessions that already exist" half (it also emits the DEC
+// 2031 CSI ?997;n report that makes a subscribed, already-running app re-query live).
+// Both are needed, and neither substitutes for the other:
+//
+//   - Without this, a session is born answering x/vt's hardcoded black. An app that queries
+//     once at startup and never subscribes to 2031 — codex 0.146.0 is exactly that — reads
+//     black, picks dark, and latches it for the life of the process. The frontend's
+//     attach-time push cannot fix it: the process was exec'd by CreateCommand, before any
+//     client could attach, and nothing will ever ask again.
+//   - Without SetTheme, a theme switch would never reach a CLI that is already running.
+//
+// A nil channel is a no-op for that channel, matching model.SetDefaultColors.
+func (e *terminalEngine) SetHostTheme(
+	bg color.Color,
+	fg color.Color,
+) {
+	e.themeMu.Lock()
+	defer e.themeMu.Unlock()
+	if bg != nil {
+		e.themeBg = bg
+	}
+	if fg != nil {
+		e.themeFg = fg
+	}
+}
+
+// hostTheme reads the recorded host colours for a session about to be born. Both are nil
+// until something pushes a theme, which WithTheme treats as "leave the emulator default".
+func (e *terminalEngine) hostTheme() (bg, fg color.Color) {
+	e.themeMu.RLock()
+	defer e.themeMu.RUnlock()
+	return e.themeBg, e.themeFg
+}
+
 // lockSession acquires the per-session lifecycle mutex for id and returns its
 // unlock function. The caller must call the returned function (typically via
 // defer) to release the lock. Lock order: sessionMu (outer) → s.mu (inner).
@@ -555,10 +620,15 @@ func (e *terminalEngine) spawn(
 		s   *session.Session
 		err error
 	)
+	// The host theme is seeded at BIRTH, not after: session.WithTheme installs it before the
+	// session's io pump goroutine starts, so the model is already answering with the truth
+	// before the spawned process can get a query in. See SetHostTheme.
+	bg, fg := e.hostTheme()
 	if b.Blob != nil {
-		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), b.Blob)
+		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), b.Blob, session.WithTheme(bg, fg))
 	} else {
-		s, err = session.New(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines)
+		s, err = session.New(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines,
+			session.WithTheme(bg, fg))
 	}
 	if err != nil {
 		return nil, err
@@ -622,7 +692,10 @@ func (e *terminalEngine) CreateCommand(
 	// the caller's env verbatim, so under launchd TERM is absent and Ink TUIs
 	// misrender. Backfill the terminal defaults for any keys not already set.
 	env = withTerminalDefaults(env)
-	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
+	// Seeded at birth, before the pump — this is the path every agentic vendor CLI takes,
+	// and the one the whole host-theme mechanism exists for. See SetHostTheme.
+	bg, fg := e.hostTheme()
+	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0, session.WithTheme(bg, fg))
 	if err != nil {
 		// exec.ErrNotFound means argv[0] is not installed / not executable — a fact about
 		// the USER'S MACHINE, not a server fault. Classify it into ErrCommandNotFound so
@@ -1460,7 +1533,13 @@ func (e *terminalEngine) readPump(
 			// Host light/dark theme changed: update the model's OSC 10/11 query
 			// answers and, if the foreground app subscribed to DEC 2031, push a
 			// live CSI ?997;n theme-change report (see Session.SetTheme).
-			s.SetTheme(parseHexColor(msg.Bg), parseHexColor(msg.Fg), msg.Dark)
+			themeBg, themeFg := ParseHexColor(msg.Bg), ParseHexColor(msg.Fg)
+			// Every session in a Crowbar window renders under ONE theme, so a push at any
+			// of them is a statement about the host. Recording it here keeps the birth seed
+			// correct even when the dedicated host-theme push never arrives — after a daemon
+			// restart, say, where the frontend re-attaches its terminals but does not reboot.
+			e.SetHostTheme(themeBg, themeFg)
+			s.SetTheme(themeBg, themeFg, msg.Dark)
 			continue
 		}
 
