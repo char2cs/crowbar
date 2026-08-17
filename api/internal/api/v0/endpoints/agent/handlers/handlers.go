@@ -6,8 +6,10 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // AgentUsecase is the agentic-chat usecase surface the handlers need: spawning a
@@ -33,6 +35,22 @@ type AgentUsecase interface {
 		ctx context.Context,
 		id string,
 	) (domain.AgentChat, error)
+
+	ReadMessages(
+		ctx context.Context,
+		chatID string,
+		after, before, limit int,
+	) (ledger.Page, error)
+
+	SubmitPrompt(
+		ctx context.Context,
+		chatID, text, clientRequestID string,
+	) (dto.PromptSubmissionDTO, error)
+
+	SlashCatalog(
+		ctx context.Context,
+		chatID string,
+	) (engineagent.SlashCatalog, error)
 
 	// LiveRunnerForChat returns the runner PLACED on chatID right now.
 	// agentrunner.ErrNotFound is not a failure here: it means the chat is DORMANT —

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,7 @@ func (h *Handlers) Hooks(
 	rctx := ctx.Request.Context()
 
 	var body struct {
+		DeliveryID string `json:"delivery_id"`
 		SegmentID  string `json:"segment_id"`
 		Provider   string `json:"provider"`
 		Event      string `json:"event"`
@@ -30,7 +32,26 @@ func (h *Handlers) Hooks(
 		return
 	}
 
-	if err := h.usecase.IngestHook(rctx, body.SegmentID, body.Provider, body.Event, []byte(body.PayloadRaw)); err != nil {
+	var err error
+	if body.DeliveryID != "" {
+		if deliveries, ok := h.usecase.(interface {
+			IngestHookDelivery(
+				context.Context,
+				string, string, string, string, string,
+				[]byte,
+			) error
+		}); ok {
+			err = deliveries.IngestHookDelivery(
+				rctx, ctx.Param("wsId"), body.DeliveryID, body.SegmentID,
+				body.Provider, body.Event, []byte(body.PayloadRaw),
+			)
+		} else {
+			err = h.usecase.IngestHook(rctx, body.SegmentID, body.Provider, body.Event, []byte(body.PayloadRaw))
+		}
+	} else {
+		err = h.usecase.IngestHook(rctx, body.SegmentID, body.Provider, body.Event, []byte(body.PayloadRaw))
+	}
+	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return

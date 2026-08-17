@@ -172,6 +172,27 @@ type Usecase struct {
 	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never quits
 	// a CLI mid-answer. See turnWaits.
 	turns *turnWaits
+	// work is the authoritative process-local mirror of AgentChat.Working returned
+	// by turn commands. Unlike GetChat's asynchronous projection, it cannot briefly
+	// report idle after a hook has durably announced background work.
+	work *chatWorkStates
+	// turnStarts makes a hook's durable turn start atomic with the final
+	// idle-check-and-displace section of destructive TUI replacement.
+	turnStarts *chatGate
+	// prompts is the durable at-most-once React-submission journal and the
+	// process-local transition lock shared with user_prompt hook confirmation.
+	prompts *promptJournal
+	// pendingHooks is the fork-before-runner-persistence barrier. It buffers the
+	// authenticated local hooks a provider can fire the instant its PTY starts,
+	// then replays them in order once the runner row exists.
+	pendingHooks *pendingRunnerHooks
+	// hookDeliveries durably deduplicates Crowbar relay retries before any turn
+	// state or ledger mutation. The relay owns retry/spooling; this journal owns
+	// the exactly-once ingress boundary.
+	hookDeliveries *hookDeliveryJournal
+	// catalogs owns only cancellation for in-flight deterministic probes. Results
+	// are deliberately never cached.
+	catalogs *catalogRuns
 	// tools is the agent-facing capability surface DispatchMCP builds a per-call
 	// ToolSet from. Its Chats port is always this usecase (set in New), so the one
 	// dependency a caller can get wrong is the Resolver — and DispatchMCP refuses
@@ -219,19 +240,25 @@ func New(
 		connected = engineagent.Connected
 	}
 	u := &Usecase{
-		chats:         chats,
-		runners:       runners,
-		registry:      registry,
-		term:          term,
-		ws:            ws,
-		lineage:       lineage,
-		providerPrefs: providerPrefs,
-		home:          home,
-		connected:     connected,
-		spawns:        newChatGate(),
-		turns:         newTurnWaits(),
-		tools:         tools,
-		minter:        minter,
+		chats:          chats,
+		runners:        runners,
+		registry:       registry,
+		term:           term,
+		ws:             ws,
+		lineage:        lineage,
+		providerPrefs:  providerPrefs,
+		home:           home,
+		connected:      connected,
+		spawns:         newChatGate(),
+		turns:          newTurnWaits(),
+		work:           newChatWorkStates(),
+		turnStarts:     newChatGate(),
+		prompts:        newPromptJournal(),
+		pendingHooks:   newPendingRunnerHooks(),
+		hookDeliveries: newHookDeliveryJournal(),
+		catalogs:       newCatalogRuns(),
+		tools:          tools,
+		minter:         minter,
 	}
 	u.tools.Chats = u
 	u.tools.ChatLogs = u
@@ -262,7 +289,7 @@ func (u *Usecase) SpawnChat(
 	chatID = uuid.NewString()
 	defer u.spawns.lock(chatID)()
 
-	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, nil, "", "", false, true)
+	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", "", false, "", true, "")
 	if err != nil {
 		return "", "", err
 	}
@@ -290,13 +317,15 @@ func (u *Usecase) MintChat(
 	workspaceID string,
 ) (string, error) {
 	chatID := uuid.NewString()
-	if _, err := u.chats.Create(ctx, agentchat.CreateInput{
+	created, err := u.chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: workspaceID,
 		Now:         time.Now(),
-	}); err != nil {
+	})
+	if err != nil {
 		return "", fmt.Errorf("agent: mint chat: %w", err)
 	}
+	u.work.set(chatID, created.Working)
 	return chatID, nil
 }
 
@@ -322,7 +351,7 @@ func (u *Usecase) StartRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: start runner: chat: %w", err)
 	}
-	return u.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, nil, "", "", false, false)
+	return u.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", "", false, "", false, "")
 }
 
 // RenameChat sets a chat's title under user>agent>derived precedence:
@@ -646,6 +675,10 @@ func (u *Usecase) displace(
 		}
 		return fmt.Errorf("agent: displace runner: %w", err)
 	}
+	// Once displacement commits this runner can no longer deliver a hook into the
+	// vacated chat. Resolve any pending React dispatch from the hook-derived ledger,
+	// or mark it safely retryable when no matching user turn exists.
+	u.reconcilePromptRunnerDeparture(ctx, runner, vacated)
 
 	// A displaced runner is on NO chat, so handleTurn drops every hook it has left —
 	// including the turn_stop that would have ended a turn it is still mid-way through.
@@ -719,8 +752,14 @@ func (u *Usecase) closeAbandonedTurn(
 	// chat: measured against claude 2.1.212, a SIGKILL mid-background-work sends no
 	// SessionEnd and no final Stop — the last word is a turn_stop reporting work still
 	// running, and in an event-sourced aggregate that word outlives the restart.
-	_, err := u.chats.AbandonTurn(ctx, chatID, time.Now())
-	if err == nil || errors.Is(err, asynxModels.ErrValidation) {
+	abandoned, err := u.chats.AbandonTurn(ctx, chatID, time.Now())
+	if err == nil {
+		u.work.set(chatID, abandoned.Working)
+		return
+	}
+	if errors.Is(err, asynxModels.ErrValidation) {
+		// The command's authoritative fold says there is nothing to abandon.
+		u.work.set(chatID, false)
 		return
 	}
 	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
@@ -785,6 +824,7 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 				"runner_id", r.ID, "terminal_session_id", r.TerminalSession, "err", err)
 			continue
 		}
+		u.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
 		u.reapCrashOrphanRunnerTmp(ctx, r)
 
 		// Close the turn it died in the middle of. Turn state has never been durable truth
@@ -797,6 +837,9 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 		// The Exit above is SendWait, so the "is anyone still on this chat" read inside can
 		// no longer see the runner we have just reaped.
 		u.closeAbandonedTurn(ctx, abandoned)
+	}
+	if err := u.reconcilePromptJournalsOnBoot(ctx); err != nil {
+		return err
 	}
 	return nil
 }
@@ -897,11 +940,15 @@ func (u *Usecase) spawnRunner(
 	chatID string,
 	workspaceID string,
 	providerID string,
+	preallocatedRunnerID string,
 	extraSteps []engineagent.InjectStep,
+	finalSteps []engineagent.InjectStep,
 	conversation string,
 	ledgerCut string,
 	resuming bool,
+	launchSessionID string,
 	create bool,
+	promptMessage string,
 ) (string, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it
 	// the only place a disabled provider can actually be stopped.
@@ -933,7 +980,10 @@ func (u *Usecase) spawnRunner(
 	// always name its runner. It is stable for the whole life of the process,
 	// including across every conversation move: that stability is what makes a move
 	// one write instead of a delete-here/insert-there.
-	runnerID := uuid.NewString()
+	runnerID := preallocatedRunnerID
+	if runnerID == "" {
+		runnerID = uuid.NewString()
+	}
 
 	crowbarHome, projectID, repoID, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
 	if err != nil {
@@ -995,6 +1045,7 @@ func (u *Usecase) spawnRunner(
 		WorkspaceID: workspaceID,
 		LedgerDir:   worktreepath.AgentLedgerDir(chatsDir, chatID),
 		LedgerCut:   ledgerCut,
+		Message:     promptMessage,
 	}
 	// The message for a provider that can ONLY be reached through a user message (a
 	// resumed codex ignores every config channel). It POINTS at the ledger already on
@@ -1031,10 +1082,14 @@ func (u *Usecase) spawnRunner(
 	// registered on that spawn either way — only the directive is missing.
 	inject := conversation != "" || !resuming
 
-	steps := extraSteps
+	steps := append([]engineagent.InjectStep{}, extraSteps...)
 	if inject {
 		steps = append(steps, contextInject(descriptor, resuming)...)
 	}
+	// Positional user prompts are final by contract. In particular Claude's
+	// variadic --mcp-config must already have been terminated by later options,
+	// and Codex's resume subcommand/id must precede the message.
+	steps = append(steps, finalSteps...)
 
 	// Register the injected document BEFORE the CLI can run: a provider whose only
 	// resume channel is a user message (codex) fires its user-prompt hook with this
@@ -1067,10 +1122,21 @@ func (u *Usecase) spawnRunner(
 	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
 	// through unchanged, preserving that error for a CLI that genuinely is not installed.
 	argv := append([]string{binpath.Resolve(descriptor.Spawn.Cmd)}, plan.Argv...)
+	// A provider can synchronously fire SessionStart and UserPromptSubmit from
+	// inside CreateCommand, before the terminal session id exists and therefore
+	// before recordRunner can persist the runner. Install the barrier immediately
+	// before the fork: no process exists before this point, and every hook after it
+	// is either buffered or observes the durable row after finish removes it.
+	if err := u.pendingHooks.register(runnerID); err != nil {
+		u.registry.ForgetRunner(runnerID)
+		RemoveUnderHome(ctx, crowbarHome, tmpDir)
+		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
+	}
 
 	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
 		u.onRunnerExit(crowbarHome, runnerID, tmpDir))
 	if err != nil {
+		u.pendingHooks.discard(runnerID)
 		// CreateCommand never got far enough to register onExit (which is what rm's
 		// the tmp dir on a clean exit) — clean up here so a spawn failure doesn't leak
 		// the runner's tmp dir. Guarded by crowbarHome so a poisoned chats dir can
@@ -1089,8 +1155,43 @@ func (u *Usecase) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 	}
 
-	if err := u.recordRunner(ctx, chatID, workspaceID, providerID, runnerID, termSessID, create); err != nil {
+	if err := u.recordRunner(
+		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, create,
+	); err != nil {
+		u.pendingHooks.discard(runnerID)
+		u.registry.ForgetRunner(runnerID)
 		return "", err
+	}
+	// Keep the barrier installed throughout replay. A hook arriving while an
+	// earlier buffered hook is being applied joins the next batch, so it cannot
+	// overtake session_start or user_prompt on the normal persisted-runner path.
+	exitedDuringStartup := u.pendingHooks.finish(runnerID, func(hook pendingRunnerHook) {
+		replayCtx := context.Background()
+		if hook.deliveryID != "" {
+			replayCtx = context.WithValue(replayCtx, hookDeliveryContextKey{}, hook.deliveryID)
+		}
+		if err := u.ingestHookNow(
+			replayCtx, runnerID, hook.provider, hook.canonicalEvent, hook.rawPayload,
+		); err != nil {
+			slog.Error("agent: replay startup hook (best-effort, continuing)",
+				"runner_id", runnerID, "event", hook.canonicalEvent, "err", err)
+			return
+		}
+		if hook.deliveryID != "" {
+			if err := u.hookDeliveries.complete(
+				hook.deliveryDir, hook.deliveryID, hook.deliveryHash, time.Now(),
+			); err != nil {
+				slog.Error("agent: persist replayed startup hook delivery (effects already committed)",
+					"runner_id", runnerID, "delivery_id", hook.deliveryID, "err", err)
+			}
+		}
+	})
+	if exitedDuringStartup {
+		// onExit could not reconcile before the row existed. Now it does, after
+		// every hook the provider emitted before dying has had its ordered chance
+		// to update the ledger and prompt journal.
+		u.reconcileRunnerExit(context.Background(), runnerID)
+		return "", fmt.Errorf("agent: spawn runner: provider process exited during startup")
 	}
 	return runnerID, nil
 }
@@ -1106,18 +1207,21 @@ func (u *Usecase) recordRunner(
 	providerID string,
 	runnerID string,
 	termSessID string,
+	launchSessionID string,
 	create bool,
 ) error {
 	now := time.Now()
 	if create {
-		if _, err := u.chats.Create(ctx, agentchat.CreateInput{
+		created, err := u.chats.Create(ctx, agentchat.CreateInput{
 			ID:          chatID,
 			WorkspaceID: workspaceID,
 			Now:         now,
-		}); err != nil {
+		})
+		if err != nil {
 			return u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 				fmt.Errorf("agent: spawn runner: create chat: %w", err))
 		}
+		u.work.set(chatID, created.Working)
 	}
 	if _, err := u.runners.Start(ctx, agentrunner.StartInput{
 		RunnerID:        runnerID,
@@ -1125,6 +1229,7 @@ func (u *Usecase) recordRunner(
 		ProviderID:      providerID,
 		TerminalSession: termSessID,
 		ChatID:          chatID,
+		LaunchSessionID: launchSessionID,
 		Now:             now,
 	}); err != nil {
 		return u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
@@ -1292,6 +1397,13 @@ func RemoveUnderHome(
 func (u *Usecase) onRunnerExit(home, runnerID, tmpDir string) func() {
 	return func() {
 		RemoveUnderHome(context.Background(), home, tmpDir)
+		// CreateCommand can observe process exit before recordRunner has a
+		// terminal-session id to persist. The startup barrier remembers that fact;
+		// spawnRunner reconciles it immediately after persistence and ordered hook
+		// replay, instead of this callback missing the not-yet-existing row forever.
+		if u.pendingHooks.markExited(runnerID) {
+			return
+		}
 		u.reconcileRunnerExit(context.Background(), runnerID)
 	}
 }
@@ -1332,6 +1444,7 @@ func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		// Already exited (a double exit is not an error — the row is simply gone).
 		return
 	}
+	u.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
 	if _, err := u.runners.Exit(ctx, runnerID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
@@ -1367,6 +1480,28 @@ func (u *Usecase) IngestHook(
 	canonicalEvent string,
 	rawPayload []byte,
 ) error {
+	// Check the startup barrier BEFORE the repository. Once recordRunner commits,
+	// the row is visible, but the barrier deliberately remains installed through
+	// ordered replay; consulting only the repository here would let a later hook
+	// overtake the buffered session_start/user_prompt batch.
+	if handled, err := u.pendingHooks.enqueue(runnerID, provider, canonicalEvent, rawPayload); handled {
+		return err
+	}
+	return u.ingestHookNow(ctx, runnerID, provider, canonicalEvent, rawPayload)
+}
+
+// ingestHookNow is the persisted-runner path. Startup replay calls it directly
+// so replayed hooks do not enqueue themselves back into their own barrier.
+func (u *Usecase) ingestHookNow(
+	ctx context.Context,
+	runnerID string,
+	provider string,
+	canonicalEvent string,
+	rawPayload []byte,
+) error {
+	if canonicalEvent == "user_prompt" {
+		return u.ingestUserPromptInterlocked(ctx, runnerID, provider, canonicalEvent, rawPayload)
+	}
 	runner, err := u.runners.Get(ctx, runnerID)
 	if err != nil {
 		if errors.Is(err, agentrunner.ErrNotFound) {
@@ -1376,6 +1511,59 @@ func (u *Usecase) IngestHook(
 		}
 		return fmt.Errorf("agent: ingest hook: runner: %w", err)
 	}
+	return u.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
+}
+
+// ingestUserPromptInterlocked makes "start a turn" atomic with Crowbar's final
+// idle-check-and-displace section. It re-reads placement after acquiring the
+// chat lock: a hook that resolved the outgoing runner just before a replacement
+// displaced it must not start a turn on that chat using its stale struct.
+func (u *Usecase) ingestUserPromptInterlocked(
+	ctx context.Context,
+	runnerID, provider, canonicalEvent string,
+	rawPayload []byte,
+) error {
+	for {
+		runner, err := u.runners.Get(ctx, runnerID)
+		if err != nil {
+			if errors.Is(err, agentrunner.ErrNotFound) {
+				return nil
+			}
+			return fmt.Errorf("agent: ingest hook: runner: %w", err)
+		}
+		if runner.CurrentChatID == "" {
+			return nil
+		}
+		chatID := runner.CurrentChatID
+		unlock := u.turnStarts.lock(chatID)
+		current, err := u.runners.Get(ctx, runnerID)
+		if err != nil {
+			unlock()
+			if errors.Is(err, agentrunner.ErrNotFound) {
+				return nil
+			}
+			return fmt.Errorf("agent: ingest hook: refresh runner under turn-start interlock: %w", err)
+		}
+		if current.CurrentChatID != chatID {
+			unlock()
+			// Placement changed before the lock. Retry against the durable current
+			// chat, or drop on the next iteration if the runner was displaced.
+			continue
+		}
+		err = u.ingestResolvedHook(ctx, current, provider, canonicalEvent, rawPayload)
+		unlock()
+		return err
+	}
+}
+
+func (u *Usecase) ingestResolvedHook(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	provider string,
+	canonicalEvent string,
+	rawPayload []byte,
+) error {
+	runnerID := runner.ID
 
 	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, runner.WorkspaceID)
 	if err != nil {
@@ -1482,9 +1670,11 @@ func (u *Usecase) handleTurn(
 		// and from title derivation, but still open the turn: the CLI really is working
 		// on it, and the workspace's working overlay must say so.
 		if u.registry.ConsumeInjectedContext(runner.ID, ev.Message) {
-			if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
+			started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
+			if err != nil {
 				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 			}
+			u.work.set(chat.ID, started.Working)
 			u.turns.begin(runner.ID, chat.ID)
 			return nil
 		}
@@ -1493,16 +1683,55 @@ func (u *Usecase) handleTurn(
 		}
 		// A user prompt opens the turn: mark the chat Working so the read model (and
 		// the workspace spinner) see a live turn.
-		if _, err := u.chats.StartTurn(ctx, chat.ID, time.Now()); err != nil {
+		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
+		if err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 		}
+		u.work.set(chat.ID, started.Working)
 		// And record it as IN FLIGHT, which is the same fact without the read model's lag
 		// in front of it — a provider switch blocks on this rather than on Working, so that
 		// it never quits a CLI that is still answering (turnWaits).
 		u.turns.begin(runner.ID, chat.ID)
-		return u.appendTurn(ctx, chat, runner.ProviderID, "user", ev.Message)
+		appendErr := u.appendRunnerTurn(
+			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession, "user", ev.Message,
+		)
+		// The hook is the provider's acknowledgement that the argv prompt was
+		// accepted. Advance the journal even when the ledger write failed: the hook
+		// itself is positive delivery evidence, and leaving the request spawned
+		// would wedge every future prompt. Conversely, a journal failure after a
+		// successful ledger append is repaired from that attributed turn by the
+		// turn_stop and pre-destructive reconciliation paths.
+		confirmErr := u.confirmPromptAccepted(ctx, chat, runner, ev.Message)
+		if appendErr != nil {
+			return appendErr
+		}
+		if confirmErr != nil {
+			return fmt.Errorf("agent: confirm React prompt acceptance: %w", confirmErr)
+		}
+		return nil
 
 	case "turn_stop":
+		// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
+		// projection broadcasts Working=false, and the React chat treats that edge as
+		// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the
+		// state change first raced this append: the read could be served before the
+		// assistant row existed, and with the turn over and the queue empty nothing ever
+		// re-read it — the reply sat in the ledger, invisible, until an unrelated
+		// refresh (a chat switch, a reload) happened to fire. Observed live 2026-08-16.
+		//
+		// Ordering this way costs nothing the old comment worried about: an empty
+		// message is a ledger no-op here and StopTurn below still runs, and a FAILED
+		// append still falls through to StopTurn rather than returning early, so the
+		// turn state is never left open on a write error.
+		appendErr := u.appendRunnerTurn(
+			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession, "assistant", ev.Message,
+		)
+		// Released only ONCE THE LEDGER HAS THE ANSWER: a switch waiting on this turn
+		// reads the ledger the moment it wakes, to assemble the handoff. Waking it
+		// earlier would hand the incoming CLI a conversation missing the very turn the
+		// switch waited for. Deferred so a failed StopTurn still releases the waiter —
+		// the turn is over either way, and a switch parked on it would never wake.
+		defer u.turns.complete(runner.ID)
 		// The turn ended — which is NOT the same fact as the agent being done, so this
 		// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
 		// aggregate fold Working from both. A CLI that hands work to a background task
@@ -1510,21 +1739,16 @@ func (u *Usecase) handleTurn(
 		// Working on the strength of this hook alone is what darkened the spinner under a
 		// live subagent. A provider that reports no such level sends 0 and gets exactly
 		// the turn-only behaviour it had before.
-		//
-		// Issued before the ledger append so the live-state event lands even when the
-		// assistant message is empty (an empty message is a ledger no-op, not a
-		// turn-state no-op).
-		if _, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork); err != nil {
+		stopped, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork)
+		if err != nil {
 			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 		}
-		// Released only ONCE THE LEDGER HAS THE ANSWER (hence the defer, which runs after
-		// the append below): a switch waiting on this turn reads the ledger the moment it
-		// wakes, to assemble the handoff. Waking it a line earlier would hand the incoming
-		// CLI a conversation missing the very turn the switch waited for. The defer also
-		// means a FAILED append still releases the waiter — the turn is over either way,
-		// and a switch parked on a turn that has stopped would never wake.
-		defer u.turns.complete(runner.ID)
-		return u.appendTurn(ctx, chat, runner.ProviderID, "assistant", ev.Message)
+		u.work.set(chat.ID, stopped.Working)
+		if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
+			slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
+				"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
+		}
+		return appendErr
 	}
 	return nil
 }
@@ -1566,7 +1790,7 @@ func (u *Usecase) handleSessionStart(
 		if err != nil || !ok {
 			return err
 		}
-		if _, err := u.runners.BindSession(ctx, runner.ID, ev.SessionID, time.Now()); err != nil {
+		if _, err := u.runners.BindSession(ctx, runner.ID, ev.SessionID, known, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: bind session: %w", err)
 		}
 		// A bind takes a conversation, so it obeys I3 exactly as a move does: whoever else is
@@ -1653,14 +1877,16 @@ func (u *Usecase) moveToNewChat(
 	sessionID string,
 ) error {
 	newChatID := uuid.NewString()
-	if _, err := u.chats.Create(ctx, agentchat.CreateInput{
+	created, err := u.chats.Create(ctx, agentchat.CreateInput{
 		ID:          newChatID,
 		WorkspaceID: runner.WorkspaceID,
 		Now:         time.Now(),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("agent: ingest hook: mint chat: %w", err)
 	}
-	if _, err := u.runners.Move(ctx, runner.ID, newChatID, sessionID, time.Now()); err != nil {
+	u.work.set(newChatID, created.Working)
+	if _, err := u.runners.Move(ctx, runner.ID, newChatID, sessionID, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to new chat: %w", err)
 	}
 	// This is the third placement site, and the ONLY one that evicts nobody. That is not an
@@ -1704,7 +1930,7 @@ func (u *Usecase) moveToKnownChat(
 	toChatID string,
 	sessionID string,
 ) error {
-	if _, err := u.runners.Move(ctx, runner.ID, toChatID, sessionID, time.Now()); err != nil {
+	if _, err := u.runners.Move(ctx, runner.ID, toChatID, sessionID, true, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
 	// Whatever it was mid-way through on the chat it just left is over there (see
@@ -1750,6 +1976,15 @@ func (u *Usecase) appendTurn(
 	providerID string,
 	role, text string,
 ) error {
+	return u.appendRunnerTurn(ctx, chat, providerID, "", "", role, text)
+}
+
+func (u *Usecase) appendRunnerTurn(
+	ctx context.Context,
+	chat domain.AgentChat,
+	providerID, runnerID, sessionID string,
+	role, text string,
+) error {
 	if text == "" {
 		return nil
 	}
@@ -1762,7 +1997,9 @@ func (u *Usecase) appendTurn(
 	if err != nil {
 		return fmt.Errorf("agent: append turn: ledger open: %w", err)
 	}
-	if _, err := led.AppendTurn(role, providerID, time.Now(), text); err != nil {
+	if _, _, err := led.AppendDeliveredSessionTurn(
+		role, providerID, runnerID, sessionID, hookDeliveryID(ctx), time.Now(), text,
+	); err != nil {
 		return fmt.Errorf("agent: append turn: ledger append: %w", err)
 	}
 	return nil
@@ -1887,91 +2124,119 @@ func (u *Usecase) switchProviderLocked(
 	if err := u.requireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
-	// FINISH THE TURN FIRST. The user can click Switch while the agent is mid-answer, and
-	// quitting it there costs the answer twice over: the reply in flight is never written,
-	// and — because a CLI killed mid-turn never flushes its native transcript at all — the
-	// conversation the next `--resume` names does not exist. That is not a theory; it is
-	// the "No conversation found with session ID" the user reported (see awaitTurnComplete).
-	//
-	// It runs BEFORE every read below, so a switch that is parked is holding nothing but its
-	// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
-	// handoff to go stale while it waits. And it runs before the terminate, so the handoff
-	// assembled below contains the turn we waited for.
-	if err := u.awaitTurnComplete(ctx, chatID); err != nil {
-		return "", err
-	}
-
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
-	}
-
-	priorSessionID, leftAt, err := u.resumableConversation(ctx, chat, targetProviderID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
-	}
-	resuming := priorSessionID != ""
-
-	// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so
-	// assembling the handoff never depends on the outgoing CLI still being alive — and
-	// doing it FIRST means a failure here aborts the switch with nothing destroyed,
-	// rather than leaving the chat with its old CLI killed and the new one spawned with
-	// an EMPTY handoff.
-	//
-	// A provider resumed into its OWN conversation already holds every turn up to the
-	// moment it was switched out, so it is handed only the gap. Replaying the whole
-	// ledger to it would duplicate its own history back at it — noise that dilutes the
-	// very turns it is meant to notice. A provider new to this chat has no history at
-	// all, so it gets the whole conversation.
-	conversation, err := u.assembleConversation(ctx, chatID, resuming, leftAt)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
-	}
-
-	// Where a resumed provider should START reading the ledger: the last turn it
-	// already saw. It is POINTED at the conversation on disk rather than handed a copy
-	// of it (see TemplateCtx.ContextPointer).
-	var ledgerCut string
-	if resuming {
-		ledgerCut, err = u.ledgerCut(ctx, chat, leftAt)
+	for {
+		chat, err := u.chats.GetChat(ctx, chatID)
 		if err != nil {
-			return "", fmt.Errorf("agent: switch provider: ledger cut: %w", err)
+			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 		}
-	}
-
-	if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
-		return "", err
-	}
-
-	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: worktree dir: %w", err)
-	}
-	d, err := engineagent.ResolveDescriptor(crowbarHome, targetProviderID)
-	if err != nil {
-		return "", fmt.Errorf("agent: switch provider: resolve descriptor: %w", err)
-	}
-
-	// Resume arg must be split into separate argv tokens: exec.Command does NOT split
-	// a string on whitespace, so a whole "--resume {id}" template handed to a single
-	// pass_arg would become one literal argument.
-	var resumeSteps []engineagent.InjectStep
-	if resuming && d.Session.Resume != nil && d.Session.Resume.Arg != "" {
-		resumeCtx := engineagent.TemplateCtx{ID: priorSessionID}
-		for _, tok := range strings.Fields(engineagent.Expand(d.Session.Resume.Arg, resumeCtx)) {
-			resumeSteps = append(resumeSteps, engineagent.InjectStep{
-				Verb: "pass_arg",
-				Args: map[string]any{"positional": tok},
-			})
+		// Protect a React replacement that has not emitted its acceptance hook
+		// yet. This first check happens before waiting; the interlocked check just
+		// before displacement closes the hook-between-checks race.
+		if err := u.requireNoPendingPromptDelivery(ctx, chat); err != nil {
+			return "", err
 		}
-	}
+		// Resolve the target while the outgoing CLI is still alive. A missing or
+		// malformed provider descriptor is a deterministic planning failure, not a
+		// reason to destroy the user's current session and leave the chat dormant.
+		crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: preflight worktree dir: %w", err)
+		}
+		d, err := engineagent.ResolveDescriptor(crowbarHome, targetProviderID)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: resolve descriptor: %w", err)
+		}
+		// FINISH THE TURN FIRST. The user can click Switch while the agent is mid-answer, and
+		// quitting it there costs the answer twice over: the reply in flight is never written,
+		// and — because a CLI killed mid-turn never flushes its native transcript at all — the
+		// conversation the next `--resume` names does not exist. That is not a theory; it is
+		// the "No conversation found with session ID" the user reported (see awaitTurnComplete).
+		//
+		// It runs BEFORE every read below, so a switch that is parked is holding nothing but its
+		// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
+		// handoff to go stale while it waits. And it runs before the terminate, so the handoff
+		// assembled below contains the turn we waited for.
+		if err := u.awaitTurnComplete(ctx, chatID); err != nil {
+			return "", err
+		}
 
-	// Resume args go first so codex's `resume <id>` subcommand precedes any positional
-	// context; order is irrelevant for claude's flag pair.
-	return u.spawnRunner(
-		ctx, chatID, chat.WorkspaceID, targetProviderID,
-		resumeSteps, conversation, ledgerCut, resuming, false,
-	)
+		priorSessionID, leftAt, err := u.resumableConversation(ctx, chat, targetProviderID)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
+		}
+		resuming := priorSessionID != ""
+
+		// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so
+		// assembling the handoff never depends on the outgoing CLI still being alive — and
+		// doing it FIRST means a failure here aborts the switch with nothing destroyed,
+		// rather than leaving the chat with its old CLI killed and the new one spawned with
+		// an EMPTY handoff.
+		//
+		// A provider resumed into its OWN conversation already holds every turn up to the
+		// moment it was switched out, so it is handed only the gap. Replaying the whole
+		// ledger to it would duplicate its own history back at it — noise that dilutes the
+		// very turns it is meant to notice. A provider new to this chat has no history at
+		// all, so it gets the whole conversation.
+		conversation, err := u.assembleConversation(ctx, chatID, resuming, leftAt)
+		if err != nil {
+			return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
+		}
+
+		// Where a resumed provider should START reading the ledger: the last turn it
+		// already saw. It is POINTED at the conversation on disk rather than handed a copy
+		// of it (see TemplateCtx.ContextPointer).
+		var ledgerCut string
+		if resuming {
+			ledgerCut, err = u.ledgerCut(ctx, chat, leftAt)
+			if err != nil {
+				return "", fmt.Errorf("agent: switch provider: ledger cut: %w", err)
+			}
+		}
+
+		unlockTurnStart := u.turnStarts.lock(chatID)
+		if err := u.requireNoPendingPromptDelivery(ctx, chat); err != nil {
+			unlockTurnStart()
+			return "", err
+		}
+		if len(u.turns.inflight(chatID)) > 0 {
+			// A prompt began after the first wait. Let its hook finish, then rebuild
+			// the handoff/cuts from the now-newer ledger before trying again.
+			unlockTurnStart()
+			continue
+		}
+		working, err := u.chatWorking(ctx, chatID)
+		if err != nil {
+			unlockTurnStart()
+			return "", fmt.Errorf("agent: switch provider: final chat work check: %w", err)
+		}
+		if working {
+			// A turn_stop may have handed work to the background after the first
+			// await released its runner-scoped turn. Keep the outgoing TUI alive until
+			// a later hook authoritatively restates the async-work level as zero.
+			unlockTurnStart()
+			continue
+		}
+		if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
+			unlockTurnStart()
+			return "", err
+		}
+		unlockTurnStart()
+
+		// Resume arg must be split into separate argv tokens: exec.Command does NOT split
+		// a string on whitespace, so a whole "--resume {id}" template handed to a single
+		// pass_arg would become one literal argument.
+		var resumeSteps []engineagent.InjectStep
+		if resuming {
+			resumeSteps = resumeInjectionSteps(d, priorSessionID)
+		}
+
+		// Resume args go first so codex's `resume <id>` subcommand precedes any positional
+		// context; order is irrelevant for claude's flag pair.
+		return u.spawnRunner(
+			ctx, chatID, chat.WorkspaceID, targetProviderID,
+			"", resumeSteps, nil, conversation, ledgerCut, resuming, priorSessionID, false, "",
+		)
+	}
 }
 
 // awaitTurnComplete blocks until nothing is mid-turn on chatID, and is the barrier every
@@ -2005,21 +2270,60 @@ func (u *Usecase) awaitTurnComplete(
 	ctx context.Context,
 	chatID string,
 ) error {
-	open := u.turns.inflight(chatID)
-	if len(open) == 0 {
-		return nil
-	}
+	logged := false
+	for {
+		// Read the runner-scoped turn first. StopTurn publishes its authoritative
+		// Working result before completing this registry entry, so an async-work
+		// handoff can never appear as the forbidden (no turn, idle) combination.
+		turnOpen, turnChanged := u.turns.watch(chatID)
+		working, known, workChanged := u.work.observe(chatID)
+		if !known {
+			// This process has not seen a turn command for the chat (normally a
+			// settled chat loaded after boot). Seed the decision from the durable
+			// projection, then re-observe: if a hook completed while GetChat ran,
+			// its command result wins and its signal cannot be missed.
+			chat, err := u.chats.GetChat(ctx, chatID)
+			if err != nil {
+				return fmt.Errorf("agent: switch provider: inspect chat work: %w", err)
+			}
+			if current, nowKnown, nextChanged := u.work.observe(chatID); nowKnown {
+				working, known, workChanged = current, true, nextChanged
+			} else {
+				working, workChanged = chat.Working, nextChanged
+			}
+		}
+		if !turnOpen && !working {
+			return nil
+		}
 
-	slog.InfoContext(ctx, waitingForTurnLog, "chat_id", chatID)
-
-	for _, done := range open {
+		if !logged {
+			slog.InfoContext(ctx, waitingForTurnLog, "chat_id", chatID)
+			logged = true
+		}
 		select {
-		case <-done:
+		case <-turnChanged:
+		case <-workChanged:
 		case <-ctx.Done():
-			return fmt.Errorf("agent: switch provider: waiting for the in-flight turn: %w", ctx.Err())
+			return fmt.Errorf("agent: switch provider: waiting for the chat to become idle: %w", ctx.Err())
 		}
 	}
-	return nil
+}
+
+// chatWorking returns the aggregate result observed by this process whenever one
+// exists, falling back to the durable read model only for a chat with no local turn
+// transition. The caller uses it while holding the turn-start interlock.
+func (u *Usecase) chatWorking(ctx context.Context, chatID string) (bool, error) {
+	if working, known, _ := u.work.observe(chatID); known {
+		return working, nil
+	}
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, err
+	}
+	if working, known, _ := u.work.observe(chatID); known {
+		return working, nil
+	}
+	return chat.Working, nil
 }
 
 // quitOutgoingCLI gracefully quits the CLI currently pointed at chatID, so a
@@ -2226,7 +2530,7 @@ func (u *Usecase) resumableConversation(
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	leftAt, err = led.LastTurnAt(targetProviderID)
+	leftAt, err = led.LastTurnForSession(targetProviderID, sessionID)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("ledger last turn: %w", err)
 	}

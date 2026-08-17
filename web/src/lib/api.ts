@@ -27,10 +27,13 @@ export function assetURL(path: string): string {
  *  status-specific decisions (e.g. a 404 is terminal — never retried). */
 export class ApiError extends Error {
   readonly status: number
-  constructor(message: string, status: number) {
+  /** Stable server recovery category. Most endpoints omit it. */
+  readonly code?: string
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }
 
@@ -124,7 +127,11 @@ export async function apiFetchRaw(
     // must never be retried.
     if (!res.ok) {
       const errorBody = await res.json().catch(() => null)
-      throw new ApiError(errorBody?.error ?? `${res.status} ${res.statusText}`, res.status)
+      throw new ApiError(
+        errorBody?.error ?? `${res.status} ${res.statusText}`,
+        res.status,
+        typeof errorBody?.code === 'string' ? errorBody.code : undefined,
+      )
     }
     return res
   }

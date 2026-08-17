@@ -9,6 +9,7 @@ const {
   listProvidersFn,
   listChatFoldersFn,
   seedAgentChats,
+  notifyAgentChatMessages,
   seedAgentChatFolders,
   upsertAgentChat,
   removeAgentChat,
@@ -26,6 +27,7 @@ const {
   listProvidersFn: vi.fn(),
   listChatFoldersFn: vi.fn(),
   seedAgentChats: vi.fn(),
+  notifyAgentChatMessages: vi.fn(),
   seedAgentChatFolders: vi.fn(),
   upsertAgentChat: vi.fn(),
   removeAgentChat: vi.fn(),
@@ -88,6 +90,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     getState: () => ({
       agentChats: { chats: storeChats, providers: storeProviders },
       seedAgentChats,
+      notifyAgentChatMessages,
       seedAgentChatFolders,
       upsertAgentChat,
       removeAgentChat,
@@ -420,9 +423,8 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c2', workspaceId: 'w1', kind: 'created' })
     await flush()
 
-    // Reconnect clears working (unknown after an outage); a `created` reseed rides a
-    // LIVE socket, so it must KEEP working — else opening a chat blanks the spinner on
-    // every OTHER mid-turn chat until its next turn frame.
+    // A `created` reseed rides a LIVE socket, so it must KEEP newer frame state —
+    // else a slightly stale list response can blank another mid-turn chat.
     expect(seedAgentChats).toHaveBeenCalledWith([chat('c1')], { keepWorking: true })
   })
 
@@ -876,7 +878,7 @@ describe('useWorkspaceAgentChatsStream', () => {
   // ── Reconnect reconcile ────────────────────────────────────────────────────
   // The reseed after an outage is the ONLY repair for frames the socket dropped.
   // It must therefore hand the store an authoritative list (seedAgentChats
-  // replaces + clears working) rather than a merge of upserts, and it must take the
+  // replaces + reseeds working) rather than a merge of upserts, and it must take the
   // pane tab of a chat deleted during the outage with it — exactly as the `deleted`
   // frame handler would have, had it arrived.
 
@@ -893,9 +895,59 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ reconnected: true })
     await flush()
 
-    // The store is told the authoritative list; the slice drops c2 (and clears the
-    // working map, so a dropped turn_stopped cannot strand c1's spinner).
+    // The store is told the authoritative list; the slice drops c2 and rebuilds
+    // working from the server fold, so either missed turn edge is repaired.
+    expect(notifyAgentChatMessages).toHaveBeenCalledTimes(1)
     expect(seedAgentChats).toHaveBeenCalledWith([chat('c1')])
+  })
+
+  it('reconnect invalidates current transcripts even when its repair GET fails', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    notifyAgentChatMessages.mockClear()
+    seedAgentChats.mockClear()
+    listChatsFn.mockRejectedValueOnce(new Error('daemon restarted again'))
+
+    captureCb()({ reconnected: true })
+    await flush()
+
+    expect(notifyAgentChatMessages).toHaveBeenCalledTimes(1)
+    expect(seedAgentChats).not.toHaveBeenCalled()
+  })
+
+  it('a created reseed that supersedes reconnect still performs authoritative working repair', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    seedAgentChats.mockClear()
+
+    let resolveReconnect: (chats: ReturnType<typeof chat>[]) => void = () => {}
+    let resolveCreated: (chats: ReturnType<typeof chat>[]) => void = () => {}
+    listChatsFn
+      .mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof chat>[]>((resolve) => {
+            resolveReconnect = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof chat>[]>((resolve) => {
+            resolveCreated = resolve
+          }),
+      )
+
+    const onFrame = captureCb()
+    onFrame({ reconnected: true })
+    onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'created' })
+
+    resolveCreated([chat('c1'), chat('new')])
+    await flush()
+    expect(seedAgentChats).toHaveBeenCalledTimes(1)
+    expect(seedAgentChats).toHaveBeenCalledWith([chat('c1'), chat('new')])
+
+    resolveReconnect([chat('c1')])
+    await flush()
+    expect(seedAgentChats).toHaveBeenCalledTimes(1)
   })
 
   it('reconnect reseed closes the pane tab of a chat deleted during the outage', async () => {

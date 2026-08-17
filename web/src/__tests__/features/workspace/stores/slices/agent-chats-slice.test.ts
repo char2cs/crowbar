@@ -6,6 +6,7 @@ import {
 } from '@/features/workspace/stores/slices/agent-chats-slice'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
+import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 
 const chat = (id: string, createdAt: string): AgentChat => ({
   id,
@@ -86,18 +87,51 @@ describe('agent-chats-slice', () => {
   // The reseed is the ONLY thing that can repair state the socket missed while it
   // was down, so it must be a full reconcile, not a merge of upserts.
 
-  it('seedAgentChats CLEARS the working map — a turn_stopped dropped during a WS outage must not strand a spinner', () => {
+  it('seedAgentChats grounds an omitted working value to idle — a dropped turn_stopped cannot strand a spinner', () => {
     const s = createWorkspaceStore('w1')
     s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
     s.getState().setAgentChatWorking('c1', true) // mid-turn when the socket dropped
     expect(s.getState().agentChats.working.c1).toBe(true)
 
-    // Reconnect reseed. Working state is not carried in the seed → it is UNKNOWN,
-    // and spec §2 mandates unknown → idle. Without this the row spins forever.
+    // Older daemon/fixture omits working → idle. Without replacement the row
+    // would keep the pre-outage true forever.
     s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
 
     expect(s.getState().agentChats.working.c1).toBeUndefined()
     expect(s.getState().agentChats.chats).toHaveLength(1)
+  })
+
+  it('seedAgentChats restores server-folded working on initial load and reconnect', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatWorking('stale', true)
+
+    s.getState().seedAgentChats([
+      { ...chat('busy', '2026-01-01T00:00:00Z'), working: true },
+      { ...chat('idle', '2026-01-02T00:00:00Z'), working: false },
+    ])
+
+    expect(s.getState().agentChats.working).toEqual({ busy: true })
+    expect(s.getState().agentChats.working.stale).toBeUndefined()
+  })
+
+  it('notifyAgentChatMessages advances every current chat revision independently of reconnect GETs', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([
+      { ...chat('c1', '2026-01-01T00:00:00Z'), working: false },
+      { ...chat('c2', '2026-01-02T00:00:00Z'), working: false },
+    ])
+
+    expect(s.getState().agentChats.turnRevision).toEqual({})
+
+    // An idle -> idle turn can complete while the socket is down, so folded
+    // `working` alone cannot reveal it. Reconnect explicitly invalidates every
+    // surviving chat's message page, even when the folded state did not change.
+    s.getState().notifyAgentChatMessages()
+
+    expect(s.getState().agentChats.turnRevision).toEqual({ c1: 1, c2: 1 })
+
+    s.getState().notifyAgentChatMessages()
+    expect(s.getState().agentChats.turnRevision).toEqual({ c1: 2, c2: 2 })
   })
 
   it('seedAgentChats with { keepWorking } PRESERVES surviving chats working state — a live `created` reseed must not blank other chats spinners', () => {
@@ -115,6 +149,21 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.working.c2).toBeUndefined() // the gone chat is forgotten
   })
 
+  it('keepWorking seeds the server value for a newly arrived busy chat without overwriting surviving frame state', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatWorking('c1', false)
+
+    s.getState().seedAgentChats(
+      [
+        { ...chat('c1', '2026-01-01T00:00:00Z'), working: true },
+        { ...chat('new', '2026-01-02T00:00:00Z'), working: true },
+      ],
+      { keepWorking: true },
+    )
+
+    expect(s.getState().agentChats.working).toEqual({ c1: false, new: true })
+  })
+
   it('seedAgentChats DROPS chats absent from the response — a delete missed during an outage leaves no ghost row', () => {
     const s = createWorkspaceStore('w1')
     s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
@@ -122,6 +171,7 @@ describe('agent-chats-slice', () => {
     s.getState().setAgentChatOrder(['c2', 'c1'])
     s.getState().setActiveAgentChatId('c2')
     s.getState().setAgentChatWorking('c2', true)
+    localStorage.setItem(promptQueueStorageKey('w1', 'c2'), 'pending')
 
     // c2 was deleted while the WS was down: the GET no longer returns it.
     s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
@@ -130,6 +180,7 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.order).toEqual(['c1']) // stale order entry pruned
     expect(s.getState().agentChats.activeChatId).toBeNull() // the active chat is gone
     expect(s.getState().agentChats.working.c2).toBeUndefined()
+    expect(localStorage.getItem(promptQueueStorageKey('w1', 'c2'))).toBeNull()
   })
 
   it('seedAgentChats keeps an active id that still exists, and takes the server copy of each chat', () => {
@@ -147,8 +198,10 @@ describe('agent-chats-slice', () => {
     const s = createWorkspaceStore('w1')
     s.getState().setAgentChatWorking('c1', true)
     expect(s.getState().agentChats.working.c1).toBe(true)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
     s.getState().setAgentChatWorking('c1', false)
     expect(s.getState().agentChats.working.c1).toBe(false)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
     s.getState().setAgentProviders([
       {
         id: 'claude',
@@ -173,6 +226,7 @@ describe('agent-chats-slice', () => {
     const s = createWorkspaceStore('w2')
     s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
     s.getState().setAgentChatWorking('c1', true)
+    localStorage.setItem(promptQueueStorageKey('w2', 'c1'), 'pending')
     s.getState().setAgentChatOrder(['c1'])
     s.getState().setActiveAgentChatId('c1')
 
@@ -180,6 +234,8 @@ describe('agent-chats-slice', () => {
 
     expect(s.getState().agentChats.chats).toHaveLength(0)
     expect(s.getState().agentChats.working.c1).toBeUndefined()
+    expect(s.getState().agentChats.turnRevision.c1).toBeUndefined()
+    expect(localStorage.getItem(promptQueueStorageKey('w2', 'c1'))).toBeNull()
     expect(s.getState().agentChats.order).toEqual([])
     expect(s.getState().agentChats.activeChatId).toBeNull()
   })

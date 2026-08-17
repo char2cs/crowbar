@@ -25,6 +25,7 @@ type Move struct {
 	RunnerID  string
 	ToChatID  string
 	SessionID string
+	Resumable bool
 	Now       time.Time
 }
 
@@ -61,5 +62,6 @@ func (c Move) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
 	next.CurrentChatID = c.ToChatID
 	next.CurrentSession = c.SessionID
 	next.CurrentSessionSince = c.Now
+	next.CurrentSessionResumable = c.Resumable
 	return next
 }

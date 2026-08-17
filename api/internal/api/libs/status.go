@@ -118,6 +118,15 @@ func StatusAndMessage(
 	if errors.Is(err, asynxmodels.ErrValidation) {
 		return http.StatusUnprocessableEntity, err.Error()
 	}
+	if errors.Is(err, apperr.ErrUnprocessable) {
+		return http.StatusUnprocessableEntity, err.Error()
+	}
+	if errors.Is(err, apperr.ErrTimeout) {
+		return http.StatusGatewayTimeout, err.Error()
+	}
+	if errors.Is(err, apperr.ErrBadGateway) {
+		return http.StatusBadGateway, err.Error()
+	}
 
 	// apperr.ErrUnavailable is a full asynx shard queue (ErrQueueFull) surfaced by
 	// the workspace repo under load: the mutation was not accepted and the client
@@ -177,6 +186,7 @@ func isConflict(
 	}
 
 	if errors.Is(err, apperr.ErrLocked) ||
+		errors.Is(err, apperr.ErrConflict) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, fs.ErrExist) ||
 		errors.Is(err, worktree.ErrParentLocked) ||

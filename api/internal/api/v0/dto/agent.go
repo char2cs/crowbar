@@ -58,6 +58,11 @@ type AgentChatDTO struct {
 	// bring back. Empty only on a chat no runner has ever been placed on.
 	ActiveProviderID string `json:"activeProviderId"`
 
+	// Working is the chat aggregate's folded busy answer. It is included in the
+	// snapshot as well as lifecycle frames so reconnect can reseed truth without
+	// guessing from the last event kind.
+	Working bool `json:"working"`
+
 	// ParentID is the row this chat hangs off in the Chats tree — another chat, a
 	// folder, or "" at the panel root — and Order is its dense index within that
 	// parent's sibling space, which chats SHARE with chat folders.
@@ -89,6 +94,7 @@ func AgentChatDTOFrom(
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
 		ActiveProviderID: activeProviderID(rt),
+		Working:          c.Working,
 		ParentID:         c.ParentID,
 		Order:            c.Order,
 		CreatedAt:        c.CreatedAt,
@@ -98,6 +104,54 @@ func AgentChatDTOFrom(
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
 	}
 	return out
+}
+
+// AgentMessageDTO is one complete hook-derived message in a chat. Sequence is
+// Crowbar's per-chat ledger append order; provider-owned transcript identifiers
+// and paths never cross this boundary.
+type AgentMessageDTO struct {
+	Sequence   int       `json:"sequence"`
+	Role       string    `json:"role"`
+	ProviderID string    `json:"providerId"`
+	Text       string    `json:"text"`
+	At         time.Time `json:"at"`
+}
+
+// AgentMessagePageDTO is a bounded chronological ledger window. Cursor is the
+// newest item in this page; OldestCursor is the oldest and is used to request
+// the page above it. HasMore is directional (newer for after, older otherwise).
+type AgentMessagePageDTO struct {
+	Cursor       int               `json:"cursor"`
+	OldestCursor int               `json:"oldestCursor"`
+	HasMore      bool              `json:"hasMore"`
+	Items        []AgentMessageDTO `json:"items"`
+}
+
+// PromptSubmissionDTO identifies the replacement interactive TUI whose spawn
+// made a React prompt submission successful. Completion of the model turn is
+// observed later through hooks; it is intentionally not represented here.
+type PromptSubmissionDTO struct {
+	RunnerID          string `json:"runnerId"`
+	TerminalSessionID string `json:"terminalSessionId"`
+}
+
+// SlashCatalogDTO is one ephemeral deterministic provider capability response.
+// Completeness is never inferred by Crowbar; it is declared by the provider
+// descriptor so partial inventories remain visibly partial.
+type SlashCatalogDTO struct {
+	ProviderID   string                `json:"providerId"`
+	Completeness string                `json:"completeness"`
+	Items        []SlashCatalogItemDTO `json:"items"`
+	Warnings     []string              `json:"warnings"`
+}
+
+type SlashCatalogItemDTO struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	InsertText  string `json:"insertText"`
+	Source      string `json:"source"`
 }
 
 // activeProviderID derives the provider to show for a chat: the live runner's while one

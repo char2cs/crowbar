@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func newTestContext(
@@ -134,6 +136,25 @@ type fakeAgentUsecase struct {
 	// the scope check pass by default for callers that leave :wsId unset too.
 	getChat    domain.AgentChat
 	getChatErr error
+
+	messagePage  ledger.Page
+	messageErr   error
+	messageCalls []messageCall
+	promptResult dto.PromptSubmissionDTO
+	promptErr    error
+	promptCalls  []promptCall
+	catalog      engineagent.SlashCatalog
+	catalogErr   error
+	catalogCalls []string
+}
+
+type promptCall struct {
+	chatID, text, requestID string
+}
+
+type messageCall struct {
+	chatID               string
+	after, before, limit int
 }
 
 type ingestCall struct {
@@ -186,6 +207,31 @@ func (f *fakeAgentUsecase) GetChat(
 		return domain.AgentChat{}, f.getChatErr
 	}
 	return f.getChat, nil
+}
+
+func (f *fakeAgentUsecase) ReadMessages(
+	_ context.Context,
+	chatID string,
+	after, before, limit int,
+) (ledger.Page, error) {
+	f.messageCalls = append(f.messageCalls, messageCall{chatID: chatID, after: after, before: before, limit: limit})
+	return f.messagePage, f.messageErr
+}
+
+func (f *fakeAgentUsecase) SubmitPrompt(
+	_ context.Context,
+	chatID, text, requestID string,
+) (dto.PromptSubmissionDTO, error) {
+	f.promptCalls = append(f.promptCalls, promptCall{chatID: chatID, text: text, requestID: requestID})
+	return f.promptResult, f.promptErr
+}
+
+func (f *fakeAgentUsecase) SlashCatalog(
+	_ context.Context,
+	chatID string,
+) (engineagent.SlashCatalog, error) {
+	f.catalogCalls = append(f.catalogCalls, chatID)
+	return f.catalog, f.catalogErr
 }
 
 // LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat

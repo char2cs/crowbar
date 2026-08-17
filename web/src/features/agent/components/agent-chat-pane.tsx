@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import { MessageSquareIcon, TerminalIcon, Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
@@ -13,7 +14,9 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { cn } from '@/lib/utils'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
+import { AgentChatView, type AgentChatViewHandle } from './agent-chat-view'
 
 // seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
 // plus the localStorage reconnect backstop, so XtermTerminal's
@@ -153,6 +156,8 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
+  const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
+  const turnRevision = useStore(store, (s) => s.agentChats.turnRevision[shownChatId] ?? 0)
   const title = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
@@ -166,6 +171,12 @@ export function AgentChatPane({
   )
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
+  const [presentation, setPresentation] = useState<'chat' | 'terminal'>('chat')
+  const [queuedPromptCount, setQueuedPromptCount] = useState(0)
+  const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
+  const [promptReplacing, setPromptReplacing] = useState(false)
+  const [deliveryPending, setDeliveryPending] = useState(false)
+  const chatViewRef = useRef<AgentChatViewHandle>(null)
   // `pending` while the chat list is still in flight is DERIVED, not written by
   // the attach effect below. Dormancy is unknowable until the list lands, so
   // there is nothing for the machine to record — the pane simply has nothing to
@@ -173,6 +184,17 @@ export function AgentChatPane({
   // spawning and attaching CLIs, and a `known` flip no longer costs an extra
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
+
+  // The session this pane currently WANTS attached, readable from a callback that
+  // must not re-identify on every attach. handleSessionGone compares against it.
+  // Tracked as the id STRING, not the Attachment object: `attachment` is rebuilt
+  // every render while `known` is false, so depending on the object would re-run
+  // this on every render for no change.
+  const attachedSessionId = attachment.state === 'attached' ? attachment.sessionId : ''
+  const desiredSessionRef = useRef('')
+  useEffect(() => {
+    desiredSessionRef.current = attachedSessionId
+  }, [attachedSessionId])
 
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
@@ -196,7 +218,7 @@ export function AgentChatPane({
 
   useEffect(() => {
     const column = columnRef.current
-    if (attachment.state !== 'attached' || !column) {
+    if (attachment.state !== 'attached' || presentation !== 'terminal' || !column) {
       setGridSlack(0)
       return
     }
@@ -241,7 +263,7 @@ export function AgentChatPane({
       resize.disconnect()
       mutation.disconnect()
     }
-  }, [attachment.state])
+  }, [attachment.state, presentation])
 
   // Re-point the buffer at what this pane is actually showing. This is the write that
   // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
@@ -323,6 +345,7 @@ export function AgentChatPane({
     const chat = await getChat(wsId, shownChatId)
     const s = store.getState()
     s.upsertAgentChat(chat)
+    s.setAgentChatWorking(chat.id, chat.working === true)
     if (!chat.liveRunnerId || !chat.terminalSessionId) return false
     s.bufferActions.repointAgentChatBuffer(bufferId, {
       chatId: chat.id,
@@ -332,6 +355,20 @@ export function AgentChatPane({
     setAttachment({ state: 'attached', sessionId: chat.terminalSessionId })
     return true
   }, [store, wsId, bufferId, shownChatId])
+
+  // Re-check the aggregate after a prompt race. The prompt queue consumes only
+  // this server-folded value; it never guesses busy state from a lifecycle kind.
+  const refreshChatWorking = useCallback(async (): Promise<boolean> => {
+    const chat = await getChat(wsId, shownChatId)
+    const s = store.getState()
+    s.upsertAgentChat(chat)
+    s.setAgentChatWorking(chat.id, chat.working === true)
+    return chat.working === true
+  }, [store, wsId, shownChatId])
+
+  const handlePromptSpawned = useCallback(async () => {
+    await adopt()
+  }, [adopt])
 
   // A spawn we asked for onto this chat did not put a CLI on it. Say so — and SPEND THE
   // CHAT'S BUDGET while we are at it, whichever path failed: the pane is now looking at a
@@ -439,8 +476,20 @@ export function AgentChatPane({
   // speak: when the daemon reaps the runner the chat goes dormant in the store, the effect
   // above sees it, and — budget permitting — revives it there, off the server's verdict
   // instead of our own. A CLI that dies twice in one mount stays down.
-  const handleSessionGone = useCallback(() => {
+  const handleSessionGone = useCallback((goneSessionId: string) => {
     if (switchingRef.current) return // our own switch killing the outgoing CLI: expected
+    // A DISPLACED PTY REPORTS ITS DEATH LATE. Prompt submission replaces the CLI, so
+    // the outgoing PTY dies by design — but the terminal notices the closed transport
+    // whenever it notices, which can be well after adopt() has already attached the
+    // replacement and the dispatch guard above has been dropped. Believing that report
+    // latched `exited` over a chat whose runner the SERVER still lists as live, and the
+    // React queue — which may only dispatch onto a live TUI — stalled there forever.
+    //
+    // So the guard is IDENTITY, not timing: only the session the pane still wants can
+    // report that pane's agent gone. An id we no longer hold is the outgoing corpse.
+    if (goneSessionId && desiredSessionRef.current && goneSessionId !== desiredSessionRef.current) {
+      return
+    }
     setAttachment({ state: 'idle', reason: 'exited' })
   }, [])
 
@@ -458,6 +507,13 @@ export function AgentChatPane({
   // and nothing happens. Surface it, matching the write-path error handling in
   // agent-chats-panel (create/rename/delete).
   const handleSwitch = (providerId: string) => {
+    if (
+      switchingRef.current ||
+      promptReplacing ||
+      deliveryPending ||
+      attachment.state === 'reviving'
+    )
+      return
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
     // Held across the whole request: the outgoing CLI is killed FIRST, so this window is
     // exactly the transient dormancy — and its dead PTY's onSessionGone — that nothing
@@ -553,7 +609,7 @@ export function AgentChatPane({
   // menu, a future toolbar. Landing directly on a layout div is exactly what "the user
   // clicked empty space" means, and nothing else can accidentally match it.
   const focusTerminalFromEmptySpace = (e: React.MouseEvent) => {
-    if (attachment.state !== 'attached') return
+    if (attachment.state !== 'attached' || presentation !== 'terminal') return
     if (e.target !== rootRef.current && e.target !== columnRef.current) return
     e.preventDefault()
     terminalApiRef.current?.focus()
@@ -606,60 +662,138 @@ export function AgentChatPane({
         ref={columnRef}
         className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4"
       >
-        <div className="min-h-0 flex-1">
-          {attachment.state === 'attached' && (
-            // NO key={sessionId}. When the agent's runner is replaced under a still-
-            // attached pane (a provider switch, or a revive that lands a new CLI), the
-            // sessionId changes but the terminal stays mounted: XtermTerminal swaps the
-            // PTY imperatively — detach the old, attach the new — instead of tearing the
-            // whole component (socket, observers, xterm) down and rebuilding it. A move
-            // (same PTY, new conversation) never changed the id and so never remounted;
-            // this makes a REPLACEMENT behave the same way.
-            <XtermTerminal
-              sessionId={attachment.sessionId}
-              // The chat's own workspace: a transport-drop reconnect on a hidden
-              // keep-alive workspace must listLive/attach against THIS workspace,
-              // or the agent's live PTY looks gone from the active one's list.
-              workspaceId={wsId}
-              // isActive = focused AND the visible tab; isVisible = the visible tab.
-              // A hidden keep-alive chat is neither, so its terminal fits locally but
-              // does not steal focus or (Task 4) push PTY resize while off-screen.
-              isActive={isActivePane && isVisible}
-              isVisible={isVisible}
-              attachOnly
-              // The column already supplies the inset; the terminal's own pl-[16px]
-              // would double it and push the agent out of line with the switcher.
-              flush
-              onTerminalRef={(api) => {
-                terminalApiRef.current = api
+        <div className="relative min-h-0 flex-1">
+          {/* Both presentations stay mounted. Keeping the queue mounted is what makes
+              a Terminal detour non-destructive; keeping xterm mounted preserves its
+              screen model while Chat is in front. Only the selected surface is active. */}
+          <div className={cn('h-full', presentation === 'chat' ? '' : 'hidden')}>
+            <AgentChatView
+              key={`${wsId}:${shownChatId}`}
+              ref={chatViewRef}
+              wsId={wsId}
+              chatId={shownChatId}
+              providerId={activeProviderId}
+              providers={providers}
+              working={working}
+              turnRevision={turnRevision}
+              live={attachment.state === 'attached' || promptReplacing}
+              active={presentation === 'chat'}
+              visible={isVisible}
+              onOpenTerminal={() => setPresentation('terminal')}
+              onPromptDispatchStart={() => {
+                switchingRef.current = true
+                setPromptReplacing(true)
               }}
-              onSessionGone={handleSessionGone}
+              onPromptDispatchSettled={() => {
+                // The prompt endpoint may fail after terminating the outgoing
+                // TUI. Reconcile before dropping the displacement guard, or the
+                // pane can remain "attached" to a dead PTY forever (the session
+                // change happened while the guard intentionally ignored it).
+                void (async () => {
+                  try {
+                    if (!(await adopt())) fail()
+                  } catch {
+                    fail()
+                  } finally {
+                    switchingRef.current = false
+                    setPromptReplacing(false)
+                  }
+                })()
+              }}
+              onPromptSpawned={handlePromptSpawned}
+              onRefreshChat={refreshChatWorking}
+              onQueueCountChange={setQueuedPromptCount}
+              onCancelableQueueCountChange={setCancelablePromptCount}
+              onDeliveryPendingChange={setDeliveryPending}
             />
-          )}
-          {attachment.state === 'reviving' && (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-              <FlickerSpinner className="size-6 text-foreground" />
-              <p className="text-muted-foreground text-center text-sm">{attachment.message}</p>
-            </div>
-          )}
-          {/* The dormant states — and the ONLY place the Resume button lives. Opening a
-              chat no longer lands here: a dormant chat is revived on sight, so reaching
-              this means either the revive FAILED, or the CLI died a second time and this
-              pane has stopped bringing it back unasked. The button is the user's way in
-              from both; so is the provider dropdown below it. */}
-          {attachment.state === 'idle' && (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-              <p className="text-muted-foreground max-w-sm text-center text-sm">
-                {attachment.reason === 'failed'
-                  ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                  : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-              </p>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void revive()}>
-                Resume
-              </Button>
-            </div>
-          )}
+
+            {attachment.state === 'reviving' && (
+              <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
+                <FlickerSpinner className="size-4 text-foreground" />
+                {attachment.message}
+              </div>
+            )}
+            {attachment.state === 'idle' && (
+              <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
+                <p className="min-w-0 text-muted-foreground">
+                  {attachment.reason === 'failed'
+                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
+                </p>
+                <Button
+                  className="shrink-0"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void revive()}
+                >
+                  Resume
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className={cn('h-full', presentation === 'terminal' ? '' : 'hidden')}>
+            {attachment.state === 'attached' && (
+              // NO key={sessionId}. Runner replacement swaps the PTY imperatively
+              // instead of rebuilding xterm; runner movement keeps the same PTY.
+              <XtermTerminal
+                sessionId={attachment.sessionId}
+                workspaceId={wsId}
+                isActive={isActivePane && isVisible && presentation === 'terminal'}
+                isVisible={isVisible && presentation === 'terminal'}
+                attachOnly
+                flush
+                onTerminalRef={(api) => {
+                  terminalApiRef.current = api
+                }}
+                onSessionGone={handleSessionGone}
+              />
+            )}
+            {presentation === 'terminal' && attachment.state === 'reviving' && (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+                <FlickerSpinner className="size-6 text-foreground" />
+                <p className="text-muted-foreground text-center text-sm">{attachment.message}</p>
+              </div>
+            )}
+            {presentation === 'terminal' && attachment.state === 'idle' && (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+                <p className="text-muted-foreground max-w-sm text-center text-sm">
+                  {attachment.reason === 'failed'
+                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
+                </p>
+                <Button type="button" variant="secondary" size="sm" onClick={() => void revive()}>
+                  Resume
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {presentation === 'terminal' && queuedPromptCount > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t py-2 text-muted-foreground text-xs">
+            <span>
+              {queuedPromptCount} {queuedPromptCount === 1 ? 'prompt' : 'prompts'} pending in Chat
+            </span>
+            <div className="flex items-center gap-1">
+              <Button size="xs" variant="ghost" onClick={() => setPresentation('chat')}>
+                Return to Chat
+              </Button>
+              {cancelablePromptCount > 0 && (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Cancel unsent prompts"
+                  tooltip="Cancel unsent prompts"
+                  onClick={() => chatViewRef.current?.cancelUnsentPrompts()}
+                >
+                  <Trash2Icon />
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* The chat's own status line, spanning the terminal's width: what this
             conversation IS on the left, who is running it on the right. Both sit on the
@@ -673,10 +807,32 @@ export function AgentChatPane({
           style={{ paddingRight: gridSlack }}
         >
           <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
+          <div
+            className="flex shrink-0 items-center rounded-lg bg-muted p-0.5"
+            aria-label="Presentation"
+          >
+            <Button
+              size="xs"
+              variant={presentation === 'chat' ? 'secondary' : 'ghost'}
+              aria-pressed={presentation === 'chat'}
+              onClick={() => setPresentation('chat')}
+            >
+              <MessageSquareIcon /> Chat
+            </Button>
+            <Button
+              size="xs"
+              variant={presentation === 'terminal' ? 'secondary' : 'ghost'}
+              aria-pressed={presentation === 'terminal'}
+              onClick={() => setPresentation('terminal')}
+            >
+              <TerminalIcon /> Terminal
+            </Button>
+          </div>
           <ProviderSwitchDropdown
             providers={providers}
             currentProviderId={activeProviderId}
             onSwitch={handleSwitch}
+            disabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
           />
         </div>
       </div>

@@ -20,3 +20,10 @@ const WaitingForTurnLog = waitingForTurnLog
 // without depending on which test in the binary ran first. A composition rule tested
 // through a memoised global is a test that passes for the wrong reason.
 var ComposeContext = composeContext
+
+// SetPromptJournalDirSync installs a deterministic durability fault for external
+// package tests. It is test-only surface; production always uses fsync+close on
+// the journal parent directory after the atomic rename.
+func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
+	u.prompts.syncDir = syncDir
+}

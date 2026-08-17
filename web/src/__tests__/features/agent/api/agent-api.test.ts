@@ -101,6 +101,84 @@ describe('agent-api', () => {
     expect(chat.conversations).toEqual([])
   })
 
+  it('reads the newest hook-ledger page and grounds cursor fields', async () => {
+    apiFetch.mockResolvedValue({
+      cursor: 12,
+      oldestCursor: 11,
+      hasMore: true,
+      items: [
+        {
+          sequence: 11,
+          role: 'user',
+          providerId: 'codex',
+          text: 'Explain this',
+          at: '2026-08-16T00:00:00Z',
+        },
+        {
+          sequence: 12,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'Sure.',
+          at: '2026-08-16T00:00:01Z',
+        },
+      ],
+    })
+    const page = await api.listChatMessages('w1', 'chat/1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/chat%2F1/messages?limit=100', {
+      signal: undefined,
+    })
+    expect(page).toMatchObject({ cursor: 12, oldestCursor: 11, hasMore: true })
+    expect(page.items.map((item) => item.sequence)).toEqual([11, 12])
+  })
+
+  it('carries incremental and older paging cursors plus a cancellation signal', async () => {
+    const controller = new AbortController()
+    apiFetch.mockResolvedValue({ cursor: 9, oldestCursor: 4, hasMore: false, items: [] })
+    await api.listChatMessages('w1', 'c1', {
+      after: 4,
+      limit: 25,
+      signal: controller.signal,
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1/messages?after=4&limit=25', {
+      signal: controller.signal,
+    })
+    await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      '/v0/ws/w1/agent/chats/c1/messages?before=10&limit=25',
+      { signal: undefined },
+    )
+  })
+
+  it('submits one completed prompt with a stable client request identity', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    const result = await api.submitAgentPrompt('w1', 'c1', 'Line one\nline two', 'request-1')
+    expect(result).toEqual({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/agent/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: 'Line one\nline two', clientRequestId: 'request-1' }),
+      }),
+    )
+  })
+
+  it('loads a cancellable slash catalog with no read retry/cache layer', async () => {
+    const controller = new AbortController()
+    apiFetch.mockResolvedValue({
+      providerId: 'claude',
+      completeness: 'plugin_only',
+      items: [],
+      warnings: ['one plugin failed'],
+    })
+    const catalog = await api.getSlashCatalog('w1', 'c1', controller.signal)
+    expect(catalog.warnings).toEqual(['one plugin failed'])
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/agent/chats/c1/slash-catalog',
+      { signal: controller.signal },
+      { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+    )
+  })
+
   it('createChat POSTs the provider and returns the new id', async () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     const id = await api.createChat('w1', 'codex')

@@ -12,9 +12,11 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 func TestMain(
@@ -144,6 +146,24 @@ func (stubUsecase) GetChat(
 	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
 }
 
+func (stubUsecase) ReadMessages(
+	context.Context, string, int, int, int,
+) (ledger.Page, error) {
+	return ledger.Page{Items: []ledger.Message{}}, nil
+}
+
+func (stubUsecase) SubmitPrompt(
+	context.Context, string, string, string,
+) (dto.PromptSubmissionDTO, error) {
+	return dto.PromptSubmissionDTO{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
+}
+
+func (stubUsecase) SlashCatalog(
+	context.Context, string,
+) (engineagent.SlashCatalog, error) {
+	return engineagent.SlashCatalog{Items: []engineagent.SlashCatalogItem{}}, nil
+}
+
 // LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
 // honest answer for a stub that starts no process, and not a failure: a live-runner row
 // exists exactly while a PTY does, so its absence IS the liveness verdict. The read
@@ -253,6 +273,9 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/agent/chats"},
 		{http.MethodGet, base + "/agent/chats"},
 		{http.MethodGet, base + "/agent/chats/c1"},
+		{http.MethodGet, base + "/agent/chats/c1/messages"},
+		{http.MethodPost, base + "/agent/chats/c1/prompts"},
+		{http.MethodGet, base + "/agent/chats/c1/slash-catalog"},
 		{http.MethodPost, base + "/agent/chats/c1/switch"},
 		{http.MethodPost, base + "/agent/chats/c1/rename"},
 		{http.MethodGet, base + "/agent/chats/c1/handoff"},

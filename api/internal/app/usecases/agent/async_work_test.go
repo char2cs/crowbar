@@ -1,10 +1,55 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle proves a provider
+// switch cannot treat turn_stop as "the CLI is done" when that same hook reports
+// work still running. There is no sleep or projection polling: the switch announces
+// that it is parked, and only the later authoritative zero-level hook releases it.
+func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	oldTerm := f.runner(t, runnerID).TerminalSession
+	f.announce(t, runnerID, "s1")
+	prompt(t, f, runnerID, "claude", "launch a background subagent")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		stopPayload(t, "Launched.", 1)))
+	f.wait()
+	require.True(t, f.chat(t, chatID).Working, "precondition: async work keeps the chat live")
+
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+
+	select {
+	case <-parked:
+	case sess := <-killed:
+		t.Fatalf("the outgoing CLI (%s) was terminated while its background work was live", sess)
+	case got := <-done:
+		t.Fatalf("the switch returned while background work was live: %+v", got)
+	}
+	require.Empty(t, f.term.terminatedIDs(), "background work must keep the outgoing TUI alive")
+
+	// Claude's later status hook restates the level at zero. Only this semantic
+	// transition — not elapsed time and not projection convergence — may release it.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		stopPayload(t, "The background subagent finished.", 0)))
+
+	got := <-done
+	require.NoError(t, got.err)
+	f.wait()
+	require.Contains(t, f.term.terminatedIDs(), oldTerm)
+}
 
 // stopPayload is a real claude 2.1.212 Stop hook payload carrying `running` background
 // tasks — the shape traced live while a background subagent was working. tasks is how

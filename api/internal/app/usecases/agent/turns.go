@@ -38,8 +38,9 @@ const waitingForTurnLog = "agent: switch provider: the chat is mid-turn; waiting
 // fed from the same hooks Working is fed from, at the moment the command is issued, with
 // no projection in between.
 type turnWaits struct {
-	mu    sync.Mutex
-	turns map[string]*inflightTurn
+	mu      sync.Mutex
+	turns   map[string]*inflightTurn
+	changed map[string]chan struct{}
 }
 
 // inflightTurn is one runner's open turn: the chat it is answering into, and the channel
@@ -51,7 +52,27 @@ type inflightTurn struct {
 }
 
 func newTurnWaits() *turnWaits {
-	return &turnWaits{turns: map[string]*inflightTurn{}}
+	return &turnWaits{
+		turns:   map[string]*inflightTurn{},
+		changed: map[string]chan struct{}{},
+	}
+}
+
+func (w *turnWaits) changedLocked(chatID string) chan struct{} {
+	ch := w.changed[chatID]
+	if ch == nil {
+		ch = make(chan struct{})
+		w.changed[chatID] = ch
+	}
+	return ch
+}
+
+func (w *turnWaits) signalLocked(chatID string) {
+	if chatID == "" {
+		return
+	}
+	close(w.changedLocked(chatID))
+	w.changed[chatID] = make(chan struct{})
 }
 
 // begin records that runnerID is now working on a turn in chatID.
@@ -78,8 +99,10 @@ func (w *turnWaits) begin(
 			return
 		}
 		close(prev.done)
+		w.signalLocked(prev.chatID)
 	}
 	w.turns[runnerID] = &inflightTurn{chatID: chatID, done: make(chan struct{})}
+	w.signalLocked(chatID)
 }
 
 // complete ends runnerID's turn and releases everyone waiting on it. It is called on
@@ -103,6 +126,7 @@ func (w *turnWaits) complete(
 	}
 	delete(w.turns, runnerID)
 	close(t.done)
+	w.signalLocked(t.chatID)
 }
 
 // inflight snapshots the release channel of every turn currently open on chatID. Empty —
@@ -127,4 +151,81 @@ func (w *turnWaits) inflight(
 		}
 	}
 	return open
+}
+
+// watch returns whether chatID has any open turn and a channel closed on the next
+// begin/complete transition for that chat. Capturing the state and signal under one
+// mutex prevents a switch from missing the transition that should wake it.
+func (w *turnWaits) watch(chatID string) (bool, <-chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	open := false
+	for _, t := range w.turns {
+		if t.chatID == chatID {
+			open = true
+			break
+		}
+	}
+	return open, w.changedLocked(chatID)
+}
+
+// chatWorkStates is the process-local mirror of the authoritative aggregate
+// returned by StartTurn/StopTurn/AbandonTurn. It exists because GetChat is an
+// asynchronous read model: a destructive switch cannot use a projection lag as
+// permission to kill a CLI whose background work is still live.
+//
+// Unknown means this process has not issued a turn command for the chat. Callers
+// may seed that one read from the durable projection (settled chats and pre-existing
+// chats after boot); once known, only command results may change it.
+type chatWorkStates struct {
+	mu     sync.Mutex
+	states map[string]*chatWorkState
+}
+
+type chatWorkState struct {
+	known   bool
+	working bool
+	changed chan struct{}
+}
+
+func newChatWorkStates() *chatWorkStates {
+	return &chatWorkStates{states: map[string]*chatWorkState{}}
+}
+
+func (w *chatWorkStates) stateLocked(chatID string) *chatWorkState {
+	state := w.states[chatID]
+	if state == nil {
+		state = &chatWorkState{changed: make(chan struct{})}
+		w.states[chatID] = state
+	}
+	return state
+}
+
+// set records the aggregate returned by a synchronous command dispatch and wakes
+// every switch waiting for the chat to become idle. It signals even when Working
+// did not change: a Stop can restate a lower async-work level while remaining true,
+// and the next restatement is still semantically newer.
+func (w *chatWorkStates) set(chatID string, working bool) {
+	if chatID == "" {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	state := w.stateLocked(chatID)
+	state.known = true
+	state.working = working
+	close(state.changed)
+	state.changed = make(chan struct{})
+}
+
+// observe atomically snapshots the latest authoritative state and the signal for
+// the next change. A closed signal can never be paired with stale state.
+func (w *chatWorkStates) observe(chatID string) (working, known bool, changed <-chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	state := w.stateLocked(chatID)
+	return state.working, state.known, state.changed
 }

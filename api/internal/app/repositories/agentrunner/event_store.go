@@ -45,6 +45,7 @@ type StartInput struct {
 	ProviderID      string
 	TerminalSession string
 	ChatID          string
+	LaunchSessionID string
 	Now             time.Time
 }
 
@@ -79,6 +80,7 @@ type EventStore interface {
 		ctx context.Context,
 		runnerID string,
 		sessionID string,
+		resumable bool,
 		now time.Time,
 	) (domain.AgentRunner, error)
 	// Move repoints a runner at a different chat and conversation — the /clear and
@@ -91,6 +93,7 @@ type EventStore interface {
 		runnerID string,
 		toChatID string,
 		sessionID string,
+		resumable bool,
 		now time.Time,
 	) (domain.AgentRunner, error)
 	// Displace takes a runner OFF its chat and conversation, leaving its row — and
@@ -304,6 +307,7 @@ func (r *eventSourced) Start(
 		ProviderID:      in.ProviderID,
 		TerminalSession: in.TerminalSession,
 		ChatID:          in.ChatID,
+		LaunchSessionID: in.LaunchSessionID,
 		Now:             in.Now,
 	})
 	if err != nil {
@@ -316,11 +320,13 @@ func (r *eventSourced) BindSession(
 	ctx context.Context,
 	runnerID string,
 	sessionID string,
+	resumable bool,
 	now time.Time,
 ) (domain.AgentRunner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.BindSession{
 		RunnerID:  runnerID,
 		SessionID: sessionID,
+		Resumable: resumable,
 		Now:       now,
 	})
 	if err != nil {
@@ -334,12 +340,14 @@ func (r *eventSourced) Move(
 	runnerID string,
 	toChatID string,
 	sessionID string,
+	resumable bool,
 	now time.Time,
 ) (domain.AgentRunner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Move{
 		RunnerID:  runnerID,
 		ToChatID:  toChatID,
 		SessionID: sessionID,
+		Resumable: resumable,
 		Now:       now,
 	})
 	if err != nil {

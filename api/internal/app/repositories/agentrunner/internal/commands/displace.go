@@ -83,5 +83,6 @@ func (c Displace) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
 	next.CurrentChatID = ""
 	next.CurrentSession = ""
 	next.CurrentSessionSince = time.Time{}
+	next.CurrentSessionResumable = false
 	return next
 }

@@ -108,7 +108,7 @@ func TestAgentRunner_StartMoveGet_RoundTrip(t *testing.T) {
 	assert.Equal(t, "chat-a", started.CurrentChatID)
 	assert.Empty(t, started.CurrentSession, "a fresh runner has announced no conversation yet")
 
-	moved, err := repo.Move(ctx, "r1", "chat-b", "sess-2", now.Add(time.Second))
+	moved, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second))
 	require.NoError(t, err)
 	assert.Equal(t, "chat-b", moved.CurrentChatID)
 	assert.Equal(t, "sess-2", moved.CurrentSession)
@@ -167,7 +167,7 @@ func TestAgentRunner_BindSession_OpensTheConversation(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
 
-	bound, err := repo.BindSession(ctx, "r1", "sess-1", now.Add(time.Second))
+	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second))
 	require.NoError(t, err)
 	assert.Equal(t, "sess-1", bound.CurrentSession)
 	assert.Equal(t, now.Add(time.Second), bound.CurrentSessionSince,
@@ -196,10 +196,10 @@ func TestAgentRunner_BindSessionAndMove_RejectZeroNow(t *testing.T) {
 	ctx, repo := newRepo(t)
 	startRunner(t, ctx, repo, "r1", "chat-a", time.Unix(1000, 0).UTC())
 
-	_, err := repo.BindSession(ctx, "r1", "sess-1", time.Time{})
+	_, err := repo.BindSession(ctx, "r1", "sess-1", false, time.Time{})
 	require.ErrorIs(t, err, asynxModels.ErrValidation)
 
-	_, err = repo.Move(ctx, "r1", "chat-b", "sess-2", time.Time{})
+	_, err = repo.Move(ctx, "r1", "chat-b", "sess-2", false, time.Time{})
 	require.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
@@ -210,7 +210,7 @@ func TestAgentRunner_Exit_DropsTheLiveRow_KeepsHistory(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.BindSession(ctx, "r1", "sess-1", now.Add(time.Second))
+	_, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second))
 	require.NoError(t, err)
 
 	exited, err := repo.Exit(ctx, "r1", now.Add(2*time.Second))
@@ -263,7 +263,7 @@ func TestAgentRunner_ForgetChat_DropsHistoryNotTheRunner(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.BindSession(ctx, "r1", "sess-1", now.Add(time.Second))
+	_, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second))
 	require.NoError(t, err)
 	agentrunner.WaitQuiescentForTest(repo)
 
@@ -287,7 +287,7 @@ func TestAgentRunner_HubBroadcastsRunnerChatAndKind(t *testing.T) {
 	ctx, repo, cap := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.Move(ctx, "r1", "chat-b", "sess-2", now.Add(time.Second))
+	_, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second))
 	require.NoError(t, err)
 	_, err = repo.Exit(ctx, "r1", now.Add(2*time.Second))
 	require.NoError(t, err)
@@ -333,11 +333,11 @@ func TestAgentRunner_ConcurrentMove_OCCRetryConverges(t *testing.T) {
 		results := make([]error, 2)
 		var g errgroup.Group
 		g.Go(func() error {
-			_, results[0] = repo.Move(ctx, runnerID, chatA, "sess-a", now.Add(time.Second))
+			_, results[0] = repo.Move(ctx, runnerID, chatA, "sess-a", false, now.Add(time.Second))
 			return nil
 		})
 		g.Go(func() error {
-			_, results[1] = repo.Move(ctx, runnerID, chatB, "sess-b", now.Add(time.Second))
+			_, results[1] = repo.Move(ctx, runnerID, chatB, "sess-b", false, now.Add(time.Second))
 			return nil
 		})
 		require.NoError(t, g.Wait())

@@ -76,6 +76,10 @@ type Descriptor struct {
 	// claude has no such limit: --resume honours a fresh --append-system-prompt,
 	// so it declares the same silent channel it uses when fresh.
 	ResumeContextInject []InjectStep `yaml:"resume_context_inject"`
+	// Presentation contains optional, declarative adapters for the React chat
+	// presentation. It never changes whether the provider can run in its native
+	// terminal: an absent capability means terminal-only for that operation.
+	Presentation PresentationSpec `yaml:"presentation"`
 }
 
 type ArgSpec struct {
@@ -168,6 +172,9 @@ func (d *Descriptor) Validate() error {
 	}
 	if ts := d.Hooks.Events["turn_stop"]; ts["message"] == "" {
 		return fmt.Errorf("agent: descriptor %q hooks.events.turn_stop must map message", d.ID)
+	}
+	if err := d.validatePresentation(); err != nil {
+		return err
 	}
 	return nil
 }

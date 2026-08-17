@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
 import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
 import { ProviderIcon } from '@/components/ui/provider-icon'
@@ -22,6 +22,7 @@ export interface ProviderSwitchDropdownProps {
   providers: AgentProvider[]
   currentProviderId: string
   onSwitch: (providerId: string) => void
+  disabled?: boolean
 }
 
 // Chat-pane footer control (Task 15 places it): trigger shows the chat's
@@ -30,6 +31,7 @@ export function ProviderSwitchDropdown({
   providers,
   currentProviderId,
   onSwitch,
+  disabled = false,
 }: ProviderSwitchDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -43,6 +45,10 @@ export function ProviderSwitchDropdown({
   // would spawn the very CLI the user turned off.
   const current = providers.find((p) => p.id === currentProviderId)
   const others = providers.filter((p) => p.id !== currentProviderId && p.enabled)
+
+  useEffect(() => {
+    if (disabled) setIsOpen(false)
+  }, [disabled])
 
   // Both menu shapes below (switch targets, or the nothing-to-switch-to hint)
   // share these, so the menu can never drift from its trigger. Dropdown's content
@@ -79,6 +85,8 @@ export function ProviderSwitchDropdown({
       <button
         ref={anchorRef}
         type="button"
+        disabled={disabled}
+        title={disabled ? 'Wait for prompt delivery before switching providers' : undefined}
         onClick={() => setIsOpen((open) => !open)}
         className={dropdownTriggerClassName(
           `-mr-[9px] h-7 ${SWITCHER_WIDTH_CLASS} shrink-0 justify-between text-foreground`,
@@ -94,7 +102,7 @@ export function ProviderSwitchDropdown({
       {/* menuProps carries the positioning and the shared width (anchorAlign="end"
           keeps the menu on the trigger's column; min-w-0 clears the root's 240px
           floor so the style width wins). See SWITCHER_WIDTH_PX. */}
-      {others.length > 0 ? (
+      {!disabled && others.length > 0 ? (
         <Dropdown
           {...menuProps}
           items={others.map((provider) => ({
@@ -104,7 +112,7 @@ export function ProviderSwitchDropdown({
             onClick: () => onSwitch(provider.id),
           }))}
         />
-      ) : (
+      ) : !disabled ? (
         <Dropdown {...menuProps}>
           {/* A menu that opens onto nothing is a dead end. Say why it is empty and
               what a second provider would buy — above all that the conversation
@@ -115,7 +123,7 @@ export function ProviderSwitchDropdown({
             conversation&apos;s context comes with you.
           </p>
         </Dropdown>
-      )}
+      ) : null}
     </>
   )
 }

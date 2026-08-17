@@ -300,26 +300,21 @@ func TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent(t *te
 // the window between the terminate and the displace. That race is exactly what this drives,
 // by delivering the prompt hook from INSIDE TerminateGraceful, so the interleaving is
 // pinned rather than hoped for.
-func TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever(t *testing.T) {
+func TestRegression_InvalidSwitchTarget_PreservesTheOutgoingRunner(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.term.duringTerminate = func(string) {
-		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": "a long-running task"})))
-	}
 
-	// The switch quits the outgoing CLI (which goes mid-turn as it dies) and THEN fails
-	// (unknown provider).
+	// Descriptor resolution is deterministic target planning and therefore happens
+	// before teardown. An invalid target must not turn a healthy chat dormant.
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
 	require.Error(t, err)
 	f.wait()
 
-	_, err = f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat has no CLI left")
-
-	assert.False(t, f.chat(t, chatID).Working,
-		"a chat nothing is running on must not be left spinning forever")
+	live, liveErr := f.liveRunnerFor(t, chatID)
+	require.NoError(t, liveErr)
+	assert.Equal(t, runnerID, live.ID)
+	assert.Empty(t, f.term.terminatedIDs())
 }
 
 // TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn is the same rule on the SUCCESS path:
@@ -330,13 +325,17 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, outgoing := f.spawn(t, "claude")
+	hookDone := make(chan error, 1)
 	f.term.duringTerminate = func(string) {
-		require.NoError(t, f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": "working"})))
+		go func() {
+			hookDone <- f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
+				mustJSON(t, map[string]any{"prompt": "working"}))
+		}()
 	}
 
 	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
+	require.NoError(t, <-hookDone)
 	f.wait()
 
 	assert.False(t, f.chat(t, chatID).Working,

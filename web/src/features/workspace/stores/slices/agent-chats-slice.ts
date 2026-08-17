@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
 import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
+import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
 
@@ -66,6 +67,11 @@ export interface AgentChatsState {
    * just displays it.
    */
   working: Record<string, boolean>
+  /** Monotonic notification counter. It advances for every server turn state
+   *  write even when React batches a fast true→false pair into one render, and
+   *  on an authoritative reconnect reseed because a complete idle→idle turn
+   *  may have occurred while the socket was down. */
+  turnRevision: Record<string, number>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -83,6 +89,10 @@ export interface AgentChatsState {
 export interface AgentChatsSlice {
   agentChats: AgentChatsState
   seedAgentChats: (chats: AgentChat[], opts?: { keepWorking?: boolean }) => void
+  /** Invalidate every mounted chat transcript after a socket outage. This is
+   * independent of the reconnect GET so even a failed/superseded read cannot
+   * hide a complete idle-to-idle turn that happened while disconnected. */
+  notifyAgentChatMessages: () => void
   upsertAgentChat: (chat: AgentChat) => void
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
@@ -117,6 +127,7 @@ export interface AgentChatsSlice {
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
+  turnRevision: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -138,10 +149,10 @@ export const createAgentChatsSlice: StateCreator<
   //
   //  - Chats absent from the response are DROPPED. A `deleted` frame lost during
   //    the outage would otherwise leave a ghost row that never goes away.
-  //  - The working map is CLEARED. Working state is not carried in the seed, so it
-  //    is UNKNOWN at this point, and spec §2 mandates unknown → idle. Keeping it
-  //    would strand a spinner forever on any row whose `turn_stopped` was dropped
-  //    during the outage (until that chat happens to run another turn).
+  //  - The working map is REPLACED from each chat's server-folded `working` value.
+  //    This both clears a spinner whose `turn_stopped` was lost during the outage
+  //    and restores a spinner for a turn already in flight when the client joins.
+  //    Older daemons omit the field; omission still grounds to idle.
   //
   // `keepWorking` is the one exception, and it exists for the `created` reseed. That
   // reseed rides a LIVE socket — it fires because a new chat appeared, not because the
@@ -152,6 +163,7 @@ export const createAgentChatsSlice: StateCreator<
   seedAgentChats: (chats, opts) => {
     const prev = get().agentChats
     const present = new Set(chats.map((c) => c.id))
+    const vanished = prev.chats.filter((chat) => !present.has(chat.id)).map((chat) => chat.id)
     const pruned = prev.order.filter((id) => present.has(id))
 
     // Chats that appeared since the last seed. A `created` frame reseeds the whole
@@ -183,8 +195,22 @@ export const createAgentChatsSlice: StateCreator<
         for (const id of Object.keys(s.agentChats.working)) {
           if (!present.has(id)) delete s.agentChats.working[id]
         }
+        // A live `created` reseed preserves surviving frame-derived answers, but
+        // newly arrived chats have no map entry yet. Seed only a positive server
+        // answer for those rows; absent/false is already represented by omission.
+        for (const chat of chats) {
+          if (s.agentChats.working[chat.id] === undefined && chat.working === true) {
+            s.agentChats.working[chat.id] = true
+          }
+        }
       } else {
         s.agentChats.working = {}
+        for (const chat of chats) {
+          if (chat.working === true) s.agentChats.working[chat.id] = true
+        }
+      }
+      for (const id of Object.keys(s.agentChats.turnRevision)) {
+        if (!present.has(id)) delete s.agentChats.turnRevision[id]
       }
       s.agentChats.order = nextOrder
       if (s.agentChats.activeChatId !== null && !present.has(s.agentChats.activeChatId)) {
@@ -193,6 +219,15 @@ export const createAgentChatsSlice: StateCreator<
     })
 
     if (arrived.length > 0 && nextOrder !== pruned) saveOrder(get().workspaceId, nextOrder)
+    for (const chatId of vanished) clearPersistedPromptQueue(get().workspaceId, chatId)
+  },
+
+  notifyAgentChatMessages: () => {
+    set((s) => {
+      for (const chat of s.agentChats.chats) {
+        s.agentChats.turnRevision[chat.id] = (s.agentChats.turnRevision[chat.id] ?? 0) + 1
+      }
+    })
   },
 
   // Upsert ONE chat, refetched because a WS frame said it changed.
@@ -226,17 +261,21 @@ export const createAgentChatsSlice: StateCreator<
       }
     }),
 
-  removeAgentChat: (chatId) =>
+  removeAgentChat: (chatId) => {
     set((s) => {
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
+      delete s.agentChats.turnRevision[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
-    }),
+    })
+    clearPersistedPromptQueue(get().workspaceId, chatId)
+  },
 
   setAgentChatWorking: (chatId, working) =>
     set((s) => {
       s.agentChats.working[chatId] = working
+      s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
     }),
 
   setAgentChatOrder: (order) => {

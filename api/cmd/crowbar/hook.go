@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-
-	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
+
+const maxHookPayloadBytes = 64 << 20
 
 func newHookCmd() *cobra.Command {
 	var segment, provider, payloadFile, payloadInline, project, repo, workspace string
@@ -43,12 +45,31 @@ func newHookCmd() *cobra.Command {
 func resolvePayload(inline, file string, stdin io.Reader) ([]byte, error) {
 	switch {
 	case inline != "":
+		if len(inline) > maxHookPayloadBytes {
+			return nil, fmt.Errorf("hook payload exceeds %d bytes", maxHookPayloadBytes)
+		}
 		return []byte(inline), nil
 	case file != "":
-		return os.ReadFile(file) //nolint:gosec // path is authored in the descriptor's own hook command
+		f, err := os.Open(file) //nolint:gosec // path is authored in the descriptor's own hook command
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		return readBoundedHookPayload(f)
 	default:
-		return io.ReadAll(io.LimitReader(stdin, 8<<20))
+		return readBoundedHookPayload(stdin)
 	}
+}
+
+func readBoundedHookPayload(r io.Reader) ([]byte, error) {
+	payload, err := io.ReadAll(io.LimitReader(r, maxHookPayloadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > maxHookPayloadBytes {
+		return nil, fmt.Errorf("hook payload exceeds %d bytes", maxHookPayloadBytes)
+	}
+	return payload, nil
 }
 
 // runHook forwards a raw hook payload verbatim to the daemon, which holds the
@@ -60,16 +81,22 @@ func runHook(
 	event, segment, provider, project, repo, workspace string,
 	payload []byte, host string,
 ) error {
-	client, err := ipc.NewClient(host)
-	if err != nil {
+	envelope := hookEnvelope{
+		DeliveryID: uuid.NewString(),
+		SegmentID:  segment,
+		Provider:   provider,
+		Event:      event,
+		PayloadRaw: string(payload),
+		Project:    project,
+		Repo:       repo,
+		Workspace:  workspace,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if _, err := persistHookEnvelope(envelope); err != nil {
 		return err
 	}
-	body := map[string]any{
-		"segment_id":  segment,
-		"provider":    provider,
-		"event":       event,
-		"payload_raw": string(payload),
-	}
-	_, _, err = client.PostJSON(context.Background(), scopedAgentPath(project, repo, workspace, "/hooks"), body)
-	return err
+	// A failed or non-2xx delivery leaves the fsynced envelope in the spool.
+	// The daemon's loop and every later hook retry the same delivery id in FIFO
+	// order; nothing is discarded merely because this short-lived callback exits.
+	return drainHookSpool(context.Background(), host)
 }

@@ -894,3 +894,58 @@ func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 		"the not-installed fact must reach the handler, which maps it to 424")
 	assert.Contains(t, err.Error(), "claude", "and it must name the provider the UI has to report")
 }
+
+// TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished pins the
+// ordering the React chat depends on. StopTurn's projection broadcasts Working=false,
+// and the chat view treats that edge as its cue to do ONE ledger read and then stop
+// polling. While StopTurn ran BEFORE the ledger append, that read could be served
+// before the assistant row existed — and with the turn over and the queue empty,
+// nothing ever re-read it. Live on 2026-08-16 that stranded a real reply in the ledger:
+// the user's message rendered, the answer did not, and it only appeared after an
+// unrelated refresh (switching chats).
+//
+// The seam fires inside StopTurn, which is the earliest moment any client can learn the
+// turn ended. The ledger must already hold the answer by then.
+func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished(t *testing.T) {
+	f, cs, _ := newFaultFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "ask"})))
+	f.wait()
+
+	var ledgerAtPublish string
+	cs.onStopTurn = func() {
+		handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
+		require.NoError(t, err)
+		ledgerAtPublish = handoff
+	}
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "the answer"})))
+	f.wait()
+
+	assert.Contains(t, ledgerAtPublish, "assistant (claude): the answer",
+		"the assistant message must be readable BEFORE the turn-state change is published, "+
+			"or a client that reads once on that edge and stops polling never sees the reply")
+}
+
+// TestRegression_TurnStop_EmptyMessageStillClosesTheTurn guards the invariant the old
+// ordering existed to protect: an empty assistant message is a ledger no-op, but must
+// never be a turn-state no-op. Appending first must not make the turn depend on there
+// being something to append.
+func TestRegression_TurnStop_EmptyMessageStillClosesTheTurn(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "ask"})))
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"session_id": "s1"})))
+	f.wait()
+
+	chat, err := f.usecase.GetChat(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.False(t, chat.Working, "an empty turn_stop must still close the turn")
+}

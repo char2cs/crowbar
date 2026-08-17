@@ -440,14 +440,16 @@ func (p *projector) upsertLive(
 	r domain.AgentRunner,
 ) {
 	row := runnerRow{
-		ID:                  r.ID,
-		WorkspaceID:         r.WorkspaceID,
-		ProviderID:          r.ProviderID,
-		TerminalSession:     r.TerminalSession,
-		CurrentChatID:       r.CurrentChatID,
-		CurrentSession:      r.CurrentSession,
-		CurrentSessionSince: r.CurrentSessionSince,
-		StartedAt:           r.StartedAt,
+		ID:                      r.ID,
+		WorkspaceID:             r.WorkspaceID,
+		ProviderID:              r.ProviderID,
+		TerminalSession:         r.TerminalSession,
+		CurrentChatID:           r.CurrentChatID,
+		CurrentSession:          r.CurrentSession,
+		CurrentSessionSince:     r.CurrentSessionSince,
+		LaunchSessionID:         r.LaunchSessionID,
+		CurrentSessionResumable: r.CurrentSessionResumable,
+		StartedAt:               r.StartedAt,
 	}
 	err := p.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},

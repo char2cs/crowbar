@@ -22,6 +22,40 @@ spawn:
     - "on-request"
 session:
   resume: { arg: "resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+  # `debug prompt-input` asks codex to deterministically render the instructions
+  # it would make model-visible. It does not start a model turn and is deliberately
+  # labelled model_visible: codex's native /skills menu may contain additional
+  # explicitly installed or plugin-owned entries.
+  slash_catalog:
+    completeness: model_visible
+    timeout_ms: 10000
+    max_stdout_bytes: 4194304
+    max_stderr_bytes: 262144
+    max_items: 200
+    pipeline:
+      adapter: json_text_section
+      command: ["debug", "prompt-input"]
+      text_path: "[].content[].text"
+      start_marker: "<skills_instructions>"
+      end_marker: "</skills_instructions>"
+      # A skill name may itself be plugin-qualified with colons. The field
+      # delimiter is the first colon FOLLOWED BY whitespace, not the first
+      # colon in the line (`plugin:skill: Description`).
+      item_pattern: '(?m)^- (?P<name>[^\r\n]+?):\s+(?P<description>.*?)(?:\s+\((?:file|orchestrator resource|environment resource|custom resource):[^\r\n]*\))?\r?$'
+      item:
+        label: "{name}"
+        description: "{description}"
+        insert_text: "${name} "
+        source: "model-visible"
 # Crowbar does NOT own codex's home. It runs codex against the user's real
 # ~/.codex and injects everything it needs as session-layer config overrides
 # (-c), which codex honours for hooks — verified against 0.139.0: SessionStart,

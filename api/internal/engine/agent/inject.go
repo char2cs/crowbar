@@ -55,7 +55,15 @@ func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps
 	}
 	// Hard guard (Global Constraints): the engine must never spawn a headless CLI.
 	// Reject if any assembled argv token exactly equals a descriptor forbid_flag.
+	optionsEnded := false
 	for _, tok := range plan.Argv {
+		if tok == "--" {
+			optionsEnded = true
+			continue
+		}
+		if optionsEnded {
+			continue
+		}
 		for _, forbidden := range d.Spawn.ForbidFlags {
 			if tok == forbidden {
 				plan.Cleanup()

@@ -164,12 +164,17 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // newer chat existed, and that chat disappears from the sidebar with nothing
     // scheduled to bring it back.
     let listSeq = 0
+    // A reconnect may race a later live `created` reseed. Until one list read
+    // actually lands, every seed must replace `working` from the server instead
+    // of preserving the pre-outage map. Otherwise the newer created read wins
+    // sequencing but also preserves the stale state reconnect was meant to repair.
+    let needsReconnectReconcile = false
 
     // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
     // reconnect, and on reconnect it is the only thing that can repair frames the
     // socket dropped while it was down. seedAgentChats therefore drops chats the
-    // server no longer has (a missed `deleted`) and clears the working map (a missed
-    // `turn_stopped` must not strand a spinner; working is unknown here → idle).
+    // server no longer has (a missed `deleted`) and replaces the working map from
+    // each chat's server-folded value (repairing either missed turn edge).
     //
     // Being a REPLACE is exactly why it must not land out of order. A CLI walking into a
     // conversation Crowbar has never seen is TWO backend writes on TWO aggregates — mint
@@ -193,7 +198,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // caller: the `created` reseed. That reseed rides a LIVE socket (a new chat appeared,
     // the connection never dropped), so no turn frame was missed and clearing the working
     // map would needlessly blank the spinner on every OTHER mid-turn chat. Initial load and
-    // reconnect leave it false — working is genuinely unknown there and must reset to idle.
+    // reconnect leave it false — their list responses carry authoritative working state.
     const seedChats = async ({ keepWorking = false }: { keepWorking?: boolean } = {}) => {
       const seq = ++listSeq
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -217,8 +222,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             if (!present.has(c.id)) vanished.push(c.id)
           }
 
-          if (keepWorking) store.getState().seedAgentChats(chats, { keepWorking: true })
+          if (keepWorking && !needsReconnectReconcile)
+            store.getState().seedAgentChats(chats, { keepWorking: true })
           else store.getState().seedAgentChats(chats)
+          needsReconnectReconcile = false
 
           // A chat deleted during the outage never delivered its `deleted` frame, so
           // close its pane tab here exactly as that frame's handler would have.
@@ -442,6 +449,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+        // Invalidate transcript pages synchronously, before the repair GET. A
+        // complete turn can be idle before and after the outage, and a failed or
+        // superseded list request must not make its messages invisible forever.
+        stateOf().notifyAgentChatMessages()
+        needsReconnectReconcile = true
         void seedChats()
         // Folders too, and for exactly the reason the chat list is reseeded here:
         // every folder frame dropped during the outage is a rearrangement this

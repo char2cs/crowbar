@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
 // Workspace-scoped agentic-chat REST client. Routes nest under
 // workspaceBase(wsId)/agent (00 agentic-engine spec §2); the {success,data}
@@ -44,6 +45,10 @@ export interface AgentChat {
    *  (so a dormant chat still shows the right glyph, and Resume knows who to bring
    *  back). '' only on a chat no runner has ever been placed on. */
   activeProviderId: string
+  /** Server-folded turn state. The workspace stream mirrors this into its
+   *  dedicated working map; carrying it on reads makes reconnect/recheck
+   *  authoritative too. */
+  working?: boolean
   createdAt: string
   /**
    * The row this chat hangs off — another CHAT (making this one a thread of it) or
@@ -92,6 +97,49 @@ export interface AgentChatDetail extends AgentChat {
   conversations: ChatConversation[]
 }
 
+export type AgentChatMessageRole = 'user' | 'assistant'
+
+/** One authoritative, hook-confirmed message in a Crowbar chat. */
+export interface AgentChatMessage {
+  sequence: number
+  role: AgentChatMessageRole
+  providerId: string
+  text: string
+  at: string
+}
+
+/** A bounded ledger page. `cursor` is the newest returned sequence and
+ *  `oldestCursor` is the anchor used to page upward. */
+export interface AgentChatMessagesPage {
+  cursor: number
+  oldestCursor: number
+  hasMore: boolean
+  items: AgentChatMessage[]
+}
+
+export interface AgentPromptResult {
+  runnerId: string
+  terminalSessionId: string
+}
+
+export type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
+
+export interface SlashCatalogItem {
+  id: string
+  kind: 'skill'
+  label: string
+  description: string
+  insertText: string
+  source: string
+}
+
+export interface SlashCatalog {
+  providerId: string
+  completeness: SlashCatalogCompleteness
+  items: SlashCatalogItem[]
+  warnings: string[]
+}
+
 export interface AgentProvider {
   id: string
   displayName: string
@@ -134,6 +182,7 @@ function mapChat(c: AgentChat): AgentChat {
     liveRunnerId: c.liveRunnerId,
     terminalSessionId: c.terminalSessionId,
     activeProviderId: c.activeProviderId,
+    working: c.working ?? false,
     createdAt: c.createdAt,
     // Grounded here, once, so nothing downstream has to remember that an absent
     // parent and a root parent are the same thing. `order` defaults to 0, which
@@ -168,6 +217,68 @@ export async function listChats(wsId: string): Promise<AgentChat[]> {
 export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
   const raw = await apiFetch<AgentChatDetail>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}`)
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
+}
+
+export interface ListChatMessagesOptions {
+  after?: number
+  before?: number
+  limit?: number
+  signal?: AbortSignal
+}
+
+/** Read hook-confirmed messages. Omitting both cursors asks for the newest page;
+ *  `after` incrementally catches up and `before` pages older messages. */
+export async function listChatMessages(
+  wsId: string,
+  id: string,
+  options: ListChatMessagesOptions = {},
+): Promise<AgentChatMessagesPage> {
+  const query = new URLSearchParams()
+  if (options.after !== undefined) query.set('after', String(options.after))
+  if (options.before !== undefined) query.set('before', String(options.before))
+  query.set('limit', String(options.limit ?? 100))
+  const raw = await apiFetch<AgentChatMessagesPage>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/messages?${query}`,
+    { signal: options.signal },
+  )
+  const items = raw?.items ?? []
+  return {
+    cursor: raw?.cursor ?? items.at(-1)?.sequence ?? 0,
+    oldestCursor: raw?.oldestCursor ?? items[0]?.sequence ?? 0,
+    hasMore: raw?.hasMore ?? false,
+    items,
+  }
+}
+
+/** Ask Crowbar to restart the same interactive provider TUI with a completed
+ *  prompt. `clientRequestId` is stable across retries. */
+export async function submitAgentPrompt(
+  wsId: string,
+  id: string,
+  text: string,
+  clientRequestId: string,
+): Promise<AgentPromptResult> {
+  return apiFetch<AgentPromptResult>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/prompts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, clientRequestId }),
+  })
+}
+
+/** Run the active provider's deterministic, descriptor-declared skill probe.
+ *  Reads are deliberately single-attempt when cancellable: apiFetch's ordinary
+ *  cold-start retry would otherwise replay an already-aborted request. */
+export async function getSlashCatalog(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<SlashCatalog> {
+  const raw = await apiFetch<SlashCatalog>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/slash-catalog`,
+    { signal },
+    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  )
+  return { ...raw, items: raw?.items ?? [], warnings: raw?.warnings ?? [] }
 }
 
 // Map a wire provider into the store shape, defaulting the three enrichment flags
@@ -299,6 +410,7 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
     method: 'DELETE',
     ...init,
   })
+  clearPersistedPromptQueue(wsId, id)
 }
 
 // ── The chats tree: folders, and where a row sits ───────────────────

@@ -9,6 +9,10 @@ type TemplateCtx struct {
 	// codex's home, precisely so it can never delete codex's sessions).
 	Tmp string
 	ID  string
+	// Message is a completed React-composer prompt. Descriptors can place it in
+	// one argv element with {message}; Expand never invokes a shell or re-scans
+	// replacement text, so provider syntax in the message remains literal.
+	Message string
 	// Context is the single document Crowbar injects into a spawning CLI: the
 	// capability preamble (config.yaml's capabilities_instruction — the directive
 	// that Crowbar's own tools exist and are preferred over their shell
@@ -83,6 +87,7 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{scope_flags}", ctx.ScopeFlags(),
 		"{tmp}", ctx.Tmp,
 		"{id}", ctx.ID,
+		"{message}", ctx.Message,
 		"{context}", ctx.Context,
 		"{ledger_dir}", ctx.LedgerDir,
 		"{ledger_cut}", ctx.LedgerCut,

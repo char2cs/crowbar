@@ -13,10 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId path
@@ -172,6 +174,24 @@ func (u *configurableListGetUsecase) GetChat(
 		return domain.AgentChat{}, u.getErr
 	}
 	return u.chat, nil
+}
+
+func (*configurableListGetUsecase) ReadMessages(
+	context.Context, string, int, int, int,
+) (ledger.Page, error) {
+	return ledger.Page{}, nil
+}
+
+func (*configurableListGetUsecase) SubmitPrompt(
+	context.Context, string, string, string,
+) (dto.PromptSubmissionDTO, error) {
+	return dto.PromptSubmissionDTO{}, nil
+}
+
+func (*configurableListGetUsecase) SlashCatalog(
+	context.Context, string,
+) (engineagent.SlashCatalog, error) {
+	return engineagent.SlashCatalog{}, nil
 }
 
 func (u *configurableListGetUsecase) LiveRunnerForChat(

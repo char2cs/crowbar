@@ -16,6 +16,7 @@ import (
 type BindSession struct {
 	RunnerID  string
 	SessionID string
+	Resumable bool
 	Now       time.Time
 }
 
@@ -46,5 +47,6 @@ func (c BindSession) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
 	next := *current
 	next.CurrentSession = c.SessionID
 	next.CurrentSessionSince = c.Now
+	next.CurrentSessionResumable = c.Resumable
 	return next
 }

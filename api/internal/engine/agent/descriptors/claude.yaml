@@ -21,6 +21,51 @@ spawn:
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
 session:
   resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+  # Claude exposes enabled plugin metadata without a model turn. The generic
+  # inventory/detail adapter fans out only enabled rows and never reads Claude's
+  # config or skill directories. Standalone user/project skills are not exposed
+  # by this command surface, hence plugin_only rather than complete.
+  slash_catalog:
+    completeness: plugin_only
+    timeout_ms: 10000
+    max_stdout_bytes: 4194304
+    max_stderr_bytes: 262144
+    max_items: 200
+    pipeline:
+      adapter: json_inventory_text_detail
+      command: ["plugin", "list", "--json"]
+      rows_path: "[]"
+      enabled_field: "enabled"
+      id_field: "id"
+      source_pattern: '^(?P<source>[^@]+)'
+      detail_command: ["plugin", "details", "{id}"]
+      # Horizontal whitespace ONLY ([^\S\r\n]) between the count and the list.
+      # `\s+` there crosses the newline, so a plugin printing `Skills (0)` had the
+      # NEXT inventory line captured as its skills — real output is
+      #   Skills (0)
+      #   Agents (1)  code-simplifier
+      # which yielded a phantom skill named "Agents (1)  code-simplifier" and hid
+      # the empty case, because the empty pattern is only consulted when this one
+      # fails to match.
+      detail_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(\d+\):?[^\S\r\n]+(?P<items>[^\r\n]+?)[^\S\r\n]*$'
+      detail_empty_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(0\)[^\S\r\n]*:?[^\S\r\n]*$'
+      detail_items_group: "items"
+      detail_separator: ","
+      detail_concurrency: 4
+      item:
+        label: "{source}:{name}"
+        description: ""
+        insert_text: "/{source}:{name} "
+        source: "{source}"
 config_injection:
   - write_file:
       path: "{tmp}/settings.json"

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -236,4 +237,106 @@ func TestLedger_LastTurnAt_ZeroWhenTheProviderNeverSpoke(t *testing.T) {
 	got, err := l.LastTurnAt("claude")
 	require.NoError(t, err)
 	assert.True(t, got.IsZero(), "a provider that never spoke has no conversation to resume")
+}
+
+func TestLedger_PageSupportsInitialIncrementalAndOlderWindows(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+	base := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	for i, text := range []string{"one", "two", "three", "four", "five"} {
+		_, err := l.AppendTurn("user", "codex", base.Add(time.Duration(i)*time.Minute), text)
+		require.NoError(t, err)
+	}
+
+	initial, err := l.Page(0, 0, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int{4, 5}, []int{initial.Items[0].Sequence, initial.Items[1].Sequence})
+	assert.Equal(t, 5, initial.Cursor)
+	assert.Equal(t, 4, initial.OldestCursor)
+	assert.True(t, initial.HasMore)
+
+	older, err := l.Page(0, initial.OldestCursor, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int{2, 3}, []int{older.Items[0].Sequence, older.Items[1].Sequence})
+	assert.True(t, older.HasMore)
+
+	newer, err := l.Page(3, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, newer.Items, 1)
+	assert.Equal(t, 4, newer.Items[0].Sequence)
+	assert.True(t, newer.HasMore)
+
+	last, err := l.Page(5, 0, 10)
+	require.NoError(t, err)
+	assert.Empty(t, last.Items)
+	assert.Zero(t, last.Cursor)
+	assert.Zero(t, last.OldestCursor)
+	assert.False(t, last.HasMore)
+}
+
+func TestLedger_PageRejectsAmbiguousOrInvalidWindow(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+
+	_, err = l.Page(1, 2, 10)
+	require.Error(t, err)
+	_, err = l.Page(0, 0, 0)
+	require.Error(t, err)
+}
+
+func TestLedger_HasTurnAtOrAfterUsesCurrentConversationBoundary(t *testing.T) {
+	l, err := ledger.Open(filepath.Join(t.TempDir(), "c1"))
+	require.NoError(t, err)
+	base := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	_, err = l.AppendTurn("assistant", "claude", base, "old conversation")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("user", "codex", base.Add(2*time.Minute), "other provider")
+	require.NoError(t, err)
+	_, err = l.AppendTurn("user", "claude", base.Add(3*time.Minute), "current conversation")
+	require.NoError(t, err)
+
+	got, err := l.HasTurnAtOrAfter("claude", base.Add(time.Minute))
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = l.HasTurnAtOrAfter("claude", base.Add(4*time.Minute))
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	got, err = l.HasTurnAtOrAfter("", base)
+	require.NoError(t, err)
+	assert.False(t, got)
+}
+
+func TestLedger_ConcurrentHandlesAllocateUniqueSequences(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "c1")
+	const count = 32
+	var wg sync.WaitGroup
+	errs := make(chan error, count)
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			l, err := ledger.Open(dir)
+			if err == nil {
+				_, err = l.AppendTurn("user", "codex", time.Now(), "message")
+			}
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	l, err := ledger.Open(dir)
+	require.NoError(t, err)
+	turns, err := l.Turns()
+	require.NoError(t, err)
+	assert.Len(t, turns, count)
+	page, err := l.Page(0, 0, count)
+	require.NoError(t, err)
+	for i, item := range page.Items {
+		assert.Equal(t, i+1, item.Sequence)
+	}
 }

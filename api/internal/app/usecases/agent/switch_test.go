@@ -303,11 +303,19 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, _ := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "claude")
+	spawnCount := f.term.callCount()
+	terminatedCount := len(f.term.terminatedIDs())
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolve descriptor")
+	assert.Equal(t, spawnCount, f.term.callCount(), "an invalid target must not spawn anything")
+	assert.Len(t, f.term.terminatedIDs(), terminatedCount,
+		"target planning must fail before the outgoing TUI is touched")
+	live, liveErr := f.liveRunnerFor(t, chatID)
+	require.NoError(t, liveErr)
+	assert.Equal(t, runnerID, live.ID)
 }
 
 // ---------------------------------------------------------------------------

@@ -88,6 +88,9 @@ type fakeCommander struct {
 	// It is invoked WITHOUT the mutex held, so whatever it drives may call back into this
 	// fake (a hook that retires a runner terminates its PTY).
 	duringFork func()
+	// duringForkCall is the argument-aware twin used when a test needs the runner
+	// id embedded in the rendered hook command. It runs in the same exact window.
+	duringForkCall func(commandCall)
 	// duringTerminate runs INSIDE TerminateGraceful, before the kill is recorded — the
 	// moment the outgoing CLI is asked to die. It is how the mid-turn tests OBSERVE that
 	// moment as it happens (a switch that kills a CLI mid-answer is the bug), rather than
@@ -105,6 +108,15 @@ func (f *fakeCommander) CreateCommand(
 	env []string,
 	onExit func(),
 ) (string, error) {
+	if f.duringForkCall != nil {
+		f.duringForkCall(commandCall{
+			workspaceID: workspaceID,
+			cwd:         cwd,
+			argv:        append([]string{}, argv...),
+			env:         append([]string{}, env...),
+			onExit:      onExit,
+		})
+	}
 	if f.duringFork != nil {
 		f.duringFork()
 	}
@@ -352,8 +364,25 @@ type fakeChatStore struct {
 	// a decision about placement must not come from it.
 	staleProjection bool
 
+	// onStopTurn runs INSIDE StopTurn, before the aggregate is written. It is the
+	// only seam that can observe what a client would see the instant the turn-state
+	// change is published, which is what the assistant-message ordering turns on.
+	onStopTurn func()
+
 	mu           sync.Mutex
 	abandonedIDs []string
+}
+
+func (s *fakeChatStore) StopTurn(
+	ctx context.Context,
+	chatID string,
+	now time.Time,
+	asyncWork int,
+) (domain.AgentChat, error) {
+	if s.onStopTurn != nil {
+		s.onStopTurn()
+	}
+	return s.EventStore.StopTurn(ctx, chatID, now, asyncWork)
 }
 
 func (s *fakeChatStore) AbandonTurn(
@@ -414,6 +443,9 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.AgentChat, erro
 type fakeRunnerStore struct {
 	agentrunner.EventStore
 	failStart      error
+	failGet        error
+	failGetAfter   int
+	afterGet       func(domain.AgentRunner)
 	failMove       error
 	failForgetChat error
 	// afterMove / afterStart run once each COMMAND HAS COMMITTED, so a test can pin an
@@ -424,6 +456,24 @@ type fakeRunnerStore struct {
 
 	mu         sync.Mutex
 	lookedUpAt []string
+}
+
+func (s *fakeRunnerStore) Get(
+	ctx context.Context,
+	runnerID string,
+) (domain.AgentRunner, error) {
+	if s.failGet != nil {
+		if s.failGetAfter > 0 {
+			s.failGetAfter--
+			return s.EventStore.Get(ctx, runnerID)
+		}
+		return domain.AgentRunner{}, s.failGet
+	}
+	runner, err := s.EventStore.Get(ctx, runnerID)
+	if err == nil && s.afterGet != nil {
+		s.afterGet(runner)
+	}
+	return runner, err
 }
 
 func (s *fakeRunnerStore) LiveRunnerForChat(
@@ -471,12 +521,13 @@ func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) 
 func (s *fakeRunnerStore) Move(
 	ctx context.Context,
 	runnerID, toChatID, sessionID string,
+	resumable bool,
 	now time.Time,
 ) (domain.AgentRunner, error) {
 	if s.failMove != nil {
 		return domain.AgentRunner{}, s.failMove
 	}
-	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, now)
+	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, resumable, now)
 	if s.afterMove != nil {
 		s.afterMove()
 	}
@@ -959,7 +1010,7 @@ func indexOf(ss []string, target string) int {
 // reaches this directly.
 func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID string) error {
 	t.Helper()
-	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, time.Now())
+	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, false, time.Now())
 	f.wait()
 	return err
 }

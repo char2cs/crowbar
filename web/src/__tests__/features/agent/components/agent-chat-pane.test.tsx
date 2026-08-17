@@ -12,15 +12,25 @@ import {
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
-const { getChatFn, switchProviderFn, resumeChatFn, saveReconnectFn, toastErrorFn } = vi.hoisted(
-  () => ({
-    getChatFn: vi.fn(),
-    switchProviderFn: vi.fn(),
-    resumeChatFn: vi.fn(),
-    saveReconnectFn: vi.fn(),
-    toastErrorFn: vi.fn(),
-  }),
-)
+const {
+  getChatFn,
+  switchProviderFn,
+  resumeChatFn,
+  listMessagesFn,
+  submitPromptFn,
+  slashCatalogFn,
+  saveReconnectFn,
+  toastErrorFn,
+} = vi.hoisted(() => ({
+  getChatFn: vi.fn(),
+  switchProviderFn: vi.fn(),
+  resumeChatFn: vi.fn(),
+  listMessagesFn: vi.fn(),
+  submitPromptFn: vi.fn(),
+  slashCatalogFn: vi.fn(),
+  saveReconnectFn: vi.fn(),
+  toastErrorFn: vi.fn(),
+}))
 
 // The pane resolves its cycle chord through the keymap (so it stays rebindable);
 // pin it here rather than standing up the settings store.
@@ -32,6 +42,9 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getChat: (...a: unknown[]) => getChatFn(...a),
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
+  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+  submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
+  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -46,7 +59,9 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // that records the sessionId it was mounted with (that's what the attach seam is
 // proven by) plus the isActive/isVisible/attachOnly props threaded from the pane.
 // The marker is clickable so a test can fire the terminal's onSessionGone — the
-// pane's half of the "the PTY died under a mounted pane" contract.
+// pane's half of the "the PTY died under a mounted pane" contract. Click reports
+// the session it is MOUNTED with (what real xterm does); double-click reports a
+// stale id, standing in for a displaced PTY whose death lands late.
 vi.mock('@/features/terminal/components/terminal', () => ({
   XtermTerminal: ({
     sessionId,
@@ -61,7 +76,7 @@ vi.mock('@/features/terminal/components/terminal', () => ({
     isVisible?: boolean
     attachOnly?: boolean
     flush?: boolean
-    onSessionGone?: () => void
+    onSessionGone?: (goneSessionId: string) => void
   }) =>
     createElement('div', {
       'data-testid': 'xterm',
@@ -70,7 +85,8 @@ vi.mock('@/features/terminal/components/terminal', () => ({
       'data-visible': String(isVisible),
       'data-attach-only': String(Boolean(attachOnly)),
       'data-flush': String(Boolean(flush)),
-      onClick: () => onSessionGone?.(),
+      onClick: () => onSessionGone?.(sessionId),
+      onDoubleClick: () => onSessionGone?.('pty-displaced'),
     }),
 }))
 
@@ -81,10 +97,12 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
     providers,
     currentProviderId,
     onSwitch,
+    disabled,
   }: {
     providers: AgentProvider[]
     currentProviderId: string
     onSwitch: (id: string) => void
+    disabled?: boolean
   }) =>
     createElement(
       'button',
@@ -92,6 +110,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
         'data-testid': 'provider-switch',
         'data-current': currentProviderId,
         'data-count': String(providers.length),
+        disabled,
         onClick: () => onSwitch('codex'),
       },
       'switch',
@@ -241,10 +260,26 @@ beforeEach(() => {
   getChatFn.mockReset()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()
+  listMessagesFn.mockReset()
+  submitPromptFn.mockReset()
+  slashCatalogFn.mockReset()
   saveReconnectFn.mockReset()
   toastErrorFn.mockReset()
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
+  listMessagesFn.mockResolvedValue({
+    cursor: 0,
+    oldestCursor: 0,
+    hasMore: false,
+    items: [],
+  })
+  submitPromptFn.mockResolvedValue({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
+  slashCatalogFn.mockResolvedValue({
+    providerId: 'codex',
+    completeness: 'model_visible',
+    items: [],
+    warnings: [],
+  })
   getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
     Promise.resolve(
       detail(liveChat({ id: String(id), runnerId: 'r-revived', pty: 'pty-revived' })),
@@ -634,8 +669,10 @@ describe('AgentChatPane', () => {
 
     const xterm = await screen.findByTestId('xterm')
     expect(xterm.getAttribute('data-session-id')).toBe('pty1')
-    expect(xterm.getAttribute('data-active')).toBe('true')
-    expect(xterm.getAttribute('data-visible')).toBe('true')
+    // Chat is the default presentation. The PTY remains attach-only and mounted,
+    // but xterm may neither focus nor resize while it is behind Chat.
+    expect(xterm.getAttribute('data-active')).toBe('false')
+    expect(xterm.getAttribute('data-visible')).toBe('false')
     // Attach-only: a reconnect can never spawn a bare shell into the agent frame.
     expect(xterm.getAttribute('data-attach-only')).toBe('true')
     // The mapping that makes resolveTerminalConnection ATTACH exists at mount.
@@ -678,11 +715,10 @@ describe('AgentChatPane', () => {
       )
     })
 
-    // isActive is (isActivePane && isVisible): the visible tab of an UNFOCUSED pane is
-    // still not the active surface, so data-active is false while data-visible is true.
+    // Chat is selected, so xterm is neither active nor visible regardless of pane focus.
     const xterm = await screen.findByTestId('xterm')
     expect(xterm.getAttribute('data-active')).toBe('false')
-    expect(xterm.getAttribute('data-visible')).toBe('true')
+    expect(xterm.getAttribute('data-visible')).toBe('false')
   })
 
   // ── Adopting a new runner on the same chat ─────────────────────────
@@ -807,6 +843,26 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('provider-switch')).toBeTruthy()
     })
 
+    // REGRESSION: a prompt submission REPLACES the CLI, so the outgoing PTY dies by
+    // design — but the terminal reports that death whenever it notices, which can be
+    // after the replacement is already attached. Believing a stale report latched
+    // "this agent has exited" over a chat whose runner the server still lists as live,
+    // and the React prompt queue (which may only dispatch onto a live TUI) stalled
+    // there forever. Only the session the pane still WANTS may report it gone.
+    it('ignores a displaced PTY reporting its death after the replacement attached', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+
+      await act(async () => {
+        fireEvent.doubleClick(screen.getByTestId('xterm')) // the OUTGOING pty's late death
+      })
+
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+      expect(screen.queryByText(/this agent has exited/i)).toBeNull()
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+
     it('revives once the daemon confirms the chat is dormant', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const bufferId = openBuffer(store, 'c1', 'r1')
@@ -858,8 +914,8 @@ describe('AgentChatPane', () => {
       // the alignment cannot rot.
       const term = screen.getByTestId('xterm')
       const pill = screen.getByTestId('provider-switch')
-      const column = term.parentElement?.parentElement
-      expect(column).toBe(pill.parentElement?.parentElement)
+      const column = term.closest('.max-w-4xl')
+      expect(column).toBe(pill.closest('.max-w-4xl'))
       expect(column?.className).toMatch(/px-\d/)
       expect(column?.className).toMatch(/max-w-/)
 
@@ -1164,6 +1220,91 @@ describe('AgentChatPane', () => {
       await pressCycle()
 
       expect(switchProviderFn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('React chat presentation', () => {
+    it('defaults to Chat while retaining the native terminal as an attach-only fallback', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(screen.getByRole('button', { name: /^chat$/i })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-attach-only', 'true')
+
+      fireEvent.click(screen.getByRole('button', { name: /^terminal$/i }))
+      expect(screen.getByRole('button', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
+    })
+
+    it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      store.getState().setAgentChatWorking('c1', true)
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'queued while busy' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(await screen.findByText('queued while busy')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /^terminal$/i }))
+      expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      await act(async () => store.getState().setAgentChatWorking('c1', false))
+      expect(submitPromptFn).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    })
+
+    it('blocks dropdown and chord provider switches through submission and hook confirmation', async () => {
+      const submitted = deferred<{ runnerId: string; terminalSessionId: string }>()
+      submitPromptFn.mockReturnValue(submitted.promise)
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'deliver exactly once' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+      const switcher = screen.getByTestId('provider-switch')
+      expect(switcher).toBeDisabled()
+      fireEvent.click(switcher)
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
+      })
+      expect(switchProviderFn).not.toHaveBeenCalled()
+
+      await act(async () => {
+        submitted.resolve({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
+      })
+      expect(await screen.findByText(/waiting for provider confirmation/i)).toBeInTheDocument()
+      expect(screen.getByTestId('provider-switch')).toBeDisabled()
+      fireEvent.click(screen.getByTestId('provider-switch'))
+      expect(switchProviderFn).not.toHaveBeenCalled()
+    })
+
+    it('reconciles a failed replacement to dormant instead of retaining a dead PTY attachment', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
+      getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'trigger replacement' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(await screen.findByText(/could not restart this agent/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
+      expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
     })
   })
 })

@@ -31,6 +31,17 @@ type AgentRunner struct {
 	// provider's first conversation announcement.
 	CurrentChatID  string `json:"currentChatId,omitempty"`
 	CurrentSession string `json:"currentSessionId,omitempty"`
+	// LaunchSessionID is the native conversation Crowbar explicitly asked this
+	// process to resume at launch. It persists the launch intent across the gap
+	// before (and after) session_start, so a React prompt can restart the TUI as a
+	// resume even when the resumed conversation's ledger turns predate this
+	// runner's CurrentSessionSince timestamp.
+	LaunchSessionID string `json:"launchSessionId,omitempty"`
+	// CurrentSessionResumable is Crowbar's provider-neutral knowledge that the
+	// current binding names an existing native conversation. handleSessionStart
+	// derives it solely from append-only session history, including a user-issued
+	// TUI /resume; it never depends on provider-specific source labels.
+	CurrentSessionResumable bool `json:"currentSessionResumable,omitempty"`
 
 	// CurrentSessionSince is when CurrentSession was bound to this runner — the
 	// moment the CONVERSATION opened, which is NOT the moment the runner spawned:
