@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { API_BASE, apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
@@ -101,6 +101,9 @@ export type AgentChatMessageRole = 'user' | 'assistant'
 
 /** One authoritative, hook-confirmed message in a Crowbar chat. */
 export interface AgentChatMessage {
+  /** The turn this message IS. Tool calls, subagents and interruptions attach to
+   *  it, which is how a reply can show the work that produced it. */
+  turnId: string
   sequence: number
   role: AgentChatMessageRole
   providerId: string
@@ -248,6 +251,147 @@ export async function listChatMessages(
     hasMore: raw?.hasMore ?? false,
     items,
   }
+}
+
+export type ToolCallStatus = 'running' | 'ok' | 'error' | 'abandoned'
+
+/** One tool the agent ran. The payloads are NOT here: a coding agent produces
+ *  hundreds of KB per turn and almost none of it is ever opened, so each side is
+ *  fetched on demand by `getToolPayload`. */
+export interface AgentToolCall {
+  id: string
+  turnId: string
+  seq: number
+  name: string
+  /** The file, command or URL the tool acted on, when the provider reports one.
+   *  Absent is legible; a guess would be wrong. */
+  target?: string
+  status: ToolCallStatus
+  durationMs?: number
+  hasRequest: boolean
+  hasResult: boolean
+  startedAt: string
+  endedAt?: string
+}
+
+export interface AgentSubagent {
+  id: string
+  turnId: string
+  seq: number
+  agentType?: string
+  startedAt: string
+  endedAt?: string
+}
+
+export type InterruptionKind = 'permission' | 'notification' | 'elicitation' | 'compaction'
+
+/** The agent blocked on, or interrupted by, something outside the turn. These
+ *  are what make an apparently frozen agent legible. */
+export interface AgentInterruption {
+  id: string
+  turnId: string
+  seq: number
+  kind: InterruptionKind
+  detail?: string
+  at: string
+  resolvedAt?: string
+}
+
+export interface AgentActivity {
+  toolCalls: AgentToolCall[]
+  subagents: AgentSubagent[]
+  interruptions: AgentInterruption[]
+}
+
+/** What the provider itself reported about cost and capacity.
+ *
+ *  Every field is OPTIONAL because "not reported" and "zero" are different facts:
+ *  a gauge rendering 0% for something the provider never sent is a lie, so an
+ *  absent field must render as no gauge rather than an empty one. */
+export interface AgentContextUsage {
+  capacityTokens?: number
+  usedTokens?: number
+  usedPercent?: number
+  remainingPercent?: number
+}
+
+export interface AgentRateLimit {
+  id: string
+  label?: string
+  usedPercent?: number
+  resetsAt?: string
+}
+
+export interface AgentTelemetry {
+  observedAt: string
+  source: 'callback' | 'probe'
+  context?: AgentContextUsage
+  rateLimits?: AgentRateLimit[]
+  cost?: { totalUsd?: number; apiDurationMs?: number }
+  model?: { id: string; displayName?: string }
+}
+
+export interface ListActivityOptions {
+  after?: number
+  limit?: number
+  signal?: AbortSignal
+}
+
+/** Read what the agent DID — tool calls, subagents, interruptions — as distinct
+ *  from what it said. Separate from the messages because the conversation is read
+ *  on every render and this is read when a timeline is opened. */
+export async function listChatActivity(
+  wsId: string,
+  id: string,
+  options: ListActivityOptions = {},
+): Promise<AgentActivity> {
+  const query = new URLSearchParams()
+  if (options.after !== undefined) query.set('after', String(options.after))
+  if (options.limit !== undefined) query.set('limit', String(options.limit))
+  const raw = await apiFetch<AgentActivity>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/activity?${query}`,
+    { signal: options.signal },
+  )
+  return {
+    toolCalls: raw?.toolCalls ?? [],
+    subagents: raw?.subagents ?? [],
+    interruptions: raw?.interruptions ?? [],
+  }
+}
+
+/** Fetch one tool call's arguments or output. Returns null when retention has
+ *  swept it, which is an ordinary outcome to render rather than an error. */
+export async function getToolPayload(
+  wsId: string,
+  id: string,
+  toolId: string,
+  side: 'request' | 'result',
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const url =
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}` +
+    `/activity/${encodeURIComponent(toolId)}/payload?side=${side}`
+  const response = await fetch(`${API_BASE}${url}`, { signal })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`tool payload: ${response.status}`)
+  return response.text()
+}
+
+/** Read the provider's own report of context, cost and rate limits.
+ *
+ *  Null means the provider has not reported — which is NOT the same as reporting
+ *  zero, and the caller must draw no gauge rather than an empty one. */
+export async function getChatTelemetry(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<AgentTelemetry | null> {
+  const raw = await apiFetch<AgentTelemetry | null>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/telemetry`,
+    { signal },
+    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  )
+  return raw ?? null
 }
 
 /** Ask Crowbar to restart the same interactive provider TUI with a completed

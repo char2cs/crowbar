@@ -105,3 +105,115 @@ func TestSlashCatalogPlacementHelperProcess(t *testing.T) {
 	_, _ = fmt.Fprint(os.Stdout, `[{"content":[{"text":"<skills>\n- current: Current skill\n</skills>"}]}]`)
 	os.Exit(0)
 }
+
+// The engine's failure vocabulary is mapped to the app's so the client can say
+// WHY a menu is missing. Each arm is a different thing to tell a user, and an
+// unmapped one would surface as a bare 500.
+func TestSlashCatalog_MapsEveryEngineFailureToItsOwnAppError(t *testing.T) {
+	testCases := []struct {
+		name    string
+		command string
+		want    error
+	}{
+		{
+			// The CLI is not installed at all.
+			name:    "provider command unavailable",
+			command: `"/nonexistent/crowbar-not-a-real-cli"`,
+			want:    agentusecase.ErrSlashCatalogUnavailable,
+		},
+		{
+			// It ran and said nothing a declared adapter can read.
+			name:    "malformed output",
+			command: `"/usr/bin/true"`,
+			want:    agentusecase.ErrSlashCatalogMalformed,
+		},
+		{
+			// It ran and failed.
+			name:    "command failed",
+			command: `"/usr/bin/false"`,
+			want:    agentusecase.ErrSlashCatalogCommand,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
+			require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
+			writeCatalogDescriptor(t, f, tc.command)
+
+			chatID, _ := f.spawn(t, "codex")
+
+			_, err := f.usecase.SlashCatalog(f.ctx, chatID)
+
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestSlashCatalog_UnsupportedWhenTheProviderDeclaresNoCatalogue(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
+	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+id: codex
+spawn:
+  cmd: /usr/bin/true
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: message }
+`), 0o600))
+
+	chatID, _ := f.spawn(t, "codex")
+
+	_, err := f.usecase.SlashCatalog(f.ctx, chatID)
+
+	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported)
+}
+
+// A catalogue describes the exact CLI that was live when the request began. A
+// dormant chat has none, so there is nothing to describe.
+func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+
+	_, err := f.usecase.SlashCatalog(f.ctx, chatID)
+
+	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogNoLiveTUI)
+}
+
+func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(fmt.Sprintf(`
+id: codex
+spawn:
+  cmd: %s
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: message }
+presentation:
+  slash_catalog:
+    completeness: complete
+    timeout_ms: 5000
+    pipeline:
+      adapter: json_text_section
+      command: ["--version"]
+      text_path: "[].content[].text"
+      start_marker: "<skills>"
+      end_marker: "</skills>"
+      item_pattern: '(?m)^- (?P<name>[^:]+)$'
+      item:
+        label: "{name}"
+        insert_text: "${name} "
+        source: "test"
+`, command)), 0o600))
+}

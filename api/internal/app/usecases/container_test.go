@@ -61,6 +61,7 @@ func newContainerDeps(
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		newTestAsynx[domain.AgentChat](t, adapters.AgentChatES()),
+		newTestAsynx[domain.AgentActivity](t, adapters.AgentActivityES()),
 		newTestAsynx[domain.AgentRunner](t, adapters.AgentRunnerES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test

@@ -78,10 +78,13 @@ func resumeCodexWithGap(t *testing.T, f testFixture) (chatID, codexRunnerID, inj
 	argv := f.term.calls[2].argv
 	injected = argv[len(argv)-1]
 
-	// A POINTER, not a transcript: the conversation is already on disk, and pasting it
-	// into the chat is a wall of text the user has to scroll past on every switch.
+	// A POINTER, not a transcript: Crowbar already holds the conversation, and
+	// pasting it into the chat is a wall of text the user scrolls past on every
+	// switch. The pointer names the chat and the tool that reads it, so an agent
+	// fetches exactly as much as it needs.
 	require.Contains(t, injected, "[Crowbar]", "the resumed codex must be handed the pointer as a positional: %v", argv)
-	require.Contains(t, injected, "ledger", "the pointer must name the ledger directory: %q", injected)
+	require.Contains(t, injected, "get_chat_log", "the pointer must name the tool that reads the record: %q", injected)
+	require.Contains(t, injected, chatID, "the pointer must name the chat to read: %q", injected)
 	require.NotContains(t, injected, "claude spoke while codex was away",
 		"the pointer must NOT carry the transcript — that is the wall of text it replaces")
 	return chatID, codexRunnerID, injected
@@ -154,13 +157,13 @@ func TestRunnerExit_ForgetsTheInjectedContext(t *testing.T) {
 	_, codexRunner, injected := resumeCodexWithGap(t, f)
 
 	// Precondition: the guard is armed — Crowbar's own document is recognised as an echo.
-	require.True(t, f.registry.ConsumeInjectedContext(codexRunner, injected))
+	require.True(t, f.engine.WasInjected(codexRunner, injected))
 
 	// Re-arm it (the match above consumed it), then kill the PTY.
-	f.registry.SetInjectedContext(codexRunner, injected)
+	f.engine.RecordInjection(codexRunner, injected)
 	f.term.exit(t, f.runner(t, codexRunner).TerminalSession)
 	f.wait()
 
-	assert.False(t, f.registry.ConsumeInjectedContext(codexRunner, injected),
+	assert.False(t, f.engine.WasInjected(codexRunner, injected),
 		"a dead runner's injected context must be forgotten")
 }

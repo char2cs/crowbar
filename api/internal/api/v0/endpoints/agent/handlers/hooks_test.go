@@ -13,10 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func newTestContext(
@@ -137,13 +138,22 @@ type fakeAgentUsecase struct {
 	getChat    domain.AgentChat
 	getChatErr error
 
-	messagePage  ledger.Page
+	activity      agentusecase.ChatActivity
+	activityErr   error
+	activityCalls []activityCall
+	payload       []byte
+	payloadErr    error
+	payloadCalls  []payloadCall
+	telemetry     engineagents.Telemetry
+	telemetryOK   bool
+
+	messagePage  chatlog.Page
 	messageErr   error
 	messageCalls []messageCall
 	promptResult dto.PromptSubmissionDTO
 	promptErr    error
 	promptCalls  []promptCall
-	catalog      engineagent.SlashCatalog
+	catalog      engineagents.SlashCatalog
 	catalogErr   error
 	catalogCalls []string
 }
@@ -213,7 +223,7 @@ func (f *fakeAgentUsecase) ReadMessages(
 	_ context.Context,
 	chatID string,
 	after, before, limit int,
-) (ledger.Page, error) {
+) (chatlog.Page, error) {
 	f.messageCalls = append(f.messageCalls, messageCall{chatID: chatID, after: after, before: before, limit: limit})
 	return f.messagePage, f.messageErr
 }
@@ -229,7 +239,7 @@ func (f *fakeAgentUsecase) SubmitPrompt(
 func (f *fakeAgentUsecase) SlashCatalog(
 	_ context.Context,
 	chatID string,
-) (engineagent.SlashCatalog, error) {
+) (engineagents.SlashCatalog, error) {
 	f.catalogCalls = append(f.catalogCalls, chatID)
 	return f.catalog, f.catalogErr
 }
@@ -341,4 +351,32 @@ func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 		return nil, f.replaceErr
 	}
 	return f.replaceResult, nil
+}
+
+func (f *fakeAgentUsecase) ReadActivity(
+	_ context.Context, chatID string, after int64, limit int,
+) (agentusecase.ChatActivity, error) {
+	f.activityCalls = append(f.activityCalls, activityCall{chatID: chatID, after: after, limit: limit})
+	return f.activity, f.activityErr
+}
+
+func (f *fakeAgentUsecase) ReadToolPayload(
+	_ context.Context, chatID, toolID, side string,
+) ([]byte, error) {
+	f.payloadCalls = append(f.payloadCalls, payloadCall{chatID: chatID, toolID: toolID, side: side})
+	return f.payload, f.payloadErr
+}
+
+func (f *fakeAgentUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
+	return f.telemetry, f.telemetryOK
+}
+
+type activityCall struct {
+	chatID string
+	after  int64
+	limit  int
+}
+
+type payloadCall struct {
+	chatID, toolID, side string
 }

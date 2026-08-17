@@ -17,6 +17,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // newProviderServer spins a gin router with the agent routes mounted over a REAL
@@ -34,9 +35,12 @@ func newProviderServer(
 	require.NoError(t, err)
 	home := t.TempDir()
 	homeFn := func() (string, error) { return home, nil }
-	probe := func(cmd string) bool { return cmd == "codex" }
+	probe := func(a engineagents.Agent) bool { return a.ID() == "codex" }
 
-	uc := agentusecase.New(nil, nil, nil, nil, nil, nil, prefs, homeFn, probe, nil, agenttools.Deps{})
+	uc := agentusecase.New(
+		nil, nil, nil, engineagents.New(), nil, nil, nil,
+		prefs, homeFn, probe, nil, agenttools.Deps{},
+	)
 
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")

@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -36,6 +37,10 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
+	// AgentActivity is the conversation record: turns, tool calls, subagents and
+	// interruptions, in their own aggregate with their own read model. It replaced
+	// the flat-file ledger, which could represent none of those.
+	AgentActivity agentactivity.EventStore
 	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
 	// thing that MOVES between chats on /clear and /resume. Its store/hub
 	// projections are live on axAgentRunner, and the agent usecase now sends every
@@ -76,10 +81,11 @@ type Container struct {
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
-	axWorkspace    asynx.Asynx[domain.Workspace]
-	axReviewThread asynx.Asynx[domain.ReviewThread]
-	axAgentChat    asynx.Asynx[domain.AgentChat]
-	axAgentRunner  asynx.Asynx[domain.AgentRunner]
+	axWorkspace     asynx.Asynx[domain.Workspace]
+	axReviewThread  asynx.Asynx[domain.ReviewThread]
+	axAgentChat     asynx.Asynx[domain.AgentChat]
+	axAgentActivity asynx.Asynx[domain.AgentActivity]
+	axAgentRunner   asynx.Asynx[domain.AgentRunner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -139,6 +145,7 @@ func New(
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.AgentChat],
+	axAgentActivity asynx.Asynx[domain.AgentActivity],
 	axAgentRunner asynx.Asynx[domain.AgentRunner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
@@ -148,6 +155,7 @@ func New(
 		agentWorking: map[string]map[string]struct{}{},
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axAgentRunner:    axAgentRunner,
+		axAgentActivity:  axAgentActivity,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -195,6 +203,17 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
 	}
 
+	// agentactivity: the conversation record, over its OWN event log, snapshot
+	// store and read model. Its content store lives beside the state directory so
+	// tool payloads are swept by the same retention policy as the rest of it.
+	agentActivity, err := agentactivity.NewEventSourced(
+		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
+		filepath.Join(adapters.CrowbarHome(), "state", "content"))
+	if err != nil {
+		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
+	}
+	c.AgentActivity = agentActivity
+
 	// agentrunner: build the asynx-backed EventStore over the singleton
 	// axAgentRunner, registering its two read projections (live runners +
 	// append-only conversation history) and its hub projection exactly once, over
@@ -232,6 +251,7 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
+	c.axAgentActivity.WaitPublish()
 	c.axAgentRunner.WaitPublish()
 }
 

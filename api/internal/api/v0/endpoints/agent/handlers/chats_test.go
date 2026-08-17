@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId path
@@ -178,8 +179,8 @@ func (u *configurableListGetUsecase) GetChat(
 
 func (*configurableListGetUsecase) ReadMessages(
 	context.Context, string, int, int, int,
-) (ledger.Page, error) {
-	return ledger.Page{}, nil
+) (chatlog.Page, error) {
+	return chatlog.Page{}, nil
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
@@ -190,8 +191,8 @@ func (*configurableListGetUsecase) SubmitPrompt(
 
 func (*configurableListGetUsecase) SlashCatalog(
 	context.Context, string,
-) (engineagent.SlashCatalog, error) {
-	return engineagent.SlashCatalog{}, nil
+) (engineagents.SlashCatalog, error) {
+	return engineagents.SlashCatalog{}, nil
 }
 
 func (u *configurableListGetUsecase) LiveRunnerForChat(
@@ -775,4 +776,20 @@ func TestDelete_UsecaseError(
 	h.Delete(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func (configurableListGetUsecase) ReadActivity(
+	context.Context, string, int64, int,
+) (agentusecase.ChatActivity, error) {
+	return agentusecase.ChatActivity{}, nil
+}
+
+func (configurableListGetUsecase) ReadToolPayload(
+	context.Context, string, string, string,
+) ([]byte, error) {
+	return nil, nil
+}
+
+func (configurableListGetUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
+	return engineagents.Telemetry{}, false
 }

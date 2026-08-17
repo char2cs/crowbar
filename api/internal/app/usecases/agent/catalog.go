@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 type catalogRun struct {
@@ -79,34 +79,33 @@ func (r *catalogRuns) acquireProcess(ctx context.Context) (func(), error) {
 func (u *Usecase) SlashCatalog(
 	ctx context.Context,
 	chatID string,
-) (engineagent.SlashCatalog, error) {
+) (engineagents.SlashCatalog, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: chat: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: chat: %w", err)
 	}
 	runner, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
-		return engineagent.SlashCatalog{}, ErrSlashCatalogNoLiveTUI
+		return engineagents.SlashCatalog{}, ErrSlashCatalogNoLiveTUI
 	}
 	if err != nil {
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: live runner: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: live runner: %w", err)
 	}
 	home, _, _, worktree, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: worktree: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: worktree: %w", err)
 	}
-	descriptor, err := engineagent.ResolveDescriptor(home, runner.ProviderID)
+	descriptor, err := u.agents.Get(ctx, home, runner.ProviderID)
 	if err != nil {
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: resolve descriptor: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: resolve descriptor: %w", err)
 	}
 
 	probeCtx, finish := u.catalogs.start(ctx, chatID)
 	defer finish()
-	catalog, err := engineagent.ProbeSlashCatalog(probeCtx, descriptor, engineagent.SlashCatalogProbeOptions{
-		Cwd:            worktree,
-		Env:            os.Environ(),
-		AcquireProcess: u.catalogs.acquireProcess,
-	})
+	catalog, err := descriptor.SlashCatalog(probeCtx, engineagents.ProbeOptions{
+		Cwd: worktree,
+		Env: os.Environ(),
+	}, u.catalogs.acquireProcess)
 	// A catalog describes the exact TUI that was live when this request began.
 	// Provider switching and native conversation movement deliberately do not take
 	// the catalog request lock, so the process may finish after that runner has
@@ -116,34 +115,34 @@ func (u *Usecase) SlashCatalog(
 	current, placementErr := u.runners.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(placementErr, agentrunner.ErrNotFound) ||
 		(placementErr == nil && (current.ID != runner.ID || current.ProviderID != runner.ProviderID)) {
-		return engineagent.SlashCatalog{}, ErrSlashCatalogSuperseded
+		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
 	}
 	if placementErr != nil {
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: revalidate live runner: %w", placementErr)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: revalidate live runner: %w", placementErr)
 	}
 	if err == nil {
 		return catalog, nil
 	}
 	if errors.Is(err, context.Canceled) {
 		if ctx.Err() != nil {
-			return engineagent.SlashCatalog{}, ctx.Err()
+			return engineagents.SlashCatalog{}, ctx.Err()
 		}
-		return engineagent.SlashCatalog{}, ErrSlashCatalogSuperseded
+		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
 	}
 	switch {
-	case errors.Is(err, engineagent.ErrSlashCatalogUnsupported):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogUnsupported
-	case errors.Is(err, engineagent.ErrSlashCatalogTimeout):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogTimeout
-	case errors.Is(err, engineagent.ErrSlashCatalogCommandUnavailable):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogUnavailable
-	case errors.Is(err, engineagent.ErrSlashCatalogOutputLimit):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogOutputLimit
-	case errors.Is(err, engineagent.ErrSlashCatalogCommandFailed):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogCommand
-	case errors.Is(err, engineagent.ErrSlashCatalogMalformedOutput):
-		return engineagent.SlashCatalog{}, ErrSlashCatalogMalformed
+	case errors.Is(err, engineagents.ErrCatalogUnsupported):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogUnsupported
+	case errors.Is(err, engineagents.ErrProbeTimeout):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogTimeout
+	case errors.Is(err, engineagents.ErrProbeCommandUnavailable):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogUnavailable
+	case errors.Is(err, engineagents.ErrProbeOutputLimit):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogOutputLimit
+	case errors.Is(err, engineagents.ErrProbeCommandFailed):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogCommand
+	case errors.Is(err, engineagents.ErrCatalogMalformedOutput):
+		return engineagents.SlashCatalog{}, ErrSlashCatalogMalformed
 	default:
-		return engineagent.SlashCatalog{}, fmt.Errorf("agent: slash catalog: probe: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: probe: %w", err)
 	}
 }

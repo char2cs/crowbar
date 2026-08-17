@@ -110,7 +110,10 @@ func AgentChatDTOFrom(
 // Crowbar's per-chat ledger append order; provider-owned transcript identifiers
 // and paths never cross this boundary.
 type AgentMessageDTO struct {
-	Sequence   int       `json:"sequence"`
+	Sequence int `json:"sequence"`
+	// TurnID is what the activity record attaches tool calls to, so a client can
+	// show which tools produced which reply.
+	TurnID     string    `json:"turnId"`
 	Role       string    `json:"role"`
 	ProviderID string    `json:"providerId"`
 	Text       string    `json:"text"`
@@ -125,6 +128,95 @@ type AgentMessagePageDTO struct {
 	OldestCursor int               `json:"oldestCursor"`
 	HasMore      bool              `json:"hasMore"`
 	Items        []AgentMessageDTO `json:"items"`
+}
+
+// AgentActivityDTO is what the agent DID during a chat, as distinct from what it
+// said. Every list is independently present: an agent that reports no tool
+// activity yields an empty one, and the client renders nothing rather than a
+// disabled control implying breakage.
+type AgentActivityDTO struct {
+	ToolCalls     []AgentToolCallDTO     `json:"toolCalls"`
+	Subagents     []AgentSubagentDTO     `json:"subagents"`
+	Interruptions []AgentInterruptionDTO `json:"interruptions"`
+}
+
+// AgentToolCallDTO is one tool invocation. The payloads themselves are NOT here:
+// they are content-addressed and fetched on demand, so a chat with a thousand
+// tool calls does not ship megabytes of tool output to render a timeline.
+type AgentToolCallDTO struct {
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	Seq    int64  `json:"seq"`
+	Name   string `json:"name"`
+	// Target is the file, command or URL the tool acted on, when the provider
+	// reports one. Empty is legible; a guess would be wrong.
+	Target     string     `json:"target,omitempty"`
+	Status     string     `json:"status"`
+	DurationMS int        `json:"durationMs,omitempty"`
+	HasRequest bool       `json:"hasRequest"`
+	HasResult  bool       `json:"hasResult"`
+	StartedAt  time.Time  `json:"startedAt"`
+	EndedAt    *time.Time `json:"endedAt,omitempty"`
+}
+
+type AgentSubagentDTO struct {
+	ID        string     `json:"id"`
+	TurnID    string     `json:"turnId"`
+	Seq       int64      `json:"seq"`
+	AgentType string     `json:"agentType,omitempty"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+// AgentInterruptionDTO is the agent being blocked on, or interrupted by,
+// something outside the turn. These are what turn an apparently frozen agent into
+// a legible one: a permission wait, a notification, a compaction.
+type AgentInterruptionDTO struct {
+	ID         string     `json:"id"`
+	TurnID     string     `json:"turnId"`
+	Seq        int64      `json:"seq"`
+	Kind       string     `json:"kind"`
+	Detail     string     `json:"detail,omitempty"`
+	At         time.Time  `json:"at"`
+	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+}
+
+// AgentTelemetryDTO is what the provider itself reported about cost and capacity.
+//
+// Every field is a POINTER because "not reported" and "zero" are different facts
+// and a gauge rendering 0% for an unreported value is a lie. A provider that
+// reports nothing yields an absent section, and the client draws no gauge.
+type AgentTelemetryDTO struct {
+	ObservedAt time.Time              `json:"observedAt"`
+	Source     string                 `json:"source"`
+	Context    *AgentContextUsageDTO  `json:"context,omitempty"`
+	RateLimits []AgentRateLimitDTO    `json:"rateLimits,omitempty"`
+	Cost       *AgentSessionCostDTO   `json:"cost,omitempty"`
+	Model      *AgentModelIdentityDTO `json:"model,omitempty"`
+}
+
+type AgentContextUsageDTO struct {
+	CapacityTokens   *int     `json:"capacityTokens,omitempty"`
+	UsedTokens       *int     `json:"usedTokens,omitempty"`
+	UsedPercent      *float64 `json:"usedPercent,omitempty"`
+	RemainingPercent *float64 `json:"remainingPercent,omitempty"`
+}
+
+type AgentRateLimitDTO struct {
+	ID          string     `json:"id"`
+	Label       string     `json:"label,omitempty"`
+	UsedPercent *float64   `json:"usedPercent,omitempty"`
+	ResetsAt    *time.Time `json:"resetsAt,omitempty"`
+}
+
+type AgentSessionCostDTO struct {
+	TotalUSD      *float64 `json:"totalUsd,omitempty"`
+	APIDurationMS *int     `json:"apiDurationMs,omitempty"`
+}
+
+type AgentModelIdentityDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // PromptSubmissionDTO identifies the replacement interactive TUI whose spawn

@@ -60,6 +60,7 @@ function page(items: AgentChatMessage[], hasMore = false) {
 
 function message(sequence: number, role: 'user' | 'assistant', text: string, providerId = 'codex') {
   return {
+    turnId: `turn-${sequence}`,
     sequence,
     role,
     providerId,

@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -246,13 +245,14 @@ func newAgentWiring(
 	usecase := agent.New(
 		repos.AgentChat,
 		repos.AgentRunner,
-		engineagent.NewRegistry(),
+		repos.AgentActivity,
+		engines.Agents,
 		engines.Terminal,
 		wsReader,
 		lineage,
 		gormStores.AgentProviderPreferences,
 		crowbarHome,
-		// nil probe → the usecase defaults to engineagent.Connected, the real
+		// nil probe → the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		nil,
 		minter,

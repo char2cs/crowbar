@@ -55,7 +55,13 @@ type Container struct {
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.AgentChat]
-	axAgentRunner  asynx.Asynx[domain.AgentRunner]
+	// axAgentActivity is the conversation record's own per-type singleton. It is
+	// separate from axAgentChat because their write rates differ by orders of
+	// magnitude: a chat emits a handful of events, its activity emits hundreds per
+	// turn, and sharing one single-writer event log would put a sidebar repaint
+	// behind a tool-call storm.
+	axAgentActivity asynx.Asynx[domain.AgentActivity]
+	axAgentRunner   asynx.Asynx[domain.AgentRunner]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -92,6 +98,12 @@ func New(
 	// Built and its projections registered (via repositories.New ->
 	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
+	axAgentActivity, err := newAsynx[domain.AgentActivity](
+		adapters.AgentActivityES(), adapters.AgentActivitySS())
+	if err != nil {
+		return nil, fmt.Errorf("app container: agent activity asynx: %w", err)
+	}
+
 	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
@@ -110,6 +122,7 @@ func New(
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
+		axAgentActivity,
 		axAgentRunner,
 		engines.Git,
 		terminateAgentSession(engines.Terminal),
@@ -154,16 +167,17 @@ func New(
 	)
 
 	return &Container{
-		Hub:            h,
-		Repositories:   repos,
-		GORM:           gormStores,
-		Usecases:       ucs,
-		Realtime:       rt,
-		engines:        engines,
-		axWorkspace:    axWorkspace,
-		axReviewThread: axReviewThread,
-		axAgentChat:    axAgentChat,
-		axAgentRunner:  axAgentRunner,
+		Hub:             h,
+		Repositories:    repos,
+		GORM:            gormStores,
+		Usecases:        ucs,
+		Realtime:        rt,
+		engines:         engines,
+		axWorkspace:     axWorkspace,
+		axReviewThread:  axReviewThread,
+		axAgentChat:     axAgentChat,
+		axAgentActivity: axAgentActivity,
+		axAgentRunner:   axAgentRunner,
 	}, nil
 }
 
@@ -240,6 +254,7 @@ func (c *Container) Shutdown(
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
+		c.axAgentActivity.Shutdown(ctx),
 	)
 }
 

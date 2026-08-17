@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -386,4 +387,131 @@ func TestSubmitPrompt_IdempotentRetryReturnsOriginalSpawnWhilePending(t *testing
 
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "different operation", requestID)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
+}
+
+// TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce is the at-most-once
+// property stated as a race rather than as a sequential retry: whatever the
+// interleaving of two submissions of one client request id, the prompt is
+// delivered once and both callers learn the same outcome.
+//
+// Delivery is serialised by the chat gate, so in practice the second submission
+// meets a completed journal record and returns it. This test does not reach the
+// journal's own duplicate report — that branch is unreachable while the gate
+// holds — it asserts the property the gate and the journal deliver together.
+func TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	spawnsBefore := f.term.callCount()
+
+	requestID := uuid.NewString()
+	const message = "deliver me exactly once"
+
+	type outcome struct {
+		dto dto.PromptSubmissionDTO
+		err error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	for range 2 {
+		go func() {
+			<-start
+			d, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+			results <- outcome{dto: d, err: err}
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	f.wait()
+
+	// At most one replacement CLI: the outgoing one is replaced once, or not at all.
+	spawned := f.term.callCount() - spawnsBefore
+	assert.LessOrEqual(t, spawned, 1,
+		"one request id must never start two replacement CLIs (spawned %d)", spawned)
+
+	// Two successes are legitimate — that is idempotency — but only if they name
+	// the SAME delivery. Two different runners would mean the prompt was sent
+	// twice under one request id, which is the bug.
+	if first.err == nil && second.err == nil {
+		assert.Equal(t, first.dto, second.dto,
+			"an idempotent retry must return the ORIGINAL delivery, not a second one")
+	}
+}
+
+// Every guard here runs BEFORE the durable intent and before the live CLI is
+// touched, so a rejected prompt leaves the chat exactly as it found it. That is
+// what makes these client errors rather than outcome-unknown dispatches.
+func TestSubmitPrompt_RejectsBadInputBeforeTouchingAnything(t *testing.T) {
+	testCases := []struct {
+		name    string
+		text    string
+		request string
+	}{
+		{"empty text", "", uuid.NewString()},
+		{"whitespace only", "   \n\t ", uuid.NewString()},
+		{"oversized text", strings.Repeat("x", 1<<20), uuid.NewString()},
+		{"request id is not a uuid", "hello", "not-a-uuid"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			chatID, runnerID := f.spawn(t, "codex")
+			spawns := f.term.callCount()
+			terminated := len(f.term.terminatedIDs())
+
+			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, tc.text, tc.request)
+
+			require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			assert.Equal(t, spawns, f.term.callCount(), "no replacement was started")
+			assert.Len(t, f.term.terminatedIDs(), terminated, "the live CLI was not touched")
+			live, liveErr := f.liveRunnerFor(t, chatID)
+			require.NoError(t, liveErr)
+			assert.Equal(t, runnerID, live.ID)
+		})
+	}
+}
+
+func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
+	f := newFixture(t)
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, uuid.NewString(), "hello", uuid.NewString())
+
+	require.Error(t, err)
+}
+
+// A dormant chat has no CLI to replace. Telling the client that specifically is
+// what lets the UI offer "resume" instead of a generic failure.
+func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())
+
+	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
+}
+
+// A provider with no declared prompt-submit capability is TERMINAL-ONLY for this
+// operation. That is a capability statement, not a failure, and the client is
+// told which so it can point the user at the terminal.
+func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+id: codex
+spawn:
+  cmd: /usr/bin/true
+  interactive_required: true
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: message }
+`), 0o600))
+	chatID, _ := f.spawn(t, "codex")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())
+
+	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }

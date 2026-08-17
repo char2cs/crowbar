@@ -11,7 +11,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 )
 
-// Messages serves Crowbar's bounded, hook-derived chat ledger. Provider
+// Messages serves Crowbar's bounded, hook-derived conversation record. Provider
 // transcripts and raw hook payloads are not exposed.
 func (h *Handlers) Messages(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
@@ -41,6 +41,7 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 	for _, item := range page.Items {
 		items = append(items, dto.AgentMessageDTO{
 			Sequence:   item.Sequence,
+			TurnID:     item.ID,
 			Role:       item.Role,
 			ProviderID: item.Provider,
 			Text:       item.Text,
@@ -118,7 +119,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	warnings := append([]string{}, catalog.Warnings...)
 	libs.WriteQueryOK(ctx, dto.SlashCatalogDTO{
 		ProviderID:   catalog.ProviderID,
-		Completeness: string(catalog.Completeness),
+		Completeness: catalog.Completeness,
 		Items:        items,
 		Warnings:     warnings,
 	})

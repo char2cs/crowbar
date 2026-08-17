@@ -34,6 +34,12 @@ import {
 import { MarkdownPreview } from '@/features/panes/lib/markdown'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import {
+  AgentActivityStrip,
+  AgentTurnTools,
+} from '@/features/agent/components/agent-activity-strip'
+import { AgentContextGauge } from '@/features/agent/components/agent-context-gauge'
+import { useAgentActivity } from '@/features/agent/components/use-agent-activity'
 
 const MESSAGE_PAGE_SIZE = 100
 const MESSAGE_POLL_MS = 1_000
@@ -386,6 +392,9 @@ export function AgentChatView({
   onDeliveryPendingChange,
   ref,
 }: AgentChatViewProps) {
+  // What the agent is DOING, read alongside what it said. It polls only while a
+  // turn runs, so an idle chat costs nothing.
+  const activity = useAgentActivity(wsId, chatId, working, visible)
   const initialQueue = useMemo(() => loadPromptQueue(wsId, chatId), [wsId, chatId])
   const [queue, setQueue] = useState<PromptQueueItem[]>(initialQueue)
   const queueRef = useRef(initialQueue)
@@ -1107,16 +1116,20 @@ export function AgentChatView({
             </div>
           )}
           {messages.map((message, index) => (
-            <MessageRow
-              key={message.sequence}
-              message={message}
-              providers={providers}
-              showProvider={
-                message.role === 'assistant' &&
-                (previousAssistantProvider(index) === '' ||
-                  previousAssistantProvider(index) !== message.providerId)
-              }
-            />
+            <div key={message.sequence}>
+              <MessageRow
+                message={message}
+                providers={providers}
+                showProvider={
+                  message.role === 'assistant' &&
+                  (previousAssistantProvider(index) === '' ||
+                    previousAssistantProvider(index) !== message.providerId)
+                }
+              />
+              {message.role === 'assistant' && (
+                <AgentTurnTools activity={activity} turnId={message.turnId ?? ''} />
+              )}
+            </div>
           ))}
           {queue.map((item) => (
             <QueueRow
@@ -1131,19 +1144,18 @@ export function AgentChatView({
               onOpenTerminal={onOpenTerminal}
             />
           ))}
-          {working && (
-            <div
-              className="flex items-center gap-2 py-1 text-muted-foreground text-sm"
-              role="status"
-            >
-              <FlickerSpinner className="size-4" /> {providerName(providers, providerId)} is
-              working…
-            </div>
-          )}
+          <AgentActivityStrip
+            activity={activity}
+            working={working}
+            providerLabel={providerName(providers, providerId)}
+          />
         </div>
       </div>
 
       <div className="mx-auto w-full max-w-3xl shrink-0 pb-3">
+        <div className="mb-1 flex justify-end">
+          <AgentContextGauge wsId={wsId} chatId={chatId} visible={visible} />
+        </div>
         {persistenceLost && (
           <p className="mb-2 text-warning-foreground text-xs" role="alert">
             Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.

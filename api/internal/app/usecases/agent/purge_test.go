@@ -12,7 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -189,14 +188,21 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 
 	chatDir := filepath.Join(f.ws.chatsDir, chatID)
-	ledgerDir := worktreepath.AgentLedgerDir(f.ws.chatsDir, chatID)
-	turn(t, f, runnerID, "claude", "a turn, so the chat has a plaintext ledger on disk")
-	require.DirExists(t, ledgerDir, "precondition: the chat's plaintext ledger is on disk")
+	require.NoError(t, os.MkdirAll(chatDir, 0o700))
+	turn(t, f, runnerID, "claude", "a turn, so the chat has a conversation to purge")
+
+	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, before, "precondition: the chat has a recorded conversation")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	_, err := os.Stat(chatDir)
-	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir (its ledger)")
+	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, after, "purge must drop the chat's conversation record")
+
+	_, err = os.Stat(chatDir)
+	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir")
 }
 
 // TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if the

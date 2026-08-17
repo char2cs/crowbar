@@ -13,10 +13,10 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -32,27 +32,22 @@ func (u *Usecase) ReadMessages(
 	ctx context.Context,
 	chatID string,
 	after, before, limit int,
-) (ledger.Page, error) {
+) (chatlog.Page, error) {
 	if after < 0 || before < 0 || (after > 0 && before > 0) {
-		return ledger.Page{}, fmt.Errorf("agent: read messages: invalid cursor: %w", apperr.ErrInvalidArgument)
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: invalid cursor: %w", apperr.ErrInvalidArgument)
 	}
 	if limit == 0 {
 		limit = defaultMessagePageLimit
 	}
 	if limit < 1 || limit > maxMessagePageLimit {
-		return ledger.Page{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, apperr.ErrInvalidArgument)
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, apperr.ErrInvalidArgument)
 	}
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return ledger.Page{}, fmt.Errorf("agent: read messages: chat: %w", err)
+	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: chat: %w", err)
 	}
-	led, err := u.openLedger(ctx, chat)
+	page, err := u.chatPage(ctx, chatID, after, before, limit)
 	if err != nil {
-		return ledger.Page{}, fmt.Errorf("agent: read messages: %w", err)
-	}
-	page, err := led.Page(after, before, limit)
-	if err != nil {
-		return ledger.Page{}, fmt.Errorf("agent: read messages: page: %w", err)
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: %w", err)
 	}
 	return page, nil
 }
@@ -112,28 +107,9 @@ func (u *Usecase) SubmitPrompt(
 		)
 	}
 	if found {
-		if existing.RunnerID != "" && existing.TerminalSessionID != "" &&
-			(existing.State == promptStateSpawned || existing.State == promptStateAccepted) {
-			return existing.result(), nil
-		}
-		if existing.State == promptStateDispatching || existing.State == promptStateSpawned || existing.State == promptStateUncertain {
-			accepted, err := u.promptRecordAccepted(ctx, chat, existing)
-			if err != nil {
-				return dto.PromptSubmissionDTO{}, u.markPromptOutcomeUncertain(
-					ctx, journalDir, clientRequestID, "recover prior delivery", err,
-				)
-			}
-			if accepted {
-				if _, err := u.prompts.markAcceptedByRequest(journalDir, clientRequestID, time.Now()); err != nil {
-					slog.ErrorContext(ctx, "agent: submit prompt: persist recovered acceptance",
-						"chat_id", chatID, "client_request_id", clientRequestID, "err", err)
-				}
-				return dto.PromptSubmissionDTO{}, ErrPromptAlreadyAccepted
-			}
-			return dto.PromptSubmissionDTO{}, ErrPromptOutcomeUnknown
-		}
-		if existing.State == promptStateAccepted {
-			return dto.PromptSubmissionDTO{}, ErrPromptAlreadyAccepted
+		result, done, err := u.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
+		if done {
+			return result, err
 		}
 		// A failed record is a failure proven to precede replacement process
 		// startup and safely falls through to a same-id retry.
@@ -150,20 +126,16 @@ func (u *Usecase) SubmitPrompt(
 	if err != nil {
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
 	}
-	descriptor, err := engineagent.ResolveDescriptor(crowbarHome, live.ProviderID)
+	descriptor, err := u.agents.Get(ctx, crowbarHome, live.ProviderID)
 	if err != nil {
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
 	}
 
-	led, err := u.openLedger(ctx, chat)
-	if err != nil {
-		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: %w", err)
-	}
 	resuming := false
 	nativeSessionID := live.CurrentSession
 	// A TUI launched with an explicit native resume target is continuing that
 	// conversation even when its session_start is still in flight, or when every
-	// existing ledger turn predates this runner's bind timestamp. The durable
+	// existing turn predates this runner's bind timestamp. The durable
 	// launch identity is the authoritative answer for that case.
 	if live.LaunchSessionID != "" &&
 		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
@@ -176,19 +148,19 @@ func (u *Usecase) SubmitPrompt(
 		// timestamp heuristic without any provider-specific hook vocabulary.
 		resuming = true
 	} else if live.CurrentSession != "" && !live.CurrentSessionSince.IsZero() {
-		resuming, err = led.HasTurnAtOrAfter(live.ProviderID, live.CurrentSessionSince)
+		resuming, err = u.activity.HasTurnAtOrAfter(ctx, chatID, live.ProviderID, live.CurrentSessionSince)
 		if err != nil {
 			return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: inspect current conversation: %w", err)
 		}
 	}
 	promptSteps, err := descriptor.PromptSteps(resuming)
 	if err != nil {
-		if errors.Is(err, engineagent.ErrPromptSubmitUnsupported) {
+		if errors.Is(err, engineagents.ErrPromptSubmitUnsupported) {
 			return dto.PromptSubmissionDTO{}, ErrPromptUnsupported
 		}
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: render prompt mapping: %w", err)
 	}
-	var resumeSteps []engineagent.InjectStep
+	var resumeSteps []engineagents.InjectStep
 	launchSessionID := ""
 	if resuming {
 		resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
@@ -198,7 +170,7 @@ func (u *Usecase) SubmitPrompt(
 		launchSessionID = nativeSessionID
 	}
 
-	// Preflight can perform descriptor and ledger IO. Re-read placement and busy
+	// Preflight can perform descriptor and record IO. Re-read placement and busy
 	// state only after it, immediately before durable dispatch, so a native turn
 	// or conversation move that happened during preflight wins with 409 rather
 	// than being killed.
@@ -207,15 +179,29 @@ func (u *Usecase) SubmitPrompt(
 	}
 
 	replacementRunnerID := uuid.NewString()
-	_, existingAttempt, err := u.prompts.begin(
+	prior, existingAttempt, err := u.prompts.begin(
 		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
 	}
 	if existingAttempt {
-		// Only a failed record can reach begin after lookup. begin rewrites it to
-		// dispatching; other states returned above.
+		// UNREACHABLE while this function holds the chat gate: two submissions of
+		// one request id are serialised, so the second always meets a completed
+		// record at the lookup above and returns there. begin can therefore only
+		// report an existing attempt if that serialisation is ever relaxed.
+		//
+		// It is handled rather than ignored anyway, and handled by the SAME
+		// classifier the lookup uses. An empty branch here would mean that the day
+		// the gate changes, this path silently spawns a second CLI and delivers the
+		// prompt twice — the one outcome the at-most-once journal exists to prevent.
+		result, done, classifyErr := u.classifyPriorAttempt(
+			ctx, chat, journalDir, clientRequestID, prior,
+		)
+		if done {
+			return result, classifyErr
+		}
+		return dto.PromptSubmissionDTO{}, ErrPromptOutcomeUnknown
 	}
 	// begin fsyncs the at-most-once intent. The turn-start interlock makes the
 	// following final idle check and displacement one atomic section with respect
@@ -241,7 +227,7 @@ func (u *Usecase) SubmitPrompt(
 
 	runnerID, err := u.spawnRunner(
 		ctx, chatID, chat.WorkspaceID, live.ProviderID, replacementRunnerID,
-		resumeSteps, promptSteps, "", "", resuming, launchSessionID, false, text,
+		resumeSteps, promptSteps, "", 0, resuming, launchSessionID, false, text,
 	)
 	if err != nil {
 		// Once spawnRunner is entered, a process may have existed even when its
@@ -382,15 +368,16 @@ func (u *Usecase) reconcilePromptJournalsOnBoot(ctx context.Context) error {
 	return nil
 }
 
-func resumeInjectionSteps(d *engineagent.Descriptor, sessionID string) []engineagent.InjectStep {
-	if sessionID == "" || d.Session.Resume == nil || d.Session.Resume.Arg == "" {
+func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents.InjectStep {
+	arg, ok := d.ResumeArg()
+	if sessionID == "" || !ok {
 		return nil
 	}
-	ctx := engineagent.TemplateCtx{ID: sessionID}
-	parts := strings.Fields(engineagent.Expand(d.Session.Resume.Arg, ctx))
-	steps := make([]engineagent.InjectStep, 0, len(parts))
+	ctx := engineagents.TemplateCtx{ID: sessionID}
+	parts := strings.Fields(engineagents.Expand(arg, ctx))
+	steps := make([]engineagents.InjectStep, 0, len(parts))
 	for _, part := range parts {
-		steps = append(steps, engineagent.InjectStep{
+		steps = append(steps, engineagents.InjectStep{
 			Verb: "pass_arg",
 			Args: map[string]any{"positional": part},
 		})
@@ -398,16 +385,53 @@ func resumeInjectionSteps(d *engineagent.Descriptor, sessionID string) []enginea
 	return steps
 }
 
+// classifyPriorAttempt answers what a request id's existing journal record means
+// for a submission that is trying to use it again.
+//
+// done=false means only one thing: the record is a FAILURE proven to precede any
+// replacement process, which is the single state a same-id retry may safely fall
+// through. Every other state is terminal for this submission, because a prompt
+// whose outcome is unknown must never be delivered a second time on a guess.
+func (u *Usecase) classifyPriorAttempt(
+	ctx context.Context,
+	chat domain.AgentChat,
+	journalDir, clientRequestID string,
+	existing promptRequestRecord,
+) (dto.PromptSubmissionDTO, bool, error) {
+	if existing.RunnerID != "" && existing.TerminalSessionID != "" &&
+		(existing.State == promptStateSpawned || existing.State == promptStateAccepted) {
+		return existing.result(), true, nil
+	}
+	if existing.State == promptStateDispatching ||
+		existing.State == promptStateSpawned ||
+		existing.State == promptStateUncertain {
+		accepted, err := u.promptRecordAccepted(ctx, chat, existing)
+		if err != nil {
+			return dto.PromptSubmissionDTO{}, true, u.markPromptOutcomeUncertain(
+				ctx, journalDir, clientRequestID, "recover prior delivery", err,
+			)
+		}
+		if accepted {
+			if _, err := u.prompts.markAcceptedByRequest(journalDir, clientRequestID, time.Now()); err != nil {
+				slog.ErrorContext(ctx, "agent: submit prompt: persist recovered acceptance",
+					"chat_id", chat.ID, "client_request_id", clientRequestID, "err", err)
+			}
+			return dto.PromptSubmissionDTO{}, true, ErrPromptAlreadyAccepted
+		}
+		return dto.PromptSubmissionDTO{}, true, ErrPromptOutcomeUnknown
+	}
+	if existing.State == promptStateAccepted {
+		return dto.PromptSubmissionDTO{}, true, ErrPromptAlreadyAccepted
+	}
+	return dto.PromptSubmissionDTO{}, false, nil
+}
+
 func (u *Usecase) promptRecordAccepted(
 	ctx context.Context,
 	chat domain.AgentChat,
 	record promptRequestRecord,
 ) (bool, error) {
-	led, err := u.openLedger(ctx, chat)
-	if err != nil {
-		return false, fmt.Errorf("agent: recover prompt request: %w", err)
-	}
-	turns, err := led.Turns()
+	turns, err := u.chatTurns(ctx, chat.ID)
 	if err != nil {
 		return false, fmt.Errorf("agent: recover prompt request: turns: %w", err)
 	}

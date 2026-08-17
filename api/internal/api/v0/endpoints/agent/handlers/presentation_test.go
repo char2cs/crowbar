@@ -12,10 +12,10 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestMessages_MapsBoundedLedgerPage(t *testing.T) {
@@ -24,9 +24,9 @@ func TestMessages_MapsBoundedLedgerPage(t *testing.T) {
 	at := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	uc := &fakeAgentUsecase{
 		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
-		messagePage: ledger.Page{Cursor: 8, OldestCursor: 8, Items: []ledger.Message{{
+		messagePage: chatlog.Page{Cursor: 8, OldestCursor: 8, Items: []chatlog.Message{{
 			Sequence: 8,
-			Turn:     ledger.Turn{Role: "assistant", Provider: "codex", RunnerID: "private", Text: "done", At: at},
+			Turn:     chatlog.Turn{Role: "assistant", Provider: "codex", RunnerID: "private", Text: "done", At: at},
 		}}},
 	}
 	newChatHandlers(uc).Messages(ctx)
@@ -93,10 +93,10 @@ func TestSlashCatalog_MapsProviderNeutralEphemeralResult(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	uc := &fakeAgentUsecase{
 		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
-		catalog: engineagent.SlashCatalog{
+		catalog: engineagents.SlashCatalog{
 			ProviderID:   "codex",
-			Completeness: engineagent.CatalogCompletenessModelVisible,
-			Items: []engineagent.SlashCatalogItem{{
+			Completeness: engineagents.CatalogCompletenessModelVisible,
+			Items: []engineagents.SlashCatalogItem{{
 				ID: "skill-1", Kind: "skill", Label: "review", InsertText: "$review ", Source: "model-visible",
 			}},
 			Warnings: []string{"partial"},

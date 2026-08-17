@@ -2,8 +2,6 @@ package agent_test
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -338,29 +336,18 @@ func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	assert.Empty(t, turns, "a chat with no history has no move to date")
 }
 
-func TestNoteThreadLineage_SurfacesALedgerOpenFailure(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, _ := f.spawn(t, "claude")
-	f.ws.err = errors.New("chats dir unreadable")
-
-	require.ErrorContains(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}),
-		"chats dir unreadable")
-}
-
-// A ledger that cannot be READ is not an empty one, so it must not be treated as
+// A record that cannot be READ is not an empty one, so it must not be treated as
 // the "nothing to date" case — the note would be silently dropped for a chat that
 // has a whole history.
-func TestNoteThreadLineage_SurfacesAnUnreadableLedger(t *testing.T) {
-	f := newFixture(t)
+func TestNoteThreadLineage_SurfacesAnUnreadableRecord(t *testing.T) {
+	f, activity := newActivityFaultFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	turn(t, f, runnerID, "claude", "something was said here")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.chatsDir, chatID, "ledger", "99999999-corrupt-user-claude.turn"),
-		[]byte("{not json"), 0o600))
+	activity.turnsErr = errors.New("record unreadable")
 
-	require.Error(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}))
+	require.ErrorContains(t,
+		f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}), "record unreadable")
 }
 
 // The same regression one layer up, through the REAL spawn: a chat that is

@@ -16,6 +16,7 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -26,7 +27,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // mustJSON encodes one vendor hook payload. Every payload in this package is a hook
@@ -553,10 +554,11 @@ type testFixture struct {
 	bc       *fakeBroadcaster
 	rbc      *fakeRunnerBroadcaster
 	ws       *fakeWorkspace
-	registry *engineagent.Registry
+	engine   engineagents.Agents
+	activity agentactivity.EventStore
 	// providerPrefs is the real sqlite preference store the usecase resolves
 	// providers against; setPrefs writes into it. connected is the injected install
-	// probe's answer keyed by spawn.cmd; setConnected rewrites it. Both let the
+	// probe's answer keyed by provider id; setConnected rewrites it. Both let the
 	// provider-resolution tests control ordering/enabled/connected without touching
 	// the host or a real PATH.
 	providerPrefs store.Store[domain.AgentProviderPreference, string]
@@ -844,6 +846,31 @@ func newChatStore(
 	return repo, ax.WaitPublish
 }
 
+// newActivityStore builds the REAL conversation record over an in-memory event
+// log, read model and content directory. The fixture uses the real thing rather
+// than a stub because the record is what every turn assertion in this package
+// reads back, and a stub would let the write path and the read path agree with
+// each other while both were wrong.
+func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
+	t.Helper()
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.AgentActivity]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir())
+	require.NoError(t, err)
+	return repo, ax.WaitPublish
+}
+
 // newRunnerStore builds the same for the agentrunner aggregate: the real commands,
 // the real live-runner + conversation-history projections, the real hub projection.
 func newRunnerStore(
@@ -894,6 +921,7 @@ func newFixtureUsing(
 	t *testing.T,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
+	wrapActivity ...func(agentactivity.EventStore) agentactivity.EventStore,
 ) (testFixture, agentchat.EventStore, agentrunner.EventStore) {
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
@@ -902,6 +930,7 @@ func newFixtureUsing(
 	rbc := &fakeRunnerBroadcaster{}
 	realChats, waitChats := newChatStore(t, bc.BroadcastAgentChat)
 	realRunners, waitRunners := newRunnerStore(t, rbc.BroadcastAgentRunner)
+	realActivity, waitActivity := newActivityStore(t)
 
 	usedChats := realChats
 	if wrapChats != nil {
@@ -910,6 +939,10 @@ func newFixtureUsing(
 	usedRunners := realRunners
 	if wrapRunners != nil {
 		usedRunners = wrapRunners(realRunners)
+	}
+	usedActivity := realActivity
+	for _, wrap := range wrapActivity {
+		usedActivity = wrap(usedActivity)
 	}
 
 	term := &fakeCommander{}
@@ -928,12 +961,12 @@ func newFixtureUsing(
 		chatsDir:  worktreepath.ChatsDir(worktree),
 	}
 
-	reg := engineagent.NewRegistry()
+	engine := engineagents.New()
 	providerPrefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
-	probe := func(cmd string) bool { return connected[cmd] }
+	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
 	// The tool surface is wired over the SAME real stores the rest of the fixture
 	// reads, so an MCP tool call lands in the aggregates every other test asserts
 	// on. Only the workspace lister is a fake: these tests own no workspace
@@ -965,8 +998,8 @@ func newFixtureUsing(
 	// and the spawn path agree with each other while both were wrong.
 	folders := mocks.NewAgentChatFolderStore()
 	lineage := chatlineage.New(folders, usedChats)
-	u := agentusecase.New(usedChats, usedRunners, reg, term, ws, lineage, providerPrefs, homeFn, probe,
-		minter, agenttools.Deps{
+	u := agentusecase.New(usedChats, usedRunners, usedActivity, engine, term, ws, lineage,
+		providerPrefs, homeFn, probe, minter, agenttools.Deps{
 			Resolver:        resolver,
 			ChatReads:       chatReader,
 			Lineage:         lineage,
@@ -981,12 +1014,13 @@ func newFixtureUsing(
 		usecase:       u,
 		chats:         realChats,
 		runners:       realRunners,
-		waitFn:        func() { waitChats(); waitRunners() },
+		waitFn:        func() { waitChats(); waitRunners(); waitActivity() },
 		term:          term,
 		bc:            bc,
 		rbc:           rbc,
 		ws:            ws,
-		registry:      reg,
+		engine:        engine,
+		activity:      realActivity,
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
@@ -1013,4 +1047,93 @@ func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID strin
 	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, false, time.Now())
 	f.wait()
 	return err
+}
+
+// faultActivity wraps the real conversation record so a test can arm a read
+// failure. Only reads are faulted: the write paths in this package are already
+// covered by the real store, and a fake that intercepted them would let the
+// write path and the read path agree with each other while both were wrong.
+type faultActivity struct {
+	agentactivity.EventStore
+	turnsErr error
+}
+
+func (f *faultActivity) Turns(
+	ctx context.Context, chatID string, after, before int64, limit int,
+) ([]domain.ActivityTurn, error) {
+	if f.turnsErr != nil {
+		return nil, f.turnsErr
+	}
+	return f.EventStore.Turns(ctx, chatID, after, before, limit)
+}
+
+// newActivityFaultFixture builds a fixture whose usecase READS the conversation
+// record through an armable wrapper.
+func newActivityFaultFixture(t *testing.T) (testFixture, *faultActivity) {
+	t.Helper()
+	fa := &faultActivity{}
+	f, _, _ := newFixtureUsing(t, nil, nil, func(real agentactivity.EventStore) agentactivity.EventStore {
+		fa.EventStore = real
+		return fa
+	})
+	return f, fa
+}
+
+// faultWriteActivity fails every WRITE, so the observation path can be asserted
+// to degrade rather than to break the vendor CLI's turn.
+type faultWriteActivity struct {
+	agentactivity.EventStore
+	writeErr error
+}
+
+func (f *faultWriteActivity) InvokeTool(ctx context.Context, in agentactivity.ToolInput) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.InvokeTool(ctx, in)
+}
+
+func (f *faultWriteActivity) CompleteTool(ctx context.Context, in agentactivity.ToolResultInput) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.CompleteTool(ctx, in)
+}
+
+func (f *faultWriteActivity) StartSubagent(ctx context.Context, chatID, id, agentType string, now time.Time) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.StartSubagent(ctx, chatID, id, agentType, now)
+}
+
+func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType string, now time.Time) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, now)
+}
+
+func (f *faultWriteActivity) Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.Interrupt(ctx, chatID, id, kind, detail, now)
+}
+
+func (f *faultWriteActivity) ResolveInterruption(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.ResolveInterruption(ctx, chatID, id, kind, detail, now)
+}
+
+func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {
+	t.Helper()
+	fa := &faultWriteActivity{}
+	f, _, _ := newFixtureUsing(t, nil, nil, func(real agentactivity.EventStore) agentactivity.EventStore {
+		fa.EventStore = real
+		return fa
+	})
+	return f, fa
 }

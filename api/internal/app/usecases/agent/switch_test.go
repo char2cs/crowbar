@@ -180,7 +180,7 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheLedger exercises the codex-target
+// TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap exercises the codex-target
 // switch-back path. Two things are load-bearing:
 //
 //   - the resume arg ("resume {id}", no leading dash) MUST precede the positional, or
@@ -189,7 +189,7 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 //     POINTER — the ledger directory plus the last turn it already saw — and NOT the
 //     transcript. Pasting the handed-off exchange into the chat is a wall of text the
 //     user has to scroll past on every switch, and the agent can just read the file.
-func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheLedger(t *testing.T) {
+func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, codexRunner := f.spawn(t, "codex")
@@ -221,11 +221,11 @@ func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheLedger(t *testing.T) {
 
 	msg := argv[len(argv)-1]
 	assert.Contains(t, msg, "[Crowbar]")
-	assert.Contains(t, msg, "ledger", "the message must point at the ledger directory: %q", msg)
-	assert.Contains(t, msg, ".turn", "the message must name the last turn it already saw: %q", msg)
+	assert.Contains(t, msg, "get_chat_log", "the message must name the tool that reads the record: %q", msg)
+	assert.Contains(t, msg, "limit 1", "the message must name HOW MUCH is new, or the CLI re-reads what it was already handed: %q", msg)
 
 	// The transcript itself must NOT be in the message — neither the gap nor its own
-	// earlier turns. That is the whole point: point at the file, do not paste it.
+	// earlier turns. That is the whole point: point at the record, do not paste it.
 	assert.NotContains(t, msg, "claude spoke while codex was away")
 	assert.NotContains(t, msg, "codex ledger content")
 }

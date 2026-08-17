@@ -12,11 +12,12 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestMain(
@@ -148,8 +149,8 @@ func (stubUsecase) GetChat(
 
 func (stubUsecase) ReadMessages(
 	context.Context, string, int, int, int,
-) (ledger.Page, error) {
-	return ledger.Page{Items: []ledger.Message{}}, nil
+) (chatlog.Page, error) {
+	return chatlog.Page{Items: []chatlog.Message{}}, nil
 }
 
 func (stubUsecase) SubmitPrompt(
@@ -160,8 +161,8 @@ func (stubUsecase) SubmitPrompt(
 
 func (stubUsecase) SlashCatalog(
 	context.Context, string,
-) (engineagent.SlashCatalog, error) {
-	return engineagent.SlashCatalog{Items: []engineagent.SlashCatalogItem{}}, nil
+) (engineagents.SlashCatalog, error) {
+	return engineagents.SlashCatalog{Items: []engineagents.SlashCatalogItem{}}, nil
 }
 
 // LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
@@ -333,4 +334,18 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	assert.Equal(t, "seg-42", got.runnerID, "the handler must read the URL's :segid")
 	assert.Equal(t, "TOK", got.token)
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
+}
+
+func (stubUsecase) ReadActivity(
+	context.Context, string, int64, int,
+) (agentusecase.ChatActivity, error) {
+	return agentusecase.ChatActivity{}, nil
+}
+
+func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
+	return nil, nil
+}
+
+func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
+	return engineagents.Telemetry{}, false
 }

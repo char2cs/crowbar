@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -818,7 +819,7 @@ func TestListProviders_ReturnsEveryDescriptorForTheWorkspaceHome(t *testing.T) {
 
 	ids := make([]string, len(descs))
 	for i, d := range descs {
-		ids[i] = d.ID
+		ids[i] = d.ID()
 	}
 	assert.Contains(t, ids, "claude")
 	assert.Contains(t, ids, "codex")
@@ -835,22 +836,26 @@ func TestListProviders_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "worktree dir")
 }
 
-func TestListProviders_DescriptorEnumerationFailure_ReturnsWrappedError(t *testing.T) {
+// A broken on-disk override costs THAT provider its row, not the whole list. This
+// backs the provider picker: one bad user-authored descriptor must not blank the
+// UI, which is indistinguishable from "no providers are installed".
+func TestListProviders_BrokenOverrideOmitsOneProviderNotTheList(t *testing.T) {
 	f := newFixture(t)
 
-	// AllDescriptors unions the embedded descriptor ids with the on-disk override dir
-	// under crowbar home, then loads EVERY id through ResolveDescriptor. An invalid
-	// override (here: an id-less descriptor) therefore fails enumeration — the only way
-	// the second branch of ListProviders can error.
 	dir := filepath.Join(f.ws.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("id: \"\"\n"), 0o600))
 
 	descs, err := f.usecase.ListProviders(f.ctx, "ws1")
-	require.Error(t, err)
-	assert.Nil(t, descs)
-	assert.Contains(t, err.Error(), "list providers")
-	assert.Contains(t, err.Error(), "enumerate descriptor")
+	require.NoError(t, err)
+
+	ids := make([]string, len(descs))
+	for i, d := range descs {
+		ids[i] = d.ID()
+	}
+	assert.Contains(t, ids, "claude")
+	assert.Contains(t, ids, "codex")
+	assert.NotContains(t, ids, "broken")
 }
 
 // argAfter returns the argv token following flag.
@@ -948,4 +953,50 @@ func TestRegression_TurnStop_EmptyMessageStillClosesTheTurn(t *testing.T) {
 	chat, err := f.usecase.GetChat(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.False(t, chat.Working, "an empty turn_stop must still close the turn")
+}
+
+func TestListChatsByWorkspace_ReturnsOnlyThatWorkspacesChats(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	mine, err := f.usecase.ListChatsByWorkspace(f.ctx, "ws1")
+	require.NoError(t, err)
+	ids := make([]string, 0, len(mine))
+	for _, c := range mine {
+		ids = append(ids, c.ID)
+	}
+	assert.Contains(t, ids, chatID)
+
+	other, err := f.usecase.ListChatsByWorkspace(f.ctx, "ws-elsewhere")
+	require.NoError(t, err)
+	assert.Empty(t, other)
+}
+
+// A retry after a lost HTTP response must receive the ORIGINAL delivery, even
+// though that delivery has since made the chat busy. Reporting "busy" instead
+// would tell a client its message failed when it had already been sent.
+func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	const message = "the prompt that landed"
+	requestID := uuid.NewString()
+
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+	require.NoError(t, err)
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "codex", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": message, "transcript_path": "/rollouts/x"})))
+	f.wait()
+	spawnsBefore := f.term.callCount()
+
+	second, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+
+	require.NoError(t, err)
+	assert.Equal(t, first, second, "a retry reports the delivery that already happened")
+	assert.Equal(t, spawnsBefore, f.term.callCount(), "and starts no second CLI")
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Len(t, turns, 1, "the prompt is recorded once")
 }

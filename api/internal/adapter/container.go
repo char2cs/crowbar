@@ -24,10 +24,11 @@ const (
 // per-type DB file names under state/events and state/store. One event log +
 // one read-model DB per aggregate type, routed by shard hash across many ids.
 const (
-	workspaceDBName    = "workspace.db"
-	reviewThreadDBName = "review_thread.db"
-	agentChatDBName    = "agent_chat.db"
-	agentRunnerDBName  = "agent_runner.db"
+	workspaceDBName     = "workspace.db"
+	reviewThreadDBName  = "review_thread.db"
+	agentChatDBName     = "agent_chat.db"
+	agentRunnerDBName   = "agent_runner.db"
+	agentActivityDBName = "agent_activity.db"
 )
 
 // per-type snapshot DB file names under state/events, one per aggregate type,
@@ -36,10 +37,11 @@ const (
 // keeps exactly one upserted snapshot per aggregate here, read in O(1) on the
 // workspace-scoped hot path.
 const (
-	workspaceSnapshotDBName    = "workspace_snapshots.db"
-	reviewThreadSnapshotDBName = "review_thread_snapshots.db"
-	agentChatSnapshotDBName    = "agent_chat_snapshots.db"
-	agentRunnerSnapshotDBName  = "agent_runner_snapshots.db"
+	workspaceSnapshotDBName     = "workspace_snapshots.db"
+	reviewThreadSnapshotDBName  = "review_thread_snapshots.db"
+	agentChatSnapshotDBName     = "agent_chat_snapshots.db"
+	agentRunnerSnapshotDBName   = "agent_runner_snapshots.db"
+	agentActivitySnapshotDBName = "agent_activity_snapshots.db"
 )
 
 // Container is the persistence layer.
@@ -61,16 +63,23 @@ type Container struct {
 	// one read-model DB per aggregate type, routed to many aggregate ids by
 	// shard hash. The snapshot store is the asynx v0.8 O(1) warm-read cache
 	// (one upserted snapshot per aggregate), keyed by aggregateID alone.
-	workspaceEventStore      asynxModels.Store
-	workspaceSnapshotStore   asynxModels.SnapshotStore
-	workspaceStoreDB         *gormdb.DB
-	reviewThreadView         *gormdb.DB
-	agentChatEventStore      asynxModels.Store
-	agentChatSnapshotStore   asynxModels.SnapshotStore
-	agentChatStoreDB         *gormdb.DB
-	agentRunnerEventStore    asynxModels.Store
-	agentRunnerSnapshotStore asynxModels.SnapshotStore
-	agentRunnerStoreDB       *gormdb.DB
+	workspaceEventStore    asynxModels.Store
+	workspaceSnapshotStore asynxModels.SnapshotStore
+	workspaceStoreDB       *gormdb.DB
+	reviewThreadView       *gormdb.DB
+	agentChatEventStore    asynxModels.Store
+	agentChatSnapshotStore asynxModels.SnapshotStore
+	agentChatStoreDB       *gormdb.DB
+	// The activity plane is its OWN event log, snapshot store and read model.
+	// Never a table inside the chat plane: chat events are a handful per chat
+	// while activity events are hundreds per turn, and sharing one single-writer
+	// event DB would put the sidebar's writes behind a tool-call storm.
+	agentActivityEventStore    asynxModels.Store
+	agentActivitySnapshotStore asynxModels.SnapshotStore
+	agentActivityStoreDB       *gormdb.DB
+	agentRunnerEventStore      asynxModels.Store
+	agentRunnerSnapshotStore   asynxModels.SnapshotStore
+	agentRunnerStoreDB         *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -213,6 +222,24 @@ func newLocked(
 	}
 	rollback = append(rollback, func() error { return closeSnapshotStore(agentChatSnapshotStore) })
 
+	agentActivityEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, agentActivityDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent activity event store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeEventStore(agentActivityEventStore) })
+
+	agentActivitySnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, agentActivitySnapshotDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent activity snapshot store: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeSnapshotStore(agentActivitySnapshotStore) })
+
+	agentActivityStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentActivityDBName))
+	if err != nil {
+		return nil, fmt.Errorf("adapter: agent activity read db: %w", err)
+	}
+	rollback = append(rollback, func() error { return closeViewDB(agentActivityStoreDB) })
+
 	agentChatStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentChatDBName))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: agent chat store db: %w", err)
@@ -244,21 +271,24 @@ func newLocked(
 	rollback = append(rollback, func() error { return closeViewDB(globalView) })
 
 	c = &Container{
-		crowbarHome:              home,
-		reviewThreadES:           reviewThreadES,
-		reviewThreadSS:           reviewThreadSS,
-		workspaceEventStore:      workspaceEventStore,
-		workspaceSnapshotStore:   workspaceSnapshotStore,
-		workspaceStoreDB:         workspaceStoreDB,
-		reviewThreadView:         reviewThreadView,
-		agentChatEventStore:      agentChatEventStore,
-		agentChatSnapshotStore:   agentChatSnapshotStore,
-		agentChatStoreDB:         agentChatStoreDB,
-		agentRunnerEventStore:    agentRunnerEventStore,
-		agentRunnerSnapshotStore: agentRunnerSnapshotStore,
-		agentRunnerStoreDB:       agentRunnerStoreDB,
-		globalView:               globalView,
-		lock:                     lock,
+		crowbarHome:                home,
+		reviewThreadES:             reviewThreadES,
+		reviewThreadSS:             reviewThreadSS,
+		workspaceEventStore:        workspaceEventStore,
+		workspaceSnapshotStore:     workspaceSnapshotStore,
+		workspaceStoreDB:           workspaceStoreDB,
+		reviewThreadView:           reviewThreadView,
+		agentChatEventStore:        agentChatEventStore,
+		agentChatSnapshotStore:     agentChatSnapshotStore,
+		agentChatStoreDB:           agentChatStoreDB,
+		agentActivityEventStore:    agentActivityEventStore,
+		agentActivitySnapshotStore: agentActivitySnapshotStore,
+		agentActivityStoreDB:       agentActivityStoreDB,
+		agentRunnerEventStore:      agentRunnerEventStore,
+		agentRunnerSnapshotStore:   agentRunnerSnapshotStore,
+		agentRunnerStoreDB:         agentRunnerStoreDB,
+		globalView:                 globalView,
+		lock:                       lock,
 	}
 	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
 	return c, nil
@@ -334,6 +364,25 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 // state/events/agent_runner.db. This is the singleton per-type handle: the app
 // layer builds ONE axAgentRunner over it and routes every runner id to a shard by
 // hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
+// AgentActivityES returns the conversation-record event log at
+// state/events/agent_activity.db.
+func (c *Container) AgentActivityES() asynxModels.Store {
+	return c.agentActivityEventStore
+}
+
+// AgentActivitySS returns the conversation-record snapshot store.
+func (c *Container) AgentActivitySS() asynxModels.SnapshotStore {
+	return c.agentActivitySnapshotStore
+}
+
+// AgentActivityReadDB returns the conversation-record read model at
+// state/store/agent_activity.db. Unlike the other read models it holds ROWS, not
+// one JSON blob per aggregate: turns, tool calls, subagents and interruptions are
+// queried by name, by file and by time, which a blob cannot answer.
+func (c *Container) AgentActivityReadDB() *gormdb.DB {
+	return c.agentActivityStoreDB
+}
+
 func (c *Container) AgentRunnerES() asynxModels.Store {
 	return c.agentRunnerEventStore
 }
@@ -389,6 +438,12 @@ func (c *Container) Close() error {
 		}
 		c.reviewThreadView = nil
 	}
+	if c.agentActivityStoreDB != nil {
+		if err := closeViewDB(c.agentActivityStoreDB); err != nil {
+			errs = append(errs, err)
+		}
+		c.agentActivityStoreDB = nil
+	}
 	if c.agentChatStoreDB != nil {
 		if err := closeViewDB(c.agentChatStoreDB); err != nil {
 			errs = append(errs, fmt.Errorf("adapter: close agent chat store db: %w", err))
@@ -420,6 +475,18 @@ func (c *Container) Close() error {
 			errs = append(errs, fmt.Errorf("adapter: close workspace snapshot store: %w", err))
 		}
 		c.workspaceSnapshotStore = nil
+	}
+	if c.agentActivityEventStore != nil {
+		if err := closeEventStore(c.agentActivityEventStore); err != nil {
+			errs = append(errs, err)
+		}
+		c.agentActivityEventStore = nil
+	}
+	if c.agentActivitySnapshotStore != nil {
+		if err := closeSnapshotStore(c.agentActivitySnapshotStore); err != nil {
+			errs = append(errs, err)
+		}
+		c.agentActivitySnapshotStore = nil
 	}
 	if c.agentChatEventStore != nil {
 		if err := closeEventStore(c.agentChatEventStore); err != nil {

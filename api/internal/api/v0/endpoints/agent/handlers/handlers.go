@@ -6,10 +6,11 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // AgentUsecase is the agentic-chat usecase surface the handlers need: spawning a
@@ -40,7 +41,25 @@ type AgentUsecase interface {
 		ctx context.Context,
 		chatID string,
 		after, before, limit int,
-	) (ledger.Page, error)
+	) (chatlog.Page, error)
+
+	// ReadActivity is what the agent DID: tool calls, subagents, interruptions.
+	ReadActivity(
+		ctx context.Context,
+		chatID string,
+		after int64,
+		limit int,
+	) (agentusecase.ChatActivity, error)
+
+	// ReadToolPayload resolves one tool call's request or result on demand.
+	ReadToolPayload(
+		ctx context.Context,
+		chatID, toolID, side string,
+	) ([]byte, error)
+
+	// Telemetry is the provider's own report of cost and capacity, absent until
+	// the provider makes one.
+	Telemetry(chatID string) (engineagents.Telemetry, bool)
 
 	SubmitPrompt(
 		ctx context.Context,
@@ -50,7 +69,7 @@ type AgentUsecase interface {
 	SlashCatalog(
 		ctx context.Context,
 		chatID string,
-	) (engineagent.SlashCatalog, error)
+	) (engineagents.SlashCatalog, error)
 
 	// LiveRunnerForChat returns the runner PLACED on chatID right now.
 	// agentrunner.ErrNotFound is not a failure here: it means the chat is DORMANT —

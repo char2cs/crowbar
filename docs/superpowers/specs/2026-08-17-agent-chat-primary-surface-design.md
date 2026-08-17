@@ -121,6 +121,13 @@ Interruption
 
 ### 4.1 Payloads live beside the event log, not inside it
 
+> **Corrected 2026-08-17.** The mechanism described below is wrong in one respect: asynx
+> stores RFC-6902 **patches**, not full aggregate state, so an event is O(delta) and the
+> events table does not grow with total state. The conclusion stands — snapshot writes and
+> cold loads are both O(state) — but see
+> [`2026-08-17-agents-engine-implementation.md`](./2026-08-17-agents-engine-implementation.md) §1
+> for the measured mechanics and their consequences.
+
 Tool inputs and results are stored in **full**. They are not stored *in the aggregate*.
 
 This is a storage-layout decision forced by how asynx behaves, not a fidelity compromise. From

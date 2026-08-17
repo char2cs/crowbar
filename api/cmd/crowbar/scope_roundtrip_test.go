@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -12,13 +13,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // This file guards the FULL in-PTY callback round-trip that the plain
 // scopedAgentPath unit tests structurally cannot see:
 //
-//	descriptor hook template → engine/agent.Expand → flat shell string
+//	descriptor hook template → engine/agents.Expand → flat shell string
 //	  → /bin/sh word-splitting → argv → real cobra/pflag parse → scopedAgentPath
 //
 // Every earlier test entered that chain AFTER the shell, handing cobra a
@@ -112,15 +113,15 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 // event name. Reading them back off disk (rather than restating them in the test)
 // is deliberate: it is the descriptor as the vendor CLI will actually read it, so
 // reverting claude.yaml/codex.yaml to the broken flag triple fails these tests.
-func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) map[string]string {
+func hookCommands(t *testing.T, providerID string, ctx engineagents.TemplateCtx) map[string]string {
 	t.Helper()
-	d, err := engineagent.ResolveDescriptor("", providerID) // "" home → embedded default
+	d, err := engineagents.New().Get(context.Background(), "", providerID) // "" home → embedded default
 	require.NoError(t, err)
 
 	root := t.TempDir()
 	ctx.Tmp = root
 	ctx.Cwd = t.TempDir()
-	plan, err := engineagent.BuildSpawnPlan(d, ctx, nil, nil)
+	plan, err := d.SpawnPlan(ctx, nil, nil)
 	require.NoError(t, err)
 
 	// A descriptor may deliver its hook commands EITHER as a written config file
@@ -183,7 +184,7 @@ func hookCommands(t *testing.T, providerID string, ctx engineagent.TemplateCtx) 
 func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
-			commands := hookCommands(t, provider, engineagent.TemplateCtx{
+			commands := hookCommands(t, provider, engineagents.TemplateCtx{
 				CrowbarHook: argvDumper(t),
 				Segid:       "SEG",
 				Provider:    provider,
@@ -191,7 +192,13 @@ func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 				RepoID:      "", // ← project-home: WorktreeDir resolves no repo
 				WorkspaceID: "WS",
 			})
-			require.Len(t, commands, 3, "expected session_start/user_prompt/turn_stop hooks")
+			// Every registered channel, not a fixed count: the guard is that no hook
+			// a descriptor adds can quietly skip this round trip, and asserting a
+			// number would only mean someone updated the number.
+			require.NotEmpty(t, commands)
+			require.Contains(t, commands, "SessionStart")
+			require.Contains(t, commands, "UserPromptSubmit")
+			require.Contains(t, commands, "Stop")
 
 			for event, command := range commands {
 				got := parseThroughCobra(t, argvThroughShell(t, command))
@@ -215,7 +222,7 @@ func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
-			commands := hookCommands(t, provider, engineagent.TemplateCtx{
+			commands := hookCommands(t, provider, engineagents.TemplateCtx{
 				CrowbarHook: argvDumper(t),
 				Segid:       "SEG",
 				Provider:    provider,
@@ -250,7 +257,7 @@ func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 // take again, so the guard outlives the command it was written against: `hook`
 // carries the identical --segment + positional plumbing.
 func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
-	ctx := engineagent.TemplateCtx{
+	ctx := engineagents.TemplateCtx{
 		CrowbarHook: argvDumper(t),
 		Segid:       "SEG-1",
 		Provider:    "claude",
@@ -258,7 +265,7 @@ func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
 		WorkspaceID: "WS",
 	}
-	command := engineagent.Expand(
+	command := engineagents.Expand(
 		"{crowbar} hook {scope_flags} --segment {segid} --provider {provider} session_start", ctx,
 	)
 
@@ -279,13 +286,13 @@ func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 // handoff dump takes a REAL chat id typed at debug time — never a template
 // token baked in at spawn — so it is written directly into the command line.
 func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
-	ctx := engineagent.TemplateCtx{
+	ctx := engineagents.TemplateCtx{
 		CrowbarHook: argvDumper(t),
 		ProjectID:   "PROJ",
 		RepoID:      "",
 		WorkspaceID: "WS",
 	}
-	command := engineagent.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)
+	command := engineagents.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)
 
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 
