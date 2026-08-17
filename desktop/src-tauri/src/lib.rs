@@ -588,6 +588,11 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
 /// for every other window) and `macOSPrivateApi: true` app-wide (set once in
 /// tauri.conf.json — it is a process entitlement, not a per-window builder option, so
 /// every `WebviewWindowBuilder`-made window gets it automatically).
+///
+/// State is `Active`, NOT the `FollowsWindowActiveState` default: an inactive
+/// NSVisualEffectView stops sampling the desktop and paints a flat fill instead, and
+/// since the window is transparent with translucent chrome tokens on top, that reads as
+/// the blur vanishing the instant the window stops being key.
 #[cfg(target_os = "macos")]
 fn decorate_window(window: &tauri::WebviewWindow) {
     use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
@@ -595,7 +600,7 @@ fn decorate_window(window: &tauri::WebviewWindow) {
     if let Err(e) = apply_vibrancy(
         window,
         NSVisualEffectMaterial::HudWindow,
-        Some(NSVisualEffectState::FollowsWindowActiveState),
+        Some(NSVisualEffectState::Active),
         None,
     ) {
         log::error!("failed to apply window vibrancy: {e}");
