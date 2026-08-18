@@ -117,6 +117,42 @@ config_injection:
   # codex prompts to self-update on startup, which would eat the first keystrokes
   # in the chat pane.
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # TUI-NATIVE modals, suppressed rather than answered.
+  #
+  # These are a DIFFERENT class from the prompts the answer channel handles. A
+  # permission request, an AskUserQuestion and an MCP elicitation all travel
+  # through the hook surface, so Crowbar can see them and answer them. These do
+  # not: the TUI draws them itself, no hook fires, and nothing Crowbar can send
+  # would reach them. They simply block the pane until a human presses a key —
+  # the same failure `check_for_update_on_startup` above already avoids.
+  #
+  # The observed one is the rate-limit nudge ("Approaching rate limits — switch
+  # to gpt-5.6-luna?", three options, the third being "never show again"). That
+  # third option writes exactly the flag set here; the others are its siblings in
+  # the same `Notice` struct in the 0.146.0 binary:
+  #
+  #   hide_full_access_warning       hide_world_writable_warning
+  #   fast_default_opt_out           hide_rate_limit_model_nudge
+  #   hide_gpt5_1_migration_prompt   hide_gpt-5.1-codex-max_migration_prompt
+  #   external_config_migration_prompts
+  #
+  # Only the three unambiguous modal suppressions are set. `fast_default_opt_out`
+  # is a SERVICE-TIER choice, not a modal, and is the user's to make. The two
+  # migration prompts and `external_config_migration_prompts` are left alone
+  # because their key spelling contains dots (`hide_gpt-5.1-...`), which a TOML
+  # dotted-key override would parse as nested tables rather than as the key.
+  #
+  # THE TABLE PATH IS UNCONFIRMED, and this is deliberately a no-risk bet. The
+  # field names are read out of the binary; the `notice.` prefix is inferred from
+  # the struct name, because no dotted form of these keys appears anywhere in the
+  # binary and `--strict-config` validates config.toml ONLY — measured, it accepts
+  # `-c notice.total_nonsense_key=true` with no error and no behavioural
+  # difference. An unknown `-c` key is therefore INERT: if this prefix is wrong
+  # the modals keep appearing exactly as they do today, and nothing else changes.
+  # Confirm against a live session and correct the prefix if needed.
+  - pass_arg: { arg: "-c", value: 'notice.hide_rate_limit_model_nudge=true' }
+  - pass_arg: { arg: "-c", value: 'notice.hide_full_access_warning=true' }
+  - pass_arg: { arg: "-c", value: 'notice.hide_world_writable_warning=true' }
   # workspace-write DENIES NETWORK, and on macOS a unix-socket connect IS network — so a
   # sandboxed codex cannot reach the daemon at all. That is not theoretical. It was found
   # through the one command Crowbar used to ask the AGENT itself to run (a shell titling
