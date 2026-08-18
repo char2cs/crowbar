@@ -3,6 +3,7 @@ package model
 import (
 	"image/color"
 	"log"
+	"strings"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
@@ -391,6 +392,36 @@ func (m *vtModel) Cols() int {
 
 func (m *vtModel) Rows() int {
 	return m.emu.Height()
+}
+
+// ScreenText implements ScreenReader over the emulator's own cell grid, which is the
+// authoritative screen — no ANSI is re-parsed and nothing is re-derived from the wire.
+//
+// A nil cell is a cell the emulator has never painted and renders as a space, matching
+// what a real terminal shows there. Trailing blanks are trimmed per row so a mostly-empty
+// screen does not cost cols bytes a row, and the rows are joined rather than concatenated
+// so a caller doing line-oriented work still can.
+func (m *vtModel) ScreenText() string {
+	cols, rows := m.emu.Width(), m.emu.Height()
+	var out strings.Builder
+	out.Grow(cols * rows)
+	var line strings.Builder
+	line.Grow(cols)
+	for y := range rows {
+		line.Reset()
+		for x := range cols {
+			if cell := m.emu.CellAt(x, y); cell != nil {
+				line.WriteString(cell.String())
+			} else {
+				line.WriteByte(' ')
+			}
+		}
+		if y > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(strings.TrimRight(line.String(), " "))
+	}
+	return out.String()
 }
 
 func (m *vtModel) HeaderState() (cols, rows int, alt bool, scrollbackLines int) {

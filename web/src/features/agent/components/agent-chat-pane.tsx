@@ -15,6 +15,7 @@ import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { cn } from '@/lib/utils'
+import { AgentReturnToChatNotice, AgentTerminalWaitBanner } from './agent-terminal-wait-banner'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
 import { AgentChatView, type AgentChatViewHandle } from './agent-chat-view'
 
@@ -181,8 +182,23 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
 
+  // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
+  // trust dialog, a first-run screen, a login — which reaches the daemon through
+  // no hook and would otherwise render as nothing at all?
+  //
+  // A PRIMITIVE selector on purpose. `undefined` means nothing is blocking this
+  // chat; '' means it is blocked and the daemon could not identify by what; a
+  // non-empty string names the prompt. Selecting the object would re-run this on
+  // every reseed that rebuilt it, for a value that had not changed.
+  const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
+  const waiting = waitKind !== undefined
+
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const [presentation, setPresentation] = useState<'chat' | 'terminal'>('chat')
+  // Whether the way back to the chat is being OFFERED. See AgentReturnToChatNotice:
+  // it is what Crowbar shows when it moved somebody to the terminal and then
+  // cannot move them back without overriding a choice they made themselves.
+  const [returnOffered, setReturnOffered] = useState(false)
   const [queuedPromptCount, setQueuedPromptCount] = useState(0)
   const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
   const [promptReplacing, setPromptReplacing] = useState(false)
@@ -615,6 +631,93 @@ export function AgentChatPane({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [isActivePane, isVisible, cycleChord, wsId])
 
+  // ── Escorting the user to the terminal, and back ──────────────────────────
+  //
+  // escortRef records whether CROWBAR put the user in front of the terminal, and
+  // whether it still owns putting them back:
+  //
+  //   'none'     — we did not move them. We will not move them back either: a
+  //                user who walked to the terminal themselves is not lost.
+  //   'sent'     — we moved them and they have not touched the switcher since, so
+  //                the surface they are on is still OUR choice to undo.
+  //   'released' — they are here because of us, but they have since chosen a
+  //                surface themselves. From then on their choice outranks ours:
+  //                we OFFER the way back and never take it.
+  //
+  // A ref rather than state because nothing renders from it — it decides what an
+  // edge does, and a render in between would only be a chance for the two to
+  // disagree.
+  const escortRef = useRef<'none' | 'sent' | 'released'>('none')
+
+  // Is the user actually looking at THIS chat right now?
+  //
+  // Three independent things keep a chat mounted while they are somewhere else,
+  // and all three have to say yes before this pane may navigate on its own:
+  // another pane has focus (isActivePane), another tab is showing in this pane
+  // (isVisible), or another workspace is in view — which is invisible from here,
+  // because a retained workspace stays MOUNTED under display:none + inert. See
+  // the ⌘/ handler above for what happened the last time that third axis was
+  // assumed rather than asked.
+  const userIsWatching = useEffectEvent(
+    () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
+  )
+
+  // What happens on each edge of "your agent is blocked in the terminal".
+  //
+  // An EFFECT EVENT, so it reads the current presentation and visibility without
+  // making them triggers: this must fire when the AGENT's state changes and at no
+  // other time. A pane that re-ran this because it gained focus would take a user
+  // to the terminal for a dialog that had been up, unchanged, for a minute.
+  const onWaitEdge = useEffectEvent((nowWaiting: boolean) => {
+    if (nowWaiting) {
+      // Take them there — but only if they are watching this chat. A surprise
+      // navigation in a pane nobody is looking at is worse than the banner they
+      // will find when they come back, and the banner is up either way.
+      if (presentation === 'terminal' || !userIsWatching()) return
+      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: this is a NAVIGATION on an edge, not a derivation. The surface must outlive the value that moved it: when `waiting` clears we may deliberately NOT switch back, so `presentation` cannot be computed from it.
+      setPresentation('terminal')
+      escortRef.current = 'sent'
+      return
+    }
+    // Cleared: somebody answered the dialog, or the CLI behind it is gone.
+    const escort = escortRef.current
+    escortRef.current = 'none'
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above; the offer belongs to one edge and is dismissible, so it cannot be derived either.
+    setReturnOffered(false)
+    if (escort === 'none') return
+    if (escort === 'sent' && presentation === 'terminal' && userIsWatching()) {
+      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above.
+      setPresentation('chat')
+      return
+    }
+    // We cannot put them back — they navigated away, or they picked this surface
+    // themselves — so we do not try. But we do not leave them here without a word
+    // either: they are in a terminal Crowbar sent them to, for a reason that has
+    // since gone away, and nothing else on screen would ever say so.
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above.
+    if (presentation === 'terminal') setReturnOffered(true)
+  })
+
+  useEffect(() => {
+    onWaitEdge(waiting)
+  }, [waiting])
+
+  // The user picking a surface ends Crowbar's claim on it. Picking Chat ends it
+  // outright — they are already back, so there will be nothing to offer later.
+  const chooseSurface = (next: 'chat' | 'terminal') => {
+    if (escortRef.current !== 'none') escortRef.current = next === 'chat' ? 'none' : 'released'
+    if (next === 'chat') setReturnOffered(false)
+    setPresentation(next)
+  }
+
+  // The banner's own button. They are going because Crowbar asked them to, so it
+  // owes them the way back — but it did not move them, so it must not move them
+  // back unasked either. 'released' is exactly that: offer, never take.
+  const openTerminalFromBanner = () => {
+    escortRef.current = 'released'
+    setPresentation('terminal')
+  }
+
   // Clicking the gutters or the column's padding focuses the terminal.
   //
   // Those regions LOOK like part of the chat — they are the same bg-background, and the
@@ -701,6 +804,7 @@ export function AgentChatPane({
               active={presentation === 'chat'}
               visible={isVisible}
               onOpenTerminal={() => setPresentation('terminal')}
+              terminalWaiting={waiting}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)
@@ -755,6 +859,24 @@ export function AgentChatPane({
                 </Button>
               </div>
             )}
+            {waiting && (
+              // The pane's own overlay slot, the one `reviving` and `idle` use —
+              // this is the same class of statement as those two, about the chat
+              // rather than about anything in the transcript.
+              //
+              // The opaque bg is load-bearing under it: the warning card is a
+              // TINT, and tinting the messages behind it would make both
+              // unreadable.
+              <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
+                <AgentTerminalWaitBanner
+                  kind={waitKind ?? ''}
+                  providerLabel={
+                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
+                  }
+                  onOpenTerminal={openTerminalFromBanner}
+                />
+              </div>
+            )}
           </div>
 
           <div className={cn('h-full', presentation === 'terminal' ? '' : 'hidden')}>
@@ -794,6 +916,13 @@ export function AgentChatPane({
             )}
           </div>
         </div>
+
+        {presentation === 'terminal' && returnOffered && (
+          <AgentReturnToChatNotice
+            onReturn={() => chooseSurface('chat')}
+            onDismiss={() => setReturnOffered(false)}
+          />
+        )}
 
         {presentation === 'terminal' && queuedPromptCount > 0 && (
           <div className="flex items-center justify-between gap-3 border-t py-2 text-muted-foreground text-xs">
@@ -839,7 +968,7 @@ export function AgentChatPane({
               size="xs"
               variant={presentation === 'chat' ? 'secondary' : 'ghost'}
               aria-pressed={presentation === 'chat'}
-              onClick={() => setPresentation('chat')}
+              onClick={() => chooseSurface('chat')}
             >
               <MessageSquareIcon /> Chat
             </Button>
@@ -847,7 +976,7 @@ export function AgentChatPane({
               size="xs"
               variant={presentation === 'terminal' ? 'secondary' : 'ghost'}
               aria-pressed={presentation === 'terminal'}
-              onClick={() => setPresentation('terminal')}
+              onClick={() => chooseSurface('terminal')}
             >
               <TerminalIcon /> Terminal
             </Button>

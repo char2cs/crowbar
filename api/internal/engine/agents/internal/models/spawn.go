@@ -41,6 +41,11 @@ type Capabilities struct {
 	// the catalogue itself to fill it.
 	ModelSelect  bool
 	EffortSelect bool
+	// TerminalPrompts is whether this descriptor declares any blocking-modal
+	// needle. False means a screen read could never match, so a caller skips it
+	// entirely — the provider's chats then behave byte-identically to how they
+	// behaved before terminal-wait detection existed.
+	TerminalPrompts bool
 	// Observes lists the canonical hook kinds this descriptor maps, sorted. It is
 	// what lets the UI say "this agent cannot report tool activity" instead of
 	// showing an empty panel that looks broken.

@@ -38,10 +38,16 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestMain silences logs and enables gin test mode, mirroring every other
-// integration package.
+// TestMain silences logs and enables gin test mode like every other integration
+// package, and additionally polices the user's REAL provider homes across the run.
+//
+// This is the only package that spawns real vendor CLIs, and a vendor CLI records
+// trust by PLACE in a home Crowbar does not own. Every test here builds a throwaway
+// repo, so an un-isolated run appends one permanent, already-dead stanza per test to
+// the user's own ~/.codex/config.toml and ~/.claude.json. newHarness isolates both
+// homes; this fails the run if anything slipped past that.
 func TestMain(m *testing.M) {
-	kit.Main(m)
+	kit.MainGuardingProviderHomes(m)
 }
 
 // harness is a from-scratch daemon wired the same way cmd/crowbar's `serve`
@@ -76,6 +82,12 @@ func newHarness(t *testing.T) *harness {
 
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
+
+	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
+	// throwaway directories, so the trust each one records for this test's temp repo
+	// lands there instead of in the user's real config. Both trust barriers still
+	// work — see kit.IsolateProviderHomes and firstOfProvider.
+	kit.IsolateProviderHomes(t)
 
 	bin := buildCrowbarBinary(t)
 	t.Setenv("CROWBAR_HOOK_BIN", bin)

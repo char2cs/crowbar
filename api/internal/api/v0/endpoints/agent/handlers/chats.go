@@ -137,7 +137,16 @@ func (h *Handlers) chatRuntime(
 		return dto.ChatRuntime{}, err
 	}
 
-	return dto.ChatRuntime{LiveRunner: live, Conversations: convs}, nil
+	// TerminalWait is a plain in-memory read of the detector's standing answer,
+	// and it takes no ctx and returns no error for that reason: it never touches a
+	// repository, a provider or a PTY on the request path. A daemon whose detector
+	// is not running answers the zero verdict, which is the same answer every chat
+	// gave before this existed.
+	return dto.ChatRuntime{
+		LiveRunner:    live,
+		Conversations: convs,
+		TerminalWait:  h.usecase.TerminalWait(chatID),
+	}, nil
 }
 
 // requireChatInWorkspace loads chatID and writes a 404 unless it belongs to the

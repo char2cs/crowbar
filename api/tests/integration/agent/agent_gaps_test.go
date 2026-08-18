@@ -12,10 +12,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -83,9 +79,9 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	// UserPromptSubmit hook writes for the prompt we just drove — so waiting on
 	// blob != "" is not a wait for the turn_stop hook at all: it is satisfied in
 	// well under a second, long before codex's real model reply and Stop hook run.
-	// Wait for a codex-tagged ASSISTANT turn specifically — the actual on-disk
-	// signal that turn_stop -> ledger.Append ran. An earlier version of this test
-	// waited on the blob alone and read the ledger once right after, which raced
+	// Wait for a codex-tagged ASSISTANT turn specifically — the actual recorded
+	// signal that turn_stop -> AppendTurn ran. An earlier version of this test
+	// waited on the blob alone and read the record once right after, which raced
 	// the real Stop hook and would have passed even if turn_stop never appended an
 	// assistant entry.
 	awaitHook(t, h, "codex to append an ASSISTANT ledger turn", func() (bool, bool) {
@@ -94,24 +90,23 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	})
 	turns := readLedgerTurns(t, h, wsID, chatID)
 	require.NotEmpty(t, assistantReplies(turns, "codex"),
-		"codex's turn_stop hook never appended an ASSISTANT .turn ledger entry after a real codex turn; this "+
-			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> ledger.Append never "+
+		"codex's turn_stop hook never appended an ASSISTANT turn after a real codex turn; this "+
+			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> AppendTurn never "+
 			"ran; turns observed: %+v", turns)
 
 	handoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	// The doc comment's second half: the entry is PHYSICALLY ON DISK, a .turn
-	// JSON record tagged with the codex provider id. The wait above already
-	// proved a codex-tagged ASSISTANT turn exists — the actual proof this test
-	// is named for, that codex's turn_stop hook (not its UserPromptSubmit
-	// hook, which separately writes a codex-tagged USER turn carrying our
-	// full prompt) appended a ledger entry. What remains is a content
-	// round-trip check: the driven codeword must land on SOME codex-tagged
-	// turn on disk (that UserPromptSubmit-recorded user turn, which echoes
-	// the prompt verbatim — codex was asked to reply with only
-	// "acknowledged", so its own assistant text never contains the codeword,
+	// The doc comment's second half: the entry is DURABLY RECORDED, tagged with
+	// the codex provider id. The wait above already proved a codex-tagged
+	// ASSISTANT turn exists — the actual proof this test is named for, that
+	// codex's turn_stop hook (not its UserPromptSubmit hook, which separately
+	// writes a codex-tagged USER turn carrying our full prompt) appended a turn.
+	// What remains is a content round-trip check: the driven codeword must land
+	// on SOME codex-tagged turn in the record (that UserPromptSubmit-recorded
+	// user turn, which echoes the prompt verbatim — codex was asked to reply with
+	// only "acknowledged", so its own assistant text never contains the codeword,
 	// and this check is deliberately not scoped to the assistant turn).
 	var codexTagged, carriesCodeword bool
 	for _, tn := range turns {
@@ -124,72 +119,61 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 		}
 	}
 	require.True(t, codexTagged,
-		"a .turn ledger entry must be physically on disk tagged with the codex provider id; turns=%+v", turns)
+		"a turn must be durably recorded tagged with the codex provider id; turns=%+v", turns)
 	require.True(t, carriesCodeword,
-		"the codeword must round-trip onto some codex-tagged ledger turn on disk (the UserPromptSubmit-recorded "+
+		"the codeword must round-trip onto some codex-tagged turn in the record (the UserPromptSubmit-recorded "+
 			"user turn, which echoes the driven prompt verbatim); turns=%+v", turns)
 }
 
-// ledgerTurn mirrors the on-disk JSON shape of one Crowbar ledger entry
-// (internal/app/ledger.Turn): a single conversation turn Crowbar recorded from
-// a vendor CLI's own UserPromptSubmit/Stop hook. Under descriptor-v2 this is
-// Crowbar's OWN hook-derived record — the oracle for "what each side said" —
-// NOT a vendor transcript. v2 reads no vendor transcript and records no
-// transcript path, so the tests below assert on this ledger instead.
-type ledgerTurn struct {
-	Role     string `json:"role"`     // "user" | "assistant"
-	Provider string `json:"provider"` // the provider of the RUNNER that produced the turn
-	Text     string `json:"text"`
-}
-
-// readLedgerTurns reads chatID's ledger directory — the same
-// <workspaceRoot>/chats/<chatID>/ledger path worktreepath.AgentLedgerDir
-// resolves and AssembleHandoff renders from, where workspaceRoot is the parent
-// of the workspace's git worktree (the workspace-root split, spec §3.5) — and
-// returns every recorded turn in chronological order. The worktree path is
-// resolved from the live workspace read model (h.app.Repositories.Workspace)
-// rather than reconstructed from ids, so the ledger dir always tracks wherever
-// the workspace was actually provisioned. AppendTurn names its entries with an
-// %08d sequence prefix, so the .turn filenames sort lexically == chronologically.
-// Returns nil when the ledger has no entries yet. worktreepath is doubly-internal
-// (under app/usecases/internal) and not importable from this test package, so the
-// ledger dir is built inline with the same shape as worktreepath.AgentLedgerDir.
+// readLedgerTurns returns chatID's whole conversation in order: a single turn
+// Crowbar recorded from a vendor CLI's own UserPromptSubmit/Stop hook. Under
+// descriptor-v2 this is Crowbar's OWN hook-derived record — the oracle for "what
+// each side said" — NOT a vendor transcript. v2 reads no vendor transcript and
+// records no transcript path, so the tests below assert on this record instead.
+//
+// It reads through Agent.ReadMessages, the same reader the Chat pane's message
+// endpoint serves from. It used to read the flat-file ledger directory at
+// <workspaceRoot>/chats/<chatID>/ledger; that store was replaced by the
+// agentactivity aggregate and NOTHING writes those files any more, so the old
+// body silently returned nil for every chat — which made every assertion built on
+// it either vacuously empty or a five-minute backstop expiry. The lesson is the
+// same one that broke this package's compile: nothing behind the integration tag
+// is exercised by a default `go test ./...`.
+//
+// wsID is retained because resolving the workspace is a real precondition: a chat
+// whose workspace has gone is a fixture fault, and failing on it here says so
+// rather than surfacing as an empty conversation.
+//
+// Returns nil when the chat has no turns yet.
 func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn {
 	t.Helper()
-	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
-	require.NoError(t, err, "resolve workspace %s for its worktree path", wsID)
-	require.NotEmpty(t, ws.WorktreePath, "workspace %s has no worktree path", wsID)
-	// filepath.Dir(worktree) == workspaceRoot; ledger lives at
-	// <workspaceRoot>/chats/<chatID>/ledger (== worktreepath.AgentLedgerDir).
-	dir := filepath.Join(filepath.Dir(ws.WorktreePath), "chats", chatID, "ledger")
-	des, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	require.NoError(t, err, "read ledger dir %s", dir)
+	ctx := context.Background()
+	_, err := h.app.Repositories.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "resolve workspace %s the chat is expected on", wsID)
 
-	var names []string
-	for _, de := range des {
-		if !de.IsDir() && strings.HasSuffix(de.Name(), ".turn") {
-			names = append(names, de.Name())
-		}
-	}
-	sort.Strings(names)
+	// after=0/before=0 is the newest window; maxMessagePageLimit is 200, and no
+	// fixture in this package drives anything near that many turns.
+	page, err := h.app.Usecases.Agent.ReadMessages(ctx, chatID, 0, 0, 200)
+	require.NoError(t, err, "read chat %s's conversation record", chatID)
 
 	var turns []ledgerTurn
-	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(dir, n))
-		require.NoError(t, err, "read ledger entry %s", n)
-		var tn ledgerTurn
-		require.NoError(t, json.Unmarshal(data, &tn), "unmarshal ledger entry %s", n)
-		turns = append(turns, tn)
+	for _, m := range page.Items {
+		turns = append(turns, ledgerTurn{Role: m.Role, Provider: m.Provider, Text: m.Text})
 	}
 	return turns
 }
 
+// ledgerTurn is the slice of a recorded turn these tests assert on: who spoke,
+// which provider produced it, and what was said.
+type ledgerTurn struct {
+	Role     string // "user" | "assistant"
+	Provider string // the provider of the RUNNER that produced the turn
+	Text     string
+}
+
 // assistantReplies returns, in order, the text of every ASSISTANT turn the
 // given provider produced — the model's OWN Stop-hook output, isolated from
-// echoed user prompts and handoff text. This is the ledger analogue of the old
+// echoed user prompts and handoff text. This is the record analogue of the old
 // per-vendor transcript readers, but it reads Crowbar's own record and can
 // attribute a reply to the exact provider that generated it — which the
 // rendered AssembleHandoff blob (every turn flattened into one string) cannot.

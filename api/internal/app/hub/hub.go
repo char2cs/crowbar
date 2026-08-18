@@ -147,6 +147,28 @@ func (h *Hub) BroadcastAgentChat(
 	}
 }
 
+// BroadcastAgentChatTerminalWait fans the terminal-wait edge out on the same
+// workspace-scoped agent-chat feed as BroadcastAgentChat.
+//
+// Fed by the terminal-wait detector rather than by an aggregate projection, and it
+// has to be: the fact is DERIVED from a live PTY's screen joined against the chat's
+// busy state and its outstanding prompts, so no single aggregate's event log can
+// emit it. Called only when the verdict MOVES — a chat parked for an hour produces
+// one frame, not one per sweep.
+//
+// wait is nil on the clearing edge.
+func (h *Hub) BroadcastAgentChatTerminalWait(
+	chatID string,
+	workspaceID string,
+	wait *dto.AgentTerminalWaitDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatTerminalWait(chatID, workspaceID, wait)
+	}
+}
+
 // BroadcastAgentChatFolder fans a CHAT FOLDER lifecycle event
 // (folder_created/folder_updated/folder_deleted) out on the SAME workspace-scoped
 // agent-chat WebSocket as BroadcastAgentChat. A chat folder is a plain GORM row

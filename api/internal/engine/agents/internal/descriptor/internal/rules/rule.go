@@ -48,6 +48,7 @@ func All() []Rule {
 		selectionApply{},
 		modelCatalog{},
 		effortCatalog{},
+		terminalPrompts{},
 	}
 }
 

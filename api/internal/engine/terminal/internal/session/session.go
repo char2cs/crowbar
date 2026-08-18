@@ -84,10 +84,24 @@ type Session struct {
 	once       sync.Once
 	suspending bool
 	dirty      bool
-	exitCode   int
-	cwd        string
-	shell      string
-	profileID  string
+	// screenGen advances every time the model TAKES something that can change what
+	// is on screen — a PTY chunk, a daemon-authored injection, a resize, a
+	// foreground-app teardown.
+	//
+	// Deliberately NOT s.dirty, which it superficially resembles. dirty is about the
+	// PERSISTED BLOB: DropCachedBlob sets it with nothing on screen having changed,
+	// and Snapshot consumes it, so an observer reading dirty would both see phantom
+	// changes and race the flusher for the one bit. This counter is consumed by
+	// nobody and only ever goes up, so any number of readers can each remember their
+	// own last value.
+	//
+	// It exists so a screen observer can skip the work of rendering and scanning a
+	// screen that has not moved since it last looked — see Session.ScreenText.
+	screenGen uint64
+	exitCode  int
+	cwd       string
+	shell     string
+	profileID string
 	// command marks a session spawned via NewCommand — an explicit-argv agentic vendor
 	// CLI (claude/codex), as opposed to a login shell. It is set exactly once in
 	// NewCommand before any goroutine starts and never mutated again, so reading it
@@ -1194,6 +1208,7 @@ func (s *Session) writeModelLocked(chunk []byte) {
 	}()
 	if s.model != nil {
 		s.model.Write(chunk)
+		s.screenGen++
 	}
 }
 
@@ -1220,6 +1235,11 @@ func (s *Session) mutateModelLocked(fn func()) {
 		}
 	}()
 	fn()
+	// Every caller here reshapes or clears the visible grid (Resize, the
+	// foreground-app teardown), so the screen an observer last read is stale even
+	// though no byte arrived from the PTY. Bumped AFTER fn so a panicking mutation
+	// — which the recover above swallows — does not claim a change it never made.
+	s.screenGen++
 }
 
 // pump reads PTY stdout and delivers each chunk via pumpStep.
@@ -1373,6 +1393,34 @@ func (s *Session) Snapshot() (blob []byte, changed bool) {
 	s.lastBlob = blob
 	s.dirty = false
 	return blob, true
+}
+
+// ScreenText renders the session's VISIBLE screen as plain text, and reports whether
+// it has moved since generation `since`.
+//
+// The (value, changed) shape mirrors Snapshot's, and for the same reason: the caller
+// polls, most polls find nothing new, and the cheap answer must not cost a render.
+// An unchanged screen returns no text at all — the caller already has it — so a chat
+// parked on a modal costs one integer compare per poll no matter how long it sits
+// there.
+//
+// A placeholder (suspended, model == nil) has no screen: it reports gen 0, unchanged.
+// So does a model whose backend does not implement ScreenReader, which is the same
+// guarded-optional-interface treatment ThemeAware and ModelHealth get.
+func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return "", 0, false
+	}
+	if s.screenGen == since {
+		return "", s.screenGen, false
+	}
+	reader, ok := s.model.(model.ScreenReader)
+	if !ok {
+		return "", s.screenGen, false
+	}
+	return reader.ScreenText(), s.screenGen, true
 }
 
 // header builds the mandatory CRWB1 size line, sourced entirely from the model's

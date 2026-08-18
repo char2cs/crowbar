@@ -98,6 +98,10 @@ func TestHooks_UsecaseError(
 type fakeAgentUsecase struct {
 	ingestCalls []ingestCall
 	ingestErr   error
+	// terminalWait is the standing "is this chat's CLI parked on a modal we
+	// cannot answer" verdict. Zero — not waiting — for every test that does not
+	// set it, which is the state a chat is in unless something says otherwise.
+	terminalWait domain.AgentTerminalWait
 
 	switchCalls    []switchCall
 	switchNewSegID string
@@ -403,6 +407,10 @@ func (f *fakeAgentUsecase) ReadPendingChoices(
 ) ([]domain.ActivityChoice, error) {
 	f.pendingCalls = append(f.pendingCalls, chatID)
 	return f.pending, f.pendingErr
+}
+
+func (f *fakeAgentUsecase) TerminalWait(string) domain.AgentTerminalWait {
+	return f.terminalWait
 }
 
 func (f *fakeAgentUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string {

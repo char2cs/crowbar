@@ -22,6 +22,10 @@ type (
 	ChoicePrompt   = models.ChoicePrompt
 	ChoiceOption   = models.ChoiceOption
 
+	// TerminalPrompt is a CLI caught blocking on a modal that reaches Crowbar
+	// through no hook, and which Crowbar therefore cannot answer.
+	TerminalPrompt = models.TerminalPrompt
+
 	// AnswerCapability and AnswerDecision are the write side of a prompt: what a
 	// provider can be told, and what a human decided.
 	AnswerCapability = models.AnswerCapability
@@ -95,6 +99,12 @@ const (
 	ChoiceOptionAllow      = models.ChoiceOptionAllow
 	ChoiceOptionDeny       = models.ChoiceOptionDeny
 	ChoiceOptionSuggestion = models.ChoiceOptionSuggestion
+)
+
+// Terminal-prompt kinds — Crowbar's own name for a blocking modal it recognises
+// specifically. A match carrying none is reported generically; see TerminalPrompt.
+const (
+	TerminalPromptTrust = spec.TerminalPromptTrust
 )
 
 // Prompt-delivery strategies.

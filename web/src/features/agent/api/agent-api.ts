@@ -76,7 +76,34 @@ export interface AgentChat {
    */
   model?: string
   effort?: string
+  /**
+   * Set exactly while this chat's CLI is blocked on a prompt Crowbar CANNOT
+   * answer — a workspace-trust dialog, a first-run setup screen, a login — that
+   * reaches the daemon through no hook. Absent otherwise, which is the common
+   * case and the permanent case for a provider that declares no such prompts.
+   *
+   * It is the COMPLEMENT of AgentChoice. A choice is a question with buttons the
+   * chat can press; this is a signpost, and the only correct response to it is to
+   * go to the terminal. Detected server-side against the daemon's own screen
+   * model — never scraped in the browser.
+   */
+  terminalWait?: AgentTerminalWait
 }
+
+/** What a chat's CLI is blocked on that Crowbar has no channel to answer.
+ *
+ *  `kind` is Crowbar's own name for the prompt, and it is '' whenever the daemon
+ *  recognised only that SOMETHING is up. A client with no kind says exactly that
+ *  and does not guess — and a client seeing a kind it does not know does the
+ *  same, so a daemon that learns a new kind never makes an older client say
+ *  something wrong. */
+export interface AgentTerminalWait {
+  kind: string
+}
+
+/** Crowbar's names for the prompts it recognises specifically. Anything else —
+ *  including a kind minted by a newer daemon — falls back to the generic wording. */
+export const TERMINAL_WAIT_TRUST = 'workspace_trust'
 
 /**
  * A grouping row in the Chats tree.
@@ -246,6 +273,11 @@ function mapChat(c: AgentChat): AgentChat {
     // an omitted field and a cleared one must not be two different things.
     model: c.model ?? '',
     effort: c.effort ?? '',
+    // NOT grounded to a value: absent IS the answer here (nothing is blocking
+    // this chat), so it stays undefined rather than becoming a falsy object that
+    // every reader would then have to interrogate. `kind` inside it IS grounded,
+    // because an identified prompt and an unidentified one are both real answers.
+    terminalWait: c.terminalWait ? { kind: c.terminalWait.kind ?? '' } : undefined,
   }
 }
 

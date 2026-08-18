@@ -1,0 +1,158 @@
+package termwait_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
+// Hand-written mocks, one per port. They record what was asked as well as what
+// they answered, because half of what this package promises is about what it does
+// NOT do: a gate that short-circuits has to be observable as a call that never
+// happened.
+
+var errBoom = errors.New("read failed")
+
+type fakeRunners struct {
+	live []domain.AgentRunner
+	err  error
+	// calls counts sweeps, so a test can prove the loop actually ran.
+	calls int
+}
+
+func (f *fakeRunners) AllLive(context.Context) ([]domain.AgentRunner, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.live, nil
+}
+
+type fakeChats struct {
+	byID map[string]domain.AgentChat
+	err  error
+}
+
+func (f *fakeChats) GetChat(_ context.Context, id string) (domain.AgentChat, error) {
+	if f.err != nil {
+		return domain.AgentChat{}, f.err
+	}
+	return f.byID[id], nil
+}
+
+type fakeChoices struct {
+	pending map[string][]domain.ActivityChoice
+	err     error
+	asked   int
+}
+
+func (f *fakeChoices) PendingChoices(
+	_ context.Context,
+	chatID string,
+) ([]domain.ActivityChoice, error) {
+	f.asked++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.pending[chatID], nil
+}
+
+// fakeScreens models the engine's (text, gen, changed) contract faithfully,
+// including the "unchanged screens return no text" half — which is the whole
+// reason the detector can poll without cost, so a mock that always returned text
+// would hide the bug this design exists to prevent.
+type fakeScreens struct {
+	mu sync.Mutex
+	// text and gen are the current screen and its generation, per session id.
+	text map[string]string
+	gen  map[string]uint64
+	// renders counts reads that actually produced text — the expensive half.
+	renders int
+	// absent names sessions the engine cannot answer for at all.
+	absent map[string]bool
+}
+
+func newScreens() *fakeScreens {
+	return &fakeScreens{
+		text:   map[string]string{},
+		gen:    map[string]uint64{},
+		absent: map[string]bool{},
+	}
+}
+
+func (f *fakeScreens) set(sessionID, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.text[sessionID] = text
+	f.gen[sessionID]++
+}
+
+func (f *fakeScreens) Screen(sessionID string, since uint64) (string, uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.absent[sessionID] {
+		return "", 0, false
+	}
+	gen := f.gen[sessionID]
+	if gen == 0 || gen == since {
+		return "", gen, false
+	}
+	f.renders++
+	return f.text[sessionID], gen, true
+}
+
+func (f *fakeScreens) renderCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.renders
+}
+
+// fakePrompts stands in for the descriptor lookup: a provider's declared needles,
+// matched against a screen. Keyed by provider so "a provider that declares
+// nothing" is expressible as an absent key.
+type fakePrompts struct {
+	needles map[string][]engineagents.TerminalPrompt
+	asked   int
+}
+
+func (f *fakePrompts) MatchTerminalPrompt(
+	_ context.Context,
+	providerID string,
+	screen string,
+) (engineagents.TerminalPrompt, bool) {
+	f.asked++
+	for _, p := range f.needles[providerID] {
+		if p.Needle != "" && strings.Contains(screen, p.Needle) {
+			return p, true
+		}
+	}
+	return engineagents.TerminalPrompt{}, false
+}
+
+// recorder collects published verdicts in order.
+type recorder struct {
+	mu   sync.Mutex
+	sent []published
+}
+
+type published struct {
+	chatID      string
+	workspaceID string
+	wait        domain.AgentTerminalWait
+}
+
+func (r *recorder) publish(chatID, workspaceID string, wait domain.AgentTerminalWait) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent = append(r.sent, published{chatID, workspaceID, wait})
+}
+
+func (r *recorder) all() []published {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]published(nil), r.sent...)
+}

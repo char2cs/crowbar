@@ -47,6 +47,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
@@ -172,6 +173,11 @@ type Usecase struct {
 	// installed is the install probe (defaults to Agent.Installed); injectable so
 	// provider-resolution tests never depend on the host having claude/codex.
 	installed func(a engineagents.Agent) bool
+	// termWait detects the state no hook reports: a CLI parked on a modal Crowbar
+	// cannot answer, which otherwise renders as an empty pane over a live process.
+	// NIL when the terminal seam cannot render a screen, in which case every chat
+	// reports the zero verdict — see newTerminalWaitDetector.
+	termWait termwait.Detector
 	// spawns serialises the USER-INITIATED spawn paths per chat (SpawnChat,
 	// SwitchProvider, ResumeChat). See chatGate: it is the only thing that can stop two
 	// concurrent switches putting two CLIs on one chat, and it is NEVER taken on the
@@ -283,6 +289,11 @@ func New(
 	// its CLI, whatever the user does in Settings afterwards. See
 	// agenttools.Deps.ToolAccess.
 	u.tools.ToolAccess = u.providerMCPEnabled
+	// Built LAST, and from u rather than from the arguments: two of its ports are
+	// the usecase's own seams (the descriptor lookup, which needs u.home and
+	// u.agents together). It only observes — nothing runs until
+	// StartTerminalWaitSweep is called.
+	u.termWait = newTerminalWaitDetector(u)
 	return u
 }
 

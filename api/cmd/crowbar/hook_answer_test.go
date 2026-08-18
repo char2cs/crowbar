@@ -172,6 +172,33 @@ func TestRunHook_APromptResolvedElsewherePrintsNothing(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
+// An EMPTY body on a 2xx is "no decision", not a malformed one, and it must not
+// surface as an error.
+//
+// A handler that returns without writing produces exactly this: gin sends 200
+// with zero bytes. AwaitHookAnswer had such a bare return on its cancellation
+// branch, so under parallel load the relay intermittently failed with
+// `unexpected end of JSON input` instead of falling through cleanly. The outcome
+// for the human was the same either way — print nothing, let the CLI's own dialog
+// through — which is precisely why it went unnoticed as a flake rather than being
+// read as the defect it was.
+//
+// Distinct from TestRunHook_APromptResolvedElsewherePrintsNothing above, which
+// sends WELL-FORMED JSON carrying an empty stdout. This one sends no bytes at all.
+func TestRegression_AnEmptyAwaitBodyIsNoDecisionRatherThanAnError(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", t.TempDir())
+	daemon, host := newFakeDaemon(t)
+	daemon.mu.Lock()
+	daemon.ack = awaitAck(30_000)
+	daemon.answer = "" // 200 OK, zero bytes
+	daemon.mu.Unlock()
+
+	var out bytes.Buffer
+	require.NoError(t, runHook(relay(host, &out)),
+		"an empty 2xx body must be treated as no decision, not as a decode failure")
+	assert.Empty(t, out.String(), "no decision means nothing is printed")
+}
+
 // SIGTERM is the ONLY notice a terminal-side DECLINE gives (measured against
 // claude 2.1.234: saying no at the PTY fires no hook at all). The relay must
 // report it and exit — bounded, printing nothing, never hanging.

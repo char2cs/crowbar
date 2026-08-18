@@ -25,6 +25,29 @@ type ChatRuntime struct {
 	// element is its last conversation). Empty on a chat no runner has ever spoken
 	// into.
 	Conversations []domain.ChatConversation
+
+	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
+	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
+	// value — not waiting — is both the common case and the answer for every
+	// provider that declares no such prompts.
+	TerminalWait domain.AgentTerminalWait
+}
+
+// AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
+// channel to answer, so the only way past it is the terminal.
+//
+// It is the COMPLEMENT of AgentChoiceDTO. A choice is a prompt that reached
+// Crowbar over a hook and can be answered in the chat; this is one that did not
+// and cannot, which used to render as nothing at all — no spinner, no message, no
+// error, a pane that looked dead over a live process.
+//
+// Kind is Crowbar's own name for the prompt, and it is OMITTED whenever the daemon
+// recognised only that something is up. A client with no kind says exactly that
+// ("waiting for input in the terminal") rather than guessing at specifics, and a
+// client seeing a kind it does not know does the same — so a daemon that learns a
+// new kind never makes an older client say something wrong.
+type AgentTerminalWaitDTO struct {
+	Kind string `json:"kind,omitempty"`
 }
 
 // AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
@@ -62,6 +85,18 @@ type AgentChatDTO struct {
 	// snapshot as well as lifecycle frames so reconnect can reseed truth without
 	// guessing from the last event kind.
 	Working bool `json:"working"`
+
+	// TerminalWait is present exactly while this chat's CLI is blocked on a
+	// terminal-only prompt, and OMITTED otherwise — the common case, and the
+	// permanent case for every provider declaring no such prompts, so the wire
+	// shape for an unaffected chat is byte-identical to what it was before this
+	// existed.
+	//
+	// It rides the snapshot as well as the lifecycle frame for the same reason
+	// Working does: a client that connects while a chat is ALREADY parked missed
+	// the frame that said so, and would otherwise show a dead pane until the state
+	// happened to change.
+	TerminalWait *AgentTerminalWaitDTO `json:"terminalWait,omitempty"`
 
 	// ParentID is the row this chat hangs off in the Chats tree — another chat, a
 	// folder, or "" at the panel root — and Order is its dense index within that
@@ -114,7 +149,20 @@ func AgentChatDTOFrom(
 		out.LiveRunnerID = rt.LiveRunner.ID
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
 	}
+	out.TerminalWait = TerminalWaitDTOFrom(rt.TerminalWait)
 	return out
+}
+
+// TerminalWaitDTOFrom maps the derived verdict onto the wire, collapsing "not
+// waiting" to nil so the field is absent rather than present-and-false. Absence is
+// the honest encoding: a chat is not carrying a prompt it does not have.
+func TerminalWaitDTOFrom(
+	w domain.AgentTerminalWait,
+) *AgentTerminalWaitDTO {
+	if !w.Waiting {
+		return nil
+	}
+	return &AgentTerminalWaitDTO{Kind: w.Kind}
 }
 
 // AgentMessageDTO is one complete hook-derived message in a chat. Sequence is
@@ -519,4 +567,22 @@ type AgentChatEvent struct {
 	// matters, and a second copy of the fold in TypeScript is a second thing to get
 	// wrong. The aggregate folds it once; this carries the answer.
 	Working bool `json:"working"`
+
+	// TerminalWait rides the `terminal_wait` kind and nothing else. It is present
+	// when the chat's CLI has become blocked on a prompt Crowbar cannot answer, and
+	// NIL on the frame that says the block has cleared — so the frame carries the
+	// whole answer either way and a client needs no round trip to learn which.
+	//
+	// Carried on the frame rather than refetched for the same reason Working is:
+	// the user is looking at a pane that explains nothing, and a banner that
+	// arrives a round trip later is a banner that arrives after they gave up.
+	TerminalWait *AgentTerminalWaitDTO `json:"terminalWait,omitempty"`
 }
+
+// AgentChatKindTerminalWait is the lifecycle kind that announces a change in
+// whether a chat's CLI is blocked behind a terminal-only prompt.
+//
+// It is a CHAT kind — it names a conversation, carries no runner id, and is
+// emitted only when the verdict MOVES, so a chat parked for an hour produces
+// exactly one frame.
+const AgentChatKindTerminalWait = "terminal_wait"

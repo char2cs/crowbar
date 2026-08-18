@@ -142,14 +142,22 @@ config_injection:
   # because their key spelling contains dots (`hide_gpt-5.1-...`), which a TOML
   # dotted-key override would parse as nested tables rather than as the key.
   #
-  # THE TABLE PATH IS UNCONFIRMED, and this is deliberately a no-risk bet. The
-  # field names are read out of the binary; the `notice.` prefix is inferred from
-  # the struct name, because no dotted form of these keys appears anywhere in the
-  # binary and `--strict-config` validates config.toml ONLY — measured, it accepts
-  # `-c notice.total_nonsense_key=true` with no error and no behavioural
-  # difference. An unknown `-c` key is therefore INERT: if this prefix is wrong
-  # the modals keep appearing exactly as they do today, and nothing else changes.
-  # Confirm against a live session and correct the prefix if needed.
+  # The `notice.` prefix IS the table path. Confirmed 2026-08-18 by reading the
+  # top-level config struct's own field list out of the 0.146.0 binary, where
+  # `notice` sits among the other top-level keys:
+  #
+  #   … project_root_markers  check_for_update_on_startup  disable_paste_burst
+  #     analytics  feedback  apps  desktop  otel  windows  notice  experimental_…
+  #
+  # `check_for_update_on_startup` in that same list is the key set above, which is
+  # what keeps codex's UpdatePromptScreen (a full blocking TUI screen, reached via
+  # codex_tui::update_prompt::run_update_prompt_if_needed) from ever appearing on a
+  # Crowbar spawn.
+  #
+  # Note `--strict-config` cannot be used to check any of this: it validates
+  # config.toml ONLY, and measurably accepts `-c notice.total_nonsense_key=true`
+  # with no error. An unknown `-c` key is inert, so a wrong key here could only
+  # ever leave a modal showing as it does today — it can break nothing.
   - pass_arg: { arg: "-c", value: 'notice.hide_rate_limit_model_nudge=true' }
   - pass_arg: { arg: "-c", value: 'notice.hide_full_access_warning=true' }
   - pass_arg: { arg: "-c", value: 'notice.hide_world_writable_warning=true' }
@@ -434,3 +442,22 @@ context_inject:
 # a wall of text into the transcript for the user to scroll past, every single switch.
 resume_context_inject:
   - pass_arg: { positional: "{context_pointer}" }
+# Blocking modals no hook reports. See claude.yaml's terminal_prompts for the full
+# rationale; the short version is that codex, like claude, asks about trust before it
+# reports anything, and a chat behind that dialog otherwise renders as a dead pane.
+#
+# Captured live from codex 0.139.0 and recorded in
+# tests/integration/agent/barriers_test.go, where the suite blocks on this exact line
+# to know the dialog has painted:
+#
+#     › 1. Yes, continue
+#       2. No, exit
+#       Press enter to continue
+#
+# UNKINDED, unlike claude's pair, and that is the honest reading rather than an
+# oversight: NEITHER line on codex's dialog says anything about trust. "Yes, continue"
+# and "Press enter to continue" are the same words codex would use for any
+# confirmation, so all this needle can truthfully report is THAT the CLI is blocked.
+# A specific needle gets a kind when one has been captured — never before.
+terminal_prompts:
+  - needle: "Press enter to continue"

@@ -28,6 +28,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/termprompt"
 )
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
@@ -159,6 +160,16 @@ type Agent interface {
 	// polled rather than one that pushes. Returns ErrTelemetryUnsupported when no
 	// probe is declared, which is the case for both agents shipped today.
 	ProbeTelemetry(ctx context.Context, opts ProbeOptions, acquire Acquire, now time.Time) (Telemetry, error)
+
+	// MatchTerminalPrompt reports whether this CLI's visible screen is one it
+	// paints while BLOCKED on a modal Crowbar cannot answer — the workspace-trust
+	// dialog and its relatives, which reach the daemon through no hook.
+	//
+	// screen is plain text, already rendered from the daemon's own VT model:
+	// detection is server-side against the screen Crowbar itself maintains, not
+	// scraped out of a browser. A provider declaring no prompts always answers
+	// false, and its chats behave exactly as they did before this existed.
+	MatchTerminalPrompt(screen string) (TerminalPrompt, bool)
 }
 
 type service struct {
@@ -234,7 +245,11 @@ func (a *agent) Capabilities() Capabilities {
 		Telemetry:    a.spec.Telemetry != nil,
 		ModelSelect:  a.spec.Model != nil,
 		EffortSelect: a.spec.Effort != nil,
-		Observes:     hooks.Declared(a.spec),
+		// TerminalPrompts is a capability the UI never renders a control for:
+		// it says only that a screen read can pay off, so a caller can skip the
+		// read for a provider that could never match.
+		TerminalPrompts: termprompt.Declared(a.spec),
+		Observes:        hooks.Declared(a.spec),
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
 		caps.PromptSubmit = true
@@ -322,6 +337,10 @@ func (a *agent) SlashCatalog(
 	acquire Acquire,
 ) (SlashCatalog, error) {
 	return catalog.Probe(ctx, a.spec, opts, acquire)
+}
+
+func (a *agent) MatchTerminalPrompt(screen string) (TerminalPrompt, bool) {
+	return termprompt.Match(a.spec, screen)
 }
 
 func (a *agent) ProbeTelemetry(

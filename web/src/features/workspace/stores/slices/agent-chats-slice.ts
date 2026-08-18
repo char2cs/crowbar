@@ -1,6 +1,11 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
+import type {
+  AgentChat,
+  AgentChatFolder,
+  AgentProvider,
+  AgentTerminalWait,
+} from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
@@ -67,6 +72,25 @@ export interface AgentChatsState {
    * just displays it.
    */
   working: Record<string, boolean>
+  /**
+   * Which chats have a CLI blocked behind a prompt Crowbar CANNOT answer, keyed
+   * by chat id. PRESENCE is the verdict: an absent entry means nothing is
+   * blocking that chat, and an entry with `kind: ''` means the daemon knows only
+   * that something is.
+   *
+   * A map rather than a field on the chat row, and for the same reason `working`
+   * is one: it arrives on its own lifecycle frame and has to be writable without
+   * a round trip, so it must not require replacing a chat object nobody else
+   * asked to change. It also keeps the read a PRIMITIVE — a consumer selects
+   * `terminalWaits[id]?.kind`, which is a string or undefined, so a narrow
+   * selector cannot churn on object identity.
+   *
+   * Never derived here. The gates that decide it (a live runner, an idle chat, no
+   * prompt the chat could answer, and a screen matching a declared needle) are
+   * folded once in the daemon against its own terminal model; a second copy of
+   * that rule in TypeScript would be a second thing to get wrong.
+   */
+  terminalWaits: Record<string, AgentTerminalWait>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -97,6 +121,14 @@ export interface AgentChatsSlice {
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
   setAgentChatWorking: (chatId: string, working: boolean) => void
+  /**
+   * Write — or clear, with null — the daemon's answer to "is this chat's CLI
+   * blocked on something only the terminal can clear?".
+   *
+   * Both edges travel, because the CLEARING edge is what takes the banner down
+   * when somebody answers the dialog at the terminal or the CLI dies behind it.
+   */
+  setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -136,6 +168,7 @@ export interface AgentChatsSlice {
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
+  terminalWaits: {},
   turnRevision: {},
   order: [],
   activeChatId: null,
@@ -218,6 +251,27 @@ export const createAgentChatsSlice: StateCreator<
           if (chat.working === true) s.agentChats.working[chat.id] = true
         }
       }
+      // The blocked-in-the-terminal map, reconciled on exactly the same terms as
+      // `working` above and for the same reason: both are server-folded facts the
+      // list response carries, and both have a lifecycle frame that can be lost
+      // while the socket is down. A live `created` reseed (keepWorking) leaves the
+      // surviving answers alone — no frame was missed — and only seeds chats it
+      // has never seen; an authoritative reconnect replaces the lot.
+      if (opts?.keepWorking) {
+        for (const id of Object.keys(s.agentChats.terminalWaits)) {
+          if (!present.has(id)) delete s.agentChats.terminalWaits[id]
+        }
+        for (const chat of chats) {
+          if (s.agentChats.terminalWaits[chat.id] === undefined && chat.terminalWait) {
+            s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+          }
+        }
+      } else {
+        s.agentChats.terminalWaits = {}
+        for (const chat of chats) {
+          if (chat.terminalWait) s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+        }
+      }
       for (const id of Object.keys(s.agentChats.turnRevision)) {
         if (!present.has(id)) delete s.agentChats.turnRevision[id]
       }
@@ -261,6 +315,18 @@ export const createAgentChatsSlice: StateCreator<
       if (idx === -1) s.agentChats.chats.push(chat)
       else s.agentChats.chats[idx] = chat
 
+      // terminalWaits is deliberately NOT written here, exactly as `working` is
+      // not: both are frame-driven maps, and a single-chat REFETCH is a snapshot
+      // taken at the moment it was issued, not at the moment it lands.
+      //
+      // The race is real. A spawn emits `started` (which refetches) and the CLI
+      // then puts up its trust dialog a second later, which emits `terminal_wait`.
+      // If the older refetch resolved last, its "nothing is blocking this chat"
+      // would overwrite the newer truth — and since the daemon publishes only on a
+      // CHANGE, nothing would ever correct it. Repair comes from the authoritative
+      // reseed instead (initial load and reconnect), which is what repairs a lost
+      // `turn_stopped` too.
+
       if (!chat.liveRunnerId) return
       for (const c of s.agentChats.chats) {
         if (c.id !== chat.id && c.liveRunnerId === chat.liveRunnerId) {
@@ -274,6 +340,7 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
+      delete s.agentChats.terminalWaits[chatId]
       delete s.agentChats.turnRevision[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
@@ -285,6 +352,12 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       s.agentChats.working[chatId] = working
       s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
+    }),
+
+  setAgentChatTerminalWait: (chatId, wait) =>
+    set((s) => {
+      if (wait) s.agentChats.terminalWaits[chatId] = wait
+      else delete s.agentChats.terminalWaits[chatId]
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

@@ -319,6 +319,23 @@ func (c *Container) PushAgentChat(
 	})
 }
 
+// PushAgentChatTerminalWait implements hub.Subscriber. It fans the terminal-wait
+// edge out on the SAME workspace-scoped agent-chat WebSocket as PushAgentChat: it
+// is a fact about a conversation, so it belongs on the conversation feed rather
+// than on a second socket that would have to be kept in order with it.
+func (c *Container) PushAgentChatTerminalWait(
+	chatID string,
+	workspaceID string,
+	wait *dto.AgentTerminalWaitDTO,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:       chatID,
+		WorkspaceID:  workspaceID,
+		Kind:         dto.AgentChatKindTerminalWait,
+		TerminalWait: wait,
+	})
+}
+
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle
 // event (folder_created/folder_updated/folder_deleted) out on the SAME
 // workspace-scoped agent-chat WebSocket as PushAgentChat — one feed for "what

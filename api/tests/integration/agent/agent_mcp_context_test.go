@@ -19,7 +19,7 @@
 //     caller's own workspace, and until now nothing had confirmed a model can
 //     actually walk that path: discover a sibling workspace, find the chat on it,
 //     and read that chat's log. Their fixture therefore has to be a real hierarchy
-//     with a real chat and a real ledger in it, not a single workspace.
+//     with a real chat and a real conversation record in it, not a single workspace.
 //
 // Both assert on the MCP TRAFFIC, not merely on the end state, and both do it at
 // the level of the ARGUMENTS. Task 9's finding is why: claude once reached the
@@ -41,8 +41,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -210,7 +211,7 @@ func reviewFileContent(
 //
 // The marker is deliberately a string that exists NOWHERE else — not in the repo,
 // not in the prompt, not in any other chat — so a get_chat_log reply carrying it
-// can only have come from that chat's ledger. Asserting on the marker in the tool's
+// can only have come from that chat's own record. Asserting on the marker in the tool's
 // REPLY rather than in the model's prose is the point: the reply is what the daemon
 // actually served, where the model's sentence is a paraphrase it might make from
 // anything it has seen.
@@ -219,9 +220,9 @@ const (
 	siblingLogMarker = "RETRY-CEILING-7731"
 )
 
-// siblingLogTurns is the conversation seeded into the sibling chat's ledger. It is
-// written through the ledger package itself rather than by hand-writing files, so
-// the fixture cannot drift from the format the reader expects.
+// siblingLogTurns is the conversation seeded into the sibling chat's activity
+// record. It goes in through the repository command the production turn hooks send,
+// so the fixture cannot drift from the shape the reader expects.
 var siblingLogTurns = []struct {
 	role     string
 	provider string
@@ -242,7 +243,7 @@ var siblingLogTurns = []struct {
 
 // contextFixture builds the hierarchy these two tools exist for: the workspace the
 // agent runs in, a CHILD workspace under it, and a chat on that child with a real
-// ledger.
+// conversation on it.
 //
 // The child is what makes the test meaningful. A caller's visible set is itself
 // plus its descendants, so a chat on a SIBLING of the caller would be unreachable
@@ -298,14 +299,23 @@ func contextFixture(
 	return caller.ID, child.ID, chatID
 }
 
-// seedSiblingChat creates a titled chat on ws and writes a conversation into its
-// ledger, then reads it back THROUGH THE PRODUCTION READER — the same
+// seedSiblingChat creates a titled chat on ws and writes a conversation into the
+// activity record, then reads it back THROUGH THE PRODUCTION READER — the same
 // Agent.ReadChatLog that get_chat_log serves from.
 //
-// The read-back is not belt and braces. The ledger lives at a path derived from the
-// workspace's worktree, and a fixture that wrote to the wrong directory would leave
-// the agent a chat with an empty log: the test would then report a model that
-// "never read the sibling's log" when in truth there was nothing to read.
+// The turns go in through agentactivity.AppendTurn, which is the SAME command the
+// usecase's own recordTurn sends when a provider's turn hook lands, so the fixture
+// cannot drift from the shape the reader expects. It is the write side only: what
+// the model has to cross to reach these turns is the whole MCP path — resolve the
+// caller's credentials, walk to the child workspace, name that chat's id — and none
+// of it is short-circuited by seeding at the repository.
+//
+// The read-back is not belt and braces. The record is keyed by chat id in an
+// aggregate of its own, and a fixture that seeded under the wrong id would leave the
+// agent a chat with an empty log: the test would then report a model that "never
+// read the sibling's log" when in truth there was nothing to read. It asserts the
+// marker too, because the marker — not the turn count — is the needle the traffic
+// assertion looks for in get_chat_log's REPLY.
 func seedSiblingChat(
 	t *testing.T,
 	h *harness,
@@ -323,22 +333,40 @@ func seedSiblingChat(
 		h.app.Usecases.Agent.RenameChat(ctx, chatID, siblingChatTitle, "user"),
 		"title the sibling chat")
 
-	// <workspaceRoot>/chats/<chatID>/ledger, the same shape readLedgerTurns
-	// reconstructs and worktreepath.AgentLedgerDir resolves (that package is
-	// doubly-internal and not importable here).
-	led, err := ledger.Open(filepath.Join(filepath.Dir(ws.WorktreePath), "chats", chatID, "ledger"))
-	require.NoError(t, err, "open the sibling chat's ledger")
 	at := time.Now().UTC().Add(-time.Hour)
 	for i, turn := range siblingLogTurns {
-		_, err := led.AppendTurn(turn.role, turn.provider, at.Add(time.Duration(i)*time.Minute), turn.text)
-		require.NoError(t, err, "append the sibling chat's turn %d", i)
+		require.NoError(t, h.app.Repositories.AgentActivity.AppendTurn(ctx, agentactivity.TurnInput{
+			ChatID:     chatID,
+			TurnID:     uuid.NewString(),
+			Role:       turn.role,
+			ProviderID: turn.provider,
+			Text:       turn.text,
+			Now:        at.Add(time.Duration(i) * time.Minute),
+		}), "append the sibling chat's turn %d", i)
 	}
+	// The turn projection is an async send; the barrier is the repository's own, so
+	// the read-back below waits on a real signal rather than on a clock.
+	h.app.Repositories.WaitQuiescent()
 
 	turns, err := h.app.Usecases.Agent.ReadChatLog(ctx, chatID)
 	require.NoError(t, err, "read the seeded log back through the tool's own reader")
 	require.Len(t, turns, len(siblingLogTurns),
-		"the seeded ledger must be readable through the path get_chat_log serves from")
+		"the seeded record must be readable through the path get_chat_log serves from")
+	require.Contains(t, renderChatLog(turns), siblingLogMarker,
+		"the marker the traffic assertion hunts for must be in what get_chat_log's own reader serves")
 	return chatID
+}
+
+// renderChatLog flattens what ReadChatLog returns into one string, which is all the
+// marker check above needs.
+func renderChatLog(
+	turns []agenttools.ChatTurn,
+) string {
+	out := make([]string, 0, len(turns))
+	for _, turn := range turns {
+		out = append(out, turn.Speaker+": "+turn.Body)
+	}
+	return strings.Join(out, "\n")
 }
 
 // contextPrompt names neither tool and neither id. Finding the workspace, finding
@@ -388,7 +416,7 @@ func TestMCP_ClaudeReadsASiblingChatLogAcrossWorkspaces(t *testing.T) {
 		"get_chat_log was called, but never for the sibling chat %s on the child workspace — the calls "+
 			"were: %s", siblingChatID, callSummary(reads))
 	require.True(t, anyReplyContains(reads, siblingLogMarker),
-		"no get_chat_log reply carried the marker the sibling's ledger holds, so the log the daemon "+
+		"no get_chat_log reply carried the marker the sibling's record holds, so the log the daemon "+
 			"served was not that chat's — the calls were: %s", callSummary(reads))
 
 	t.Logf("claude's own answer: %s", lastAssistantReply(t, h, callerWsID, chatID, "claude"))
@@ -433,7 +461,7 @@ func callSummary(
 // facts, where the model's prose is a paraphrase of them.
 //
 // It is routinely EMPTY here, and that is not a fault. The wait above is satisfied
-// by the tool call, which happens mid-turn; the ledger entry is written by the
+// by the tool call, which happens mid-turn; the conversation turn is written by the
 // turn_stop hook that lands after it. Waiting for the prose would mean waiting out
 // the rest of the turn for something no assertion reads.
 func lastAssistantReply(

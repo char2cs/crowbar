@@ -302,6 +302,28 @@ type Engine interface {
 		sessionID string,
 	) bool
 
+	// Screen renders a session's VISIBLE screen as plain text, and reports whether
+	// it has moved since generation `since` — pass 0 to always get the text.
+	//
+	// It is the daemon's own read of what a hosted program is showing, which is
+	// what makes screen-derived facts server-side facts: an agent CLI blocked on a
+	// modal is detected against this model, not scraped out of a browser that may
+	// not even have the chat open.
+	//
+	// It is a PULL, and deliberately not an Attach. Attach is a subscription with
+	// side effects — it restores a suspended placeholder, flushes pending emits and
+	// re-primes the differ, and makes a detached session active for lifecycle
+	// purposes — none of which an observer should cause merely by looking. This
+	// takes s.mu, reads cells, and leaves the session exactly as it found it.
+	//
+	// A session that does not exist, is a suspended placeholder, or whose model
+	// backend cannot render text reports ("", 0, false) — indistinguishable from
+	// "nothing to see", which is what every caller does with it anyway.
+	Screen(
+		sessionID string,
+		since uint64,
+	) (text string, gen uint64, changed bool)
+
 	// SetMetaStore injects the durable session metadata store. It must be called
 	// after both the engine and the terminal usecase are constructed to avoid an
 	// import cycle (engine → usecase). A nil store is a valid no-op sentinel; all
@@ -1699,6 +1721,21 @@ func (e *terminalEngine) SessionLive(
 ) bool {
 	s, ok := e.reg.Get(sessionID)
 	return ok && s.IsLive()
+}
+
+// Screen implements the Engine's pull-style screen read: registry lookup, then the
+// session's own guarded render. An unknown id is not an error here — sessions die
+// under their observers, and a caller polling one is expected to simply stop getting
+// answers.
+func (e *terminalEngine) Screen(
+	sessionID string,
+	since uint64,
+) (text string, gen uint64, changed bool) {
+	s, ok := e.reg.Get(sessionID)
+	if !ok {
+		return "", 0, false
+	}
+	return s.ScreenText(since)
 }
 
 // Stats returns a point-in-time snapshot of session counts, estimated model memory,

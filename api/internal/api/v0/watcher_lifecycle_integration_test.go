@@ -126,7 +126,10 @@ func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 func (fileProbe) PushAgentChat(_, _, _ string, _ bool)         {}
 
 func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
-func (fileProbe) PushAgentRunner(_, _, _, _ string)  {}
+
+func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {}
+
+func (fileProbe) PushAgentRunner(_, _, _, _ string) {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,

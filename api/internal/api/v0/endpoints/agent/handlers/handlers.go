@@ -65,6 +65,18 @@ type AgentUsecase interface {
 		chatID string,
 	) ([]domain.ActivityChoice, error)
 
+	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
+	// modal reaching the daemon through no hook, so the only way past it is the
+	// terminal. The complement of ReadPendingChoices, and deliberately not folded
+	// into it — a choice is a question with buttons, this is a signpost.
+	//
+	// It takes no ctx and returns no error because it reads a standing answer the
+	// detector keeps current on its own cadence; a REST read must not be able to
+	// drive provider-screen work on the request path.
+	TerminalWait(
+		chatID string,
+	) domain.AgentTerminalWait
+
 	// AnswerableChoiceIDs narrows a set of prompts to the ones a relay is holding
 	// the provider's gate open for right now. A prompt outside it is still worth
 	// drawing — the CLI is asking it — but answering it would reach nobody.

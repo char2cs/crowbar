@@ -153,6 +153,23 @@ type ThemeAware interface {
 	ThemeNotifyEnabled() bool
 }
 
+// ScreenReader is an optional interface a TerminalModel may also implement to render
+// its VISIBLE grid as plain text. Kept off the core TerminalModel surface and read via
+// a guarded type assertion, exactly like ThemeAware and ModelHealth, so alternate
+// backends and test fakes need not implement it — and so a model that does not degrades
+// to "no text", which every caller already treats as "nothing matched".
+//
+// It exists for the daemon's own inspection of what a hosted CLI is showing (an agent
+// blocked on a modal that reports through no hook), and it is deliberately the VIEWPORT
+// only: scrollback is history, and a prompt scrolled out of sight is no longer blocking
+// anything.
+type ScreenReader interface {
+	// ScreenText renders the visible grid as plain text: one line per row, trailing
+	// blanks trimmed, rows joined by "\n". Content only — no SGR, no cursor, no
+	// scrollback.
+	ScreenText() string
+}
+
 // ModelHealth is an optional interface a TerminalModel may also implement to expose its
 // parse-health to observability without widening the session-facing surface. The
 // session reads it with a guarded type assertion.

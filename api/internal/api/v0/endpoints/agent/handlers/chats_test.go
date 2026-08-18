@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,11 @@ type configurableListGetUsecase struct {
 
 	selection    selectionCall
 	selectionErr error
+
+	// terminalWait is the standing "this chat's CLI is parked on a modal we
+	// cannot answer" verdict, keyed by chat id. A chat absent from the map is not
+	// waiting, which is the answer for every chat unless a test says otherwise.
+	terminalWait map[string]domain.AgentTerminalWait
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -180,6 +186,10 @@ func (u *configurableListGetUsecase) GetChat(
 		return domain.AgentChat{}, u.getErr
 	}
 	return u.chat, nil
+}
+
+func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTerminalWait {
+	return u.terminalWait[chatID]
 }
 
 func (*configurableListGetUsecase) ReadMessages(
@@ -550,6 +560,73 @@ func TestGet_Success(
 	require.Len(t, envelope.Data.Conversations, 1)
 	assert.Equal(t, "vendor-a", envelope.Data.Conversations[0].ProviderID)
 	assert.Equal(t, "sess-1", envelope.Data.Conversations[0].SessionID)
+}
+
+// TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers proves the list
+// route joins in TerminalWait per chat, the same way it joins in the live runner
+// and the conversation history: a chat the detector has flagged carries the
+// verdict on the wire, and a chat it has not carries no field at all — the field
+// must be genuinely ABSENT for the untouched chat, not present-and-null, since
+// that absence is the whole point of the *bool for "was this ever computed".
+func TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.AgentChat{
+			{ID: "c1", WorkspaceID: "ws1"},
+			{ID: "c2", WorkspaceID: "ws1"},
+		},
+		terminalWait: map[string]domain.AgentTerminalWait{
+			"c1": {Waiting: true, Kind: domain.AgentTerminalWaitTrust},
+		},
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []struct {
+			ID           string                    `json:"id"`
+			TerminalWait *dto.AgentTerminalWaitDTO `json:"terminalWait"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 2)
+
+	require.NotNil(t, envelope.Data[0].TerminalWait, "c1 is waiting and must carry the verdict")
+	assert.Equal(t, domain.AgentTerminalWaitTrust, envelope.Data[0].TerminalWait.Kind)
+	assert.Nil(t, envelope.Data[1].TerminalWait, "c2 is not waiting and the field must be absent")
+
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"terminalWait"`),
+		"the key itself must appear exactly once — present for c1, genuinely omitted (not null) for c2")
+}
+
+// TestGet_CarriesTerminalWait proves the single-chat GET response joins in the
+// same TerminalWait verdict the list route does, so a client opening one chat
+// directly (a deep link, a reload) sees the banner without waiting on the
+// lifecycle socket to repeat it.
+func TestGet_CarriesTerminalWait(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		terminalWait: map[string]domain.AgentTerminalWait{
+			"c1": {Waiting: true, Kind: domain.AgentTerminalWaitTrust},
+		},
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"terminalWait":{"kind":"workspace_trust"}`)
 }
 
 // TestGet_ConversationsIsNeverNull proves the detail endpoint carries `conversations`

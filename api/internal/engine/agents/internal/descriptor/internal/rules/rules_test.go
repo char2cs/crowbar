@@ -642,3 +642,55 @@ func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 		assert.Contains(t, err.Error(), `effort.available["a"] is empty`)
 	}
 }
+
+// --- terminal_prompts ---
+
+// TestApply_AcceptsDeclaredTerminalPrompts covers both shapes a descriptor may
+// declare: a needle that identifies a prompt specifically, and one that only
+// proves a modal is up.
+func TestApply_AcceptsDeclaredTerminalPrompts(t *testing.T) {
+	d := valid()
+	d.TerminalPrompts = []spec.TerminalPromptSpec{
+		{Kind: spec.TerminalPromptTrust, Needle: "I trust this folder"},
+		{Needle: "Enter to confirm"},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// TestApply_RejectsAnUnknownTerminalPromptKind is why a typo cannot ship. A kind
+// the daemon does not know would silently degrade to the generic case and look
+// like a working descriptor forever — and the one thing this feature exists to
+// prevent is a state that explains nothing.
+func TestApply_RejectsAnUnknownTerminalPromptKind(t *testing.T) {
+	d := valid()
+	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: "worksapce_trust", Needle: "x"}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "unknown kind")
+}
+
+// TestApply_RejectsAContentFreeNeedle: a needle of pure punctuation reduces to the
+// empty string under the matcher's own comparison, which every screen contains —
+// so it would report every idle chat as blocked.
+func TestApply_RejectsAContentFreeNeedle(t *testing.T) {
+	d := valid()
+	d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "· ⏎ ›"}}
+
+	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
+}
+
+func TestApply_RejectsAnEmptyNeedle(t *testing.T) {
+	d := valid()
+	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: spec.TerminalPromptTrust}}
+
+	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
+}
+
+// TestApply_DeclaringNoTerminalPromptsIsValid pins the default. Most providers
+// will declare none, and that must never be a validation failure.
+func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
+	assert.NoError(t, rules.Apply(valid()))
+}

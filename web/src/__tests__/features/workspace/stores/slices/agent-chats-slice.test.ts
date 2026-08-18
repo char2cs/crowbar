@@ -558,4 +558,99 @@ describe('agent-chats-slice: folders', () => {
     expect(() => s.getState().setAgentChatPlacement('ghost', 'f1', 0)).not.toThrow()
     expect(s.getState().agentChats.chats).toEqual([])
   })
+
+  // ── "Waiting in the terminal" ───────────────────────────────────────────
+  // The modals no hook reports. PRESENCE in the map is the verdict, so an entry
+  // with an EMPTY kind ("blocked, and we could not identify by what") must be
+  // readable as blocked — the one thing a plain string map would get wrong.
+
+  it('setAgentChatTerminalWait raises and clears the verdict', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+    expect(s.getState().agentChats.terminalWaits.c1).toEqual({ kind: 'workspace_trust' })
+
+    s.getState().setAgentChatTerminalWait('c1', null)
+    expect(s.getState().agentChats.terminalWaits.c1).toBeUndefined()
+  })
+
+  it('an unidentified prompt is still an entry, with an empty kind', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatTerminalWait('c1', { kind: '' })
+
+    expect(s.getState().agentChats.terminalWaits.c1?.kind).toBe('')
+    expect('c1' in s.getState().agentChats.terminalWaits).toBe(true)
+  })
+
+  // An authoritative reconnect replaces the map from the server's own answer,
+  // which is what repairs a terminal_wait frame dropped while the socket was down
+  // — in BOTH directions.
+  it('seedAgentChats replaces the wait map from the list response', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+
+    s.getState().seedAgentChats([
+      { ...chat('c1', '2026-01-01T00:00:00Z') },
+      { ...chat('c2', '2026-01-02T00:00:00Z'), terminalWait: { kind: '' } },
+    ])
+
+    expect(s.getState().agentChats.terminalWaits).toEqual({ c2: { kind: '' } })
+  })
+
+  // A LIVE `created` reseed missed no frame, so it must leave standing answers
+  // alone — clearing them here would take a banner down off a chat that is still
+  // blocked, and nothing would put it back until the state next changed.
+  it('a live created reseed keeps the waits it already has', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
+    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+
+    s.getState().seedAgentChats(
+      [
+        chat('c1', '2026-01-01T00:00:00Z'),
+        { ...chat('c2', '2026-01-02T00:00:00Z'), terminalWait: { kind: '' } },
+      ],
+      { keepWorking: true },
+    )
+
+    expect(s.getState().agentChats.terminalWaits).toEqual({
+      c1: { kind: 'workspace_trust' },
+      c2: { kind: '' },
+    })
+  })
+
+  it('a chat that leaves the list loses its wait', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
+    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+
+    s.getState().seedAgentChats([], { keepWorking: true })
+
+    expect(s.getState().agentChats.terminalWaits).toEqual({})
+  })
+
+  // A single-chat refetch must NOT touch this map — the same rule `working`
+  // follows, for the same reason. The refetch is a snapshot of the moment it was
+  // ISSUED: a spawn's `started` refetch can resolve after the `terminal_wait`
+  // frame that a trust dialog raised a second later, and since the daemon
+  // publishes only on a CHANGE, an overwrite here would never be corrected.
+  it('upsertAgentChat leaves the wait map alone', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+
+    expect(s.getState().agentChats.terminalWaits.c1).toEqual({ kind: 'workspace_trust' })
+  })
+
+  it('removeAgentChat forgets the wait', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().setAgentChatTerminalWait('c1', { kind: '' })
+
+    s.getState().removeAgentChat('c1')
+
+    expect(s.getState().agentChats.terminalWaits.c1).toBeUndefined()
+  })
 })

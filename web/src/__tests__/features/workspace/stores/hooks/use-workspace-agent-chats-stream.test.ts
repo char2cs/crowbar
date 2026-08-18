@@ -14,6 +14,7 @@ const {
   upsertAgentChat,
   removeAgentChat,
   setAgentChatWorking,
+  setAgentChatTerminalWait,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -32,6 +33,7 @@ const {
   upsertAgentChat: vi.fn(),
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
+  setAgentChatTerminalWait: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -95,6 +97,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       upsertAgentChat,
       removeAgentChat,
       setAgentChatWorking,
+      setAgentChatTerminalWait,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -120,6 +123,9 @@ type Frame = {
   reconnected?: boolean
   /** The server's folded busy state, carried on the chat kinds. Optional on the wire. */
   working?: boolean
+  /** What the chat's CLI is blocked on that Crowbar cannot answer. Present on the
+   *  `terminal_wait` kind only, and its ABSENCE there is the clearing edge. */
+  terminalWait?: { kind: string }
 }
 
 const chat = (id: string) => ({
@@ -1239,4 +1245,47 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(subscribe).toHaveBeenCalledTimes(2)
     expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe('/v0/ws/w2/agent/ws/chats')
   })
+})
+
+// ── terminal_wait: the modals no hook reports ─────────────────────────────
+//
+// A CLI parked on a workspace-trust dialog reports nothing through any hook, so
+// this frame is the ONLY thing that tells a client its chat is blocked. Both
+// edges ride the one kind, and the payload's absence is the clearing edge.
+
+it('writes the wait through on a terminal_wait frame', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    kind: 'terminal_wait',
+    terminalWait: { kind: 'workspace_trust' },
+  })
+
+  expect(setAgentChatTerminalWait).toHaveBeenCalledWith('c1', { kind: 'workspace_trust' })
+})
+
+it('clears the wait when the frame carries no payload', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'terminal_wait' })
+
+  expect(setAgentChatTerminalWait).toHaveBeenCalledWith('c1', null)
+})
+
+// The frame carries the whole answer, so it must not cost a round trip: the user
+// is looking at a pane that explains nothing, and a banner one request later is a
+// banner after they gave up.
+it('does not refetch the chat for a terminal_wait frame', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    kind: 'terminal_wait',
+    terminalWait: { kind: '' },
+  })
+
+  expect(getChatFn).not.toHaveBeenCalled()
 })

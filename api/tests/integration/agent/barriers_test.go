@@ -122,10 +122,22 @@ var trustNeedle = map[string]string{
 // firstOfProvider reports whether this is the FIRST CLI of the given provider in
 // this harness — i.e. the one that will be shown a trust dialog — and records it.
 //
-// A vendor CLI asks about trust ONCE per place, and remembers the answer OUTSIDE
-// the temp home Crowbar controls: claude writes it to the user's real
-// ~/.claude.json keyed by the CWD (Crowbar cannot redirect that — CLAUDE_CONFIG_DIR
-// breaks its auth), codex to ~/.codex keyed by the REPOSITORY ROOT. Every test here
+// A vendor CLI asks about trust ONCE per place, and remembers the answer in ITS OWN
+// home, keyed by a path: claude by the CWD, codex by the REPOSITORY ROOT. Those homes
+// are the user's real ones in production and throwaway ones here — newHarness calls
+// kit.IsolateProviderHomes, so the answers this suite produces are written to a temp
+// directory and thrown away with it, instead of accumulating one dead stanza per test
+// run in the user's own ~/.codex/config.toml and ~/.claude.json forever.
+//
+// (Isolating claude was long believed impossible because CLAUDE_CONFIG_DIR "breaks its
+// auth". It does not break it so much as RENAME it: claude derives its keychain service
+// name from the config dir, so moving the dir makes it look up an item that does not
+// exist. CLAUDE_SECURESTORAGE_CONFIG_DIR="" pins the lookup back to the real
+// credential. See kit.IsolateProviderHomes.)
+//
+// What matters HERE is only that isolation does not change the SHAPE of the first run:
+// a throwaway home trusts nothing, exactly like a never-before-seen repo path in a real
+// home, so the dialog still appears exactly once per provider per test. Every test here
 // builds ONE fresh temp repo with ONE worktree, so within a single test:
 //
 //   - the first claude/codex spawned sees a brand-new path → it ALWAYS shows the

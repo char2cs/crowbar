@@ -68,6 +68,16 @@ interface AgentChatViewProps {
   /** False for a retained, hidden tab. Network polling pauses in that state. */
   visible: boolean
   onOpenTerminal: () => void
+  /**
+   * Whether the daemon has POSITIVELY established that this chat's CLI is blocked
+   * on a prompt Crowbar cannot answer.
+   *
+   * It is here to switch OFF the timed guess below (see showAwaitingTerminalHint):
+   * that hint exists only because there used to be no way to know, and saying
+   * "the provider MAY be waiting" beside a banner that says it definitely is
+   * would be two voices on one fact, one of them hedging.
+   */
+  terminalWaiting?: boolean
   onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
@@ -404,6 +414,7 @@ export function AgentChatView({
   active,
   visible,
   onOpenTerminal,
+  terminalWaiting = false,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
@@ -497,6 +508,9 @@ export function AgentChatView({
   useEffect(() => {
     setShowAwaitingTerminalHint(false)
     if (!active || !visible || !live || working || !awaitingHead) return
+    // The daemon has an answer, so this guess stays quiet: the terminal-wait
+    // banner above is saying the same thing, without the "may".
+    if (terminalWaiting) return
 
     const attemptedAt = Date.parse(awaitingHead.submittedAt ?? awaitingHead.createdAt)
     const delay = Math.max(0, AWAITING_TERMINAL_HINT_MS - (Date.now() - attemptedAt))
@@ -506,7 +520,7 @@ export function AgentChatView({
     }
     const timer = window.setTimeout(() => setShowAwaitingTerminalHint(true), delay)
     return () => window.clearTimeout(timer)
-  }, [active, visible, live, working, awaitingHead])
+  }, [active, visible, live, working, awaitingHead, terminalWaiting])
 
   useEffect(() => {
     if (previousWorking.current && !working) {

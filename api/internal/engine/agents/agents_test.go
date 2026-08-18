@@ -750,3 +750,77 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 			"%s is held open while a human decides and must declare its own budget", event)
 	}
 }
+
+// --- Terminal prompts: the modals no hook reports ---
+
+// TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog drives the SHIPPED
+// descriptor against the trust screen captured from claude 2.1.207 and recorded in
+// tests/integration/agent/barriers_test.go. It is the end-to-end proof that the
+// needles in claude.yaml still match the screen they were taken from — the check
+// that would fail first if a claude release repainted that dialog.
+func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
+	screen := strings.Join([]string{
+		"╭──────────────────────────────────────╮",
+		"│ Do you trust the files in this folder?│",
+		"│ ❯ 1. Yes, I trust this folder         │",
+		"│   2. No, exit                         │",
+		"│ Enter to confirm · Esc to cancel      │",
+		"╰──────────────────────────────────────╯",
+	}, "\n")
+
+	prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
+
+	require.True(t, ok)
+	assert.Equal(t, agents.TerminalPromptTrust, prompt.Kind)
+}
+
+// TestMatchTerminalPrompt_CodexReportsAGenericBlock pins the deliberate asymmetry
+// between the two shipped descriptors. Nothing on codex's dialog says anything
+// about trust, so all it can truthfully report is THAT the CLI is blocked — and a
+// client renders that as "waiting for input in the terminal" rather than guessing.
+func TestMatchTerminalPrompt_CodexReportsAGenericBlock(t *testing.T) {
+	screen := "› 1. Yes, continue\n  2. No, exit\n  Press enter to continue"
+
+	prompt, ok := get(t, "codex").MatchTerminalPrompt(screen)
+
+	require.True(t, ok)
+	assert.Empty(t, prompt.Kind, "codex declares no kinded needle; naming one would be a guess")
+}
+
+// TestMatchTerminalPrompt_AnOrdinaryScreenIsNotABlock is the false-positive guard.
+// A working agent's screen must never report a block, or the banner means nothing.
+func TestMatchTerminalPrompt_AnOrdinaryScreenIsNotABlock(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		_, ok := get(t, id).MatchTerminalPrompt("> Ready.\n  shift+tab to cycle · ? for shortcuts")
+		assert.False(t, ok, id)
+	}
+}
+
+// TestCapabilities_TerminalPromptsIsDeclaredByBothShippedAgents backs the read a
+// caller makes to skip a screen render entirely for a provider that could never
+// match.
+func TestCapabilities_TerminalPromptsIsDeclaredByBothShippedAgents(t *testing.T) {
+	assert.True(t, get(t, "claude").Capabilities().TerminalPrompts)
+	assert.True(t, get(t, "codex").Capabilities().TerminalPrompts)
+}
+
+// TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches is the degradation
+// story stated against a real override: a descriptor with no terminal_prompts
+// block answers false on every screen, so its chats behave exactly as they did
+// before this existed.
+func TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "silent.yaml"), []byte(
+		"id: silent\nspawn:\n  cmd: silent-cli\n  interactive_required: true\n"+
+			"hooks:\n  format: json\n  events:\n"+
+			"    session_start: { session_id: session_id }\n"+
+			"    turn_stop: { message: last }\n"), 0o600))
+
+	a, err := agents.New().Get(context.Background(), home, "silent")
+	require.NoError(t, err)
+
+	_, ok := a.MatchTerminalPrompt("❯ 1. Yes, I trust this folder\nEnter to confirm")
+	assert.False(t, ok)
+	assert.False(t, a.Capabilities().TerminalPrompts)
+}

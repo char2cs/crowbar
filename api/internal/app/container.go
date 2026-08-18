@@ -152,6 +152,7 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
+	startTerminalWaitSweep(ctx, h, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -418,6 +419,26 @@ func toUsecaseStores(
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 	}
+}
+
+// startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
+// modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
+// reach the daemon through no hook and otherwise leave a chat pane showing nothing
+// at all over a live, blocked process.
+//
+// Started HERE, beside the boot reconcile, rather than inside the usecase: the
+// detector publishes, and the thing it publishes through is the hub, which is a
+// layer above every usecase. It is also why the sweep begins after
+// reconcileAgentRunners — a restart's first census should be of runners already
+// reconciled, not of rows the reconcile is about to retire.
+func startTerminalWaitSweep(
+	ctx context.Context,
+	h *hub.Hub,
+	ucs *usecases.Container,
+) {
+	ucs.Agent.StartTerminalWaitSweep(ctx, func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
+		h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
+	})
 }
 
 func startProviderSweep(

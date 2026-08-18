@@ -24,6 +24,13 @@ type fakeSubscriber struct {
 	agentRunner []agentRunnerPush
 
 	agentChatFolders []agentChatFolderPush
+	agentChatWaits   []agentChatWaitPush
+}
+
+type agentChatWaitPush struct {
+	chatID      string
+	workspaceID string
+	wait        *dto.AgentTerminalWaitDTO
 }
 
 type agentChatFolderPush struct {
@@ -106,6 +113,18 @@ func (f *fakeSubscriber) PushAgentChat(
 		workspaceID: workspaceID,
 		kind:        kind,
 		working:     working,
+	})
+}
+
+func (f *fakeSubscriber) PushAgentChatTerminalWait(
+	chatID string,
+	workspaceID string,
+	wait *dto.AgentTerminalWaitDTO,
+) {
+	f.agentChatWaits = append(f.agentChatWaits, agentChatWaitPush{
+		chatID:      chatID,
+		workspaceID: workspaceID,
+		wait:        wait,
 	})
 }
 
@@ -258,6 +277,44 @@ func TestHub_BroadcastAgentChat_FansOut(t *testing.T) {
 	assert.Equal(t,
 		agentChatPush{chatID: "c1", workspaceID: "w1", kind: "bound", working: true},
 		a.agentChats[0])
+}
+
+// TestHub_BroadcastAgentChatTerminalWait_FansOut proves the terminal-wait edge
+// reaches every registered subscriber with the chat id, workspace id and payload
+// intact — the same fan-out contract every other Broadcast* method on the hub
+// has, since this is the frame that puts a "waiting in the terminal" banner up.
+func TestHub_BroadcastAgentChatTerminalWait_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	wait := &dto.AgentTerminalWaitDTO{Kind: domain.AgentTerminalWaitTrust}
+	h.BroadcastAgentChatTerminalWait("c1", "w1", wait)
+
+	assert.Len(t, a.agentChatWaits, 1)
+	assert.Len(t, b.agentChatWaits, 1)
+	assert.Equal(t,
+		agentChatWaitPush{chatID: "c1", workspaceID: "w1", wait: wait},
+		a.agentChatWaits[0])
+}
+
+// TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers proves a
+// nil payload fans out exactly like a populated one. This is the frame that TAKES
+// A BANNER DOWN: a broadcast that dropped a nil wait on the way to a subscriber
+// would strand a client showing that banner over a chat that is fine again.
+func TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	h.Register(a)
+
+	h.BroadcastAgentChatTerminalWait("c1", "w1", nil)
+
+	assert.Len(t, a.agentChatWaits, 1)
+	assert.Equal(t,
+		agentChatWaitPush{chatID: "c1", workspaceID: "w1", wait: nil},
+		a.agentChatWaits[0])
 }
 
 // TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries

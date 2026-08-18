@@ -102,8 +102,18 @@ func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 	answer, err := h.usecase.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
 	if err != nil {
 		if errors.Is(err, ctx.Request.Context().Err()) {
-			// The relay hung up. There is nobody to answer, and writing to a dead
-			// connection would only log noise.
+			// The wait was cancelled. This is NOT reliably "the relay hung up":
+			// ctx.Request.Context().Err() is non-nil for any cancellation, a
+			// server-side deadline included, so this branch can be reached with the
+			// relay still listening.
+			//
+			// So answer it properly rather than returning bare. A bare return writes
+			// no body, gin sends 200 with zero bytes, and the relay — which is right
+			// to treat a 2xx as an answer — got `unexpected end of JSON input`. An
+			// empty Stdout says the same thing in a shape the relay can read: no
+			// decision, print nothing, let the CLI's own dialog reach the human.
+			// Writing to a genuinely dead connection is harmless.
+			libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{})
 			return
 		}
 		status, message := libs.StatusAndMessage(err)

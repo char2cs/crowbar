@@ -75,6 +75,16 @@ type Descriptor struct {
 	// reaches the CLI blocked waiting for it. Absent means every prompt this
 	// provider opens is observe-only, and the relay never holds a hook open.
 	Answer AnswerSpec `yaml:"answer"`
+
+	// TerminalPrompts is the COMPLEMENT of Answer: the prompts this CLI opens
+	// that no hook reports and Crowbar therefore cannot answer at all. Declaring
+	// them is what lets a chat say "your agent is waiting in the terminal"
+	// instead of rendering an empty pane over a blocked process.
+	//
+	// Empty is the safe default and the honest one for a provider nobody has
+	// captured a screen from: it never matches, so nothing about that provider's
+	// chats changes.
+	TerminalPrompts []TerminalPromptSpec `yaml:"terminal_prompts"`
 }
 
 type SpawnSpec struct {

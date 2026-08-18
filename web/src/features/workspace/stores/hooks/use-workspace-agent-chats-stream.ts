@@ -1,7 +1,13 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-import { listChats, getChat, listProviders, listChatFolders } from '@/features/agent/api/agent-api'
+import {
+  listChats,
+  getChat,
+  listProviders,
+  listChatFolders,
+  type AgentTerminalWait,
+} from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   isLatestProviderWrite,
@@ -85,6 +91,7 @@ interface AgentStreamEvent {
     | 'session_bound'
     | 'turn_started'
     | 'turn_stopped'
+    | 'terminal_wait'
     | 'title_set'
     | 'deleted'
     | 'started'
@@ -122,6 +129,17 @@ interface AgentStreamEvent {
    * never reach the branch that reads it.
    */
   working?: boolean
+  /**
+   * What the chat's CLI is blocked on that Crowbar CANNOT answer, on the
+   * `terminal_wait` kind and nowhere else.
+   *
+   * Both edges ride this one kind, and the field's ABSENCE is the clearing edge:
+   * present means "your agent is stuck behind a dialog", absent means "it isn't
+   * any more". Carried on the frame rather than refetched for the same reason
+   * `working` is — the user is looking at a pane that explains nothing, and an
+   * answer a round trip later is an answer after they have given up.
+   */
+  terminalWait?: AgentTerminalWait
 }
 
 /**
@@ -132,6 +150,9 @@ interface AgentStreamEvent {
  *   - turn_started / turn_stopped: the frame carries the server's folded `working`
  *     — write it through, no refetch. `turn_stopped` is NOT "idle": a chat waiting on
  *     a background subagent keeps spinning through it.
+ *   - terminal_wait: the chat's CLI has become — or stopped being — blocked behind a
+ *     prompt Crowbar cannot answer. The frame carries the whole answer; its absence
+ *     on the payload is the clearing edge.
  *   - created: a new chat (and its ordering) may have appeared — reseed the whole list.
  *   - title_set / session_bound: refetch just that chat and upsert it.
  *   - deleted: drop the chat from the store and close its pane tab if open.
@@ -495,6 +516,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          return
+        case 'terminal_wait':
+          // The frame IS the answer, both ways round: a present payload raises
+          // the "waiting in the terminal" state, an absent one clears it. The
+          // daemon publishes only on a CHANGE, so a chat parked for an hour has
+          // sent exactly one of these.
+          st.setAgentChatTerminalWait(ev.chatId, ev.terminalWait ?? null)
           return
         case 'deleted': {
           st.removeAgentChat(ev.chatId)

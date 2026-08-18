@@ -45,6 +45,15 @@ type Subscriber interface {
 		kind string,
 		working bool,
 	)
+	// PushAgentChatTerminalWait receives the frame that says a chat's CLI has
+	// become — or stopped being — blocked behind a prompt Crowbar cannot answer.
+	// wait is nil on the clearing frame, so the frame is the whole answer either
+	// way and no client has to round-trip to learn which edge it just saw.
+	PushAgentChatTerminalWait(
+		chatID string,
+		workspaceID string,
+		wait *dto.AgentTerminalWaitDTO,
+	)
 	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
 	// (folder_created/folder_updated/folder_deleted). It carries the folder id and
 	// nothing else: the Chats socket is a bare event feed with no snapshot, so a

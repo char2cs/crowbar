@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -100,18 +100,18 @@ func awaitPositionalPromptTurn(
 	chatID, provider string,
 	after int,
 	text string,
-) (ledger.Message, ledger.Message) {
+) (chatlog.Message, chatlog.Message) {
 	t.Helper()
 	type result struct {
-		user      ledger.Message
-		assistant ledger.Message
+		user      chatlog.Message
+		assistant chatlog.Message
 	}
 	found := awaitHook(t, h, provider+" positional prompt turn", func() (result, bool) {
 		page, err := h.app.Usecases.Agent.ReadMessages(context.Background(), chatID, after, 0, 200)
 		if err != nil {
 			return result{}, false
 		}
-		var user ledger.Message
+		var user chatlog.Message
 		for _, message := range page.Items {
 			if message.Sequence <= after || message.Provider != provider {
 				continue

@@ -439,3 +439,38 @@ telemetry:
         label: "7-day"
         used_percent: rate_limits.seven_day.used_percentage
         resets_at: rate_limits.seven_day.resets_at
+# Blocking modals no hook reports — the COMPLEMENT of `answer:` above.
+#
+# `answer:` covers the prompts that travel through hooks and can therefore be
+# decided from the chat. These are the ones that cannot: claude puts up its
+# first-run workspace-trust dialog BEFORE it fires a single hook, so a chat sitting
+# behind one shows no spinner, no message and no error — an empty pane over a live,
+# blocked process, which is the single most common "Crowbar is broken" report.
+# Crowbar has no channel to answer these, so the only correct behaviour is to say
+# so and send the user to the terminal.
+#
+# BOTH NEEDLES COME FROM ONE LIVE CAPTURE of claude 2.1.207's trust dialog, recorded
+# in tests/integration/agent/barriers_test.go (the suite blocks on the footer line to
+# know the dialog has finished painting). The screen is:
+#
+#     ❯ 1. Yes, I trust this folder
+#       2. No, exit
+#       Enter to confirm · Esc to cancel
+#
+# They are deliberately two DIFFERENT statements, and the second is why the kinded
+# one exists:
+#
+#   * "I trust this folder" identifies the dialog. It is trust's own option text and
+#     appears on no other screen, so a match justifies naming it.
+#   * "Enter to confirm" is the footer EVERY claude selection modal paints — the
+#     trust dialog, and equally a login prompt, a migration notice, or anything a
+#     future release adds. It proves only that a modal is up. Labelling that one
+#     "workspace trust" would be a guess, so it declares no kind and is reported as
+#     "waiting for input in the terminal".
+#
+# Matching ignores spacing and punctuation (see the termprompt package), so the box
+# drawing, centring and wrapping claude puts around these does not defeat them.
+terminal_prompts:
+  - kind: workspace_trust
+    needle: "I trust this folder"
+  - needle: "Enter to confirm"

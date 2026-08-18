@@ -353,6 +353,12 @@ func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]b
 	return nil, nil
 }
 
+// TerminalWait: this stub is never blocked on anything, which is what every
+// route-mounting assertion here needs it to be.
+func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
+	return domain.AgentTerminalWait{}
+}
+
 func (stubUsecase) ReadPendingChoices(
 	context.Context, string,
 ) ([]domain.ActivityChoice, error) {

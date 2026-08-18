@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -161,6 +162,15 @@ func pollHookAnswer(
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("hook answer: daemon returned HTTP %d", status)
+	}
+	// An EMPTY body on a 2xx is "no decision", not a malformed one. It is what a
+	// handler that returns without writing produces — gin then sends 200 with no
+	// bytes — and treating it as a decode failure turned a clean fall-through into
+	// an error. Observed as an intermittent `unexpected end of JSON input` under
+	// parallel load, which is the same outcome either way (print nothing, let the
+	// CLI's own dialog reach the human) but is not a fault worth reporting.
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
 	}
 	var answer hookAnswer
 	if err := json.Unmarshal(body, &answer); err != nil {

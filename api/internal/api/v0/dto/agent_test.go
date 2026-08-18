@@ -183,3 +183,71 @@ func TestRegression_AgentMessageDTO_CarriesTheReportedEffort(t *testing.T) {
 	assert.NotContains(t, string(bare), `"effort"`,
 		"a provider that reported no effort must produce no field, never an empty one")
 }
+
+// TestTerminalWaitDTOFrom_NotWaitingIsNil proves the zero verdict — the answer
+// every chat gave before this fact existed, and the one every provider that
+// declares no needles gives forever — collapses to a nil DTO rather than a
+// present-and-false one.
+func TestTerminalWaitDTOFrom_NotWaitingIsNil(t *testing.T) {
+	got := dto.TerminalWaitDTOFrom(domain.AgentTerminalWait{})
+
+	assert.Nil(t, got)
+}
+
+// TestTerminalWaitDTOFrom_WaitingCarriesKind proves a recognised prompt survives
+// the mapping with its Kind intact.
+func TestTerminalWaitDTOFrom_WaitingCarriesKind(t *testing.T) {
+	got := dto.TerminalWaitDTOFrom(domain.AgentTerminalWait{
+		Waiting: true,
+		Kind:    domain.AgentTerminalWaitTrust,
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, domain.AgentTerminalWaitTrust, got.Kind)
+}
+
+// TestAgentChatDTOFrom_TerminalWaitOmittedWhenNotWaiting asserts on the
+// MARSHALLED JSON rather than the Go struct, because the promise this feature
+// makes is a wire-shape promise: an unaffected chat's JSON is byte-identical to
+// what it was before TerminalWait existed. A present-but-null field would break
+// that promise just as much as a wrong value would.
+func TestAgentChatDTOFrom_TerminalWaitOmittedWhenNotWaiting(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"terminalWait"`)
+}
+
+// TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting proves a chat whose
+// runtime reports a recognised prompt carries it on the wire, kind and all.
+func TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+		TerminalWait: domain.AgentTerminalWait{
+			Waiting: true,
+			Kind:    domain.AgentTerminalWaitTrust,
+		},
+	})
+
+	require.NotNil(t, got.TerminalWait)
+	assert.Equal(t, domain.AgentTerminalWaitTrust, got.TerminalWait.Kind)
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"terminalWait":{"kind":"workspace_trust"}`)
+}
+
+// TestAgentChatDTOFrom_UnidentifiedTerminalWaitMarshalsAsEmptyObject proves the
+// unrecognised-prompt case: Waiting true with no Kind is a REAL answer — something
+// is up, but the daemon has no name for it — not a missing one, so it marshals as
+// a present, empty object rather than being omitted like the not-waiting case.
+// Presence is the verdict; the empty kind is the honest detail.
+func TestAgentChatDTOFrom_UnidentifiedTerminalWaitMarshalsAsEmptyObject(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+		TerminalWait: domain.AgentTerminalWait{Waiting: true},
+	})
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"terminalWait":{}`)
+}
