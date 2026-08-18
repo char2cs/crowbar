@@ -107,6 +107,22 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.AgentChat, error)
+	// SetSelection writes the chat's sticky model and reasoning-effort choice —
+	// durable config beside the title, and the answer to "what should the next
+	// message run as", never a claim about what any live process is running.
+	//
+	// It is on the ordinary async Send path, and it can be: the prompt path that
+	// decides whether the selection changed reads it through LoadChat, which folds
+	// the EVENT LOG. A user who picks a model and immediately sends a message
+	// therefore cannot race the projection into delivering that message under the
+	// model they just changed away from — the read that decides never consults the
+	// read model at all.
+	SetSelection(
+		ctx context.Context,
+		chatID string,
+		model string,
+		effort string,
+	) (domain.AgentChat, error)
 	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
 	// off and its dense index within that sibling space.
 	//
@@ -333,6 +349,19 @@ func (r *eventSourced) SetTitle(
 	evt, err := r.sendWithOCC(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
 	if err != nil {
 		return domain.AgentChat{}, fmt.Errorf("agentchat: set title: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetSelection(
+	ctx context.Context,
+	chatID string,
+	model string,
+	effort string,
+) (domain.AgentChat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
+	if err != nil {
+		return domain.AgentChat{}, fmt.Errorf("agentchat: set selection: %w", err)
 	}
 	return evt.Aggregate, nil
 }

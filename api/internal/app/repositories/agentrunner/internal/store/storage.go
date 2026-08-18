@@ -21,6 +21,8 @@ type runnerRow struct {
 	CurrentSession          string `gorm:"index"`
 	CurrentSessionSince     time.Time
 	LaunchSessionID         string
+	LaunchModel             string
+	LaunchEffort            string
 	CurrentSessionResumable bool
 	StartedAt               time.Time
 }
@@ -89,6 +91,8 @@ func (r runnerRow) toRunner() domain.AgentRunner {
 		CurrentSession:          r.CurrentSession,
 		CurrentSessionSince:     r.CurrentSessionSince,
 		LaunchSessionID:         r.LaunchSessionID,
+		LaunchModel:             r.LaunchModel,
+		LaunchEffort:            r.LaunchEffort,
 		CurrentSessionResumable: r.CurrentSessionResumable,
 		StartedAt:               r.StartedAt,
 	}

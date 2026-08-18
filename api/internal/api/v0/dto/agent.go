@@ -79,6 +79,15 @@ type AgentChatDTO struct {
 	ParentID string `json:"parentId"`
 	Order    int    `json:"order"`
 
+	// Model and Effort are the chat's sticky choice of what to run its provider
+	// CLI as, and they are OMITTED when unset because unset is a real answer:
+	// "whatever this provider defaults to", which is not any value the client
+	// could render as selected. A picker shows no selection for an absent field,
+	// which is exactly right — Crowbar does not know what the default resolves to
+	// and will not pretend to.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -97,6 +106,8 @@ func AgentChatDTOFrom(
 		Working:          c.Working,
 		ParentID:         c.ParentID,
 		Order:            c.Order,
+		Model:            c.Model,
+		Effort:           c.Effort,
 		CreatedAt:        c.CreatedAt,
 	}
 	if rt.LiveRunner != nil {
@@ -113,11 +124,16 @@ type AgentMessageDTO struct {
 	Sequence int `json:"sequence"`
 	// TurnID is what the activity record attaches tool calls to, so a client can
 	// show which tools produced which reply.
-	TurnID     string    `json:"turnId"`
-	Role       string    `json:"role"`
-	ProviderID string    `json:"providerId"`
-	Text       string    `json:"text"`
-	At         time.Time `json:"at"`
+	TurnID     string `json:"turnId"`
+	Role       string `json:"role"`
+	ProviderID string `json:"providerId"`
+	Text       string `json:"text"`
+	// Effort is the reasoning effort the provider itself reported for this turn
+	// (claude's turn_stop carries effort.level), which is NOT the same fact as the
+	// chat's requested selection: it is what the CLI says it actually used. Absent
+	// when the provider reported none, and never inferred from the request.
+	Effort string    `json:"effort,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 // AgentMessagePageDTO is a bounded chronological ledger window. Cursor is the
@@ -138,6 +154,7 @@ type AgentActivityDTO struct {
 	ToolCalls     []AgentToolCallDTO     `json:"toolCalls"`
 	Subagents     []AgentSubagentDTO     `json:"subagents"`
 	Interruptions []AgentInterruptionDTO `json:"interruptions"`
+	Choices       []AgentChoiceDTO       `json:"choices"`
 }
 
 // AgentToolCallDTO is one tool invocation. The payloads themselves are NOT here:
@@ -150,8 +167,11 @@ type AgentToolCallDTO struct {
 	Name   string `json:"name"`
 	// Target is the file, command or URL the tool acted on, when the provider
 	// reports one. Empty is legible; a guess would be wrong.
-	Target     string     `json:"target,omitempty"`
-	Status     string     `json:"status"`
+	Target string `json:"target,omitempty"`
+	Status string `json:"status"`
+	// Error is a short caption for a failed call. The full failure text is the
+	// call's result payload, fetched on demand like any other.
+	Error      string     `json:"error,omitempty"`
 	DurationMS int        `json:"durationMs,omitempty"`
 	HasRequest bool       `json:"hasRequest"`
 	HasResult  bool       `json:"hasResult"`
@@ -179,6 +199,97 @@ type AgentInterruptionDTO struct {
 	Detail     string     `json:"detail,omitempty"`
 	At         time.Time  `json:"at"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+}
+
+// AgentChoiceDTO is the agent waiting on a HUMAN DECISION — a tool permission, a
+// question it asked, an MCP server's elicitation.
+//
+// It is the one piece of agent state a user can act on, so it carries enough to be
+// drawn as a real prompt rather than a spinner: what kind of answer is wanted,
+// what is being asked, and which answers exist.
+//
+// An answer names this record by ID and an option by its own — see
+// POST .../agent/chats/:id/choices/:choiceId/answer.
+type AgentChoiceDTO struct {
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	Seq    int64  `json:"seq"`
+	Kind   string `json:"kind"`
+	// ToolName is the tool a permission is gating, when there is one.
+	ToolName string `json:"toolName,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Question string `json:"question,omitempty"`
+	// Mode is the provider's own word for how it expects to be answered, carried
+	// verbatim and never interpreted.
+	Mode    string                 `json:"mode,omitempty"`
+	Multi   bool                   `json:"multi,omitempty"`
+	Options []AgentChoiceOptionDTO `json:"options"`
+	// Schema is the requested-input schema for a prompt whose answer is a FORM
+	// rather than a pick from Options. It is the provider's own JSON, verbatim.
+	Schema string `json:"schema,omitempty"`
+
+	Pending bool `json:"pending"`
+	// Answerable reports that a relay is holding the provider's gate open for this
+	// prompt RIGHT NOW, so answering it here will actually reach the CLI.
+	//
+	// It is a separate fact from Pending, and both are needed. A prompt whose relay
+	// has already timed out is still pending and still worth drawing — the CLI is
+	// asking it, at its own terminal — but a button on it would reach nobody, and a
+	// surface that cannot tell the two apart offers controls that silently fail.
+	Answerable bool       `json:"answerable"`
+	At         time.Time  `json:"at"`
+	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	// Resolution says HOW it stopped pending — answered through Crowbar, observed to
+	// have proceeded (someone answered at the terminal), or abandoned with the turn.
+	Resolution string `json:"resolution,omitempty"`
+}
+
+// AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
+// hook, and it exists for exactly one instruction: STAY ALIVE.
+//
+// A vendor CLI holds its own permission gate open for as long as the hook process
+// it fired is running, so a relay that exits has already let the CLI's dialog
+// through. Await is how the daemon says "this hook opened a question a human can
+// answer here" — and it is returned rather than discovered because the relay
+// cannot name the prompt: identity is minted daemon-side, from the payload, after
+// the chat is resolved.
+//
+// A hook that opened nothing answerable gets an empty body, and the relay exits
+// immediately — byte-identical to its behaviour before this field existed.
+type AgentHookAckDTO struct {
+	Await *AgentHookAwaitDTO `json:"await,omitempty"`
+}
+
+// AgentHookAwaitDTO tells a relay what it is waiting on and for how long.
+type AgentHookAwaitDTO struct {
+	// ChoiceID is Crowbar's identity for the prompt. The relay never interprets it;
+	// it carries it so a log line can name what a hook is blocked on.
+	ChoiceID string `json:"choiceId"`
+	// WaitMS is the daemon's own budget, in milliseconds. The relay bounds its
+	// request by it instead of inventing a number, so the budget lives in exactly
+	// one place — the provider's descriptor — and stays comfortably inside the
+	// timeout injected on the provider's hook registration.
+	WaitMS int64 `json:"waitMs"`
+}
+
+// AgentHookAnswerDTO is the verdict handed back to a blocked relay.
+//
+// Stdout is printed VERBATIM, in one write, and is the provider's own JSON — the
+// daemon renders it from the descriptor so the relay carries bytes and decides
+// nothing. Empty means print nothing, which is the honest answer for a prompt
+// that expired or was decided at the terminal.
+type AgentHookAnswerDTO struct {
+	Stdout string `json:"stdout"`
+}
+
+// AgentChoiceOptionDTO is one answer a prompt will accept. A client renders by
+// Kind rather than by Label: allow and deny are Crowbar's own words, because no
+// provider enumerates the two answers a permission has by construction.
+type AgentChoiceOptionDTO struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // AgentTelemetryDTO is what the provider itself reported about cost and capacity.
@@ -339,6 +450,24 @@ type AgentProviderDTO struct {
 	Connected   bool   `json:"connected"`
 	Enabled     bool   `json:"enabled"`
 	MCPEnabled  bool   `json:"mcpEnabled"`
+
+	// ModelSelect and EffortSelect are whether this provider's descriptor declares
+	// a model / effort catalogue at all. False means the picker does not exist for
+	// it — absent UI, never a disabled control implying breakage. Both shipped
+	// descriptors declare both today; the flags exist so a third provider that
+	// declares neither renders no picker rather than an empty one.
+	ModelSelect  bool `json:"modelSelect"`
+	EffortSelect bool `json:"effortSelect"`
+
+	// Models is the declared catalogue, in descriptor order.
+	//
+	// Efforts is keyed by model id and ALREADY RESOLVED: every entry in Models has
+	// a key, plus "" for the provider's own default model. The descriptor's
+	// model-independent fallback is applied here rather than on the wire, so a
+	// client picks a model and reads Efforts[model] with no fallback rule to
+	// implement and no provider knowledge to hardcode.
+	Models  []string            `json:"models,omitempty"`
+	Efforts map[string][]string `json:"efforts,omitempty"`
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket

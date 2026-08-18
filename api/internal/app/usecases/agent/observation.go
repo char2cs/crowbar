@@ -22,7 +22,9 @@ import (
 func (u *Usecase) handleObservation(
 	ctx context.Context,
 	runner domain.AgentRunner,
+	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
+	raw []byte,
 ) error {
 	chat, ok, err := u.chatForRunner(ctx, runner)
 	if err != nil || !ok {
@@ -36,10 +38,16 @@ func (u *Usecase) handleObservation(
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
 			Request: ev.Tool.Input, Now: now,
 		}))
-	case engineagents.HookToolPost:
+	case engineagents.HookToolPost, engineagents.HookToolFail:
+		// A FAILURE completes the call exactly as a success does. It has to: claude
+		// fires PostToolUseFailure INSTEAD OF PostToolUse (measured against 2.1.234 on
+		// 2026-08-17), so a failure that did not complete the call left it in flight
+		// until the turn-close sweep abandoned it — "the Edit failed" rendered as "the
+		// Edit is still running", for the rest of the turn.
 		u.note(ctx, "tool completed", u.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
-			Result: ev.Tool.Result, Status: toolStatus(ev), DurationMS: ev.Tool.DurationMS, Now: now,
+			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
+			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
 	case engineagents.HookSubagentPre:
 		u.note(ctx, "subagent started",
@@ -47,16 +55,103 @@ func (u *Usecase) handleObservation(
 	case engineagents.HookSubagentPost:
 		u.note(ctx, "subagent stopped",
 			u.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
-	case engineagents.HookNotification, engineagents.HookPermission, engineagents.HookCompactPre:
+	case engineagents.HookNotification, engineagents.HookPermission,
+		engineagents.HookElicitation, engineagents.HookCompactPre:
 		u.note(ctx, "interrupted", u.activity.Interrupt(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
+		// And, where the provider said what it is actually asking, the prompt itself.
+		// The interruption says the agent stopped; the choice says what it is waiting
+		// to be told, which is the only one of the two a user can act on.
+		u.openChoice(ctx, chat, runner, agent, ev, raw, now)
 	case engineagents.HookCompactPost:
 		u.note(ctx, "interruption resolved", u.activity.ResolveInterruption(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 	}
 	return nil
+}
+
+// openChoice records the prompt an event is carrying, if it carries one.
+//
+// A descriptor that maps none of the choice vocabulary produces no prompt, so
+// this is a no-op for it and the chat behaves exactly as it did before prompts
+// existed. That is the whole degradation story: absent capability, absent UI.
+func (u *Usecase) openChoice(
+	ctx context.Context,
+	chat domain.AgentChat,
+	runner domain.AgentRunner,
+	agent engineagents.Agent,
+	ev engineagents.CanonicalEvent,
+	raw []byte,
+	now time.Time,
+) {
+	if ev.Choice == nil {
+		return
+	}
+	chatID := chat.ID
+	id := choiceID(chatID, ev.Choice)
+	u.note(ctx, "choice opened", u.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
+		ChatID:   chatID,
+		ChoiceID: id,
+		Kind:     ev.Choice.Kind,
+		PromptID: ev.Choice.PromptID,
+		ToolName: ev.Choice.ToolName,
+		Title:    ev.Choice.Title,
+		Question: ev.Choice.Question,
+		Mode:     ev.Choice.Mode,
+		Multi:    ev.Choice.Multi,
+		Options:  choiceOptions(ev.Choice.Options),
+		Schema:   string(ev.Choice.Schema),
+		Now:      now,
+	}))
+	// The prompt is recorded whether or not anybody can answer it. Holding the
+	// RELAY open is the separate question, and only a provider that declares how a
+	// decision reaches it gets that far — see holdForAnswer.
+	u.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
+}
+
+// choiceID is Crowbar's OWN identity for a prompt, and the name an answer uses.
+//
+// It is derived from the provider's prompt id where there is one, so two payloads
+// describing the same prompt land on one record. Where there is none — an
+// elicitation carries no id at all — a monotonic fallback is minted, which is
+// correct for a prompt that will only ever be described once.
+//
+// The TOOL NAME is part of it, and has to be: claude's prompt_id is not the
+// prompt's id at all, it is the TURN's. Measured against claude 2.1.234 on
+// 2026-08-18, one turn's UserPromptSubmit, PreToolUse, PermissionRequest and
+// Notification all carried the identical prompt_id — so keying on it alone gave
+// every prompt in a turn ONE identity, and a turn that asked about a Bash call
+// and then about an Edit overwrote the first question with the second. The tool
+// name separates them, and it still folds the two payloads that describe ONE
+// prompt (a permission and the tool_pre that preceded it) onto one record, which
+// is the property the id existed for.
+//
+// Two prompts about the SAME tool in one turn are still one id, and that is
+// correct rather than a residual gap: a provider gates one call at a time, so the
+// second cannot be asked until the first is answered and swept.
+func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
+	if prompt.PromptID == "" {
+		return "choice-" + fallbackID()
+	}
+	if prompt.ToolName == "" {
+		return "choice-" + chatID + "-" + prompt.PromptID
+	}
+	return "choice-" + chatID + "-" + prompt.PromptID + "-" + prompt.ToolName
+}
+
+func choiceOptions(in []engineagents.ChoiceOption) []domain.ActivityChoiceOption {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]domain.ActivityChoiceOption, 0, len(in))
+	for _, o := range in {
+		out = append(out, domain.ActivityChoiceOption{
+			ID: o.ID, Kind: o.Kind, Label: o.Label, Description: o.Description,
+		})
+	}
+	return out
 }
 
 func (u *Usecase) note(ctx context.Context, what string, err error) {
@@ -76,6 +171,12 @@ func toolID(ev engineagents.CanonicalEvent) string {
 }
 
 func toolStatus(ev engineagents.CanonicalEvent) string {
+	// A provider that reports failure as its own EVENT has already said the status;
+	// asking the payload again would let a descriptor that maps no tool_status turn
+	// a failure into an "ok".
+	if ev.Kind == engineagents.HookToolFail {
+		return domain.ToolStatusError
+	}
 	if ev.Tool == nil || ev.Tool.Status == "" {
 		return domain.ToolStatusOK
 	}
@@ -213,6 +314,10 @@ type ChatActivity struct {
 	ToolCalls     []domain.ActivityToolCall
 	Subagents     []domain.ActivitySubagent
 	Interruptions []domain.ActivityInterruption
+	// Choices are the prompts the agent put to a human, pending and resolved alike.
+	// A timeline shows both; a client asking only "is this agent blocked on me"
+	// reads ReadPendingChoices instead.
+	Choices []domain.ActivityChoice
 }
 
 // maxActivityPage bounds one activity read. A long chat holds thousands of tool
@@ -248,7 +353,36 @@ func (u *Usecase) ReadActivity(
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: interruptions: %w", err)
 	}
-	return ChatActivity{ToolCalls: calls, Subagents: subagents, Interruptions: interruptions}, nil
+	choices, err := u.activity.Choices(ctx, chatID)
+	if err != nil {
+		return ChatActivity{}, fmt.Errorf("agent: read activity: choices: %w", err)
+	}
+	return ChatActivity{
+		ToolCalls:     calls,
+		Subagents:     subagents,
+		Interruptions: interruptions,
+		Choices:       choices,
+	}, nil
+}
+
+// ReadPendingChoices returns the prompts a chat is still waiting on a human to
+// answer.
+//
+// It is a read of its own rather than a filter over ReadActivity because it
+// answers the question a chat surface asks constantly — is this agent blocked on
+// me — and answering it must not drag a turn's worth of tool calls along.
+func (u *Usecase) ReadPendingChoices(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityChoice, error) {
+	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
+		return nil, fmt.Errorf("agent: read pending choices: chat: %w", err)
+	}
+	choices, err := u.activity.PendingChoices(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: read pending choices: %w", err)
+	}
+	return choices, nil
 }
 
 // ReadToolPayload resolves one tool call's request or result.

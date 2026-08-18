@@ -116,6 +116,9 @@ type fakeAgentUsecase struct {
 	renameCalls []renameCall
 	renameErr   error
 
+	selectionCalls []selectionCall
+	selectionErr   error
+
 	dispatchMCPCalls []dispatchMCPCall
 	dispatchMCPOut   []byte
 	dispatchMCPSend  bool
@@ -144,6 +147,20 @@ type fakeAgentUsecase struct {
 	payload       []byte
 	payloadErr    error
 	payloadCalls  []payloadCall
+	pending       []domain.ActivityChoice
+	pendingErr    error
+	pendingCalls  []string
+
+	answerable    []string
+	answerCalls   []answerCall
+	answerErr     error
+	pendingAnswer agentusecase.PendingAnswer
+	pendingAwait  bool
+	awaitAnswer   agentusecase.HookAnswer
+	awaitErr      error
+	awaitCalls    []string
+	abandonCalls  []string
+	abandonErr    error
 	telemetry     engineagents.Telemetry
 	telemetryOK   bool
 
@@ -177,6 +194,12 @@ type ingestCall struct {
 type switchCall struct {
 	chatID   string
 	provider string
+}
+
+type selectionCall struct {
+	chatID string
+	model  string
+	effort string
 }
 
 type renameCall struct {
@@ -312,6 +335,14 @@ func (f *fakeAgentUsecase) RenameChat(
 	return f.renameErr
 }
 
+func (f *fakeAgentUsecase) SetChatSelection(
+	_ context.Context,
+	chatID, model, effort string,
+) error {
+	f.selectionCalls = append(f.selectionCalls, selectionCall{chatID: chatID, model: model, effort: effort})
+	return f.selectionErr
+}
+
 func (f *fakeAgentUsecase) DispatchMCP(
 	_ context.Context,
 	runnerID, token string,
@@ -365,6 +396,54 @@ func (f *fakeAgentUsecase) ReadToolPayload(
 ) ([]byte, error) {
 	f.payloadCalls = append(f.payloadCalls, payloadCall{chatID: chatID, toolID: toolID, side: side})
 	return f.payload, f.payloadErr
+}
+
+func (f *fakeAgentUsecase) ReadPendingChoices(
+	_ context.Context, chatID string,
+) ([]domain.ActivityChoice, error) {
+	f.pendingCalls = append(f.pendingCalls, chatID)
+	return f.pending, f.pendingErr
+}
+
+func (f *fakeAgentUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string {
+	return f.answerable
+}
+
+func (f *fakeAgentUsecase) AnswerChoice(
+	_ context.Context, chatID, choiceID string, optionIDs []string, reason string, content []byte,
+) error {
+	f.answerCalls = append(f.answerCalls, answerCall{
+		chatID: chatID, choiceID: choiceID, optionIDs: optionIDs,
+		reason: reason, content: string(content),
+	})
+	return f.answerErr
+}
+
+func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
+	return f.pendingAnswer, f.pendingAwait
+}
+
+func (f *fakeAgentUsecase) AwaitAnswer(
+	_ context.Context, deliveryID string,
+) (agentusecase.HookAnswer, error) {
+	f.awaitCalls = append(f.awaitCalls, deliveryID)
+	return f.awaitAnswer, f.awaitErr
+}
+
+func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, deliveryID string) error {
+	f.abandonCalls = append(f.abandonCalls, deliveryID)
+	return f.abandonErr
+}
+
+// answerCall records one AnswerChoice, so a handler test can assert that what a
+// client sent is what the usecase was told — the option ids especially, since
+// they are the only thing that decides which provider template gets rendered.
+type answerCall struct {
+	chatID    string
+	choiceID  string
+	optionIDs []string
+	reason    string
+	content   string
 }
 
 func (f *fakeAgentUsecase) Telemetry(string) (engineagents.Telemetry, bool) {

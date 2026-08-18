@@ -159,3 +159,48 @@ func JSON(p map[string]any, path string) []byte {
 	}
 	return data
 }
+
+// Objects returns an array leaf's OBJECT elements, in order, dropping anything in
+// it that is not an object.
+//
+// It is how a descriptor names a list of things — a permission's suggestions, an
+// AskUserQuestion's options — without the engine learning what any element means:
+// the caller reads each element with the same dotted-path readers it would use on
+// a whole payload. A path that is missing, or whose leaf is not an array, yields
+// nothing, which is the same absent answer every other reader here gives.
+func Objects(p map[string]any, path string) []map[string]any {
+	v, ok := walk(p, path)
+	if !ok {
+		return nil
+	}
+	arr, isArray := v.([]any)
+	if !isArray {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(arr))
+	for _, item := range arr {
+		if obj, isObject := item.(map[string]any); isObject {
+			out = append(out, obj)
+		}
+	}
+	return out
+}
+
+// Object returns an OBJECT leaf, or nil for anything else.
+//
+// It is the singular of Objects, and it exists for the write side: answering a
+// prompt sometimes means handing a provider its own sub-document back with one
+// key added, and that needs the subtree as a map rather than as re-encoded bytes.
+// The returned map is the decoded payload's own, so a caller that mutates it is
+// mutating a value it decoded itself and nobody else holds.
+func Object(p map[string]any, path string) map[string]any {
+	v, ok := walk(p, path)
+	if !ok {
+		return nil
+	}
+	obj, isObject := v.(map[string]any)
+	if !isObject {
+		return nil
+	}
+	return obj
+}

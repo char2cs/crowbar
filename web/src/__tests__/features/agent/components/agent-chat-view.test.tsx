@@ -5,16 +5,18 @@ import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/a
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { ApiError } from '@/lib/api'
 
-const { listMessagesFn, submitPromptFn, slashCatalogFn } = vi.hoisted(() => ({
+const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn } = vi.hoisted(() => ({
   listMessagesFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
+  setSelectionFn: vi.fn(),
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
   submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
+  setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
 }))
 
 vi.mock('@/features/panes/lib/markdown', () => ({
@@ -95,6 +97,11 @@ const baseProps = () => ({
   onPromptDispatchSettled: vi.fn(),
   onRefreshChat: vi.fn().mockResolvedValue(true),
   onQueueCountChange: vi.fn(),
+  // No sticky selection: these fixtures' providers declare no catalogue, so the
+  // picker renders nothing at all here (see agent-model-picker.test.tsx).
+  model: '',
+  effort: '',
+  onSelectionChange: vi.fn(),
 })
 
 function setup(overrides: Partial<ReturnType<typeof baseProps>> = {}) {
@@ -129,6 +136,8 @@ beforeEach(() => {
   listMessagesFn.mockReset()
   submitPromptFn.mockReset()
   slashCatalogFn.mockReset()
+  setSelectionFn.mockReset()
+  setSelectionFn.mockResolvedValue(undefined)
   listMessagesFn.mockImplementation(
     (_wsId: string, _chatId: string, options: { after?: number; before?: number }) => {
       if (options.before !== undefined) return Promise.resolve(page(olderMessages))
@@ -759,5 +768,80 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.click(screen.getByRole('button', { name: /open terminal/i }))
     expect(openTerminal).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+})
+
+describe('AgentChatView model + effort selection', () => {
+  // The catalogue-declaring provider. The default fixtures deliberately declare
+  // none, which is why every other test in this file sees no picker at all.
+  const selectable: AgentProvider[] = [
+    {
+      ...providers[0],
+      modelSelect: true,
+      effortSelect: true,
+      models: ['gpt-5.6-sol', 'gpt-5.6-luna'],
+      efforts: {
+        '': ['low', 'medium', 'high'],
+        'gpt-5.6-sol': ['low', 'medium', 'high', 'max', 'ultra'],
+        'gpt-5.6-luna': ['low', 'medium', 'high', 'max'],
+      },
+    },
+    providers[1],
+  ]
+
+  it('shows no picker at all for a provider that declares no catalogue', async () => {
+    setup()
+    await composer()
+    expect(screen.queryByTestId('agent-model-picker')).toBeNull()
+  })
+
+  it('puts the picker by the composer when the provider declares one', async () => {
+    setup({ providers: selectable })
+    await composer()
+    expect(screen.getByTestId('agent-model-picker')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Model:/ })).toHaveTextContent('Default model')
+  })
+
+  it('writes a picked model and hands the accepted pair back to the chat owner', async () => {
+    const onSelectionChange = vi.fn()
+    setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra', onSelectionChange })
+    await composer()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Model:/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'gpt-5.6-luna' }))
+
+    // `ultra` is not a gpt-5.6-luna level, so it is cleared in the same write.
+    await waitFor(() => expect(setSelectionFn).toHaveBeenCalledWith('w1', 'c1', 'gpt-5.6-luna', ''))
+    expect(onSelectionChange).toHaveBeenCalledWith('gpt-5.6-luna', '')
+  })
+
+  it('shows the effort the PROVIDER reported for a turn, and only when it reported one', async () => {
+    // Provenance, not the request: this is what the CLI says it actually ran at.
+    initialMessages = [
+      { ...message(1, 'assistant', 'Reported'), effort: 'high' },
+      message(2, 'assistant', 'Unreported'),
+    ]
+    setup()
+
+    expect(await screen.findByText('Reported')).toBeInTheDocument()
+    const reported = screen.getAllByTestId('message-effort')
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toHaveTextContent('high effort')
+  })
+
+  it('never shows a reported effort on a USER message', async () => {
+    initialMessages = [{ ...message(1, 'user', 'Ask'), effort: 'high' }]
+    setup()
+
+    expect(await screen.findByText('Ask')).toBeInTheDocument()
+    expect(screen.queryByTestId('message-effort')).toBeNull()
+  })
+
+  it("does not borrow the chat's REQUESTED effort for a turn the provider said nothing about", async () => {
+    initialMessages = [message(1, 'assistant', 'Silent')]
+    setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra' })
+
+    expect(await screen.findByText('Silent')).toBeInTheDocument()
+    expect(screen.queryByTestId('message-effort')).toBeNull()
   })
 })

@@ -12,6 +12,11 @@ import (
 // the completion itself carries. A provider that reports only the post hook — or
 // whose pre hook was lost when the daemon restarted mid-turn — should still leave
 // a legible record, and a dropped completion would show a tool as running forever.
+//
+// A FAILING tool arrives here too, and must: claude fires PostToolUseFailure
+// INSTEAD OF PostToolUse (measured against 2.1.234 on 2026-08-17), so a failure
+// that did not complete the call left it in flight until the turn-close sweep
+// abandoned it — "the Edit failed" rendered as "the Edit is still running".
 type CompleteTool struct {
 	ChatID     string
 	ToolID     string
@@ -19,6 +24,7 @@ type CompleteTool struct {
 	Target     string
 	ResultRef  string
 	Status     string
+	Error      string
 	DurationMS int
 	Now        time.Time
 }
@@ -63,6 +69,7 @@ func (c CompleteTool) EmitEvent(current *domain.AgentActivity) domain.AgentActiv
 		call.Target = c.Target
 	}
 	call.ResultRef = c.ResultRef
+	call.Error = c.Error
 	call.Status = c.Status
 	if call.Status == "" {
 		call.Status = domain.ToolStatusOK
@@ -74,6 +81,12 @@ func (c CompleteTool) EmitEvent(current *domain.AgentActivity) domain.AgentActiv
 		call.DurationMS = int(c.Now.Sub(call.StartedAt).Milliseconds())
 	}
 	call.EndedAt = at(c.Now)
+
+	// A prompt gating this call is answered the moment the call proceeds. Nobody
+	// reports that answer — it is typed at the PTY — so the work moving on is the
+	// only evidence there is, and waiting for better evidence leaves a question
+	// pinned over a chat that has long since gone on without it.
+	dropChoicesForTool(&next, c.ToolID, call.Name)
 
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTool, Tool: &call,

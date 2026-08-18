@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -206,6 +207,44 @@ func (s *Store) Interruptions(
 	return out, nil
 }
 
+// Choices returns a chat's prompts in sequence order, pending and resolved alike.
+func (s *Store) Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
+	var rows []ChoiceRow
+	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+		Where("chat_id = ?", chatID).Order("seq ASC").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentactivity storage: choices: %w", err)
+	}
+	return choiceDomains(rows), nil
+}
+
+// PendingChoices returns only the prompts a chat is still waiting on.
+//
+// It is a query of its own rather than a filter over Choices because it answers
+// the one question a chat surface asks on every frame — is this agent blocked on
+// me — and answering it must not read a turn's worth of resolved history.
+func (s *Store) PendingChoices(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityChoice, error) {
+	var rows []ChoiceRow
+	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+		Where("chat_id = ? AND resolved_at IS NULL", chatID).
+		Order("seq ASC").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentactivity storage: pending choices: %w", err)
+	}
+	return choiceDomains(rows), nil
+}
+
+func choiceDomains(rows []ChoiceRow) []domain.ActivityChoice {
+	out := make([]domain.ActivityChoice, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.domain())
+	}
+	return out
+}
+
 // RecentToolCalls returns the most recent tool calls across a set of chats. It
 // backs the cross-agent MCP surface: what are the other agents in this workspace
 // touching right now.
@@ -247,7 +286,8 @@ func (r ToolCallRow) domain() domain.ActivityToolCall {
 	return domain.ActivityToolCall{
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
 		Name: r.Name, Target: r.Target, RequestRef: r.RequestRef, ResultRef: r.ResultRef,
-		Status: r.Status, DurationMS: r.DurationMS, StartedAt: r.StartedAt, EndedAt: r.EndedAt,
+		Status: r.Status, Error: r.Error, DurationMS: r.DurationMS,
+		StartedAt: r.StartedAt, EndedAt: r.EndedAt,
 	}
 }
 
@@ -263,4 +303,31 @@ func (r InterruptionRow) domain() domain.ActivityInterruption {
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
 		Kind: r.Kind, Detail: r.Detail, At: r.At, ResolvedAt: r.ResolvedAt,
 	}
+}
+
+func (r ChoiceRow) domain() domain.ActivityChoice {
+	return domain.ActivityChoice{
+		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
+		Kind: r.Kind, PromptID: r.PromptID, ToolID: r.ToolID, ToolName: r.ToolName,
+		Title: r.Title, Question: r.Question, Mode: r.Mode, Multi: r.Multi,
+		Options: decodeOptions(r.Options), Schema: r.Schema,
+		At: r.At, ResolvedAt: r.ResolvedAt, Resolution: r.Resolution,
+	}
+}
+
+// decodeOptions reads the stored option list, answering "no options" for anything
+// it cannot parse.
+//
+// A prompt whose options were written by a future shape of this code must still
+// render as the question it is: losing the buttons is a degraded prompt, while
+// failing the read would lose the whole timeline that holds it.
+func decodeOptions(raw string) []domain.ActivityChoiceOption {
+	if raw == "" {
+		return nil
+	}
+	var out []domain.ActivityChoiceOption
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
 }

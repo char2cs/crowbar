@@ -44,7 +44,7 @@ func (p *Projector) Apply(ctx context.Context, activity domain.AgentActivity) er
 		if delta.Tool == nil {
 			return nil
 		}
-		return p.store.SaveToolCall(ctx, *delta.Tool)
+		return p.applyTool(ctx, delta)
 	case domain.DeltaSubagent:
 		if delta.Subagent == nil {
 			return nil
@@ -55,9 +55,38 @@ func (p *Projector) Apply(ctx context.Context, activity domain.AgentActivity) er
 			return nil
 		}
 		return p.store.SaveInterruption(ctx, *delta.Interruption)
+	case domain.DeltaChoice:
+		if delta.Choice == nil {
+			return nil
+		}
+		return p.store.SaveChoice(ctx, *delta.Choice)
 	default:
 		return nil
 	}
+}
+
+// applyTool writes the call, and — when the call has FINISHED — closes whatever
+// prompt was gating it.
+//
+// The sweep lives here rather than on the delta because a delta carries one item
+// and that item is the tool. It is not a shortcut: a permission is answered at the
+// PTY, by a human typing into the vendor CLI, and nothing reports that. The gated
+// work proceeding is the only evidence there is, and a prompt that waits for
+// better evidence stays pinned over a chat that moved on minutes ago.
+func (p *Projector) applyTool(ctx context.Context, delta *domain.ActivityDelta) error {
+	call := *delta.Tool
+	if err := p.store.SaveToolCall(ctx, call); err != nil {
+		return err
+	}
+	if delta.Phase != domain.DeltaClose {
+		return nil
+	}
+	if err := p.store.ResolveChoicesForTool(
+		ctx, call.ChatID, call.ID, call.Name, call.EndedAt,
+	); err != nil {
+		return fmt.Errorf("agentactivity projection: resolve choices for tool: %w", err)
+	}
+	return nil
 }
 
 func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) error {
@@ -99,6 +128,13 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 	// unresolved one would render "the agent needs your attention" forever.
 	if err := p.store.ResolveOpenInterruptions(ctx, delta.Turn.ChatID, delta.Turn.EndedAt); err != nil {
 		return fmt.Errorf("agentactivity projection: resolve open interruptions: %w", err)
+	}
+	// Nor can a pending PROMPT. An elicitation has no resolving event on any
+	// provider and a permission whose tool never completed has nothing to resolve
+	// it, so without this sweep a question the agent stopped asking would stay
+	// pinned over the chat for the rest of its life.
+	if err := p.store.ResolveOpenChoices(ctx, delta.Turn.ChatID, delta.Turn.EndedAt); err != nil {
+		return fmt.Errorf("agentactivity projection: resolve open choices: %w", err)
 	}
 	return nil
 }

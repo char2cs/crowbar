@@ -18,6 +18,19 @@ const (
 	HookCompactPost  = "compact_post"
 	HookSessionEnd   = "session_end"
 	HookTelemetry    = "telemetry"
+
+	// HookToolFail is a tool finishing UNSUCCESSFULLY, and it is a kind of its own
+	// rather than a status on tool_post because claude fires PostToolUseFailure
+	// INSTEAD OF PostToolUse (measured against claude 2.1.234 on 2026-08-17). A
+	// provider mapping only tool_post therefore never learns that a failed tool
+	// stopped running, and the call reads as running until the turn sweeps it.
+	HookToolFail = "tool_fail"
+
+	// HookElicitation is an MCP server asking the human a question THROUGH the CLI.
+	// Unlike AskUserQuestion — which is a tool, and so arrives as tool_pre plus a
+	// permission — this is a hook event in its own right (measured against claude
+	// 2.1.234 on 2026-08-17), so nothing but a canonical kind can observe it.
+	HookElicitation = "elicitation"
 )
 
 // HookSpec is the read side: how to parse this CLI's hook payloads (format) and

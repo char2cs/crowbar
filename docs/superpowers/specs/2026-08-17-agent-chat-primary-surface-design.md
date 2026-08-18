@@ -326,8 +326,29 @@ model_catalog:
   with full access to Claude's programmatic surface hardcodes its list for this reason.
 
 Where enumeration is absent, Crowbar offers free-text entry plus whatever it has observed, and
-displays the resolved model from `SessionStart.model` / `ModelIdentity`. **No model names are
-declared in any descriptor.**
+displays the resolved model from `SessionStart.model` / `ModelIdentity`.
+
+> **Superseded 2026-08-18.** This section originally ended "**No model names are declared in any
+> descriptor.**" That is no longer the design, and it was wrong for the provider it mattered most
+> for. claude exposes no enumeration at all, so a rule forbidding declared names meant no picker
+> for claude — trading a list that goes stale for a capability that never exists.
+>
+> What shipped instead: each descriptor may declare optional `model:` and `effort:` blocks, each
+> carrying `available:` + `strategy:` + `apply:`. `available:` is the DECLARED catalogue and the
+> honest cost is staleness, stated in the YAML at each site. Where a live enumeration exists it
+> supersedes the declaration — codex's `debug models` is exactly that, and its declared list is
+> explicitly labelled a snapshot of it (measured 2026-08-17, codex-cli 0.146.0).
+>
+> `effort.available` is keyed BY MODEL, because effort genuinely varies per model: `gpt-5.6-sol`
+> reaches `ultra`, `gpt-5.6-luna` stops at `max`, and the 5.4/5.5 family stops at `xhigh`. A
+> provider whose levels do not vary declares the single fallback key `"*"` — claude's case, and
+> that enum IS verified from the CLI's own rejection message.
+>
+> `strategy: restart_tui` is the only supported value, and it is load-bearing rather than
+> decorative: a selection change forces a restart EVEN ON a delivery strategy that would not
+> otherwise respawn. Both shipped descriptors already restart per prompt, so the forced restart is
+> currently redundant for them — it exists for `rewake_hook`-style delivery. The restart always
+> RESUMES the native session; verified live (pid changed, session id identical).
 
 Prohibited models fail gracefully, measured 2026-08-16:
 
@@ -359,6 +380,55 @@ Effort actually used is observable on both: Claude's `Stop` carries `effort: {le
 ### 8.4 Slash catalogue
 
 Unchanged from 2026-08-15, including the `completeness` labelling and the terminal fallback.
+
+### 8.5 Choice prompts — answering a blocked CLI from the chat
+
+Shipped 2026-08-18. A provider blocked on a permission prompt, an `AskUserQuestion`, or an MCP
+elicitation is now legible in the chat AND answerable from it, with no TUI interaction. Every
+fact below was measured live against claude 2.1.234; none of it is in public documentation, so it
+is version-coupled by nature and recorded here with its evidence.
+
+**A hook may block, and blocking is the supported path.** Default budget 600 s; `timeout` in
+settings.json is SECONDS, honoured verbatim with no ceiling; on expiry the hook is KILLED, not
+abandoned. Proven end to end: a `PermissionRequest` hook held the dialog 45.5 s then answered
+`allow` — the tool ran, `PostToolUse` and `Stop` fired, and the CLI printed
+`⎿ Allowed by PermissionRequest hook`.
+
+**`async` / `asyncRewake` is NOT a decision channel.** It returns control immediately and the
+permission gate proceeds WITHOUT the hook; a late reply is collected as context material. Do not
+build on it. This was tested three ways and failed all three.
+
+**The output schema requires the `hookSpecificOutput` wrapper.** A bare `{"decision":…}` is
+REJECTED — `Hook JSON output validation failed — (root): Invalid input` — and the dialog is drawn
+as though the hook never spoke. The failure mode is silent, so this is pinned by a test:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PermissionRequest",
+  "decision":{"behavior":"allow","updatedInput":{…,"answers":{"<question>":"<label>"}}}}}
+```
+
+`permissionDecision: "defer"` is ignored in interactive mode, and Crowbar is always interactive
+(`interactive_required: true`, `-p` forbidden), so it is unusable here regardless.
+
+**The race is settled and asymmetric.** A human at the PTY always wins, immediately; a hook answer
+arriving after them is discarded silently — no error, no double execution. But `PostToolUse` fires
+only when the human says YES. On a decline **nothing fires at all**. The blocked hook is killed
+with **SIGTERM**, which is trappable, and that is the ONLY notification of a terminal-side
+decline. Resolution is therefore three-pathed: explicit answer, observed proceeding, or the
+SIGTERM report.
+
+**Degradation is instant, not delayed.** A hook that exits 0 printing nothing hands the dialog
+straight back to the human in milliseconds. So an unreachable daemon must NOT block-then-timeout;
+it must decline immediately. Worst case then equals the pre-feature behaviour.
+
+**Two traps.** `prompt_id` is the TURN's id, not the prompt's — every hook in one turn carries the
+same value, so choice identity must fold in more than that or two prompts in a turn collapse into
+one. And `permission_mode` in every payload read `"default"` even when the TUI showed manual/auto;
+it is not trustworthy and is deliberately unmapped.
+
+**Known gap.** `permission_suggestions` (claude's "add this directory for the session") was never
+measured, so no answer template is declared. Answering a suggestion option is refused with 400
+rather than silently narrowing to a plain allow, and the UI renders those options disabled.
 
 ## 9. MCP: cross-agent awareness
 

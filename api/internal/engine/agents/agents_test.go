@@ -446,3 +446,307 @@ func writeDescriptor(t *testing.T, home, id, body string) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o600))
 }
+
+// selectingAgent resolves an on-disk descriptor that declares both selection
+// blocks, plus a prompt delivery whose strategy is NOT restart_tui — the shape
+// no shipped descriptor has, and the one that proves the selection block's own
+// strategy is what forces a restart.
+func selectingAgent(t *testing.T) agents.Agent {
+	t.Helper()
+	home := t.TempDir()
+	writeDescriptor(t, home, "picker", `
+id: picker
+spawn:
+  cmd: picker-cli
+  interactive_required: true
+session:
+  resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: rewake_hook
+    rewake: { sentinel: "crowbar-delivered" }
+    fresh:
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "{message}" }
+model:
+  available: [sonnet, opus]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+effort:
+  available:
+    "*": [low, high]
+    opus: [max]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop:     { message: last }
+`)
+	a, err := agents.New().Get(context.Background(), home, "picker")
+	require.NoError(t, err)
+	return a
+}
+
+// TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor pins the two shipped
+// answers. claude declares both catalogues; codex declares neither, because its
+// real catalogue is per-model and lives behind a command — a hand-written list
+// would be wrong, so it degrades to no picker at all.
+func TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor(t *testing.T) {
+	claude := get(t, "claude")
+	assert.True(t, claude.Capabilities().ModelSelect)
+	assert.True(t, claude.Capabilities().EffortSelect)
+	assert.Equal(t, []string{"sonnet", "opus", "haiku"}, claude.Models())
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts(""))
+	assert.Equal(t, claude.Efforts(""), claude.Efforts("opus"),
+		"claude's levels do not vary by model, so every model takes the fallback")
+
+	codex := get(t, "codex")
+	assert.True(t, codex.Capabilities().ModelSelect)
+	assert.True(t, codex.Capabilities().EffortSelect)
+	assert.Equal(t, []string{
+		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini",
+	}, codex.Models(), "codex's own priority order, as `codex debug models` reports it")
+}
+
+// TestAgent_CodexEffortsVaryByModel is the case the per-model catalogue shape
+// exists for, and it is not hypothetical: measured 2026-08-17 against codex-cli
+// 0.146.0, sol and terra reach ultra, luna stops at max, and the 5.4/5.5 family
+// stops at xhigh.
+//
+// The last assertion is the important one. codex declares NO "*" fallback, so an
+// id outside its catalogue must answer with NO levels — offering another model's
+// levels would be a picker that produces spawn arguments the CLI rejects.
+func TestAgent_CodexEffortsVaryByModel(t *testing.T) {
+	codex := get(t, "codex")
+
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"},
+		codex.Efforts("gpt-5.6-sol"))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"},
+		codex.Efforts("gpt-5.6-luna"))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh"},
+		codex.Efforts("gpt-5.4-mini"))
+	assert.Empty(t, codex.Efforts("gpt-9-imaginary"))
+	assert.Empty(t, codex.Efforts(""), "no fallback key means the default model has no declared levels")
+}
+
+// TestAgent_CodexSelectionUsesItsOwnConfigChannel: codex has no --effort flag, so
+// the level travels through its `-c key=value` config-override channel — the same
+// shape every other codex config step uses.
+func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
+	codex := get(t, "codex")
+	ctx := agents.TemplateCtx{
+		Tmp: t.TempDir(), Cwd: t.TempDir(),
+		Model: "gpt-5.6-sol", Effort: "ultra",
+	}
+
+	steps := codex.SelectionSteps(agents.Selection{Model: "gpt-5.6-sol", Effort: "ultra"})
+	plan, err := codex.SpawnPlan(ctx, nil, steps)
+
+	require.NoError(t, err)
+	modelAt := indexOf(plan.Argv, "--model")
+	require.GreaterOrEqual(t, modelAt, 0)
+	assert.Equal(t, "gpt-5.6-sol", plan.Argv[modelAt+1])
+	assert.Contains(t, plan.Argv, `model_reasoning_effort="ultra"`)
+}
+
+// TestAgent_SelectionStepsCarryTheChoiceIntoTheArgv walks the whole path a
+// selection takes: declared block → steps → rendered argv.
+func TestAgent_SelectionStepsCarryTheChoiceIntoTheArgv(t *testing.T) {
+	a := selectingAgent(t)
+	ctx := agents.TemplateCtx{
+		Tmp: t.TempDir(), Cwd: t.TempDir(),
+		Model: "opus", Effort: "max",
+	}
+
+	steps := a.SelectionSteps(agents.Selection{Model: "opus", Effort: "max"})
+	plan, err := a.SpawnPlan(ctx, nil, steps)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--model", "opus", "--effort", "max"}, plan.Argv)
+}
+
+// TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport is the
+// inert-path guarantee, and it is the property the whole feature is allowed to
+// rest on: a chat that has chosen nothing must launch the exact command line it
+// launched before any of this existed.
+//
+// It is asserted against a REAL shipped descriptor (claude, which declares both
+// blocks) rather than a stub, because a stub declaring nothing could not tell
+// "contributes nothing" from "has nothing to contribute".
+func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *testing.T) {
+	a := get(t, "claude")
+	// One tmp dir for both renders: it lands in the argv (--settings) and a fresh
+	// one per call would differ for a reason that has nothing to do with selection.
+	base := agents.TemplateCtx{
+		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
+		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+	}
+
+	without, err := a.SpawnPlan(base, nil, nil)
+	require.NoError(t, err)
+	withEmpty, err := a.SpawnPlan(base, nil, a.SelectionSteps(agents.Selection{}))
+	require.NoError(t, err)
+
+	assert.Empty(t, a.SelectionSteps(agents.Selection{}))
+	assert.Equal(t, without.Argv, withEmpty.Argv)
+	for _, arg := range without.Argv {
+		assert.NotContains(t, arg, "--model")
+		assert.NotContains(t, arg, "--effort")
+	}
+}
+
+// TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy is the forced
+// restart, proved on a delivery path that would NOT otherwise restart: this
+// descriptor declares rewake_hook, so nothing about delivering a prompt respawns
+// the CLI — and a changed model still must.
+func TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy(t *testing.T) {
+	a := selectingAgent(t)
+	require.NotEqual(t, agents.DeliveryRestartTUI, a.Capabilities().Delivery,
+		"the fixture must not restart for delivery reasons, or this proves nothing")
+
+	assert.False(t, a.SelectionRestart(
+		agents.Selection{Model: "opus"}, agents.Selection{Model: "opus"}))
+	assert.True(t, a.SelectionRestart(
+		agents.Selection{}, agents.Selection{Model: "opus"}))
+	assert.True(t, a.SelectionRestart(
+		agents.Selection{Effort: "high"}, agents.Selection{}))
+}
+
+// TestAgent_SelectionIsAbsentWhereNothingIsDeclared keeps a provider with no
+// catalogue out of every branch: nothing to offer, nothing to render, nothing to
+// restart for.
+func TestAgent_SelectionIsAbsentWhereNothingIsDeclared(t *testing.T) {
+	a := stubAgent(t, "true")
+
+	assert.Empty(t, a.Models())
+	assert.Empty(t, a.Efforts(""))
+	assert.Empty(t, a.SelectionSteps(agents.Selection{Model: "opus", Effort: "max"}))
+	assert.False(t, a.SelectionRestart(agents.Selection{}, agents.Selection{Model: "opus"}))
+}
+
+// The SHIPPED descriptor's answer shapes, pinned against what was MEASURED
+// against claude 2.1.234 on 2026-08-18.
+//
+// The hookSpecificOutput wrapper is the load-bearing part and the reason this is
+// a test rather than a comment: a bare {"decision":{"behavior":…}} was measured
+// failing claude's own hook-output validator — `Hook JSON output validation
+// failed — (root): Invalid input` — after which the TUI dialog was drawn and the
+// human's decision was thrown away. A descriptor edit that loses the wrapper
+// would produce a channel that looks wired up and silently answers nothing.
+func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T) {
+	a := get(t, "claude")
+
+	capability, ok := a.AnswerCapability(agents.HookPermission)
+	require.True(t, ok, "claude declares an answer channel for its permission hook")
+	assert.Equal(t, []string{"allow", "answer", "deny"}, capability.Keys)
+	assert.Positive(t, capability.Wait)
+	assert.Less(t, capability.Wait, 300*time.Second,
+		"the daemon's budget must expire BEFORE the 300s timeout injected on the hook, "+
+			"or the relay is killed mid-write instead of exiting under its own control")
+
+	allow, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: "allow"})
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
+			`"decision":{"behavior":"allow"}}}`,
+		string(allow))
+
+	deny, err := a.RenderAnswer(agents.HookPermission, nil,
+		agents.AnswerDecision{Key: "deny", Reason: "no"})
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest",`+
+			`"decision":{"behavior":"deny","message":"no"}}}`,
+		string(deny))
+}
+
+// AskUserQuestion is answered THROUGH the permission hook — the one open question
+// the answer channel had, settled by measurement — by handing the tool its own
+// input back with the picks merged in.
+func TestAgent_ClaudeAnswersAQuestionByEchoingTheToolInput(t *testing.T) {
+	raw := []byte(`{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"A or B?"}]}}`)
+
+	got, err := get(t, "claude").RenderAnswer(agents.HookPermission, raw,
+		agents.AnswerDecision{Key: "answer", Answers: map[string]any{"A or B?": "A"}})
+
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+			`"updatedInput":{"questions":[{"question":"A or B?"}],"answers":{"A or B?":"A"}}}}}`,
+		string(got))
+}
+
+func TestAgent_ClaudeAnswersAnElicitationWithTheMCPVerbs(t *testing.T) {
+	a := get(t, "claude")
+	capability, ok := a.AnswerCapability(agents.HookElicitation)
+	require.True(t, ok)
+	assert.Equal(t, []string{"accept", "cancel", "decline"}, capability.Keys)
+
+	got, err := a.RenderAnswer(agents.HookElicitation, nil,
+		agents.AnswerDecision{Key: "accept", Content: []byte(`{"choice":"B"}`)})
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"accept","content":{"choice":"B"}}}`,
+		string(got))
+}
+
+// A provider that declares no answer channel is completely unaffected: nothing it
+// opens is answerable, so no relay of its is ever held open.
+func TestAgent_CodexDeclaresNoAnswerChannel(t *testing.T) {
+	a := get(t, "codex")
+
+	_, ok := a.AnswerCapability(agents.HookPermission)
+	assert.False(t, ok)
+
+	_, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: "allow"})
+	assert.ErrorIs(t, err, agents.ErrNotAnswerable)
+}
+
+// A decision claude has no template for is refused rather than approximated: its
+// permission_suggestions ride a channel that was never measured, and a broader
+// grant that silently narrowed to a plain allow would grant less than the user
+// chose while reporting success.
+func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
+	_, err := get(t, "claude").RenderAnswer(agents.HookPermission, nil,
+		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion})
+
+	assert.ErrorIs(t, err, agents.ErrUnsupportedDecision)
+}
+
+// Every hook Crowbar HOLDS OPEN must carry an explicit timeout in the injected
+// settings: the default is the provider's, and a budget Crowbar does not own is
+// one it cannot stay inside.
+func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
+	tmp := t.TempDir()
+	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
+		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
+	}, nil, nil)
+	require.NoError(t, err)
+	if plan.Cleanup != nil {
+		t.Cleanup(plan.Cleanup)
+	}
+
+	settings, err := os.ReadFile(filepath.Join(tmp, "settings.json"))
+	require.NoError(t, err, "claude's hooks are injected through a settings file")
+
+	var decoded struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Timeout int `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(settings, &decoded))
+	for _, event := range []string{"PermissionRequest", "Elicitation"} {
+		matchers := decoded.Hooks[event]
+		require.NotEmpty(t, matchers, event)
+		require.NotEmpty(t, matchers[0].Hooks, event)
+		assert.Positive(t, matchers[0].Hooks[0].Timeout,
+			"%s is held open while a human decides and must declare its own budget", event)
+	}
+}

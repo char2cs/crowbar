@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import type { AgentActivity, AgentToolCall } from '@/features/agent/api/agent-api'
+import type { AgentActivity, AgentChoice, AgentToolCall } from '@/features/agent/api/agent-api'
 import {
   AgentActivityStrip,
   AgentTurnTools,
@@ -24,6 +24,21 @@ function tool(overrides: Partial<AgentToolCall> = {}): AgentToolCall {
 
 function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
   return { ...NO_ACTIVITY, ...overrides }
+}
+
+function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
+  return {
+    id: 'k1',
+    turnId: 'turn-1',
+    seq: 1,
+    kind: 'tool_permission',
+    toolName: 'Bash',
+    options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
+    pending: true,
+    answerable: true,
+    at: '2026-08-18T12:00:00Z',
+    ...overrides,
+  }
 }
 
 describe('AgentActivityStrip', () => {
@@ -148,6 +163,64 @@ describe('AgentActivityStrip', () => {
 
     expect(screen.queryByTestId('agent-interruption')).toBeNull()
     expect(screen.getByTestId('agent-activity')).toBeInTheDocument()
+  })
+})
+
+// A chat waiting on a HUMAN is not a chat doing work, and until prompts existed
+// the two looked identical. The prompt itself is AgentChoicePrompts; this strip's
+// job is to stop saying anything that contradicts it.
+describe('AgentActivityStrip while a prompt is open', () => {
+  it('says nothing at all — not "working…", not a second banner', () => {
+    const { container } = render(
+      <AgentActivityStrip
+        activity={activity({
+          choices: [choice()],
+          toolCalls: [tool({ name: 'Bash' })],
+          // The permission hook records BOTH an interruption and the prompt, so
+          // without this the same blockage would be announced twice.
+          interruptions: [
+            {
+              id: 'i1',
+              turnId: 'turn-1',
+              seq: 1,
+              kind: 'permission',
+              detail: 'Bash',
+              at: '2026-08-17T12:00:00Z',
+            },
+          ],
+        })}
+        working
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // A prompt that is pending and NOT answerable still silences the strip: the CLI
+  // is genuinely blocked, it is just blocked at its own terminal.
+  it('stays quiet for a prompt nobody here can answer', () => {
+    const { container } = render(
+      <AgentActivityStrip
+        activity={activity({ choices: [choice({ answerable: false })] })}
+        working
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('goes back to the working line once the prompt is resolved', () => {
+    render(
+      <AgentActivityStrip
+        activity={activity({ choices: [choice({ pending: false, resolution: 'proceeded' })] })}
+        working
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(screen.getByTestId('agent-activity')).toHaveTextContent('Claude is working…')
   })
 })
 

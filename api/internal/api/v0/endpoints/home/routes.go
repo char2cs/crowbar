@@ -84,6 +84,22 @@ func Register(
 	home.DELETE("/terminals/:sessionId", h.KillTerminal)
 	home.GET("/terminals/:sessionId/ws", h.TerminalWS)
 
+	registerAgent(home, h, ah, agentWS)
+}
+
+// registerAgent mounts the agent surface under /home.
+//
+// It is a function of its own for the reason its comment gives: it is a SECOND
+// copy of the workspace group's table, kept in step by
+// TestHomeMountsEveryAgentRoute, and a table long enough to need scrolling past
+// is one people stop reading. Register stays a list of capabilities; this is one
+// of them.
+func registerAgent(
+	home *gin.RouterGroup,
+	h *homehandlers.Handlers,
+	ah *agenthandlers.Handlers,
+	agentWS gin.HandlerFunc,
+) {
 	// Agentic chats are a home capability too (00 agentic-engine spec: chats must
 	// work for EVERY workspace kind, project-home included). The workspace-scoped
 	// surface (agent.Register) mounts the SAME agent handler set under
@@ -102,12 +118,15 @@ func Register(
 	home.POST("/agent/chats/:id/prompts", h.RequireHomeWorkspace, ah.SubmitPrompt)
 	home.GET("/agent/chats/:id/activity", h.RequireHomeWorkspace, ah.Activity)
 	home.GET("/agent/chats/:id/activity/:toolId/payload", h.RequireHomeWorkspace, ah.ToolPayload)
+	home.GET("/agent/chats/:id/choices", h.RequireHomeWorkspace, ah.Choices)
+	home.POST("/agent/chats/:id/choices/:choiceId/answer", h.RequireHomeWorkspace, ah.AnswerChoice)
 	home.GET("/agent/chats/:id/telemetry", h.RequireHomeWorkspace, ah.Telemetry)
 	home.GET("/agent/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
 	home.POST("/agent/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
 	home.POST("/agent/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
 	home.POST("/agent/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
 	home.POST("/agent/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
+	home.PATCH("/agent/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
 	home.GET("/agent/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.PATCH("/agent/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
 	home.DELETE("/agent/chats/:id", h.RequireHomeWorkspace, ah.Delete)
@@ -121,6 +140,12 @@ func Register(
 	home.DELETE("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/agent/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
 	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
+	// The answer channel's relay half. It mounts here for exactly the reason the
+	// hook ingress above does: a project-home workspace's repo-less scope resolves
+	// to this /home/agent mount, so a CLI running there reaches these leaves and no
+	// others (see cmd/crowbar/scope.go).
+	home.POST("/agent/hooks/await", h.RequireHomeWorkspace, ah.AwaitHookAnswer)
+	home.POST("/agent/hooks/abandon", h.RequireHomeWorkspace, ah.AbandonHookAnswer)
 	home.GET("/agent/providers", h.RequireHomeWorkspace, ah.Providers)
 	home.GET("/agent/ws/chats", h.RequireHomeWorkspace, agentWS)
 }

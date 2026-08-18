@@ -46,7 +46,13 @@ type StartInput struct {
 	TerminalSession string
 	ChatID          string
 	LaunchSessionID string
-	Now             time.Time
+	// LaunchModel and LaunchEffort are what Crowbar rendered into this process's
+	// argv. They are recorded because they cannot be recovered afterwards: the
+	// CLIs expose no readable current model, so an unrecorded spawn is a process
+	// whose selection nobody can ever name again.
+	LaunchModel  string
+	LaunchEffort string
+	Now          time.Time
 }
 
 // EventStore is the asynx-backed AgentRunner aggregate repository.
@@ -308,6 +314,8 @@ func (r *eventSourced) Start(
 		TerminalSession: in.TerminalSession,
 		ChatID:          in.ChatID,
 		LaunchSessionID: in.LaunchSessionID,
+		LaunchModel:     in.LaunchModel,
+		LaunchEffort:    in.LaunchEffort,
 		Now:             in.Now,
 	})
 	if err != nil {

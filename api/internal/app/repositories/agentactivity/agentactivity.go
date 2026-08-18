@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -57,17 +58,42 @@ type ToolInput struct {
 	Now     time.Time
 }
 
-// ToolResultInput records a tool completing.
+// ToolResultInput records a tool completing, successfully or not.
 type ToolResultInput struct {
-	ChatID     string
-	ToolID     string
-	Name       string
-	Target     string
-	Result     []byte
-	Status     string
+	ChatID string
+	ToolID string
+	Name   string
+	Target string
+	Result []byte
+	Status string
+	// Error is what the provider said went wrong. It is truncated to a MESSAGE
+	// before it reaches the aggregate — the full text is in Result, which goes to
+	// the content store — because a tool that fails on a hundred kilobytes of
+	// compiler output must not put a hundred kilobytes into every later snapshot.
+	Error      string
 	DurationMS int
 	Now        time.Time
 }
+
+// ChoiceInput records the agent asking a human to decide something.
+type ChoiceInput struct {
+	ChatID   string
+	ChoiceID string
+	Kind     string
+	PromptID string
+	ToolName string
+	Title    string
+	Question string
+	Mode     string
+	Multi    bool
+	Options  []domain.ActivityChoiceOption
+	Schema   string
+	Now      time.Time
+}
+
+// maxToolErrorBytes bounds the inline copy of a tool failure. It is a caption for
+// a timeline row, not the failure itself.
+const maxToolErrorBytes = 2 << 10
 
 // EventStore is the conversation record's repository.
 type EventStore interface {
@@ -94,6 +120,25 @@ type EventStore interface {
 	Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error
 	ResolveInterruption(ctx context.Context, chatID, id, kind, detail string, now time.Time) error
 
+	// OpenChoice records a prompt the agent is blocked on until a human answers.
+	OpenChoice(ctx context.Context, in ChoiceInput) error
+
+	// ResolveChoice records a prompt no longer waiting on anybody.
+	//
+	// It is the EXPLICIT channel, and the one an answer will arrive down. It is not
+	// the only one, and deliberately not the main one: a permission answered at the
+	// PTY reports nothing at all, so a completed tool call and a closed turn resolve
+	// their prompts on their own. A prompt that never cleared would strand the UI on
+	// a question nobody is asking.
+	ResolveChoice(ctx context.Context, chatID, choiceID, resolution string, now time.Time) error
+
+	// AnswerChoice records a human DECIDING a prompt through Crowbar, naming the
+	// option ids they picked. It refuses an answer to a prompt that is no longer
+	// pending, and one that names an option the prompt never offered — checks
+	// nothing downstream could make, because by then the decision has already been
+	// rendered into a provider's own JSON.
+	AnswerChoice(ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time) error
+
 	// Turns returns a chat's turns in sequence order. limit 0 means all.
 	Turns(ctx context.Context, chatID string, after, before int64, limit int) ([]domain.ActivityTurn, error)
 	// TurnsBefore returns the newest turns below a sequence, ascending. It is the
@@ -110,6 +155,10 @@ type EventStore interface {
 	ToolCalls(ctx context.Context, chatID string, after int64, limit int) ([]domain.ActivityToolCall, error)
 	Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error)
 	Interruptions(ctx context.Context, chatID string) ([]domain.ActivityInterruption, error)
+	// Choices returns a chat's prompts, pending and resolved alike.
+	Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error)
+	// PendingChoices returns only the prompts still waiting on a human.
+	PendingChoices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error)
 	RecentToolCalls(ctx context.Context, chatIDs []string, since time.Time, limit int) ([]domain.ActivityToolCall, error)
 
 	// Payload resolves a content ref. Returns ErrNotFound when retention has
@@ -245,7 +294,46 @@ func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) err
 	}
 	return r.send(ctx, commands.CompleteTool{
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
-		ResultRef: ref, Status: in.Status, DurationMS: in.DurationMS, Now: in.Now,
+		ResultRef: ref, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
+		DurationMS: in.DurationMS, Now: in.Now,
+	})
+}
+
+// truncate cuts a caption to size on a rune boundary, so a multi-byte character
+// straddling the limit is dropped whole rather than left as a broken one.
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+func (r *eventSourced) OpenChoice(ctx context.Context, in ChoiceInput) error {
+	return r.send(ctx, commands.OpenChoice{
+		ChatID: in.ChatID, ChoiceID: in.ChoiceID, Kind: in.Kind,
+		PromptID: in.PromptID, ToolName: in.ToolName,
+		Title: in.Title, Question: in.Question, Mode: in.Mode, Multi: in.Multi,
+		Options: in.Options, Schema: in.Schema, Now: in.Now,
+	})
+}
+
+func (r *eventSourced) ResolveChoice(
+	ctx context.Context, chatID, choiceID, resolution string, now time.Time,
+) error {
+	return r.send(ctx, commands.ResolveChoice{
+		ChatID: chatID, ChoiceID: choiceID, Resolution: resolution, Now: now,
+	})
+}
+
+func (r *eventSourced) AnswerChoice(
+	ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time,
+) error {
+	return r.send(ctx, commands.AnswerChoice{
+		ChatID: chatID, ChoiceID: choiceID, OptionIDs: optionIDs, Now: now,
 	})
 }
 
@@ -337,6 +425,18 @@ func (r *eventSourced) Interruptions(
 	ctx context.Context, chatID string,
 ) ([]domain.ActivityInterruption, error) {
 	return r.store.Interruptions(ctx, chatID)
+}
+
+func (r *eventSourced) Choices(
+	ctx context.Context, chatID string,
+) ([]domain.ActivityChoice, error) {
+	return r.store.Choices(ctx, chatID)
+}
+
+func (r *eventSourced) PendingChoices(
+	ctx context.Context, chatID string,
+) ([]domain.ActivityChoice, error) {
+	return r.store.PendingChoices(ctx, chatID)
 }
 
 func (r *eventSourced) RecentToolCalls(

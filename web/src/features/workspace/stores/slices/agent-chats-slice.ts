@@ -97,6 +97,15 @@ export interface AgentChatsSlice {
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
   setAgentChatWorking: (chatId: string, working: boolean) => void
+  /**
+   * Write the chat's sticky model / effort selection after the server ACCEPTED it.
+   *
+   * The selection endpoint answers 202 with no body and rides no lifecycle frame,
+   * so nothing else would bring the accepted pair back into the store — the picker
+   * would keep painting from a value the server has already moved past until the
+   * next full read. '' on either half means the provider's own default.
+   */
+  setAgentChatSelection: (chatId: string, model: string, effort: string) => void
   setAgentChatOrder: (order: string[]) => void
   hydrateAgentChatOrder: () => void
   setActiveAgentChatId: (chatId: string | null) => void
@@ -276,6 +285,18 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       s.agentChats.working[chatId] = working
       s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
+    }),
+
+  setAgentChatSelection: (chatId, model, effort) =>
+    set((s) => {
+      const chat = s.agentChats.chats.find((c) => c.id === chatId)
+      if (!chat) return
+      // Both halves, always — they are one answer. The endpoint takes the whole
+      // selection because which effort levels are valid is a property of the
+      // model, and writing one half here would let the store hold a pair that was
+      // never jointly sent.
+      chat.model = model
+      chat.effort = effort
     }),
 
   setAgentChatOrder: (order) => {

@@ -202,6 +202,45 @@ func (h *Handlers) Rename(
 	libs.WriteAccepted(ctx)
 }
 
+// SetSelection handles PATCH .../workspaces/:wsId/agent/chats/:id/selection:
+// writes the chat's sticky choice of model and reasoning effort.
+//
+// The body is the WHOLE selection, not a patch of one field: an omitted or empty
+// value clears that half back to the provider's own default. The two move
+// together because they are not independent — which effort levels are valid is a
+// property of the model — so a partial write could store a pair that was never
+// jointly valid.
+//
+// 404s (via requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
+// workspace than :wsId; 400s when a value is outside the provider's declared
+// catalogue.
+func (h *Handlers) SetSelection(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+
+	var body struct {
+		Model  string `json:"model"`
+		Effort string `json:"effort"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.usecase.SetChatSelection(rctx, id, body.Model, body.Effort); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteAccepted(ctx)
+}
+
 // Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes the
 // chat AND EVERY CHAT THREADED BELOW IT, each through PurgeChat (best-effort PTY
 // teardown, then asynx Forget), plus any folder caught inside that subtree. Each

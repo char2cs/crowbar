@@ -163,3 +163,66 @@ func TestJSON_ReencodesSubtreesAndPassesStringsThrough(t *testing.T) {
 	assert.Nil(t, payload.JSON(p, "missing"))
 	assert.Nil(t, payload.JSON(p, ""))
 }
+
+func TestObjects_ReadsAnArrayOfObjects(t *testing.T) {
+	p := decode(t, `{"tool_input":{"questions":[{"header":"a"},{"header":"b"}]}}`)
+
+	got := payload.Objects(p, "tool_input.questions")
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "a", got[0]["header"])
+	assert.Equal(t, "b", got[1]["header"])
+}
+
+// A provider that starts mixing scalars into a list of objects must cost that
+// entry, not the whole list.
+func TestObjects_SkipsNonObjectElements(t *testing.T) {
+	p := decode(t, `{"items":[{"k":1},"not an object",null,{"k":2}]}`)
+
+	assert.Len(t, payload.Objects(p, "items"), 2)
+}
+
+func TestObjects_AbsentAndWrongShapesYieldNothing(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "missing", path: "nope"},
+		{name: "not an array", path: "scalar"},
+		{name: "empty path", path: ""},
+		{name: "through a scalar", path: "scalar.deeper"},
+	}
+	p := decode(t, `{"scalar":7}`)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Nil(t, payload.Objects(p, tc.path))
+		})
+	}
+}
+
+func TestObject_ReturnsTheSubtreeAsAMap(t *testing.T) {
+	p := decode(t, `{"tool_input":{"command":"ls","count":2}}`)
+	got := payload.Object(p, "tool_input")
+	require.NotNil(t, got)
+	assert.Equal(t, "ls", got["command"])
+}
+
+func TestObject_AbsentAndWrongShapesYieldNil(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "missing", path: "nope"},
+		{name: "not an object", path: "scalar"},
+		{name: "an array is not an object", path: "list"},
+		{name: "empty path", path: ""},
+	}
+	p := decode(t, `{"scalar":7,"list":[1,2]}`)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Nil(t, payload.Object(p, tc.path))
+		})
+	}
+}

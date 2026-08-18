@@ -54,10 +54,27 @@ type Descriptor struct {
 	// terminal: an absent capability means terminal-only for that operation.
 	Presentation PresentationSpec `yaml:"presentation"`
 
+	// Model and Effort declare what a chat may choose to run this CLI as, and how
+	// the choice reaches the process. Both are POINTERS because absent means the
+	// capability does not exist for this provider — not that it exists and is
+	// empty — and the two render differently: no picker at all, rather than a
+	// picker offering nothing.
+	//
+	// They are separate types rather than one parameterised block because their
+	// catalogues genuinely differ in shape: an effort level belongs to a model,
+	// and a model belongs to nothing.
+	Model  *ModelSpec  `yaml:"model"`
+	Effort *EffortSpec `yaml:"effort"`
+
 	// Telemetry declares how (and whether) this provider reports context usage,
 	// cost, rate limits and resolved model identity. Every fact is independently
 	// optional; see TelemetrySpec.
 	Telemetry *TelemetrySpec `yaml:"telemetry"`
+
+	// Answer is the write side of Hooks: how a decision a human took in Crowbar
+	// reaches the CLI blocked waiting for it. Absent means every prompt this
+	// provider opens is observe-only, and the relay never holds a hook open.
+	Answer AnswerSpec `yaml:"answer"`
 }
 
 type SpawnSpec struct {

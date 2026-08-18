@@ -19,8 +19,16 @@ type (
 	ToolEvent      = models.ToolEvent
 	SubagentEvent  = models.SubagentEvent
 	InterruptEvent = models.InterruptEvent
-	Decision       = models.Decision
-	MoveKind       = models.MoveKind
+	ChoicePrompt   = models.ChoicePrompt
+	ChoiceOption   = models.ChoiceOption
+
+	// AnswerCapability and AnswerDecision are the write side of a prompt: what a
+	// provider can be told, and what a human decided.
+	AnswerCapability = models.AnswerCapability
+	AnswerDecision   = models.AnswerDecision
+	Decision         = models.Decision
+	Selection        = models.Selection
+	MoveKind         = models.MoveKind
 
 	SlashCatalog     = models.SlashCatalog
 	SlashCatalogItem = models.SlashCatalogItem
@@ -61,6 +69,8 @@ const (
 	HookCompactPost  = spec.HookCompactPost
 	HookSessionEnd   = spec.HookSessionEnd
 	HookTelemetry    = spec.HookTelemetry
+	HookToolFail     = spec.HookToolFail
+	HookElicitation  = spec.HookElicitation
 )
 
 // Interruption kinds.
@@ -69,6 +79,22 @@ const (
 	InterruptNotification = models.InterruptNotification
 	InterruptElicitation  = models.InterruptElicitation
 	InterruptCompaction   = models.InterruptCompaction
+)
+
+// Choice kinds — what kind of answer an agent is blocked waiting for.
+const (
+	ChoiceToolPermission = models.ChoiceToolPermission
+	ChoiceQuestion       = models.ChoiceQuestion
+	ChoiceElicitation    = models.ChoiceElicitation
+)
+
+// Choice option kinds. A client renders by kind, because the labels of the two
+// synthetic ones are Crowbar's words rather than a provider's.
+const (
+	ChoiceOptionAnswer     = models.ChoiceOptionAnswer
+	ChoiceOptionAllow      = models.ChoiceOptionAllow
+	ChoiceOptionDeny       = models.ChoiceOptionDeny
+	ChoiceOptionSuggestion = models.ChoiceOptionSuggestion
 )
 
 // Prompt-delivery strategies.

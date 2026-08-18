@@ -14,8 +14,15 @@ const POLL_MS = 1200
  *
  *  It reads ONCE when a chat becomes visible — a chat opened after its turns
  *  finished still has a timeline, and it would otherwise show none — then polls
- *  only while `working`, with one final read on the falling edge. A chat nobody
- *  is looking at (`visible === false`) reads nothing at all.
+ *  only while the chat is LIVE, with one final read on the falling edge. A chat
+ *  nobody is looking at (`visible === false`) reads nothing at all.
+ *
+ *  Live is `working` OR a prompt still waiting on a human, because those are two
+ *  different ways for the same chat to be unfinished. A pending prompt has to keep
+ *  polling on its own account: it can stop pending without this client doing
+ *  anything — somebody answers at the terminal, or the relay holding the CLI's
+ *  gate times out and `answerable` goes false under a card still offering buttons.
+ *  The prompts ride this payload, so that costs no second loop.
  */
 export function useAgentActivity(
   wsId: string,
@@ -24,7 +31,9 @@ export function useAgentActivity(
   visible: boolean,
 ): AgentActivity {
   const [activity, setActivity] = useState<AgentActivity>(NO_ACTIVITY)
-  const previousWorking = useRef(working)
+  const awaitingAnswer = activity.choices.some((choice) => choice.pending)
+  const live = working || awaitingAnswer
+  const previousLive = useRef(live)
 
   const read = useCallback(
     async (signal: AbortSignal) => {
@@ -56,12 +65,12 @@ export function useAgentActivity(
   useEffect(() => {
     if (!visible) return
     const controller = new AbortController()
-    const wasWorking = previousWorking.current
-    previousWorking.current = working
+    const wasLive = previousLive.current
+    previousLive.current = live
 
-    if (!working) {
+    if (!live) {
       // The falling edge: read once more so the finished turn is complete.
-      if (wasWorking) void read(controller.signal)
+      if (wasLive) void read(controller.signal)
       return () => controller.abort()
     }
 
@@ -70,7 +79,7 @@ export function useAgentActivity(
       clearInterval(timer)
       controller.abort()
     }
-  }, [visible, working, read])
+  }, [visible, live, read])
 
   return activity
 }

@@ -85,6 +85,7 @@ func (c CloseTurn) EmitEvent(current *domain.AgentActivity) domain.AgentActivity
 	next.Tools = nil
 	next.Subagents = nil
 	next.Interruptions = nil
+	next.Choices = nil
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,
 		SupersededTurnID: superseded,

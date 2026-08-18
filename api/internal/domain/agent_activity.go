@@ -59,6 +59,12 @@ type AgentActivity struct {
 	Subagents     map[string]ActivitySubagent     `json:"subagents,omitempty"`
 	Interruptions map[string]ActivityInterruption `json:"interruptions,omitempty"`
 
+	// Choices are the prompts this chat is still waiting on a human to answer.
+	// They are open state in the strictest sense the aggregate has: one opens when
+	// the provider asks and closes the moment anything shows the question is no
+	// longer being asked.
+	Choices map[string]ActivityChoice `json:"choices,omitempty"`
+
 	Last *ActivityDelta `json:"last,omitempty"`
 }
 
@@ -71,10 +77,11 @@ const (
 	DeltaTool         = "tool"
 	DeltaSubagent     = "subagent"
 	DeltaInterruption = "interruption"
+	DeltaChoice       = "choice"
 )
 
-// ActivityDelta is what one command touched. Exactly one of the four pointers is
-// set, chosen by Kind.
+// ActivityDelta is what one command touched. Exactly one of the pointers is set,
+// chosen by Kind.
 type ActivityDelta struct {
 	Phase string `json:"phase"`
 	Kind  string `json:"kind"`
@@ -94,6 +101,7 @@ type ActivityDelta struct {
 	Tool         *ActivityToolCall     `json:"tool,omitempty"`
 	Subagent     *ActivitySubagent     `json:"subagent,omitempty"`
 	Interruption *ActivityInterruption `json:"interruption,omitempty"`
+	Choice       *ActivityChoice       `json:"choice,omitempty"`
 }
 
 // ActivityTurn is one side of the conversation.
@@ -132,7 +140,10 @@ type ActivityToolCall struct {
 	RequestRef string `json:"requestRef,omitempty"`
 	ResultRef  string `json:"resultRef,omitempty"`
 
-	Status     string `json:"status"`
+	Status string `json:"status"`
+	// Error is a SHORT copy of why a failing tool failed, so a timeline can say it
+	// without fetching a payload. The full text is at ResultRef.
+	Error      string `json:"error,omitempty"`
 	DurationMS int    `json:"durationMs,omitempty"`
 
 	StartedAt time.Time  `json:"startedAt"`
@@ -167,5 +178,97 @@ type ActivityInterruption struct {
 // MaxOpenPerTurn is checked against, and what a test asserts to prove state stays
 // bounded over a long conversation.
 func (a AgentActivity) OpenCount() int {
-	return len(a.Tools) + len(a.Subagents) + len(a.Interruptions)
+	return len(a.Tools) + len(a.Subagents) + len(a.Interruptions) + len(a.Choices)
 }
+
+// Choice kinds — what kind of answer the agent is blocked waiting for.
+const (
+	ChoiceKindPermission  = "tool_permission"
+	ChoiceKindQuestion    = "question"
+	ChoiceKindElicitation = "elicitation"
+)
+
+// Choice option kinds. A client renders by kind rather than by label: the labels
+// of allow and deny are Crowbar's own words, because no provider enumerates the
+// two answers every permission prompt has by construction.
+const (
+	ChoiceOptionAnswer     = "answer"
+	ChoiceOptionAllow      = "allow"
+	ChoiceOptionDeny       = "deny"
+	ChoiceOptionSuggestion = "suggestion"
+)
+
+// How a pending choice stopped being pending.
+const (
+	// ChoiceResolutionAnswered is a decision that came back THROUGH Crowbar. It is
+	// the value the answer channel will write; nothing writes it today, and that is
+	// deliberate — this iteration observes prompts, it does not answer them.
+	ChoiceResolutionAnswered = "answered"
+	// ChoiceResolutionProceeded is the work being observed to move on: the gated
+	// tool completed, so the question was answered — at the PTY, by a human typing
+	// into the vendor CLI, entirely outside Crowbar. That path is the COMMON one and
+	// it fires no resolution event of its own, which is why the completion of the
+	// gated work has to count as one. A prompt that never clears strands the UI on a
+	// question nobody is asking any more, which is worse than clearing early.
+	ChoiceResolutionProceeded = "proceeded"
+	// ChoiceResolutionAbandoned is the turn ending with the prompt still open.
+	ChoiceResolutionAbandoned = "abandoned"
+)
+
+// ActivityChoice is the agent waiting on a HUMAN DECISION — a tool permission, a
+// question it asked, an MCP server's elicitation.
+//
+// It is the one piece of open state that a user can act on, so it carries enough
+// to be rendered as a real prompt rather than as a spinner: what kind of answer is
+// wanted, what is being asked, and which answers exist.
+//
+// ID is Crowbar's own stable identity for the prompt, derived from the provider's
+// PromptID where there is one and minted otherwise. It is stable across the open
+// and every later write, and every Option carries a stable id of its own within
+// it — which together are what an answer will name when the answer channel lands.
+// Adding that channel is additive: a command that sets Resolution to
+// ChoiceResolutionAnswered and records which option ids were chosen changes
+// nothing here.
+type ActivityChoice struct {
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	ChatID string `json:"chatId"`
+	Seq    int64  `json:"seq"`
+
+	Kind string `json:"kind"`
+	// PromptID is the PROVIDER's own id for this prompt, when it gives one. It is
+	// not the identity above; it is what lets two payloads describing the same
+	// prompt be recognised as one.
+	PromptID string `json:"promptId,omitempty"`
+	// ToolID and ToolName are the gated tool call. ToolID is adopted from the
+	// in-flight invocation rather than read from the payload: a claude permission
+	// carries no tool_use_id at all (measured against 2.1.234 on 2026-08-17).
+	ToolID   string `json:"toolId,omitempty"`
+	ToolName string `json:"toolName,omitempty"`
+
+	Title    string                 `json:"title,omitempty"`
+	Question string                 `json:"question,omitempty"`
+	Mode     string                 `json:"mode,omitempty"`
+	Multi    bool                   `json:"multi,omitempty"`
+	Options  []ActivityChoiceOption `json:"options,omitempty"`
+	// Schema is the provider's requested-input schema, verbatim, for a prompt whose
+	// answer is a form rather than a pick from Options.
+	Schema string `json:"schema,omitempty"`
+
+	At         time.Time  `json:"at"`
+	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	Resolution string     `json:"resolution,omitempty"`
+}
+
+// ActivityChoiceOption is one answer a prompt will accept.
+type ActivityChoiceOption struct {
+	// ID is stable within its prompt, so an answer names an option rather than
+	// echoing its label back.
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// Pending reports whether this prompt is still waiting on a human.
+func (c ActivityChoice) Pending() bool { return c.ResolvedAt == nil }

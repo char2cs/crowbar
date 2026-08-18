@@ -72,6 +72,47 @@ presentation:
 # model prefs, none of their own hooks.
 #
 # A provider owns its sessions. Crowbar only observes.
+# Model and reasoning-effort selection.
+#
+# This is a SNAPSHOT OF A LIVE ENUMERATION, and it differs in kind from claude's
+# declared list: codex genuinely can enumerate its own catalogue. Measured
+# 2026-08-17 against codex-cli 0.146.0 with `codex debug models` — account
+# metadata, not a model turn — which reports, per model, a `priority`, a
+# `visibility`, a `default_reasoning_level` and the `supported_reasoning_levels`
+# copied below. Models are listed in codex's own priority order;
+# `codex-auto-review` is omitted because it reports `visibility: hide`.
+#
+# It is a copy so a picker works BEFORE the live probe exists, and it WILL drift
+# from the account's real catalogue — a model added or retired upstream changes
+# nothing here until somebody re-runs the command. The probe supersedes this
+# block when it lands; until then a stale id fails at spawn with codex's own
+# message.
+#
+# THIS IS THE CASE THE PER-MODEL MAP EXISTS FOR. The levels genuinely vary:
+# sol/terra reach `ultra`, luna stops at `max`, the 5.4/5.5 family stops at
+# `xhigh`. There is deliberately NO "*" fallback key — an unlisted model must
+# answer with NO levels rather than with another model's.
+model:
+  available: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.4-mini]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+# `-c model_reasoning_effort=` rather than a dedicated flag: codex has no
+# `--effort`, and `-c key=value` is its config-override channel (its own --help
+# shows the string form as `-c model="o3"`). The key appears 25 times in the
+# 0.146.0 binary. The quoted value matches the `-c` steps in config_injection
+# below, which is the shape codex parses as a string.
+effort:
+  available:
+    gpt-5.6-sol:   [low, medium, high, xhigh, max, ultra]
+    gpt-5.6-terra: [low, medium, high, xhigh, max, ultra]
+    gpt-5.6-luna:  [low, medium, high, xhigh, max]
+    gpt-5.5:       [low, medium, high, xhigh]
+    gpt-5.4:       [low, medium, high, xhigh]
+    gpt-5.4-mini:  [low, medium, high, xhigh]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "-c", value: 'model_reasoning_effort="{effort}"' }
 config_injection:
   # codex prompts to self-update on startup, which would eat the first keystrokes
   # in the chat pane.
@@ -195,7 +236,23 @@ hooks:
       duration_ms: duration_ms
     subagent_pre:  { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     subagent_post: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
-    permission:    { session_id: session_id, message: tool_name }
+    # Only what codex genuinely has. It fires PermissionRequest — the event is
+    # already registered in config_injection above — and the tool vocabulary here is
+    # the same shape its own PreToolUse/PostToolUse declare, so a permission carries
+    # WHAT is being asked for and not merely the tool's name.
+    #
+    # Deliberately absent: prompt_id, permission_suggestions and the AskUserQuestion
+    # question vocabulary. Those are claude's payload, measured on claude; nothing
+    # says codex sends them, and a mapping that names a path a provider does not have
+    # would report an empty prompt where an honest one reports none. Equally absent
+    # are tool_fail and elicitation — codex declares neither event, so both stay
+    # unmapped and simply never fire for a codex chat.
+    permission:
+      session_id:  session_id
+      message:     tool_name
+      tool_name:   tool_name
+      tool_target: tool_input.file_path,tool_input.command,tool_input.path
+      tool_input:  tool_input
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }

@@ -112,7 +112,7 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 		Raw:       decoded,
 	}
 	switch canonical {
-	case spec.HookToolPre, spec.HookToolPost:
+	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
 		ev.Tool = buildTool(fields, decoded)
 	case spec.HookSubagentPre, spec.HookSubagentPost:
 		ev.Subagent = &models.SubagentEvent{
@@ -123,6 +123,10 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptNotification, Detail: ev.Message}
 	case spec.HookPermission:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptPermission, Detail: ev.Message}
+		ev.Choice = permissionChoice(fields, decoded)
+	case spec.HookElicitation:
+		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
+		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
 	case spec.HookCompactPre:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptCompaction, Detail: get("trigger")}
 	case spec.HookCompactPost:
@@ -136,14 +140,36 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEvent {
 	duration, _ := payload.Int(decoded, fields["duration_ms"])
 	return &models.ToolEvent{
-		ID:         firstNonEmpty(decoded, fields["tool_id"]),
-		Name:       firstNonEmpty(decoded, fields["tool_name"]),
-		Target:     firstNonEmpty(decoded, fields["tool_target"]),
-		Input:      payload.JSON(decoded, fields["tool_input"]),
-		Result:     payload.JSON(decoded, fields["tool_result"]),
+		ID:     firstNonEmpty(decoded, fields["tool_id"]),
+		Name:   firstNonEmpty(decoded, fields["tool_name"]),
+		Target: firstNonEmpty(decoded, fields["tool_target"]),
+		Input:  payload.JSON(decoded, fields["tool_input"]),
+		// tool_result takes the SAME alternation the target does, and for the same
+		// reason: a failing tool reports what happened under a different key from a
+		// succeeding one (claude 2.1.234 puts it in `error`, measured 2026-08-17), and
+		// the full text belongs in the content store either way.
+		Result:     firstNonEmptyJSON(decoded, fields["tool_result"]),
+		Error:      firstNonEmpty(decoded, fields["tool_error"]),
 		Status:     firstNonEmpty(decoded, fields["tool_status"]),
 		DurationMS: duration,
 	}
+}
+
+// firstNonEmptyJSON is firstNonEmpty over a SUBTREE rather than a string leaf: it
+// returns the first path in an alternation whose leaf encodes to anything.
+func firstNonEmptyJSON(decoded map[string]any, mapping string) []byte {
+	if mapping == "" {
+		return nil
+	}
+	if !strings.Contains(mapping, ",") {
+		return payload.JSON(decoded, mapping)
+	}
+	for _, path := range strings.Split(mapping, ",") {
+		if v := payload.JSON(decoded, strings.TrimSpace(path)); len(v) > 0 {
+			return v
+		}
+	}
+	return nil
 }
 
 // firstNonEmpty reads the first path in a comma-separated ALTERNATION that

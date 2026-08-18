@@ -350,6 +350,15 @@ type fakeChatStore struct {
 	failGetChat   error
 	failCreate    error
 	failListChats error
+	// failSetSelection / failLoadChat arm the two writes-and-reads the model and
+	// effort selection travels through, so the "a spawn whose selection cannot be
+	// read must fail before it forks" paths are reachable from a test.
+	failSetSelection error
+	failLoadChat     error
+	// failLoadChatAfter lets that failure land on the Nth fold rather than the
+	// first: a spawn folds the chat twice — once for its lineage, once for its
+	// selection — so failing every fold can only ever prove the first.
+	failLoadChatAfter int
 	// staleProjection makes GetChat — the READ-MODEL read — answer with the
 	// placement every chat had before it was placed anywhere, while LoadChat (the
 	// event-log fold, reached through the embedded store) keeps answering
@@ -410,6 +419,26 @@ func (s *fakeChatStore) forget() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.abandonedIDs = nil
+}
+
+func (s *fakeChatStore) SetSelection(
+	ctx context.Context,
+	chatID, model, effort string,
+) (domain.AgentChat, error) {
+	if s.failSetSelection != nil {
+		return domain.AgentChat{}, s.failSetSelection
+	}
+	return s.EventStore.SetSelection(ctx, chatID, model, effort)
+}
+
+func (s *fakeChatStore) LoadChat(ctx context.Context, id string) (domain.AgentChat, error) {
+	if s.failLoadChat != nil {
+		if s.failLoadChatAfter <= 0 {
+			return domain.AgentChat{}, s.failLoadChat
+		}
+		s.failLoadChatAfter--
+	}
+	return s.EventStore.LoadChat(ctx, id)
 }
 
 func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
@@ -1055,7 +1084,26 @@ func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID strin
 // write path and the read path agree with each other while both were wrong.
 type faultActivity struct {
 	agentactivity.EventStore
-	turnsErr error
+	turnsErr   error
+	choicesErr error
+}
+
+func (f *faultActivity) Choices(
+	ctx context.Context, chatID string,
+) ([]domain.ActivityChoice, error) {
+	if f.choicesErr != nil {
+		return nil, f.choicesErr
+	}
+	return f.EventStore.Choices(ctx, chatID)
+}
+
+func (f *faultActivity) PendingChoices(
+	ctx context.Context, chatID string,
+) ([]domain.ActivityChoice, error) {
+	if f.choicesErr != nil {
+		return nil, f.choicesErr
+	}
+	return f.EventStore.PendingChoices(ctx, chatID)
 }
 
 func (f *faultActivity) Turns(
@@ -1126,6 +1174,29 @@ func (f *faultWriteActivity) ResolveInterruption(ctx context.Context, chatID, id
 		return f.writeErr
 	}
 	return f.EventStore.ResolveInterruption(ctx, chatID, id, kind, detail, now)
+}
+
+func (f *faultWriteActivity) OpenChoice(ctx context.Context, in agentactivity.ChoiceInput) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.OpenChoice(ctx, in)
+}
+
+func (f *faultWriteActivity) ResolveChoice(ctx context.Context, chatID, choiceID, resolution string, now time.Time) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.ResolveChoice(ctx, chatID, choiceID, resolution, now)
+}
+
+func (f *faultWriteActivity) AnswerChoice(
+	ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time,
+) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	return f.EventStore.AnswerChoice(ctx, chatID, choiceID, optionIDs, now)
 }
 
 func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {

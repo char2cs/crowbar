@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/answers"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
@@ -55,4 +56,15 @@ var (
 	ErrProbeCommandUnavailable = exec.ErrCommandUnavailable
 	// ErrProbeCommandFailed reports a provider command exiting non-zero.
 	ErrProbeCommandFailed = exec.ErrCommandFailed
+
+	// ErrNotAnswerable reports a provider that declares no way to answer an event's
+	// prompt. It is a capability statement rather than a failure: the caller falls
+	// through and the CLI puts up its own dialog.
+	ErrNotAnswerable = answers.ErrNotAnswerable
+	// ErrUnsupportedDecision reports a decision this provider has no template for.
+	// Refused rather than approximated.
+	ErrUnsupportedDecision = answers.ErrUnsupportedDecision
+	// ErrMalformedAnswer reports a rendered answer that is not valid JSON, which
+	// can only mean a mis-authored descriptor.
+	ErrMalformedAnswer = answers.ErrMalformedAnswer
 )

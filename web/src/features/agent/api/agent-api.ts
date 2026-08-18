@@ -61,6 +61,21 @@ export interface AgentChat {
   parentId?: string
   /** Dense index within this chat's sibling space, SHARED with folders. */
   order: number
+  /**
+   * The chat's STICKY choice of what to run its provider CLI as — the model id
+   * and the reasoning effort, exactly as the provider's descriptor spells them.
+   *
+   * Both are OMITTED on the wire when unset, and unset is a real answer:
+   * "whatever this provider defaults to". It is not a value anything may render
+   * as selected, because Crowbar does not know what that default resolves to —
+   * only the CLI does. They are grounded to '' here so an absent key and a
+   * cleared one are the same thing everywhere downstream.
+   *
+   * This is the REQUEST. What a turn actually ran under is a separate fact the
+   * provider reports on the message itself (AgentChatMessage.effort).
+   */
+  model?: string
+  effort?: string
 }
 
 /**
@@ -108,6 +123,14 @@ export interface AgentChatMessage {
   role: AgentChatMessageRole
   providerId: string
   text: string
+  /**
+   * The reasoning effort the PROVIDER reported for this turn — what its CLI says
+   * it actually used, never what the chat asked for. Absent when the provider
+   * reported none, and never inferred from the chat's selection: the two can
+   * legitimately differ, and showing the request in the report's place would be
+   * a fabrication.
+   */
+  effort?: string
   at: string
 }
 
@@ -158,6 +181,31 @@ export interface AgentProvider {
    *  tools switched off still spawns, still fires its hooks and still holds a
    *  normal chat; it just cannot reach into Crowbar. Defaults to `true`. */
   mcpEnabled: boolean
+  /**
+   * Whether this provider's descriptor declares a model / effort catalogue AT ALL.
+   *
+   * False means the picker DOES NOT EXIST for it — absent UI, never a disabled
+   * control implying breakage. They default to false rather than true (unlike
+   * mcpEnabled) because that is the safe direction here: a daemon that does not
+   * send them is one whose descriptors declare no catalogue, and rendering an
+   * empty picker over that would invent a capability.
+   */
+  modelSelect?: boolean
+  effortSelect?: boolean
+  /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
+   *  order is the provider's own ranking. */
+  models?: string[]
+  /**
+   * Effort levels keyed by model id, ALREADY RESOLVED by the backend: every entry
+   * in `models` has a key, plus '' for the provider's own default model.
+   *
+   * Read it as `efforts[model]` where `model` is '' when the chat has no
+   * selection — that is the whole rule. The descriptor's model-independent
+   * fallback (claude's `"*"`) is applied server-side, so there is no fallback to
+   * implement here and no provider knowledge to hardcode. A model with no levels
+   * is ABSENT from the map, and absent means: draw no effort picker.
+   */
+  efforts?: Record<string, string[]>
 }
 
 /** One row of the global provider preference set: an id and both of its NEGATIVE
@@ -193,6 +241,11 @@ function mapChat(c: AgentChat): AgentChat {
     // that tie by recency, which is the arrangement the panel had before.
     parentId: c.parentId ?? '',
     order: c.order ?? 0,
+    // Same grounding as parentId, for the same reason: '' is the value the
+    // selection endpoint takes to mean "back to the provider's own default", so
+    // an omitted field and a cleared one must not be two different things.
+    model: c.model ?? '',
+    effort: c.effort ?? '',
   }
 }
 
@@ -297,10 +350,67 @@ export interface AgentInterruption {
   resolvedAt?: string
 }
 
+/** One answer a prompt will accept.
+ *
+ *  A client renders from `kind`, not from `label`: allow and deny are Crowbar's
+ *  OWN words, because no provider enumerates the two answers a permission has by
+ *  construction. It is a plain string rather than a union so a vocabulary the
+ *  backend grows later degrades to "an option" instead of failing to compile —
+ *  the four in use today are `answer`, `allow`, `deny` and `suggestion`. */
+export interface AgentChoiceOption {
+  id: string
+  kind: string
+  label?: string
+  description?: string
+}
+
+/**
+ * The agent waiting on a HUMAN DECISION — a tool permission, a question it asked,
+ * an MCP server's elicitation.
+ *
+ * `pending` and `answerable` are two DIFFERENT facts and both matter. `pending`
+ * says the CLI is still asking. `answerable` says a relay is holding that CLI's
+ * gate open right now, so an answer sent from here will actually reach it. A
+ * prompt that is pending and NOT answerable is still worth drawing — the CLI is
+ * genuinely asking, at its own terminal — but it must offer no buttons, because
+ * they would reach nobody.
+ */
+export interface AgentChoice {
+  id: string
+  turnId: string
+  seq: number
+  /** `tool_permission` | `question` | `elicitation`, open for the same reason
+   *  an option's kind is. */
+  kind: string
+  /** The tool a permission gates, when there is one. */
+  toolName?: string
+  title?: string
+  question?: string
+  /** The provider's own word for how it expects to be answered, carried verbatim
+   *  and never interpreted here either. */
+  mode?: string
+  multi?: boolean
+  options: AgentChoiceOption[]
+  /** An elicitation's requested-input schema: the provider's own JSON, verbatim.
+   *  A prompt with a schema and no options is answered with a FORM. */
+  schema?: string
+  pending: boolean
+  answerable: boolean
+  at: string
+  resolvedAt?: string
+  /** How it stopped pending: `answered` here, `proceeded` at the terminal, or
+   *  `abandoned` with the turn. */
+  resolution?: string
+}
+
 export interface AgentActivity {
   toolCalls: AgentToolCall[]
   subagents: AgentSubagent[]
   interruptions: AgentInterruption[]
+  /** The prompts this chat has opened. They ride the activity payload rather than
+   *  a poll of their own: a blocked agent is a state of the same turn the timeline
+   *  describes, and a second loop would ask the same daemon the same question. */
+  choices: AgentChoice[]
 }
 
 /** What the provider itself reported about cost and capacity.
@@ -356,7 +466,61 @@ export async function listChatActivity(
     toolCalls: raw?.toolCalls ?? [],
     subagents: raw?.subagents ?? [],
     interruptions: raw?.interruptions ?? [],
+    choices: (raw?.choices ?? []).map(mapChoice),
   }
+}
+
+// A prompt's three decision-bearing fields are grounded here so nothing
+// downstream has to treat an absent key and a false one as two different things.
+// `answerable` in particular defaults FALSE: a daemon that does not send it is
+// one with no answer channel at all, and defaulting it true would draw buttons
+// that reach nobody — the single failure this field exists to prevent.
+function mapChoice(c: AgentChoice): AgentChoice {
+  return {
+    ...c,
+    multi: c.multi ?? false,
+    options: c.options ?? [],
+    pending: c.pending ?? false,
+    answerable: c.answerable ?? false,
+  }
+}
+
+/**
+ * Answer a prompt the provider CLI is blocked on, from the chat.
+ *
+ * `optionIds` must name at least one option (400 otherwise) and they must all be
+ * of ONE kind — "allow" and "deny" together are not an answer and no template
+ * could render them. A prompt that offers NO options is an elicitation, whose
+ * answer is the provider's own verb — `accept`, `decline`, `cancel` — with the
+ * filled-in form in `content`.
+ *
+ * Two failures are the caller's to SHOW rather than swallow. 400 is a decision
+ * this provider cannot express (claude's `suggestion` options are the shipped
+ * example: the backend declares no template for them rather than silently
+ * narrowing one to a plain allow). 409 is no relay holding the gate any more — by
+ * then the CLI is asking at its own terminal, and reporting success would be a lie.
+ */
+export async function answerChoice(
+  wsId: string,
+  chatId: string,
+  choiceId: string,
+  answer: { optionIds: string[]; reason?: string; content?: unknown },
+): Promise<void> {
+  await apiFetch<unknown>(
+    `${agentBase(wsId)}/chats/${encodeURIComponent(chatId)}` +
+      `/choices/${encodeURIComponent(choiceId)}/answer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // An omitted reason/content is omitted on the wire, not sent as null: the
+      // backend reads content as raw JSON and "absent" is its own answer there.
+      body: JSON.stringify({
+        optionIds: answer.optionIds,
+        reason: answer.reason,
+        content: answer.content,
+      }),
+    },
+  )
 }
 
 /** Fetch one tool call's arguments or output. Returns null when retention has
@@ -441,6 +605,13 @@ function mapProvider(p: AgentProvider): AgentProvider {
     connected: p.connected ?? false,
     enabled: p.enabled ?? true,
     mcpEnabled: p.mcpEnabled ?? true,
+    // Both selection capabilities default OFF and both catalogues default EMPTY:
+    // "this provider declares none" is what an older daemon's silence actually
+    // means, and no-catalogue must render as no picker rather than an empty one.
+    modelSelect: p.modelSelect ?? false,
+    effortSelect: p.effortSelect ?? false,
+    models: p.models ?? [],
+    efforts: p.efforts ?? {},
   }
 }
 
@@ -531,6 +702,33 @@ export async function resumeChat(wsId: string, id: string): Promise<string> {
 export async function stopChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/stop`, {
     method: 'POST',
+  })
+}
+
+/**
+ * Write the chat's sticky model + effort selection.
+ *
+ * BOTH halves travel on EVERY write, and '' clears one back to the provider's own
+ * default. That is the endpoint's contract, not a convenience: which effort levels
+ * exist is a property of the MODEL, so a partial write could store a pair that was
+ * never jointly valid. Callers that change the model must therefore decide what
+ * happens to the effort in the same call — see AgentModelPicker, which clears an
+ * effort the new model does not declare rather than sending it on.
+ *
+ * 202 with no body on success. A value outside the provider's declared catalogue
+ * is a 400 and a chat with no provider yet is a 422; both arrive as an ApiError
+ * carrying that status, and both are the caller's to SHOW rather than swallow.
+ */
+export async function setChatSelection(
+  wsId: string,
+  id: string,
+  model: string,
+  effort: string,
+): Promise<void> {
+  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/selection`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, effort }),
   })
 }
 

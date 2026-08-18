@@ -45,6 +45,7 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 			Role:       item.Role,
 			ProviderID: item.Provider,
 			Text:       item.Text,
+			Effort:     item.Effort,
 			At:         item.At,
 		})
 	}
@@ -76,12 +77,7 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
 	)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		if code := agentusecase.PromptErrorCode(err); code != "" {
-			libs.WriteErrCode(ctx, status, code, message)
-		} else {
-			libs.WriteErr(ctx, status, message)
-		}
+		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
 		return
 	}
 	libs.WriteQueryOK(ctx, result)
@@ -97,12 +93,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	}
 	catalog, err := h.usecase.SlashCatalog(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		if code := agentusecase.CatalogErrorCode(err); code != "" {
-			libs.WriteErrCode(ctx, status, code, message)
-		} else {
-			libs.WriteErr(ctx, status, message)
-		}
+		writeCodedErr(ctx, err, agentusecase.CatalogErrorCode(err))
 		return
 	}
 	items := make([]dto.SlashCatalogItemDTO, 0, len(catalog.Items))
@@ -136,4 +127,21 @@ func intQuery(ctx *gin.Context, name string) (int, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+// writeCodedErr maps a usecase failure onto the response, preferring the stable
+// machine-readable code the usecase supplies for outcomes a client must branch
+// on (a busy chat, an unsupported provider, an uncertain delivery). Without a
+// code the client would be left matching message text.
+func writeCodedErr(
+	ctx *gin.Context,
+	err error,
+	code string,
+) {
+	status, message := libs.StatusAndMessage(err)
+	if code == "" {
+		libs.WriteErr(ctx, status, message)
+		return
+	}
+	libs.WriteErrCode(ctx, status, code, message)
 }

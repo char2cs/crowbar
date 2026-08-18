@@ -38,7 +38,9 @@ import {
   AgentActivityStrip,
   AgentTurnTools,
 } from '@/features/agent/components/agent-activity-strip'
+import { AgentChoicePrompts } from '@/features/agent/components/agent-choice-prompt'
 import { AgentContextGauge } from '@/features/agent/components/agent-context-gauge'
+import { AgentModelPicker } from '@/features/agent/components/agent-model-picker'
 import { useAgentActivity } from '@/features/agent/components/use-agent-activity'
 
 const MESSAGE_PAGE_SIZE = 100
@@ -75,6 +77,12 @@ interface AgentChatViewProps {
   onCancelableQueueCountChange?: (count: number) => void
   /** True while a submitted prompt still needs authoritative hook confirmation. */
   onDeliveryPendingChange?: (pending: boolean) => void
+  /** The chat's sticky model / effort selection. '' means unset — the provider's
+   *  own default, which is a real answer and not a value to render as chosen. */
+  model: string
+  effort: string
+  /** An accepted selection, for the owner of the chat to write back. */
+  onSelectionChange: (model: string, effort: string) => void
   ref?: Ref<AgentChatViewHandle>
 }
 
@@ -168,6 +176,19 @@ function MessageRow({
           <p className="whitespace-pre-wrap break-words">{message.text}</p>
         ) : (
           <MarkdownPreview className="break-words text-sm">{message.text}</MarkdownPreview>
+        )}
+        {/* Provenance, not a headline: what the CLI ITSELF said it ran this turn at.
+            It is a different fact from the chat's requested selection — the two can
+            legitimately disagree — so it is only ever shown for a turn the provider
+            actually reported one on. */}
+        {!user && message.effort && (
+          <p
+            className="mt-1 text-muted-foreground text-xs"
+            title="Reasoning effort the provider reported for this turn"
+            data-testid="message-effort"
+          >
+            {message.effort} effort
+          </p>
         )}
       </div>
     </article>
@@ -390,6 +411,9 @@ export function AgentChatView({
   onQueueCountChange,
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
+  model,
+  effort,
+  onSelectionChange,
   ref,
 }: AgentChatViewProps) {
   // What the agent is DOING, read alongside what it said. It polls only while a
@@ -1144,6 +1168,17 @@ export function AgentChatView({
               onOpenTerminal={onOpenTerminal}
             />
           ))}
+          {/* What the agent is BLOCKED ON, above what it is doing. The strip goes
+              quiet while one of these is open: a chat waiting on a person is not
+              working, and the prompt says everything the interruption banner did
+              plus what to do about it. */}
+          <AgentChoicePrompts
+            wsId={wsId}
+            chatId={chatId}
+            activity={activity}
+            providerLabel={providerName(providers, providerId)}
+            onOpenTerminal={onOpenTerminal}
+          />
           <AgentActivityStrip
             activity={activity}
             working={working}
@@ -1153,7 +1188,21 @@ export function AgentChatView({
       </div>
 
       <div className="mx-auto w-full max-w-3xl shrink-0 pb-3">
-        <div className="mb-1 flex justify-end">
+        {/* What this chat will RUN as on the left, what it has SPENT on the right.
+            Both are provider-declared and both render nothing at all when the
+            provider reports nothing, so the row collapses to whichever half exists
+            — the picker's wrapper keeps the gauge on its column when it does not. */}
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <div className="flex min-w-0">
+            <AgentModelPicker
+              wsId={wsId}
+              chatId={chatId}
+              provider={providers.find((provider) => provider.id === providerId)}
+              model={model}
+              effort={effort}
+              onSelectionChange={onSelectionChange}
+            />
+          </div>
           <AgentContextGauge wsId={wsId} chatId={chatId} visible={visible} />
         </div>
         {persistenceLost && (

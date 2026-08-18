@@ -509,6 +509,14 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 	}))
 	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "a1", "explore", t0))
 	require.NoError(t, f.repo.Interrupt(f.ctx, chat, "i1", "compaction", "auto", t0))
+	require.NoError(t, f.repo.OpenChoice(f.ctx, agentactivity.ChoiceInput{
+		ChatID: chat, ChoiceID: "c1", Kind: domain.ChoiceKindPermission,
+		PromptID: "p1", ToolName: "Edit",
+		Options: []domain.ActivityChoiceOption{
+			{ID: "allow", Kind: domain.ChoiceOptionAllow, Label: "Allow"},
+		},
+		Now: t0,
+	}))
 	require.NoError(t, f.repo.CloseTurn(f.ctx, agentactivity.TurnInput{
 		ChatID: chat, TurnID: "t1", Text: "done", Now: t0.Add(time.Second),
 	}))
@@ -517,6 +525,7 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 	before := snapshot(t, f)
 	require.NotEmpty(t, before.turns)
 	require.NotEmpty(t, before.calls)
+	require.NotEmpty(t, before.choices)
 
 	// A fresh read model over the SAME event log: what a lost state directory
 	// looks like from the repository's point of view.
@@ -536,10 +545,11 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 }
 
 type recordSnapshot struct {
-	turns []domain.ActivityTurn
-	calls []domain.ActivityToolCall
-	subs  []domain.ActivitySubagent
-	ints  []domain.ActivityInterruption
+	turns   []domain.ActivityTurn
+	calls   []domain.ActivityToolCall
+	subs    []domain.ActivitySubagent
+	ints    []domain.ActivityInterruption
+	choices []domain.ActivityChoice
 }
 
 func snapshot(t *testing.T, f fixture) recordSnapshot {
@@ -552,7 +562,9 @@ func snapshot(t *testing.T, f fixture) recordSnapshot {
 	require.NoError(t, err)
 	ints, err := f.repo.Interruptions(f.ctx, chat)
 	require.NoError(t, err)
-	return recordSnapshot{turns: turns, calls: calls, subs: subs, ints: ints}
+	choices, err := f.repo.Choices(f.ctx, chat)
+	require.NoError(t, err)
+	return recordSnapshot{turns: turns, calls: calls, subs: subs, ints: ints, choices: choices}
 }
 
 func textsOf(turns []domain.ActivityTurn) []string {

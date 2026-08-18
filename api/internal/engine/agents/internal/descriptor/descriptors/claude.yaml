@@ -66,6 +66,41 @@ presentation:
         description: ""
         insert_text: "/{source}:{name} "
         source: "{source}"
+# Model selection. The catalogue is DECLARED, NOT ENUMERATED, and it will go stale.
+#
+# claude exposes no machine-readable list of valid --model values: there is no
+# `models list` command and no flag that prints one, so unlike the effort levels
+# below there is nothing to verify this list against. What is declared here is a
+# conservative set of the aliases currently accepted; a model added or retired by
+# Anthropic changes nothing in this file until somebody edits it, and a chat
+# holding a retired id fails at spawn with claude's own message. That is the
+# accepted cost of shipping a picker at all, and it is why this block is
+# overridable on disk like every other part of the descriptor.
+#
+# restart_tui is the only strategy: a running claude cannot be told to change
+# model through any channel Crowbar has, so a changed choice takes effect on the
+# next process. Every prompt already spawns one (presentation.prompt_submit),
+# and a selection change forces one even when the delivery would not have.
+model:
+  available: [sonnet, opus, haiku]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+# Reasoning effort. This enum IS verified: measured 2026-08-17 by passing an
+# invalid value, which claude rejects with
+#   Error: Invalid effort level: <value>. Valid values: low, medium, high, xhigh, max.
+# and exit status 1 — so the list is the CLI's own, not a guess.
+#
+# Keyed by "*" because claude's levels do not vary by model. The map shape exists
+# for providers whose do (codex reports supported_reasoning_levels per model),
+# and declaring the fallback key alone is how a provider says "these apply to
+# everything".
+effort:
+  available:
+    "*": [low, medium, high, xhigh, max]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
 config_injection:
   # Every channel Crowbar listens on. The conversation trio was always here; the
   # rest is the observation surface, and its absence is what made a working agent
@@ -80,6 +115,18 @@ config_injection:
   #
   # crowbar hook prints nothing on stdout, so claude renders an empty status line
   # rather than one of Crowbar's making.
+  #
+  # PermissionRequest and Elicitation carry an EXPLICIT `timeout`, in SECONDS,
+  # because those two are the hooks Crowbar HOLDS OPEN while a human decides in
+  # the chat (see `answer:` below). Measured against claude 2.1.234 on 2026-08-18:
+  # the default is 600s, the value is honoured verbatim with no ceiling, and a
+  # hook that overruns it is KILLED rather than abandoned. So the budget has to be
+  # ours rather than a default we inherit, and the daemon's own wait
+  # (answer.*.timeout_seconds) is set comfortably shorter than this so the relay
+  # exits under its own control instead of being cut off mid-write.
+  #
+  # Every other hook is left on the provider's default: they return in
+  # milliseconds and inheriting a default they never approach costs nothing.
   - write_file:
       path: "{tmp}/settings.json"
       content: |
@@ -94,14 +141,18 @@ config_injection:
             "command":"{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PostToolUse":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook tool_post --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "PostToolUseFailure":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook tool_fail --segment {segid} --provider {provider} {scope_flags}"}]}],
           "SubagentStart":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook subagent_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
           "SubagentStop":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook subagent_post --segment {segid} --provider {provider} {scope_flags}"}]}],
           "Notification":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook notification --segment {segid} --provider {provider} {scope_flags}"}]}],
-          "PermissionRequest":[{"hooks":[{"type":"command",
+          "PermissionRequest":[{"hooks":[{"type":"command","timeout":300,
             "command":"{crowbar_hook} hook permission --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "Elicitation":[{"hooks":[{"type":"command","timeout":300,
+            "command":"{crowbar_hook} hook elicitation --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PreCompact":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook compact_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PostCompact":[{"hooks":[{"type":"command",
@@ -176,10 +227,78 @@ hooks:
       tool_input:  tool_input
       tool_result: tool_response
       duration_ms: duration_ms
+    # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it (measured
+    # against claude 2.1.234 on 2026-08-17). Mapping only tool_post therefore left a
+    # failed tool with no completion at all: it stayed in flight until the turn-close
+    # sweep abandoned it, so "the Edit failed" rendered as "the Edit is still running"
+    # for the rest of the turn.
+    #
+    # tool_result is an ALTERNATION here for the same reason tool_target is one: the
+    # failure text lives under `error` where a success puts it under `tool_response`,
+    # and both belong in the content store. tool_error additionally keeps a short,
+    # inline copy so a timeline can say WHY without fetching a payload.
+    tool_fail:
+      session_id:  session_id
+      tool_id:     tool_use_id
+      tool_name:   tool_name
+      tool_target: tool_input.file_path,tool_input.command,tool_input.url,tool_input.pattern
+      tool_input:  tool_input
+      tool_result: tool_response,error
+      tool_error:  error
+      duration_ms: duration_ms
     subagent_pre:  { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     subagent_post: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     notification:  { session_id: session_id, message: message }
-    permission:    { session_id: session_id, message: tool_name }
+    # The permission's WHOLE useful payload, not just the tool's name.
+    #
+    # Measured against claude 2.1.234 on 2026-08-17, a PermissionRequest carries
+    # prompt_id, permission_mode, tool_name, tool_input and permission_suggestions.
+    # Keeping only tool_name is what made a blocked agent render as "waiting on
+    # Bash" with no way to see what Bash was about to run.
+    #
+    # It carries NO tool_use_id, despite claude's own documentation claiming one, so
+    # prompt_id is the only id here and the in-flight PreToolUse of the same tool name
+    # is what the prompt is correlated to.
+    #
+    # permission_mode is deliberately NOT mapped. It read "default" in every payload
+    # captured, including ones taken while the TUI was demonstrably in manual and in
+    # auto — so it is a field that reports a value rather than the truth, and a
+    # descriptor that maps nothing is more honest than one that maps that.
+    #
+    # AskUserQuestion is a TOOL, not an event: its questions arrive inside this very
+    # tool_input, which is why the question vocabulary below is mapped on the
+    # permission and nowhere else. Mapping it on tool_pre as well would open the same
+    # prompt twice, under two ids that nothing can reconcile.
+    permission:
+      session_id:             session_id
+      message:                tool_name
+      prompt_id:              prompt_id
+      tool_name:              tool_name
+      tool_target:            tool_input.file_path,tool_input.command,tool_input.url,tool_input.pattern
+      tool_input:             tool_input
+      suggestions:            permission_suggestions
+      suggestion_label:       type
+      suggestion_description: mode,destination
+      questions:              tool_input.questions
+      question_title:         header
+      question_text:          question
+      question_options:       options
+      question_multi:         multiSelect
+      option_label:           label
+      option_description:     description
+    # Elicitation IS a hook event of its own — an MCP server asking the human a
+    # question through the CLI. Measured against claude 2.1.234 on 2026-08-17:
+    #   {"hook_event_name":"Elicitation","mcp_server_name":"spike",
+    #    "message":"do you prefer A or B?","mode":"form",
+    #    "requested_schema":{...}}
+    # The schema is carried verbatim and never interpreted: what an elicitation
+    # offers is a form, and a client renders it the way any MCP client would.
+    elicitation:
+      session_id: session_id
+      message:    message
+      mcp_server: mcp_server_name
+      mode:       mode
+      schema:     requested_schema
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }
@@ -223,6 +342,62 @@ hooks:
       message: last_assistant_message
       async_work: background_tasks
       effort: effort.level
+# The ANSWER channel — the write side of the two hooks above that ask a question.
+#
+# Everything here was measured live against claude 2.1.234 on 2026-08-18, by
+# driving a real interactive PTY under `--permission-mode auto` (Crowbar's own
+# spawn args) with these exact shapes on a throwaway --settings file:
+#
+#   * The `hookSpecificOutput` WRAPPER IS MANDATORY. A bare
+#     {"decision":{"behavior":"allow"|"deny",...}} is rejected by claude's own hook
+#     output validator — `Hook JSON output validation failed — (root): Invalid
+#     input` — and the CLI falls straight through to its TUI dialog. Both the allow
+#     and the deny form were measured failing without it and passing with it.
+#
+#   * AskUserQuestion IS answerable from PermissionRequest, which settles the one
+#     open question this block existed to answer. The prompt arrives as
+#     PreToolUse → PermissionRequest → (dialog), and returning `behavior: allow`
+#     with an `updatedInput` carrying the original tool_input plus an `answers`
+#     object keyed by the question's TEXT and valued with the option's LABEL makes
+#     the tool return the answer: the following PostToolUse carried
+#     "answers":{"Which option do you prefer?":"Option A"} in both tool_input and
+#     tool_response, no dialog was drawn, no Notification fired, and the model
+#     printed the label back. So the question vocabulary stays mapped on
+#     `permission` — where it is observed — and is answered there too.
+#
+#   * A PreToolUse that ALLOWS suppresses PermissionRequest entirely, which is why
+#     nothing here blocks on tool_pre: that hook fires for EVERY tool call, and
+#     holding it open would stall work nobody was ever asked about.
+#
+#   * A hook that prints NOTHING and exits 0 falls through to the dialog in
+#     milliseconds. That is the degradation route the relay takes whenever the
+#     daemon cannot be reached, and it is why an unanswerable prompt costs nothing.
+#
+# `deny` carries the human's words through claude's `message`. There is
+# deliberately no template for a `suggestion` option: claude's permission_suggestions
+# would ride an `updatedPermissions` field that was never measured, and a broader
+# grant that silently narrows to a plain allow is worse than a button that says it
+# cannot do that.
+answer:
+  permission:
+    # Shorter than the 300s `timeout` injected on the PermissionRequest hook, so
+    # the relay stops waiting and exits cleanly rather than being killed mid-write.
+    timeout_seconds: 270
+    answers_into: answers
+    responses:
+      allow: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+      deny: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
+      answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+  # An elicitation offers no options, so its decision keys are the MCP verbs
+  # themselves. The accept shape is the one the earlier spike drove through a real
+  # MCP server against 2.1.234: the server received
+  # {"action":"accept","content":{...}} as its elicitation result.
+  elicitation:
+    timeout_seconds: 270
+    responses:
+      accept: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"accept","content":{content_json}}}'
+      decline: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"decline"}}'
+      cancel: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"cancel"}}'
 # claude reads an appended system prompt without being given a turn, and honours
 # a FRESH one on --resume too (verified: `claude --resume <id>
 # --append-system-prompt "<secret>"` answers from the secret), so the same silent

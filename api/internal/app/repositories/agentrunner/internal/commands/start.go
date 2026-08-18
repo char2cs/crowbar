@@ -18,6 +18,8 @@ type Start struct {
 	TerminalSession string
 	ChatID          string
 	LaunchSessionID string
+	LaunchModel     string
+	LaunchEffort    string
 	Now             time.Time
 }
 
@@ -50,6 +52,8 @@ func (c Start) EmitEvent(_ *domain.AgentRunner) domain.AgentRunner {
 		TerminalSession: c.TerminalSession,
 		CurrentChatID:   c.ChatID,
 		LaunchSessionID: c.LaunchSessionID,
+		LaunchModel:     c.LaunchModel,
+		LaunchEffort:    c.LaunchEffort,
 		StartedAt:       c.Now,
 	}
 }

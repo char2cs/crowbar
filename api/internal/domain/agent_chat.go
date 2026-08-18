@@ -24,6 +24,23 @@ type AgentChat struct {
 	TitleLocked bool      `json:"titleLocked"`
 	CreatedAt   time.Time `json:"createdAt"`
 
+	// Model and Effort are the chat's STICKY choice of what to run its provider
+	// CLI as: durable config beside the title, not a property of any process. They
+	// persist between messages so the picker has a value to show and the next
+	// message runs under the same choice as the last.
+	//
+	// EMPTY means "the provider's own default", and that is a distinct fact from
+	// any declared value — never a stand-in for one. Nothing substitutes a default
+	// into a spawn, so a chat that has chosen nothing produces byte-identical argv
+	// to one created before this field existed.
+	//
+	// They are what the chat WANTS. What its live CLI is actually running is
+	// AgentRunner.LaunchModel/LaunchEffort — Crowbar's record of the spawn — and
+	// the gap between the two is exactly what makes the next prompt restart the
+	// TUI.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+
 	// ParentID is the row this chat hangs off in the Chats tree: another chat, a
 	// folder, or "" at the panel root. It is the ONLY record of the relationship
 	// — no badge, no stored fork point — because the relationship is live rather

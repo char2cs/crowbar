@@ -5,6 +5,7 @@ import {
   describeInterruption,
   describeTool,
   formatDuration,
+  pendingChoices,
   runningSubagents,
   runningTools,
 } from '@/features/agent/lib/agent-activity'
@@ -30,6 +31,14 @@ export function AgentActivityStrip({
   working: boolean
   providerLabel: string
 }) {
+  // A prompt waiting on a human SUPERSEDES everything below it. It is the same
+  // event the interruption banner announces — the permission hook records both —
+  // drawn as the question it actually is, with the answers on it; two banners for
+  // one blockage would just be one of them repeating the other with less. The
+  // prompt itself is AgentChoicePrompts, rendered beside this strip, and a chat
+  // waiting on a person is not "working…" whatever the turn state says.
+  if (pendingChoices(activity).length > 0) return null
+
   const blocked = blockedOn(activity)
 
   // A blocked agent is NOT working, whatever the turn state says, and saying

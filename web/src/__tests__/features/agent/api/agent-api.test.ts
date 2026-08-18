@@ -53,6 +53,38 @@ describe('agent-api', () => {
     expect(chats[0].activeProviderId).toBe('claude')
   })
 
+  // The chat's sticky selection. Omitted on the wire means UNSET — "whatever this
+  // provider defaults to" — and it is grounded to '' so an absent key and a
+  // cleared one are the same thing everywhere downstream.
+  it('listChats carries the sticky model/effort selection, grounding an absent one', async () => {
+    apiFetch.mockResolvedValue([
+      {
+        id: 'c1',
+        workspaceId: 'w1',
+        title: 'T',
+        liveRunnerId: '',
+        terminalSessionId: '',
+        activeProviderId: 'codex',
+        createdAt: '2026-01-01T00:00:00Z',
+        model: 'gpt-5.6-luna',
+        effort: 'max',
+      },
+      {
+        id: 'c2',
+        workspaceId: 'w1',
+        title: 'T2',
+        liveRunnerId: '',
+        terminalSessionId: '',
+        activeProviderId: 'codex',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ])
+    const chats = await api.listChats('w1')
+    expect(chats[0]).toMatchObject({ model: 'gpt-5.6-luna', effort: 'max' })
+    expect(chats[1].model).toBe('')
+    expect(chats[1].effort).toBe('')
+  })
+
   it('listChats returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValue(undefined)
     const chats = await api.listChats('w1')
@@ -241,6 +273,34 @@ describe('agent-api', () => {
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
   })
 
+  // The selection write. BOTH halves travel on EVERY call and '' clears one back
+  // to the provider's own default — a partial write could store a pair that was
+  // never jointly valid, since which effort levels exist is a property of the model.
+  it('setChatSelection PATCHes the whole selection', async () => {
+    apiFetch.mockResolvedValue(undefined)
+    await api.setChatSelection('w1', 'c1', 'gpt-5.6-luna', 'max')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1/selection', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.6-luna', effort: 'max' }),
+    })
+  })
+
+  it("setChatSelection sends '' rather than omitting a cleared half", async () => {
+    apiFetch.mockResolvedValue(undefined)
+    await api.setChatSelection('w1', 'c1', '', '')
+    expect(apiFetch.mock.calls[0][1]).toMatchObject({
+      body: JSON.stringify({ model: '', effort: '' }),
+    })
+  })
+
+  it('setChatSelection lets the endpoint status reach the caller', async () => {
+    // 400 (not in the catalogue) and 422 (no provider yet) are both the caller's
+    // to SHOW; the client must not swallow either into a silent no-op.
+    apiFetch.mockRejectedValueOnce(new Error('bad request'))
+    await expect(api.setChatSelection('w1', 'c1', 'nope', '')).rejects.toThrow('bad request')
+  })
+
   it('listProviders returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValue(undefined)
     const p = await api.listProviders('w1')
@@ -280,6 +340,49 @@ describe('agent-api', () => {
       enabled: true,
       mcpEnabled: true,
     })
+  })
+
+  // The selection catalogue: WHETHER each picker exists at all, plus the models
+  // and the per-model effort levels the backend has already resolved.
+  it('listProviders carries the model/effort catalogue through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        icon: '<svg/>',
+        connected: true,
+        enabled: true,
+        mcpEnabled: true,
+        modelSelect: true,
+        effortSelect: true,
+        models: ['gpt-5.6-sol', 'gpt-5.6-luna'],
+        efforts: {
+          '': ['low', 'medium', 'high'],
+          'gpt-5.6-sol': ['low', 'medium', 'high', 'max', 'ultra'],
+          'gpt-5.6-luna': ['low', 'medium', 'high', 'max'],
+        },
+      },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].modelSelect).toBe(true)
+    expect(out[0].effortSelect).toBe(true)
+    // Descriptor order is the provider's own ranking — never re-sorted here.
+    expect(out[0].models).toEqual(['gpt-5.6-sol', 'gpt-5.6-luna'])
+    // '' is the key for the provider's OWN default model. The fallback rule is
+    // applied server-side; the mapper must not add one of its own.
+    expect(out[0].efforts?.['']).toEqual(['low', 'medium', 'high'])
+    expect(out[0].efforts?.['gpt-5.6-luna']).toEqual(['low', 'medium', 'high', 'max'])
+  })
+
+  // Both capabilities default OFF and both catalogues EMPTY. That is the opposite
+  // direction from mcpEnabled, and deliberately so: a daemon that sends neither
+  // flag declares no catalogue, and an empty picker would invent a capability.
+  it('listProviders defaults the selection capability to absent', async () => {
+    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    const out = await api.listProviders('w1')
+    expect(out[0]).toMatchObject({ modelSelect: false, effortSelect: false })
+    expect(out[0].models).toEqual([])
+    expect(out[0].efforts).toEqual({})
   })
 
   // The global preferences write: PUTs the FULL ordered set (index = priority) to
@@ -368,6 +471,89 @@ describe('agent-api', () => {
   // A second aggregate with its own route (agent-api.ts's "Writes" section
   // comment), so it gets its own describe rather than folding into the chat
   // tests above.
+
+  // ── Prompts the CLI is blocked on ────────────────────────────────
+  //
+  // They ride the ACTIVITY payload; there is no second poll for them.
+  it('listChatActivity carries the prompts a chat is blocked on', async () => {
+    apiFetch.mockResolvedValue({
+      toolCalls: [],
+      subagents: [],
+      interruptions: [],
+      choices: [
+        {
+          id: 'k1',
+          turnId: 'turn-1',
+          seq: 4,
+          kind: 'tool_permission',
+          toolName: 'Bash',
+          options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
+          pending: true,
+          answerable: true,
+          at: '2026-08-18T12:00:00Z',
+        },
+      ],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices).toHaveLength(1)
+    expect(activity.choices[0]).toMatchObject({ id: 'k1', pending: true, answerable: true })
+  })
+
+  // A daemon that sends neither field is one with no answer channel at all.
+  // `answerable` therefore grounds FALSE — defaulting it true would draw buttons
+  // that reach nobody, which is the single failure the field exists to prevent.
+  it('listChatActivity grounds an absent prompt list and an absent answerable', async () => {
+    apiFetch.mockResolvedValue({
+      toolCalls: [],
+      subagents: [],
+      interruptions: [],
+      choices: [{ id: 'k1', turnId: 't', seq: 1, kind: 'question', at: 'x' }],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]).toMatchObject({
+      answerable: false,
+      pending: false,
+      multi: false,
+      options: [],
+    })
+
+    apiFetch.mockResolvedValue({})
+    expect((await api.listChatActivity('w1', 'c1')).choices).toEqual([])
+  })
+
+  it('answerChoice POSTs the picked options to the prompt’s own route', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k 1', { optionIds: ['allow'] })
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/agent/chats/c1/choices/k%201/answer',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
+  })
+
+  // Several ids in ONE answer is what `multi` means, and the elicitation form
+  // travels beside them as the provider's own document.
+  it('answerChoice carries several options, a reason and a form document', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k1', {
+      optionIds: ['answer-0', 'answer-1'],
+      reason: 'both apply',
+      content: { name: 'crowbar' },
+    })
+
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({
+      optionIds: ['answer-0', 'answer-1'],
+      reason: 'both apply',
+      content: { name: 'crowbar' },
+    })
+  })
 
   describe('chat folders + placement', () => {
     it('listChatFolders GETs the workspace-scoped folders list and grounds parentId/order', async () => {

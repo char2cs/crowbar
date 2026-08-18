@@ -40,6 +40,15 @@ import (
 // folders are needed, so mounting them once would have left the surface that
 // needs them most without them.
 //
+// .../agent/chats/:id/choices/:choiceId/answer and the two .../agent/hooks/*
+// leaves are the ANSWER CHANNEL, and they are three routes because they serve
+// two different callers. The first is a human, deciding a question in the chat.
+// The other two are the in-PTY relay: one parks it alive while the provider's
+// gate stays open, the other is what it reports when the provider kills it
+// because somebody decided at the terminal instead. They mount beside
+// .../agent/hooks for the same reason it does — that is where a vendor CLI's
+// callbacks already reach this daemon.
+//
 // .../agent/chats/:id/placement is the chat half of the same gesture the folder
 // PATCH serves. It is a separate route from the chat's own rename because it
 // writes something different in kind: a chat's parent IS its context lineage, so
@@ -68,12 +77,15 @@ func Register(
 	wsScoped.POST("/agent/chats/:id/prompts", h.SubmitPrompt)
 	wsScoped.GET("/agent/chats/:id/activity", h.Activity)
 	wsScoped.GET("/agent/chats/:id/activity/:toolId/payload", h.ToolPayload)
+	wsScoped.GET("/agent/chats/:id/choices", h.Choices)
+	wsScoped.POST("/agent/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
 	wsScoped.GET("/agent/chats/:id/telemetry", h.Telemetry)
 	wsScoped.GET("/agent/chats/:id/slash-catalog", h.SlashCatalog)
 	wsScoped.POST("/agent/chats/:id/switch", h.Switch)
 	wsScoped.POST("/agent/chats/:id/resume", h.Resume)
 	wsScoped.POST("/agent/chats/:id/stop", h.Stop)
 	wsScoped.POST("/agent/chats/:id/rename", h.Rename)
+	wsScoped.PATCH("/agent/chats/:id/selection", h.SetSelection)
 	wsScoped.GET("/agent/chats/:id/handoff", h.Handoff)
 	wsScoped.PATCH("/agent/chats/:id/placement", h.PlaceChat)
 	wsScoped.DELETE("/agent/chats/:id", h.Delete)
@@ -83,6 +95,8 @@ func Register(
 	wsScoped.DELETE("/agent/folders/:folderId", h.DeleteFolder)
 	wsScoped.POST("/agent/runners/:segid/mcp", h.MCP)
 	wsScoped.POST("/agent/hooks", h.Hooks)
+	wsScoped.POST("/agent/hooks/await", h.AwaitHookAnswer)
+	wsScoped.POST("/agent/hooks/abandon", h.AbandonHookAnswer)
 	wsScoped.GET("/agent/providers", h.Providers)
 	wsScoped.GET("/agent/ws/chats", wsHandle)
 

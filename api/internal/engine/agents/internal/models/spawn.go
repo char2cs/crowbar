@@ -35,6 +35,12 @@ type Capabilities struct {
 	SlashCatalog bool
 	// Telemetry is whether any telemetry transport is declared.
 	Telemetry bool
+	// ModelSelect and EffortSelect are whether the descriptor declares a model /
+	// effort catalogue at all. They are facts about the descriptor, not about any
+	// chat: a client reads them to decide whether to render a picker, and reads
+	// the catalogue itself to fill it.
+	ModelSelect  bool
+	EffortSelect bool
 	// Observes lists the canonical hook kinds this descriptor maps, sorted. It is
 	// what lets the UI say "this agent cannot report tool activity" instead of
 	// showing an empty panel that looks broken.

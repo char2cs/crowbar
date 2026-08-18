@@ -43,6 +43,13 @@ type CanonicalEvent struct {
 	Subagent  *SubagentEvent
 	Interrupt *InterruptEvent
 
+	// Choice is a prompt the agent is BLOCKED on until a human answers it. It sits
+	// beside Interrupt rather than inside it because the two answer different
+	// questions: an interruption says the agent stopped, a choice says what it is
+	// waiting to be told. A provider whose descriptor maps no choice vocabulary
+	// reports the interruption alone, exactly as before.
+	Choice *ChoicePrompt
+
 	Raw map[string]any
 }
 
@@ -55,10 +62,14 @@ type ToolEvent struct {
 	// Target is the one field worth indexing across tools — the file path, the
 	// command, the URL. A descriptor picks it per provider; an unmapped target is
 	// empty, which is legible, where a guessed one would be wrong.
-	Target     string
-	Input      []byte
-	Result     []byte
-	Status     string
+	Target string
+	Input  []byte
+	Result []byte
+	Status string
+	// Error is what the provider said went wrong, when it reports a failure as a
+	// distinct event rather than as a status. It is a MESSAGE, not a payload: the
+	// full failure text travels through Result to the content store.
+	Error      string
 	DurationMS int
 }
 
@@ -86,4 +97,79 @@ type InterruptEvent struct {
 	Kind     string
 	Detail   string
 	Resolved bool
+}
+
+// Choice kinds. What KIND of answer the agent is waiting for, in Crowbar's own
+// vocabulary — a provider's own event or tool names map onto these.
+const (
+	// ChoiceToolPermission is "may I run this tool".
+	ChoiceToolPermission = "tool_permission"
+	// ChoiceQuestion is the agent asking the human to pick between labelled
+	// options. On claude this arrives as the AskUserQuestion TOOL rather than as an
+	// event of its own (measured against claude 2.1.234 on 2026-08-17), which is
+	// why it is recognised by the shape of a permission's tool input and not by a
+	// hook name.
+	ChoiceQuestion = "question"
+	// ChoiceElicitation is an MCP server asking through the CLI.
+	ChoiceElicitation = "elicitation"
+)
+
+// Choice option kinds. A client renders by kind rather than by label, because the
+// labels of the synthetic ones are Crowbar's words and not a provider's.
+const (
+	// ChoiceOptionAnswer is one of the labelled answers the agent itself offered.
+	ChoiceOptionAnswer = "answer"
+	// ChoiceOptionAllow and ChoiceOptionDeny are the two answers every permission
+	// prompt has by construction. No provider enumerates them, so Crowbar does.
+	ChoiceOptionAllow = "allow"
+	ChoiceOptionDeny  = "deny"
+	// ChoiceOptionSuggestion is a broader grant the provider proposed alongside the
+	// plain allow — claude's permission_suggestions, e.g. "and stop asking about
+	// this directory".
+	ChoiceOptionSuggestion = "suggestion"
+)
+
+// ChoicePrompt is the agent waiting on a human decision.
+//
+// Every field is optional in the same way the rest of this file's are: a
+// descriptor maps what its provider reports, and an unmapped field stays zero. A
+// descriptor that maps none of the choice vocabulary produces no ChoicePrompt at
+// all, which is how this degrades to absent rather than to a prompt with nothing
+// in it.
+type ChoicePrompt struct {
+	Kind string
+	// PromptID is the provider's OWN id for this prompt, when it gives one. It is
+	// not Crowbar's identity for the record — see domain.ActivityChoice.ID — but it
+	// is what lets two hooks describing the same prompt be recognised as one.
+	PromptID string
+	// ToolName is the tool a permission is gating. It is the ONLY correlation a
+	// permission offers on claude: measured against 2.1.234 on 2026-08-17, a
+	// PermissionRequest carries NO tool_use_id despite claude's own docs claiming
+	// one, so the in-flight PreToolUse of the same name is what the prompt attaches
+	// to.
+	ToolName string
+	// Title is a short header — the tool name for a permission, the question's own
+	// header, the MCP server's name for an elicitation.
+	Title string
+	// Question is the text actually being asked.
+	Question string
+	// Mode is the provider's own word for how it expects to be answered (claude's
+	// elicitation `mode`), carried verbatim and never interpreted here.
+	Mode string
+	// Multi reports that more than one option may be chosen.
+	Multi   bool
+	Options []ChoiceOption
+	// Schema is the provider's requested-input schema, verbatim, for a prompt whose
+	// answer is a FORM rather than a choice between options.
+	Schema []byte
+}
+
+// ChoiceOption is one answer a prompt will accept.
+type ChoiceOption struct {
+	// ID is stable within its prompt, so an answer can name an option without
+	// sending its label back.
+	ID          string
+	Kind        string
+	Label       string
+	Description string
 }

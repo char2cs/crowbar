@@ -2,15 +2,20 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   AgentActivity,
+  AgentChoice,
   AgentInterruption,
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
 import {
   blockedOn,
+  choiceDetail,
+  choiceToolTarget,
+  describeChoice,
   describeInterruption,
   describeTool,
   formatDuration,
   NO_ACTIVITY,
+  pendingChoices,
   runningSubagents,
   runningTools,
 } from '@/features/agent/lib/agent-activity'
@@ -42,6 +47,24 @@ function interruption(overrides: Partial<AgentInterruption> = {}): AgentInterrup
 
 function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
   return { ...NO_ACTIVITY, ...overrides }
+}
+
+function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
+  return {
+    id: 'k1',
+    turnId: 'turn-1',
+    seq: 1,
+    kind: 'tool_permission',
+    toolName: 'Bash',
+    options: [
+      { id: 'allow', kind: 'allow', label: 'Allow' },
+      { id: 'deny', kind: 'deny', label: 'Deny' },
+    ],
+    pending: true,
+    answerable: true,
+    at: '2026-08-18T12:00:00Z',
+    ...overrides,
+  }
 }
 
 describe('blockedOn', () => {
@@ -131,5 +154,113 @@ describe('formatDuration', () => {
     [90_000, '1m 30s'],
   ])('renders %s as %s', (ms, expected) => {
     expect(formatDuration(ms)).toBe(expected)
+  })
+})
+
+describe('pendingChoices', () => {
+  it('reports nothing when the chat is waiting on no one', () => {
+    expect(pendingChoices(NO_ACTIVITY)).toEqual([])
+  })
+
+  // A prompt stops pending three ways — answered here, answered at the terminal
+  // (`proceeded`), or cleared with the turn (`abandoned`) — and every one of them
+  // must take it off this surface. The server's `pending` is the only authority.
+  it('drops a prompt resolved ANY way, including one answered at the terminal', () => {
+    const done = activity({
+      choices: [
+        choice({ id: 'a', pending: false, resolution: 'answered' }),
+        choice({ id: 'b', seq: 2, pending: false, resolution: 'proceeded' }),
+        choice({ id: 'c', seq: 3, pending: false, resolution: 'abandoned' }),
+      ],
+    })
+
+    expect(pendingChoices(done)).toEqual([])
+  })
+
+  // Unlike an interruption these are NOT collapsed to the newest: each is holding
+  // its own CLI gate open, and hiding one leaves the provider blocked on a
+  // question nobody was shown.
+  it('keeps EVERY pending prompt, oldest first', () => {
+    const open = activity({
+      choices: [
+        choice({ id: 'b', seq: 2 }),
+        choice({ id: 'a', seq: 1 }),
+        choice({ id: 'gone', seq: 3, pending: false }),
+      ],
+    })
+
+    expect(pendingChoices(open).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+
+  // Both facts travel, and a prompt nobody can answer is still pending: the CLI
+  // is genuinely asking it, at its own terminal.
+  it('keeps a pending prompt that is no longer answerable', () => {
+    const stale = activity({ choices: [choice({ answerable: false })] })
+
+    expect(pendingChoices(stale)).toHaveLength(1)
+  })
+})
+
+describe('choiceToolTarget', () => {
+  // A prompt carries the tool's NAME; the target is on the call it gates.
+  it('reads the gated call target out of the same turn', () => {
+    const gated = activity({
+      toolCalls: [tool({ name: 'Bash', target: 'go test ./...' })],
+      choices: [choice()],
+    })
+
+    expect(choiceToolTarget(gated, choice())).toBe('go test ./...')
+  })
+
+  it('says nothing rather than guessing when no such call is in flight', () => {
+    const other = activity({
+      toolCalls: [
+        tool({ id: 'x', name: 'Bash', turnId: 'turn-2', target: 'other turn' }),
+        tool({ id: 'y', name: 'Edit', target: 'other tool' }),
+        tool({ id: 'z', name: 'Bash', status: 'ok', target: 'already finished' }),
+      ],
+      choices: [choice()],
+    })
+
+    expect(choiceToolTarget(other, choice())).toBe('')
+    expect(choiceToolTarget(NO_ACTIVITY, choice({ toolName: '' }))).toBe('')
+  })
+})
+
+describe('describeChoice', () => {
+  it('names the tool a permission gates', () => {
+    expect(describeChoice(choice())).toBe('Run Bash?')
+    expect(describeChoice(choice({ toolName: '' }))).toBe('The agent is asking for permission')
+  })
+
+  it('asks a question in the provider’s own words', () => {
+    const asked = choice({ kind: 'question', question: 'Which option do you prefer?', options: [] })
+
+    expect(describeChoice(asked)).toBe('Which option do you prefer?')
+  })
+
+  // A kind this build has never heard of falls through to whatever the provider
+  // did say, never to a guess about what it meant.
+  it('degrades to the provider’s own text for an unknown kind', () => {
+    expect(describeChoice(choice({ kind: 'something_new', question: 'Well?' }))).toBe('Well?')
+    expect(describeChoice(choice({ kind: 'something_new', question: '', title: 'T' }))).toBe('T')
+  })
+})
+
+describe('choiceDetail', () => {
+  it('puts the permission’s target under the headline', () => {
+    const gated = activity({
+      toolCalls: [tool({ name: 'Bash', target: 'rm -rf build' })],
+      choices: [choice()],
+    })
+
+    expect(choiceDetail(gated, choice())).toBe('rm -rf build')
+  })
+
+  it('never repeats the headline it already drew', () => {
+    const asked = choice({ kind: 'question', question: 'Same', title: 'Same', options: [] })
+
+    expect(choiceDetail(NO_ACTIVITY, asked)).toBe('')
+    expect(choiceDetail(NO_ACTIVITY, { ...asked, title: 'Deploy target' })).toBe('Deploy target')
   })
 })

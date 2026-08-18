@@ -50,6 +50,7 @@ type ToolCallRow struct {
 	RequestRef string     `gorm:"column:request_ref"`
 	ResultRef  string     `gorm:"column:result_ref"`
 	Status     string     `gorm:"column:status;index"`
+	Error      string     `gorm:"column:error"`
 	DurationMS int        `gorm:"column:duration_ms"`
 	StartedAt  time.Time  `gorm:"column:started_at;index"`
 	EndedAt    *time.Time `gorm:"column:ended_at"`
@@ -83,3 +84,38 @@ type InterruptionRow struct {
 }
 
 func (InterruptionRow) TableName() string { return "agent_interruptions" }
+
+// ChoiceRow is one prompt the agent put to a human.
+//
+// Options is a JSON array rather than a child table on purpose: nothing queries
+// an option — they are read only as part of the prompt that offered them — and a
+// join per pending prompt would buy nothing. The prompt itself IS queried, by
+// chat and by whether it is still pending, and those are columns.
+type ChoiceRow struct {
+	Key    string `gorm:"primaryKey;column:key"`
+	ID     string `gorm:"column:id"`
+	TurnID string `gorm:"column:turn_id;index"`
+	ChatID string `gorm:"column:chat_id;index:idx_choice_chat_seq,priority:1"`
+	Seq    int64  `gorm:"column:seq;index:idx_choice_chat_seq,priority:2"`
+
+	Kind     string `gorm:"column:kind;index"`
+	PromptID string `gorm:"column:prompt_id"`
+	// ToolID and ToolName are how a completion finds the prompt it answered. Both
+	// are indexed because the resolution sweep runs on every tool completion, which
+	// is the highest-frequency event in the system.
+	ToolID   string `gorm:"column:tool_id;index"`
+	ToolName string `gorm:"column:tool_name;index"`
+
+	Title    string `gorm:"column:title"`
+	Question string `gorm:"column:question"`
+	Mode     string `gorm:"column:mode"`
+	Multi    bool   `gorm:"column:multi"`
+	Options  string `gorm:"column:options"`
+	Schema   string `gorm:"column:schema"`
+
+	At         time.Time  `gorm:"column:at"`
+	ResolvedAt *time.Time `gorm:"column:resolved_at;index"`
+	Resolution string     `gorm:"column:resolution"`
+}
+
+func (ChoiceRow) TableName() string { return "agent_choices" }

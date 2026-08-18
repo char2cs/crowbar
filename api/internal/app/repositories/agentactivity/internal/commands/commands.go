@@ -35,6 +35,7 @@ func advance(current *domain.AgentActivity, chatID string) domain.AgentActivity 
 	next.Tools = cloneTools(current.Tools)
 	next.Subagents = cloneSubagents(current.Subagents)
 	next.Interruptions = cloneInterruptions(current.Interruptions)
+	next.Choices = cloneChoices(current.Choices)
 	return next
 }
 
@@ -68,6 +69,17 @@ func cloneInterruptions(in map[string]domain.ActivityInterruption) map[string]do
 		return nil
 	}
 	out := make(map[string]domain.ActivityInterruption, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneChoices(in map[string]domain.ActivityChoice) map[string]domain.ActivityChoice {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]domain.ActivityChoice, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

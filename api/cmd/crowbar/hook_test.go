@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -45,7 +46,11 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	err = runHook("turn_stop", "seg-42", "claude", "p1", "r1", "w1", []byte(`{"session_id":"abc"}`), "unix://"+sock)
+	err = runHook(hookRun{
+		Event: "turn_stop", Segment: "seg-42", Provider: "claude",
+		Project: "p1", Repo: "r1", Workspace: "w1",
+		Payload: []byte(`{"session_id":"abc"}`), Host: "unix://" + sock, Out: io.Discard,
+	})
 	require.NoError(t, err)
 
 	mu.Lock()
@@ -86,7 +91,11 @@ func TestRunHook_Non2xxRemainsSpooledAndRetriesSameDeliveryID(t *testing.T) {
 	defer srv.Close()
 
 	host := "unix://" + sock
-	err = runHook("user_prompt", "seg-1", "codex", "p", "r", "w", []byte(`{"prompt":"keep me"}`), host)
+	err = runHook(hookRun{
+		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
+		Project: "p", Repo: "r", Workspace: "w",
+		Payload: []byte(`{"prompt":"keep me"}`), Host: host, Out: io.Discard,
+	})
 	require.Error(t, err)
 	files, err := filepath.Glob(filepath.Join(hookSpoolDir(), "*.json"))
 	require.NoError(t, err)

@@ -267,3 +267,102 @@ func TestTelemetry_CarriesCostWhenTheProviderReportsIt(t *testing.T) {
 	assert.Nil(t, body.Data.Context)
 	assert.Equal(t, engineagents.TelemetrySourceProbe, body.Data.Source)
 }
+
+func pendingChoice() domain.ActivityChoice {
+	return domain.ActivityChoice{
+		ID: "choice-1", TurnID: "turn-1", Seq: 6,
+		Kind: domain.ChoiceKindPermission, PromptID: "81899da5",
+		ToolID: "tool-1", ToolName: "Bash", Title: "Bash",
+		Options: []domain.ActivityChoiceOption{
+			{ID: "allow", Kind: domain.ChoiceOptionAllow, Label: "Allow"},
+			{ID: "suggestion-0", Kind: domain.ChoiceOptionSuggestion, Label: "setMode"},
+		},
+		At: activityAt,
+	}
+}
+
+// The prompt is the one piece of agent state a user can act on, so the timeline
+// has to carry it beside what the agent did on its own.
+func TestActivity_CarriesThePromptsTheAgentPutToAHuman(t *testing.T) {
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Choices: []domain.ActivityChoice{pendingChoice()},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Choices, 1)
+	assert.Equal(t, domain.ChoiceKindPermission, body.Data.Choices[0].Kind)
+	assert.True(t, body.Data.Choices[0].Pending)
+	require.Len(t, body.Data.Choices[0].Options, 2)
+	assert.Equal(t, "allow", body.Data.Choices[0].Options[0].ID)
+}
+
+// A failed tool says WHY inline, so a timeline row does not need a payload fetch
+// to explain itself.
+func TestActivity_AFailedCallCarriesItsErrorInline(t *testing.T) {
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		ToolCalls: []domain.ActivityToolCall{{
+			ID: "tool-1", Name: "Bash", Status: domain.ToolStatusError,
+			Error: "exit status 1", StartedAt: activityAt,
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.ToolCalls, 1)
+	assert.Equal(t, "exit status 1", body.Data.ToolCalls[0].Error)
+}
+
+func TestChoices_ReturnsWhatTheAgentIsWaitingOn(t *testing.T) {
+	uc := &fakeAgentUsecase{pending: []domain.ActivityChoice{pendingChoice()}}
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(inWorkspace(uc)).Choices(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data []dto.AgentChoiceDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "choice-1", body.Data[0].ID)
+	assert.Equal(t, "Bash", body.Data[0].ToolName)
+	assert.Equal(t, []string{"chat-1"}, uc.pendingCalls)
+}
+
+// "Nothing pending" is an ANSWER, not a missing resource: a client that renders
+// nothing for it is correct, and a 404 would read as breakage.
+func TestChoices_AnAgentWaitingOnNothingReturnsAnEmptyList(t *testing.T) {
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(inWorkspace(&fakeAgentUsecase{})).Choices(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"data":[]`)
+}
+
+func TestChoices_PropagatesAReadFailure(t *testing.T) {
+	uc := &fakeAgentUsecase{pendingErr: errors.New("read model unavailable")}
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(inWorkspace(uc)).Choices(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// A chat in another workspace is not this workspace's to read.
+func TestChoices_RefusesAChatOutsideTheScopedWorkspace(t *testing.T) {
+	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "other"}}
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(uc).Choices(ctx)
+
+	assert.NotEqual(t, http.StatusOK, rec.Code)
+	assert.Empty(t, uc.pendingCalls)
+}

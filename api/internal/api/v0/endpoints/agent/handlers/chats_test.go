@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -136,6 +138,9 @@ type configurableListGetUsecase struct {
 	// dormant chat's activeProviderId derives from.
 	conversations map[string][]domain.ChatConversation
 	convErr       error
+
+	selection    selectionCall
+	selectionErr error
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -253,6 +258,14 @@ func (configurableListGetUsecase) RenameChat(
 	_, _, _ string,
 ) error {
 	return nil
+}
+
+func (c *configurableListGetUsecase) SetChatSelection(
+	_ context.Context,
+	chatID, model, effort string,
+) error {
+	c.selection = selectionCall{chatID: chatID, model: model, effort: effort}
+	return c.selectionErr
 }
 
 func (configurableListGetUsecase) DispatchMCP(
@@ -790,6 +803,126 @@ func (configurableListGetUsecase) ReadToolPayload(
 	return nil, nil
 }
 
+func (configurableListGetUsecase) ReadPendingChoices(
+	context.Context, string,
+) ([]domain.ActivityChoice, error) {
+	return nil, nil
+}
+
+func (configurableListGetUsecase) AnswerableChoiceIDs(
+	string, []domain.ActivityChoice,
+) []string {
+	return nil
+}
+
+func (configurableListGetUsecase) AnswerChoice(
+	context.Context, string, string, []string, string, []byte,
+) error {
+	return nil
+}
+
+func (configurableListGetUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
+	return agentusecase.PendingAnswer{}, false
+}
+
+func (configurableListGetUsecase) AwaitAnswer(
+	context.Context, string,
+) (agentusecase.HookAnswer, error) {
+	return agentusecase.HookAnswer{}, nil
+}
+
+func (configurableListGetUsecase) AbandonAnswer(context.Context, string) error { return nil }
+
 func (configurableListGetUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
+}
+
+// TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both
+// halves and forwards them together with the path id, answering 202 with an empty
+// body.
+func TestSetSelection_ForwardsTheWholeSelection(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"model":"opus","effort":"high"}`)
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.SetSelection(ctx)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+	require.Len(t, uc.selectionCalls, 1)
+	assert.Equal(t, selectionCall{chatID: "c-1", model: "opus", effort: "high"}, uc.selectionCalls[0])
+}
+
+// TestSetSelection_EmptyBodyClearsBothHalves: the body is the WHOLE selection, so
+// an omitted field is a cleared one — that is how a user returns a chat to the
+// provider's own default.
+func TestSetSelection_EmptyBodyClearsBothHalves(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", []byte(`{}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.SetSelection(ctx)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Len(t, uc.selectionCalls, 1)
+	assert.Equal(t, selectionCall{chatID: "c-1"}, uc.selectionCalls[0])
+}
+
+func TestSetSelection_WrongWorkspace404s(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"model":"opus"}`)
+	ctx, rec := newTestContext(t, http.MethodPatch,
+		"/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1/selection", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
+
+	h.SetSelection(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, uc.selectionCalls, "the scope check must 404 before the usecase is reached")
+}
+
+func TestSetSelection_BadJSON(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", []byte("{not json"))
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.SetSelection(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, uc.selectionCalls)
+}
+
+// TestSetSelection_RejectedValueSurfacesAs400: a value outside the provider's
+// declared catalogue is a client error, and the mapped apperr must reach the
+// client as one rather than as an opaque 500.
+func TestSetSelection_RejectedValueSurfacesAs400(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", apperr.ErrInvalidArgument)}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"model":"telepathy"}`)
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.SetSelection(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

@@ -162,6 +162,17 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
   )
+  // The chat's sticky selection, '' when it has made none. Two narrow selectors
+  // rather than the chat object: a selector returning the row itself would re-run
+  // every consumer on any field of it.
+  const chatModel = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.model ?? '',
+  )
+  const chatEffort = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.effort ?? '',
+  )
   const providers = useStore(store, (s) => s.agentChats.providers)
   // The provider this chat last ran under — what a failed revive has to NAME ("Claude
   // isn’t installed"), since a dormant chat has no live runner to ask.
@@ -365,6 +376,16 @@ export function AgentChatPane({
     s.setAgentChatWorking(chat.id, chat.working === true)
     return chat.working === true
   }, [store, wsId, shownChatId])
+
+  // A selection the SERVER accepted. It is written here rather than inside the
+  // picker because the store is the chat's owner, and the 202 carries no body and
+  // no lifecycle frame — nothing else would bring the new pair back.
+  const applySelection = useCallback(
+    (model: string, effort: string) => {
+      store.getState().setAgentChatSelection(shownChatId, model, effort)
+    },
+    [store, shownChatId],
+  )
 
   const handlePromptSpawned = useCallback(async () => {
     await adopt()
@@ -702,6 +723,9 @@ export function AgentChatPane({
               }}
               onPromptSpawned={handlePromptSpawned}
               onRefreshChat={refreshChatWorking}
+              model={chatModel}
+              effort={chatEffort}
+              onSelectionChange={applySelection}
               onQueueCountChange={setQueuedPromptCount}
               onCancelableQueueCountChange={setCancelablePromptCount}
               onDeliveryPendingChange={setDeliveryPending}

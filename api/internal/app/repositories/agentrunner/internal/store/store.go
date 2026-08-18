@@ -448,6 +448,8 @@ func (p *projector) upsertLive(
 		CurrentSession:          r.CurrentSession,
 		CurrentSessionSince:     r.CurrentSessionSince,
 		LaunchSessionID:         r.LaunchSessionID,
+		LaunchModel:             r.LaunchModel,
+		LaunchEffort:            r.LaunchEffort,
 		CurrentSessionResumable: r.CurrentSessionResumable,
 		StartedAt:               r.StartedAt,
 	}

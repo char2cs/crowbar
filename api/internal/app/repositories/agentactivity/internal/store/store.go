@@ -226,6 +226,21 @@ func (s *Store) Interruptions(
 	return s.storage.Interruptions(ctx, chatID)
 }
 
+// Choices returns a chat's prompts, pending and resolved alike.
+func (s *Store) Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
+	s.heal(ctx)
+	return s.storage.Choices(ctx, chatID)
+}
+
+// PendingChoices returns only the prompts a chat is still waiting on.
+func (s *Store) PendingChoices(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityChoice, error) {
+	s.heal(ctx)
+	return s.storage.PendingChoices(ctx, chatID)
+}
+
 func (s *Store) RecentToolCalls(
 	ctx context.Context,
 	chatIDs []string,

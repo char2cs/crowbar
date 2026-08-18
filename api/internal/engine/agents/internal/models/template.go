@@ -40,6 +40,14 @@ type TemplateCtx struct {
 	// the wall of text the pointer exists to avoid.
 	GapTurns string
 
+	// Model and Effort are the chat's declared selection, interpolated by the
+	// descriptor's own model:/effort: apply steps. They are EMPTY on a chat that
+	// has chosen nothing, and the steps that read them are not rendered at all in
+	// that case — so an empty field can never reach the argv as an empty flag
+	// value (see selection.Steps).
+	Model  string
+	Effort string
+
 	Cwd         string
 	CrowbarHook string
 	Segid       string
@@ -96,6 +104,8 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{context_pointer}", c.ContextPointer,
 		"{chat_id}", c.ChatID,
 		"{gap_turns}", c.GapTurns,
+		"{model}", c.Model,
+		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
 		"{crowbar_hook}", c.CrowbarHook,
 		// same binary as {crowbar_hook}; friendlier for non-hook commands

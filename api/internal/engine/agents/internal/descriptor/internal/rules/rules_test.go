@@ -531,3 +531,114 @@ func TestTelemetry_ProbeCommandCarryingAForbiddenFlagIsRejected(t *testing.T) {
 	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 	assert.Contains(t, err.Error(), "forbidden flag")
 }
+
+// withSelection gives a descriptor both selection blocks in the shape claude.yaml
+// declares them.
+func withSelection(d *spec.Descriptor) *spec.Descriptor {
+	d.Model = &spec.ModelSpec{
+		Available: []string{"sonnet", "opus"},
+		Strategy:  spec.DeliveryRestartTUI,
+		Apply:     []spec.InjectStep{passArg(map[string]any{"arg": "--model", "value": "{model}"})},
+	}
+	d.Effort = &spec.EffortSpec{
+		Available: map[string][]string{spec.EffortFallbackKey: {"low", "high"}},
+		Strategy:  spec.DeliveryRestartTUI,
+		Apply:     []spec.InjectStep{passArg(map[string]any{"arg": "--effort", "value": "{effort}"})},
+	}
+	return d
+}
+
+func TestSelection_AcceptsBothBlocksAndTheirAbsence(t *testing.T) {
+	require.NoError(t, rules.Apply(withSelection(valid())))
+	// Absent is the codex shape and must stay valid: no picker is a capability
+	// statement, not a broken descriptor.
+	require.NoError(t, rules.Apply(valid()))
+}
+
+// TestSelection_AcceptsAnEmptyModelCatalogue keeps "declared but not yet
+// populated" legal. An empty LIST is a picker with nothing in it, which is
+// legible; an empty ENTRY is not (see the rejection table below).
+func TestSelection_AcceptsAnEmptyModelCatalogue(t *testing.T) {
+	d := withSelection(valid())
+	d.Model.Available = nil
+
+	require.NoError(t, rules.Apply(d))
+}
+
+func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{
+			// The only strategy that exists. A live switch cannot be tested against
+			// either CLI, so a descriptor asking for one must fail rather than leave
+			// a picker that silently does nothing.
+			"model strategy is not restart_tui",
+			func(d *spec.Descriptor) { d.Model.Strategy = "live_switch" },
+			"model.strategy must be",
+		},
+		{
+			"effort strategy is not restart_tui",
+			func(d *spec.Descriptor) { d.Effort.Strategy = "" },
+			"effort.strategy must be",
+		},
+		{
+			// A block with no apply advertises a capability, accepts a choice and
+			// delivers it nowhere.
+			"model declares no apply",
+			func(d *spec.Descriptor) { d.Model.Apply = nil },
+			"model.apply is empty",
+		},
+		{
+			"effort declares no apply",
+			func(d *spec.Descriptor) { d.Effort.Apply = nil },
+			"effort.apply is empty",
+		},
+		{
+			// An empty id renders as a blank row and, if chosen, as an empty argv
+			// value behind the flag — where the next token becomes the flag's value.
+			"model catalogue holds an empty id",
+			func(d *spec.Descriptor) { d.Model.Available = []string{"sonnet", ""} },
+			"model.available[1] is empty",
+		},
+		{
+			"effort catalogue keys nothing",
+			func(d *spec.Descriptor) { d.Effort.Available = map[string][]string{} },
+			"effort.available declares no models",
+		},
+		{
+			"effort catalogue holds an empty list",
+			func(d *spec.Descriptor) { d.Effort.Available = map[string][]string{"opus": {}} },
+			`effort.available["opus"] is empty`,
+		},
+		{
+			"effort catalogue holds an empty level",
+			func(d *spec.Descriptor) { d.Effort.Available = map[string][]string{"opus": {"low", ""}} },
+			`effort.available["opus"][1] is empty`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withSelection(valid())
+			tc.mutate(d)
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+// TestSelection_ReportsTheSameBadKeyEveryRun pins the sorted iteration. Go
+// randomises map order, so a descriptor with two bad keys would otherwise blame a
+// different one between runs and make the failure unreproducible.
+func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
+	for range 20 {
+		d := withSelection(valid())
+		d.Effort.Available = map[string][]string{"a": {}, "z": {}}
+		err := rules.Apply(d)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `effort.available["a"] is empty`)
+	}
+}

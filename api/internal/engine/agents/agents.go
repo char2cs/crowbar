@@ -16,12 +16,14 @@ import (
 	"errors"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/answers"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/hooks"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/move"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/registry"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/selection"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/telemetry"
@@ -82,6 +84,31 @@ type Agent interface {
 	// into every later chat's.
 	WithTools(enabled bool) Agent
 
+	// Models lists the model ids this agent declares as selectable, or nil when it
+	// declares none — the same fact Capabilities().ModelSelect reports, so a caller
+	// filling a picker never has to ask twice.
+	Models() []string
+
+	// Efforts lists the reasoning-effort levels declared for a model id, falling
+	// back to the catalogue's model-independent entry when that model has none of
+	// its own. The empty model id — the provider's own default — takes the same
+	// fallback.
+	Efforts(model string) []string
+
+	// SelectionSteps renders the injection steps that carry a chat's model/effort
+	// choice into the process. An empty field, or a block this agent does not
+	// declare, contributes nothing: a chat that has chosen nothing spawns the
+	// argv it would have spawned with no selection support at all.
+	SelectionSteps(sel Selection) []InjectStep
+
+	// SelectionRestart reports whether moving from the selection this process was
+	// LAUNCHED with to the one a chat now wants obliges a restart.
+	//
+	// launched is Crowbar's own record of the spawn, never the CLI's belief:
+	// neither provider exposes a readable "current model", so a process's
+	// selection is knowable only from what it was started with.
+	SelectionRestart(launched, desired Selection) bool
+
 	// SpawnPlan renders a concrete process launch.
 	SpawnPlan(ctx TemplateCtx, baseEnv []string, extra []InjectStep) (*SpawnPlan, error)
 
@@ -110,6 +137,20 @@ type Agent interface {
 	// it reported. Absent facts stay absent; nothing is derived that was not
 	// reported.
 	ParseTelemetry(raw []byte, now time.Time) (Telemetry, error)
+
+	// AnswerCapability reports whether a prompt this canonical event opens can be
+	// ANSWERED from Crowbar, and how long the provider will wait to be told.
+	//
+	// It is the read a relay's caller makes before deciding to hold a hook open. A
+	// provider that declares nothing answers false for every event, its hooks
+	// return immediately, and its CLI puts up its own dialog exactly as it always
+	// did.
+	AnswerCapability(canonical string) (AnswerCapability, bool)
+
+	// RenderAnswer turns a human's decision into the exact bytes the CLI expects to
+	// read back from that hook. raw is the payload the prompt arrived on, because
+	// some providers are answered by being handed their own input back amended.
+	RenderAnswer(canonical string, raw []byte, decision AnswerDecision) ([]byte, error)
 
 	// SlashCatalog runs the declared inventory in the given worktree.
 	SlashCatalog(ctx context.Context, opts ProbeOptions, acquire Acquire) (SlashCatalog, error)
@@ -191,6 +232,8 @@ func (a *agent) Capabilities() Capabilities {
 	caps := Capabilities{
 		SlashCatalog: a.spec.Presentation.SlashCatalog != nil,
 		Telemetry:    a.spec.Telemetry != nil,
+		ModelSelect:  a.spec.Model != nil,
+		EffortSelect: a.spec.Effort != nil,
 		Observes:     hooks.Declared(a.spec),
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
@@ -209,6 +252,22 @@ func (a *agent) WithTools(enabled bool) Agent {
 	stripped := *a.spec
 	stripped.MCPInject = nil
 	return &agent{spec: &stripped}
+}
+
+func (a *agent) Models() []string {
+	return selection.Models(a.spec)
+}
+
+func (a *agent) Efforts(model string) []string {
+	return selection.Efforts(a.spec, model)
+}
+
+func (a *agent) SelectionSteps(sel Selection) []InjectStep {
+	return selection.Steps(a.spec, sel)
+}
+
+func (a *agent) SelectionRestart(launched, desired Selection) bool {
+	return selection.RestartRequired(a.spec, launched, desired)
 }
 
 func (a *agent) SpawnPlan(ctx TemplateCtx, baseEnv []string, extra []InjectStep) (*SpawnPlan, error) {
@@ -243,6 +302,18 @@ func (a *agent) ParseHook(canonical string, raw []byte) (CanonicalEvent, error) 
 
 func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {
 	return telemetry.ParseCallback(a.spec, raw, now)
+}
+
+func (a *agent) AnswerCapability(canonical string) (AnswerCapability, bool) {
+	return answers.Capability(a.spec, canonical)
+}
+
+func (a *agent) RenderAnswer(
+	canonical string,
+	raw []byte,
+	decision AnswerDecision,
+) ([]byte, error) {
+	return answers.Render(a.spec, canonical, raw, decision)
 }
 
 func (a *agent) SlashCatalog(

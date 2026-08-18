@@ -57,6 +57,55 @@ type AgentUsecase interface {
 		chatID, toolID, side string,
 	) ([]byte, error)
 
+	// ReadPendingChoices is what the agent is BLOCKED on: the prompts it has put to
+	// a human and not yet had answered. Separate from ReadActivity because it is
+	// asked far more often and must not carry a turn's tool calls with it.
+	ReadPendingChoices(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ActivityChoice, error)
+
+	// AnswerableChoiceIDs narrows a set of prompts to the ones a relay is holding
+	// the provider's gate open for right now. A prompt outside it is still worth
+	// drawing — the CLI is asking it — but answering it would reach nobody.
+	AnswerableChoiceIDs(
+		chatID string,
+		choices []domain.ActivityChoice,
+	) []string
+
+	// AnswerChoice records a human's decision and hands it to the relay blocking the
+	// provider's gate. optionIDs name what was picked; reason and content carry the
+	// free-form parts a provider accepts (a deny message, an elicitation's filled-in
+	// form). It fails with apperr.ErrConflict when no relay is waiting, because an
+	// answer that reaches nobody must never be reported as delivered.
+	AnswerChoice(
+		ctx context.Context,
+		chatID, choiceID string,
+		optionIDs []string,
+		reason string,
+		content []byte,
+	) error
+
+	// PendingAnswer reports whether the relay that just delivered deliveryID must
+	// stay alive waiting for a human, and how long the daemon will hold it.
+	PendingAnswer(deliveryID string) (agentusecase.PendingAnswer, bool)
+
+	// AwaitAnswer blocks that relay until its prompt is decided, the budget expires,
+	// or the request is cancelled. Only the first carries bytes to print.
+	AwaitAnswer(
+		ctx context.Context,
+		deliveryID string,
+	) (agentusecase.HookAnswer, error)
+
+	// AbandonAnswer is the relay reporting that its prompt was decided somewhere
+	// else — it was signalled, which is the only notice a terminal-side DECLINE
+	// gives. It clears the prompt so the chat stops showing a question nobody is
+	// asking.
+	AbandonAnswer(
+		ctx context.Context,
+		deliveryID string,
+	) error
+
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
@@ -130,6 +179,14 @@ type AgentUsecase interface {
 	RenameChat(
 		ctx context.Context,
 		chatID, title, source string,
+	) error
+
+	// SetChatSelection writes chatID's sticky model and reasoning-effort choice.
+	// Empty clears back to the provider's default; a value outside the provider's
+	// declared catalogue is refused with apperr.ErrInvalidArgument (→ 400).
+	SetChatSelection(
+		ctx context.Context,
+		chatID, model, effort string,
 	) error
 
 	// DispatchMCP runs one MCP JSON-RPC message for the runner named by runnerID,

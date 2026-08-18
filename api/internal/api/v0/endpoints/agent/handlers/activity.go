@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Activity serves what the agent DID during a chat — tool calls, subagents and
@@ -42,11 +43,12 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 		ToolCalls:     make([]dto.AgentToolCallDTO, 0, len(activity.ToolCalls)),
 		Subagents:     make([]dto.AgentSubagentDTO, 0, len(activity.Subagents)),
 		Interruptions: make([]dto.AgentInterruptionDTO, 0, len(activity.Interruptions)),
+		Choices:       h.choiceDTOs(chat.ID, activity.Choices),
 	}
 	for _, c := range activity.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, dto.AgentToolCallDTO{
 			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Name: c.Name, Target: c.Target,
-			Status: c.Status, DurationMS: c.DurationMS,
+			Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
 			// The refs themselves never cross this boundary: they are internal
 			// addresses, and the client asks for a payload by tool id instead.
 			HasRequest: c.RequestRef != "", HasResult: c.ResultRef != "",
@@ -66,6 +68,65 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 		})
 	}
 	libs.WriteQueryOK(ctx, out)
+}
+
+// Choices serves the prompts a chat is still waiting on a human to answer.
+//
+// It is a resource of its own rather than a field on the activity timeline
+// because it answers a different question at a different rate: the timeline is
+// read when a user opens it, while "is this agent blocked on me" is asked
+// constantly and must not drag five hundred tool calls behind it.
+//
+// A chat waiting on nothing yields an empty list, not a 404: "no prompt" is an
+// answer, and a client that renders nothing for it is correct.
+func (h *Handlers) Choices(ctx *gin.Context) {
+	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
+	if !ok {
+		return
+	}
+	choices, err := h.usecase.ReadPendingChoices(ctx.Request.Context(), chat.ID)
+	if err != nil {
+		status, message := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, message)
+		return
+	}
+	libs.WriteQueryOK(ctx, h.choiceDTOs(chat.ID, choices))
+}
+
+// choiceDTOs renders prompts, stamping each with whether it can still be answered
+// from here.
+//
+// Answerability is asked ONCE for the whole set rather than per row: it is a
+// lookup against the desk of relays currently blocked, and a per-row call would
+// take that lock as many times as a turn had questions.
+func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.AgentChoiceDTO {
+	answerable := map[string]bool{}
+	for _, id := range h.usecase.AnswerableChoiceIDs(chatID, in) {
+		answerable[id] = true
+	}
+	out := make([]dto.AgentChoiceDTO, 0, len(in))
+	for _, c := range in {
+		out = append(out, dto.AgentChoiceDTO{
+			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Kind: c.Kind,
+			ToolName: c.ToolName, Title: c.Title, Question: c.Question,
+			Mode: c.Mode, Multi: c.Multi, Options: choiceOptionDTOs(c.Options),
+			Schema:     c.Schema,
+			Pending:    c.Pending(),
+			Answerable: answerable[c.ID],
+			At:         c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
+		})
+	}
+	return out
+}
+
+func choiceOptionDTOs(in []domain.ActivityChoiceOption) []dto.AgentChoiceOptionDTO {
+	out := make([]dto.AgentChoiceOptionDTO, 0, len(in))
+	for _, o := range in {
+		out = append(out, dto.AgentChoiceOptionDTO{
+			ID: o.ID, Kind: o.Kind, Label: o.Label, Description: o.Description,
+		})
+	}
+	return out
 }
 
 // ToolPayload serves one tool call's request or result.

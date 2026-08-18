@@ -42,6 +42,42 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
+  // ── The sticky model / effort selection ───────────────────────────────────
+  // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
+  // is the only thing that brings an accepted pair back into the store.
+
+  it('setAgentChatSelection writes BOTH halves of an accepted selection', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+
+    s.getState().setAgentChatSelection('c1', 'gpt-5.6-luna', 'max')
+
+    expect(s.getState().agentChats.chats[0]).toMatchObject({
+      model: 'gpt-5.6-luna',
+      effort: 'max',
+    })
+  })
+
+  it("setAgentChatSelection stores '' as the cleared half, not as an absent field", () => {
+    // '' IS the value that means "the provider's own default" — the same thing the
+    // endpoint takes. Deleting the field instead would make a cleared selection
+    // indistinguishable from one that was never read.
+    const s = createWorkspaceStore('w1')
+    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().setAgentChatSelection('c1', 'gpt-5.6-sol', 'ultra')
+
+    s.getState().setAgentChatSelection('c1', '', '')
+
+    expect(s.getState().agentChats.chats[0].model).toBe('')
+    expect(s.getState().agentChats.chats[0].effort).toBe('')
+  })
+
+  it('setAgentChatSelection ignores a chat the store does not hold', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatSelection('ghost', 'sonnet', 'high')
+    expect(s.getState().agentChats.chats).toHaveLength(0)
+  })
+
   // ── One runner, one chat ──────────────────────────────────────────────────
   // A runner is placed on exactly ONE chat; the backend enforces it. This projection
   // is updated ONE CHAT AT A TIME off WS frames, so it has to hold the invariant

@@ -39,6 +39,7 @@ func (c OpenTurn) EmitEvent(current *domain.AgentActivity) domain.AgentActivity 
 	next.Tools = nil
 	next.Subagents = nil
 	next.Interruptions = nil
+	next.Choices = nil
 	next.Turn = &domain.ActivityTurn{
 		ID:         c.TurnID,
 		ChatID:     c.ChatID,

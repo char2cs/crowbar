@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ type Store struct {
 
 func New(db *gormdb.DB) (*Store, error) {
 	if err := db.AutoMigrate(
-		&TurnRow{}, &ToolCallRow{}, &SubagentRow{}, &InterruptionRow{},
+		&TurnRow{}, &ToolCallRow{}, &SubagentRow{}, &InterruptionRow{}, &ChoiceRow{},
 	); err != nil {
 		return nil, fmt.Errorf("agentactivity storage: migrate: %w", err)
 	}
@@ -51,7 +52,7 @@ func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) err
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Name: c.Name, Target: c.Target,
 		RequestRef: c.RequestRef, ResultRef: c.ResultRef,
-		Status: c.Status, DurationMS: c.DurationMS,
+		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
 		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
 	})
 }
@@ -70,6 +71,91 @@ func (s *Store) SaveInterruption(ctx context.Context, i domain.ActivityInterrupt
 	})
 }
 
+// SaveChoice writes one prompt, open or resolved.
+//
+// It upserts the WHOLE row on both phases, so a replay that re-delivers the open
+// event and then the close event converges on the same values it did live. That
+// is why the resolution sweeps below all filter on resolved_at IS NULL: a sweep
+// that re-resolved an already-resolved row would move its timestamp on every
+// rebuild, and the read model would stop being reproducible.
+func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
+	options, err := json.Marshal(c.Options)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode choice options: %w", err)
+	}
+	if len(c.Options) == 0 {
+		options = nil
+	}
+	return upsert(ctx, s.db, ChoiceRow{
+		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
+		Seq: c.Seq, Kind: c.Kind, PromptID: c.PromptID,
+		ToolID: c.ToolID, ToolName: c.ToolName,
+		Title: c.Title, Question: c.Question, Mode: c.Mode, Multi: c.Multi,
+		Options: string(options), Schema: c.Schema,
+		At: c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
+	})
+}
+
+// ResolveChoicesForTool closes every pending prompt that was gating a tool call
+// which has just finished.
+//
+// It is the resolution that actually fires in production. A permission is
+// answered at the PTY by a human typing into the vendor CLI, and no provider
+// reports that: the only observable consequence is that the gated work proceeds.
+// A prompt held open until an explicit answer arrived would therefore hang over a
+// chat forever, which is strictly worse than clearing one moment early.
+//
+// The name is matched only for a prompt that never learned a call id, because a
+// claude permission carries no tool_use_id at all (measured against 2.1.234 on
+// 2026-08-17) and the correlating PreToolUse may have been lost.
+func (s *Store) ResolveChoicesForTool(
+	ctx context.Context,
+	chatID, toolID, toolName string,
+	at *time.Time,
+) error {
+	q := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+		Where("chat_id = ? AND resolved_at IS NULL", chatID)
+	switch {
+	case toolID != "" && toolName != "":
+		q = q.Where("tool_id = ? OR (tool_id = '' AND tool_name = ?)", toolID, toolName)
+	case toolID != "":
+		q = q.Where("tool_id = ?", toolID)
+	case toolName != "":
+		q = q.Where("tool_id = '' AND tool_name = ?", toolName)
+	default:
+		// An anonymous completion identifies no prompt. Sweeping on that would clear
+		// every pending question in the chat, including ones about other tools.
+		return nil
+	}
+	err := q.Updates(map[string]any{
+		"resolved_at": at,
+		"resolution":  domain.ChoiceResolutionProceeded,
+	}).Error
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: resolve choices for tool: %w", err)
+	}
+	return nil
+}
+
+// ResolveOpenChoices closes every prompt a chat still has pending.
+//
+// It runs at the turn boundary, and it is the backstop rather than the main path:
+// an elicitation has no resolving event on any provider, and a permission whose
+// tool never completed has nothing to be resolved by. A turn that has ended is not
+// waiting on an answer, so nothing pending can survive it.
+func (s *Store) ResolveOpenChoices(ctx context.Context, chatID string, at *time.Time) error {
+	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+		Where("chat_id = ? AND resolved_at IS NULL", chatID).
+		Updates(map[string]any{
+			"resolved_at": at,
+			"resolution":  domain.ChoiceResolutionAbandoned,
+		}).Error
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: resolve open choices: %w", err)
+	}
+	return nil
+}
+
 // RepointActivity moves every item attached to one turn id onto another.
 //
 // It runs once per turn boundary, over the handful of rows one turn produced, and
@@ -77,7 +163,7 @@ func (s *Store) SaveInterruption(ctx context.Context, i domain.ActivityInterrupt
 // to the placeholder it was recorded against.
 func (s *Store) RepointActivity(ctx context.Context, chatID, from, to string) error {
 	db := s.db.WithContext(ctx)
-	for _, model := range []any{&ToolCallRow{}, &SubagentRow{}, &InterruptionRow{}} {
+	for _, model := range []any{&ToolCallRow{}, &SubagentRow{}, &InterruptionRow{}, &ChoiceRow{}} {
 		if err := db.Model(model).
 			Where("chat_id = ? AND turn_id = ?", chatID, from).
 			Update("turn_id", to).Error; err != nil {
@@ -118,7 +204,9 @@ func (s *Store) ResolveOpenInterruptions(ctx context.Context, chatID string, at 
 // forgotten aggregate must not leave its conversation readable.
 func (s *Store) DeleteChat(ctx context.Context, chatID string) error {
 	db := s.db.WithContext(ctx)
-	for _, model := range []any{&TurnRow{}, &ToolCallRow{}, &SubagentRow{}, &InterruptionRow{}} {
+	for _, model := range []any{
+		&TurnRow{}, &ToolCallRow{}, &SubagentRow{}, &InterruptionRow{}, &ChoiceRow{},
+	} {
 		if err := db.Where("chat_id = ?", chatID).Delete(model).Error; err != nil {
 			return fmt.Errorf("agentactivity storage: delete chat: %w", err)
 		}

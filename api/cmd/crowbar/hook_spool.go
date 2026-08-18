@@ -100,10 +100,21 @@ func syncHookSpoolDir(dir string) error {
 	return nil
 }
 
-func deliverHookEnvelope(ctx context.Context, host string, envelope hookEnvelope) error {
+// deliverHookEnvelope posts one spooled envelope and returns the daemon's body.
+//
+// The body is returned rather than discarded because ONE instruction can come
+// back on it: stay alive, a human is being asked. Only the caller knows whether
+// the envelope just delivered is its own — the spool is drained in FIFO order and
+// may carry another process's backlog — so the decision of what to do with it is
+// made there.
+func deliverHookEnvelope(
+	ctx context.Context,
+	host string,
+	envelope hookEnvelope,
+) ([]byte, error) {
 	client, err := ipc.NewClient(host)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	status, body, err := client.PostJSON(
 		ctx,
@@ -111,16 +122,16 @@ func deliverHookEnvelope(ctx context.Context, host string, envelope hookEnvelope
 		envelope,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
 		msg := strings.TrimSpace(string(body))
 		if len(msg) > 512 {
 			msg = msg[:512]
 		}
-		return fmt.Errorf("hook daemon returned HTTP %d: %s", status, msg)
+		return nil, fmt.Errorf("hook daemon returned HTTP %d: %s", status, msg)
 	}
-	return nil
+	return body, nil
 }
 
 // acquireHookDrain uses an atomic directory as a cross-process lease. Hook
@@ -149,21 +160,57 @@ func acquireHookDrain(dir string) (release func(), acquired bool, err error) {
 	return acquireHookDrain(dir)
 }
 
+// drainHookSpool delivers the whole spool in order. It is the daemon-side loop's
+// entry point, and the relay's when it has nothing of its own to wait on.
 func drainHookSpool(ctx context.Context, host string) error {
+	_, err := drainHookSpoolFor(ctx, host, "")
+	return err
+}
+
+// drainHookSpoolFor drains the spool and returns the daemon's reply to ONE
+// delivery — the caller's own.
+//
+// Threading the id through rather than returning the last reply matters: the
+// spool is FIFO and can hold envelopes this process never wrote, so "the last
+// 202" is somebody else's answer. An empty id asks for no reply at all, which is
+// what the daemon's periodic drain wants.
+func drainHookSpoolFor(
+	ctx context.Context,
+	host string,
+	deliveryID string,
+) (mine []byte, err error) {
 	dir := hookSpoolDir()
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("hook spool: read: %w", err)
+		return nil, fmt.Errorf("hook spool: read: %w", err)
 	}
 	release, acquired, err := acquireHookDrain(dir)
 	if err != nil || !acquired {
-		return err
+		return nil, err
 	}
 	defer release()
 
+	for _, name := range spooledNames(entries) {
+		if err := os.Chtimes(filepath.Join(dir, hookDrainLockName), time.Now(), time.Now()); err != nil {
+			return mine, fmt.Errorf("hook spool: renew drain lease: %w", err)
+		}
+		envelope, body, err := deliverSpooled(ctx, host, dir, name)
+		if err != nil {
+			return mine, err // preserve FIFO: never overtake an undelivered older hook
+		}
+		if deliveryID != "" && envelope.DeliveryID == deliveryID {
+			mine = body
+		}
+	}
+	return mine, nil
+}
+
+// spooledNames is the spool's delivery ORDER: envelope files, sorted, which their
+// nanosecond-prefixed names make chronological.
+func spooledNames(entries []os.DirEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
@@ -171,33 +218,40 @@ func drainHookSpool(ctx context.Context, host string) error {
 		}
 	}
 	sort.Strings(names)
-	for _, name := range names {
-		if err := os.Chtimes(filepath.Join(dir, hookDrainLockName), time.Now(), time.Now()); err != nil {
-			return fmt.Errorf("hook spool: renew drain lease: %w", err)
-		}
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path) //nolint:gosec // listed from Crowbar-owned spool
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("hook spool: read %s: %w", name, err)
-		}
-		var envelope hookEnvelope
-		if err := json.Unmarshal(data, &envelope); err != nil {
-			return fmt.Errorf("hook spool: decode %s: %w", name, err)
-		}
-		if err := deliverHookEnvelope(ctx, host, envelope); err != nil {
-			return err // preserve FIFO: never overtake an undelivered older hook
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("hook spool: remove acknowledged %s: %w", name, err)
-		}
-		if err := syncHookSpoolDir(dir); err != nil {
-			return err
-		}
+	return names
+}
+
+// deliverSpooled posts one envelope and, once the daemon has acknowledged it,
+// removes it. The removal only happens after a 2xx, which is what makes the spool
+// at-least-once: a failed delivery leaves the fsynced envelope where it was.
+func deliverSpooled(
+	ctx context.Context,
+	host, dir, name string,
+) (envelope hookEnvelope, body []byte, err error) {
+	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path) //nolint:gosec // listed from Crowbar-owned spool
+	if errors.Is(err, os.ErrNotExist) {
+		// Another drainer took it between the listing and now. Nothing to deliver and
+		// nothing to report: its own drain will acknowledge it.
+		return hookEnvelope{}, nil, nil
 	}
-	return nil
+	if err != nil {
+		return hookEnvelope{}, nil, fmt.Errorf("hook spool: read %s: %w", name, err)
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return hookEnvelope{}, nil, fmt.Errorf("hook spool: decode %s: %w", name, err)
+	}
+	body, err = deliverHookEnvelope(ctx, host, envelope)
+	if err != nil {
+		return hookEnvelope{}, nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return envelope, body, fmt.Errorf("hook spool: remove acknowledged %s: %w", name, err)
+	}
+	if err := syncHookSpoolDir(dir); err != nil {
+		return envelope, body, err
+	}
+	return envelope, body, nil
 }
 
 func drainHookSpoolLoop(ctx context.Context, host string) {

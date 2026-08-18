@@ -44,6 +44,10 @@ func All() []Rule {
 		catalogItemMapping{},
 		catalogAdapter{},
 		telemetry{},
+		selectionStrategy{},
+		selectionApply{},
+		modelCatalog{},
+		effortCatalog{},
 	}
 }
 

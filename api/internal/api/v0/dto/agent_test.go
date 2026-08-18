@@ -138,3 +138,48 @@ func TestAgentChatDetailDTOFrom_ConversationsNeverNull(t *testing.T) {
 	assert.Contains(t, string(raw), `"conversations":[]`)
 	assert.NotContains(t, string(raw), `"segments"`)
 }
+
+// TestAgentChatDTOFrom_CarriesTheStickySelection: the chat's model/effort choice
+// is durable config like the title, and the client needs it to show the picker's
+// current value.
+func TestAgentChatDTOFrom_CarriesTheStickySelection(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1", Model: "opus", Effort: "high"},
+		dto.ChatRuntime{})
+
+	assert.Equal(t, "opus", got.Model)
+	assert.Equal(t, "high", got.Effort)
+}
+
+// TestAgentChatDTOFrom_UnselectedChatOmitsTheSelection keeps "the provider's own
+// default" off the wire as an ABSENCE rather than as an empty string that a
+// client might render as a selected value. Crowbar does not know what the default
+// resolves to and must not imply that it does.
+func TestAgentChatDTOFrom_UnselectedChatOmitsTheSelection(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"model"`)
+	assert.NotContains(t, string(raw), `"effort"`)
+}
+
+// TestRegression_AgentMessageDTO_CarriesTheReportedEffort.
+//
+// chatlog.Turn has carried Effort since claude's turn_stop mapping began reading
+// effort.level, and the projection stores it in the `effort` column — but the
+// wire shape had no field, so the value was written, read back and silently
+// dropped at the API boundary. Dead data, invisible to every client.
+//
+// The fact is the provider's own report of what it USED, which is not the chat's
+// requested selection: a chat that selected nothing can still receive one.
+func TestRegression_AgentMessageDTO_CarriesTheReportedEffort(t *testing.T) {
+	raw, err := json.Marshal(dto.AgentMessageDTO{Sequence: 1, TurnID: "t1", Effort: "high"})
+
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"effort":"high"`)
+
+	bare, err := json.Marshal(dto.AgentMessageDTO{Sequence: 1, TurnID: "t1"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(bare), `"effort"`,
+		"a provider that reported no effort must produce no field, never an empty one")
+}

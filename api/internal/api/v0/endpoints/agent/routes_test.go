@@ -220,6 +220,13 @@ func (stubUsecase) RenameChat(
 	return nil
 }
 
+func (stubUsecase) SetChatSelection(
+	_ context.Context,
+	_, _, _ string,
+) error {
+	return nil
+}
+
 func (s stubUsecase) DispatchMCP(
 	_ context.Context,
 	runnerID, token string,
@@ -345,6 +352,30 @@ func (stubUsecase) ReadActivity(
 func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
 	return nil, nil
 }
+
+func (stubUsecase) ReadPendingChoices(
+	context.Context, string,
+) ([]domain.ActivityChoice, error) {
+	return nil, nil
+}
+
+func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
+
+func (stubUsecase) AnswerChoice(
+	context.Context, string, string, []string, string, []byte,
+) error {
+	return nil
+}
+
+func (stubUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
+	return agentusecase.PendingAnswer{}, false
+}
+
+func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer, error) {
+	return agentusecase.HookAnswer{}, nil
+}
+
+func (stubUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
 func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false

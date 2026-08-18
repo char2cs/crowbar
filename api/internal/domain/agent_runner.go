@@ -37,6 +37,23 @@ type AgentRunner struct {
 	// resume even when the resumed conversation's ledger turns predate this
 	// runner's CurrentSessionSince timestamp.
 	LaunchSessionID string `json:"launchSessionId,omitempty"`
+	// LaunchModel and LaunchEffort are the model and reasoning effort Crowbar
+	// LAUNCHED this process with — the same persisted-launch-intent pattern
+	// LaunchSessionID above serves, for the same reason: the answer cannot be
+	// recovered later from anything else.
+	//
+	// They are the ONLY authority on what this CLI is running. Neither provider
+	// exposes a readable "current model", and a user may have changed it inside
+	// the TUI where Crowbar cannot see, so asking the process is not an option
+	// that exists. Comparing these against the chat's own AgentChat.Model/Effort
+	// is what decides whether the next prompt must replace the process.
+	//
+	// Empty is meaningful: this runner was launched under the provider's default
+	// (or before a selection was ever made), which DIFFERS from every declared
+	// value — so setting a first choice, and clearing one back to the default,
+	// both register as a change.
+	LaunchModel  string `json:"launchModel,omitempty"`
+	LaunchEffort string `json:"launchEffort,omitempty"`
 	// CurrentSessionResumable is Crowbar's provider-neutral knowledge that the
 	// current binding names an existing native conversation. handleSessionStart
 	// derives it solely from append-only session history, including a user-issued

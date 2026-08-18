@@ -206,6 +206,10 @@ type Usecase struct {
 	// dependency a caller can get wrong is the Resolver — and DispatchMCP refuses
 	// to serve without it rather than quietly advertising an empty tool list.
 	tools agenttools.Deps
+	// answers is the desk of relays currently BLOCKED on a human. It is in memory
+	// because a slot describes a live hook process holding a live provider gate
+	// open; see answers.go.
+	answers *answerDesk
 	// minter issues the per-runner token an MCP call is authenticated by. It is
 	// held here because the spawn path is what hands a runner its token, and a
 	// runner's token must be minted by the same secret DispatchMCP verifies
@@ -268,6 +272,7 @@ func New(
 		pendingHooks:   newPendingRunnerHooks(),
 		hookDeliveries: newHookDeliveryJournal(),
 		catalogs:       newCatalogRuns(),
+		answers:        newAnswerDesk(),
 		tools:          tools,
 		minter:         minter,
 	}
@@ -975,139 +980,56 @@ func (u *Usecase) spawnRunner(
 	create bool,
 	promptMessage string,
 ) (string, error) {
-	// This is the ONE seam every vendor CLI is launched through, which makes it
-	// the only place a disabled provider can actually be stopped.
-	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
-		return "", err
-	}
-	// WHETHER to register Crowbar's own tool surface with this CLI — a per-provider
-	// switch, and a SEPARATE one from whether the provider is enabled at all: a CLI
-	// spawned with its tools off still comes up, still fires its hooks and still
-	// holds a normal chat.
-	//
-	// Read here, beside the enabled check and before any of this function's IO, so
-	// a preference the daemon cannot read fails the spawn without having created a
-	// tmp dir or a process to unwind.
-	mcpOn, err := u.providerMCPEnabled(ctx, providerID)
+	pre, err := u.spawnPreflight(ctx, chatID, providerID, create)
 	if err != nil {
 		return "", err
 	}
-	// WHAT this chat reads besides its own conversation: the chats it hangs off in
-	// the Chats panel, if any. Resolved here, beside the preference read and before
-	// any of this function's IO, for the same reason — a thread whose lineage cannot
-	// be resolved must fail before there is a tmp dir or a process to unwind.
-	threads, err := u.threadContext(ctx, chatID, create)
-	if err != nil {
-		return "", err
-	}
-	// The runner's id IS the crowbarSegmentID passed to every hook, minted here,
-	// before the process exists — so a hook fired the instant the CLI comes up can
-	// always name its runner. It is stable for the whole life of the process,
-	// including across every conversation move: that stability is what makes a move
-	// one write instead of a delete-here/insert-there.
-	runnerID := preallocatedRunnerID
-	if runnerID == "" {
-		runnerID = uuid.NewString()
-	}
+	threads, sel := pre.threads, pre.selection
+	runnerID := newRunnerID(preallocatedRunnerID)
 
-	crowbarHome, projectID, repoID, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
+	paths, err := u.spawnPaths(ctx, workspaceID, runnerID, providerID)
 	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: worktree dir: %w", err)
+		return "", err
 	}
-
-	// The chats dir is resolved separately from the worktree/Cwd: for a home-kind
-	// (adopted checkout) workspace the worktree is the user's REAL dir outside home,
-	// so chat state (this tmp dir, the ledger) reroots under crowbar home while the
-	// CLI still runs with Cwd = worktree.
-	chatsDir, err := u.ws.AgentChatsDir(ctx, workspaceID)
-	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: chats dir: %w", err)
-	}
+	crowbarHome, projectID, repoID := paths.crowbarHome, paths.projectID, paths.repoID
+	worktree, tmpDir := paths.worktree, paths.tmpDir
 
 	descriptor, err := u.agents.Get(ctx, crowbarHome, providerID)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
 	// The tool surface is switched off by rendering a descriptor that does not
-	// declare one, rather than by filtering steps at the injection site: WHERE
-	// those steps land is the descriptor's business (claude's --mcp-config is
-	// variadic and needs the --settings pair immediately behind it), and this
-	// function has no business knowing that.
-	descriptor = descriptor.WithTools(mcpOn)
+	// declare one, rather than by filtering steps at the injection site: WHERE those
+	// steps land is the descriptor's business (claude's --mcp-config is variadic and
+	// needs the --settings pair immediately behind it), and this function has no
+	// business knowing that.
+	descriptor = descriptor.WithTools(pre.mcpOn)
 
-	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
-	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
-	// while the process still runs), and a dir that can only be found through an erasable
-	// pointer can never be reaped; see worktreepath.RunnerDir. This path is derivable from
-	// a bare runner row forever, which is what lets BOTH removers find it: onExit below on a
-	// clean death, and boot reconciliation when the daemon died before onExit could run.
-	//
-	// It holds the rendered hook config the CLI is pointed at, and must survive for the
-	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.
-	//
-	// It holds no secret: a provider owns its own credentials and Crowbar never copies
-	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
-	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
-	// may.
-	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return "", fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
-	}
-
-	tctx := engineagents.TemplateCtx{
-		Tmp:         tmpDir,
-		Cwd:         worktree,
-		CrowbarHook: u.crowbarHookPath(crowbarHome),
-		Segid:       runnerID,
-		// The credential the descriptors hand `crowbar mcp` so this runner's tool
-		// calls can be attributed to it. Minted here because this is where the
-		// runner id is born, and by the SAME minter DispatchMCP verifies against —
-		// a token minted anywhere else would authenticate nothing.
-		RunnerToken: u.mintRunnerToken(runnerID),
-		Provider:    providerID,
-		ProjectID:   projectID,
-		RepoID:      repoID,
-		WorkspaceID: workspaceID,
-		ChatID:      chatID,
-		GapTurns:    strconv.Itoa(gapTurns),
-		Message:     promptMessage,
-	}
-	// The message for a provider that can ONLY be reached through a user message (a
-	// resumed codex ignores every config channel). It POINTS at the ledger already on
-	// disk and says where to start reading — it never carries the transcript, which
-	// would dump the whole handed-off exchange into the chat for the user to scroll
-	// past. An agent reads files.
-	tctx.ContextPointer = engineagents.Expand(config.GetPrompts().HandoffPointer, tctx)
-	// The preamble first (which tools exist), then the lineage (which OTHER chats
-	// this one reads), then the handoff (what was said here already). Orientation
-	// before history: a model should know it has get_chat_log and which ids to
-	// point it at before it reads a conversation it is told not to act on.
-	tctx.Context = composeContext(
-		engineagents.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
-		threads,
-		conversation,
-	)
-	// WHETHER to deliver that document at all, which is a separate question from what
-	// it says.
-	//
-	// A handoff is something that HAPPENED and is always worth delivering. The
-	// capability preamble is standing orientation, so it may only drive delivery down a
-	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
-	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
-	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
-	// provider with nothing recorded in between. Letting the preamble deliver there
-	// would open every revived codex chat with a "while you were away" pointer about
-	// nothing, and codex answers its opening message on sight.
-	//
-	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
-	// also loses the preamble on a gapless revive. That is deliberate over the
-	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
-	// knowledge, and inventing a "this channel is silent" field to recover one
-	// directive would put a provider's manners in this package. Its tools are still
-	// registered on that spawn either way — only the directive is missing.
-	inject := conversation != "" || !resuming
+	tctx, inject := u.renderSpawnContext(spawnContext{
+		chatID:        chatID,
+		workspaceID:   workspaceID,
+		providerID:    providerID,
+		projectID:     projectID,
+		repoID:        repoID,
+		runnerID:      runnerID,
+		tmpDir:        tmpDir,
+		worktree:      worktree,
+		crowbarHome:   crowbarHome,
+		threads:       threads,
+		conversation:  conversation,
+		promptMessage: promptMessage,
+		gapTurns:      gapTurns,
+		resuming:      resuming,
+		selection:     sel,
+	})
 
 	steps := append([]engineagents.InjectStep{}, extraSteps...)
+	// The chat's model/effort choice, rendered by the descriptor that declares it.
+	// An unset choice, or a provider declaring no such block, contributes an EMPTY
+	// slice — so this line is the whole of the feature's cost on a spawn that is
+	// not using it, and the argv is byte-identical to one rendered before it
+	// existed.
+	steps = append(steps, descriptor.SelectionSteps(sel)...)
 	if inject {
 		steps = append(steps, descriptor.ContextSteps(resuming)...)
 	}
@@ -1147,41 +1069,22 @@ func (u *Usecase) spawnRunner(
 	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
 	// through unchanged, preserving that error for a CLI that genuinely is not installed.
 	argv := append([]string{plan.Executable}, plan.Argv...)
-	// A provider can synchronously fire SessionStart and UserPromptSubmit from
-	// inside CreateCommand, before the terminal session id exists and therefore
-	// before recordRunner can persist the runner. Install the barrier immediately
-	// before the fork: no process exists before this point, and every hook after it
-	// is either buffered or observes the durable row after finish removes it.
-	if err := u.pendingHooks.register(runnerID); err != nil {
-		u.agents.ForgetRunner(runnerID)
-		RemoveUnderHome(ctx, crowbarHome, tmpDir)
-		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
-
-	termSessID, err := u.term.CreateCommand(ctx, workspaceID, worktree, argv, plan.Env,
-		u.onRunnerExit(crowbarHome, runnerID, tmpDir))
+	termSessID, err := u.forkCLI(ctx, forkRequest{
+		runnerID:    runnerID,
+		providerID:  providerID,
+		workspaceID: workspaceID,
+		worktree:    worktree,
+		crowbarHome: crowbarHome,
+		tmpDir:      tmpDir,
+		argv:        argv,
+		env:         plan.Env,
+	})
 	if err != nil {
-		u.pendingHooks.discard(runnerID)
-		// CreateCommand never got far enough to register onExit (which is what rm's
-		// the tmp dir on a clean exit) — clean up here so a spawn failure doesn't leak
-		// the runner's tmp dir. Guarded by crowbarHome so a poisoned chats dir can
-		// never make this rm escape the user's real filesystem. Same reason the
-		// injected-context entry is forgotten here: its onExit-driven cleanup never runs.
-		u.agents.ForgetRunner(runnerID)
-		RemoveUnderHome(ctx, crowbarHome, tmpDir)
-
-		// A CLI that is not installed is the ONE spawn failure the user can act on, so it
-		// travels as its own sentinel (→ 424, a named message in the UI) rather than being
-		// buried in a wrap chain that maps to an opaque 500. The provider id, not the
-		// resolved argv[0], is what the UI can name.
-		if errors.Is(err, engineterminal.ErrCommandNotFound) {
-			return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, providerID)
-		}
-		return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
+		return "", err
 	}
 
 	if err := u.recordRunner(
-		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, create,
+		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, sel, create,
 	); err != nil {
 		u.pendingHooks.discard(runnerID)
 		u.agents.ForgetRunner(runnerID)
@@ -1191,25 +1094,7 @@ func (u *Usecase) spawnRunner(
 	// earlier buffered hook is being applied joins the next batch, so it cannot
 	// overtake session_start or user_prompt on the normal persisted-runner path.
 	exitedDuringStartup := u.pendingHooks.finish(runnerID, func(hook pendingRunnerHook) {
-		replayCtx := context.Background()
-		if hook.deliveryID != "" {
-			replayCtx = context.WithValue(replayCtx, hookDeliveryContextKey{}, hook.deliveryID)
-		}
-		if err := u.ingestHookNow(
-			replayCtx, runnerID, hook.provider, hook.canonicalEvent, hook.rawPayload,
-		); err != nil {
-			slog.Error("agent: replay startup hook (best-effort, continuing)",
-				"runner_id", runnerID, "event", hook.canonicalEvent, "err", err)
-			return
-		}
-		if hook.deliveryID != "" {
-			if err := u.hookDeliveries.complete(
-				hook.deliveryDir, hook.deliveryID, hook.deliveryHash, time.Now(),
-			); err != nil {
-				slog.Error("agent: persist replayed startup hook delivery (effects already committed)",
-					"runner_id", runnerID, "delivery_id", hook.deliveryID, "err", err)
-			}
-		}
+		u.replayStartupHook(runnerID, hook)
 	})
 	if exitedDuringStartup {
 		// onExit could not reconcile before the row existed. Now it does, after
@@ -1219,6 +1104,295 @@ func (u *Usecase) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: provider process exited during startup")
 	}
 	return runnerID, nil
+}
+
+// replayStartupHook applies one hook a provider fired before its runner row
+// existed.
+//
+// Best-effort by design: the process is already live and the user is already
+// talking to it, so a hook that cannot be applied is logged and the rest of the
+// batch continues. Its delivery record is completed only AFTER the effects land,
+// which is what keeps a redelivery idempotent rather than lost.
+func (u *Usecase) replayStartupHook(
+	runnerID string,
+	hook pendingRunnerHook,
+) {
+	replayCtx := context.Background()
+	if hook.deliveryID != "" {
+		replayCtx = context.WithValue(replayCtx, hookDeliveryContextKey{}, hook.deliveryID)
+	}
+	if err := u.ingestHookNow(
+		replayCtx, runnerID, hook.provider, hook.canonicalEvent, hook.rawPayload,
+	); err != nil {
+		slog.Error("agent: replay startup hook (best-effort, continuing)",
+			"runner_id", runnerID, "event", hook.canonicalEvent, "err", err)
+		return
+	}
+	if hook.deliveryID == "" {
+		return
+	}
+	if err := u.hookDeliveries.complete(
+		hook.deliveryDir, hook.deliveryID, hook.deliveryHash, time.Now(),
+	); err != nil {
+		slog.Error("agent: persist replayed startup hook delivery (effects already committed)",
+			"runner_id", runnerID, "delivery_id", hook.deliveryID, "err", err)
+	}
+}
+
+// newRunnerID returns the id this spawn's runner will carry.
+//
+// It IS the crowbarSegmentID passed to every hook, minted before the process
+// exists — so a hook fired the instant the CLI comes up can always name its
+// runner. It is stable for the whole life of that process, including across every
+// conversation move: that stability is what makes a move one write instead of a
+// delete-here/insert-there.
+func newRunnerID(
+	preallocated string,
+) string {
+	if preallocated != "" {
+		return preallocated
+	}
+	return uuid.NewString()
+}
+
+// spawnPaths resolves every filesystem fact a spawn needs and creates the
+// runner's own directory.
+type spawnPaths struct {
+	crowbarHome string
+	projectID   string
+	repoID      string
+	worktree    string
+	tmpDir      string
+}
+
+func (u *Usecase) spawnPaths(
+	ctx context.Context,
+	workspaceID, runnerID, providerID string,
+) (spawnPaths, error) {
+	crowbarHome, projectID, repoID, worktree, err := u.ws.WorktreeDir(ctx, workspaceID)
+	if err != nil {
+		return spawnPaths{}, fmt.Errorf("agent: spawn runner: worktree dir: %w", err)
+	}
+
+	// The chats dir is resolved separately from the worktree/Cwd: for a home-kind
+	// (adopted checkout) workspace the worktree is the user's REAL dir outside home,
+	// so chat state (this tmp dir, the ledger) reroots under crowbar home while the
+	// CLI still runs with Cwd = worktree.
+	chatsDir, err := u.ws.AgentChatsDir(ctx, workspaceID)
+	if err != nil {
+		return spawnPaths{}, fmt.Errorf("agent: spawn runner: chats dir: %w", err)
+	}
+
+	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
+	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
+	// while the process still runs), and a dir that can only be found through an erasable
+	// pointer can never be reaped; see worktreepath.RunnerDir. This path is derivable from
+	// a bare runner row forever, which is what lets BOTH removers find it: onExit below on a
+	// clean death, and boot reconciliation when the daemon died before onExit could run.
+	//
+	// It holds the rendered hook config the CLI is pointed at, and must survive for the
+	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.
+	//
+	// It holds no secret: a provider owns its own credentials and Crowbar never copies
+	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
+	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
+	// may.
+	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return spawnPaths{}, fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
+	}
+	return spawnPaths{
+		crowbarHome: crowbarHome,
+		projectID:   projectID,
+		repoID:      repoID,
+		worktree:    worktree,
+		tmpDir:      tmpDir,
+	}, nil
+}
+
+// spawnContext is the input renderSpawnContext folds into one expansion context.
+type spawnContext struct {
+	chatID        string
+	workspaceID   string
+	providerID    string
+	projectID     string
+	repoID        string
+	runnerID      string
+	tmpDir        string
+	worktree      string
+	crowbarHome   string
+	threads       string
+	conversation  string
+	promptMessage string
+	gapTurns      int
+	resuming      bool
+	selection     engineagents.Selection
+}
+
+// renderSpawnContext builds the expansion context every descriptor step is
+// rendered against, and answers WHETHER Crowbar's context document is delivered
+// on this spawn at all.
+func (u *Usecase) renderSpawnContext(
+	in spawnContext,
+) (engineagents.TemplateCtx, bool) {
+	tctx := engineagents.TemplateCtx{
+		Tmp:         in.tmpDir,
+		Cwd:         in.worktree,
+		CrowbarHook: u.crowbarHookPath(in.crowbarHome),
+		Segid:       in.runnerID,
+		// The credential the descriptors hand `crowbar mcp` so this runner's tool
+		// calls can be attributed to it. Minted here because this is where the
+		// runner id is born, and by the SAME minter DispatchMCP verifies against —
+		// a token minted anywhere else would authenticate nothing.
+		RunnerToken: u.mintRunnerToken(in.runnerID),
+		Provider:    in.providerID,
+		ProjectID:   in.projectID,
+		RepoID:      in.repoID,
+		WorkspaceID: in.workspaceID,
+		ChatID:      in.chatID,
+		GapTurns:    strconv.Itoa(in.gapTurns),
+		Message:     in.promptMessage,
+		// Read by the descriptor's own model:/effort: apply steps and by nothing
+		// else. They are empty on a chat that has chosen nothing, and the steps
+		// that would read them are not rendered at all in that case.
+		Model:  in.selection.Model,
+		Effort: in.selection.Effort,
+	}
+	// The message for a provider that can ONLY be reached through a user message (a
+	// resumed codex ignores every config channel). It POINTS at the ledger already on
+	// disk and says where to start reading — it never carries the transcript, which
+	// would dump the whole handed-off exchange into the chat for the user to scroll
+	// past. An agent reads files.
+	tctx.ContextPointer = engineagents.Expand(config.GetPrompts().HandoffPointer, tctx)
+	// The preamble first (which tools exist), then the lineage (which OTHER chats
+	// this one reads), then the handoff (what was said here already). Orientation
+	// before history: a model should know it has get_chat_log and which ids to
+	// point it at before it reads a conversation it is told not to act on.
+	tctx.Context = composeContext(
+		engineagents.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
+		in.threads,
+		in.conversation,
+	)
+	// WHETHER to deliver that document at all, which is a separate question from what
+	// it says.
+	//
+	// A handoff is something that HAPPENED and is always worth delivering. The
+	// capability preamble is standing orientation, so it may only drive delivery down a
+	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
+	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
+	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
+	// provider with nothing recorded in between. Letting the preamble deliver there
+	// would open every revived codex chat with a "while you were away" pointer about
+	// nothing, and codex answers its opening message on sight.
+	//
+	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
+	// also loses the preamble on a gapless revive. That is deliberate over the
+	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
+	// knowledge, and inventing a "this channel is silent" field to recover one
+	// directive would put a provider's manners in this package. Its tools are still
+	// registered on that spawn either way — only the directive is missing.
+	inject := in.conversation != "" || !in.resuming
+	return tctx, inject
+}
+
+// spawnPreflight is everything a spawn must know BEFORE it touches the
+// filesystem or forks anything: whether the provider may run at all, whether its
+// tool surface is switched on, what this chat reads besides its own
+// conversation, and what it asked to run as.
+//
+// All four are resolved together and ahead of every side effect, so a preference
+// the daemon cannot read, a lineage it cannot resolve or a selection it cannot
+// fold fails the spawn without leaving a tmp dir or a process to unwind.
+type spawnPreflight struct {
+	mcpOn     bool
+	threads   string
+	selection engineagents.Selection
+}
+
+func (u *Usecase) spawnPreflight(
+	ctx context.Context,
+	chatID, providerID string,
+	create bool,
+) (spawnPreflight, error) {
+	// This is the ONE seam every vendor CLI is launched through, which makes it the
+	// only place a disabled provider can actually be stopped.
+	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
+		return spawnPreflight{}, err
+	}
+	// The tool switch is a SEPARATE axis from whether the provider is enabled: a CLI
+	// spawned with its tools off still comes up, still fires its hooks and still
+	// holds a normal chat.
+	mcpOn, err := u.providerMCPEnabled(ctx, providerID)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	threads, err := u.threadContext(ctx, chatID, create)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	// The selection is also what gets RECORDED on the runner, so the record and the
+	// argv are rendered from ONE read: two reads could disagree across a concurrent
+	// change and leave a process whose recorded selection is not the one it runs.
+	sel, err := u.chatSelection(ctx, chatID, create)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel}, nil
+}
+
+// forkRequest is everything the fork itself needs, gathered so the barrier, the
+// fork and their shared unwind live in one place.
+type forkRequest struct {
+	runnerID    string
+	providerID  string
+	workspaceID string
+	worktree    string
+	crowbarHome string
+	tmpDir      string
+	argv        []string
+	env         []string
+}
+
+// forkCLI installs the hook startup barrier and forks the vendor CLI, unwinding
+// both on failure.
+//
+// The barrier goes in IMMEDIATELY before the fork and not a line earlier: a
+// provider can synchronously fire SessionStart and UserPromptSubmit from inside
+// CreateCommand, before the terminal session id exists and therefore before the
+// runner can be persisted. No process exists before this point, and every hook
+// after it is either buffered or observes the durable row once the barrier lifts.
+//
+// The unwind is shared because both failures leave the same debris: an
+// injected-context entry that only onExit would ever forget, and a tmp dir that
+// only onExit would ever remove — and onExit never runs for a CLI that never
+// lived. RemoveUnderHome is guarded by crowbarHome, so a poisoned chats dir can
+// never make that rm escape the user's real filesystem.
+func (u *Usecase) forkCLI(
+	ctx context.Context,
+	req forkRequest,
+) (string, error) {
+	if err := u.pendingHooks.register(req.runnerID); err != nil {
+		u.agents.ForgetRunner(req.runnerID)
+		RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
+	}
+	termSessID, err := u.term.CreateCommand(ctx, req.workspaceID, req.worktree, req.argv, req.env,
+		u.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
+	if err == nil {
+		return termSessID, nil
+	}
+	u.pendingHooks.discard(req.runnerID)
+	u.agents.ForgetRunner(req.runnerID)
+	RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+
+	// A CLI that is not installed is the ONE spawn failure the user can act on, so
+	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
+	// being buried in a wrap chain that maps to an opaque 500. The provider id, not
+	// the resolved argv[0], is what the UI can name.
+	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+		return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, req.providerID)
+	}
+	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 }
 
 // recordRunner persists what the spawn just created: the chat, if this is a fresh one, and
@@ -1233,6 +1407,7 @@ func (u *Usecase) recordRunner(
 	runnerID string,
 	termSessID string,
 	launchSessionID string,
+	sel engineagents.Selection,
 	create bool,
 ) error {
 	now := time.Now()
@@ -1255,7 +1430,12 @@ func (u *Usecase) recordRunner(
 		TerminalSession: termSessID,
 		ChatID:          chatID,
 		LaunchSessionID: launchSessionID,
-		Now:             now,
+		// The selection this process was ACTUALLY launched with, recorded from the
+		// same read that rendered its argv. It is the only authority on what this
+		// CLI is running: nothing can ask the process later.
+		LaunchModel:  sel.Model,
+		LaunchEffort: sel.Effort,
+		Now:          now,
 	}); err != nil {
 		return u.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 			fmt.Errorf("agent: spawn runner: start runner: %w", err))
@@ -1455,6 +1635,12 @@ func (u *Usecase) onRunnerExit(home, runnerID, tmpDir string) func() {
 func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// The echo guard is per-spawn and means nothing once the process is gone.
 	u.agents.ForgetRunner(runnerID)
+	// Nor does a prompt it was blocked on. Its hooks may still be ALIVE — they are
+	// spawned detached, so killing a CLI orphans them — so every relay this runner
+	// owned is woken with no verdict, and every question it was asking is closed.
+	// A pending prompt over a process that no longer exists is a banner nothing
+	// else will ever clear.
+	u.releaseAnswerWaiters(ctx, runnerID)
 	// Nor does an in-flight turn: a CLI that died mid-answer will never send the turn_stop
 	// that closes it, so a provider switch parked on that turn is released by the DEATH
 	// instead — the same real signal that ends the runner, and the reason the wait needs no
@@ -1644,11 +1830,12 @@ func (u *Usecase) ingestResolvedHook(
 		return u.handleSessionStart(ctx, runner, ev)
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop:
 		return u.handleTurn(ctx, runner, ev)
-	case engineagents.HookToolPre, engineagents.HookToolPost,
+	case engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
 		engineagents.HookSubagentPre, engineagents.HookSubagentPost,
 		engineagents.HookNotification, engineagents.HookPermission,
+		engineagents.HookElicitation,
 		engineagents.HookCompactPre, engineagents.HookCompactPost:
-		return u.handleObservation(ctx, runner, ev)
+		return u.handleObservation(ctx, runner, descriptor, ev, rawPayload)
 	case engineagents.HookSessionEnd:
 		// A session ending is already observed authoritatively by the PTY exit
 		// reconcile, which runs whether or not the CLI got to fire a hook. Acting
@@ -2286,34 +2473,13 @@ func (u *Usecase) switchProviderLocked(
 			gapTurns = len(gap)
 		}
 
-		unlockTurnStart := u.turnStarts.lock(chatID)
-		if err := u.requireNoPendingPromptDelivery(ctx, chat); err != nil {
-			unlockTurnStart()
-			return "", err
-		}
-		if len(u.turns.inflight(chatID)) > 0 {
-			// A prompt began after the first wait. Let its hook finish, then rebuild
-			// the handoff from the now-newer record before trying again.
-			unlockTurnStart()
-			continue
-		}
-		working, err := u.chatWorking(ctx, chatID)
+		retry, err := u.displaceForSwitch(ctx, chat)
 		if err != nil {
-			unlockTurnStart()
-			return "", fmt.Errorf("agent: switch provider: final chat work check: %w", err)
-		}
-		if working {
-			// A turn_stop may have handed work to the background after the first
-			// await released its runner-scoped turn. Keep the outgoing TUI alive until
-			// a later hook authoritatively restates the async-work level as zero.
-			unlockTurnStart()
-			continue
-		}
-		if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
-			unlockTurnStart()
 			return "", err
 		}
-		unlockTurnStart()
+		if retry {
+			continue
+		}
 
 		// Resume arg must be split into separate argv tokens: exec.Command does NOT split
 		// a string on whitespace, so a whole "--resume {id}" template handed to a single
@@ -2330,6 +2496,45 @@ func (u *Usecase) switchProviderLocked(
 			"", resumeSteps, nil, conversation, gapTurns, resuming, priorSessionID, false, "",
 		)
 	}
+}
+
+// displaceForSwitch runs the final busy checks and quits the outgoing CLI, all
+// under the turn-start interlock so they are ONE atomic section with respect to
+// the hooks that could invalidate them.
+//
+// retry=true means the switch must go round again rather than proceed: something
+// became busy after the first wait, and the handoff assembled from the older
+// record would now be missing a turn. Nothing has been destroyed in that case —
+// the outgoing CLI is untouched until the very last step.
+func (u *Usecase) displaceForSwitch(
+	ctx context.Context,
+	chat domain.AgentChat,
+) (bool, error) {
+	unlockTurnStart := u.turnStarts.lock(chat.ID)
+	defer unlockTurnStart()
+
+	if err := u.requireNoPendingPromptDelivery(ctx, chat); err != nil {
+		return false, err
+	}
+	if len(u.turns.inflight(chat.ID)) > 0 {
+		// A prompt began after the first wait. Let its hook finish, then rebuild the
+		// handoff from the now-newer record before trying again.
+		return true, nil
+	}
+	working, err := u.chatWorking(ctx, chat.ID)
+	if err != nil {
+		return false, fmt.Errorf("agent: switch provider: final chat work check: %w", err)
+	}
+	if working {
+		// A turn_stop may have handed work to the background after the first await
+		// released its runner-scoped turn. Keep the outgoing TUI alive until a later
+		// hook authoritatively restates the async-work level as zero.
+		return true, nil
+	}
+	if err := u.quitOutgoingCLI(ctx, chat.ID); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // awaitTurnComplete blocks until nothing is mid-turn on chatID, and is the barrier every
@@ -2371,18 +2576,9 @@ func (u *Usecase) awaitTurnComplete(
 		turnOpen, turnChanged := u.turns.watch(chatID)
 		working, known, workChanged := u.work.observe(chatID)
 		if !known {
-			// This process has not seen a turn command for the chat (normally a
-			// settled chat loaded after boot). Seed the decision from the durable
-			// projection, then re-observe: if a hook completed while GetChat ran,
-			// its command result wins and its signal cannot be missed.
-			chat, err := u.chats.GetChat(ctx, chatID)
-			if err != nil {
-				return fmt.Errorf("agent: switch provider: inspect chat work: %w", err)
-			}
-			if current, nowKnown, nextChanged := u.work.observe(chatID); nowKnown {
-				working, known, workChanged = current, true, nextChanged
-			} else {
-				working, workChanged = chat.Working, nextChanged
+			var err error
+			if working, workChanged, err = u.seedWorkFromProjection(ctx, chatID); err != nil {
+				return err
 			}
 		}
 		if !turnOpen && !working {
@@ -2400,6 +2596,27 @@ func (u *Usecase) awaitTurnComplete(
 			return fmt.Errorf("agent: switch provider: waiting for the chat to become idle: %w", ctx.Err())
 		}
 	}
+}
+
+// seedWorkFromProjection answers "is this chat busy" for a chat this process has
+// seen no turn command for — normally a settled chat loaded after a boot.
+//
+// It re-observes the in-memory signal AFTER reading the projection, and that
+// order is the point: a hook that completed while the read was in flight wins,
+// and its change signal cannot be missed by the caller parking on it.
+func (u *Usecase) seedWorkFromProjection(
+	ctx context.Context,
+	chatID string,
+) (bool, <-chan struct{}, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, nil, fmt.Errorf("agent: switch provider: inspect chat work: %w", err)
+	}
+	current, known, changed := u.work.observe(chatID)
+	if known {
+		return current, changed, nil
+	}
+	return chat.Working, changed, nil
 }
 
 // chatWorking returns the aggregate result observed by this process whenever one
@@ -2866,13 +3083,18 @@ func (u *Usecase) ResolveProviders(
 	for _, d := range descs {
 		p := byID[d.ID()]
 		display := d.Display()
+		caps := d.Capabilities()
 		out = append(out, dto.AgentProviderDTO{
-			ID:          d.ID(),
-			DisplayName: display.Name,
-			Icon:        display.Icon,
-			Connected:   u.installed(d),
-			Enabled:     !p.Disabled,
-			MCPEnabled:  !p.MCPDisabled,
+			ID:           d.ID(),
+			DisplayName:  display.Name,
+			Icon:         display.Icon,
+			Connected:    u.installed(d),
+			Enabled:      !p.Disabled,
+			MCPEnabled:   !p.MCPDisabled,
+			ModelSelect:  caps.ModelSelect,
+			EffortSelect: caps.EffortSelect,
+			Models:       d.Models(),
+			Efforts:      resolveEfforts(d),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
