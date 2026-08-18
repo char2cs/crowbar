@@ -1,12 +1,51 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Turn roles.
+//
+// A turn's role names WHO PUT THE TEXT THERE, and the set is four because four
+// distinct authors can. The two obvious ones are the human and the CLI's model.
+// The other two exist because a chat receives text neither of them wrote, and
+// recording it under one of their names is a lie the rest of the system then acts
+// on — a sibling agent reading the chat log takes a harness notification for
+// something the human said, and a user reads a daemon's observation as the model's
+// answer.
 const (
-	TurnRoleUser      = "user"
+	// TurnRoleUser is the human. Everything Crowbar's own composer sends, and
+	// anything typed straight into the CLI's PTY, is theirs.
+	TurnRoleUser = "user"
+
+	// TurnRoleAssistant is the provider's model.
 	TurnRoleAssistant = "assistant"
+
+	// TurnRoleHarness is text the vendor CLI's own harness INJECTED into the
+	// conversation as if it were a prompt — a background-subagent completion
+	// notification is the measured case. The agent genuinely received it and its
+	// next answer refers to it, so dropping it would leave a reply with no
+	// antecedent; attributing it to the user would put words in their mouth.
+	TurnRoleHarness = "harness"
+
+	// TurnRoleNotice is Crowbar's own observation about the chat, carrying a
+	// provider's verbatim words — the usage-limit banner a CLI painted on its
+	// screen instead of ending its turn. It is never model output and never a
+	// prompt anybody sent.
+	TurnRoleNotice = "notice"
 )
+
+// KnownTurnRole reports whether role is one the ledger accepts. It is the single
+// membership test, so a new role is added in exactly one place.
+func KnownTurnRole(role string) bool {
+	switch role {
+	case TurnRoleUser, TurnRoleAssistant, TurnRoleHarness, TurnRoleNotice:
+		return true
+	default:
+		return false
+	}
+}
 
 // Tool-call statuses.
 const (
@@ -251,6 +290,17 @@ type ActivityChoice struct {
 	Mode     string                 `json:"mode,omitempty"`
 	Multi    bool                   `json:"multi,omitempty"`
 	Options  []ActivityChoiceOption `json:"options,omitempty"`
+	// Questions is the whole of what a question-kind prompt is asking, one entry
+	// per question. A prompt that asks three things is ONE record with three
+	// questions, because the provider gates it as one call and expects one answer
+	// covering all of them.
+	//
+	// It is empty for a permission and an elicitation, which offer Options and a
+	// Schema instead — and it is empty for a question RECORDED BEFORE this field
+	// existed, which is a graceful fallback rather than a migration: such a row
+	// still has its prompt-level Question and Options and still answers exactly as
+	// it did.
+	Questions []ActivityChoiceQuestion `json:"questions,omitempty"`
 	// Schema is the provider's requested-input schema, verbatim, for a prompt whose
 	// answer is a form rather than a pick from Options.
 	Schema string `json:"schema,omitempty"`
@@ -260,10 +310,29 @@ type ActivityChoice struct {
 	Resolution string     `json:"resolution,omitempty"`
 }
 
+// ActivityChoiceQuestion is one question inside a prompt, with the options that
+// answer it.
+//
+// Multi is per question because the provider says so — claude carries multiSelect
+// on each entry of its questions array — so one prompt can ask "pick one" and
+// "pick any" at the same time.
+type ActivityChoiceQuestion struct {
+	// ID is stable within its prompt, and is what groups a flat list of picked
+	// option ids back into per-question answers.
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	// Text is the question as asked, and also the KEY the answer is filed under on
+	// the way back to the provider.
+	Text    string                 `json:"text,omitempty"`
+	Multi   bool                   `json:"multi,omitempty"`
+	Options []ActivityChoiceOption `json:"options,omitempty"`
+}
+
 // ActivityChoiceOption is one answer a prompt will accept.
 type ActivityChoiceOption struct {
-	// ID is stable within its prompt, so an answer names an option rather than
-	// echoing its label back.
+	// ID is stable within its PROMPT — not merely within the question that offered
+	// it — because an answer names its picks in one flat list and nothing in that
+	// list says which question a pick belongs to.
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
 	Label       string `json:"label,omitempty"`
@@ -272,3 +341,144 @@ type ActivityChoiceOption struct {
 
 // Pending reports whether this prompt is still waiting on a human.
 func (c ActivityChoice) Pending() bool { return c.ResolvedAt == nil }
+
+// ChoiceAnswer is one question and the options a human picked for it.
+type ChoiceAnswer struct {
+	Question ActivityChoiceQuestion
+	Picked   []ActivityChoiceOption
+}
+
+// AskedQuestions is what this prompt is asking, in ONE shape whatever wrote it.
+//
+// A prompt recorded since questions were modelled carries them directly. A
+// permission, and a question recorded before that field existed, carries a
+// prompt-level question text with a flat option list instead — which is the same
+// thing with one entry, so it is presented as one entry. Callers therefore never
+// branch on which of the two a record happens to be.
+//
+// An elicitation has neither: its answer is a form and its "options" are the MCP
+// verbs the client invents, so it yields nothing here and its picks are checked
+// against nothing.
+func (c ActivityChoice) AskedQuestions() []ActivityChoiceQuestion {
+	if len(c.Questions) > 0 {
+		return c.Questions
+	}
+	if len(c.Options) == 0 {
+		return nil
+	}
+	question := ActivityChoiceQuestion{ID: "q0", Multi: c.Multi, Options: c.Options}
+	if c.Kind == ChoiceKindQuestion {
+		// Only a QUESTION's title and text are a question's. A permission's Title is
+		// the gated TOOL's name, and borrowing it here would put "Bash" in a refusal
+		// as though the tool were the thing being asked — a message that reaches a
+		// person through the 400.
+		question.Title, question.Text = c.Title, c.Question
+	}
+	return []ActivityChoiceQuestion{question}
+}
+
+// ResolvePicks turns the FLAT list of option ids an answer names into one answer
+// per question, refusing anything that is not a complete answer to this prompt.
+//
+// It lives on the domain type because two layers have to enforce the identical
+// rule — the usecase, which turns picks into a provider payload, and the
+// aggregate, which records the decision — and they used to enforce different
+// strictnesses. A rule written twice is a rule that will disagree with itself, and
+// the disagreement here would be a 400 the UI could not predict or an answer the
+// aggregate accepted and the CLI could not use.
+//
+// The rules, and what each of them is stopping:
+//
+//   - Every question must be answered. A partial answer is what stranded a live
+//     agent: claude was handed picks for one of three questions, said "still
+//     waiting on your answers to questions 2 & 3", and no surface could ever send
+//     them. Partial must therefore be impossible rather than discouraged.
+//   - A question that is not multi-select takes ONE pick. Two picks on it are not
+//     an answer the provider has any way to read.
+//   - Every pick must name an option this prompt actually offered, and may name it
+//     only once.
+//
+// A prompt with nothing to pick from (an elicitation) returns no answers and no
+// error: its ids are the provider's own verbs, and the descriptor's response
+// templates are what decide whether a verb means anything.
+func (c ActivityChoice) ResolvePicks(optionIDs []string) ([]ChoiceAnswer, error) {
+	questions := c.AskedQuestions()
+	if len(questions) == 0 {
+		return nil, nil
+	}
+
+	answers := make([]ChoiceAnswer, len(questions))
+	for i, question := range questions {
+		answers[i] = ChoiceAnswer{Question: question}
+	}
+	seen := make(map[string]bool, len(optionIDs))
+	for _, id := range optionIDs {
+		at, option, offered := findOption(questions, id)
+		if !offered {
+			return nil, fmt.Errorf("%q is not an option on this prompt", id)
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("%q was picked more than once", id)
+		}
+		seen[id] = true
+		answers[at].Picked = append(answers[at].Picked, option)
+	}
+
+	for _, answer := range answers {
+		switch {
+		case len(answer.Picked) == 0:
+			return nil, fmt.Errorf("%s has no answer, and every question must be answered",
+				questionName(answer.Question))
+		case len(answer.Picked) > 1 && !answer.Question.Multi:
+			return nil, fmt.Errorf("%s takes one answer, got %d",
+				questionName(answer.Question), len(answer.Picked))
+		}
+	}
+	return answers, nil
+}
+
+// findOption locates an option id across every question, since an answer names
+// its picks without saying which question each belongs to.
+func findOption(
+	questions []ActivityChoiceQuestion,
+	id string,
+) (int, ActivityChoiceOption, bool) {
+	for i, question := range questions {
+		for _, option := range question.Options {
+			if option.ID == id {
+				return i, option, true
+			}
+		}
+	}
+	return 0, ActivityChoiceOption{}, false
+}
+
+// questionName is how a question is referred to in a refusal, ALREADY QUOTED
+// where there is something to quote.
+//
+// The text is what the human was shown, so it is what makes the message legible —
+// and with several questions on one prompt it is the only thing that says WHICH
+// of them was left unanswered or double-picked. A prompt with nothing to name is
+// referred to as itself rather than by an internal id nobody has seen.
+func questionName(q ActivityChoiceQuestion) string {
+	switch {
+	case q.Text != "":
+		return fmt.Sprintf("%q", q.Text)
+	case q.Title != "":
+		return fmt.Sprintf("%q", q.Title)
+	default:
+		return "this prompt"
+	}
+}
+
+// AnswerKey is the TEXT a question's answer is filed under on the way back to the
+// provider — claude's `answers` object is keyed by the question string it sent.
+//
+// Empty means this question cannot be keyed at all, which is only reachable for a
+// provider that sent neither text nor header for it.
+func (q ActivityChoiceQuestion) AnswerKey() string {
+	if q.Text != "" {
+		return q.Text
+	}
+	return q.Title
+}

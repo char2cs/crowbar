@@ -431,6 +431,13 @@ func (u *Usecase) AnswerChoice(
 // vocabulary a descriptor declares against. A prompt that offers no options at
 // all (an MCP elicitation, whose answer is a form rather than a pick) has no kind
 // to read, so the id IS the key: accept, decline, cancel.
+//
+// WHAT IS PICKED is checked by domain.ActivityChoice.ResolvePicks and by nothing
+// here, because the aggregate that records the decision checks it with the same
+// call. That rule is what makes a partial answer impossible: the picks must cover
+// EVERY question, and an answer that covered one of three is exactly what left a
+// live agent saying "still waiting on your answers to questions 2 & 3" with no
+// way for anyone to send them.
 func decide(
 	choice domain.ActivityChoice,
 	optionIDs []string,
@@ -442,50 +449,85 @@ func decide(
 			"%w: an answer must name at least one option", apperr.ErrInvalidArgument)
 	}
 	decision := engineagents.AnswerDecision{Reason: reason, Content: content}
-	if len(choice.Options) == 0 {
+	answers, err := choice.ResolvePicks(optionIDs)
+	if err != nil {
+		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", apperr.ErrInvalidArgument, err)
+	}
+	if len(answers) == 0 {
+		// Nothing was offered to pick from, so the id carries the whole decision.
 		decision.Key = optionIDs[0]
 		return decision, nil
 	}
 
-	labels := make([]any, 0, len(optionIDs))
-	key := ""
-	for _, id := range optionIDs {
-		option, offered := optionByID(choice, id)
-		if !offered {
-			return engineagents.AnswerDecision{}, fmt.Errorf(
-				"%w: %q is not an option on this prompt", apperr.ErrInvalidArgument, id)
-		}
-		if key != "" && key != option.Kind {
-			// Two picks of different kinds are not one answer: "allow" and "deny"
-			// together mean nothing, and there is no template that could render them.
-			return engineagents.AnswerDecision{}, fmt.Errorf(
-				"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument)
-		}
-		key = option.Kind
-		labels = append(labels, option.Label)
+	key, err := decisionKey(answers)
+	if err != nil {
+		return engineagents.AnswerDecision{}, err
 	}
 	decision.Key = key
-	if key == domain.ChoiceOptionAnswer && choice.Question != "" {
-		// The answers map is keyed by the question's own TEXT, because that is what
-		// the provider expects to read back (measured against claude 2.1.234: an
-		// AskUserQuestion is satisfied by an `answers` object mapping the question
-		// string to the chosen option's label). A single pick is a bare label rather
-		// than a one-element list — the same shape the CLI produces itself.
-		decision.Answers = map[string]any{choice.Question: labels[0]}
-		if choice.Multi {
-			decision.Answers[choice.Question] = labels
-		}
+	if key == domain.ChoiceOptionAnswer {
+		decision.Answers = answersByQuestion(answers)
 	}
 	return decision, nil
 }
 
-func optionByID(choice domain.ActivityChoice, id string) (domain.ActivityChoiceOption, bool) {
-	for _, option := range choice.Options {
-		if option.ID == id {
-			return option, true
+// decisionKey reads the one response template every pick agrees on.
+//
+// Two picks of different kinds are not one answer: "allow" and "deny" together
+// mean nothing, and there is no template that could render them. A question's
+// picks are all of kind `answer` by construction, so this only ever bites on a
+// permission — which is where it always did.
+func decisionKey(answers []domain.ChoiceAnswer) (string, error) {
+	key := ""
+	for _, answer := range answers {
+		for _, option := range answer.Picked {
+			if key != "" && key != option.Kind {
+				return "", fmt.Errorf(
+					"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument)
+			}
+			key = option.Kind
 		}
 	}
-	return domain.ActivityChoiceOption{}, false
+	return key, nil
+}
+
+// answersByQuestion builds the object the provider reads its answers out of: ONE
+// KEY PER QUESTION, keyed by the question's own text.
+//
+// That is what the provider expects to read back — measured against claude
+// 2.1.234, an AskUserQuestion is satisfied by an `answers` object mapping each
+// question string to the chosen option's label — and it is why a three-question
+// prompt must produce three keys. Two keys out of three is not a smaller answer,
+// it is an agent left waiting on the third.
+//
+// A single pick is a bare label and a multi-select's picks are a LIST, per
+// question, because that asymmetry is the CLI's own: multiSelect rides each
+// question, so one prompt can legitimately produce both shapes at once.
+func answersByQuestion(answers []domain.ChoiceAnswer) map[string]any {
+	out := make(map[string]any, len(answers))
+	for _, answer := range answers {
+		key := answer.Question.AnswerKey()
+		if key == "" {
+			// A question the provider sent neither text nor header for cannot be keyed
+			// at all. Skipping it is the only option left, and it is not a partial
+			// answer of the kind the coverage rule prevents: there was never a key to
+			// file this one under.
+			continue
+		}
+		labels := make([]any, 0, len(answer.Picked))
+		for _, option := range answer.Picked {
+			labels = append(labels, option.Label)
+		}
+		// The list shape for a multi-select question, the bare label for a single one
+		// — and the list shape for the empty case too, which ResolvePicks has already
+		// made unreachable. Indexing labels[0] there would panic a daemon that must
+		// never crash on a request, and no answer document is worth that.
+		if answer.Question.Multi || len(labels) != 1 {
+			out[key] = labels
+			continue
+		}
+		out[key] = labels[0]
+	}
+	return out
 }
 
 func (u *Usecase) pendingChoice(

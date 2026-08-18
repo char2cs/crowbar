@@ -525,6 +525,57 @@ describe('agent-api', () => {
     expect((await api.listChatActivity('w1', 'c1')).choices).toEqual([])
   })
 
+  // A three-question prompt is ONE record carrying three questions, and it has to
+  // survive the read intact: modelling only the first is what left a live agent
+  // saying "still waiting on your answers to questions 2 & 3".
+  it('listChatActivity carries every question of a multi-question prompt', async () => {
+    apiFetch.mockResolvedValue({
+      choices: [
+        {
+          id: 'k1',
+          turnId: 'turn-1',
+          seq: 4,
+          kind: 'question',
+          options: [],
+          questions: [
+            {
+              id: 'q0',
+              text: 'Which language?',
+              options: [{ id: 'q0-answer-0', kind: 'answer', label: 'Go' }],
+            },
+            {
+              id: 'q1',
+              text: 'Which databases?',
+              multi: true,
+              options: [{ id: 'q1-answer-0', kind: 'answer', label: 'SQLite' }],
+            },
+          ],
+          pending: true,
+          answerable: true,
+          at: '2026-08-18T12:00:00Z',
+        },
+      ],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]?.questions).toHaveLength(2)
+    expect(activity.choices[0]?.questions?.[1]).toMatchObject({ id: 'q1', multi: true })
+  })
+
+  // ABSENT is not the same as empty here: it says the record predates questions
+  // being modelled, and a client falls back to the prompt-level question rather
+  // than drawing a card with nothing in it. So it is never grounded to [].
+  it('listChatActivity leaves an absent question list absent', async () => {
+    apiFetch.mockResolvedValue({
+      choices: [{ id: 'k1', turnId: 't', seq: 1, kind: 'question', at: 'x' }],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]?.questions).toBeUndefined()
+  })
+
   it('answerChoice POSTs the picked options to the prompt’s own route', async () => {
     apiFetch.mockResolvedValue(undefined)
 
@@ -535,6 +586,22 @@ describe('agent-api', () => {
       expect.objectContaining({ method: 'POST' }),
     )
     expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
+  })
+
+  // ONE call carries the whole prompt however many questions it asked: the option
+  // ids say which question each pick answers, so there is never a second call —
+  // and never a partial one, which is the shape that stranded the agent.
+  it('answerChoice sends every question’s picks in a single flat list', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k1', {
+      optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
+    })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({
+      optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
+    })
   })
 
   // Several ids in ONE answer is what `multi` means, and the elicitation form

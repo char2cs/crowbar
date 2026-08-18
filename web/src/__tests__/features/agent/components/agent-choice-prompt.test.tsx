@@ -156,13 +156,19 @@ describe('AgentChoicePrompt that can be answered', () => {
   it('sends EVERY ticked option of a multi-select question in one answer', async () => {
     draw({
       kind: 'question',
-      question: 'Which do you want?',
-      multi: true,
-      options: [
-        { id: 'answer-0', kind: 'answer', label: 'Option A', description: 'the first' },
-        { id: 'answer-1', kind: 'answer', label: 'Option B' },
-        { id: 'answer-2', kind: 'answer', label: 'Option C' },
+      questions: [
+        {
+          id: 'q0',
+          text: 'Which do you want?',
+          multi: true,
+          options: [
+            { id: 'q0-answer-0', kind: 'answer', label: 'Option A', description: 'the first' },
+            { id: 'q0-answer-1', kind: 'answer', label: 'Option B' },
+            { id: 'q0-answer-2', kind: 'answer', label: 'Option C' },
+          ],
+        },
       ],
+      options: [],
     })
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Option A' }))
@@ -171,7 +177,7 @@ describe('AgentChoicePrompt that can be answered', () => {
 
     await waitFor(() =>
       expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
-        optionIds: ['answer-0', 'answer-2'],
+        optionIds: ['q0-answer-0', 'q0-answer-2'],
       }),
     )
   })
@@ -179,9 +185,15 @@ describe('AgentChoicePrompt that can be answered', () => {
   it('will not send an empty multi-select answer', () => {
     draw({
       kind: 'question',
-      question: 'Which do you want?',
-      multi: true,
-      options: [{ id: 'answer-0', kind: 'answer', label: 'Option A' }],
+      questions: [
+        {
+          id: 'q0',
+          text: 'Which do you want?',
+          multi: true,
+          options: [{ id: 'q0-answer-0', kind: 'answer', label: 'Option A' }],
+        },
+      ],
+      options: [],
     })
 
     expect(screen.getByRole('button', { name: 'Send answer' })).toBeDisabled()
@@ -260,23 +272,210 @@ describe('AgentChoicePrompt failures', () => {
 })
 
 describe('AgentChoicePrompt suggestions', () => {
-  // Drawn, because the provider offered them. Unsendable, because Crowbar has no
-  // shape for them and one narrowed to a plain allow would grant something else.
-  it('shows a suggestion the provider offered and refuses to pretend it works', () => {
+  // DEFECT 5. These used to be a row of DISABLED BUTTONS, which still reads as a
+  // control — something greyed out now that will work in a moment — and there is no
+  // declared answer template for a suggestion, so pressing one could only ever
+  // produce a 400. A note cannot be pressed, which is how that failure stops being
+  // reachable from the UI at all.
+  it('writes suggestions down as a note, with nothing on them to press', () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Always allow in this directory' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
       ],
     })
 
     const suggestions = screen.getByTestId('agent-choice-suggestions')
-    expect(suggestions).toHaveTextContent('Always allow in this directory')
-    expect(screen.getByRole('button', { name: 'Always allow in this directory' })).toBeDisabled()
-    expect(suggestions).toHaveTextContent('Use the terminal for those')
+    expect(suggestions).toHaveTextContent('Add a permanent rule for this')
+    expect(suggestions).toHaveTextContent('Crowbar cannot send the broader permission')
+    expect(suggestions).toHaveTextContent('The terminal can do it')
+    // Nothing inside the note is interactive — not enabled, not disabled, absent.
+    expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
     // The two real answers are untouched by it.
     expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  // The backend never sends a raw provider type name any more, but a stale poll
+  // could still be holding one — so nothing here reconstructs a control from a
+  // label whatever it says.
+  it('never turns a suggestion into a control, whatever it is labelled', () => {
+    draw({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'addRules' },
+      ],
+    })
+
+    expect(screen.queryByRole('button', { name: 'addRules' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: 'addRules' })).toBeNull()
+  })
+})
+
+// DEFECT 4. A user asked claude to "ask me 3 questions at the same time". Claude
+// issued ONE AskUserQuestion carrying three, Crowbar drew the first, and answering
+// it left claude saying "still waiting on: your answers to questions 2 & 3" — a
+// state this surface could never leave.
+describe('AgentChoicePrompt with several questions', () => {
+  const threeQuestions = {
+    kind: 'question',
+    toolName: 'AskUserQuestion',
+    options: [],
+    questions: [
+      {
+        id: 'q0',
+        text: 'Which language?',
+        multi: false,
+        options: [
+          { id: 'q0-answer-0', kind: 'answer', label: 'Go' },
+          { id: 'q0-answer-1', kind: 'answer', label: 'TypeScript' },
+        ],
+      },
+      {
+        id: 'q1',
+        text: 'Which databases?',
+        multi: true,
+        options: [
+          { id: 'q1-answer-0', kind: 'answer', label: 'SQLite' },
+          { id: 'q1-answer-1', kind: 'answer', label: 'Postgres' },
+          { id: 'q1-answer-2', kind: 'answer', label: 'Redis' },
+        ],
+      },
+      {
+        id: 'q2',
+        text: 'Deploy where?',
+        multi: false,
+        options: [
+          { id: 'q2-answer-0', kind: 'answer', label: 'Local' },
+          { id: 'q2-answer-1', kind: 'answer', label: 'Cloud' },
+        ],
+      },
+    ],
+  } satisfies Partial<AgentChoice>
+
+  it('draws a group for every question, single- or multi-select per its own flag', () => {
+    draw(threeQuestions)
+
+    expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(3)
+    expect(screen.getByText('The agent has 3 questions')).toBeInTheDocument()
+    // Question 1 takes one answer, question 2 takes several: the flag is per
+    // question, so one card legitimately holds both control shapes.
+    expect(screen.getByRole('radio', { name: 'Go' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'SQLite' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Cloud' })).toBeInTheDocument()
+  })
+
+  it('will not send until EVERY question has an answer', () => {
+    draw(threeQuestions)
+    const send = () => screen.getByRole('button', { name: 'Send answers' })
+
+    expect(send()).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
+    expect(send()).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
+    expect(send()).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Cloud' }))
+    expect(send()).toBeEnabled()
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  it('sends every pick of every question in ONE call', async () => {
+    draw(threeQuestions)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Redis' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Cloud' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
+        optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
+      }),
+    )
+    expect(answerChoiceFn).toHaveBeenCalledTimes(1)
+  })
+
+  // A single-answer question replaces its pick rather than accumulating one: two
+  // answers to it are refused by the backend, so the control must not be able to
+  // produce them.
+  it('replaces the pick on a single-answer question', async () => {
+    draw(threeQuestions)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'TypeScript' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Local' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
+        optionIds: ['q0-answer-1', 'q1-answer-0', 'q2-answer-0'],
+      }),
+    )
+  })
+
+  // The pane this card lives in is RETAINED across chat selection, so a re-render
+  // can hand it a different prompt without unmounting it. Picks carried into that
+  // prompt would be submitted against option ids it never offered — the partial
+  // answer this whole card exists to prevent, arrived at from the other side.
+  it('starts empty when a different prompt is rendered into the same card', () => {
+    const { rerender } = draw(threeQuestions)
+    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
+    expect(screen.getByRole('radio', { name: 'Go' })).toBeChecked()
+
+    rerender(
+      <AgentChoicePrompt
+        wsId="w1"
+        chatId="c1"
+        choice={choice({ ...threeQuestions, id: 'k2' })}
+        detail=""
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(screen.getByRole('radio', { name: 'Go' })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Send answers' })).toBeDisabled()
+  })
+
+  // pending && !answerable: the CLI is asking at its own terminal. Every option of
+  // every question is still worth reading, and none of it is pressable.
+  it('reads out every question’s options when it cannot be answered here', () => {
+    draw({ ...threeQuestions, answerable: false })
+
+    const listed = screen.getByTestId('agent-choice-options-readonly')
+    expect(listed).toHaveTextContent('Go')
+    expect(listed).toHaveTextContent('Redis')
+    expect(listed).toHaveTextContent('Cloud')
+    expect(screen.queryByRole('radio', { name: 'Go' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send answers' })).toBeNull()
+  })
+})
+
+// The graceful fallback, and NOT a migration: a prompt recorded before questions
+// were modelled has no `questions` at all, and it is still a single question
+// described by the prompt's own text and options.
+describe('AgentChoicePrompt for a prompt recorded before questions existed', () => {
+  it('draws the prompt-level question as a question of one', async () => {
+    draw({
+      kind: 'question',
+      question: 'Which do you want?',
+      multi: false,
+      options: [
+        { id: 'answer-0', kind: 'answer', label: 'Option A' },
+        { id: 'answer-1', kind: 'answer', label: 'Option B' },
+      ],
+    })
+
+    expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('radio', { name: 'Option B' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['answer-1'] }),
+    )
   })
 })
 

@@ -1247,7 +1247,10 @@ describe('AgentChatsPanel', () => {
     render(<Shell />)
 
     expect(screen.getByTestId('no-providers-notice')).toBeInTheDocument()
-    expect(screen.getByText(/settings → providers/i)).toBeInTheDocument()
+    // The settings section is called Agents now (spec §11) — the pointer has to
+    // name what the rail actually says, or it sends the user looking for a tab
+    // that is not there.
+    expect(screen.getByText(/settings → agents/i)).toBeInTheDocument()
   })
 
   it('still explains itself when the workspace HAS chats but nothing can start one', () => {

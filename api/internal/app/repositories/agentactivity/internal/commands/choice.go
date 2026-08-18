@@ -13,18 +13,19 @@ import (
 // record of its own rather than another interruption: an interruption says the
 // agent stopped, a choice says what it is waiting to be told.
 type OpenChoice struct {
-	ChatID   string
-	ChoiceID string
-	Kind     string
-	PromptID string
-	ToolName string
-	Title    string
-	Question string
-	Mode     string
-	Multi    bool
-	Options  []domain.ActivityChoiceOption
-	Schema   string
-	Now      time.Time
+	ChatID    string
+	ChoiceID  string
+	Kind      string
+	PromptID  string
+	ToolName  string
+	Title     string
+	Question  string
+	Mode      string
+	Multi     bool
+	Options   []domain.ActivityChoiceOption
+	Questions []domain.ActivityChoiceQuestion
+	Schema    string
+	Now       time.Time
 }
 
 func (c OpenChoice) AggregateID() string  { return c.ChatID }
@@ -45,19 +46,20 @@ func (c OpenChoice) EmitEvent(current *domain.AgentActivity) domain.AgentActivit
 	next := advance(current, c.ChatID)
 
 	item := domain.ActivityChoice{
-		ID:       c.ChoiceID,
-		ChatID:   c.ChatID,
-		Seq:      next.Seq,
-		Kind:     c.Kind,
-		PromptID: c.PromptID,
-		ToolName: c.ToolName,
-		Title:    c.Title,
-		Question: c.Question,
-		Mode:     c.Mode,
-		Multi:    c.Multi,
-		Options:  c.Options,
-		Schema:   c.Schema,
-		At:       c.Now,
+		ID:        c.ChoiceID,
+		ChatID:    c.ChatID,
+		Seq:       next.Seq,
+		Kind:      c.Kind,
+		PromptID:  c.PromptID,
+		ToolName:  c.ToolName,
+		Title:     c.Title,
+		Question:  c.Question,
+		Mode:      c.Mode,
+		Multi:     c.Multi,
+		Options:   c.Options,
+		Questions: c.Questions,
+		Schema:    c.Schema,
+		At:        c.Now,
 	}
 
 	// A prompt that arrives with NO TURN OPEN is a moment, not a state, and is

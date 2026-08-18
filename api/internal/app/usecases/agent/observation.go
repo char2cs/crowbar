@@ -102,8 +102,12 @@ func (u *Usecase) openChoice(
 		Mode:     ev.Choice.Mode,
 		Multi:    ev.Choice.Multi,
 		Options:  choiceOptions(ev.Choice.Options),
-		Schema:   string(ev.Choice.Schema),
-		Now:      now,
+		// Every question the prompt carries, not the first. A prompt recorded with
+		// one of three questions produces an answer covering one of three, and the
+		// CLI goes on waiting for the other two with nothing able to send them.
+		Questions: choiceQuestions(ev.Choice.Questions),
+		Schema:    string(ev.Choice.Schema),
+		Now:       now,
 	}))
 	// The prompt is recorded whether or not anybody can answer it. Holding the
 	// RELAY open is the separate question, and only a provider that declares how a
@@ -139,6 +143,20 @@ func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
 		return "choice-" + chatID + "-" + prompt.PromptID
 	}
 	return "choice-" + chatID + "-" + prompt.PromptID + "-" + prompt.ToolName
+}
+
+func choiceQuestions(in []engineagents.PromptQuestion) []domain.ActivityChoiceQuestion {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]domain.ActivityChoiceQuestion, 0, len(in))
+	for _, q := range in {
+		out = append(out, domain.ActivityChoiceQuestion{
+			ID: q.ID, Title: q.Title, Text: q.Text, Multi: q.Multi,
+			Options: choiceOptions(q.Options),
+		})
+	}
+	return out
 }
 
 func choiceOptions(in []engineagents.ChoiceOption) []domain.ActivityChoiceOption {

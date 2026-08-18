@@ -1840,7 +1840,7 @@ func (u *Usecase) ingestResolvedHook(
 	case engineagents.HookSessionStart:
 		return u.handleSessionStart(ctx, runner, ev)
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop:
-		return u.handleTurn(ctx, runner, ev)
+		return u.handleTurn(ctx, runner, descriptor, ev)
 	case engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
 		engineagents.HookSubagentPre, engineagents.HookSubagentPost,
 		engineagents.HookNotification, engineagents.HookPermission,
@@ -1953,9 +1953,15 @@ func openTurnID(chatID, runnerID string) string {
 // the runner, which the preceding session_start has already moved if the CLI changed
 // conversation (a provider announces the switch BEFORE the turn that follows it, so
 // no turn is ever misfiled).
+//
+// It takes the resolved agent for one question only: WHOSE words a user_prompt is
+// carrying. That is answered from the provider's own declarations (see
+// engineagents.MatchInjectedPrompt), which is the same reason handleObservation is
+// handed one.
 func (u *Usecase) handleTurn(
 	ctx context.Context,
 	runner domain.AgentRunner,
+	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
 	chat, ok, err := u.chatForRunner(ctx, runner)
@@ -1982,6 +1988,37 @@ func (u *Usecase) handleTurn(
 			u.openAssistantTurn(ctx, chat, runner)
 			return nil
 		}
+		// The PROVIDER's own harness talking to its own model on the user's hook: a
+		// background-subagent completion report is the measured case, and the ledger
+		// recorded every one of them as something the user said. It is the sibling of
+		// the branch above and deliberately not a copy of it — that one drops the text
+		// because Crowbar wrote it and already has it, and this one must NOT, because
+		// this text is real context the agent received and its next answer refers to
+		// it. Dropped, the reply would have no antecedent; attributed, the user is
+		// quoted saying something they never wrote, which is what get_chat_log was
+		// serving to other agents. So it is recorded under its own role.
+		//
+		// No derived title: a chat named after a subagent's completion report is named
+		// after nothing its user did. The turn still opens — the agent genuinely is
+		// about to work on this — and no prompt-delivery journal is advanced, because
+		// nothing Crowbar queued was accepted here.
+		if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
+			slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
+				"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
+				"kind", injected.Kind, "needle", injected.Needle)
+			started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
+			if err != nil {
+				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+			}
+			u.work.set(chat.ID, started.Working)
+			u.turns.begin(runner.ID, chat.ID)
+			appendErr := u.appendRunnerTurn(
+				ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+				domain.TurnRoleHarness, ev.Message,
+			)
+			u.openAssistantTurn(ctx, chat, runner)
+			return appendErr
+		}
 		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 		}
@@ -1997,7 +2034,8 @@ func (u *Usecase) handleTurn(
 		// it never quits a CLI that is still answering (turnWaits).
 		u.turns.begin(runner.ID, chat.ID)
 		appendErr := u.appendRunnerTurn(
-			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession, "user", ev.Message,
+			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+			domain.TurnRoleUser, ev.Message,
 		)
 		// The reply this prompt is about to produce, opened NOW so the tool calls,
 		// subagents and interruptions that follow attach to it. Without an open turn

@@ -79,21 +79,36 @@ func (s *Store) SaveInterruption(ctx context.Context, i domain.ActivityInterrupt
 // that re-resolved an already-resolved row would move its timestamp on every
 // rebuild, and the read model would stop being reproducible.
 func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
-	options, err := json.Marshal(c.Options)
+	options, err := encodeList(c.Options)
 	if err != nil {
 		return fmt.Errorf("agentactivity storage: encode choice options: %w", err)
 	}
-	if len(c.Options) == 0 {
-		options = nil
+	questions, err := encodeList(c.Questions)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode choice questions: %w", err)
 	}
 	return upsert(ctx, s.db, ChoiceRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Kind: c.Kind, PromptID: c.PromptID,
 		ToolID: c.ToolID, ToolName: c.ToolName,
 		Title: c.Title, Question: c.Question, Mode: c.Mode, Multi: c.Multi,
-		Options: string(options), Schema: c.Schema,
+		Options: options, Questions: questions, Schema: c.Schema,
 		At: c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
 	})
+}
+
+// encodeList stores an empty list as an EMPTY STRING rather than as "null" or
+// "[]", so "nothing was offered" is one value in the column instead of three the
+// read side would each have to recognise.
+func encodeList[T any](items []T) (string, error) {
+	if len(items) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // ResolveChoicesForTool closes every pending prompt that was gating a tool call

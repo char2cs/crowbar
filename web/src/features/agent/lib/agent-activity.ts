@@ -1,6 +1,7 @@
 import type {
   AgentActivity,
   AgentChoice,
+  AgentChoiceQuestion,
   AgentInterruption,
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
@@ -58,6 +59,36 @@ export function choiceToolTarget(activity: AgentActivity, choice: AgentChoice): 
   return gated?.target ?? ''
 }
 
+/**
+ * What a prompt is asking, in ONE shape whatever wrote it.
+ *
+ * A prompt recorded since questions were modelled carries them directly. One
+ * recorded before that — the graceful fallback, not a migration — is a single
+ * question described by the prompt's own `question` and `options`, so it is
+ * presented as a list of one. Callers therefore never branch on which of the two
+ * a record happens to be, and a three-question prompt is never mistaken for a
+ * one-question one.
+ *
+ * A permission and an elicitation ask no question in this sense: their controls
+ * are allow/deny and the MCP verbs, which are not a pick from a list the agent
+ * offered.
+ */
+export function choiceQuestions(choice: AgentChoice): AgentChoiceQuestion[] {
+  if (choice.questions && choice.questions.length > 0) return choice.questions
+  if (choice.kind !== 'question') return []
+  const options = choice.options.filter((option) => option.kind === 'answer')
+  if (options.length === 0) return []
+  return [
+    {
+      id: 'q0',
+      title: choice.title,
+      text: choice.question,
+      multi: choice.multi ?? false,
+      options,
+    },
+  ]
+}
+
 /** The headline of a prompt: what is being asked, in one line.
  *
  *  Each kind is a genuinely different thing to put to someone, which is why they
@@ -67,8 +98,13 @@ export function describeChoice(choice: AgentChoice): string {
   switch (choice.kind) {
     case 'tool_permission':
       return choice.toolName ? `Run ${choice.toolName}?` : 'The agent is asking for permission'
-    case 'question':
-      return choice.question || choice.title || 'The agent has a question'
+    case 'question': {
+      if (choice.question || choice.title) return choice.question || choice.title || ''
+      // Several questions have no single headline, and naming one of them would be
+      // a lie a reader could act on — so the count is what is said instead.
+      const asked = choice.questions?.length ?? 0
+      return asked > 1 ? `The agent has ${asked} questions` : 'The agent has a question'
+    }
     case 'elicitation':
       return choice.question || 'A tool is asking for some details'
     default:

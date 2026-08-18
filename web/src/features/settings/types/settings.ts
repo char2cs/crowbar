@@ -36,6 +36,13 @@ export interface Settings {
   // UI
   uiFontFamily: string
   uiFontSize: number
+  // Agents
+  /**
+   * Whether a chat lands on Chat rather than Terminal when it opens. User-level,
+   * not per-workspace, and it only picks the LANDING surface — both stay
+   * reachable from the chat's own surface switcher whichever way this sits.
+   */
+  chatIsDefaultPresentation: boolean
   // Theme
   theme: Theme
   iconTheme: string

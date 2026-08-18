@@ -339,7 +339,7 @@ export function NewTabView({ paneId }: { paneId: string }) {
                 disabledReason={
                   hasEnabledProvider
                     ? undefined
-                    : 'No providers are enabled. Turn one on in Settings → Providers.'
+                    : 'No agents are enabled. Turn one on in Settings → Agents.'
                 }
               />
               <ActionRow

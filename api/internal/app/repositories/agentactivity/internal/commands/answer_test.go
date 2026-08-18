@@ -58,7 +58,37 @@ func TestAnswerChoice_RefusesMoreThanOnePickOnASingleAnswerPrompt(t *testing.T) 
 	err := answerCmd("allow", "deny").Validate(&state)
 
 	require.ErrorIs(t, err, asynxModels.ErrValidation)
-	assert.Contains(t, err.Error(), "accepts one answer")
+	assert.Contains(t, err.Error(), "takes one answer")
+}
+
+// The two validators used to be written twice and enforce different strictnesses:
+// this command checked "one pick unless Multi, and every id must be offered",
+// while the usecase that renders the answer checked "every pick of one kind" —
+// and NEITHER of them noticed a partial answer to a multi-question prompt. Both
+// now call the one rule on the domain type, so an answer the aggregate accepts is
+// exactly an answer the usecase can render.
+func TestRegression_TheAggregateRefusesAPartialAnswerToAMultiQuestionPrompt(t *testing.T) {
+	state := openTurnState(t)
+	open := permissionCmd()
+	open.Kind = domain.ChoiceKindQuestion
+	open.Options = nil
+	open.Questions = []domain.ActivityChoiceQuestion{
+		{ID: "q0", Text: "Which language?", Options: []domain.ActivityChoiceOption{
+			{ID: "q0-answer-0", Kind: domain.ChoiceOptionAnswer, Label: "Go"},
+		}},
+		{ID: "q1", Text: "Which databases?", Multi: true, Options: []domain.ActivityChoiceOption{
+			{ID: "q1-answer-0", Kind: domain.ChoiceOptionAnswer, Label: "SQLite"},
+			{ID: "q1-answer-1", Kind: domain.ChoiceOptionAnswer, Label: "Redis"},
+		}},
+	}
+	state = open.EmitEvent(&state)
+
+	err := answerCmd("q0-answer-0").Validate(&state)
+	require.ErrorIs(t, err, asynxModels.ErrValidation)
+	assert.Contains(t, err.Error(), "every question must be answered")
+
+	require.NoError(t, answerCmd("q0-answer-0", "q1-answer-0", "q1-answer-1").Validate(&state),
+		"an answer covering every question is accepted, multi-select and all")
 }
 
 func TestAnswerChoice_AcceptsSeveralPicksOnAMultiSelectPrompt(t *testing.T) {

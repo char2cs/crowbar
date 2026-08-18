@@ -845,3 +845,71 @@ describe('AgentChatView model + effort selection', () => {
     expect(screen.queryByTestId('message-effort')).toBeNull()
   })
 })
+
+// A transcript carries four roles, and two of them are text NOBODY in the
+// conversation typed. The row used to discriminate on a single `user` boolean, so
+// a harness injection landed in the ledger — and on screen — as the user's own
+// message.
+describe('AgentChatView non-conversational roles', () => {
+  // taskNotification is what claude 2.1.234's harness actually injected, captured
+  // verbatim from raw hook stdin. It is used here rather than a placeholder
+  // because its SHAPE is the point: it is markup, and a markdown renderer treats
+  // `<task-notification>` as an HTML tag and swallows the row.
+  const taskNotification =
+    '<task-notification>\n<task-id>aa3b60603214670cc</task-id>\n' +
+    '<status>completed</status>\n<result>PONG</result>\n</task-notification>'
+
+  function roleMessage(sequence: number, role: string, text: string): AgentChatMessage {
+    return {
+      ...message(sequence, 'assistant', text),
+      // Cast at the boundary on purpose: the third case below is a role this
+      // build does not know, which is exactly what a newer daemon sends.
+      role: role as AgentChatMessage['role'],
+    }
+  }
+
+  it('renders a harness injection as plainly not the user', async () => {
+    initialMessages = [roleMessage(1, 'harness', taskNotification)]
+    setup()
+
+    const row = await screen.findByTestId('agent-message-1')
+    expect(row).toHaveAttribute('data-role', 'harness')
+    // Not the user's bubble: the user's row is right-aligned and rounded into the
+    // bottom-right corner, and this one is neither.
+    expect(row.className).toContain('justify-start')
+    expect(row.innerHTML).not.toContain('rounded-br-md')
+    // Said in words, not only in styling.
+    expect(screen.getByTestId('message-harness-label')).toHaveTextContent(/not by you/i)
+    // And verbatim: the tags survive, which they would not through markdown.
+    expect(screen.getByText(/<task-notification>/)).toBeInTheDocument()
+  })
+
+  it('announces a notice in the warning family the rest of the chat already uses', async () => {
+    initialMessages = [
+      roleMessage(
+        1,
+        'notice',
+        "You've hit your usage limit. Your limits will reset at Aug 22nd, 2026 12:30 PM.",
+      ),
+    ]
+    setup()
+
+    expect(await screen.findByText(/hit your usage limit/i)).toBeInTheDocument()
+    const alert = screen.getByRole('alert')
+    // The same card the terminal-wait banner and the interruption strip wear.
+    expect(alert.className).toContain('border-warning/40')
+    expect(alert.className).toContain('bg-warning/10')
+    // Never the user's bubble.
+    expect(screen.getByTestId('agent-message-1').className).toContain('justify-start')
+  })
+
+  it('still renders a role this build has never heard of', async () => {
+    // A newer daemon minting a role must not make a turn the agent acted on
+    // disappear from the transcript.
+    initialMessages = [roleMessage(1, 'summary', 'a role from the future')]
+    setup()
+
+    expect(await screen.findByText('a role from the future')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-role', 'summary')
+  })
+})

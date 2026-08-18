@@ -110,10 +110,28 @@ func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.A
 			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Kind: c.Kind,
 			ToolName: c.ToolName, Title: c.Title, Question: c.Question,
 			Mode: c.Mode, Multi: c.Multi, Options: choiceOptionDTOs(c.Options),
+			Questions:  choiceQuestionDTOs(c.Questions),
 			Schema:     c.Schema,
 			Pending:    c.Pending(),
 			Answerable: answerable[c.ID],
 			At:         c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
+		})
+	}
+	return out
+}
+
+// choiceQuestionDTOs ships nil rather than an empty list for a prompt that is not
+// question-shaped, because the field's ABSENCE is what tells a client to fall
+// back to the prompt-level question — see AgentChoiceDTO.Questions.
+func choiceQuestionDTOs(in []domain.ActivityChoiceQuestion) []dto.AgentChoiceQuestionDTO {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dto.AgentChoiceQuestionDTO, 0, len(in))
+	for _, q := range in {
+		out = append(out, dto.AgentChoiceQuestionDTO{
+			ID: q.ID, Title: q.Title, Text: q.Text, Multi: q.Multi,
+			Options: choiceOptionDTOs(q.Options),
 		})
 	}
 	return out

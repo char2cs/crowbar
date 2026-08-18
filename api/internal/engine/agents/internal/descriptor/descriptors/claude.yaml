@@ -277,8 +277,27 @@ hooks:
       tool_target:            tool_input.file_path,tool_input.command,tool_input.url,tool_input.pattern
       tool_input:             tool_input
       suggestions:            permission_suggestions
-      suggestion_label:       type
+      # suggestion_type is the path to claude's OWN machine name for a broader
+      # grant. It is never shown: putting it on a control is how `addRules`
+      # appeared in the chat as though it were a choice a person could press.
+      suggestion_type:        type
       suggestion_description: mode,destination
+      # The human words for each type, declared here because they are provider
+      # vocabulary and Go must not learn any. This set is a CAPTURE, not an
+      # enumeration of what claude can send: these are the type values that have
+      # actually arrived in a payload (addDirectories and setMode on 2026-08-17,
+      # addRules on 2026-08-18 against 2.1.234). A value nobody has captured takes
+      # `default`, which says what every suggestion has in common and claims
+      # nothing about the particular one.
+      #
+      # None of them is sendable from Crowbar: claude declares no response
+      # template for a suggestion, because the updatedPermissions shape has never
+      # been measured. They are labelled so a reader can see what the CLI offered
+      # and take it to the terminal — not so they can be pressed.
+      suggestion_label.addRules:       "Add a permanent rule for this"
+      suggestion_label.addDirectories: "Allow this directory from now on"
+      suggestion_label.setMode:        "Switch to a more permissive mode"
+      suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
       question_text:          question
@@ -439,6 +458,48 @@ telemetry:
         label: "7-day"
         used_percent: rate_limits.seven_day.used_percentage
         resets_at: rate_limits.seven_day.resets_at
+# Prompts claude's OWN HARNESS submits, which arrive on the same hook the user's do.
+#
+# UserPromptSubmit carries two completely different things and its payload does not
+# say which. Measured live against claude 2.1.234 on 2026-08-18, by capturing raw
+# hook stdin from real interactive PTY sessions through a throwaway --settings file,
+# these three all arrive with an IDENTICAL key set —
+#
+#     session_id, transcript_path, cwd, prompt_id, permission_mode,
+#     hook_event_name, prompt
+#
+#   * Crowbar's own delivery (the prompt as a positional arg after `--`)
+#   * a human typing into claude's composer and pressing Enter
+#   * the harness's `<task-notification>` subagent-completion report
+#
+# claude's documented schema declares an optional
+# `source: user|sdk|system|loop_wakeup|schedule_wakeup|poll_event`, and it was ABSENT
+# on all three. So `source` discriminates nothing in this version: keying on
+# `source == user` would drop every real message the user sent, and its inverse would
+# attribute every real message to the harness.
+#
+# THIS IS THEREFORE A TEXT MATCH, AND A TEXT MATCH IS WEAKER THAN A DISCRIMINATOR.
+# It is here because there is no discriminator to read, and it should be deleted the
+# day claude starts sending one.
+#
+# The needle is compared as a case-sensitive PREFIX of the raw prompt, after leading
+# whitespace (see the promptorigin package) — NOT with the reduction terminal_prompts
+# uses, which would strip the angle brackets that are the whole point. Prefix rather
+# than substring so a person asking ABOUT a task notification is still recorded as
+# the person: a miss here degrades to "recorded as the user", which is exactly the
+# behaviour that preceded this block, and a false hit would silence a human.
+#
+# The measured payload opens:
+#
+#     <task-notification>
+#     <task-id>aa3b60603214670cc</task-id>
+#     <tool-use-id>toolu_01CZ…</tool-use-id>
+#     …
+#     <result>PONG</result>
+#     </task-notification>
+injected_prompts:
+  - kind: task_notification
+    needle: "<task-notification>"
 # Blocking modals no hook reports — the COMPLEMENT of `answer:` above.
 #
 # `answer:` covers the prompts that travel through hooks and can therefore be
@@ -474,3 +535,32 @@ terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
   - needle: "Enter to confirm"
+# NO terminal_notices, AND NO IDLE NEEDLE. Both absences are measured results, not
+# gaps waiting to be filled.
+#
+# 1. claude declares no notice because its Stop hook is reliable and no message of
+#    that shape has been captured from it. The mechanism only ever acts on a
+#    declared string, so this file's silence means a claude chat behaves
+#    byte-for-byte as it did before terminal_notices existed. That is the same
+#    degradation story terminal_prompts above is built on.
+#
+# 2. DO NOT ADD `shift+tab to cycle`, OR ANY OTHER FOOTER LINE, AS AN "IDLE"
+#    NEEDLE. It is not one. Measured 2026-08-18 against claude 2.1.234 in a real
+#    PTY, rendered with the same emulator the daemon uses: snapshots taken
+#    MID-GENERATION, with assistant prose visibly streaming, carried
+#
+#        ❯
+#        ────────────────────────────────────────────────
+#          ⚠ Transcript saving is off — …
+#          Est. usage: $0.00
+#          ⏵⏵ auto mode on (shift+tab to cycle)
+#
+#    — identical to the idle screen, composer row empty in both. That line proves
+#    the TUI has MOUNTED, nothing more, which is exactly what
+#    tests/integration/agent/barriers_test.go uses it for (claudeReadyNeedle). It
+#    is mode- and model-dependent besides: under `--model haiku` the same footer
+#    reads `⏸ manual mode on` and `auto mode unavailable for this model`.
+#
+#    Declaring it as evidence that claude is idle would darken a WORKING agent's
+#    spinner and close a live turn out from under it — the one outcome worse than
+#    the wedge the notice mechanism exists to end.

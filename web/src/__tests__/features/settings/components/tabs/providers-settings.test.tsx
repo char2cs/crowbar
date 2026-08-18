@@ -157,26 +157,27 @@ describe('ProvidersSettings', () => {
     expect(screen.getByTestId('provider-toggle-claude')).toHaveAttribute('aria-checked', 'false')
   })
 
-  it('titles the group and explains what providers are', () => {
+  it('titles the group Agents and explains what an agent is', () => {
     seedProviders([provider('codex', 'Codex', true, true)])
     render(<ProvidersSettings />)
 
     // A Section's own header is hidden when it is the first one in a tab
     // (settings-section.tsx), so this tab renders its heading + intro in the
     // BODY. Without them the group is a bare list of names that never says what
-    // a provider actually is.
-    expect(screen.getByRole('heading', { name: 'Providers' })).toBeInTheDocument()
-    expect(screen.getByText(/agentic CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
+    // an agent actually is. The name is Agents (spec §11) — user-facing only;
+    // the tab id, the store and the wire all still say provider.
+    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
 
   it('shows an empty state when the daemon genuinely reports no providers', () => {
     seedProviders([])
     render(<ProvidersSettings />)
-    expect(screen.getByText('No providers available.')).toBeInTheDocument()
+    expect(screen.getByText('No agents available.')).toBeInTheDocument()
     expect(screen.queryByTestId('provider-toggle-codex')).toBeNull()
     // The heading and intro explain the group even when nothing is installed.
-    expect(screen.getByRole('heading', { name: 'Providers' })).toBeInTheDocument()
-    expect(screen.getByText(/agentic CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
 
   // ── The column header ───────────────────────────────────────────────
@@ -274,7 +275,7 @@ describe('ProvidersSettings', () => {
       seedProviders([])
       render(<ProvidersSettings />)
 
-      expect(screen.getByText('No providers available.')).toBeInTheDocument()
+      expect(screen.getByText('No agents available.')).toBeInTheDocument()
       expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
 
@@ -319,7 +320,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       expect(screen.getByText('Codex')).toBeInTheDocument()
-      expect(screen.queryByText('No providers available.')).toBeNull()
+      expect(screen.queryByText('No agents available.')).toBeNull()
     })
 
     it('says it could not load them rather than claiming there are none', () => {
@@ -327,7 +328,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument()
-      expect(screen.queryByText('No providers available.')).toBeNull()
+      expect(screen.queryByText('No agents available.')).toBeNull()
     })
   })
 
@@ -359,7 +360,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
-      expect(screen.queryByText('No providers available.')).toBeNull()
+      expect(screen.queryByText('No agents available.')).toBeNull()
     })
 
     it('shows the unavailable state — not the empty one — when the fetch fails', async () => {
@@ -372,7 +373,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
-      expect(screen.queryByText('No providers available.')).toBeNull()
+      expect(screen.queryByText('No agents available.')).toBeNull()
     })
   })
 

@@ -62,37 +62,26 @@ func (c AnswerChoice) Validate(current *domain.AgentActivity) error {
 	return validateOptions(choice, c.OptionIDs)
 }
 
-// validateOptions checks every picked id against what the prompt actually offers.
+// validateOptions checks every picked id against what the prompt actually asked.
 //
-// A prompt with NO options is not unanswerable — an MCP elicitation offers a
-// schema and expects a form back, and what it is told is accept, decline or
-// cancel rather than a pick from a list. There is nothing to check against there,
-// so the ids pass through and the descriptor's response templates are what decide
-// whether the verb means anything to the provider.
+// The rule itself is domain.ActivityChoice.ResolvePicks and is NOT restated here.
+// It used to be: this command enforced "one pick unless Multi, and every id must
+// be offered", while the usecase that renders the answer enforced "every pick of
+// one kind" — two validators, two strictnesses, and neither of them noticed a
+// PARTIAL answer to a multi-question prompt. One rule in one place is what stops
+// the two from disagreeing again; all this does is restate its failure in the
+// aggregate's own error vocabulary.
+//
+// A prompt with nothing to pick from is not unanswerable — an MCP elicitation
+// offers a schema and expects a form back, and what it is told is accept, decline
+// or cancel rather than a pick from a list. ResolvePicks says so by returning
+// nothing, and the descriptor's response templates are what decide whether the
+// verb means anything to the provider.
 func validateOptions(choice domain.ActivityChoice, picked []string) error {
-	if len(choice.Options) == 0 {
-		return nil
-	}
-	if len(picked) > 1 && !choice.Multi {
-		return fmt.Errorf("answer choice: prompt accepts one answer, got %d: %w",
-			len(picked), asynxModels.ErrValidation)
-	}
-	for _, id := range picked {
-		if !offers(choice, id) {
-			return fmt.Errorf("answer choice: %q is not an option on this prompt: %w",
-				id, asynxModels.ErrValidation)
-		}
+	if _, err := choice.ResolvePicks(picked); err != nil {
+		return fmt.Errorf("answer choice: %w: %w", err, asynxModels.ErrValidation)
 	}
 	return nil
-}
-
-func offers(choice domain.ActivityChoice, optionID string) bool {
-	for _, option := range choice.Options {
-		if option.ID == optionID {
-			return true
-		}
-	}
-	return false
 }
 
 func (c AnswerChoice) EmitEvent(current *domain.AgentActivity) domain.AgentActivity {

@@ -87,8 +87,12 @@ type ChoiceInput struct {
 	Mode     string
 	Multi    bool
 	Options  []domain.ActivityChoiceOption
-	Schema   string
-	Now      time.Time
+	// Questions is what a question-kind prompt is asking, one entry per question.
+	// A prompt that asks three things is one record with three of them, because the
+	// provider gates it as one call and expects one answer covering all of them.
+	Questions []domain.ActivityChoiceQuestion
+	Schema    string
+	Now       time.Time
 }
 
 // maxToolErrorBytes bounds the inline copy of a tool failure. It is a caption for
@@ -317,7 +321,7 @@ func (r *eventSourced) OpenChoice(ctx context.Context, in ChoiceInput) error {
 		ChatID: in.ChatID, ChoiceID: in.ChoiceID, Kind: in.Kind,
 		PromptID: in.PromptID, ToolName: in.ToolName,
 		Title: in.Title, Question: in.Question, Mode: in.Mode, Multi: in.Multi,
-		Options: in.Options, Schema: in.Schema, Now: in.Now,
+		Options: in.Options, Questions: in.Questions, Schema: in.Schema, Now: in.Now,
 	})
 }
 

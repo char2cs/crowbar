@@ -55,9 +55,37 @@ func TestObservation_APermissionIsRecordedAsAPendingChoice(t *testing.T) {
 	require.Len(t, got[0].Options, 4, "allow, deny, and both of claude's suggestions")
 	assert.Equal(t, domain.ChoiceOptionAllow, got[0].Options[0].Kind)
 	assert.Equal(t, domain.ChoiceOptionDeny, got[0].Options[1].Kind)
-	assert.Equal(t, "addDirectories", got[0].Options[2].Label)
-	assert.Equal(t, "setMode", got[0].Options[3].Label)
+	assert.Equal(t, "Allow this directory from now on", got[0].Options[2].Label)
+	assert.Equal(t, "Switch to a more permissive mode", got[0].Options[3].Label)
 	assert.NotEmpty(t, got[0].ID, "a future answer has to be able to name this record")
+}
+
+// DEFECT 5, end to end through the shipped descriptor. `addRules` is claude's own
+// machine name for a broader grant, and reading it onto an option put that string
+// in the chat as something a person could press — spelled in a vocabulary only the
+// CLI's source uses, on the one path the backend refuses with a 400.
+func TestRegression_NoPromptEverCarriesARawProviderTypeNameAsALabel(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+	payload := permissionPayload()
+	payload["permission_suggestions"] = []any{
+		map[string]any{"type": "addRules", "destination": "session"},
+		map[string]any{"type": "aTypeNobodyHasCaptured", "destination": "session"},
+	}
+	hook(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+
+	got := pendingChoices(t, f, chatID)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Options, 4)
+	for _, option := range got[0].Options {
+		assert.NotEqual(t, "addRules", option.Label)
+		assert.NotEqual(t, "aTypeNobodyHasCaptured", option.Label)
+		assert.NotContains(t, option.Label, "addRules")
+	}
+	assert.Equal(t, "Add a permanent rule for this", got[0].Options[2].Label)
+	assert.Equal(t, "A broader permission than this one", got[0].Options[3].Label)
 }
 
 // The permission carries no tool_use_id, so the in-flight PreToolUse of the same
@@ -182,11 +210,36 @@ func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.
 	assert.Equal(t, domain.ChoiceKindQuestion, got[0].Kind)
 	assert.Equal(t, "Pick", got[0].Title)
 	assert.Equal(t, "Do you prefer option A or option B?", got[0].Question)
-	assert.False(t, got[0].Multi)
-	require.Len(t, got[0].Options, 2)
-	assert.Equal(t, domain.ChoiceOptionAnswer, got[0].Options[0].Kind)
-	assert.Equal(t, "A", got[0].Options[0].Label)
-	assert.Equal(t, "B", got[0].Options[1].Label)
+
+	// One question is a LIST OF ONE. There is no second shape for the one-question
+	// case, so nothing downstream branches on how many were asked.
+	require.Len(t, got[0].Questions, 1)
+	question := got[0].Questions[0]
+	assert.Equal(t, "Pick", question.Title)
+	assert.Equal(t, "Do you prefer option A or option B?", question.Text)
+	assert.False(t, question.Multi)
+	require.Len(t, question.Options, 2)
+	assert.Equal(t, domain.ChoiceOptionAnswer, question.Options[0].Kind)
+	assert.Equal(t, "A", question.Options[0].Label)
+	assert.Equal(t, "B", question.Options[1].Label)
+}
+
+// The record has to survive the round trip through the event log and the
+// projection, or a prompt would be answerable only in the instant it arrived.
+func TestObservation_AMultiQuestionAskIsRecordedWithEveryQuestion(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+	hook(t, f, runnerID, "claude", engineagents.HookPermission, threeQuestionPermission())
+
+	got := pendingChoices(t, f, chatID)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Questions, 3, "three questions asked is three questions stored")
+	assert.Equal(t, "Which language?", got[0].Questions[0].Text)
+	assert.True(t, got[0].Questions[1].Multi, "multiSelect is per question")
+	assert.Equal(t, "Deploy where?", got[0].Questions[2].Text)
+	assert.Empty(t, got[0].Options, "a question's options live on the question")
 }
 
 // Elicitation is a hook event of its own — an MCP server asking through the CLI.

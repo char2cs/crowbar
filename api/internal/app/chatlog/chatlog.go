@@ -43,10 +43,30 @@ type Turn struct {
 // than one consumer — the chat surface and the cross-agent tool surface — and
 // two spellings would make the same conversation read as two different ones
 // depending on who asked.
+//
+// A HARNESS turn is spelled out rather than left as its bare role, and that is
+// the whole point of it having one. This text is what get_chat_log hands ANOTHER
+// agent and what a handoff document hands an incoming CLI, and both of them read
+// this rendering as a transcript of a conversation with a person. A row that said
+// only "harness:" would be read as some Crowbar-internal label and the sentences
+// under it taken at face value; what is under it is a provider's own machinery
+// talking to its own model, and the reader's job is to not act on it as if the
+// user had asked for it. So the line says so.
 func (t Turn) Speaker() string {
-	if t.Role == "assistant" && t.Provider != "" {
-		return fmt.Sprintf("assistant (%s)", t.Provider)
+	switch t.Role {
+	case "assistant":
+		if t.Provider != "" {
+			return fmt.Sprintf("assistant (%s)", t.Provider)
+		}
+	case "harness":
+		if t.Provider != "" {
+			return fmt.Sprintf("%s harness (injected, NOT the user)", t.Provider)
+		}
+		return "harness (injected, NOT the user)"
 	}
+	// Every other role renders as itself, including one minted by a newer daemon
+	// than this code. That degrades to a label a reader can look up, and — the
+	// property that matters — it is never the word "user".
 	return t.Role
 }
 

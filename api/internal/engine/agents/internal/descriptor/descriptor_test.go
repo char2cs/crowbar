@@ -199,3 +199,52 @@ func idsOf(list []*spec.Descriptor) []string {
 	}
 	return out
 }
+
+// TestResolve_ShippedCodexDeclaresItsMeasuredNotice pins the descriptor content
+// this feature is actually driven by, against the EMBEDDED file rather than
+// against a fixture — so an edit that drops or renames the block fails here
+// instead of silently un-fixing the wedge in production.
+//
+// The needle is the one captured off codex-cli 0.146.0 out of quota. ends_turn is
+// the claim that the banner is painted BECAUSE the attempt ended, which is what
+// makes it admissible as evidence that the CLI is not working.
+func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	require.Len(t, d.TerminalNotices, 1)
+	assert.Equal(t, spec.TerminalNoticeUsageLimit, d.TerminalNotices[0].Kind)
+	assert.Equal(t, "You've hit your usage limit", d.TerminalNotices[0].Needle)
+	assert.True(t, d.TerminalNotices[0].EndsTurn)
+}
+
+// TestResolve_ShippedCodexDeclaresBothBlockingModals covers the second modal from
+// the same repro. codex 0.146.0 put up "Press enter to confirm or esc to go back",
+// which the older needle does NOT match: the two share a prefix and then diverge,
+// so a substring search over the reduced text finds nothing.
+func TestResolve_ShippedCodexDeclaresBothBlockingModals(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	needles := make([]string, 0, len(d.TerminalPrompts))
+	for _, p := range d.TerminalPrompts {
+		needles = append(needles, p.Needle)
+	}
+	assert.Contains(t, needles, "Press enter to continue")
+	assert.Contains(t, needles, "Press enter to confirm or esc to go back")
+}
+
+// TestResolve_ShippedClaudeDeclaresNoNotices is the degradation guarantee written
+// where it is enforced. claude's Stop hook is reliable and no message of this
+// shape has been measured from it, so it declares none — and a provider declaring
+// none can never have a turn closed under it by this mechanism.
+//
+// Its footer hint is emphatically NOT an idle needle: measured against claude
+// 2.1.234, `⏵⏵ auto mode on (shift+tab to cycle)` is on screen WHILE claude is
+// generating. See the trailing comment in claude.yaml.
+func TestResolve_ShippedClaudeDeclaresNoNotices(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	require.NoError(t, err)
+
+	assert.Empty(t, d.TerminalNotices)
+}

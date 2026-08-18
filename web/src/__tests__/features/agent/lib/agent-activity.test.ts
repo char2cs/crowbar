@@ -9,6 +9,7 @@ import type {
 import {
   blockedOn,
   choiceDetail,
+  choiceQuestions,
   choiceToolTarget,
   describeChoice,
   describeInterruption,
@@ -239,11 +240,82 @@ describe('describeChoice', () => {
     expect(describeChoice(asked)).toBe('Which option do you prefer?')
   })
 
+  // With three questions no single one is what the prompt is asking, and naming
+  // one of them would be a lie a reader could act on — so the count is said.
+  it('counts the questions when there is no single one to quote', () => {
+    const asked = choice({
+      kind: 'question',
+      question: '',
+      title: '',
+      options: [],
+      questions: [
+        { id: 'q0', text: 'a', options: [] },
+        { id: 'q1', text: 'b', options: [] },
+        { id: 'q2', text: 'c', options: [] },
+      ],
+    })
+
+    expect(describeChoice(asked)).toBe('The agent has 3 questions')
+    expect(describeChoice({ ...asked, questions: [{ id: 'q0', text: '', options: [] }] })).toBe(
+      'The agent has a question',
+    )
+  })
+
   // A kind this build has never heard of falls through to whatever the provider
   // did say, never to a guess about what it meant.
   it('degrades to the provider’s own text for an unknown kind', () => {
     expect(describeChoice(choice({ kind: 'something_new', question: 'Well?' }))).toBe('Well?')
     expect(describeChoice(choice({ kind: 'something_new', question: '', title: 'T' }))).toBe('T')
+  })
+})
+
+describe('choiceQuestions', () => {
+  // A prompt recorded since questions were modelled carries them directly.
+  it('reports every question of a multi-question prompt', () => {
+    const asked = choice({
+      kind: 'question',
+      options: [],
+      questions: [
+        { id: 'q0', text: 'Which language?', options: [{ id: 'q0-answer-0', kind: 'answer' }] },
+        { id: 'q1', text: 'Which database?', options: [{ id: 'q1-answer-0', kind: 'answer' }] },
+      ],
+    })
+
+    expect(choiceQuestions(asked).map((q) => q.text)).toEqual([
+      'Which language?',
+      'Which database?',
+    ])
+  })
+
+  // The graceful fallback, and NOT a migration: a row written before questions
+  // existed is a single question described by the prompt's own text and options.
+  it('presents a prompt recorded before questions existed as a question of one', () => {
+    const legacy = choice({
+      kind: 'question',
+      question: 'Which do you want?',
+      multi: true,
+      options: [
+        { id: 'answer-0', kind: 'answer', label: 'A' },
+        { id: 'answer-1', kind: 'answer', label: 'B' },
+      ],
+    })
+
+    expect(choiceQuestions(legacy)).toEqual([
+      {
+        id: 'q0',
+        title: undefined,
+        text: 'Which do you want?',
+        multi: true,
+        options: legacy.options,
+      },
+    ])
+  })
+
+  // A permission's allow/deny and an elicitation's verbs are not a pick from a
+  // list the agent offered, so neither is a question in this sense.
+  it('reports nothing for a permission or an elicitation', () => {
+    expect(choiceQuestions(choice())).toEqual([])
+    expect(choiceQuestions(choice({ kind: 'elicitation', options: [] }))).toEqual([])
   })
 })
 

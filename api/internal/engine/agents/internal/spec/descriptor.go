@@ -85,6 +85,27 @@ type Descriptor struct {
 	// captured a screen from: it never matches, so nothing about that provider's
 	// chats changes.
 	TerminalPrompts []TerminalPromptSpec `yaml:"terminal_prompts"`
+
+	// TerminalNotices is the third case, after Answer and TerminalPrompts: not a
+	// prompt at all, but a message this CLI paints when an attempt ENDED for a
+	// reason it reports only on its screen. A notice declaring ends_turn is the
+	// corroborating evidence that lets Crowbar close a turn a provider abandoned
+	// without ever firing its terminating hook.
+	//
+	// Empty is the safe default and is what claude declares: its Stop hook is
+	// reliable, no notice of this shape has been captured from it, and a provider
+	// declaring none behaves byte-for-byte as it did before this existed.
+	TerminalNotices []TerminalNoticeSpec `yaml:"terminal_notices"`
+
+	// InjectedPrompts are the prompts this CLI's own HARNESS submits through the
+	// user-prompt channel, which is otherwise indistinguishable from the human's.
+	// Declaring them is what stops a background-subagent notification being filed
+	// as something the user said.
+	//
+	// Empty is the safe default and means every user_prompt is the user's — the
+	// behaviour every provider had before this field existed. See
+	// InjectedPromptSpec for what is being matched and why nothing better exists.
+	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
 }
 
 type SpawnSpec struct {

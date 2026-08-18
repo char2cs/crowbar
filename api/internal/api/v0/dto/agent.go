@@ -269,9 +269,24 @@ type AgentChoiceDTO struct {
 	Question string `json:"question,omitempty"`
 	// Mode is the provider's own word for how it expects to be answered, carried
 	// verbatim and never interpreted.
-	Mode    string                 `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Multi describes the prompt-level Options. A question carries its own, because
+	// one payload can mix a single-select question with a multi-select one.
 	Multi   bool                   `json:"multi,omitempty"`
 	Options []AgentChoiceOptionDTO `json:"options"`
+	// Questions is the whole of what a question-kind prompt is asking, one entry
+	// per question, and it is what a client must render and answer from.
+	//
+	// ABSENT is meaningful and is not the same as empty: it says this record
+	// predates questions being modelled, and such a prompt is still a single
+	// question described by Question and Options. A client falls back to those
+	// rather than drawing a card with nothing in it.
+	//
+	// An answer covering only SOME of these is refused with 400. That is not
+	// strictness for its own sake: a partial answer hands the CLI an input covering
+	// part of what it asked, and it goes on waiting for the rest with nothing able
+	// to send it.
+	Questions []AgentChoiceQuestionDTO `json:"questions,omitempty"`
 	// Schema is the requested-input schema for a prompt whose answer is a FORM
 	// rather than a pick from Options. It is the provider's own JSON, verbatim.
 	Schema string `json:"schema,omitempty"`
@@ -330,9 +345,30 @@ type AgentHookAnswerDTO struct {
 	Stdout string `json:"stdout"`
 }
 
+// AgentChoiceQuestionDTO is ONE question inside a prompt, with the options that
+// answer it.
+//
+// Multi is per question and not per prompt because the provider says so: claude
+// carries multiSelect on each entry of its questions array, so one prompt can ask
+// "pick one" and "pick any" at the same time.
+type AgentChoiceQuestionDTO struct {
+	// ID is stable within its prompt. A client groups its picks by it; the answer
+	// endpoint takes them back as ONE FLAT list of option ids.
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	// Text is the question as asked, and also the key the provider files the answer
+	// under on the way back.
+	Text    string                 `json:"text,omitempty"`
+	Multi   bool                   `json:"multi,omitempty"`
+	Options []AgentChoiceOptionDTO `json:"options"`
+}
+
 // AgentChoiceOptionDTO is one answer a prompt will accept. A client renders by
 // Kind rather than by Label: allow and deny are Crowbar's own words, because no
 // provider enumerates the two answers a permission has by construction.
+//
+// ID is unique across the WHOLE prompt, not merely within the question that
+// offered it, because an answer names its picks in one flat list.
 type AgentChoiceOptionDTO struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`

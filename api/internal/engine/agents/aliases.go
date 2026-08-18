@@ -20,6 +20,7 @@ type (
 	SubagentEvent  = models.SubagentEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
+	PromptQuestion = models.PromptQuestion
 	ChoiceOption   = models.ChoiceOption
 
 	// TerminalPrompt is a CLI caught blocking on a modal that reaches Crowbar

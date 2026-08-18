@@ -694,3 +694,61 @@ func TestApply_RejectsAnEmptyNeedle(t *testing.T) {
 func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
 	assert.NoError(t, rules.Apply(valid()))
 }
+
+// --- terminal_notices ---
+
+func TestApply_AcceptsADeclaredTerminalNotice(t *testing.T) {
+	d := valid()
+	d.TerminalNotices = []spec.TerminalNoticeSpec{
+		{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// TestApply_RejectsAKindlessTerminalNotice is the one place this rule is STRICTER
+// than the prompt rule, and the strictness is the safety.
+//
+// An unkinded prompt needle only ever raises a banner saying "something is up". A
+// notice CLOSES A TURN — an assertion that a live process has stopped working —
+// and that assertion must not be reachable by writing a string into a YAML file.
+// Requiring a kind from the closed set obliges whoever adds one to add it in Go
+// too, where a reviewer has to look at what is being claimed.
+func TestApply_RejectsAKindlessTerminalNotice(t *testing.T) {
+	d := valid()
+	d.TerminalNotices = []spec.TerminalNoticeSpec{{Needle: "something went wrong", EndsTurn: true}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "kind is required")
+}
+
+func TestApply_RejectsAnUnknownTerminalNoticeKind(t *testing.T) {
+	d := valid()
+	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: "usage_limits", Needle: "x"}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "unknown kind")
+}
+
+// TestApply_RejectsAContentFreeNoticeNeedle: such a needle reduces to the empty
+// string under the matcher's comparison, which every screen contains — so it
+// would close every working chat's turn the moment its quiet period elapsed.
+func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
+	d := valid()
+	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: spec.TerminalNoticeUsageLimit, Needle: "· ⏎ ›"}}
+
+	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
+}
+
+// TestApply_DeclaringNoTerminalNoticesIsValid pins the default, and it is the one
+// claude ships with: declaring none must never be a validation failure.
+func TestApply_DeclaringNoTerminalNoticesIsValid(t *testing.T) {
+	d := valid()
+	d.TerminalNotices = nil
+
+	assert.NoError(t, rules.Apply(d))
+}

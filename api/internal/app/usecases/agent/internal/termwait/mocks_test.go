@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -91,6 +93,16 @@ func (f *fakeScreens) set(sessionID, text string) {
 	f.gen[sessionID]++
 }
 
+// repaint models the case the generation counter cannot distinguish from a real
+// change: the CLI consumed a chunk and redrew BYTE-IDENTICAL cells. The
+// generation advances, so the detector must render — and the rendered text is
+// the same string it already had.
+func (f *fakeScreens) repaint(sessionID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gen[sessionID]++
+}
+
 func (f *fakeScreens) Screen(sessionID string, since uint64) (string, uint64, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -155,4 +167,94 @@ func (r *recorder) all() []published {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]published(nil), r.sent...)
+}
+
+// fakeNotices is the second provider seam: the messages a CLI paints INSTEAD of
+// finishing a turn. Keyed by provider, so "a provider that declares nothing" is
+// an absent key — the degradation case this feature's safety rests on.
+//
+// It matches on a plain substring rather than reproducing the engine's
+// whitespace-insensitive reduction, because what is under test here is the
+// DETECTOR's gate ordering and clock. The reduction, the wrap-tolerant match and
+// the sentence capture are tested against the real descriptors in the termprompt
+// package and in the usecase's own seam test.
+type fakeNotices struct {
+	needles map[string][]engineagents.TerminalNotice
+	asked   int
+}
+
+func (f *fakeNotices) MatchTerminalNotice(
+	_ context.Context,
+	providerID string,
+	screen string,
+) (engineagents.TerminalNotice, bool) {
+	f.asked++
+	for _, n := range f.needles[providerID] {
+		if n.Needle != "" && strings.Contains(screen, n.Needle) {
+			return n, true
+		}
+	}
+	return engineagents.TerminalNotice{}, false
+}
+
+// fakeWork is the hook-evidence gate: what the conversation record still shows
+// running. It counts reads because half of what the gate ordering promises is
+// that this one is not reached on an ordinary tick.
+type fakeWork struct {
+	open  bool
+	err   error
+	asked int
+}
+
+func (f *fakeWork) OpenWork(context.Context, string) (bool, error) {
+	f.asked++
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.open, nil
+}
+
+// stalls collects the turns the detector asked to have closed.
+type stalls struct {
+	mu   sync.Mutex
+	seen []termwait.Stall
+}
+
+func (s *stalls) onStall(_ context.Context, stall termwait.Stall) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, stall)
+}
+
+func (s *stalls) all() []termwait.Stall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]termwait.Stall(nil), s.seen...)
+}
+
+// clock is the injectable time the quiet period is measured on.
+//
+// Every timing assertion in this package is made by ADVANCING THIS and calling
+// Sweep again. Nothing sleeps and nothing waits on a real duration, so a test
+// that proves a 120-second rule runs in microseconds and cannot be flaky — which
+// is the only way a rule that long can be tested at all.
+type clock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newClock() *clock {
+	return &clock{now: time.Date(2026, 8, 18, 16, 26, 34, 0, time.UTC)}
+}
+
+func (c *clock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *clock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
 }

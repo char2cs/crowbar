@@ -156,18 +156,58 @@ type ChoicePrompt struct {
 	// Mode is the provider's own word for how it expects to be answered (claude's
 	// elicitation `mode`), carried verbatim and never interpreted here.
 	Mode string
-	// Multi reports that more than one option may be chosen.
-	Multi   bool
+	// Multi reports that more than one option may be chosen. It describes the
+	// PROMPT-level Options below; a question carries its own, because one payload
+	// can mix a single-select question with a multi-select one.
+	Multi bool
+	// Options are the answers the PROMPT itself offers — a permission's allow, deny
+	// and suggestions, and nothing else. A question-kind prompt leaves this empty
+	// and puts every option inside Questions, so there is exactly one place an
+	// answerable question's options can be.
 	Options []ChoiceOption
+	// Questions is the whole of what a question-kind prompt is asking.
+	//
+	// It is a LIST because claude's AskUserQuestion input is one, and a payload
+	// carrying three questions is one prompt with three of them rather than three
+	// prompts. Modelling only the first is what stranded an agent: the answer it
+	// produced covered one question, the CLI was handed a partial `updatedInput`,
+	// and it went on asking for answers 2 and 3 that no surface could ever send.
+	//
+	// A one-question payload yields a list of length ONE, so nothing anywhere
+	// branches on how many there are.
+	Questions []PromptQuestion
 	// Schema is the provider's requested-input schema, verbatim, for a prompt whose
 	// answer is a FORM rather than a choice between options.
 	Schema []byte
 }
 
+// PromptQuestion is ONE question inside a prompt, with the options that answer it.
+//
+// It is not called ChoiceQuestion because that name is already taken by the KIND
+// of prompt this appears on — models.ChoiceQuestion is the string "question".
+//
+// Multi is per question and not per prompt, because the provider says so: claude
+// carries multiSelect on each entry of the questions array, so one prompt can ask
+// "pick one" and "pick any" in the same breath. A prompt-level flag would have to
+// pick one of the two answers and be wrong about the other.
+type PromptQuestion struct {
+	// ID is stable within its prompt. It is what groups a flat list of picked
+	// option ids back into per-question answers.
+	ID    string
+	Title string
+	// Text is the question as asked. It is also the KEY the answer is filed under
+	// on the way back to claude, which is why it is carried rather than derived.
+	Text    string
+	Multi   bool
+	Options []ChoiceOption
+}
+
 // ChoiceOption is one answer a prompt will accept.
 type ChoiceOption struct {
-	// ID is stable within its prompt, so an answer can name an option without
-	// sending its label back.
+	// ID is stable within its PROMPT — not merely within its question — because an
+	// answer names its picks in one flat list and nothing in that list says which
+	// question a pick belongs to. Two questions offering an option each called
+	// "answer-0" would make that list ambiguous.
 	ID          string
 	Kind        string
 	Label       string

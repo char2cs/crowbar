@@ -658,8 +658,8 @@ function NoProvidersNotice() {
       data-testid="no-providers-notice"
       className="ui-text-xs mx-3 my-2 text-balance text-muted-foreground"
     >
-      No providers are enabled, so there is nothing to start a chat with. Turn one on in Settings →
-      Providers.
+      No agents are enabled, so there is nothing to start a chat with. Turn one on in Settings →
+      Agents.
     </p>
   )
 }

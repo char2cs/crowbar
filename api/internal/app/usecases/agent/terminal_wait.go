@@ -89,5 +89,12 @@ func newTerminalWaitDetector(u *Usecase) termwait.Detector {
 		Choices: u.activity,
 		Screens: screens,
 		Prompts: u,
+		// The stall half. Notices and Work are reads the usecase owns; OnStall is
+		// the write, and it is wired here rather than passed in from the container
+		// because — unlike the wait feed, which fans out through the hub — closing
+		// a turn is this usecase's own business and nothing above it participates.
+		Notices: u,
+		Work:    u,
+		OnStall: u.closeStalledTurn,
 	})
 }

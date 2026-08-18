@@ -2,6 +2,7 @@ package termwait_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -21,6 +22,22 @@ const (
 	// descriptor's kinded needle matches.
 	trustScreen = "❯ 1. Yes, I trust this folder\n  Enter to confirm · Esc to cancel"
 	idleScreen  = "> Ready.\n  shift+tab to cycle"
+
+	// usageLimitScreen is the REAL codex-cli 0.146.0 screen from the capture that
+	// found this defect — the banner as it wrapped across three rows at 100
+	// columns, not a banner somebody wrote to make a test pass. A synthetic
+	// fixture here would be the same mistake this repo has made before: it would
+	// have hidden the wrapping, which is precisely the part the capture rule has
+	// to get right.
+	usageLimitScreen = "■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit\n" +
+		"https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026\n" +
+		"12:30 PM."
+	usageLimitNeedle = "You've hit your usage limit"
+	// usageLimitSentence is that same banner with the TERMINAL'S row breaks taken
+	// back out — what the provider wrote, and what the chat shows.
+	usageLimitSentence = "■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit " +
+		"https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026 " +
+		"12:30 PM."
 )
 
 // rig is one detector plus every mock behind it, assembled in the state a HEALTHY
@@ -34,7 +51,11 @@ type rig struct {
 	choices  *fakeChoices
 	screens  *fakeScreens
 	prompts  *fakePrompts
+	notices  *fakeNotices
+	work     *fakeWork
+	clock    *clock
 	rec      *recorder
+	stalls   *stalls
 }
 
 func newRig(t *testing.T) *rig {
@@ -62,17 +83,42 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 	prompts := &fakePrompts{needles: map[string][]engineagents.TerminalPrompt{
 		"claude": {{Kind: domain.AgentTerminalWaitTrust, Needle: "I trust this folder"}},
 	}}
+	notices := &fakeNotices{needles: map[string][]engineagents.TerminalNotice{
+		"codex": {{
+			Kind:     engineagents.TerminalNoticeUsageLimit,
+			Needle:   usageLimitNeedle,
+			Text:     usageLimitSentence,
+			EndsTurn: true,
+		}},
+	}}
 
-	r := &rig{runners: runners, chats: chats, choices: choices, screens: screens, prompts: prompts, rec: &recorder{}}
+	r := &rig{
+		runners: runners, chats: chats, choices: choices, screens: screens,
+		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
+		rec: &recorder{}, stalls: &stalls{},
+	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:  runners,
 		Chats:    chats,
 		Choices:  choices,
 		Screens:  screens,
 		Prompts:  prompts,
+		Notices:  notices,
+		Work:     r.work,
+		OnStall:  r.stalls.onStall,
 		Interval: interval,
+		Now:      r.clock.Now,
 	})
 	return r
+}
+
+// wedged puts the rig in the state defect 1 was measured in: a codex runner, a
+// chat that IS Working, and the usage-limit banner on screen. Nothing has been
+// quiet long enough yet — that is each test's own business.
+func (r *rig) wedged() {
+	r.runners.live[0].ProviderID = "codex"
+	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.screens.set(session, usageLimitScreen)
 }
 
 func (r *rig) sweep() {
@@ -110,8 +156,11 @@ func TestDetector_Sweep_UnrecognisedPromptCarriesNoKind(t *testing.T) {
 // stuck, and the spinner already says what it is doing — a "your agent is stuck"
 // banner over it would be a false alarm on the commonest state a chat is ever in.
 //
-// It also asserts the SHORT CIRCUIT: the choices read and the screen match are
-// never reached, so a working chat costs one map lookup.
+// The screen IS read for a working chat — that read is what the stall question is
+// built on, and one read answers both — but the verdict it feeds is forced to
+// zero here regardless of what the screen says. What still short-circuits is the
+// repository read: a working chat costs no database query until every in-memory
+// stall gate has already agreed, which on this one they have not.
 func TestDetector_Sweep_WorkingChatIsNeverWaiting(t *testing.T) {
 	r := newRig(t)
 	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
@@ -120,8 +169,8 @@ func TestDetector_Sweep_WorkingChatIsNeverWaiting(t *testing.T) {
 
 	assert.False(t, r.detector.Wait(chatID).Waiting)
 	assert.Empty(t, r.rec.all())
-	assert.Zero(t, r.choices.asked, "gate 2 must short-circuit before the choices read")
-	assert.Zero(t, r.prompts.asked, "gate 2 must short-circuit before the screen match")
+	assert.Zero(t, r.choices.asked, "a busy tick must not reach the choices read")
+	assert.Zero(t, r.work.asked, "a busy tick must not reach the open-work read")
 }
 
 // TestDetector_Sweep_PendingChoiceIsNeverWaiting is gate 3, and it is the gate
@@ -455,4 +504,387 @@ func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
 		t.Fatal("a detector with no declared interval must still sweep")
 	}
 	assert.Equal(t, termwait.DefaultInterval, 2*time.Second)
+}
+
+// --- The stall question. Defect 1: a failed turn wedges the spinner forever. ---
+//
+// Every test below moves an INJECTED CLOCK and calls Sweep. Nothing sleeps, and
+// nothing waits on a real duration — which is the only way a 120-second rule can
+// be tested at all, and the only way these can never be flaky.
+
+// TestRegression_StalledTurnIsClosedWhenTheScreenHasBeenQuiet is defect 1.
+//
+// Measured against codex-cli 0.146.0: the user sent a prompt, user_prompt fired,
+// the turn opened, codex hit its usage limit, painted its banner and STAYED
+// ALIVE. No Stop hook, so nothing closed the turn; no exit, so the runner-exit
+// reconcile never ran either. The chat spun for 44 minutes (turn_started
+// 16:26:34Z, turn_stopped 17:10:24Z) and only stopped because a human switched
+// provider.
+//
+// This is that chat: a live runner, Working true, no pending choice, nothing open
+// in the record, and the measured banner sitting still on the screen. Once the
+// quiet period has elapsed the turn is reported for closing.
+func TestRegression_StalledTurnIsClosedWhenTheScreenHasBeenQuiet(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+
+	r.sweep() // starts the quiet clock at the generation the banner arrived on
+	require.Empty(t, r.stalls.all(), "nothing may close on the tick that first sees the banner")
+
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+
+	got := r.stalls.all()
+	require.Len(t, got, 1)
+	assert.Equal(t, chatID, got[0].ChatID)
+	assert.Equal(t, wsID, got[0].WorkspaceID)
+	assert.Equal(t, "codex", got[0].ProviderID)
+	assert.Equal(t, "runner-1", got[0].RunnerID)
+	assert.Equal(t, session, got[0].SessionID)
+	assert.Equal(t, engineagents.TerminalNoticeUsageLimit, got[0].Notice.Kind)
+}
+
+// TestRegression_StalledTurnIsNotClosedBeforeTheQuietPeriod is the other half of
+// the same regression, and the reason the rule is a conjunction rather than a
+// needle match: a banner on screen is not on its own evidence that the CLI has
+// stopped. One second short of the period, nothing happens.
+func TestRegression_StalledTurnIsNotClosedBeforeTheQuietPeriod(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet - time.Second)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+	assert.Zero(t, r.work.asked, "the repository gates must not be reached before the clock elapses")
+}
+
+// TestDetector_Sweep_MovingScreenIsNeverClosed IS THE INVARIANT. THE SPINNER MUST
+// NEVER GO DARK WHILE THE AGENT IS GENUINELY WORKING.
+//
+// The screen advances on EVERY sweep — the shape a working CLI was measured to
+// have (claude 2.1.234 mid-generation: continuous model writes, never a
+// two-second window with none) — while the matching end-of-turn notice sits on it
+// the whole time, which is the worst case: the corroborating signal is present
+// and only the quiet clock is holding the line. It runs for FIFTY TIMES the quiet
+// period, and the turn is never closed.
+//
+// Any change at all resets the clock to zero. If this test ever fails, the
+// feature is closing turns under working agents and must be reverted, not tuned.
+func TestDetector_Sweep_MovingScreenIsNeverClosed(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	previous := usageLimitScreen
+
+	for i := 0; i < 50; i++ {
+		r.clock.advance(termwait.DefaultStallQuiet)
+		// A working CLI's screen changes TEXT, not merely its generation — the
+		// spinner row carries an elapsed-time counter — so each pass here writes a
+		// genuinely different string. That distinction is load-bearing now that
+		// the clock is measured on the rendered text: a fake that only bumped the
+		// generation would make this test pass vacuously.
+		frame := usageLimitScreen + "\n  working (" + strconv.Itoa(i) + "s)"
+		require.NotEqual(t, previous, frame, "the fixture must move the TEXT, not just the generation")
+		previous = frame
+		r.screens.set(session, frame)
+		r.sweep()
+
+		require.Empty(t, r.stalls.all(), "a moving screen must never close a turn")
+		require.True(t, r.chats.byID[chatID].Working, "and the chat must still be working")
+	}
+}
+
+// TestDetector_Sweep_ProviderDeclaringNoNoticesNeverCloses is the degradation
+// guarantee for the stall half, and it is what claude relies on: a provider that
+// declares no notice behaves byte-for-byte as it did before this existed, even
+// parked forever on a screen that would match another provider's needles.
+func TestDetector_Sweep_ProviderDeclaringNoNoticesNeverCloses(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.runners.live[0].ProviderID = "claude" // declares prompts, declares no notices
+
+	r.sweep()
+	r.clock.advance(100 * termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_SessionWithNoScreenNeverCloses: gen == 0 is the engine saying
+// it cannot answer for this session at all — dead, unknown, or a suspended
+// placeholder. No screen is NO EVIDENCE, and no evidence closes nothing, however
+// long it goes on for.
+//
+// The banner is read FIRST and the session goes dark afterwards, which is what
+// makes this test bite: a detector that answered from its cache when the engine
+// stopped answering would have every gate satisfied — a matching notice, a
+// generation that cannot move, and therefore a quiet period that runs forever —
+// and would close the turn on a session it can no longer see.
+//
+// (For the case this whole feature exists to fix the branch is unreachable: the
+// terminal engine's maintenance sweep skips agentic CLI sessions in both phases,
+// so a live agent runner is never suspended. It stays because it is still the
+// right answer for a session that is genuinely dead or unknown.)
+func TestDetector_Sweep_SessionWithNoScreenNeverCloses(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+	require.Equal(t, 1, r.notices.asked, "the banner must have been read and cached")
+
+	r.screens.absent[session] = true
+	r.clock.advance(100 * termwait.DefaultStallQuiet)
+	r.sweep()
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_IdleChatIsNeverClosed is the "something to close" gate. A
+// chat that is not Working has no open turn, so closing one would be closing
+// nothing — and it is the chat state the WAIT question is asked about instead.
+func TestDetector_Sweep_IdleChatIsNeverClosed(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID}
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_PendingChoiceIsNeverClosed: a chat blocked on a prompt is
+// waiting on the HUMAN, and its Working is honest. Closing its turn would take
+// the question away while it was still being asked.
+func TestDetector_Sweep_PendingChoiceIsNeverClosed(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_OpenToolCallIsNeverClosed is the gate that does not look at
+// the screen at all, and it is what covers the provider whose painting behaviour
+// while working has never been measured: codex was rate-limited for the whole
+// probe, so "a working codex keeps painting" is an assumption there, not a
+// measurement.
+//
+// A tool call open in the conversation record is the provider's own hook evidence
+// that it is working — tool_pre arrived, tool_post has not — and that outranks a
+// still screen. The chat closes only once the record says the work is done.
+func TestDetector_Sweep_OpenToolCallIsNeverClosed(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.work.open = true
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+	require.Empty(t, r.stalls.all(), "a chat mid-tool is working, whatever its screen shows")
+
+	// The tool completes. Nothing about the screen changed, so the quiet clock has
+	// kept running — and now the last gate agrees too.
+	r.work.open = false
+	r.sweep()
+
+	assert.Len(t, r.stalls.all(), 1)
+}
+
+// TestDetector_Sweep_OpenWorkReadFailureIsSilent: a gate that cannot be read is a
+// gate that has not agreed. Silence, never a close.
+func TestDetector_Sweep_OpenWorkReadFailureIsSilent(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.work.err = errBoom
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_StallIsReportedOnce is the latch. Working is read from an
+// asynchronously folded projection, so a chat whose turn was just closed can
+// still read Working for a tick or two — and without the latch each of those
+// ticks would close it again and append another notice to the conversation.
+func TestDetector_Sweep_StallIsReportedOnce(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+	r.sweep()
+
+	assert.Len(t, r.stalls.all(), 1)
+}
+
+// TestDetector_Sweep_NoticeWithoutEndsTurnNeverCloses: ends_turn is the entire
+// claim that a notice is evidence of anything. A message that does not declare it
+// says nothing about whether the CLI is working, so it can corroborate nothing.
+func TestDetector_Sweep_NoticeWithoutEndsTurnNeverCloses(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.notices.needles["codex"] = []engineagents.TerminalNotice{{
+		Kind:   engineagents.TerminalNoticeUsageLimit,
+		Needle: usageLimitNeedle,
+		Text:   usageLimitSentence,
+	}}
+
+	r.sweep()
+	r.clock.advance(100 * termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_BannerScrollingAwayWithdrawsTheEvidence: the notice is cached
+// against the generation it was read at, so a screen that moves replaces it —
+// including replacing it with nothing. A banner that has scrolled out of the
+// viewport cannot go on closing turns from memory.
+func TestDetector_Sweep_BannerScrollingAwayWithdrawsTheEvidence(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+
+	r.screens.set(session, idleScreen)
+	r.clock.advance(100 * termwait.DefaultStallQuiet)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all())
+}
+
+// TestDetector_Sweep_ReplacedRunnerRestartsTheQuietClock guards the same trap the
+// wait verdict guards: a new PTY on the same chat has its own generation counter,
+// so a clock carried across would credit the replacement with the dead process's
+// stillness and close its turn on its first tick.
+func TestDetector_Sweep_ReplacedRunnerRestartsTheQuietClock(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+	r.clock.advance(termwait.DefaultStallQuiet)
+
+	r.runners.live[0].TerminalSession = "pty-2"
+	r.screens.set("pty-2", usageLimitScreen)
+	r.sweep()
+
+	assert.Empty(t, r.stalls.all(), "a fresh PTY's clock starts at zero")
+
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+	assert.Len(t, r.stalls.all(), 1)
+}
+
+// TestDetector_Sweep_WithoutStallDependenciesNothingCloses is the wiring-level
+// degradation contract: a detector built with only the wait half — which is every
+// caller that predates this — answers the wait question exactly as it always did
+// and never closes anything.
+func TestDetector_Sweep_WithoutStallDependenciesNothingCloses(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	waitOnly := termwait.New(termwait.Deps{
+		Runners: r.runners,
+		Chats:   r.chats,
+		Choices: r.choices,
+		Screens: r.screens,
+		Prompts: r.prompts,
+		Now:     r.clock.Now,
+	})
+
+	waitOnly.Sweep(context.Background(), r.rec.publish)
+	r.clock.advance(100 * termwait.DefaultStallQuiet)
+	waitOnly.Sweep(context.Background(), r.rec.publish)
+
+	assert.Empty(t, r.stalls.all())
+	assert.Zero(t, r.notices.asked)
+}
+
+// --- The quiet clock measures TEXT, not the generation counter. ---
+
+// TestDetector_Sweep_IdenticalRepaintDoesNotResetTheQuietClock is the property
+// that stops this fix being silently useless.
+//
+// The generation bumps on ANY consumed PTY chunk, including one that repaints
+// byte-identical cells. A TUI that redraws its own chrome on a timer would
+// therefore look like movement on every tick — and if its repaint period were
+// shorter than the quiet window, the clock would reset forever and the turn would
+// never close, with the fix installed and every other test passing.
+//
+// The screen is repainted four times across the window and the turn still closes
+// on EXACTLY the deadline it would have had if nothing had arrived at all.
+func TestDetector_Sweep_IdenticalRepaintDoesNotResetTheQuietClock(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+	renders := r.screens.renderCount()
+
+	for i := 0; i < 4; i++ {
+		r.clock.advance(termwait.DefaultStallQuiet / 4)
+		r.screens.repaint(session)
+		r.sweep()
+	}
+
+	assert.Len(t, r.stalls.all(), 1, "an identical repaint is not movement")
+	assert.Greater(t, r.screens.renderCount(), renders,
+		"the repaints must really have been rendered — otherwise this proves nothing")
+	assert.Equal(t, 1, r.notices.asked,
+		"and identical text must not be re-matched: the previous answer still holds")
+}
+
+// TestDetector_Sweep_OneCharacterOfNewTextResetsTheQuietClock is the other half,
+// and it is the asymmetry that must never be optimised away. A working agent
+// changes TEXT, not merely bytes — claude's spinner carries its own elapsed-time
+// counter — so a single character of difference is a live CLI and the clock goes
+// back to zero.
+func TestDetector_Sweep_OneCharacterOfNewTextResetsTheQuietClock(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+
+	r.clock.advance(termwait.DefaultStallQuiet - time.Second)
+	r.screens.set(session, usageLimitScreen+".")
+	r.sweep()
+
+	r.clock.advance(time.Second)
+	r.sweep()
+	assert.Empty(t, r.stalls.all(), "one changed character restarts the whole window")
+
+	// And the clock really is running again rather than stopped: the full window
+	// from the change closes it.
+	r.clock.advance(termwait.DefaultStallQuiet)
+	r.sweep()
+	assert.Len(t, r.stalls.all(), 1)
+}
+
+// TestDetector_Sweep_CursorMovementCannotResetTheClock states, where it is relied
+// on, a property that is inherited rather than implemented here: Screen renders
+// the viewport as CONTENT ONLY — no SGR, no cursor, no scrollback
+// (model.ScreenReader) — so a moved cursor is not in the string being compared
+// and cannot appear as a change.
+//
+// Expressed as a repaint whose text is identical, because that is exactly what a
+// cursor-only move looks like by the time it reaches this package. If Screen ever
+// started including the cursor, this is the test that would start failing.
+func TestDetector_Sweep_CursorMovementCannotResetTheClock(t *testing.T) {
+	r := newRig(t)
+	r.wedged()
+	r.sweep()
+
+	for i := 0; i < 10; i++ {
+		r.clock.advance(termwait.DefaultStallQuiet / 10)
+		r.screens.repaint(session)
+		r.sweep()
+	}
+
+	assert.Len(t, r.stalls.all(), 1)
 }

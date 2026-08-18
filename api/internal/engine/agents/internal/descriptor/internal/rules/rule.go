@@ -49,6 +49,8 @@ func All() []Rule {
 		modelCatalog{},
 		effortCatalog{},
 		terminalPrompts{},
+		terminalNotices{},
+		injectedPrompts{},
 	}
 }
 

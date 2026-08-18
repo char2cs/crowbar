@@ -87,10 +87,11 @@ func (InterruptionRow) TableName() string { return "agent_interruptions" }
 
 // ChoiceRow is one prompt the agent put to a human.
 //
-// Options is a JSON array rather than a child table on purpose: nothing queries
-// an option — they are read only as part of the prompt that offered them — and a
-// join per pending prompt would buy nothing. The prompt itself IS queried, by
-// chat and by whether it is still pending, and those are columns.
+// Options and Questions are JSON arrays rather than child tables on purpose:
+// nothing queries an option or a question — they are read only as part of the
+// prompt that offered them — and a join per pending prompt would buy nothing. The
+// prompt itself IS queried, by chat and by whether it is still pending, and those
+// are columns.
 type ChoiceRow struct {
 	Key    string `gorm:"primaryKey;column:key"`
 	ID     string `gorm:"column:id"`
@@ -111,7 +112,12 @@ type ChoiceRow struct {
 	Mode     string `gorm:"column:mode"`
 	Multi    bool   `gorm:"column:multi"`
 	Options  string `gorm:"column:options"`
-	Schema   string `gorm:"column:schema"`
+	// Questions is the JSON list a question-kind prompt asks. A row written before
+	// this column existed simply has none, which is a graceful fallback and not a
+	// migration: such a prompt still carries its Question and Options and still
+	// renders and answers exactly as it did.
+	Questions string `gorm:"column:questions"`
+	Schema    string `gorm:"column:schema"`
 
 	At         time.Time  `gorm:"column:at"`
 	ResolvedAt *time.Time `gorm:"column:resolved_at;index"`

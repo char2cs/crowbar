@@ -310,22 +310,26 @@ func (r ChoiceRow) domain() domain.ActivityChoice {
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
 		Kind: r.Kind, PromptID: r.PromptID, ToolID: r.ToolID, ToolName: r.ToolName,
 		Title: r.Title, Question: r.Question, Mode: r.Mode, Multi: r.Multi,
-		Options: decodeOptions(r.Options), Schema: r.Schema,
-		At: r.At, ResolvedAt: r.ResolvedAt, Resolution: r.Resolution,
+		Options:   decodeList[domain.ActivityChoiceOption](r.Options),
+		Questions: decodeList[domain.ActivityChoiceQuestion](r.Questions),
+		Schema:    r.Schema,
+		At:        r.At, ResolvedAt: r.ResolvedAt, Resolution: r.Resolution,
 	}
 }
 
-// decodeOptions reads the stored option list, answering "no options" for anything
-// it cannot parse.
+// decodeList reads a stored JSON list, answering "nothing" for anything it cannot
+// parse.
 //
-// A prompt whose options were written by a future shape of this code must still
-// render as the question it is: losing the buttons is a degraded prompt, while
-// failing the read would lose the whole timeline that holds it.
-func decodeOptions(raw string) []domain.ActivityChoiceOption {
+// A prompt whose options or questions were written by a future shape of this code
+// must still render as the question it is: losing the buttons is a degraded
+// prompt, while failing the read would lose the whole timeline that holds it. The
+// empty string a pre-existing row carries in a column added later takes the same
+// path, which is why this needs no migration.
+func decodeList[T any](raw string) []T {
 	if raw == "" {
 		return nil
 	}
-	var out []domain.ActivityChoiceOption
+	var out []T
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return nil
 	}

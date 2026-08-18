@@ -139,7 +139,20 @@ export interface AgentChatDetail extends AgentChat {
   conversations: ChatConversation[]
 }
 
-export type AgentChatMessageRole = 'user' | 'assistant'
+/**
+ * Who put a message's text into the chat.
+ *
+ * Four, not two, because four distinct authors can. `harness` is text the vendor
+ * CLI injected into its own conversation as if it were a prompt (a background
+ * subagent reporting back is the measured case) — the agent received it and its
+ * next reply refers to it, so it is neither droppable nor the user's. `notice` is
+ * Crowbar relaying a provider's own words about why a chat stopped.
+ *
+ * The wire carries a bare string, so a role this client does not know must still
+ * render as SOMETHING rather than vanish: consumers switch on the known members
+ * and fall back for the rest, never assuming the union is exhaustive.
+ */
+export type AgentChatMessageRole = 'user' | 'assistant' | 'harness' | 'notice'
 
 /** One authoritative, hook-confirmed message in a Crowbar chat. */
 export interface AgentChatMessage {
@@ -396,6 +409,22 @@ export interface AgentChoiceOption {
   description?: string
 }
 
+/** ONE question inside a prompt, with the options that answer it.
+ *
+ *  `multi` is per QUESTION and not per prompt, because the provider says so:
+ *  claude carries multiSelect on each entry of its questions array, so one prompt
+ *  can ask "pick one" and "pick any" in the same card.
+ *
+ *  Option ids are unique across the WHOLE prompt, not merely within this question,
+ *  because an answer names its picks in one flat list. */
+export interface AgentChoiceQuestion {
+  id: string
+  title?: string
+  text?: string
+  multi?: boolean
+  options: AgentChoiceOption[]
+}
+
 /**
  * The agent waiting on a HUMAN DECISION — a tool permission, a question it asked,
  * an MCP server's elicitation.
@@ -421,8 +450,19 @@ export interface AgentChoice {
   /** The provider's own word for how it expects to be answered, carried verbatim
    *  and never interpreted here either. */
   mode?: string
+  /** Describes `options`. A question carries its own `multi`. */
   multi?: boolean
   options: AgentChoiceOption[]
+  /** The whole of what a question-kind prompt is asking, one entry per question.
+   *
+   *  ABSENT is meaningful and is NOT the same as empty: it says the record predates
+   *  questions being modelled, and such a prompt is a single question described by
+   *  `question` and `options` — render those instead of an empty card.
+   *
+   *  An answer covering only SOME of these is refused with 400, and that refusal is
+   *  the point: a partial answer hands the CLI an input covering part of what it
+   *  asked, and it goes on waiting for the rest with nothing able to send it. */
+  questions?: AgentChoiceQuestion[]
   /** An elicitation's requested-input schema: the provider's own JSON, verbatim.
    *  A prompt with a schema and no options is answered with a FORM. */
   schema?: string
@@ -520,11 +560,17 @@ function mapChoice(c: AgentChoice): AgentChoice {
 /**
  * Answer a prompt the provider CLI is blocked on, from the chat.
  *
- * `optionIds` must name at least one option (400 otherwise) and they must all be
- * of ONE kind — "allow" and "deny" together are not an answer and no template
- * could render them. A prompt that offers NO options is an elicitation, whose
- * answer is the provider's own verb — `accept`, `decline`, `cancel` — with the
- * filled-in form in `content`.
+ * `optionIds` is ONE FLAT LIST across the whole prompt, however many questions it
+ * asks: the ids say which question each pick answers, so a three-question prompt
+ * is still one call. It must name at least one option (400 otherwise), the picks
+ * must all be of ONE kind — "allow" and "deny" together are not an answer and no
+ * template could render them — and they must COVER EVERY QUESTION. A partial
+ * answer is refused with 400 rather than sent, because a CLI handed answers to two
+ * of three questions goes on waiting for the third with nothing able to send it.
+ *
+ * A prompt that offers NO options is an elicitation, whose answer is the
+ * provider's own verb — `accept`, `decline`, `cancel` — with the filled-in form in
+ * `content`.
  *
  * Two failures are the caller's to SHOW rather than swallow. 400 is a decision
  * this provider cannot express (claude's `suggestion` options are the shipped

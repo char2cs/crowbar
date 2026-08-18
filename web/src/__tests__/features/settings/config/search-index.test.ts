@@ -77,12 +77,15 @@ describe('settings search index', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  // The Providers tab shipped with NO records at all, so searching for the very
-  // thing it is called collapsed the rail to "No matching settings" — the search
-  // hid the one tab that matched.
-  describe('the Providers tab is findable', () => {
-    it.each(['provider', 'providers', 'claude', 'codex', 'cli', 'agent', 'priority'])(
-      '"%s" narrows to the Providers tab',
+  // The tab shipped with NO records at all, so searching for the very thing it is
+  // called collapsed the rail to "No matching settings" — the search hid the one
+  // tab that matched.
+  describe('the Agents tab is findable', () => {
+    // The tab reads "Agents" now (spec §11) and its labels follow, but the OLD
+    // word still has to find it: `provider` is what the rest of the product and
+    // every existing habit says, so it stays a keyword on every record.
+    it.each(['provider', 'providers', 'agents', 'claude', 'codex', 'cli', 'agent', 'priority'])(
+      '"%s" narrows to the Agents tab',
       (query) => {
         expect([...tabsMatching(query)]).toContain('providers')
       },
@@ -91,6 +94,7 @@ describe('settings search index', () => {
     it('covers every control the tab exposes', () => {
       const records = settingsSearchIndex.filter((r) => r.tab === 'providers')
       expect(records.map((r) => r.id).sort()).toEqual([
+        'agents-chat-default-presentation',
         'providers-enabled',
         'providers-priority-order',
         'providers-tools',
@@ -99,9 +103,18 @@ describe('settings search index', () => {
 
     // The one control whose own name is deliberately NOT the term of art: the row
     // says "Tools", so someone who knows it as MCP can only arrive by keyword.
-    it.each(['tools', 'mcp'])('"%s" narrows to the Providers tab', (query) => {
+    it.each(['tools', 'mcp'])('"%s" narrows to the Agents tab', (query) => {
       expect([...tabsMatching(query)]).toContain('providers')
     })
+
+    // The landing-surface toggle lives on this tab but is about Chat, so it is
+    // reachable by the surface's words as well as the tab's.
+    it.each(['chat', 'terminal', 'presentation', 'surface'])(
+      '"%s" reaches the chat landing-surface toggle',
+      (query) => {
+        expect([...tabsMatching(query)]).toContain('providers')
+      },
+    )
   })
 
   it('every record points at a real settings tab', () => {

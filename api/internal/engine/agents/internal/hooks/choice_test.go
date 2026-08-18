@@ -25,15 +25,21 @@ func permissionMap() map[string]string {
 		"tool_name":              "tool_name",
 		"tool_input":             "tool_input",
 		"suggestions":            "permission_suggestions",
-		"suggestion_label":       "type",
+		"suggestion_type":        "type",
 		"suggestion_description": "mode,destination",
-		"questions":              "tool_input.questions",
-		"question_title":         "header",
-		"question_text":          "question",
-		"question_options":       "options",
-		"question_multi":         "multiSelect",
-		"option_label":           "label",
-		"option_description":     "description",
+		// The human words for each captured type, exactly as the shipped descriptor
+		// declares them. A provider's own machine name is never a label.
+		"suggestion_label.addRules":       "Add a permanent rule for this",
+		"suggestion_label.addDirectories": "Allow this directory from now on",
+		"suggestion_label.setMode":        "Switch to a more permissive mode",
+		"suggestion_label.default":        "A broader permission than this one",
+		"questions":                       "tool_input.questions",
+		"question_title":                  "header",
+		"question_text":                   "question",
+		"question_options":                "options",
+		"question_multi":                  "multiSelect",
+		"option_label":                    "label",
+		"option_description":              "description",
 	}
 }
 
@@ -46,6 +52,21 @@ const permissionPayload = `{
   "permission_suggestions":[
     {"type":"addDirectories","directories":["/proof"],"destination":"session"},
     {"type":"setMode","mode":"acceptEdits","destination":"session"}]}`
+
+// threeQuestionPayload is the shape a user gets by asking claude to "ask me 3
+// questions at the same time": ONE AskUserQuestion call whose tool input carries
+// three entries, one of them multi-select. This is the payload that stranded the
+// agent.
+const threeQuestionPayload = `{
+  "session_id":"s1","prompt_id":"p3","hook_event_name":"PermissionRequest",
+  "tool_name":"AskUserQuestion",
+  "tool_input":{"questions":[
+    {"question":"Which language?","header":"Language","multiSelect":false,
+     "options":[{"label":"Go","description":"the daemon"},{"label":"TypeScript"}]},
+    {"question":"Which databases?","header":"Storage","multiSelect":true,
+     "options":[{"label":"SQLite"},{"label":"Postgres"},{"label":"Redis"}]},
+    {"question":"Deploy where?","header":"Target","multiSelect":false,
+     "options":[{"label":"Local"},{"label":"Cloud"}]}]}}`
 
 func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
@@ -66,11 +87,64 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	assert.Equal(t, models.ChoiceOptionAllow, ev.Choice.Options[0].Kind)
 	assert.Equal(t, models.ChoiceOptionDeny, ev.Choice.Options[1].Kind)
 	assert.Equal(t, models.ChoiceOptionSuggestion, ev.Choice.Options[2].Kind)
-	assert.Equal(t, "addDirectories", ev.Choice.Options[2].Label)
+	assert.Equal(t, "Allow this directory from now on", ev.Choice.Options[2].Label)
 	assert.Equal(t, "session", ev.Choice.Options[2].Description,
 		"the alternation falls through to destination when the suggestion has no mode")
-	assert.Equal(t, "setMode", ev.Choice.Options[3].Label)
+	assert.Equal(t, "Switch to a more permissive mode", ev.Choice.Options[3].Label)
 	assert.Equal(t, "acceptEdits", ev.Choice.Options[3].Description)
+	assert.Empty(t, ev.Choice.Questions, "a permission asks nothing beyond may-I")
+}
+
+// DEFECT 5. claude's permission_suggestions are named in claude's OWN vocabulary
+// — `type: "addRules"` — and reading that straight onto an option put the string
+// "addRules" in the chat as a control a person could press. It read like a real
+// choice, it was spelled in a language only the CLI's source uses, and it sat on
+// the one path the backend refuses with a 400.
+func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testing.T) {
+	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
+	// The type value measured against claude 2.1.234 on 2026-08-18, alongside the
+	// two captured on 2026-08-17 and one nobody has ever captured.
+	raw := []byte(`{"tool_name":"Bash","permission_suggestions":[
+	  {"type":"addRules","destination":"session"},
+	  {"type":"addDirectories","destination":"session"},
+	  {"type":"setMode","mode":"acceptEdits"},
+	  {"type":"someTypeNobodyHasSeen","destination":"session"}]}`)
+
+	ev, err := hooks.Parse(d, spec.HookPermission, raw)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	require.Len(t, ev.Choice.Options, 6, "allow, deny, and all four suggestions")
+	for _, option := range ev.Choice.Options {
+		for _, machineName := range []string{
+			"addRules", "addDirectories", "setMode", "someTypeNobodyHasSeen",
+		} {
+			assert.NotEqual(t, machineName, option.Label,
+				"a provider's own type value must never reach a label")
+			assert.NotContains(t, option.Label, machineName)
+		}
+	}
+	assert.Equal(t, "Add a permanent rule for this", ev.Choice.Options[2].Label)
+	assert.Equal(t, "A broader permission than this one", ev.Choice.Options[5].Label,
+		"a type nobody has captured takes the declared generic text, not its own name")
+}
+
+// The label text is PROVIDER VOCABULARY and lives in the descriptor. A descriptor
+// that declares none says nothing rather than falling back to the machine name.
+func TestParse_ASuggestionWithNoDeclaredWordsIsSkipped(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookPermission: {
+			"tool_name": "tool_name", "suggestions": "permission_suggestions",
+			"suggestion_type": "type",
+		},
+	})
+
+	ev, err := hooks.Parse(d, spec.HookPermission,
+		[]byte(`{"tool_name":"Bash","permission_suggestions":[{"type":"addRules"}]}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	assert.Len(t, ev.Choice.Options, 2, "allow and deny, and nothing nameless beside them")
 }
 
 // The permission carries no tool_use_id — claude's own documentation claims one
@@ -104,13 +178,62 @@ func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 	assert.Equal(t, models.ChoiceQuestion, ev.Choice.Kind)
 	assert.Equal(t, "Pick", ev.Choice.Title)
 	assert.Equal(t, "Do you prefer option A or option B?", ev.Choice.Question)
-	assert.False(t, ev.Choice.Multi)
-	require.Len(t, ev.Choice.Options, 2)
-	assert.Equal(t, models.ChoiceOptionAnswer, ev.Choice.Options[0].Kind)
-	assert.Equal(t, "A", ev.Choice.Options[0].Label)
-	assert.Equal(t, "Option A", ev.Choice.Options[0].Description)
-	assert.NotEqual(t, ev.Choice.Options[0].ID, ev.Choice.Options[1].ID,
+	assert.Empty(t, ev.Choice.Options,
+		"a question's options live on the question, so there is exactly one place to read them")
+
+	// A one-question payload is a list of ONE. Nothing anywhere branches on how
+	// many questions there are.
+	require.Len(t, ev.Choice.Questions, 1)
+	question := ev.Choice.Questions[0]
+	assert.Equal(t, "Pick", question.Title)
+	assert.Equal(t, "Do you prefer option A or option B?", question.Text)
+	assert.False(t, question.Multi)
+	require.Len(t, question.Options, 2)
+	assert.Equal(t, models.ChoiceOptionAnswer, question.Options[0].Kind)
+	assert.Equal(t, "A", question.Options[0].Label)
+	assert.Equal(t, "Option A", question.Options[0].Description)
+	assert.NotEqual(t, question.Options[0].ID, question.Options[1].ID,
 		"an answer must be able to name one option without echoing its label")
+}
+
+// DEFECT 4. A user asked claude to "ask me 3 questions at the same time", claude
+// issued ONE AskUserQuestion carrying three, and Crowbar modelled the first.
+// Answering it handed the CLI an `updatedInput` covering one of three; claude said
+// "still waiting on your answers to questions 2 & 3" and nothing could ever send
+// them.
+func TestRegression_EveryQuestionOfAMultiQuestionPayloadIsModelled(t *testing.T) {
+	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
+
+	ev, err := hooks.Parse(d, spec.HookPermission, []byte(threeQuestionPayload))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	assert.Equal(t, models.ChoiceQuestion, ev.Choice.Kind)
+	require.Len(t, ev.Choice.Questions, 3, "three questions asked is three questions modelled")
+
+	assert.Equal(t, "Which language?", ev.Choice.Questions[0].Text)
+	assert.False(t, ev.Choice.Questions[0].Multi)
+	assert.Equal(t, "Which databases?", ev.Choice.Questions[1].Text)
+	assert.True(t, ev.Choice.Questions[1].Multi,
+		"multiSelect rides each question, so one prompt can mix the two shapes")
+	assert.Equal(t, "Deploy where?", ev.Choice.Questions[2].Text)
+
+	// No headline claims to be "the question": with three of them, naming one would
+	// be a lie a reader could act on.
+	assert.Empty(t, ev.Choice.Question)
+	assert.Empty(t, ev.Choice.Title)
+
+	// Option ids are unique across the WHOLE prompt, because an answer names its
+	// picks in one flat list with nothing in it saying which question each answers.
+	seen := map[string]bool{}
+	for _, q := range ev.Choice.Questions {
+		require.NotEmpty(t, q.Options)
+		for _, option := range q.Options {
+			assert.False(t, seen[option.ID], "option id %q is not unique across the prompt", option.ID)
+			seen[option.ID] = true
+		}
+	}
+	assert.Len(t, seen, 7)
 }
 
 func TestParse_AMultiSelectQuestionSaysSo(t *testing.T) {
@@ -122,12 +245,37 @@ func TestParse_AMultiSelectQuestionSaysSo(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
-	assert.True(t, ev.Choice.Multi)
+	require.Len(t, ev.Choice.Questions, 1)
+	assert.True(t, ev.Choice.Questions[0].Multi)
 }
 
-// A suggestion with no label would render as an unnamed button that changes a
-// permission mode, which is worse than no button at all.
-func TestParse_AnUnlabelledSuggestionIsSkipped(t *testing.T) {
+// Dropping a question past the bound would REINTRODUCE the defect: an answer
+// covering 32 of 33 is the same partial `updatedInput` that stranded the agent. So
+// an absurd payload is modelled with none, which draws a read-only prompt.
+func TestParse_AnAbsurdQuestionListIsModelledWithNoQuestionsAtAll(t *testing.T) {
+	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
+	questions := make([]string, 0, 40)
+	for i := range 40 {
+		questions = append(questions,
+			`{"question":"q`+strconv.Itoa(i)+`","options":[{"label":"yes"}]}`)
+	}
+
+	ev, err := hooks.Parse(d, spec.HookPermission, []byte(
+		`{"tool_name":"AskUserQuestion","tool_input":{"questions":[`+
+			strings.Join(questions, ",")+`]}}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Choice)
+	assert.Equal(t, models.ChoiceQuestion, ev.Choice.Kind, "it is still recorded as a question")
+	assert.Empty(t, ev.Choice.Questions,
+		"a PARTIAL model is the defect; none at all sends the human to the terminal")
+	assert.Empty(t, ev.Choice.Options)
+}
+
+// A suggestion that names no type at all still gets the descriptor's declared
+// generic words. Saying nothing would hide that the provider offered something,
+// and the words are the descriptor's rather than the payload's either way.
+func TestParse_AnUntypedSuggestionTakesTheDeclaredGenericWords(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	raw := []byte(`{"tool_name":"Bash","permission_suggestions":[{"destination":"session"}]}`)
 
@@ -135,7 +283,8 @@ func TestParse_AnUnlabelledSuggestionIsSkipped(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
-	assert.Len(t, ev.Choice.Options, 2, "allow and deny, and nothing nameless beside them")
+	require.Len(t, ev.Choice.Options, 3)
+	assert.Equal(t, "A broader permission than this one", ev.Choice.Options[2].Label)
 }
 
 func TestParse_ElicitationCarriesTheServerModeAndSchema(t *testing.T) {
@@ -295,7 +444,8 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 		 "options":[`+strings.Join(options, ",")+`]}]}}`))
 	require.NoError(t, err)
 	require.NotNil(t, question.Choice)
-	assert.Len(t, question.Choice.Options, 32)
+	require.Len(t, question.Choice.Questions, 1)
+	assert.Len(t, question.Choice.Questions[0].Options, 32)
 
 	permission, err := hooks.Parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"Bash","permission_suggestions":[`+strings.Join(suggestions, ",")+`]}`))

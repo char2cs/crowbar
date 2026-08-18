@@ -153,6 +153,32 @@ function providerName(providers: AgentProvider[], id: string): string {
   return providers.find((provider) => provider.id === id)?.displayName ?? id
 }
 
+/** One recorded turn.
+ *
+ *  Four roles reach here, and the discriminator used to be a single `user`
+ *  boolean because there were only two. The other two are both "text in this
+ *  conversation that NOBODY in it typed", and they are separate roles because
+ *  they answer to different people:
+ *
+ *    - `harness` is the provider's own machinery talking to its own model — a
+ *      background-subagent completion report is the measured case. The agent
+ *      genuinely received it, so it is shown; the human did not write it, so it
+ *      must never wear the user's bubble. Anything else quotes a person saying
+ *      something they never said.
+ *    - `notice` is Crowbar relaying a provider's OWN words about why a chat
+ *      stopped ("You've hit your usage limit…"). It is the same class of thing
+ *      to the reader as the terminal-wait banner and the interruption strip —
+ *      the agent has stopped and something is wanted — so it wears that family's
+ *      card and announces itself.
+ *
+ *  A role this build has never heard of still renders its text, unstyled and
+ *  verbatim. A message that vanishes is strictly worse than one that looks
+ *  plain: the ledger recorded something the agent acted on, and a client too old
+ *  to name it is not a reason to hide it.
+ *
+ *  Everything here is derived from props. The pane this list lives in is RETAINED
+ *  across chat selection, so a row holding state of its own would carry one
+ *  chat's UI onto another chat's transcript. */
 function MessageRow({
   message,
   showProvider,
@@ -163,18 +189,27 @@ function MessageRow({
   providers: AgentProvider[]
 }) {
   const user = message.role === 'user'
+  const assistant = message.role === 'assistant'
+  const harness = message.role === 'harness'
+  const notice = message.role === 'notice'
   return (
     <article
       className={cn('flex w-full', user ? 'justify-end' : 'justify-start')}
       data-sequence={message.sequence}
       data-testid={`agent-message-${message.sequence}`}
+      data-role={message.role}
     >
       <div
+        // A notice is a live announcement, not prose — the reader may already be
+        // scrolled away when the provider stops the chat, and it is the only row
+        // here that anybody needs told about.
+        role={notice ? 'alert' : undefined}
         className={cn(
           'min-w-0 max-w-[88%] text-sm',
-          user
-            ? 'rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-foreground'
-            : 'w-full py-1 text-foreground',
+          user && 'rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-foreground',
+          harness && 'w-full rounded-lg border border-border bg-muted/40 px-3 py-2',
+          notice && 'w-full rounded-lg border border-warning/40 bg-warning/10 px-3 py-2',
+          !user && !harness && !notice && 'w-full py-1 text-foreground',
         )}
       >
         {showProvider && (
@@ -182,16 +217,37 @@ function MessageRow({
             {providerName(providers, message.providerId)}
           </p>
         )}
-        {user ? (
-          <p className="whitespace-pre-wrap break-words">{message.text}</p>
-        ) : (
+        {/* Said in words, not only in styling. The body of one of these is raw
+            provider markup a reader has every reason to mistake for their own
+            last message, and a muted box alone does not say whose words they
+            are. */}
+        {harness && (
+          <p className="mb-1.5 text-muted-foreground text-xs" data-testid="message-harness-label">
+            Sent to the agent by {providerName(providers, message.providerId)} — not by you
+          </p>
+        )}
+        {assistant ? (
           <MarkdownPreview className="break-words text-sm">{message.text}</MarkdownPreview>
+        ) : (
+          // Verbatim for everything the model did not write. A harness payload is
+          // markup — `<task-notification>` is an HTML tag to a markdown renderer,
+          // which would swallow the row whole — and a notice is a provider's exact
+          // sentence, which is the one thing about it worth showing.
+          <p
+            className={cn(
+              'whitespace-pre-wrap break-words',
+              harness && 'text-muted-foreground',
+              notice && 'text-warning-foreground',
+            )}
+          >
+            {message.text}
+          </p>
         )}
         {/* Provenance, not a headline: what the CLI ITSELF said it ran this turn at.
             It is a different fact from the chat's requested selection — the two can
             legitimately disagree — so it is only ever shown for a turn the provider
             actually reported one on. */}
-        {!user && message.effort && (
+        {assistant && message.effort && (
           <p
             className="mt-1 text-muted-foreground text-xs"
             title="Reasoning effort the provider reported for this turn"

@@ -55,6 +55,51 @@ func askUserQuestionPermission() map[string]any {
 	}
 }
 
+// threeQuestionPermission is the payload a user gets by asking claude to "ask me
+// 3 questions at the same time": ONE AskUserQuestion call carrying three
+// questions, one of them multi-select. It is the payload that stranded a live
+// agent — Crowbar recorded the first question only, the human answered it, and
+// claude went on saying "still waiting on: your answers to questions 2 & 3".
+func threeQuestionPermission() map[string]any {
+	return map[string]any{
+		"session_id": "s1", "prompt_id": "3q",
+		"hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion",
+		"tool_input": map[string]any{
+			"questions": []any{
+				map[string]any{
+					"question": "Which language?", "header": "Language", "multiSelect": false,
+					"options": []any{
+						map[string]any{"label": "Go"}, map[string]any{"label": "TypeScript"},
+					},
+				},
+				map[string]any{
+					"question": "Which databases?", "header": "Storage", "multiSelect": true,
+					"options": []any{
+						map[string]any{"label": "SQLite"},
+						map[string]any{"label": "Postgres"},
+						map[string]any{"label": "Redis"},
+					},
+				},
+				map[string]any{
+					"question": "Deploy where?", "header": "Target", "multiSelect": false,
+					"options": []any{
+						map[string]any{"label": "Local"}, map[string]any{"label": "Cloud"},
+					},
+				},
+			},
+		},
+	}
+}
+
+// pick names one option by the question that offers it and its position in that
+// question, which is how a human's click reaches the flat list an answer carries.
+func pick(t *testing.T, choice domain.ActivityChoice, question, option int) string {
+	t.Helper()
+	require.Greater(t, len(choice.Questions), question)
+	require.Greater(t, len(choice.Questions[question].Options), option)
+	return choice.Questions[question].Options[option].ID
+}
+
 // blockedPermission opens a prompt through the relay ingress and returns the
 // delivery id the relay would be waiting on, plus the prompt itself.
 func blockedPermission(
@@ -74,9 +119,17 @@ func blockedPermission(
 
 // await runs the relay's long-poll on its own goroutine and hands back a channel
 // carrying exactly what the relay would print.
+//
+// It does not return until that goroutine is RUNNING, because the order is the
+// production order and the test must not invert it: a real relay parks itself the
+// instant its hook is delivered, long before any human can answer. Answering
+// first would take the slot off the desk before the waiter ever looked for it,
+// and the test would be measuring the scheduler rather than the answer channel.
 func await(f testFixture, deliveryID string) <-chan string {
 	out := make(chan string, 1)
+	parked := make(chan struct{})
 	go func() {
+		close(parked)
 		answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
 		if err != nil {
 			out <- "ERR: " + err.Error()
@@ -84,6 +137,7 @@ func await(f testFixture, deliveryID string) <-chan string {
 		}
 		out <- string(answer.Stdout)
 	}()
+	<-parked
 	return out
 }
 
@@ -136,11 +190,12 @@ func TestAnswer_AQuestionIsAnsweredByEchoingTheToolInputWithThePick(t *testing.T
 	chatID, runnerID := f.spawn(t, "claude")
 	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
 	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
-	require.Len(t, choice.Options, 2)
+	require.Len(t, choice.Questions, 1)
+	require.Len(t, choice.Questions[0].Options, 2)
 
 	printed := await(f, deliveryID)
 	require.NoError(t, f.usecase.AnswerChoice(
-		f.ctx, chatID, choice.ID, []string{choice.Options[1].ID}, "", nil))
+		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil))
 	f.wait()
 
 	var decoded struct {
@@ -435,11 +490,12 @@ func TestAnswer_AMultiSelectQuestionCarriesEveryPickedLabel(t *testing.T) {
 	questions, _ := payload["tool_input"].(map[string]any)["questions"].([]any)
 	questions[0].(map[string]any)["multiSelect"] = true
 	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, payload)
-	require.True(t, choice.Multi)
+	require.Len(t, choice.Questions, 1)
+	require.True(t, choice.Questions[0].Multi)
 
 	printed := await(f, deliveryID)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
-		[]string{choice.Options[0].ID, choice.Options[1].ID}, "", nil))
+		[]string{pick(t, choice, 0, 0), pick(t, choice, 0, 1)}, "", nil))
 	f.wait()
 
 	var decoded struct {
@@ -551,4 +607,131 @@ func TestAnswer_ADeadRunnerReleasesItsRelaysEvenIfTheRecordCannotBeWritten(t *te
 	assert.Empty(t, <-printed)
 	_, waiting := f.usecase.PendingAnswer(deliveryID)
 	assert.False(t, waiting)
+}
+
+// DEFECT 4, end to end. A user asked claude to "ask me 3 questions at the same
+// time". Claude issued ONE AskUserQuestion carrying three entries; Crowbar
+// recorded one prompt with the FIRST of them. The user answered it, the CLI was
+// handed an `updatedInput` whose `answers` object had a single key, and claude
+// replied "Still waiting on: your answers to questions 2 & 3" — a state no
+// surface in Crowbar could ever leave, because there was nothing left to answer.
+//
+// The whole prompt has to be answerable in ONE call, and the document that
+// reaches the CLI has to carry ONE KEY PER QUESTION.
+func TestRegression_MultiQuestionAskUserQuestionIsFullyAnswerable(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
+
+	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
+	require.Len(t, choice.Questions, 3, "three questions asked is three questions offered")
+
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{
+		pick(t, choice, 0, 0),                        // Go
+		pick(t, choice, 1, 0), pick(t, choice, 1, 2), // SQLite and Redis, multi-select
+		pick(t, choice, 2, 1), // Cloud
+	}, "", nil))
+	f.wait()
+
+	var decoded struct {
+		HookSpecificOutput struct {
+			Decision struct {
+				Behavior     string `json:"behavior"`
+				UpdatedInput struct {
+					Questions []map[string]any `json:"questions"`
+					Answers   map[string]any   `json:"answers"`
+				} `json:"updatedInput"`
+			} `json:"decision"`
+		} `json:"hookSpecificOutput"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(<-printed), &decoded))
+	updated := decoded.HookSpecificOutput.Decision.UpdatedInput
+	assert.Equal(t, "allow", decoded.HookSpecificOutput.Decision.Behavior)
+	require.Len(t, updated.Questions, 3, "the CLI must get all three questions back")
+
+	require.Len(t, updated.Answers, 3, "one key per question, or the agent waits forever")
+	assert.Equal(t, "Go", updated.Answers["Which language?"])
+	assert.Equal(t, []any{"SQLite", "Redis"}, updated.Answers["Which databases?"],
+		"a multi-select question's value is a LIST, per question")
+	assert.Equal(t, "Cloud", updated.Answers["Deploy where?"],
+		"a single-select question's value is a bare label in the same document")
+
+	assert.Empty(t, pendingChoices(t, f, chatID), "and the prompt stops pending")
+}
+
+// The other half of the same defect: a partial answer must be IMPOSSIBLE, not
+// merely discouraged. Sending picks for one of three questions is what handed the
+// CLI a partial `updatedInput` in the first place, so it is refused with 400 and
+// the relay is left holding the gate for the CLI's own picker.
+func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
+
+	err := f.usecase.AnswerChoice(
+		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 0)}, "", nil)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument,
+		"one answer to three questions is not an answer")
+
+	err = f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
+		[]string{pick(t, choice, 0, 0), pick(t, choice, 1, 0)}, "", nil)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "two of three is not an answer either")
+
+	// Nothing reached the CLI, and the prompt is still there to be answered
+	// properly — refusing must not consume the one chance to answer.
+	assert.Len(t, pendingChoices(t, f, chatID), 1)
+	_, stillWaiting := f.usecase.PendingAnswer(deliveryID)
+	assert.True(t, stillWaiting)
+
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{
+		pick(t, choice, 0, 0), pick(t, choice, 1, 1), pick(t, choice, 2, 0),
+	}, "", nil))
+	f.wait()
+	assert.Contains(t, <-printed, `"Which databases?":["Postgres"]`)
+}
+
+// A question that takes ONE answer takes one. Two picks on it are not a smaller
+// mistake than none — there is no shape the provider could read them in.
+func TestAnswer_RefusesTwoPicksOnASingleSelectQuestion(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	_, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
+
+	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{
+		pick(t, choice, 0, 0), pick(t, choice, 0, 1), // both languages
+		pick(t, choice, 1, 0), pick(t, choice, 2, 0),
+	}, "", nil)
+
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+}
+
+// A question the provider sent neither text nor header for cannot be keyed at
+// all: claude's `answers` object is keyed by the question STRING it sent. Nothing
+// is invented for it — an invented key is a key the CLI would not recognise — and
+// the rest of the prompt is answered as asked.
+func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, map[string]any{
+		"session_id": "s1", "prompt_id": "nk", "tool_name": "AskUserQuestion",
+		"tool_input": map[string]any{"questions": []any{
+			map[string]any{"options": []any{map[string]any{"label": "A"}}},
+			map[string]any{
+				"question": "Deploy where?",
+				"options":  []any{map[string]any{"label": "Cloud"}},
+			},
+		}},
+	})
+	require.Len(t, choice.Questions, 2)
+
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
+		[]string{pick(t, choice, 0, 0), pick(t, choice, 1, 0)}, "", nil))
+	f.wait()
+
+	out := <-printed
+	assert.Contains(t, out, `"Deploy where?":"Cloud"`)
+	assert.NotContains(t, out, `"":"A"`, "an unnamed question gets no key rather than an empty one")
 }

@@ -34,7 +34,7 @@ func (c AppendTurn) Validate(*domain.AgentActivity) error {
 	if err := requireID("append turn", "turn id", c.TurnID); err != nil {
 		return err
 	}
-	if c.Role != domain.TurnRoleUser && c.Role != domain.TurnRoleAssistant {
+	if !domain.KnownTurnRole(c.Role) {
 		return fmt.Errorf("append turn: unknown role %q: %w", c.Role, asynxModels.ErrValidation)
 	}
 	return nil

@@ -461,3 +461,53 @@ resume_context_inject:
 # A specific needle gets a kind when one has been captured — never before.
 terminal_prompts:
   - needle: "Press enter to continue"
+  # The SECOND modal captured from the same repro, and a different sentence
+  # entirely. codex 0.146.0 put up
+  #
+  #     Press enter to confirm or esc to go back
+  #
+  # which the needle above does NOT match: "Press enter to continue" reduces to
+  # `pressentertocontinue`, and this line reduces to
+  # `pressentertoconfirmoresctogoback` — the two share a prefix and diverge, so
+  # the substring search finds nothing. Also unkinded, for exactly the reason the
+  # first one is: the words name no dialog, only the fact that one is up.
+  - needle: "Press enter to confirm or esc to go back"
+# Messages codex paints INSTEAD of finishing a turn. See the terminal_notices
+# doc on spec.TerminalNoticeSpec for what separates this from terminal_prompts:
+# nobody is being asked anything here, the attempt is simply over.
+#
+# CAPTURED LIVE from codex-cli 0.146.0 on 2026-08-18. A prompt was accepted,
+# UserPromptSubmit fired, Crowbar opened the turn — and codex then painted this,
+# wrapped across three screen rows at 100 columns, and sat there:
+#
+#     ■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit
+#     https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026
+#     12:30 PM.
+#
+# No Stop hook. No SessionEnd. No exit — the process stayed alive, so the
+# runner-exit reconcile that closes an abandoned turn was never reached either.
+# The turn stayed open for 44 minutes (turn_started 16:26:34Z, turn_stopped
+# 17:10:24Z) and only closed then because the user manually switched provider and
+# the displace closed it. Nothing in the daemon would have closed it otherwise.
+#
+# `ends_turn: true` is the whole claim: this banner is painted BECAUSE the attempt
+# ended, so finding it on a screen that has not moved for the quiet period is
+# positive evidence the CLI is not working. It is NOT a substitute for an "idle
+# composer" needle and no such needle is declared here — codex's composer
+# placeholder ROTATES between sessions (`Implement {feature}`, `Use /skills to
+# list available skills`, `Explain this codebase`, from three consecutive fresh
+# sessions in the same directory), so it could only ever match sometimes.
+#
+# Only the first line is declared. The URLs and the reset time are ACCOUNT- and
+# CLOCK-specific and would make the needle match one machine on one day; the
+# capture rule reads them off the screen instead and carries them into the chat
+# verbatim, which is where they are actually wanted.
+#
+# NOT MEASURED, and deliberately not relied on: codex's BUSY indicator. The
+# account was rate-limited for the whole probe, so no codex turn could run and no
+# working screen could be captured. Nothing here — and nothing in the detector —
+# depends on recognising one.
+terminal_notices:
+  - kind: usage_limit
+    needle: "You've hit your usage limit"
+    ends_turn: true

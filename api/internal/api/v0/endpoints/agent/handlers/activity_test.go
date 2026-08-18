@@ -275,7 +275,13 @@ func pendingChoice() domain.ActivityChoice {
 		ToolID: "tool-1", ToolName: "Bash", Title: "Bash",
 		Options: []domain.ActivityChoiceOption{
 			{ID: "allow", Kind: domain.ChoiceOptionAllow, Label: "Allow"},
-			{ID: "suggestion-0", Kind: domain.ChoiceOptionSuggestion, Label: "setMode"},
+			// Human words, never claude's own `type` value: a machine name on a control
+			// reads as a real choice spelled in a language nobody outside the CLI uses.
+			{
+				ID:    "suggestion-0",
+				Kind:  domain.ChoiceOptionSuggestion,
+				Label: "Switch to a more permissive mode",
+			},
 		},
 		At: activityAt,
 	}
@@ -337,6 +343,53 @@ func TestChoices_ReturnsWhatTheAgentIsWaitingOn(t *testing.T) {
 	assert.Equal(t, "choice-1", body.Data[0].ID)
 	assert.Equal(t, "Bash", body.Data[0].ToolName)
 	assert.Equal(t, []string{"chat-1"}, uc.pendingCalls)
+}
+
+// A three-question prompt is ONE record carrying three questions, and the whole
+// of it has to reach the client: shipping the first is what left a live agent
+// saying "still waiting on your answers to questions 2 & 3".
+func TestChoices_CarriesEveryQuestionOfAMultiQuestionPrompt(t *testing.T) {
+	asked := domain.ActivityChoice{
+		ID: "choice-2", TurnID: "turn-1", Seq: 7,
+		Kind: domain.ChoiceKindQuestion, ToolName: "AskUserQuestion", At: activityAt,
+		Questions: []domain.ActivityChoiceQuestion{
+			{ID: "q0", Text: "Which language?", Options: []domain.ActivityChoiceOption{
+				{ID: "q0-answer-0", Kind: domain.ChoiceOptionAnswer, Label: "Go"},
+			}},
+			{
+				ID: "q1", Text: "Which databases?", Multi: true,
+				Options: []domain.ActivityChoiceOption{
+					{ID: "q1-answer-0", Kind: domain.ChoiceOptionAnswer, Label: "SQLite"},
+				},
+			},
+		},
+	}
+	uc := &fakeAgentUsecase{pending: []domain.ActivityChoice{asked}}
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(inWorkspace(uc)).Choices(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data []dto.AgentChoiceDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	require.Len(t, body.Data[0].Questions, 2)
+	assert.Equal(t, "Which language?", body.Data[0].Questions[0].Text)
+	assert.Equal(t, "q0-answer-0", body.Data[0].Questions[0].Options[0].ID)
+	assert.True(t, body.Data[0].Questions[1].Multi, "multiSelect is per question")
+}
+
+// ABSENT is meaningful and is not the same as empty: it tells a client the record
+// predates questions being modelled, so it falls back to the prompt-level
+// question rather than drawing a card with nothing in it.
+func TestChoices_OmitsTheQuestionListForAPromptThatAsksNone(t *testing.T) {
+	uc := &fakeAgentUsecase{pending: []domain.ActivityChoice{pendingChoice()}}
+	ctx, rec := scoped(t, "/choices")
+	newChatHandlers(inWorkspace(uc)).Choices(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), `"questions"`)
 }
 
 // "Nothing pending" is an ANSWER, not a missing resource: a client that renders

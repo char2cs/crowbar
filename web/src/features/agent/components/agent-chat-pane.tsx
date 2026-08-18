@@ -14,6 +14,7 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { getDefaultChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { cn } from '@/lib/utils'
 import { AgentReturnToChatNotice, AgentTerminalWaitBanner } from './agent-terminal-wait-banner'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
@@ -194,11 +195,33 @@ export function AgentChatPane({
   const waiting = waitKind !== undefined
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
-  const [presentation, setPresentation] = useState<'chat' | 'terminal'>('chat')
+  // Seeded from the user's preference, never subscribed to it: a chat already open
+  // keeps the surface it is on if the setting changes underneath it.
+  const [presentation, setPresentation] = useState<'chat' | 'terminal'>(
+    getDefaultChatPresentation,
+  )
   // Whether the way back to the chat is being OFFERED. See AgentReturnToChatNotice:
   // it is what Crowbar shows when it moved somebody to the terminal and then
   // cannot move them back without overriding a choice they made themselves.
   const [returnOffered, setReturnOffered] = useState(false)
+  // Re-seed PER CHAT, not per mount — that distinction is the whole fix. This pane
+  // is RETAINED across chat selection, so a lazy useState initializer runs once for
+  // the pane's entire life: turning the preference off and opening a chat did
+  // nothing, and it only ever took effect after a full reload. That reads, fairly,
+  // as "the setting is broken".
+  //
+  // Keyed on the CHAT rather than on the preference, so the two cases stay
+  // distinct: a different chat lands on whatever the user prefers, while a chat
+  // already on screen never jumps surface under someone because the preference
+  // changed elsewhere. returnOffered goes with it — an offer to return belongs to
+  // the chat that raised it, not to whichever one is shown next.
+  const [seededFor, setSeededFor] = useState(shownChatId)
+  if (seededFor !== shownChatId) {
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: React's documented "adjust state when a prop changes" pattern. An effect would paint the previous chat's surface for a frame first, which is the flicker this exists to avoid.
+    setSeededFor(shownChatId)
+    setPresentation(getDefaultChatPresentation())
+    setReturnOffered(false)
+  }
   const [queuedPromptCount, setQueuedPromptCount] = useState(0)
   const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
   const [promptReplacing, setPromptReplacing] = useState(false)
