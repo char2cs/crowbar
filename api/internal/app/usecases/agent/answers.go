@@ -38,6 +38,13 @@ import (
 //   - NOTHING is rendered without a live waiter. Answering a prompt whose relay
 //     has already gone is a lie: the CLI is showing its own dialog by then, and
 //     Crowbar would report success for a decision that reached nobody.
+//
+//   - A VERDICT OUTLIVES THE DECISION, and is delivered to the first claimant. The
+//     relay's ack and its long-poll are two round trips from a separate process,
+//     so a human can decide before anyone asks. Discarding the answer at the
+//     moment it resolved left the record saying "answered" with the CLI still
+//     sitting on its dialog — a lie in the opposite direction, and a worse one,
+//     because the user watched it be accepted.
 const (
 	// maxAnswerPayloadBytes bounds the hook payload a pending slot retains.
 	//
@@ -58,6 +65,23 @@ const (
 	// on disk is user-editable, and a wait longer than any provider's own hook
 	// timeout would just get the relay killed mid-write instead of letting it exit.
 	maxAnswerWait = 15 * time.Minute
+
+	// answerVerdictRetention is how long a decided verdict waits on the desk for a
+	// relay that has not asked for it yet.
+	//
+	// It is retained at all because the ack and the long-poll are TWO round trips
+	// from a SEPARATE process: the daemon answers the ingest POST with "stay alive",
+	// the relay finishes draining the rest of its FIFO spool, and only then posts
+	// /hooks/await. A human answering inside that window used to have the decision
+	// recorded and then dropped — the worst possible split, because the chat says
+	// answered while the CLI sits on a dialog nobody will ever resolve.
+	//
+	// A minute is orders of magnitude more than that window costs — a unix-socket
+	// round trip plus the tail of a FIFO spool — and well under the budget any
+	// shipped descriptor gives a relay (270s for claude, 120s where a descriptor
+	// declares none). So a verdict nobody has claimed by then belongs to a relay
+	// that died in the window and is never coming back for it.
+	answerVerdictRetention = time.Minute
 )
 
 // PendingAnswer is what a relay is told to do after its hook has been recorded.
@@ -104,11 +128,21 @@ type answerSlot struct {
 	done   chan struct{}
 	stdout []byte
 	once   sync.Once
+
+	// decidedAt, spent and reap are the RETAINED VERDICT, and every one of them —
+	// stdout included — is read and written under answerDesk.mu. A zero decidedAt is
+	// a prompt still waiting on a human; a non-zero one is a verdict sitting on the
+	// desk for whoever claims it first. spent says that verdict has been handed out
+	// or has expired, and reap is what drops it if nobody ever comes.
+	decidedAt time.Time
+	spent     bool
+	reap      *time.Timer
 }
 
 // settle publishes a verdict and wakes the relay. It is idempotent: a prompt
 // answered in Crowbar at the same moment its CLI dies must wake exactly one
-// waiter with exactly one verdict.
+// waiter with exactly one verdict. Every caller holds answerDesk.mu, so a
+// claimant that never observed this channel still reads the bytes safely.
 func (s *answerSlot) settle(stdout []byte) {
 	s.once.Do(func() {
 		s.stdout = stdout
@@ -130,12 +164,17 @@ type answerDesk struct {
 	mu         sync.Mutex
 	byChoice   map[string]*answerSlot
 	byDelivery map[string]*answerSlot
+	// retention is how long a decided verdict is kept for a relay that has not
+	// collected it. It is a field rather than the constant read inline so a test can
+	// drive expiry rather than wait one out.
+	retention time.Duration
 }
 
 func newAnswerDesk() *answerDesk {
 	return &answerDesk{
 		byChoice:   map[string]*answerSlot{},
 		byDelivery: map[string]*answerSlot{},
+		retention:  answerVerdictRetention,
 	}
 }
 
@@ -145,6 +184,7 @@ func newAnswerDesk() *answerDesk {
 func (d *answerDesk) open(deliveryID string, slot *answerSlot) *answerSlot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.dropExpiredLocked()
 	if existing, held := d.byDelivery[deliveryID]; held {
 		return existing
 	}
@@ -152,6 +192,7 @@ func (d *answerDesk) open(deliveryID string, slot *answerSlot) *answerSlot {
 	// older relay first. Two relays waiting on one prompt could each be handed the
 	// same verdict, and the provider would be told twice.
 	if stale, held := d.byChoice[slot.choiceID]; held {
+		d.forgetLocked(stale)
 		stale.settle(nil)
 	}
 	d.byDelivery[deliveryID] = slot
@@ -162,6 +203,7 @@ func (d *answerDesk) open(deliveryID string, slot *answerSlot) *answerSlot {
 func (d *answerDesk) byDeliveryID(deliveryID string) (*answerSlot, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.dropExpiredLocked()
 	slot, ok := d.byDelivery[deliveryID]
 	return slot, ok
 }
@@ -173,9 +215,89 @@ func (d *answerDesk) byChoiceID(choiceID string) (*answerSlot, bool) {
 	return slot, ok
 }
 
-// close takes a slot off the desk and wakes its relay with the given verdict.
-func (d *answerDesk) close(slot *answerSlot, stdout []byte) {
+// resolve publishes a human's verdict and KEEPS IT ON THE DESK until somebody
+// claims it.
+//
+// The retention is the whole point. A relay's ack and its long-poll are two round
+// trips from a separate process, and a human answering between them used to leave
+// Crowbar's record saying "answered" while the CLI received nothing at all. The
+// verdict now outlives the decision and belongs to the first claimant.
+//
+// The prompt stops being ANSWERABLE the same instant even so: it leaves byChoice,
+// so a second answer is refused rather than queued behind the first.
+func (d *answerDesk) resolve(slot *answerSlot, stdout []byte) {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	if slot.spent {
+		return
+	}
+	if held, ok := d.byChoice[slot.choiceID]; ok && held == slot {
+		delete(d.byChoice, slot.choiceID)
+	}
+	slot.decidedAt = time.Now()
+	slot.reap = time.AfterFunc(d.retention, d.dropExpired)
+	slot.settle(stdout)
+}
+
+// claim hands a decided verdict to exactly ONE caller and takes it off the desk.
+//
+// It is the atomic half of the retention, and atomic is not decoration here: two
+// relays polling one delivery id, or an answer landing as one of them wakes, must
+// produce ONE printed decision. A verdict handed out twice is a gated tool the
+// provider runs twice.
+func (d *answerDesk) claim(slot *answerSlot) ([]byte, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.claimableLocked(slot) {
+		return nil, false
+	}
+	d.forgetLocked(slot)
+	return slot.stdout, true
+}
+
+// release takes an UNDECIDED slot off the desk and wakes its relay with nothing.
+//
+// A slot already holding a verdict keeps its place. The relay that asked may have
+// timed out or hung up, but the decision was really made — and dropping it here
+// would put the record and the CLI back out of step, which is the split this desk
+// retains verdicts to prevent.
+func (d *answerDesk) release(slot *answerSlot) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.claimableLocked(slot) {
+		return
+	}
+	d.forgetLocked(slot)
+	slot.settle(nil)
+}
+
+// discard takes a slot off the desk whatever state it is in, and reports whether
+// it was still holding a verdict nobody printed.
+func (d *answerDesk) discard(slot *answerSlot) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	decided := d.claimableLocked(slot)
+	d.forgetLocked(slot)
+	slot.settle(nil)
+	return decided
+}
+
+// dropExpired frees every verdict whose retention has run out. It runs on a timer
+// as well as on every desk mutation, so neither a runner that never dies nor a
+// daemon that goes idle can hold an uncollected verdict indefinitely.
+func (d *answerDesk) dropExpired() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dropExpiredLocked()
+}
+
+func (d *answerDesk) claimableLocked(slot *answerSlot) bool {
+	return !slot.spent &&
+		!slot.decidedAt.IsZero() &&
+		time.Since(slot.decidedAt) < d.retention
+}
+
+func (d *answerDesk) forgetLocked(slot *answerSlot) {
 	for id, held := range d.byDelivery {
 		if held == slot {
 			delete(d.byDelivery, id)
@@ -184,8 +306,23 @@ func (d *answerDesk) close(slot *answerSlot, stdout []byte) {
 	if held, ok := d.byChoice[slot.choiceID]; ok && held == slot {
 		delete(d.byChoice, slot.choiceID)
 	}
-	d.mu.Unlock()
-	slot.settle(stdout)
+	slot.spent = true
+	if slot.reap != nil {
+		slot.reap.Stop()
+		slot.reap = nil
+	}
+}
+
+func (d *answerDesk) dropExpiredLocked() {
+	var stale []*answerSlot
+	for _, slot := range d.byDelivery {
+		if !slot.decidedAt.IsZero() && time.Since(slot.decidedAt) >= d.retention {
+			stale = append(stale, slot)
+		}
+	}
+	for _, slot := range stale {
+		d.forgetLocked(slot)
+	}
 }
 
 // releaseRunner frees every relay a dead CLI owned, and reports which prompts
@@ -197,27 +334,45 @@ func (d *answerDesk) close(slot *answerSlot, stdout []byte) {
 // eventually release it, but the CHAT must not show a pending question for a
 // process that no longer exists — so the runner's death releases the slots at
 // once.
+//
+// Only the slots still WAITING on a human come back. A retained verdict is swept
+// as well — its relay died with the CLI, so nothing will ever print it — but its
+// prompt was answered, and reporting it as abandoned would overwrite a decision a
+// human really made.
 func (d *answerDesk) releaseRunner(runnerID string) []*answerSlot {
 	d.mu.Lock()
-	var doomed []*answerSlot
-	for _, slot := range d.byChoice {
-		if slot.runnerID == runnerID {
-			doomed = append(doomed, slot)
+	var blocked []*answerSlot
+	for _, slot := range d.slotsOfLocked(runnerID) {
+		decided := !slot.decidedAt.IsZero()
+		d.forgetLocked(slot)
+		if decided {
+			continue
 		}
-	}
-	for _, slot := range doomed {
-		for id, held := range d.byDelivery {
-			if held == slot {
-				delete(d.byDelivery, id)
-			}
-		}
-		delete(d.byChoice, slot.choiceID)
+		slot.settle(nil)
+		blocked = append(blocked, slot)
 	}
 	d.mu.Unlock()
-	for _, slot := range doomed {
-		slot.settle(nil)
+	return blocked
+}
+
+// slotsOfLocked collects every slot a runner owns, from BOTH indexes. byDelivery
+// is not a mirror of byChoice: a decided prompt has already left byChoice, and
+// its verdict lives only there, waiting for a relay to come and print it.
+func (d *answerDesk) slotsOfLocked(runnerID string) []*answerSlot {
+	owned := map[*answerSlot]bool{}
+	for _, slot := range d.byChoice {
+		owned[slot] = slot.runnerID == runnerID
 	}
-	return doomed
+	for _, slot := range d.byDelivery {
+		owned[slot] = slot.runnerID == runnerID
+	}
+	slots := make([]*answerSlot, 0, len(owned))
+	for slot, mine := range owned {
+		if mine {
+			slots = append(slots, slot)
+		}
+	}
+	return slots
 }
 
 // holdForAnswer registers a relay against the prompt an event just opened, when
@@ -310,31 +465,46 @@ func answerWait(declared time.Duration) time.Duration {
 // and nothing otherwise, so a timeout and a prompt resolved at the PTY both leave
 // the provider's own dialog standing — which is exactly the behaviour of a
 // Crowbar that was never installed.
+//
+// It claims BEFORE it blocks, because a relay routinely arrives late. The ack it
+// acted on and this call are two round trips from a separate process, and the
+// human may well have answered in between; a verdict decided before anybody asked
+// is still this relay's to print.
 func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswer, error) {
 	slot, held := u.answers.byDeliveryID(deliveryID)
 	if !held {
 		// Nothing is waiting under that id. It is not an error: the prompt may have
-		// been answered between the ingest response and this call, and a relay that
-		// asks about a slot that has gone should print nothing and exit, not retry.
+		// been answered and collected already, or its runner may have died, and a
+		// relay that asks about a slot that has gone should print nothing and exit.
 		return HookAnswer{}, nil
+	}
+	if stdout, claimed := u.answers.claim(slot); claimed {
+		return HookAnswer{Stdout: stdout}, nil
 	}
 	timer := time.NewTimer(answerWait(slot.keys.Wait))
 	defer timer.Stop()
 	select {
 	case <-slot.done:
-		return HookAnswer{Stdout: slot.stdout}, nil
+		stdout, _ := u.answers.claim(slot)
+		return HookAnswer{Stdout: stdout}, nil
 	case <-timer.C:
 		// The budget is deliberately shorter than the provider's own hook timeout, so
 		// expiring here is the relay exiting under Crowbar's control rather than being
-		// killed mid-write. The prompt stays pending: the human did not answer, but
-		// the CLI's dialog is now the thing asking, and the tool-completion sweep will
-		// clear the record when the work moves on.
-		u.answers.close(slot, nil)
+		// killed mid-write. A decision that landed in the same instant is still taken
+		// — this response is the one place it can be printed. Otherwise the prompt
+		// stays pending: the human did not answer, the CLI's dialog is now the thing
+		// asking, and the tool-completion sweep clears the record when work moves on.
+		if stdout, claimed := u.answers.claim(slot); claimed {
+			return HookAnswer{Stdout: stdout}, nil
+		}
+		u.answers.release(slot)
 		return HookAnswer{}, nil
 	case <-ctx.Done():
 		// The relay disconnected — killed, or its own deadline hit first. Free the
-		// slot so the prompt cannot be answered into a process that has gone.
-		u.answers.close(slot, nil)
+		// slot so an undecided prompt cannot be answered into a process that has
+		// gone. A verdict already decided is NOT claimed here: this response carries
+		// no body, so claiming would consume the bytes and throw them away.
+		u.answers.release(slot)
 		return HookAnswer{}, ctx.Err()
 	}
 }
@@ -351,12 +521,19 @@ func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswe
 //
 // A human who says YES needs no report: the gated tool completes, and the
 // observation half already resolves the prompt off that completion.
+//
+// A relay reporting this is already dying, so a verdict still sitting on the desk
+// for it will never be printed and is dropped with it. The RECORD is left alone
+// in that case: the prompt was answered in Crowbar, and rewriting that as
+// "decided elsewhere" would overwrite a decision a human really made.
 func (u *Usecase) AbandonAnswer(ctx context.Context, deliveryID string) error {
 	slot, held := u.answers.byDeliveryID(deliveryID)
 	if !held {
 		return nil
 	}
-	u.answers.close(slot, nil)
+	if decided := u.answers.discard(slot); decided {
+		return nil
+	}
 	u.note(ctx, "choice resolved elsewhere", u.activity.ResolveChoice(
 		ctx, slot.chatID, slot.choiceID, domain.ChoiceResolutionProceeded, time.Now(),
 	))
@@ -420,7 +597,7 @@ func (u *Usecase) AnswerChoice(
 	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
-	u.answers.close(slot, stdout)
+	u.answers.resolve(slot, stdout)
 	return nil
 }
 

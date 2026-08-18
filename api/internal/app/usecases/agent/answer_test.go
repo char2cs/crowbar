@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -734,4 +736,144 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	out := <-printed
 	assert.Contains(t, out, `"Deploy where?":"Cloud"`)
 	assert.NotContains(t, out, `"":"A"`, "an unnamed question gets no key rather than an empty one")
+}
+
+// allowedStdout is the exact document claude 2.1.234 accepts for an allowed Bash
+// permission, and what every relay in these ordering tests must end up printing.
+const allowedStdout = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
+	`"decision":{"behavior":"allow"}}}`
+
+// THE ORDERING IS THE TEST.
+//
+// The relay's lifecycle is two round trips from a separate process: it POSTs the
+// hook, the daemon acks with "stay alive", and only then does it POST
+// /hooks/await. A fast human answers in the gap. The answer used to resolve the
+// choice and take the slot off byDelivery at once, so the await that landed a
+// moment later found nothing — leaving Crowbar's record saying "answered" while
+// the CLI never received a byte and sat on a dialog nobody could clear. That
+// split is worse than an unanswerable prompt, because the record lies.
+//
+// So the verdict outlives the decision, and the late relay still collects it.
+func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+
+	// Answered with NO waiter parked: the relay's await POST has not landed yet.
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
+	f.wait()
+
+	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	require.NoError(t, err)
+	assert.JSONEq(t, allowedStdout, string(answer.Stdout),
+		"a relay that asked after the decision must still be handed it")
+
+	// And exactly once. A retained verdict is not a mailbox: the second relay on
+	// that delivery prints nothing, or the provider runs the gated tool twice.
+	second, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	require.NoError(t, err)
+	assert.Empty(t, second.Stdout, "a claimed verdict is gone")
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Choices, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
+}
+
+// The same window end to end, as a REAL race rather than a sequence: the answer
+// and the relay's arrival are released together and nothing here orders them.
+//
+// What it pins is that the OUTCOME is order-independent — the CLI is told,
+// exactly once, whoever won — and that neither ordering deadlocks. The two-sided
+// detector is the desk's own race test: a relay parks on a map lookup while an
+// answer renders and records, so at this level the relay almost always parks
+// first.
+func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+
+	for i := range 8 {
+		payload := permissionPayload()
+		payload["tool_input"] = map[string]any{"command": fmt.Sprintf("touch PROOF-%d", i)}
+		deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+		pending := pendingChoices(t, f, chatID)
+		require.Len(t, pending, 1)
+
+		printed := make(chan string, 1)
+		start := make(chan struct{})
+		var racers sync.WaitGroup
+		racers.Add(2)
+		go func() {
+			defer racers.Done()
+			<-start
+			answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+			assert.NoError(t, err)
+			printed <- string(answer.Stdout)
+		}()
+		go func() {
+			defer racers.Done()
+			<-start
+			assert.NoError(t, f.usecase.AnswerChoice(
+				f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
+		}()
+		close(start)
+		racers.Wait()
+		f.wait()
+
+		assert.JSONEq(t, allowedStdout, <-printed, "whoever won the race, the CLI is told")
+		require.Empty(t, pendingChoices(t, f, chatID))
+	}
+}
+
+// A verdict nobody collected is swept when the CLI dies: the relay that would
+// have printed it died with its provider, and hooks are spawned DETACHED, so
+// nothing else is ever coming for those bytes.
+//
+// The RECORD is left alone. The prompt really was answered in Crowbar, and
+// reporting it as abandoned would rewrite a decision a human made.
+func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
+	f.wait()
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	assert.False(t, waiting, "a dead CLI's uncollected verdict is swept off byDelivery")
+	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	require.NoError(t, err)
+	assert.Empty(t, answer.Stdout)
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Choices, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution,
+		"the answer a human really gave must not be rewritten as abandoned")
+}
+
+// A relay SIGTERMed after the decision but before it collected the verdict is
+// reporting its OWN death, not a decision made at the PTY. It takes the
+// uncollectable bytes with it and leaves the record alone.
+func TestAnswer_AbandonAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
+	f.wait()
+	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, deliveryID))
+	f.wait()
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Choices, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
+
+	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	require.NoError(t, err)
+	assert.Empty(t, answer.Stdout, "the relay that reported its own death collects nothing")
 }

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,5 +115,83 @@ func TestAnswerDesk_ReleaseRunnerFreesOnlyThatRunnersRelays(t *testing.T) {
 	case <-theirs.done:
 		t.Fatal("another runner's relay was released")
 	default:
+	}
+}
+
+// The verdict is RETAINED, not merely settled: nothing has to be parked on the
+// slot when the decision lands for a relay to collect it afterwards. That gap is
+// two HTTP round trips wide in production.
+func TestAnswerDesk_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
+	u, slot := deskFixture(time.Minute)
+
+	u.answers.resolve(slot, []byte("allow"))
+
+	held, waiting := u.answers.byDeliveryID("delivery-1")
+	require.True(t, waiting, "the decision waits on the desk for its relay")
+	assert.Same(t, slot, held)
+	_, answerable := u.answers.byChoiceID("choice-1")
+	assert.False(t, answerable, "while the prompt stops being answerable at once")
+
+	stdout, claimed := u.answers.claim(slot)
+	require.True(t, claimed)
+	assert.Equal(t, "allow", string(stdout))
+	_, stillWaiting := u.answers.byDeliveryID("delivery-1")
+	assert.False(t, stillWaiting, "and a claimed verdict is gone")
+}
+
+// A verdict nobody claims must not leak. A relay can die between the ack and the
+// await and never come back, so retention is bounded on the desk's own clock as
+// well as swept by the death of its runner.
+func TestAnswerDesk_AnUnclaimedVerdictDoesNotOutliveItsRetention(t *testing.T) {
+	u, slot := deskFixture(time.Minute)
+	u.answers.retention = -time.Second
+
+	u.answers.resolve(slot, []byte("allow"))
+
+	_, claimed := u.answers.claim(slot)
+	assert.False(t, claimed, "an expired verdict is not handed to a relay that came back late")
+
+	u.answers.dropExpired()
+	_, waiting := u.answers.byDeliveryID("delivery-1")
+	assert.False(t, waiting, "and the reaper frees it on a desk nothing else ever touches")
+}
+
+// The claim must be ATOMIC, not merely usually-once. Several relays polling one
+// delivery id while the answer lands between them is the production shape of this
+// race, and a verdict handed out twice is a gated tool the provider runs twice.
+//
+// It is a REAL race, and a two-sided one: one barrier releases four waiters and
+// the answer together. Instrumented over 200 iterations under -race, 92 claimed a
+// verdict that was already on the desk — the production window — and 108 claimed
+// one after parking on it.
+func TestAnswerDesk_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
+	for range 200 {
+		u, slot := deskFixture(time.Minute)
+		var printed atomic.Int64
+		var relays sync.WaitGroup
+		start := make(chan struct{})
+		for range 4 {
+			relays.Add(1)
+			go func() {
+				defer relays.Done()
+				<-start
+				answer, err := u.AwaitAnswer(context.Background(), "delivery-1")
+				assert.NoError(t, err)
+				if len(answer.Stdout) > 0 {
+					printed.Add(1)
+				}
+			}()
+		}
+		relays.Add(1)
+		go func() {
+			defer relays.Done()
+			<-start
+			u.answers.resolve(slot, []byte("allow"))
+		}()
+		close(start)
+		relays.Wait()
+
+		require.Equal(t, int64(1), printed.Load(),
+			"exactly one relay prints the decision, and no ordering loses it")
 	}
 }
