@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import { MessageSquareIcon, TerminalIcon, Trash2Icon } from 'lucide-react'
+import { Columns2Icon, MessageSquareIcon, TerminalIcon, Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
@@ -14,7 +14,12 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { getDefaultChatPresentation } from '@/features/settings/lib/chat-presentation'
+import {
+  getDefaultChatPresentation,
+  useSplitPresentationEnabled,
+  type ChatPresentation,
+} from '@/features/settings/lib/chat-presentation'
+import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
 import { AgentReturnToChatNotice, AgentTerminalWaitBanner } from './agent-terminal-wait-banner'
 import { ProviderSwitchDropdown } from './provider-switch-dropdown'
@@ -45,6 +50,30 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
   useTerminalStore.getState().updateSession(terminalSessionId, { connectionId: terminalSessionId })
   saveReconnect(wsId, terminalSessionId, terminalSessionId)
 }
+
+// ── The split view's geometry ─────────────────────────────────────────────
+//
+// A CLI TUI IS A FIXED-COLUMN GRID, and that is the only constraint here worth
+// spelling out. Squeeze a terminal and it does not scroll — it REFLOWS: box
+// drawing breaks apart, lines wrap mid-word, and the ground truth you opened the
+// split to read the chat AGAINST stops being readable. Every number below is one
+// answer to that, measured in the running app at the default terminal metrics
+// (~8.7px per column):
+//
+//   the DEFAULT gives the terminal the larger half, because the chat re-wraps to
+//     whatever it is handed and the TUI does not. On a full-width pane that lands
+//     the TUI at ~82 columns — a conventional screen, and the width the CLIs
+//     themselves lay out for.
+//   the FLOOR is a floor, not a working width: it stops a drag collapsing either
+//     half to a sliver you then cannot grab. A terminal held at it is narrow, and
+//     is meant to read as "you have dragged this too far".
+//   BELOW the side-by-side threshold there is no ratio that leaves the TUI usable,
+//     so the split STACKS instead of shrinking — a short terminal at the FULL pane
+//     width still wraps the way the CLI intended, where a tall narrow one does not.
+const SPLIT_MIN_HALF_PX = 340
+const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
+const SPLIT_MIN_STACKED_PX = 160
+const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
 // The pane's attach outcome.
 //
@@ -197,13 +226,30 @@ export function AgentChatPane({
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   // Seeded from the user's preference, never subscribed to it: a chat already open
   // keeps the surface it is on if the setting changes underneath it.
-  const [presentation, setPresentation] = useState<'chat' | 'terminal'>(
+  const [chosenPresentation, setPresentation] = useState<ChatPresentation>(
     getDefaultChatPresentation,
   )
+  // Is the dev split view on offer at all? SUBSCRIBED, unlike the landing
+  // preference above, because this one is about what EXISTS rather than where a
+  // chat starts — the switcher has to grow and lose its third button live.
+  const splitEnabled = useSplitPresentationEnabled()
+  // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
+  // dev toggle off cannot strand a chat on a surface whose button has just gone:
+  // there is no state to write back, and no frame in which the two disagree.
+  const presentation: ChatPresentation =
+    chosenPresentation === 'split' && !splitEnabled ? 'chat' : chosenPresentation
+  const splitting = presentation === 'split'
   // Whether the way back to the chat is being OFFERED. See AgentReturnToChatNotice:
   // it is what Crowbar shows when it moved somebody to the terminal and then
   // cannot move them back without overriding a choice they made themselves.
   const [returnOffered, setReturnOffered] = useState(false)
+  // WHICH HALF OF THE SPLIT OWNS THE KEYBOARD. Two live surfaces means two things
+  // that can eat a keystroke, and the terminal is the greedy one — xterm re-focuses
+  // itself, with retries, whenever it is told it is active. So it is only told that
+  // while it actually holds the caret, and this follows REAL DOM FOCUS (the halves
+  // report it on focus-capture) rather than trying to predict it. The composer wins
+  // by default: typing a prompt into a terminal by accident is the worse mistake.
+  const [splitFocus, setSplitFocus] = useState<'chat' | 'terminal'>('chat')
   // Re-seed PER CHAT, not per mount — that distinction is the whole fix. This pane
   // is RETAINED across chat selection, so a lazy useState initializer runs once for
   // the pane's entire life: turning the preference off and opening a chat did
@@ -219,8 +265,15 @@ export function AgentChatPane({
   if (seededFor !== shownChatId) {
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: React's documented "adjust state when a prop changes" pattern. An effect would paint the previous chat's surface for a frame first, which is the flicker this exists to avoid.
     setSeededFor(shownChatId)
-    setPresentation(getDefaultChatPresentation())
+    // Split is an INSTRUMENT the user reached for, not a landing surface, so it
+    // is the one thing here that survives the re-seed: somebody comparing what
+    // Crowbar recorded against what the CLI actually printed is doing it to
+    // whichever chat they look at next, and dropping them back to Chat on every
+    // selection would take the instrument away mid-investigation. Chat and
+    // Terminal re-seed exactly as they did before.
+    if (!splitting) setPresentation(getDefaultChatPresentation())
     setReturnOffered(false)
+    setSplitFocus('chat')
   }
   const [queuedPromptCount, setQueuedPromptCount] = useState(0)
   const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
@@ -251,6 +304,38 @@ export function AgentChatPane({
   const rootRef = useRef<HTMLDivElement>(null)
   const columnRef = useRef<HTMLDivElement>(null)
   const terminalApiRef = useRef<{ focus: () => void } | null>(null)
+
+  // The split's own three boxes: the container that defines 100%, and the two
+  // halves PaneSash mutates imperatively during a drag. They are the SAME divs
+  // that hold each surface in the other two modes — one element per surface,
+  // whichever mode is on — so nothing about chat or terminal changes shape when
+  // the diagnostic is off.
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const chatSurfaceRef = useRef<HTMLDivElement>(null)
+  const terminalSurfaceRef = useRef<HTMLDivElement>(null)
+  const [splitSizes, setSplitSizes] = useState<[number, number]>(SPLIT_DEFAULT_SIZES)
+  // Side by side, or stacked? The PANE's width decides, not the window's — a
+  // narrow pane inside a wide window is exactly the case a viewport media query
+  // gets wrong. Only observed while the split is up; the other two modes pay
+  // nothing for it.
+  const [splitStacked, setSplitStacked] = useState(false)
+
+  useEffect(() => {
+    const container = splitContainerRef.current
+    if (!splitting || !container) return
+    const measure = () => {
+      // A ZERO WIDTH IS "NOT MEASURED YET", NOT "NARROW". The first read can land
+      // before layout — and answering it with `stacked` makes the split flash
+      // vertical on the way in, then jump. Side by side is the shape this is FOR,
+      // so an unknown width keeps it.
+      const width = container.getBoundingClientRect().width
+      setSplitStacked(width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    measure()
+    return () => observer.disconnect()
+  }, [splitting])
 
   // A TERMINAL DOES NOT RENDER TO THE EDGE OF ITS OWN BOX.
   //
@@ -696,7 +781,15 @@ export function AgentChatPane({
       // Take them there — but only if they are watching this chat. A surprise
       // navigation in a pane nobody is looking at is worse than the banner they
       // will find when they come back, and the banner is up either way.
-      if (presentation === 'terminal' || !userIsWatching()) return
+      //
+      // AN ESCORT ONLY EXISTS BECAUSE THE TERMINAL IS SOMEWHERE ELSE. In split it
+      // is not: it is on screen, beside the chat, and there is nothing to move
+      // anybody to. So the split declines the whole transaction — no navigation
+      // now, and (because escortRef stays 'none') no return trip and no offer
+      // when the prompt clears. Collapsing the split to terminal-only would be
+      // strictly worse than doing nothing: it would take away the chat half the
+      // user is deliberately watching, to show them something already in view.
+      if (presentation !== 'chat' || !userIsWatching()) return
       // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: this is a NAVIGATION on an edge, not a derivation. The surface must outlive the value that moved it: when `waiting` clears we may deliberately NOT switch back, so `presentation` cannot be computed from it.
       setPresentation('terminal')
       escortRef.current = 'sent'
@@ -727,16 +820,32 @@ export function AgentChatPane({
 
   // The user picking a surface ends Crowbar's claim on it. Picking Chat ends it
   // outright — they are already back, so there will be nothing to offer later.
-  const chooseSurface = (next: 'chat' | 'terminal') => {
-    if (escortRef.current !== 'none') escortRef.current = next === 'chat' ? 'none' : 'released'
-    if (next === 'chat') setReturnOffered(false)
+  //
+  // SPLIT COUNTS AS BEING BACK, for exactly that reason: it SHOWS the chat. An
+  // offer to "return to chat" raised over a surface with the chat already on it
+  // would be nonsense, so the claim is dropped rather than released.
+  const chooseSurface = (next: ChatPresentation) => {
+    if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
+    if (next !== 'terminal') setReturnOffered(false)
+    // Arrive with the caret where the user just was. Coming from Terminal they
+    // were typing at the CLI; coming from Chat they were typing a prompt.
+    if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
     setPresentation(next)
   }
 
   // The banner's own button. They are going because Crowbar asked them to, so it
   // owes them the way back — but it did not move them, so it must not move them
   // back unasked either. 'released' is exactly that: offer, never take.
+  //
+  // In split there is nowhere to go, so the button does the only useful thing
+  // left: it puts the CARET in the terminal, which is what the user wanted from
+  // it anyway. It must not collapse the split — see onWaitEdge.
   const openTerminalFromBanner = () => {
+    if (splitting) {
+      setSplitFocus('terminal')
+      terminalApiRef.current?.focus()
+      return
+    }
     escortRef.current = 'released'
     setPresentation('terminal')
   }
@@ -759,6 +868,20 @@ export function AgentChatPane({
     if (attachment.state !== 'attached' || presentation !== 'terminal') return
     if (e.target !== rootRef.current && e.target !== columnRef.current) return
     e.preventDefault()
+    terminalApiRef.current?.focus()
+  }
+
+  // The split's version, and the reason it is a SEPARATE handler rather than a
+  // looser guard on the one above: in split the pane's gutters and the column's
+  // padding sit outside BOTH halves, so a click there names no surface at all and
+  // must not be answered by handing the keyboard to the terminal — that is
+  // precisely how a composer loses the keystroke the user is mid-way through.
+  // Only the terminal half's own empty strip counts, and the whitelist says so.
+  const focusTerminalFromSplitEmptySpace = (e: React.MouseEvent) => {
+    if (attachment.state !== 'attached') return
+    if (e.target !== terminalSurfaceRef.current) return
+    e.preventDefault()
+    setSplitFocus('terminal')
     terminalApiRef.current?.focus()
   }
 
@@ -807,13 +930,46 @@ export function AgentChatPane({
           padding and the gutters are invisible — you see breathing room, not a box. */}
       <div
         ref={columnRef}
-        className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4"
+        className={cn(
+          'mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pt-4',
+          // The reading column exists so one surface does not run to 164 characters.
+          // Two surfaces have the opposite problem, so the split takes the pane.
+          splitting ? 'max-w-none' : 'max-w-4xl',
+        )}
       >
-        <div className="relative min-h-0 flex-1">
+        <div
+          ref={splitContainerRef}
+          className={cn(
+            'relative min-h-0 flex-1',
+            splitting && (splitStacked ? 'flex flex-col' : 'flex flex-row'),
+          )}
+        >
           {/* Both presentations stay mounted. Keeping the queue mounted is what makes
               a Terminal detour non-destructive; keeping xterm mounted preserves its
-              screen model while Chat is in front. Only the selected surface is active. */}
-          <div className={cn('h-full', presentation === 'chat' ? '' : 'hidden')}>
+              screen model while Chat is in front. Only the selected surface is active.
+
+              `hidden` IS THE DORMANCY MECHANISM, not a cosmetic. A surface under
+              display:none stops laying out, stops observing and — for xterm —
+              stops drawing, which is why chat and terminal cost nothing while the
+              other is up. Split deliberately gives that up for BOTH halves: it is
+              a diagnostic, it is off by default, and the whole point is that the
+              two are rendering at the same instant so a discrepancy between them
+              is a discrepancy in the data rather than in the timing. */}
+          <div
+            ref={chatSurfaceRef}
+            data-testid="agent-chat-surface"
+            data-surface-focused={splitting ? String(splitFocus === 'chat') : undefined}
+            onFocusCapture={splitting ? () => setSplitFocus('chat') : undefined}
+            className={cn(
+              splitting
+                ? cn(
+                    'relative min-h-0 min-w-0 shrink grow-0 rounded-lg border',
+                    splitFocus === 'chat' ? 'border-ring' : 'border-transparent',
+                  )
+                : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
+            )}
+            style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
+          >
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
               ref={chatViewRef}
@@ -824,9 +980,23 @@ export function AgentChatPane({
               working={working}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
-              active={presentation === 'chat'}
+              // In split the chat is genuinely in front of the user, so it is
+              // genuinely active: it dispatches its queue, refreshes its catalog
+              // and answers the barrier exactly as it does on its own.
+              active={presentation === 'chat' || splitting}
               visible={isVisible}
-              onOpenTerminal={() => setPresentation('terminal')}
+              onOpenTerminal={() => {
+                // Unchanged outside split — the chat view's own way through to the
+                // terminal, with no claim on bringing anybody back. In split there
+                // is nothing to open, so it hands over the CARET instead; see
+                // openTerminalFromBanner for why collapsing would be worse.
+                if (splitting) {
+                  setSplitFocus('terminal')
+                  terminalApiRef.current?.focus()
+                  return
+                }
+                setPresentation('terminal')
+              }}
               terminalWaiting={waiting}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
@@ -902,15 +1072,63 @@ export function AgentChatPane({
             )}
           </div>
 
-          <div className={cn('h-full', presentation === 'terminal' ? '' : 'hidden')}>
+          {splitting && (
+            <PaneSash
+              direction={splitStacked ? 'vertical' : 'horizontal'}
+              sizes={splitSizes}
+              containerRef={splitContainerRef}
+              firstPaneRef={chatSurfaceRef}
+              secondPaneRef={terminalSurfaceRef}
+              onResizeCommit={setSplitSizes}
+              // The TUI's floor, not the pane grid's — see SPLIT_MIN_HALF_PX.
+              minPx={splitStacked ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
+            />
+          )}
+
+          <div
+            ref={terminalSurfaceRef}
+            // Layout chrome, exactly like the root above: the mousedown handler
+            // is whitelisted to clicks that land on THIS div and nowhere else —
+            // the strip of the half the terminal's character grid does not reach
+            // — so it is dead space being pointed back at the terminal, not a
+            // control. role="presentation" says so; the terminal inside keeps
+            // every role it has.
+            role="presentation"
+            data-testid="agent-terminal-surface"
+            data-surface-focused={splitting ? String(splitFocus === 'terminal') : undefined}
+            onFocusCapture={splitting ? () => setSplitFocus('terminal') : undefined}
+            onMouseDown={splitting ? focusTerminalFromSplitEmptySpace : undefined}
+            className={cn(
+              splitting
+                ? cn(
+                    'relative min-h-0 min-w-0 shrink grow-0 rounded-lg border',
+                    splitFocus === 'terminal' ? 'border-ring' : 'border-transparent',
+                  )
+                : cn('h-full', presentation === 'terminal' ? '' : 'hidden'),
+            )}
+            style={splitting ? { flexBasis: `${splitSizes[1]}%` } : undefined}
+          >
             {attachment.state === 'attached' && (
               // NO key={sessionId}. Runner replacement swaps the PTY imperatively
               // instead of rebuilding xterm; runner movement keeps the same PTY.
+              //
+              // isActive IS FOCUS, not liveness — it is what makes xterm grab the
+              // caret back, with retries. In split it is therefore gated on the
+              // terminal half actually holding the keyboard, or a user typing into
+              // the composer would lose the rest of their sentence to the TUI.
+              // isVisible is the liveness half, and in split it is simply true:
+              // both surfaces really are on screen. Both still hang off the pane's
+              // own axes, so a split in a hidden tab stays as dormant as one in
+              // terminal mode does.
               <XtermTerminal
                 sessionId={attachment.sessionId}
                 workspaceId={wsId}
-                isActive={isActivePane && isVisible && presentation === 'terminal'}
-                isVisible={isVisible && presentation === 'terminal'}
+                isActive={
+                  isActivePane &&
+                  isVisible &&
+                  (presentation === 'terminal' || (splitting && splitFocus === 'terminal'))
+                }
+                isVisible={isVisible && presentation !== 'chat'}
                 attachOnly
                 flush
                 onTerminalRef={(api) => {
@@ -919,13 +1137,13 @@ export function AgentChatPane({
                 onSessionGone={handleSessionGone}
               />
             )}
-            {presentation === 'terminal' && attachment.state === 'reviving' && (
+            {presentation !== 'chat' && attachment.state === 'reviving' && (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
                 <FlickerSpinner className="size-6 text-foreground" />
                 <p className="text-muted-foreground text-center text-sm">{attachment.message}</p>
               </div>
             )}
-            {presentation === 'terminal' && attachment.state === 'idle' && (
+            {presentation !== 'chat' && attachment.state === 'idle' && (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
                 <p className="text-muted-foreground max-w-sm text-center text-sm">
                   {attachment.reason === 'failed'
@@ -1003,6 +1221,20 @@ export function AgentChatPane({
             >
               <TerminalIcon /> Terminal
             </Button>
+            {/* The diagnostic's only way in, and it is absent unless BOTH gates
+                are open — a development build, and the Developer tab's switch. With
+                it off the switcher is byte-for-byte the two-button control it has
+                always been, which is the regression that actually matters. */}
+            {splitEnabled && (
+              <Button
+                size="xs"
+                variant={splitting ? 'secondary' : 'ghost'}
+                aria-pressed={splitting}
+                onClick={() => chooseSurface('split')}
+              >
+                <Columns2Icon /> Split
+              </Button>
+            )}
           </div>
           <ProviderSwitchDropdown
             providers={providers}

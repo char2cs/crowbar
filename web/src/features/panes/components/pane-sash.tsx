@@ -14,6 +14,13 @@ interface PaneSashProps {
   secondPaneRef: React.RefObject<HTMLDivElement | null>
   /** Commit final percentages on pointer-up. */
   onResizeCommit: (sizes: [number, number]) => void
+  /**
+   * Smallest pixel size either side may be dragged to. Defaults to the pane
+   * grid's own minimum — a pane collapsed to a sliver is still a pane, and the
+   * user can always drag it back. A caller whose content stops MEANING anything
+   * below a width (a fixed-column TUI reflows into uselessness) raises it.
+   */
+  minPx?: number
 }
 
 /**
@@ -37,6 +44,7 @@ export function PaneSash({
   firstPaneRef,
   secondPaneRef,
   onResizeCommit,
+  minPx = MIN_PANE_SIZE,
 }: PaneSashProps) {
   const isHorizontal = direction === 'horizontal'
   const sashRef = useRef<HTMLDivElement>(null)
@@ -145,7 +153,7 @@ export function PaneSash({
         const cPx = measureContainerPx()
         containerPxRef.current = cPx
         const pointerPx = isHorizontal ? ev.clientX - rect.left : ev.clientY - rect.top
-        const [fPct, sPct] = pxToPercents(cPx, pointerPx, MIN_PANE_SIZE)
+        const [fPct, sPct] = pxToPercents(cPx, pointerPx, minPx)
         const [fPx, sPx] = percentsToPx(cPx, [fPct, sPct])
         liveFirstPx.current = fPx
         const first = firstPaneRef.current
@@ -165,7 +173,7 @@ export function PaneSash({
 
         const cPx = containerPxRef.current
         const finalSizes =
-          cPx > 0 ? pxToPercents(cPx, liveFirstPx.current, MIN_PANE_SIZE) : sizesRef.current
+          cPx > 0 ? pxToPercents(cPx, liveFirstPx.current, minPx) : sizesRef.current
 
         // Drop the inline imperative sizes so React's percentage flex-basis
         // (driven by the committed store state) takes over again.
@@ -186,7 +194,15 @@ export function PaneSash({
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
     },
-    [containerRef, firstPaneRef, secondPaneRef, isHorizontal, measureContainerPx, teardownDrag],
+    [
+      containerRef,
+      firstPaneRef,
+      secondPaneRef,
+      isHorizontal,
+      measureContainerPx,
+      minPx,
+      teardownDrag,
+    ],
   )
 
   return (
