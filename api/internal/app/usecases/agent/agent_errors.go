@@ -19,6 +19,22 @@ var (
 	ErrSlashCatalogSuperseded  = fmt.Errorf("agent: slash catalog request was superseded by a newer request: %w", apperr.ErrConflict)
 )
 
+// ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
+// before its runner row could even be persisted.
+//
+// Crowbar hosts the ordinary INTERACTIVE CLI in a real PTY — the engine's hardest
+// constraint, asserted by every descriptor's spawn.interactive_required — so a
+// process that exits on the spot has not started, whatever its exit code. Handing
+// the caller a chat with a corpse behind it would be a chat whose pane attaches to
+// a PTY that is already gone.
+//
+// It wraps apperr.ErrFailedDependency (424), the same class as a vendor CLI that
+// is not installed at all: the request was well-formed and the daemon is healthy,
+// and what failed is a dependency the user can act on — an expired login, a broken
+// install, a CLI that refuses this workspace.
+var ErrProviderExitedDuringStartup = fmt.Errorf(
+	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency)
+
 // ErrProviderDisabled is returned when a request names an agent provider the
 // user has switched OFF in the global preference table.
 //

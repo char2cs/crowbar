@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -712,6 +713,74 @@ func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
 	require.Equal(t, 1, f.term.callCount())
 	assert.Contains(t, f.term.terminatedIDs(), "term-1",
 		"a CLI nothing points at must never be left running")
+}
+
+// TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat pins the rule
+// TestRegression_DisabledProviderIsRefusedNotJustHidden already states in words — "a
+// refused spawn must not leave a chat behind" — on the two refusals that actually
+// broke it.
+//
+// A provider refused BEFORE anything is written (a disabled one, an unresolvable
+// descriptor, a CLI that is not installed) never had a chat to leave, which is why
+// that rule looked kept. The chat is written mid-spawn, by recordRunner, and BOTH
+// refusals downstream of it returned the error while leaving the chat standing: a CLI
+// that exits during startup (424) and a runner row that will not commit (500). The
+// caller was told the spawn failed and could then list the chat it had made — the
+// record contradicting its own response, the same defect class as a prompt recorded
+// `answered` whose bytes never reached the CLI.
+//
+// The frame sequence is what makes this non-vacuous: it asserts the chat was really
+// CREATED before it was deleted, so the test cannot pass by the spawn failing earlier
+// than the bug it is about.
+func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		arm  func(f testFixture, rs *fakeRunnerStore)
+	}{
+		{
+			// The production case: `true` as a vendor CLI — a process that swears it is
+			// interactive and is already gone by the time its row could be written.
+			name: "the CLI exits during startup",
+			arm: func(f testFixture, _ *fakeRunnerStore) {
+				f.term.duringForkCall = func(call commandCall) { call.onExit() }
+			},
+		},
+		{
+			name: "the runner row will not commit",
+			arm: func(_ testFixture, rs *fakeRunnerStore) {
+				rs.failStart = fmt.Errorf("boom: start runner: %w", asynxModels.ErrValidation)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _, rs := newFaultFixture(t)
+			tc.arm(f, rs)
+
+			chatID, runnerID, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+			require.Error(t, err)
+			assert.Empty(t, chatID, "a refused create hands back no chat")
+			assert.Empty(t, runnerID)
+			f.wait()
+
+			assert.Equal(t, []string{"created", "deleted"}, f.bcKinds(t),
+				"the chat was written and then taken back out — not merely never written")
+
+			var born string
+			for _, frame := range f.bc.snapshot() {
+				if frame.kind == "created" {
+					born = frame.chatID
+				}
+			}
+			require.NotEmpty(t, born, "precondition: the spawn got far enough to write a chat")
+
+			_, getErr := f.chats.GetChat(f.ctx, born)
+			assert.ErrorIs(t, getErr, agentchat.ErrNotFound,
+				"the aggregate is Forgotten, not just hidden from the list")
+			listed, err := f.chats.ListChats(f.ctx)
+			require.NoError(t, err)
+			assert.Empty(t, listed, "a refused spawn must not leave a chat behind")
+		})
+	}
 }
 
 func TestSpawnChat_CreateCommandFailure_ReturnsWrappedError(t *testing.T) {

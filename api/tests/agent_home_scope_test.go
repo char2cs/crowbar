@@ -15,14 +15,14 @@ import (
 // so the FE Chats tab works for a home workspace exactly as the spec requires.
 func TestRegression_AgentChatsWorkOnHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
 	homeBase := "/v0/projects/" + imported.projectID + "/home"
 
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(homeBase+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &created)
+	h.post(homeBase+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 

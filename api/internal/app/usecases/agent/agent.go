@@ -221,6 +221,11 @@ type Usecase struct {
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
 	answers *answerDesk
+	// rewake is the desk of prompt COLLECTORS currently blocked on a message. It
+	// is in memory for the same reason answers is — a slot describes a live hook
+	// process — and it holds a message only for the instant of a handoff, never as
+	// a queue; see rewake.go.
+	rewake *rewakeDesk
 	// minter issues the per-runner token an MCP call is authenticated by. It is
 	// held here because the spawn path is what hands a runner its token, and a
 	// runner's token must be minted by the same secret DispatchMCP verifies
@@ -285,6 +290,7 @@ func New(
 		hookDeliveries: newHookDeliveryJournal(),
 		catalogs:       newCatalogRuns(),
 		answers:        newAnswerDesk(),
+		rewake:         newRewakeDesk(),
 		tools:          tools,
 		minter:         minter,
 	}
@@ -314,6 +320,12 @@ func New(
 // mints it, places it, and only then calls StartRunner, because a thread has to
 // carry its parent edge before any CLI reads it. Keeping the two apart is
 // deliberate — a plain new chat is created in exactly the order it always was.
+//
+// A create that FAILS creates nothing. The chat is written mid-spawn (recordRunner),
+// so a spawn that dies after that point — a CLI that exits during startup, a runner
+// row that will not commit — would otherwise answer "the spawn failed" while leaving
+// the chat standing. discardSpawnedChat takes it back out, so the response and the
+// state say the same thing.
 func (u *Usecase) SpawnChat(
 	ctx context.Context,
 	workspaceID string,
@@ -324,7 +336,7 @@ func (u *Usecase) SpawnChat(
 
 	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
 	if err != nil {
-		return "", "", err
+		return "", "", u.discardSpawnedChat(ctx, chatID, err)
 	}
 	return chatID, runnerID, nil
 }
@@ -568,6 +580,27 @@ func (u *Usecase) PurgeChat(
 	// spawning a real process and leaving its tmp dir behind. Serialising is a line.
 	defer u.spawns.lock(chatID)()
 
+	return u.purgeChatLocked(ctx, chatID)
+}
+
+// purgeChatLocked is PurgeChat's whole body with the gate ALREADY HELD — the same
+// split switchProviderLocked makes, and for the same reason: the gate is not
+// re-entrant, so a path that already holds a chat's gate cannot reach the delete
+// through its exported door.
+//
+// Its second caller is a create that failed. SpawnChat holds the gate across the
+// whole spawn (a fresh uuid, so uncontended by construction) and has to take the
+// half-made chat back out from INSIDE that section. Releasing the gate first and
+// then calling PurgeChat would work mechanically, but it would publish the very
+// state the create is disowning: for the width of that window the chat exists,
+// unlocked, and any other gated path — a switch, a resume, a delete — could take
+// it and act on a chat whose creator has already decided it does not exist.
+// Sharing the locked body keeps "created and refused" atomic under the one lock
+// that orders this chat, which is what a caller told 424 is entitled to assume.
+func (u *Usecase) purgeChatLocked(
+	ctx context.Context,
+	chatID string,
+) error {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
@@ -622,6 +655,40 @@ func (u *Usecase) PurgeChat(
 	}
 	RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 	return nil
+}
+
+// discardSpawnedChat takes a chat back out when the create that minted it failed
+// after it was already written, and hands back the failure that caused it. It is
+// SpawnChat's counterpart to agentchatfolder.CreateChat's discard, and it is
+// called with the chat's spawn gate already held (hence purgeChatLocked).
+//
+// A refused create that leaves a chat behind is the record contradicting its own
+// response: the API says the spawn failed, the state says a chat exists, and the
+// user is left holding a chat they never successfully made — the same defect class
+// as a prompt recorded `answered` whose bytes never reached the CLI, and a spinner
+// still spinning after the CLI is done. Whichever half the client believes, the
+// other half is lying to it.
+//
+// It is a no-op when the spawn failed BEFORE the chat was written (a disabled
+// provider, an unresolvable descriptor, a CLI that is not installed): there is
+// nothing to take back, so a missing chat is the expected answer and not worth a
+// log line.
+//
+// The purge itself is best-effort and NEVER replaces the cause. What the user
+// asked for was a chat, and that is what failed, so that is what they are told; a
+// purge that fails on top of it leaves a dormant chat, which is visible in the
+// panel and deletable by hand — a far better outcome than reporting an error other
+// than the one that actually happened.
+func (u *Usecase) discardSpawnedChat(
+	ctx context.Context,
+	chatID string,
+	cause error,
+) error {
+	if err := u.purgeChatLocked(ctx, chatID); err != nil && !errors.Is(err, agentchat.ErrNotFound) {
+		slog.WarnContext(ctx, "agent: discard chat of a refused spawn (best-effort, reporting the spawn failure)",
+			"chat_id", chatID, "err", err)
+	}
+	return cause
 }
 
 // retireChatRunners takes EVERY vendor CLI on chatID off that chat and kills it. A dormant
@@ -1110,6 +1177,20 @@ func (u *Usecase) spawnRunner(
 	// Keep the barrier installed throughout replay. A hook arriving while an
 	// earlier buffered hook is being applied joins the next batch, so it cannot
 	// overtake session_start or user_prompt on the normal persisted-runner path.
+	//
+	// exitedDuringStartup means exactly one thing, and it is narrower than its name:
+	// the PTY died BEFORE the runner row committed, so the exit callback had no row
+	// to reconcile against and left the fact here instead. It is a RACE the CLI has
+	// to lose to be caught — one that dies 50ms later wins it, gets a 201, and
+	// reconciles through onRunnerExit into an ordinary DORMANT chat.
+	//
+	// So 424 is not a guarantee that a chat handed back has a living CLI behind it,
+	// and nothing may be built on reading it that way. Both outcomes are honest and
+	// both are visible — a refusal that names the dependency, or a chat the panel
+	// already draws as dormant with no runner on it — and the only way to collapse
+	// them into one deterministic answer would be to wait or probe after EVERY
+	// spawn, paying latency on the common path to close a corner. That is the trade,
+	// deliberately made in this direction; it is not an oversight to be tightened.
 	exitedDuringStartup := u.pendingHooks.finish(runnerID, func(hook pendingRunnerHook) {
 		u.replayStartupHook(runnerID, hook)
 	})
@@ -1118,7 +1199,7 @@ func (u *Usecase) spawnRunner(
 		// every hook the provider emitted before dying has had its ordered chance
 		// to update the ledger and prompt journal.
 		u.reconcileRunnerExit(context.Background(), runnerID)
-		return "", fmt.Errorf("agent: spawn runner: provider process exited during startup")
+		return "", ErrProviderExitedDuringStartup
 	}
 	return runnerID, nil
 }
@@ -1986,136 +2067,188 @@ func (u *Usecase) handleTurn(
 
 	switch ev.Kind {
 	case "user_prompt":
-		// A new turn starts, so the transcript row the LAST turn's final message
-		// landed on stops being something this turn may close onto. The position in
-		// the file is untouched; only the row is forgotten. See beginTurn.
-		u.beginTranscriptTurn(agent, ev)
-		// Crowbar's own context document coming back at us: a provider whose only
-		// resume channel is a user message (codex) fires user_prompt with the very
-		// handoff we injected. That is not something the user said — recording it would
-		// put the handoff in the ledger as a "user" turn, and the NEXT handoff would
-		// then quote it inside itself (the nesting seen live). Drop it from the ledger
-		// and from title derivation, but still open the turn: the CLI really is working
-		// on it, and the workspace's working overlay must say so.
-		if u.agents.WasInjected(runner.ID, ev.Message) {
-			started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
-			if err != nil {
-				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
-			}
-			u.work.set(chat.ID, started.Working)
-			u.turns.begin(runner.ID, chat.ID)
-			u.openAssistantTurn(ctx, chat, runner)
-			return nil
-		}
-		// The PROVIDER's own harness talking to its own model on the user's hook: a
-		// background-subagent completion report is the measured case, and the ledger
-		// recorded every one of them as something the user said. It is the sibling of
-		// the branch above and deliberately not a copy of it — that one drops the text
-		// because Crowbar wrote it and already has it, and this one must NOT, because
-		// this text is real context the agent received and its next answer refers to
-		// it. Dropped, the reply would have no antecedent; attributed, the user is
-		// quoted saying something they never wrote, which is what get_chat_log was
-		// serving to other agents. So it is recorded under its own role.
-		//
-		// No derived title: a chat named after a subagent's completion report is named
-		// after nothing its user did. The turn still opens — the agent genuinely is
-		// about to work on this — and no prompt-delivery journal is advanced, because
-		// nothing Crowbar queued was accepted here.
-		if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
-			slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
-				"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
-				"kind", injected.Kind, "needle", injected.Needle)
-			started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
-			if err != nil {
-				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
-			}
-			u.work.set(chat.ID, started.Working)
-			u.turns.begin(runner.ID, chat.ID)
-			appendErr := u.appendRunnerTurn(
-				ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-				domain.TurnRoleHarness, ev.Message,
-			)
-			u.openAssistantTurn(ctx, chat, runner)
-			return appendErr
-		}
-		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
-			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
-		}
-		// A user prompt opens the turn: mark the chat Working so the read model (and
-		// the workspace spinner) see a live turn.
+		return u.openTurnFromPrompt(ctx, chat, runner, agent, ev)
+	case "turn_stop":
+		return u.closeTurnFromStop(ctx, chat, runner, agent, ev)
+	}
+	return nil
+}
+
+// openTurnFromPrompt applies a user-prompt hook: it decides whose words arrived,
+// records them under that author, and opens the reply they are about to produce.
+func (u *Usecase) openTurnFromPrompt(
+	ctx context.Context,
+	chat domain.AgentChat,
+	runner domain.AgentRunner,
+	agent engineagents.Agent,
+	ev engineagents.CanonicalEvent,
+) error {
+	// A new turn starts, so the transcript row the LAST turn's final message
+	// landed on stops being something this turn may close onto. The position in
+	// the file is untouched; only the row is forgotten. See beginTurn.
+	u.beginTranscriptTurn(agent, ev)
+	// WHOSE WORDS ARE THESE? Three different authors reach this one hook, and
+	// under the rewake delivery channel all three reach it FROM THE SAME LIVE
+	// PROCESS — so unlike a restart, where the process emitting the hook was the
+	// process Crowbar spawned with the prompt in its argv, nothing about the
+	// runner answers the question. It is asked here explicitly, and the order is
+	// load-bearing.
+	//
+	// Crowbar's own delivery is asked FIRST, because the wrapper a rewake
+	// arrives in OPENS with exactly the `<task-notification>` document the
+	// harness check below matches on. Asked the other way round, every message
+	// the user typed would match that needle and be filed under the harness's
+	// name — which is to say deleted from the user's own side of their
+	// conversation, a worse failure than the restart this channel removes.
+	//
+	// The proof is the sentinel inside the wrapper: Crowbar authors it, hands it
+	// to the provider at spawn, and nothing else ever writes it (see the
+	// engine's rewake package). A match is therefore certainty rather than
+	// resemblance, which is why byCrowbar then SKIPS both checks below: this
+	// text is the user's, and no content rule may take it off them.
+	message := ev.Message
+	byCrowbar := false
+	if text, ok := engineagents.MatchRewakePrompt(agent, message); ok {
+		message, byCrowbar = text, true
+	}
+	// Crowbar's own context document coming back at us: a provider whose only
+	// resume channel is a user message (codex) fires user_prompt with the very
+	// handoff we injected. That is not something the user said — recording it would
+	// put the handoff in the ledger as a "user" turn, and the NEXT handoff would
+	// then quote it inside itself (the nesting seen live). Drop it from the ledger
+	// and from title derivation, but still open the turn: the CLI really is working
+	// on it, and the workspace's working overlay must say so.
+	if !byCrowbar && u.agents.WasInjected(runner.ID, message) {
 		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
 		if err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 		}
 		u.work.set(chat.ID, started.Working)
-		// And record it as IN FLIGHT, which is the same fact without the read model's lag
-		// in front of it — a provider switch blocks on this rather than on Working, so that
-		// it never quits a CLI that is still answering (turnWaits).
+		u.turns.begin(runner.ID, chat.ID)
+		u.openAssistantTurn(ctx, chat, runner)
+		return nil
+	}
+	// The PROVIDER's own harness talking to its own model on the user's hook: a
+	// background-subagent completion report is the measured case, and the ledger
+	// recorded every one of them as something the user said. It is the sibling of
+	// the branch above and deliberately not a copy of it — that one drops the text
+	// because Crowbar wrote it and already has it, and this one must NOT, because
+	// this text is real context the agent received and its next answer refers to
+	// it. Dropped, the reply would have no antecedent; attributed, the user is
+	// quoted saying something they never wrote, which is what get_chat_log was
+	// serving to other agents. So it is recorded under its own role.
+	//
+	// No derived title: a chat named after a subagent's completion report is named
+	// after nothing its user did. The turn still opens — the agent genuinely is
+	// about to work on this — and no prompt-delivery journal is advanced, because
+	// nothing Crowbar queued was accepted here.
+	if injected, ok := u.harnessInjection(agent, message, byCrowbar); ok {
+		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
+			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
+			"kind", injected.Kind, "needle", injected.Needle)
+		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
+		if err != nil {
+			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+		}
+		u.work.set(chat.ID, started.Working)
 		u.turns.begin(runner.ID, chat.ID)
 		appendErr := u.appendRunnerTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-			domain.TurnRoleUser, ev.Message,
+			domain.TurnRoleHarness, message,
 		)
-		// The reply this prompt is about to produce, opened NOW so the tool calls,
-		// subagents and interruptions that follow attach to it. Without an open turn
-		// each of them would open one of its own, and the reply recorded at turn_stop
-		// would be a separate record — leaving the UI unable to say which activity
-		// produced which answer.
 		u.openAssistantTurn(ctx, chat, runner)
-		// The hook is the provider's acknowledgement that the argv prompt was
-		// accepted. Advance the journal even when the ledger write failed: the hook
-		// itself is positive delivery evidence, and leaving the request spawned
-		// would wedge every future prompt. Conversely, a journal failure after a
-		// successful ledger append is repaired from that attributed turn by the
-		// turn_stop and pre-destructive reconciliation paths.
-		confirmErr := u.confirmPromptAccepted(ctx, chat, runner, ev.Message)
-		if appendErr != nil {
-			return appendErr
-		}
-		if confirmErr != nil {
-			return fmt.Errorf("agent: confirm React prompt acceptance: %w", confirmErr)
-		}
-		return nil
-
-	case "turn_stop":
-		// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
-		// projection broadcasts Working=false, and the React chat treats that edge as
-		// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the
-		// state change first raced this append: the read could be served before the
-		// assistant row existed, and with the turn over and the queue empty nothing ever
-		// re-read it — the reply sat in the ledger, invisible, until an unrelated
-		// refresh (a chat switch, a reload) happened to fire. Observed live 2026-08-16.
-		//
-		// Ordering this way costs nothing the old comment worried about: an empty
-		// message is a ledger no-op here and StopTurn below still runs, and a FAILED
-		// append still falls through to StopTurn rather than returning early, so the
-		// turn state is never left open on a write error.
-		appendErr := u.closeAssistantTurn(ctx, chat, runner, agent, ev)
-		// Released only ONCE THE LEDGER HAS THE ANSWER: a switch waiting on this turn
-		// reads the ledger the moment it wakes, to assemble the handoff. Waking it
-		// earlier would hand the incoming CLI a conversation missing the very turn the
-		// switch waited for. Deferred so a failed StopTurn still releases the waiter —
-		// the turn is over either way, and a switch parked on it would never wake.
-		defer u.turns.complete(runner.ID)
-		// The turn ended — which is NOT the same fact as the agent being done, so this
-		// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
-		// aggregate fold Working from both. A CLI that hands work to a background task
-		// ends its turn right here and goes quiet until that work reports back; clearing
-		// Working on the strength of this hook alone is what darkened the spinner under a
-		// live subagent. A provider that reports no such level sends 0 and gets exactly
-		// the turn-only behaviour it had before.
-		stopped, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork)
-		if err != nil {
-			return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
-		}
-		u.work.set(chat.ID, stopped.Working)
-		if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
-			slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
-				"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
-		}
 		return appendErr
 	}
+	if err := u.RenameChat(ctx, chat.ID, deriveTitle(message), "derived"); err != nil {
+		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
+	}
+	// A user prompt opens the turn: mark the chat Working so the read model (and
+	// the workspace spinner) see a live turn.
+	started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
+	if err != nil {
+		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+	}
+	u.work.set(chat.ID, started.Working)
+	// And record it as IN FLIGHT, which is the same fact without the read model's lag
+	// in front of it — a provider switch blocks on this rather than on Working, so that
+	// it never quits a CLI that is still answering (turnWaits).
+	u.turns.begin(runner.ID, chat.ID)
+	appendErr := u.appendRunnerTurn(
+		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+		domain.TurnRoleUser, message,
+	)
+	// The reply this prompt is about to produce, opened NOW so the tool calls,
+	// subagents and interruptions that follow attach to it. Without an open turn
+	// each of them would open one of its own, and the reply recorded at turn_stop
+	// would be a separate record — leaving the UI unable to say which activity
+	// produced which answer.
+	u.openAssistantTurn(ctx, chat, runner)
+	// The hook is the provider's acknowledgement that the argv prompt was
+	// accepted. Advance the journal even when the ledger write failed: the hook
+	// itself is positive delivery evidence, and leaving the request spawned
+	// would wedge every future prompt. Conversely, a journal failure after a
+	// successful ledger append is repaired from that attributed turn by the
+	// turn_stop and pre-destructive reconciliation paths.
+	// The UNWRAPPED text, because the journal correlates a delivery by the digest
+	// of what the user typed. Hashing the provider's wrapper instead would leave
+	// every rewake dispatch permanently unconfirmed, and an unconfirmed dispatch
+	// blocks the next message on this chat.
+	confirmErr := u.confirmPromptAccepted(ctx, chat, runner, message)
+	if appendErr != nil {
+		return appendErr
+	}
+	if confirmErr != nil {
+		return fmt.Errorf("agent: confirm React prompt acceptance: %w", confirmErr)
+	}
 	return nil
+}
+
+// closeTurnFromStop applies a turn-stop hook: the answer lands in the ledger
+// BEFORE anybody is told the turn ended, and the turn's waiters are released only
+// once it is there.
+func (u *Usecase) closeTurnFromStop(
+	ctx context.Context,
+	chat domain.AgentChat,
+	runner domain.AgentRunner,
+	agent engineagents.Agent,
+	ev engineagents.CanonicalEvent,
+) error {
+	// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
+	// projection broadcasts Working=false, and the React chat treats that edge as
+	// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the
+	// state change first raced this append: the read could be served before the
+	// assistant row existed, and with the turn over and the queue empty nothing ever
+	// re-read it — the reply sat in the ledger, invisible, until an unrelated
+	// refresh (a chat switch, a reload) happened to fire. Observed live 2026-08-16.
+	//
+	// Ordering this way costs nothing the old comment worried about: an empty
+	// message is a ledger no-op here and StopTurn below still runs, and a FAILED
+	// append still falls through to StopTurn rather than returning early, so the
+	// turn state is never left open on a write error.
+	appendErr := u.closeAssistantTurn(ctx, chat, runner, agent, ev)
+	// Released only ONCE THE LEDGER HAS THE ANSWER: a switch waiting on this turn
+	// reads the ledger the moment it wakes, to assemble the handoff. Waking it
+	// earlier would hand the incoming CLI a conversation missing the very turn the
+	// switch waited for. Deferred so a failed StopTurn still releases the waiter —
+	// the turn is over either way, and a switch parked on it would never wake.
+	defer u.turns.complete(runner.ID)
+	// The turn ended — which is NOT the same fact as the agent being done, so this
+	// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
+	// aggregate fold Working from both. A CLI that hands work to a background task
+	// ends its turn right here and goes quiet until that work reports back; clearing
+	// Working on the strength of this hook alone is what darkened the spinner under a
+	// live subagent. A provider that reports no such level sends 0 and gets exactly
+	// the turn-only behaviour it had before.
+	stopped, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork)
+	if err != nil {
+		return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
+	}
+	u.work.set(chat.ID, stopped.Working)
+	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
+		slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
+			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
+	}
+	return appendErr
 }
 
 // handleSessionStart reconciles a conversation announcement. By the time we are
@@ -3274,4 +3407,25 @@ func (u *Usecase) ConversationsForChat(
 	chatID string,
 ) ([]domain.ChatConversation, error) {
 	return u.runners.ConversationsForChat(ctx, chatID)
+}
+
+// harnessInjection is the "did the provider's own harness write this" check, with
+// the one thing that outranks it applied first.
+//
+// It exists as a named function rather than an inline `!byCrowbar &&` so that the
+// precedence has somewhere to be stated: a content rule may not overrule a
+// delivery Crowbar can PROVE it made. The needle is a string the harness happens
+// to open its reports with; the sentinel is a string only Crowbar writes. When
+// both match the same prompt — which is the normal case for every rewake, because
+// the wrapper opens with the needle — the proof wins and the message stays the
+// user's.
+func (u *Usecase) harnessInjection(
+	agent engineagents.Agent,
+	message string,
+	byCrowbar bool,
+) (engineagents.InjectedPrompt, bool) {
+	if byCrowbar {
+		return engineagents.InjectedPrompt{}, false
+	}
+	return engineagents.MatchInjectedPrompt(agent, message)
 }

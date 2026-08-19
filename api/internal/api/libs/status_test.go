@@ -292,6 +292,21 @@ func TestStatusAndMessage_CommandNotFoundIs424(t *testing.T) {
 	assert.Contains(t, msg, "claude")
 }
 
+// TestStatusAndMessage_FailedDependencyIs424: a vendor CLI that IS installed but died
+// on startup is the same class as one that was never installed — a dependency outside
+// the daemon that did not work. It reaches the mapper WRAPPED (the agent usecase always
+// annotates), so a chain that only matched the bare sentinel would answer 500 in
+// production while a bare-value test stayed green.
+func TestStatusAndMessage_FailedDependencyIs424(t *testing.T) {
+	err := fmt.Errorf("agent: spawn runner: provider process exited during startup: %w",
+		apperr.ErrFailedDependency)
+
+	status, msg := libs.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusFailedDependency, status)
+	assert.Contains(t, msg, "exited during startup")
+}
+
 // Every sentinel below reaches this mapper WRAPPED — the folder usecase always
 // annotates with the ids involved — so a chain that only matched the bare value
 // would fall through to a generic 500 in production while the table above stayed

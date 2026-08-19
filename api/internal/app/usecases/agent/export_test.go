@@ -27,3 +27,22 @@ var ComposeContext = composeContext
 func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
 	u.prompts.syncDir = syncDir
 }
+
+// SetRewakeJoinHook installs a notification fired the instant a prompt collector
+// is registered and can be handed a message. It is test-only surface: this file
+// is compiled only under `go test`.
+//
+// It exists because every rewake test has the same precondition — a collector
+// BLOCKED on the daemon — and the alternative ways to establish it are all wrong.
+// A sleep is a guess. A poll on the collector count is a race that usually wins.
+// This is the causal edge itself.
+func SetRewakeJoinHook(u *Usecase, fn func(runnerID string)) {
+	u.rewake.onJoin = fn
+}
+
+// RewakeCollectors reports how many collectors are blocked for runnerID, so a test
+// can assert the negative this whole channel rests on: with none, a message is
+// never handed over and the restart floor takes it.
+func RewakeCollectors(u *Usecase, runnerID string) int {
+	return u.rewake.waiting(runnerID)
+}

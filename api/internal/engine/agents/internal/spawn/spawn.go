@@ -4,10 +4,12 @@ package spawn
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/env"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/rewake"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn/internal/verbs"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
@@ -32,6 +34,14 @@ func Plan(
 	baseEnv []string,
 	extra []spec.InjectStep,
 ) (*models.SpawnPlan, error) {
+	// The rewake wrapper's two halves come from the descriptor being rendered, not
+	// from the caller. See models.TemplateCtx.RewakeSentinel: the value registered
+	// with the provider and the value matched when the prompt returns are one fact,
+	// and this is the single line that makes them so.
+	ctx.RewakeSentinel = rewake.Sentinel(d)
+	ctx.RewakeSummary = rewake.Summary(d)
+	ctx.RewakeWakeStatus = strconv.Itoa(rewake.WakeStatus(d))
+
 	plan := &models.SpawnPlan{
 		Executable: binpath.Resolve(d.Spawn.Cmd),
 		Cwd:        ctx.Cwd,

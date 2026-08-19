@@ -10,10 +10,9 @@ import (
 )
 
 // waitForChatFrame drains frames until one matching (chatID, kind) arrives,
-// tolerating any other frame in between (e.g. a "segment_ended" the stub
-// provider's near-instant process exit can race in concurrently) — a real
-// signal wait, never a sleep/poll, backstopped only by the test context's
-// Done().
+// tolerating any other frame in between (a delete displaces and kills the chat's
+// live CLI, so runner frames race the chat's own) — a real signal wait, never a
+// sleep/poll, backstopped only by the test context's Done().
 func waitForChatFrame(
 	t *testing.T,
 	frames <-chan map[string]any,
@@ -42,7 +41,7 @@ func waitForChatFrame(
 // client relies on to drop the chat without a refetch.
 func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 
 	ws := importWritableWorkspace(t, h)
 

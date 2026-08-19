@@ -55,7 +55,7 @@ func dialAgentWS(
 // own connection) was created first.
 func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
@@ -72,7 +72,7 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	var chatB struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(b)+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &chatB)
+	h.post(wsBase(b)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatB)
 	require.NotEmpty(t, chatB.ID)
 
 	select {
@@ -91,7 +91,7 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	var chatA struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(a)+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &chatA)
+	h.post(wsBase(a)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatA)
 	require.NotEmpty(t, chatA.ID)
 
 	select {

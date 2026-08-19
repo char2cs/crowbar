@@ -30,6 +30,13 @@ func TestMain(
 // dispatchRecord captures what the MCP route actually handed the usecase, so a
 // test can assert on the URL→handler binding rather than on a param map it set
 // itself.
+// awaitRecord is the prompt-collector poll's half of the same evidence.
+type awaitRecord struct {
+	runnerID string
+	token    string
+	waitMS   int64
+}
+
 type dispatchRecord struct {
 	runnerID string
 	token    string
@@ -110,6 +117,7 @@ func (stubChatTree) DeleteChat(
 // pointer field rather than through the receiver.
 type stubUsecase struct {
 	dispatch *dispatchRecord
+	await    *awaitRecord
 }
 
 func (stubUsecase) SpawnChat(
@@ -225,6 +233,17 @@ func (stubUsecase) SetChatSelection(
 	_, _, _ string,
 ) error {
 	return nil
+}
+
+func (s stubUsecase) AwaitQueuedPrompt(
+	_ context.Context,
+	runnerID, token string,
+	waitMS int64,
+) (string, bool, func(), error) {
+	if s.await != nil {
+		*s.await = awaitRecord{runnerID: runnerID, token: token, waitMS: waitMS}
+	}
+	return "collected prompt", true, func() {}, nil
 }
 
 func (s stubUsecase) DispatchMCP(

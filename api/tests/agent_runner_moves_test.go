@@ -605,6 +605,30 @@ func TestRegression_ClearMintsChat_KeepsSamePTY(t *testing.T) {
 // its own history for it, so resuming it must not resurrect the purged chat (a move
 // onto a chat that does not exist is an invisible CLI writing nowhere, forever) — it
 // must land somewhere real.
+// requireChatHoldsText asserts that Crowbar's OWN record of a chat carries text.
+//
+// It reads the conversation record directly rather than through the chat's REST
+// surface, because the record outlives the chat that indexes it: only a direct read
+// distinguishes "the conversation was dropped" from "the chat that pointed at it was
+// dropped, and the plaintext is still sitting there".
+func requireChatHoldsText(
+	t *testing.T,
+	h *harness,
+	chatID string,
+	text string,
+	msg string,
+) {
+	t.Helper()
+	turns, err := h.app.Repositories.AgentActivity.Turns(context.Background(), chatID, 0, 0, 0)
+	require.NoError(t, err)
+	for _, turn := range turns {
+		if strings.Contains(turn.Text, text) {
+			return
+		}
+	}
+	t.Fatalf("%s: no turn of chat %s carries %q (%d turns recorded)", msg, chatID, text, len(turns))
+}
+
 func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -622,9 +646,10 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	announce(t, h, ws, otherRunner, "sess-other")
 	frames.awaitRunner(otherRunner, "session_bound")
 
-	// Give the doomed chat a real ledger on disk — Crowbar's own plaintext footprint,
-	// the thing the purge MUST reap (leaving it behind is a privacy bug).
-	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"something private"}`)
+	// Give the doomed chat a real conversation — Crowbar's own plaintext copy of what
+	// was said, the thing the purge MUST reap (leaving it behind is a privacy bug).
+	const privateText = "something private"
+	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
 	frames.awaitChat(doomed, "turn_started")
 	h.Quiesce()
 
@@ -641,11 +666,17 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	require.False(t, strings.HasPrefix(vendorSession, h.home+string(os.PathSeparator)),
 		"precondition: a provider's session store lies outside crowbar home — Crowbar does not own it")
 
-	// Crowbar's own on-disk footprint for the chat.
-	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(ctx, ws.workspaceID)
-	require.NoError(t, err)
-	crowbarChatDir := filepath.Join(chatsDir, doomed)
-	require.DirExists(t, crowbarChatDir, "precondition: the chat has a plaintext ledger under crowbar home")
+	// Crowbar's own copy of that conversation, read from the record itself rather
+	// than through the chat — after the delete the chat is gone, so a read routed
+	// through it could only ever answer "not found" and would prove nothing about
+	// whether the text was actually dropped.
+	//
+	// The record IS the footprint now: the per-chat plaintext ledger directory this
+	// once asserted on is gone, and the conversation lives in the activity record
+	// PurgeChat forgets (agent.Usecase.PurgeChat — "the conversation itself no longer
+	// lives here, it is in the record dropped above").
+	requireChatHoldsText(t, h, doomed, privateText,
+		"precondition: Crowbar keeps its own plaintext copy of what was said")
 
 	// --- hard delete ---
 	resp := h.raw(http.MethodDelete, base+"/agent/chats/"+doomed, nil, http.StatusAccepted)
@@ -665,9 +696,11 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 
 	// Crowbar's OWN footprint IS reaped — so the assertion above is a real confinement
 	// claim (the purge ran, removed what is Crowbar's, and stopped), not a vacuous one.
-	assert.NoDirExists(t, crowbarChatDir,
-		"the chat's plaintext handoff ledger must be reaped with the chat: a hard delete that leaves the "+
-			"conversation on disk under .crowbar has not deleted anything the user cares about")
+	turns, err := h.app.Repositories.AgentActivity.Turns(ctx, doomed, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, turns,
+		"the chat's conversation record must be reaped with the chat: a hard delete that leaves what was "+
+			"said readable under .crowbar has not deleted anything the user cares about")
 	gone := h.raw(http.MethodGet, base+"/agent/chats/"+doomed, nil, http.StatusNotFound)
 	_ = gone.Body.Close()
 

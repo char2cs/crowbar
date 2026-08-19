@@ -53,7 +53,10 @@ func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 	claude := get(t, "claude").Capabilities()
 	assert.True(t, claude.PromptSubmit)
-	assert.Equal(t, agents.DeliveryRestartTUI, claude.Delivery)
+	// claude declares the rewake channel; codex below is the portable floor. The
+	// pair is what makes this assertion a fact about descriptors rather than a
+	// constant repeated in Go.
+	assert.Equal(t, agents.DeliveryRewakeHook, claude.Delivery)
 	assert.True(t, claude.SlashCatalog)
 	assert.True(t, claude.Telemetry)
 	assert.True(t, claude.Declares(agents.HookToolPre))
@@ -464,7 +467,11 @@ session:
 presentation:
   prompt_submit:
     strategy: rewake_hook
-    rewake: { sentinel: "crowbar-delivered" }
+    rewake:
+      sentinel: "crowbar-delivered"
+      summary: "Message from Crowbar chat"
+      strip: '(?s)\A<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\z'
+      wake_status: 2
     fresh:
       - pass_arg: { positional: "{message}" }
     resume:

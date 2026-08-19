@@ -58,10 +58,10 @@ func putProviderPrefs(
 // tab, a second window, or the CLI — launched it exactly as if it were on.
 func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
 
-	putProviderPrefs(t, h, providerPref{ID: "stub", Disabled: true})
+	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: true})
 
 	// The catalog still reports it, switched off — that half always worked.
 	var providers []struct {
@@ -69,14 +69,14 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 		Enabled bool   `json:"enabled"`
 	}
 	h.get(wsBase(imported)+"/agent/providers", &providers)
-	require.Contains(t, providerEnabled(providers), "stub",
+	require.Contains(t, providerEnabled(providers), "livestub",
 		"the disabled provider is still enumerated, which is why hiding it was never enough")
-	assert.False(t, providerEnabled(providers)["stub"], "and it is reported as switched off")
+	assert.False(t, providerEnabled(providers)["livestub"], "and it is reported as switched off")
 	assert.True(t, providerEnabled(providers)["claude"],
 		"an untouched provider stays enabled, so the flag above is a real value")
 
 	resp := h.raw(http.MethodPost, wsBase(imported)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusBadRequest)
+		map[string]string{"provider": "livestub"}, http.StatusBadRequest)
 	_ = resp.Body.Close()
 
 	var chats []agentChatDTO
@@ -85,12 +85,12 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 
 	// Re-enabling it makes the very same request work, so the guard is the
 	// preference and nothing else.
-	putProviderPrefs(t, h, providerPref{ID: "stub", Disabled: false})
+	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: false})
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(wsBase(imported)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusCreated, &created)
+		map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "an enabled provider must still spawn")
 }
 

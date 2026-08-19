@@ -38,6 +38,12 @@ func newHookCmd() *cobra.Command {
 			return nil
 		},
 	}
+	// await-prompt is mounted as a CHILD of this command rather than beside it,
+	// because from a descriptor's side it is one of the same family: a callback the
+	// vendor CLI fires, named in the same settings file, carrying the same scope
+	// flags. Cobra routes `hook await-prompt` here and every other `hook <event>`
+	// to the parent above.
+	cmd.AddCommand(newAwaitPromptCmd())
 	cmd.Flags().StringVar(&segment, "segment", "", "Crowbar segment id")
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "read the payload from this file instead of stdin")

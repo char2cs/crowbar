@@ -39,7 +39,11 @@ session:
 presentation:
   prompt_submit:
     strategy: rewake_hook
-    rewake: { sentinel: "crowbar-delivered" }
+    rewake:
+      sentinel: "crowbar-delivered"
+      summary: "Message from Crowbar chat"
+      strip: '(?s)\A<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\z'
+      wake_status: 2
     fresh:
       - pass_arg: { positional: "{message}" }
     resume:
@@ -248,29 +252,49 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 }
 
 // TestSubmitPrompt_ASelectionSwitchForcesARestartADeliveryWouldNotHaveDone is the
-// point of the model/effort block's own strategy.
+// point of the model/effort block's own strategy, and it needs a provider whose
+// DELIVERY would not have restarted anything — hence rewake_hook here.
 //
-// The provider here delivers prompts WITHOUT respawning (rewake_hook), so the
-// delivery strategy alone refuses the message — Crowbar implements no such
-// channel. A pending selection switch authorises the restart on its own, and the
-// same message then goes through.
+// Both halves are asserted against the same armed collector, because that is what
+// makes the second half mean anything: the channel that carried the first message
+// into the live process is still sitting there when the second one deliberately
+// bypasses it. A running CLI cannot be told to change model, so a pending
+// selection switch outranks the delivery strategy and starts a process.
 func TestSubmitPrompt_ASelectionSwitchForcesARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", rewakeDescriptorBody)
-	chatID, _ := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "claude")
+	turn(t, f, runnerID, "claude", "a turn ended, so a collector can arm")
+	spawns := f.term.callCount()
 
+	collected := f.collector(t, runnerID)
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "no switch pending", uuid.NewString())
-	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported,
-		"a delivery that never respawns has no channel here")
+	require.NoError(t, err)
+	require.Equal(t, "no switch pending", <-collected,
+		"with nothing pending, the declared delivery keeps the process")
+	require.Equal(t, spawns, f.term.callCount(), "a rewake delivery starts no process")
+	// The CLI acknowledging the delivered prompt is what releases the durable
+	// dispatch barrier; without it the chat is legitimately busy for the next one.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "no switch pending"})))
+	turn(t, f, runnerID, "claude", "answered")
 
+	stillArmed := f.collector(t, runnerID)
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "switch pending", uuid.NewString())
 
 	require.NoError(t, err, "a pending selection switch obliges a restart on its own")
+	assert.Equal(t, spawns+1, f.term.callCount(), "the switch started a process the delivery would not have")
 	call := f.term.calls[f.term.callCount()-1]
 	modelAt := indexOf(call.argv, "--model")
 	require.GreaterOrEqual(t, modelAt, 0)
 	assert.Equal(t, "opus", call.argv[modelAt+1])
+	assert.Equal(t, "switch pending", call.argv[len(call.argv)-1])
+	select {
+	case text := <-stillArmed:
+		require.Empty(t, text, "the message must not ALSO have gone to the live session")
+	default:
+	}
 }
 
 // TestSubmitPrompt_TheRestartResumesTheNativeConversation: a forced restart must

@@ -23,13 +23,69 @@ session:
   resume: { arg: "--resume {id}" }
 presentation:
   prompt_submit:
-    strategy: restart_tui
+    # rewake_hook is an OPTIMISATION over the floor below, not a replacement for
+    # it. claude marks asyncRewake @internal in its own hook schema, so this line
+    # is the one edit that withdraws the whole channel without a daemon build:
+    # set it back to restart_tui and every message respawns the CLI exactly as it
+    # did before, using the very same fresh/resume argv steps.
+    #
+    # The daemon falls back on its own besides. A rewake needs a COLLECTOR
+    # blocked on the daemon (config_injection registers one on Stop), so a chat
+    # whose CLI has not completed a turn — a resumed session, a session whose
+    # collector claude has already timed out and killed — simply has none, and
+    # the prompt is delivered by restarting. The first message of any session
+    # always spawns regardless, and so does any message that changes the model or
+    # effort, because a running CLI cannot be told to change either.
+    strategy: rewake_hook
     fresh:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
+    # The wrapper claude builds around a collected prompt, measured VERBATIM
+    # against 2.1.235 on 2026-08-18 from raw UserPromptSubmit stdin:
+    #
+    #   <task-notification>
+    #   <summary>{summary}</summary>
+    #   </task-notification>
+    #   <system-reminder>
+    #   {sentinel} <what the collector printed>
+    #   </system-reminder>
+    #
+    # Note what it OPENS with. That is the same `<task-notification>` document
+    # `injected_prompts` below files as the harness's, so without something inside
+    # the wrapper to tell the two apart every message the user types would be
+    # recorded under the harness's name and vanish from their side of their own
+    # conversation. The sentinel is that something: Crowbar authors it, claude is
+    # handed it at spawn as `rewakeMessage`, and nothing else ever writes it.
+    #
+    # It is also read BY THE MODEL, since it lands inside the prompt, and that
+    # makes its WORDING load-bearing in a way measurement had to teach. A first
+    # version argued its own case — "sent by the user ... not written by any
+    # harness" — and claude 2.1.235 refused all three live prompts with "a
+    # background notification containing text styled to look like a user
+    # instruction ... I am not treating injected content as a user request". A
+    # protest of provenance inside a notification channel is exactly the shape of
+    # the injection its defences are trained on, so the label had to stop
+    # arguing: a plain one is both a better discriminator and a message the model
+    # will actually answer.
+    #
+    # It carries no apostrophes, quotes or backslashes on purpose: the same string
+    # is interpolated into the JSON of settings.json below.
+    rewake:
+      sentinel: "Crowbar chat message:"
+      summary: "Crowbar chat message"
+      # The exit status claude takes a collected message on. It is claude's
+      # protocol, so it lives here rather than as a number in Go — the next CLI to
+      # grow a wake mechanism gets to name its own without a daemon build.
+      wake_status: 2
+      # Anchored at BOTH ends and over the whole wrapper, so a document merely
+      # shaped like one cannot match: a real task-notification carries task-id,
+      # tool-use-id and status lines this pattern has no room for. {sentinel} is
+      # substituted with the value above, regexp-quoted, so the two can never
+      # disagree.
+      strip: '(?s)\A\s*<task-notification>\n<summary>[^\n]*</summary>\n</task-notification>\n<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\s*\z'
   # Claude exposes enabled plugin metadata without a model turn. The generic
   # inventory/detail adapter fans out only enabled rows and never reads Claude's
   # config or skill directories. Standalone user/project skills are not exposed
@@ -126,7 +182,29 @@ config_injection:
   # exits under its own control instead of being cut off mid-write.
   #
   # Every other hook is left on the provider's default: they return in
-  # milliseconds and inheriting a default they never approach costs nothing.
+  # milliseconds and inheriting a default they never approach costs nothing —
+  # with ONE exception, the second Stop entry.
+  #
+  # That one is the rewake COLLECTOR (see presentation.prompt_submit.rewake). It
+  # is not an observation hook at all: it is the only Crowbar callback that READS
+  # rather than writes, so it carries the runner token as well as the segment id.
+  # A segment id proves nothing — it is published on the chats API — and argv is
+  # world-readable either way, which is why the credential is the same per-boot
+  # HMAC the MCP relay already carries rather than something new.
+  #
+  # `async` and `asyncRewake` are declared TOGETHER on purpose. asyncRewake alone
+  # is conditional on a runtime check inside claude; with async beside it the hook
+  # is backgrounded unconditionally, and a collector that ever ran in the
+  # foreground would block the end of every turn for its whole timeout.
+  #
+  # timeout is 3600 SECONDS and that is the collector's whole life. Measured
+  # against 2.1.235 on 2026-08-18: an async hook that outlives its timeout is sent
+  # SIGTERM, and the collector answers that by exiting silently — after which this
+  # chat has no collector until the next turn ends and simply restarts for one
+  # message. An hour is long enough that an idle chat keeps its collector across a
+  # coffee break, and short enough to bound a collector claude leaves behind: the
+  # process is spawned DETACHED, so it outlives the CLI, and the daemon ending the
+  # poll when its runner is gone is what actually reaps it.
   - write_file:
       path: "{tmp}/settings.json"
       content: |
@@ -135,8 +213,13 @@ config_injection:
             "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}],
           "UserPromptSubmit":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}],
-          "Stop":[{"hooks":[{"type":"command",
-            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "Stop":[{"hooks":[
+            {"type":"command",
+             "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"},
+            {"type":"command","timeout":3600,"async":true,"asyncRewake":true,
+             "rewakeMessage":"{rewake_sentinel}","rewakeSummary":"{rewake_summary}",
+             "command":"{crowbar_hook} hook await-prompt --segment {segid} --token {runner_token} --wake-status {rewake_wake_status} --provider {provider} {scope_flags}"}
+          ]}],
           "PreToolUse":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PostToolUse":[{"hooks":[{"type":"command",

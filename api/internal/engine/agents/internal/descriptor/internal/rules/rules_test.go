@@ -115,7 +115,7 @@ func TestPromptSubmit_AcceptsBothShippedStrategies(t *testing.T) {
 	require.NoError(t, rules.Apply(withPromptSubmit(valid(), spec.DeliveryRestartTUI)))
 
 	d := withPromptSubmit(valid(), spec.DeliveryRewakeHook)
-	d.Presentation.PromptSubmit.Rewake = &spec.RewakeSpec{Sentinel: "crowbar-delivered"}
+	d.Presentation.PromptSubmit.Rewake = validRewake()
 	require.NoError(t, rules.Apply(d))
 }
 
@@ -136,6 +136,76 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"rewake without a sentinel",
 			func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook },
 			"requires rewake.sentinel",
+		},
+		{
+			// The summary reaches the model inside the wrapper, and an absent one
+			// makes the provider substitute a default sentence of its own — content
+			// in a user's conversation that no Crowbar file declares.
+			"rewake without a summary",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.Summary = ""
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			"requires rewake.summary",
+		},
+		{
+			"rewake without a strip pattern",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.Strip = ""
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			"requires rewake.strip",
+		},
+		{
+			// THE ONE THAT MATTERS. A strip that does not carry the sentinel would
+			// unwrap anything shaped like the wrapper — including the provider's own
+			// harness reports, which open with the identical tag — and hand their
+			// bodies back as words the user typed.
+			"rewake strip that does not require the sentinel",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.Strip = `(?s)\A(?P<message>.*)\z`
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			"must interpolate {sentinel}",
+		},
+		{
+			"rewake strip with no message group",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.Strip = `(?s)\A{sentinel}(?P<body>.*)\z`
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			`named group "message"`,
+		},
+		{
+			// A wake status of 0 is the shell's word for SUCCESS — the one status a
+			// provider ignores — so declaring it registers a collector that can never
+			// deliver anything and a chat that silently never leaves the floor.
+			"rewake with no wake status",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.WakeStatus = 0
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			"wake_status must be a process exit status",
+		},
+		{
+			"rewake strip that does not compile",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.Strategy = spec.DeliveryRewakeHook
+				rw := validRewake()
+				rw.Strip = `{sentinel}(?P<message>`
+				d.Presentation.PromptSubmit.Rewake = rw
+			},
+			"invalid regex",
 		},
 		{
 			// Every strategy falls back to a fresh spawn for message #1.
@@ -867,5 +937,16 @@ func TestTranscript_RejectsTheBrokenShapes(t *testing.T) {
 			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
+	}
+}
+
+// validRewake is the smallest rewake declaration the rules accept, shaped like the
+// one claude.yaml ships so a case that breaks it breaks for the shipped reason.
+func validRewake() *spec.RewakeSpec {
+	return &spec.RewakeSpec{
+		Sentinel:   "crowbar-delivered",
+		Summary:    "Message from Crowbar chat",
+		Strip:      `(?s)\A<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\z`,
+		WakeStatus: 2,
 	}
 }

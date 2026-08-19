@@ -122,7 +122,7 @@ func chatIDs(
 // premise has been erased and which no drag can restore.
 func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -161,7 +161,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 // would destroy work the user only meant to unfile.
 func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -198,7 +198,7 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 // server-side, before any write.
 func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -240,7 +240,7 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 // turns out of a workspace the user is not in.
 func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
 
@@ -275,7 +275,7 @@ func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 // holds stale orders until it reconnects.
 func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -318,14 +318,14 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 // mount would have left without them.
 func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
 	base := "/v0/projects/" + imported.projectID + "/home"
 
 	var chat struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &chat)
+	h.post(base+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chat)
 	require.NotEmpty(t, chat.ID)
 	h.Quiesce()
 
@@ -356,7 +356,6 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 // gesture writes both kinds and two feeds would have to be kept in order.
 func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 

@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,17 +17,20 @@ import (
 // (engine/agent/descriptor.go's Validate requires id, spawn.cmd,
 // spawn.interactive_required, hooks.format, hooks.events.session_start.
 // session_id, and hooks.events.turn_stop.message) that spawns the POSIX
-// `true` utility instead of a real vendor CLI (claude/codex). `true` exits
-// almost instantly with no I/O, so these tests never depend on claude/codex
-// being installed and never leak a live PTY: SpawnChat's own onExit cleanup
-// (agent.Usecase.onRunnerExit) reaps the runner's tmp dir shortly after
-// Create returns, independent of the REST assertions below, which only read
-// chat metadata rather than depending on the process staying alive.
+// `true` utility instead of a real vendor CLI (claude/codex).
 //
-// A chat spawned on it therefore goes DORMANT almost immediately (the PTY dies
-// and the live-runner row goes with it — row-existence IS the liveness answer),
-// so any test that needs a runner to still be PLACED while it fires hooks at it
-// uses the `livestub` descriptor (`cat`, which holds its PTY open) instead.
+// It is a descriptor that LIES, and that is now its whole job. Every descriptor
+// must assert spawn.interactive_required — Crowbar hosts an interactive CLI in a
+// real PTY and refuses a headless one (engine rule spawn_command) — and `true`
+// exits before it has done anything at all. So it is the fixture for exactly one
+// thing: proving a provider that exits during startup is REFUSED
+// (TestRegression_ProviderThatExitsDuringStartupIsRefused), plus catalog-only
+// tests that enumerate a provider without ever spawning it.
+//
+// Nothing that needs a chat to come up may use it. Those tests use `livestub`
+// (`cat`, which holds its PTY open) — see createAgentChat. They once used this
+// descriptor, back when a runner that died on the spot merely left the chat
+// DORMANT; a chat whose CLI is already dead is now a failed create, not a chat.
 const stubProviderDescriptorYAML = `id: stub
 spawn:
   cmd: "true"
@@ -126,11 +130,19 @@ func (d agentChatDetail) sessionIDs() []string {
 }
 
 // createAgentChat creates a chat in imported's workspace via the nested
-// .../workspaces/:wsId/agent/chats route using the stub provider, then
+// .../workspaces/:wsId/agent/chats route using the livestub provider, then
 // quiesces the async read-model projection (harness.Quiesce, backed by
 // app/repositories.Container.WaitQuiescent — asynx's WaitPublish, never a
 // sleep/poll) so a subsequent plain REST List/Get against the store-backed
 // projection is guaranteed to observe it. It returns the new chat's id.
+//
+// livestub (`cat`) rather than stub (`true`) because a create only succeeds if
+// the CLI is still there when its runner row commits: a provider that exits
+// during startup is refused with 424, since the chat would otherwise open onto a
+// PTY that is already gone. Callers must therefore write the LIVESTUB descriptor
+// (writeLiveStubProviderDescriptor). None of them is testing the spawn — they
+// need a chat to exist so they can exercise CRUD, scoping, deletion and the
+// Chats tree over it — so the surviving fixture is the honest one.
 func createAgentChat(
 	t *testing.T,
 	h *harness,
@@ -140,7 +152,7 @@ func createAgentChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
 	// QuiesceReactors, not Quiesce: creating a chat also PLACES A RUNNER on it,
 	// and that placement detaches into its own goroutine. A plain projection
@@ -159,7 +171,7 @@ func createAgentChat(
 // (not a body field).
 func TestAgentREST_Scope(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
@@ -192,4 +204,85 @@ func TestAgentREST_Scope(t *testing.T) {
 	var gotB agentChatDTO
 	h.get(wsBase(b)+"/agent/chats/"+chatB, &gotB)
 	assert.Equal(t, b.workspaceID, gotB.WorkspaceID)
+}
+
+// TestRegression_ProviderThatExitsDuringStartupIsRefused pins the startup guard and
+// the status it answers with.
+//
+// Crowbar hosts a provider's ordinary INTERACTIVE CLI in a real PTY — the one thing
+// every descriptor must assert (spawn.interactive_required) and the engine refuses a
+// descriptor that does not. A CLI that exits before its runner row can even be
+// written has therefore not started, and a 201 there would hand back a chat whose
+// pane attaches to a PTY that is already gone: a live-looking chat with a corpse
+// behind it, silent until the user typed into it.
+//
+// The status is the other half. A vendor CLI that dies on startup — an expired
+// login, a broken install, a CLI that refuses this workspace — is a DEPENDENCY
+// failure the user can act on, not a daemon fault, so it answers 424 (the same class
+// as the vendor CLI that is not installed at all) and says why. A 500 here is how
+// this reaches a user as a button that silently does nothing.
+//
+// The stub descriptor (`true`) exists for this test: a provider that swears it is
+// interactive and exits immediately.
+func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
+	h := newHarness(t)
+	writeStubProviderDescriptor(t, h)
+	ws := importWritableWorkspace(t, h)
+
+	msg := h.mutationError(http.MethodPost, wsBase(ws)+"/agent/chats",
+		map[string]string{"provider": "stub"}, http.StatusFailedDependency)
+
+	assert.Contains(t, msg, "exited during startup",
+		"the refusal has to name what went wrong: the user's own CLI died, and only they can fix it")
+}
+
+// TestRegression_RefusedSpawnLeavesNoChatBehind is the other half of the refusal
+// above, and the half that was missing: the 424 was answered and the chat was
+// created anyway.
+//
+// A 424 that also creates a chat is the record contradicting its own response. The
+// API says the spawn failed; the state says a chat exists, and the user is left
+// holding one they never made — with no CLI behind it and no idea where it came
+// from. It is the same defect class as a prompt recorded `answered` whose bytes
+// never reached the CLI, and a spinner still spinning after the CLI is done.
+//
+// The rule was already the codebase's own: TestRegression_DisabledProviderIsRefused-
+// NotJustHidden asserts it in those words, but a disabled provider is refused BEFORE
+// anything is written, so it could never have caught this. The chat is written
+// mid-spawn (recordRunner), and only a refusal downstream of that point — a CLI that
+// exits during startup — leaves one behind.
+//
+// The tail of the test is what keeps it honest: the very same workspace still creates
+// exactly ONE chat with a provider that works, so the emptiness above is a discarded
+// chat and not a create path this fixture had broken.
+func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
+	h := newHarness(t)
+	writeStubProviderDescriptor(t, h)     // `true` — exits during startup
+	writeLiveStubProviderDescriptor(t, h) // `cat` — holds its PTY open like a real CLI
+	ws := importWritableWorkspace(t, h)
+
+	h.mutationError(http.MethodPost, wsBase(ws)+"/agent/chats",
+		map[string]string{"provider": "stub"}, http.StatusFailedDependency)
+	h.QuiesceReactors()
+
+	var chats []agentChatDTO
+	h.get(wsBase(ws)+"/agent/chats", &chats)
+	require.Empty(t, chats, "a refused spawn must not leave a chat behind")
+
+	// Nor a directory of its own. Nothing under the workspace's chats dir may be
+	// keyed by a chat that does not exist — only the two shared dirs the RUNNER and
+	// hook lifecycles own, neither of which is a chat's.
+	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(context.Background(), ws.workspaceID)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(chatsDir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.Contains(t, []string{"runners", ".hook-deliveries"}, entry.Name(),
+			"a refused spawn left a per-chat directory behind")
+	}
+
+	created := createAgentChat(t, h, ws)
+	h.get(wsBase(ws)+"/agent/chats", &chats)
+	require.Len(t, chats, 1, "the refusal cost the workspace nothing: a working provider still creates one chat")
+	assert.Equal(t, created, chats[0].ID)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -57,7 +58,10 @@ import (
 //     not a transport outage).
 //   - 424 Failed Dependency — engineterminal.ErrCommandNotFound (the vendor CLI
 //     a spawn needs — claude, codex — is not installed on this machine or is not
-//     executable). A missing dependency the USER can fix, not a server fault.
+//     executable) and apperr.ErrFailedDependency (a CLI that IS installed but
+//     failed to come up — above all one that exited during startup, so the chat
+//     never got the live TUI it asked for). A broken dependency the USER can fix,
+//     not a server fault.
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), fs.ErrExist (an fs
 //     mutation whose destination already exists, e.g. a copy landing on an
@@ -101,13 +105,24 @@ func StatusAndMessage(
 		return http.StatusForbidden, err.Error()
 	}
 
+	// agenttools.ErrUnauthorized is a runner callback that could not prove it is
+	// the runner it names: a bad or absent per-boot token, or an id with no runner
+	// behind it. 403 rather than 401 because there is no challenge to issue — the
+	// credential is minted at spawn and there is nothing the caller can be asked
+	// for — and rather than 500 because the daemon is perfectly healthy and the
+	// request is simply not authorised.
+	if errors.Is(err, agenttools.ErrUnauthorized) {
+		return http.StatusForbidden, err.Error()
+	}
+
 	// engineterminal.ErrCommandNotFound is a MISSING DEPENDENCY on the user's machine:
 	// the vendor CLI a spawn needs (claude, codex) is not installed or not executable.
 	// The request was well-formed and the server is healthy, so it is neither a
 	// client-got-it-wrong 4xx nor a 500 — it is 424 Failed Dependency. It is broken out
 	// of the 500 bucket precisely because it is the ONE spawn failure the user can act
 	// on, and it has to reach them as words rather than as a button that does nothing.
-	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+	if errors.Is(err, engineterminal.ErrCommandNotFound) ||
+		errors.Is(err, apperr.ErrFailedDependency) {
 		return http.StatusFailedDependency, err.Error()
 	}
 
