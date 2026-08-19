@@ -1,0 +1,124 @@
+name: Dependabot auto-merge
+
+# Approves and squash-merges Dependabot patch/minor bumps into develop.
+#
+# This job merges past the `Protect develop` ruleset via a bypass actor, so the
+# ruleset is NOT what keeps a red bump out — the "Wait for checks" step below
+# is. Treat that step as the safety gate and change it with that in mind.
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Only ever elevated for Dependabot PRs (see the `if` on the job). Workflows
+# triggered by Dependabot get a read-only GITHUB_TOKEN by default; this block
+# is what grants the write access needed to approve and merge.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    # Both halves matter: `user.login` is the actual authorization check, and
+    # the repository pin keeps forks of this repo from auto-merging anything.
+    if: >-
+      github.repository == 'char2cs/crowbar' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Majors are left open on purpose. This repo's last batch of npm majors
+      # cost four source fixes and a coverage re-baseline; that is review work,
+      # not merge work.
+      - name: Skip major bumps
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        run: |
+          echo "### Major bump — left for human review" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.meta.outputs.dependency-names }}\` is a major update." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for checks
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          # This job's own check run. Not excluding it deadlocks the wait.
+          SELF: auto-merge
+        run: |
+          set -euo pipefail
+          # tauri-checks-linux alone runs ~12m; 45m leaves room for a queue.
+          deadline=$(( $(date +%s) + 45 * 60 ))
+
+          while :; do
+            runs=$(gh api "repos/$REPO/commits/$SHA/check-runs" --paginate \
+              --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')
+
+            pending=0
+            failed=""
+            while IFS=$'\t' read -r name status conclusion; do
+              [ -z "$name" ] && continue
+              [ "$name" = "$SELF" ] && continue
+              if [ "$status" != "completed" ]; then
+                pending=$((pending + 1))
+                continue
+              fi
+              case "$conclusion" in
+                # `skipped` is the normal result for this repo's path-filtered
+                # jobs (go-checks/frontend-checks) and `neutral` is what CodeQL
+                # reports when it has nothing to scan. Neither means failure.
+                success | skipped | neutral) ;;
+                *) failed="$failed $name($conclusion)" ;;
+              esac
+            done <<< "$runs"
+
+            # Guard against merging in the window before CI has registered
+            # anything: these two run on every PR regardless of paths, so their
+            # absence means the suite has not started yet.
+            for required in changes validate-branch; do
+              if ! printf '%s\n' "$runs" | cut -f1 | grep -qx "$required"; then
+                pending=$((pending + 1))
+              fi
+            done
+
+            if [ -n "$failed" ]; then
+              echo "❌ Not merging — failing checks:$failed"
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ]; then
+              echo "✅ All checks concluded successfully"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "❌ Timed out with $pending check(s) still pending"
+              exit 1
+            fi
+            echo "⏳ $pending check(s) pending — re-polling in 30s"
+            sleep 30
+          done
+
+      - name: Approve
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        # Approving after the wait, never before: the ruleset sets
+        # `require_last_push_approval`, so an approval that predates the final
+        # push is dismissed and the merge stalls.
+        run: gh pr review --approve "$PR_URL" || echo "already approved"
+
+      - name: Squash merge
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --squash --delete-branch "$PR_URL"
