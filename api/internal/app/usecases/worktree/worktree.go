@@ -316,16 +316,21 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree slug: %w", err)
 	}
-	path, err := worktreepath.Derive(home, projectID, slug, branch)
-	if err != nil {
-		return "", err
-	}
 	siblings, err := siblingWorktreePaths(home, projectID, slug)
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
-	if clashErr := worktreepath.DetectClash(siblings, worktreepath.WorkspaceRoot(path)); clashErr != nil {
-		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, clashErr)
+	// The directory is named for the branch the workspace is CREATED on and never
+	// follows a later rename, so the name may already be frozen by a workspace
+	// that has since moved to a different branch. Take the next free variant
+	// rather than refusing a name the user has abandoned.
+	pathBranch, err := worktreepath.FreePathBranch(home, projectID, slug, branch, siblings)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, err)
+	}
+	path, err := worktreepath.Derive(home, projectID, slug, pathBranch)
+	if err != nil {
+		return "", err
 	}
 	return path, nil
 }

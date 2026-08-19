@@ -804,7 +804,7 @@ func worktreeRemover(
 				"path", path, "root", root)
 			return nil
 		}
-		if err := os.RemoveAll(root); err != nil {
+		if err := removeWorkspaceRoot(root); err != nil {
 			return fmt.Errorf("repositories: remove workspace root %q: %w", root, err)
 		}
 		// The root IS the workspace's whole on-disk footprint — worktree, chats
@@ -861,6 +861,46 @@ func SweepDanglingAliases(crowbarHome string) int {
 		slog.Info("repositories: cleared dangling workspace aliases", "count", removed)
 	}
 	return removed
+}
+
+// workspaceRootOwned are the entries a workspace root may lose. The first four
+// are the directories Crowbar itself creates; .DS_Store is macOS metadata that
+// appears the moment the user opens the root in Finder, and keeping the root
+// alive for it would turn every browsed workspace into permanent litter.
+var workspaceRootOwned = []string{"worktree", "chats", "storages", "threads", ".DS_Store"}
+
+// removeWorkspaceRoot deletes the workspace's own directories, then the root —
+// which succeeds only once nothing else is left in it.
+//
+// It replaces an rm -rf of the entire root. That was written to the rule "the
+// root IS the workspace's whole on-disk footprint", and on a real machine it is
+// not: a <slug>/<branch> root was found holding five hand-made git worktrees
+// beside the managed one, so deleting that workspace would have taken 4.5GB of
+// checkouts Crowbar never created. A foreign entry now keeps the root alive and
+// is reported instead of destroyed.
+func removeWorkspaceRoot(
+	root string,
+) error {
+	for _, name := range workspaceRootOwned {
+		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
+			return err
+		}
+	}
+	err := os.Remove(root)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	rest, readErr := os.ReadDir(root)
+	if readErr != nil {
+		return err
+	}
+	kept := make([]string, 0, len(rest))
+	for _, e := range rest {
+		kept = append(kept, e.Name())
+	}
+	slog.Warn("repositories: workspace root kept; it holds entries crowbar did not create",
+		"root", root, "kept", kept)
+	return nil
 }
 
 // pruneEmptiedWorkspaceParents removes the directories a workspace-root removal
