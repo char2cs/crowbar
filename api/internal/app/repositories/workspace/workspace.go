@@ -150,14 +150,13 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
-	// RenameBranch records a branch rename: the new name and the worktree path
-	// the managed tree moved to, which travel together because the worktree leaf
-	// is derived from the branch name. Identity and lineage are untouched.
+	// RenameBranch records a branch rename. The workspace does not move: its
+	// directory is fixed at creation and never tracks the branch, so there is no
+	// path to carry. Identity and lineage are untouched.
 	RenameBranch(
 		ctx context.Context,
 		id string,
 		branch string,
-		worktreePath string,
 	) (domain.Workspace, error)
 	// SetParentFromPR sets ParentID from an open PR's target branch without
 	// recomputing ForkPointSha.
@@ -533,7 +532,7 @@ func (w *workspace) SyncProviderState(
 	in ProviderInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.sendWithOCC(ctx, commands.SyncProviderState{
+	cmd := commands.SyncProviderState{
 		ID:             in.ID,
 		Protected:      in.Protected,
 		HasPR:          in.HasPR,
@@ -542,7 +541,21 @@ func (w *workspace) SyncProviderState(
 		PRTitle:        in.PRTitle,
 		PRTargetBranch: in.PRTargetBranch,
 		Now:            now,
-	})
+	}
+	// A poll that changes nothing must not write. The sweep visits every workspace
+	// every 5 minutes, and each visit appended an event AND a snapshot whether or
+	// not the provider had moved: in a real home, 43,970 of 44,068 provider_synced
+	// events carried an empty patch set, and every one of them bumped the
+	// aggregate version that OCC and the delete cascade race against.
+	//
+	// EmitEvent is pure, so applying it here answers exactly the question the write
+	// would have asked. Read through ax directly, NOT w.Get: Get triggers the lazy
+	// reconcile (OnOpen), whose own job is to re-derive provider reality and sync —
+	// so reading that way would have this call schedule the work that calls it.
+	if cur, getErr := w.ax.Get(ctx, in.ID); getErr == nil && cmd.EmitEvent(&cur) == cur {
+		return cur, nil
+	}
+	evt, err := w.sendWithOCC(ctx, cmd)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: sync provider: %w", err)
 	}
@@ -664,47 +677,17 @@ func (w *workspace) RenameBranch(
 	ctx context.Context,
 	id string,
 	branch string,
-	worktreePath string,
 ) (domain.Workspace, error) {
-	// §3.9 write-point (b): the rename MOVED the workspace on disk before this
-	// call, so the id→path row is already stale when we get here and has to be
-	// re-pointed. It is not bookkeeping — the delete reactor resolves the
-	// directory it rm -rf's from this index alone, so a row still naming the
-	// pre-rename directory makes a later delete of this workspace destroy
-	// whatever now occupies that name (a new workspace on the old branch takes
-	// exactly that path) while this workspace's real tree is orphaned.
-	//
-	// It is written BEFORE the command, never after: the caller has already
-	// moved the tree, so the new path is the one that exists on disk and the
-	// index must never trail it. A refused command rolls the row back, mirroring
-	// Create — a failed rename leaves the index agreeing with the untouched
-	// record instead of advertising a move the record never took.
-	previousPath, previousErr := w.pathsStore.Get(ctx, id)
-	if previousErr != nil && !errors.Is(previousErr, wspaths.ErrNotFound) {
-		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", previousErr)
-	}
-	if err := w.pathsStore.Put(ctx, id, worktreePath); err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: paths: %w", err)
-	}
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if errors.Is(previousErr, wspaths.ErrNotFound) {
-			_ = w.pathsStore.Delete(ctx, id)
-			return
-		}
-		_ = w.pathsStore.Put(ctx, id, previousPath)
-	}()
-	evt, err := w.sendWithOCC(
-		ctx,
-		commands.RenameBranch{ID: id, Branch: branch, WorktreePath: worktreePath},
-	)
+	// The id→path index is deliberately NOT touched. A workspace's directory is
+	// fixed at creation, so a rename moves nothing and the row already names the
+	// right tree. This used to re-point it — the rename moved the directory, and
+	// the delete reactor resolves what it rm -rf's from this index alone — with a
+	// rollback for a refused command. None of that exists now, because the path
+	// it was keeping in step no longer changes.
+	evt, err := w.sendWithOCC(ctx, commands.RenameBranch{ID: id, Branch: branch})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
 	}
-	committed = true
 	return evt.Aggregate, nil
 }
 

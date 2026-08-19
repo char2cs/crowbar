@@ -2,6 +2,7 @@ package worktreepath
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -297,4 +298,59 @@ func TestUnderHome(t *testing.T) {
 			t.Fatalf("UnderHome(%q) = %v, want %v", c.path, got, c.want)
 		}
 	}
+}
+
+func TestFreePathBranch_UsesTheBranchWhenTheNameIsFree(t *testing.T) {
+	home := t.TempDir()
+
+	got, err := FreePathBranch(home, "p1", "github.com/o/r", "main", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "main", got)
+}
+
+// A name frozen by a workspace created under it — which never follows that
+// workspace's later branch renames — must not block a new workspace.
+func TestFreePathBranch_SuffixesAFrozenName(t *testing.T) {
+	home := t.TempDir()
+	slug := "github.com/o/r"
+	root := filepath.Join(home, "projects", "p1", filepath.FromSlash(slug), "main")
+	require.NoError(t, os.MkdirAll(root, 0o755))
+
+	got, err := FreePathBranch(home, "p1", slug, "main", []string{root})
+
+	require.NoError(t, err)
+	assert.Equal(t, "main-2", got)
+}
+
+func TestFreePathBranch_KeepsCountingPastAnOccupiedSuffix(t *testing.T) {
+	home := t.TempDir()
+	slug := "github.com/o/r"
+	base := filepath.Join(home, "projects", "p1", filepath.FromSlash(slug))
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "main"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "main-2"), 0o755))
+
+	got, err := FreePathBranch(home, "p1", slug, "main", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "main-3", got)
+}
+
+// TestRegression_FreePathBranch_SeesANestedBranch pins the gap the sibling scan
+// alone leaves: siblingWorktreePaths lists only the TOP-LEVEL entries under the
+// slug, so a nested root like feature/x is never in it and DetectClash can never
+// match. The directory test is what covers that depth.
+func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
+	home := t.TempDir()
+	slug := "github.com/o/r"
+	nested := filepath.Join(home, "projects", "p1", filepath.FromSlash(slug), "feature", "x")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+
+	// The sibling list is what the real scanner would produce: top level only.
+	siblings := []string{filepath.Join(home, "projects", "p1", filepath.FromSlash(slug), "feature")}
+
+	got, err := FreePathBranch(home, "p1", slug, "feature/x", siblings)
+
+	require.NoError(t, err)
+	assert.Equal(t, "feature/x-2", got)
 }

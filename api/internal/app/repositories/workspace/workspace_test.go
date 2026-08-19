@@ -152,78 +152,34 @@ func TestCreate_WritesPathRow(t *testing.T) {
 	assert.Equal(t, "/h/projects/p1/github.com/o/r/b", got)
 }
 
-// TestRenameBranch_UpdatesPathRow proves §3.9 write-point (b): a branch rename
-// relocates the workspace on disk, so the id→path index has to follow it. A
-// stale row is not a cosmetic drift — the delete reactor resolves the directory
-// it rm -rf's from exactly this index, so a row still naming the pre-rename
-// directory makes a later delete destroy whatever now occupies it.
-func TestRenameBranch_UpdatesPathRow(t *testing.T) {
+// TestRegression_RenameBranch_LeavesThePathRowUntouched pins the invariant that
+// replaced three tests here.
+//
+// The id→path index used to have to FOLLOW a rename, because the rename moved
+// the workspace on disk. It does not move now: the directory is fixed at
+// creation and never tracks the branch, so the row already names the right tree
+// and touching it could only be wrong. The delete reactor resolves what it
+// rm -rf's from exactly this index, so a rename that repointed it would aim a
+// later delete at whatever now occupies the other name.
+func TestRegression_RenameBranch_LeavesThePathRowUntouched(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo, pathsStore := buildRepo(t, ad)
 	ctx := context.Background()
+	const path = "/h/projects/p1/github.com/o/r/a/worktree"
 
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "a",
-		WorktreePath: "/h/projects/p1/github.com/o/r/a/worktree",
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a", WorktreePath: path,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	_, err = repo.RenameBranch(ctx, "w1", "b", "/h/projects/p1/github.com/o/r/b/worktree")
+	renamed, err := repo.RenameBranch(ctx, "w1", "b")
 	require.NoError(t, err)
+	assert.Equal(t, "b", renamed.Branch, "the branch must move")
+	assert.Equal(t, path, renamed.WorktreePath, "the worktree path must not")
 
 	got, err := pathsStore.Get(ctx, "w1")
 	require.NoError(t, err)
-	assert.Equal(t, "/h/projects/p1/github.com/o/r/b/worktree", got)
-}
-
-// A rename the aggregate refuses must leave the index exactly as it was: the
-// record still names the old path, and the index has to agree with it rather
-// than advertise a move that never happened.
-func TestRenameBranch_LeavesPathRowIntactWhenRecordWriteFails(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, pathsStore := buildRepo(t, ad)
-	ctx := context.Background()
-
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "a",
-		WorktreePath: "/h/projects/p1/github.com/o/r/a/worktree",
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-
-	// A half-carried rename (branch without path) is refused by the command.
-	_, err = repo.RenameBranch(ctx, "w1", "b", "")
-	require.Error(t, err)
-
-	got, err := pathsStore.Get(ctx, "w1")
-	require.NoError(t, err)
-	assert.Equal(t, "/h/projects/p1/github.com/o/r/a/worktree", got)
-}
-
-// A workspace whose index row was never written (or was already purged) has no
-// previous path to restore, so a refused rename must leave NO row rather than
-// invent one pointing at a directory the record does not claim.
-func TestRenameBranch_LeavesNoPathRowWhenThereWasNoneAndTheRecordWriteFails(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, pathsStore := buildRepo(t, ad)
-	ctx := context.Background()
-
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a",
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-	require.NoError(t, pathsStore.Delete(ctx, "w1"))
-
-	_, err = repo.RenameBranch(ctx, "w1", "b", "")
-	require.Error(t, err)
-
-	_, getErr := pathsStore.Get(ctx, "w1")
-	assert.ErrorIs(t, getErr, wspaths.ErrNotFound)
+	assert.Equal(t, path, got, "the id→path row must still name the original tree")
 }
 
 func TestGet_FoldsFromLog(t *testing.T) {
@@ -745,4 +701,52 @@ func TestWorkspace_SetProject_ErrorOnMissing(t *testing.T) {
 
 	_, err := repo.SetProject(ctx, "no-such", "p2")
 	assert.Error(t, err)
+}
+
+// TestRegression_SyncProviderState_UnchangedPollAppendsNothing pins the guard on
+// the 5-minute sweep. Without it every visit appended an event and a snapshot
+// whether or not the provider had moved — 43,970 of 44,068 provider_synced events
+// in a real home carried an empty patch set — and each one bumped the aggregate
+// version that OCC and the delete cascade contend on.
+//
+// The polls below differ only in their timestamp, which is the sweep's steady
+// state and the case a version-bumping no-op hides in.
+func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	ctx := context.Background()
+	es := ad.WorkspaceES()
+	now := time.Unix(1000, 0).UTC()
+
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	events := func() int {
+		t.Helper()
+		// asynx keys the log "events:<id>" and versions from 1 (see its reader).
+		evs, readErr := es.ReadFrom(ctx, "events:w1", 1)
+		require.NoError(t, readErr)
+		return len(evs)
+	}
+
+	in := workspace.ProviderInput{
+		ID: "w1", HasPR: true, PRStatus: "open", PRUrl: "u", PRTitle: "t",
+	}
+	_, err = repo.SyncProviderState(ctx, in, now)
+	require.NoError(t, err)
+	settled := events()
+
+	for i := range 10 {
+		got, syncErr := repo.SyncProviderState(ctx, in, now.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, syncErr)
+		assert.Equal(t, domain.WorkspaceStatusPROpen, got.Status)
+	}
+	assert.Equal(t, settled, events(), "an unchanged provider poll must append no event")
+
+	// The guard must not swallow a real change.
+	in.PRStatus = "merged"
+	changed, err := repo.SyncProviderState(ctx, in, now)
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusPRMerged, changed.Status)
+	assert.Greater(t, events(), settled, "a changed provider poll must still append")
 }

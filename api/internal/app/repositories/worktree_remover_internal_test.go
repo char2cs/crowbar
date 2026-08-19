@@ -26,6 +26,10 @@ func TestWorktreeRemover_RemovesWorkspaceRootIncludingSiblingChatsDir(t *testing
 	require.NoError(t, os.MkdirAll(chatsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(chatsDir, "00000001.turn"), []byte("{}"), 0o644))
 
+	// Finder leaves this behind the moment the root is opened; it must not be the
+	// thing that keeps a deleted workspace's directory alive forever.
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".DS_Store"), []byte("x"), 0o644))
+
 	remove := worktreeRemover(home)
 	require.NoError(t, remove(worktreeLeaf))
 
@@ -259,4 +263,36 @@ func TestPruneEmptiedWorkspaceParents_IgnoresAnUnexplainablePath(t *testing.T) {
 	pruneEmptiedWorkspaceParents(filepath.Join(outside, "gone"), home)
 
 	assert.DirExists(t, outside, "an adopted checkout's parents are never candidates")
+}
+
+// TestRegression_WorktreeRemover_KeepsForeignSiblingsInTheWorkspaceRoot pins the
+// limit of "the root IS the workspace's whole on-disk footprint".
+//
+// It is not, on a real machine: a <slug>/<branch> root was found holding five
+// hand-made git worktrees beside the managed one, and the rm -rf of the root
+// would have taken 4.5GB of checkouts Crowbar never created. Only the
+// directories Crowbar makes may be removed; the root then survives precisely
+// because something else is still in it.
+func TestRegression_WorktreeRemover_KeepsForeignSiblingsInTheWorkspaceRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "projects", "p1", "github.com", "acme", "repo", "rewrite", "rust")
+	worktreeLeaf := filepath.Join(root, "worktree")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "chats", "chatA"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(worktreeLeaf, ".git"), 0o755))
+	// A worktree someone else created beside the managed one, holding real work.
+	foreign := filepath.Join(root, "wt-p3.31-dropdown")
+	require.NoError(t, os.MkdirAll(filepath.Join(foreign, "src"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(foreign, "src", "main.rs"), []byte("fn main() {}"), 0o644))
+
+	require.NoError(t, worktreeRemover(home)(worktreeLeaf))
+
+	assert.NoFileExists(t, filepath.Join(root, "chats", "chatA"),
+		"crowbar's own chats tree must still be removed")
+	assert.NoDirExists(t, worktreeLeaf, "the managed worktree must still be removed")
+	assert.FileExists(t, filepath.Join(foreign, "src", "main.rs"),
+		"a worktree crowbar did not create must survive the delete")
+	assert.DirExists(t, root,
+		"the root must survive while a foreign entry is still in it")
 }

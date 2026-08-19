@@ -703,16 +703,21 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	// <home>/projects/<project>/<slug>/<branch> (spec §3.9).
 	wsID := uuid.NewString()
 	slug := worktreepath.RemoteSlug(repo)
-	path, err := worktreepath.Derive(crowbarHome, repo.ProjectID, slug, branch)
-	if err != nil {
-		return fmt.Errorf("derive worktree path for %q: %w", branch, err)
-	}
 	siblings, err := siblingWorktreePaths(crowbarHome, repo.ProjectID, slug)
 	if err != nil {
 		return fmt.Errorf("scan sibling worktrees for %q: %w", branch, err)
 	}
-	if clashErr := worktreepath.DetectClash(siblings, path); clashErr != nil {
-		return fmt.Errorf("worktree path clash for %q: %w", branch, clashErr)
+	// Same rule as Create: the directory name is frozen at creation, so an
+	// imported branch takes the next free variant of a name an earlier workspace
+	// still holds.
+	pathBranch, err := worktreepath.FreePathBranch(
+		crowbarHome, repo.ProjectID, slug, branch, siblings)
+	if err != nil {
+		return fmt.Errorf("worktree path for %q: %w", branch, err)
+	}
+	path, err := worktreepath.Derive(crowbarHome, repo.ProjectID, slug, pathBranch)
+	if err != nil {
+		return fmt.Errorf("derive worktree path for %q: %w", branch, err)
 	}
 	startSha, err := u.addProtectedWorktree(ctx, repo, branch, path)
 	if err != nil {

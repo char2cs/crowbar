@@ -47,12 +47,20 @@ func (f *fakeUpdater) UpdateRepo(
 // fan-out is captured into frames, backed by the supplied updater (nil = the
 // bare handler with no updater wired).
 func patchRouter(
+	t *testing.T,
 	updater repohandlers.RepoUpdater,
 	frames *[]dto.RepoDTO,
 ) *gin.Engine {
+	t.Helper()
+	// Inject a throwaway crowbar home. The default resolver is the process-global
+	// one, so without this the icon paths a broadcast derives land in the
+	// developer's real ~/.crowbar — this test moved a repo to project "p2" and
+	// created a projects/p2 directory there, which is how it was found.
+	home := t.TempDir()
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
-	}).WithUpdater(updater)
+	}).WithUpdater(updater).
+		WithIconStorage(func() (string, error) { return home, nil }, nil)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 	return r
@@ -79,7 +87,7 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "Renamed Repo", AvatarLabel: "R",
 	}}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "  Renamed Repo  "})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
@@ -98,7 +106,7 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1", Order: 2}}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
 		map[string]any{"order": 2})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
@@ -114,7 +122,7 @@ func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 func TestPatchRepo_ProjectMovePassesTargetThrough(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
 		map[string]any{"projectId": "p2"})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
@@ -130,7 +138,7 @@ func TestPatchRepo_ProjectMovePassesTargetThrough(t *testing.T) {
 func TestPatchRepo_EmptyName_400(t *testing.T) {
 	upd := &fakeUpdater{}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "   "})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -143,7 +151,7 @@ func TestPatchRepo_EmptyName_400(t *testing.T) {
 func TestPatchRepo_NotFound_404(t *testing.T) {
 	upd := &fakeUpdater{err: apperr.ErrNotFound}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/missing",
+	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/missing",
 		map[string]string{"name": "Whatever"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -154,7 +162,7 @@ func TestPatchRepo_NotFound_404(t *testing.T) {
 // wired the endpoint answers 500 rather than panicking.
 func TestPatchRepo_NoUpdater_500(t *testing.T) {
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(nil, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, nil, &frames), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "Whatever"})
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -169,7 +177,7 @@ func TestPatchRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			upd := &fakeUpdater{}
 			var frames []dto.RepoDTO
-			rec := doPatch(patchRouter(upd, &frames), "/v0/projects/p1/repos/r1",
+			rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
 				map[string]string{"name": c.value})
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -243,7 +251,7 @@ func TestPatchRepo_RenameLeavesTheEntityDirAlone(t *testing.T) {
 func TestPatchRepo_MalformedBody_400(t *testing.T) {
 	upd := &fakeUpdater{}
 	var frames []dto.RepoDTO
-	r := patchRouter(upd, &frames)
+	r := patchRouter(t, upd, &frames)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPatch, "/v0/projects/p1/repos/r1", bytes.NewReader([]byte("{")))

@@ -332,3 +332,54 @@ func workspaceDir(
 		workspaceID,
 	)
 }
+
+// maxPathBranchAttempts bounds the disambiguation search. It is a wedge ceiling,
+// not a budget: reaching it means a hundred workspaces have frozen variants of
+// one name, which is a home in trouble for other reasons.
+const maxPathBranchAttempts = 100
+
+// FreePathBranch returns the directory name a new workspace on branch should
+// occupy under the slug: branch itself, or branch-2, branch-3, … when the name
+// is already taken.
+//
+// It exists because a workspace's directory is FIXED AT CREATION and never
+// follows a later branch rename. A name is therefore frozen by whoever was
+// created under it, and stays frozen after that workspace has moved on to a
+// different branch — so "create a branch called foo" can meet a foo/ directory
+// belonging to a workspace whose branch is now bar. Refusing there would let a
+// name the user has abandoned block them forever.
+//
+// Two things are checked, because neither covers the other: the sibling scan is
+// case-insensitive (so testing and Testing cannot both exist on a
+// case-insensitive filesystem) but only sees TOP-LEVEL entries, which a nested
+// branch like feature/x is not; the directory test sees any depth but compares
+// exactly as the filesystem does.
+func FreePathBranch(
+	home string,
+	project string,
+	slug string,
+	branch string,
+	siblings []string,
+) (string, error) {
+	for n := 1; n <= maxPathBranchAttempts; n++ {
+		candidate := branch
+		if n > 1 {
+			candidate = fmt.Sprintf("%s-%d", branch, n)
+		}
+		path, err := Derive(home, project, slug, candidate)
+		if err != nil {
+			return "", err
+		}
+		root := WorkspaceRoot(path)
+		if DetectClash(siblings, root) != nil {
+			continue
+		}
+		if _, statErr := os.Lstat(root); statErr == nil {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf(
+		"%w: no free directory for branch %q after %d attempts",
+		ErrPathClash, branch, maxPathBranchAttempts)
+}

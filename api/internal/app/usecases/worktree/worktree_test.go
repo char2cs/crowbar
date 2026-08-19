@@ -37,7 +37,7 @@ type fakeWorkspace struct {
 	SyncFn             func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 	ProvisionInPlaceFn func(id, worktreePath, forkPointSha string) (domain.Workspace, error)
 	ClearBranchFn      func(id string) (domain.Workspace, error)
-	RenameBranchFn     func(id, branch, worktreePath string) (domain.Workspace, error)
+	RenameBranchFn     func(id, branch string) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -119,12 +119,11 @@ func (f *fakeWorkspace) RenameBranch(
 	_ context.Context,
 	id string,
 	branch string,
-	worktreePath string,
 ) (domain.Workspace, error) {
 	if f.RenameBranchFn != nil {
-		return f.RenameBranchFn(id, branch, worktreePath)
+		return f.RenameBranchFn(id, branch)
 	}
-	return domain.Workspace{ID: id, Branch: branch, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, Branch: branch}, nil
 }
 
 func (f *fakeWorkspace) Delete(
@@ -664,16 +663,27 @@ func TestCreateChild_DerivesHumanReadableWorktreePath(t *testing.T) {
 // TestCreateChild_RejectsCaseOnlyClash proves a create whose derived worktree
 // path collides case-insensitively with an existing sibling is rejected at
 // creation (spec §3.9, decision 13) rather than disambiguated.
-func TestCreateChild_RejectsCaseOnlyClash(t *testing.T) {
+// TestRegression_CreateChild_DisambiguatesAFrozenName pins what replaced the
+// refusal here.
+//
+// A workspace's directory is named for the branch it was CREATED on and never
+// follows a later rename, so a name stays frozen by whoever was created under it
+// — including after that workspace has moved to a different branch. Refusing
+// would let a name the user has abandoned block them forever, so the create
+// takes the next free variant instead.
+//
+// The sibling below differs only in case, which is the same directory on a
+// case-insensitive filesystem: the disambiguation must catch that too.
+func TestRegression_CreateChild_DisambiguatesAFrozenName(t *testing.T) {
 	home := t.TempDir()
-	// Pre-create a sibling branch leaf that differs only by case from the
-	// candidate the create below derives (main vs Main) under the same slug dir.
 	slugDir := filepath.Join(home, "projects", "p1", "github.com", "test", "repo")
 	require.NoError(t, os.MkdirAll(filepath.Join(slugDir, "Main"), 0o755))
 
 	g := &fakeGit{addStartSha: "sha"}
+	var got workspace.CreateInput
 	ws := &fakeWorkspace{
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			got = in
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
@@ -688,9 +698,12 @@ func TestCreateChild_RejectsCaseOnlyClash(t *testing.T) {
 		Branch:       "main",
 		ParentBranch: "develop",
 	})
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	assert.NotContains(t, g.ops(), "WorktreeAdd", "a rejected clash must not touch the worktree")
-	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
+
+	require.NoError(t, err, "a frozen name must not block the create")
+	assert.Equal(t, "main", got.Branch, "the BRANCH is still the one asked for")
+	assert.Equal(t, filepath.Join(slugDir, "main-2", "worktree"), got.WorktreePath,
+		"only the directory is disambiguated")
+	assert.DirExists(t, filepath.Join(slugDir, "Main"), "the frozen sibling is untouched")
 }
 
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
