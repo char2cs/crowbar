@@ -4,18 +4,70 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
 
   - package-ecosystem: gomod
     directory: /api
     schedule:
       interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      go:
+        patterns: ['*']
+        update-types: [minor, patch]
 
   - package-ecosystem: cargo
     directory: /desktop/src-tauri
     schedule:
       interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      cargo:
+        patterns: ['*']
+        update-types: [minor, patch]
 
+  # Version updates for /web run through the `bun` ecosystem, NOT `npm`.
+  # Dependabot's npm updater rewrites web/package.json and never regenerates
+  # this repo's bun.lock, so every npm bump died at `bun install
+  # --frozen-lockfile` ("lockfile had changes, but lockfile is frozen") in ~8s,
+  # before a single test ran. The bun updater writes both files in one commit.
+  # Requires the text bun.lock (bun >= 1.1.39); the legacy binary bun.lockb is
+  # not supported.
+  - package-ecosystem: bun
+    directory: /web
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      web:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # Security updates only. The bun ecosystem above covers version updates but
+  # Dependabot cannot yet raise SECURITY updates for it, so the npm ecosystem
+  # stays registered for /web purely to keep those flowing.
+  # `open-pull-requests-limit: 0` disables npm VERSION updates (which would
+  # otherwise duplicate the bun entry above); security PRs are explicitly not
+  # subject to that limit and are unaffected.
+  # Caveat: an npm security PR still won't regenerate bun.lock, so it lands red
+  # — run the `Refresh bun.lock` workflow on it.
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: build
+      include: scope

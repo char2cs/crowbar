@@ -1,0 +1,71 @@
+name: Refresh bun.lock
+
+# Manual repair for the one case the `bun` ecosystem does not cover: a
+# Dependabot SECURITY update for /web. Those still come from the npm updater,
+# which rewrites web/package.json without touching bun.lock, so CI dies at
+# `bun install --frozen-lockfile`. Run this against such a PR to regenerate and
+# commit the lockfile.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR number whose branch needs bun.lock regenerated'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR head branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          data=$(gh pr view "${{ inputs.pr }}" --repo "$REPO" \
+            --json headRefName,headRepositoryOwner,author)
+          # Pushing to a fork's branch is not possible with GITHUB_TOKEN, and
+          # Dependabot branches always live in this repo — so anything else is
+          # a misuse of this workflow, not a case to handle.
+          owner=$(echo "$data" | jq -r '.headRepositoryOwner.login')
+          if [ "$owner" != "${REPO%%/*}" ]; then
+            echo "❌ PR head is on a fork ($owner) — refusing to push"
+            exit 1
+          fi
+          echo "branch=$(echo "$data" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Regenerate lockfile
+        run: cd web && bun install
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- web/bun.lock; then
+            echo "bun.lock already in sync — nothing to do" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/bun.lock
+          git commit -m "build(deps): regenerate bun.lock"
+          git push origin "HEAD:${{ steps.pr.outputs.branch }}"
+          {
+            echo "### bun.lock regenerated"
+            echo
+            echo "Pushes made with \`GITHUB_TOKEN\` deliberately do not start a"
+            echo "new workflow run, so **re-run CI on the PR by hand** to pick"
+            echo "this commit up."
+          } >> "$GITHUB_STEP_SUMMARY"
