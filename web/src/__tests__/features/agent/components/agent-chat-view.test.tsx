@@ -190,6 +190,37 @@ describe('AgentChatView message ledger', () => {
     expect(screen.getAllByTestId(/^agent-message-\d+$/)).toHaveLength(2)
   })
 
+  // The user's own reproduction: "Claude might say something, then call a tool,
+  // and then say something else, and the message would appear ONLY when it
+  // finished working."
+  //
+  // The daemon half is proven live (TestRegression_AMessageSaidMidTurnIsVISIBLE-
+  // BeforeTheTurnEnds: the mid-turn message is readable from ReadMessages ~7s in,
+  // with the chat still working). So what is left to pin is the pane: while
+  // working stays TRUE the whole time — no turn boundary, no lifecycle frame, no
+  // re-render from a prop change — the poll alone has to bring the new message in
+  // and render it. Everything else in this file drives a working edge, which is
+  // exactly the case that was never the bug.
+  it('renders a message that arrives mid-turn, on the poll alone, with working never changing', async () => {
+    initialMessages = [message(1, 'user', 'Do the thing')]
+    incrementalMessages = []
+    setup({ working: true })
+
+    expect(await screen.findByText('Do the thing')).toBeInTheDocument()
+    expect(screen.queryByText('ALPHA')).not.toBeInTheDocument()
+
+    // The agent says its first message and reaches for a slow tool. Nothing about
+    // the chat's working state changes — it is mid-turn throughout.
+    incrementalMessages = [message(2, 'assistant', 'ALPHA')]
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('ALPHA')).toBeInTheDocument()
+      },
+      { timeout: 4_000 },
+    )
+  })
+
   it('fetches after a batched start/stop pair even when working renders idle both times', async () => {
     const view = setup({ working: false, turnRevision: 0 })
     expect(await screen.findByText(/start the conversation/i)).toBeInTheDocument()
