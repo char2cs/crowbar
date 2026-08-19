@@ -31,6 +31,12 @@ type Descriptor struct {
 
 	Hooks HookSpec `yaml:"hooks"`
 
+	// Transcript declares how to read the provider's OWN record of the
+	// conversation, which is the only source that has EVERY message an agent said
+	// in a turn — the terminating hook reports just the last one. Absent means the
+	// terminating hook is the whole story, exactly as before this field existed.
+	Transcript TranscriptSpec `yaml:"transcript"`
+
 	// ContextInject delivers Crowbar's {context} document to a CLI starting a
 	// FRESH provider session, through a channel the model reads WITHOUT being
 	// given a turn (claude's --append-system-prompt, codex's

@@ -752,3 +752,120 @@ func TestApply_DeclaringNoTerminalNoticesIsValid(t *testing.T) {
 
 	assert.NoError(t, rules.Apply(d))
 }
+
+// --- transcript ---
+
+// withTranscript gives a descriptor the transcript block in the shape
+// claude.yaml declares it: content split into blocks and joined into one
+// message.
+func withTranscript(d *spec.Descriptor) *spec.Descriptor {
+	d.Transcript = spec.TranscriptSpec{
+		PathField: "transcript_path",
+		Format:    "jsonl",
+		Message: spec.TranscriptMessageSpec{
+			Match:      map[string]string{"type": "assistant"},
+			Blocks:     "message.content",
+			BlockMatch: map[string]string{"type": "text"},
+			BlockText:  "text",
+			Join:       "\n\n",
+			Timestamp:  "timestamp",
+		},
+	}
+	return d
+}
+
+func TestTranscript_AcceptsAFullyDeclaredBlock(t *testing.T) {
+	require.NoError(t, rules.Apply(withTranscript(valid())))
+}
+
+// TestTranscript_AcceptsATextLeafDescriptorWithNoBlocks covers the other legal
+// shape: a provider that does not split a message into blocks reads its whole
+// entry's text from a single declared leaf instead.
+func TestTranscript_AcceptsATextLeafDescriptorWithNoBlocks(t *testing.T) {
+	d := withTranscript(valid())
+	d.Transcript.Message.Blocks = ""
+	d.Transcript.Message.BlockMatch = nil
+	d.Transcript.Message.BlockText = ""
+	d.Transcript.Message.Text = "message.content"
+
+	require.NoError(t, rules.Apply(d))
+}
+
+// TestTranscript_DeclaringNoneIsValid pins the degradation contract: a provider
+// naming no transcript block at all behaves exactly as it did before the field
+// existed, which must never be a validation failure.
+func TestTranscript_DeclaringNoneIsValid(t *testing.T) {
+	require.NoError(t, rules.Apply(valid()))
+}
+
+// TestTranscript_AHalfDeclaredBlockIsRejected is the property the rule's own doc
+// comment promises: naming one field without the rest would silently read
+// nothing while looking, in the descriptor file, exactly like a working
+// declaration.
+func TestTranscript_AHalfDeclaredBlockIsRejected(t *testing.T) {
+	d := valid()
+	d.Transcript.PathField = "transcript_path"
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "unsupported format")
+}
+
+func TestTranscript_RejectsTheBrokenShapes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{
+			"no path_field",
+			func(d *spec.Descriptor) { d.Transcript.PathField = "" },
+			"path_field is required",
+		},
+		{
+			"unsupported format",
+			func(d *spec.Descriptor) { d.Transcript.Format = "ndjson" },
+			`unsupported format "ndjson"`,
+		},
+		{
+			// Without at least one match pair every line in the file would count as
+			// a message.
+			"no match fields",
+			func(d *spec.Descriptor) { d.Transcript.Message.Match = nil },
+			"message.match must name at least one field",
+		},
+		{
+			"neither blocks nor text",
+			func(d *spec.Descriptor) {
+				d.Transcript.Message.Blocks = ""
+				d.Transcript.Message.Text = ""
+			},
+			"message needs blocks or text",
+		},
+		{
+			"blocks without block_text",
+			func(d *spec.Descriptor) { d.Transcript.Message.BlockText = "" },
+			"message.blocks needs message.block_text",
+		},
+		{
+			"negative max_read_bytes",
+			func(d *spec.Descriptor) { d.Transcript.MaxReadBytes = -1 },
+			"byte ceilings cannot be negative",
+		},
+		{
+			"negative max_message_bytes",
+			func(d *spec.Descriptor) { d.Transcript.MaxMessageBytes = -1 },
+			"byte ceilings cannot be negative",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withTranscript(valid())
+			tc.mutate(d)
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}

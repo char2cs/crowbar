@@ -565,6 +565,15 @@ func awaitHandoffContains(
 // rollout never recorded it, and the codex resumed later had nothing to recall. The
 // test that failed was the one asserting the resumed codex remembers; the bug was
 // four steps earlier, in what "the turn is done" was taken to mean.
+//
+// AN ASSISTANT ENTRY IS NO LONGER SUFFICIENT ON ITS OWN. Crowbar now records
+// every message of a turn rather than only the last, so the first thing a CLI
+// says lands in the record while the turn is still running — and a barrier that
+// stopped there would release mid-answer, which is precisely what the paragraph
+// above says must never happen. The chat's own Working flag is what closes the
+// gap: it is folded from turn_started/turn_stopped plus whatever asynchronous
+// work the CLI says it left running, so it goes false only when the turn is
+// genuinely over.
 func awaitTurnComplete(
 	t *testing.T,
 	h *harness,
@@ -573,8 +582,15 @@ func awaitTurnComplete(
 	provider string,
 ) {
 	t.Helper()
-	awaitHook(t, h, provider+" to finish its turn (an assistant entry in the ledger)", func() (bool, bool) {
-		ok := len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) > 0
-		return ok, ok
-	})
+	awaitHook(t, h, provider+" to finish its turn (an assistant entry, and the chat no longer working)",
+		func() (bool, bool) {
+			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) == 0 {
+				return false, false
+			}
+			chat, err := h.app.Usecases.Agent.GetChat(context.Background(), chatID)
+			if err != nil {
+				return false, false
+			}
+			return !chat.Working, !chat.Working
+		})
 }

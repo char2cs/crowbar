@@ -300,6 +300,59 @@ hooks:
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }
+# codex's OWN transcript — its rollout file, the same one `require_payload_fields`
+# above already leans on to tell a real conversation from an internal one.
+#
+# Same defect, same fix as claude: `turn_stop.message` is `last_assistant_message`,
+# which is the LAST message of a turn, so everything the agent said earlier in
+# that turn was never ingested at all. The rollout has one entry per message.
+#
+# READ-ONLY. The rest of this descriptor exists to keep Crowbar out of ~/.codex —
+# every setting travels on `-c`, the session layer, and nothing is written there.
+# This does not break that law: the file is opened O_RDONLY and Stat'd through
+# that handle, and nothing else in ~/.codex is touched.
+#
+# STRUCTURE, read off real 0.146.0 rollouts (2,883 entries in the one measured):
+#
+#   * `type: response_item` with `payload.type: message` and
+#     `payload.role: assistant` is what codex said. Its words are
+#     `payload.content[]` blocks of type `output_text`. Both `phase` values —
+#     `commentary` (its running narration) and `final_answer` — are the agent
+#     speaking to its user, so neither is filtered: the commentary is exactly the
+#     material this whole block exists to stop losing.
+#
+#   * NOT `type: event_msg` / `payload.type: agent_message`, which carries the
+#     IDENTICAL text as a UI event. Ingesting both would record every codex
+#     message twice.
+#
+#   * NOT `payload.type: agent_message` under response_item either: that is
+#     INTER-AGENT traffic (it carries `author`/`recipient` and encrypted content),
+#     not something codex said to the user.
+#
+#   * `role: user` and `role: developer` entries are other people's words and are
+#     excluded by the role match, as are `reasoning`, `function_call` and
+#     `custom_tool_call` items, which the tool hooks already record with their own
+#     identity.
+#
+# UNVERIFIED BY A LIVE TURN. codex model turns were rate-limited on this account
+# until 2026-08-22, so this mapping was checked against rollout files on disk and
+# by structure only — never by driving a live codex turn end to end. If it is
+# wrong, the failure is the one this whole feature is built to degrade to: no
+# transcript messages, and `last_assistant_message` recorded exactly as before.
+transcript:
+  path_field: transcript_path
+  format: jsonl
+  message:
+    match:
+      type: response_item
+      payload.type: message
+      payload.role: assistant
+    blocks: payload.content
+    block_match:
+      type: output_text
+    block_text: text
+    join: "\n\n"
+    timestamp: timestamp
 # The Crowbar tool surface, injected through the same session-layer -c channel
 # the hooks above use: nothing is written to disk and ~/.codex is untouched,
 # which is the law this descriptor is built on. Verified against codex 0.139.0

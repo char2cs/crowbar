@@ -155,9 +155,14 @@ type Usecase struct {
 	// describes a LIVE process: a report that outlived its CLI would be a
 	// confident stale number.
 	telemetry *telemetryStore
-	agents    engineagents.Agents
-	term      TerminalCommander
-	ws        WorkspaceReader
+	// transcripts is where Crowbar has read up to in each provider's OWN record of
+	// a conversation — the only source that has every message of a turn, rather
+	// than only the last one its terminating hook reports. In memory, because a
+	// lost position costs at most one turn's messages and falls back to the hook.
+	transcripts *transcriptMarks
+	agents      engineagents.Agents
+	term        TerminalCommander
+	ws          WorkspaceReader
 	// lineage answers "what does this chat read" at spawn time. See ChatLineage
 	// and threadContext.
 	lineage ChatLineage
@@ -263,6 +268,7 @@ func New(
 		runners:        runners,
 		activity:       activity,
 		telemetry:      newTelemetryStore(),
+		transcripts:    newTranscriptMarks(),
 		agents:         agents,
 		term:           term,
 		ws:             ws,
@@ -1836,6 +1842,14 @@ func (u *Usecase) ingestResolvedHook(
 		return nil
 	}
 
+	// Where does this conversation's own transcript stand RIGHT NOW? Asked on every
+	// hook and answered once per file: a session Crowbar has not been watching must
+	// start at the file's end, or a resumed conversation's whole history would be
+	// replayed into the record as though the agent had just said all of it. Asked
+	// here rather than on the announcement alone because a daemon that restarts
+	// mid-session never sees that session's announcement.
+	u.seedTranscript(descriptor, ev)
+
 	switch ev.Kind {
 	case engineagents.HookSessionStart:
 		return u.handleSessionStart(ctx, runner, ev)
@@ -1907,31 +1921,32 @@ func (u *Usecase) openAssistantTurn(
 	}
 }
 
-// closeAssistantTurn completes the reply with its hook-confirmed text.
+// closeAssistantTurn completes the reply with EVERYTHING the agent said, not
+// only the one message the terminating hook reports.
+//
+// The hook carries a single message — claude's is `last_assistant_message`,
+// literally the last one — so an agent that speaks, works, and speaks again had
+// its earlier messages thrown away here. The provider's own transcript is read
+// for the rest, and the hook's message is appended to whatever it found unless
+// the transcript already ends with it.
+//
+// A provider that declares no transcript, and any transcript that could not be
+// read, arrive at exactly the previous behaviour: one message, from the hook.
 func (u *Usecase) closeAssistantTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
+	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
-	if ev.Message == "" {
-		// A provider that ends its turn with nothing to say records no reply, but
-		// the turn is still closed so its in-flight tools stop reading as running.
-		if err := u.activity.Abandon(ctx, chat.ID, time.Now()); err != nil {
-			return fmt.Errorf("agent: ingest hook: close empty turn: %w", err)
-		}
-		return nil
+	path, said := u.drainTranscript(ctx, agent, ev)
+	messages := finalMessage(u.transcripts, path, fileMessages(said), ev.Message)
+	if len(messages) == 0 {
+		return u.closeSilentTurn(ctx, chat, runner, path)
 	}
-	if err := u.activity.CloseTurn(ctx, agentactivity.TurnInput{
-		ChatID:     chat.ID,
-		TurnID:     turnID(ctx),
-		ProviderID: runner.ProviderID,
-		RunnerID:   runner.ID,
-		SessionID:  runner.CurrentSession,
-		Text:       ev.Message,
-		Effort:     ev.Effort,
-		Now:        time.Now(),
-	}); err != nil {
+	if err := u.recordTranscriptSegments(
+		ctx, chat, runner, path, messages, turnID(ctx), ev.Effort, false,
+	); err != nil {
 		return fmt.Errorf("agent: ingest hook: close turn: %w", err)
 	}
 	return nil
@@ -1971,6 +1986,10 @@ func (u *Usecase) handleTurn(
 
 	switch ev.Kind {
 	case "user_prompt":
+		// A new turn starts, so the transcript row the LAST turn's final message
+		// landed on stops being something this turn may close onto. The position in
+		// the file is untouched; only the row is forgotten. See beginTurn.
+		u.beginTranscriptTurn(agent, ev)
 		// Crowbar's own context document coming back at us: a provider whose only
 		// resume channel is a user message (codex) fires user_prompt with the very
 		// handoff we injected. That is not something the user said — recording it would
@@ -2071,7 +2090,7 @@ func (u *Usecase) handleTurn(
 		// message is a ledger no-op here and StopTurn below still runs, and a FAILED
 		// append still falls through to StopTurn rather than returning early, so the
 		// turn state is never left open on a write error.
-		appendErr := u.closeAssistantTurn(ctx, chat, runner, ev)
+		appendErr := u.closeAssistantTurn(ctx, chat, runner, agent, ev)
 		// Released only ONCE THE LEDGER HAS THE ANSWER: a switch waiting on this turn
 		// reads the ledger the moment it wakes, to assemble the handoff. Waking it
 		// earlier would hand the incoming CLI a conversation missing the very turn the

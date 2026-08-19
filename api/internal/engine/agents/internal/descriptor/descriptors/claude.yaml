@@ -361,6 +361,67 @@ hooks:
       message: last_assistant_message
       async_work: background_tasks
       effort: effort.level
+# The provider's OWN transcript — the only source that has EVERY message a turn
+# produced, rather than just its last.
+#
+# WHY THIS EXISTS. `turn_stop.message` above is `last_assistant_message`, and
+# that is literally what it says: the LAST one. Asked to "send me a message, wait
+# 30 seconds, then send another", claude did exactly that and Crowbar recorded a
+# single assistant turn — the second message. The first was never ingested,
+# because no hook ever carried it. The record is what get_chat_log serves to
+# sibling agents, so the loss is not cosmetic: another agent reads a transcript
+# of this conversation with the middle of every turn missing.
+#
+# Every claude hook payload carries `transcript_path`, and the file it names has
+# one entry PER MESSAGE. Measured against claude 2.1.234 on 2026-08-18 over a
+# real 15 MB session file: 8,086 entries, 2,723 of them `type: assistant`, of
+# which 547 carried a `text` block — 547 messages where the Stop hooks reported
+# 381.
+#
+# READ-ONLY, ALWAYS. This is the first thing in Crowbar that opens a file the
+# provider owns. It is acceptable for exactly one reason: it only ever reads —
+# os.Open(O_RDONLY) and a Stat through that handle, nothing else. No lock file,
+# no temp file, no rename, no truncation, nothing written into ~/.claude.
+#
+# WHAT IS AND IS NOT A MESSAGE, all measured on the same file:
+#
+#   * `type: assistant` with a `message.content` array whose blocks are one of
+#     `text`, `thinking` or `tool_use`. Only `text` is the agent's words —
+#     thinking is not something it said, and a tool_use is recorded by the tool
+#     hooks with its own identity, so ingesting either would duplicate the record
+#     or put reasoning in the conversation.
+#
+#   * `isSidechain: true` marks a SUBAGENT's messages. In 2.1.234 those live in a
+#     sibling `<session>/subagents/*.jsonl` rather than in this file, so the
+#     rejection matches nothing today — it is declared because that layout is the
+#     provider's to change, and the failure mode if it does (every subagent's
+#     internal chatter filed as the user's agent speaking) is bad enough to guard
+#     against before it happens.
+#
+#   * `isApiErrorMessage: true` is claude's own failure notice ("API Error: 529
+#     Overloaded…"), which it writes as an assistant text entry. It is a CLI
+#     status line, not something the model said. Four of them in the same file.
+#
+# Neither key is present at all on an ordinary entry, which is why they are
+# `reject` and not `match`: no positive rule can express "not that".
+transcript:
+  path_field: transcript_path
+  format: jsonl
+  message:
+    match:
+      type: assistant
+      message.role: assistant
+    reject:
+      isSidechain: "true"
+      isApiErrorMessage: "true"
+    blocks: message.content
+    block_match:
+      type: text
+    block_text: text
+    # Two text blocks in ONE entry are one message claude rendered as one, so
+    # they are joined rather than recorded as two.
+    join: "\n\n"
+    timestamp: timestamp
 # The ANSWER channel — the write side of the two hooks above that ask a question.
 #
 # Everything here was measured live against claude 2.1.234 on 2026-08-18, by

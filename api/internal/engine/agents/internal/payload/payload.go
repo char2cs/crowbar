@@ -10,6 +10,7 @@ package payload
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -203,4 +204,43 @@ func Object(p map[string]any, path string) map[string]any {
 		return nil
 	}
 	return obj
+}
+
+// Scalar renders a leaf as text, whatever JSON shape it arrived in, and reports
+// whether there was a leaf at all.
+//
+// It exists for the one comparison a descriptor makes that is not "read this
+// field": deciding whether an entry IS the thing a rule is looking for. A
+// descriptor spells the expected value in YAML, where everything is text, while
+// the payload may spell the same fact as a string, a bool or a number — claude
+// marks a subagent's transcript entry with `isSidechain: true` and its kind with
+// `"type": "assistant"`. Comparing rendered text is what lets one declaration
+// cover both without the engine learning which fields are which type.
+//
+// A null leaf is ABSENT, not "null": the absent case is what a Reject rule tests
+// for, and a payload that spells absence explicitly must answer the same as one
+// that omits the key.
+func Scalar(p map[string]any, path string) (string, bool) {
+	v, ok := walk(p, path)
+	if !ok || v == nil {
+		return "", false
+	}
+	switch n := v.(type) {
+	case string:
+		return n, true
+	case bool:
+		return strconv.FormatBool(n), true
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64), true
+	case float32:
+		return strconv.FormatFloat(float64(n), 'f', -1, 32), true
+	case int:
+		return strconv.Itoa(n), true
+	case int64:
+		return strconv.FormatInt(n, 10), true
+	case json.Number:
+		return n.String(), true
+	default:
+		return "", false
+	}
 }

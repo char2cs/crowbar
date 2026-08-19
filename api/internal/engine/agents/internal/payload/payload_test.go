@@ -226,3 +226,94 @@ func TestObject_AbsentAndWrongShapesYieldNil(t *testing.T) {
 		})
 	}
 }
+
+// TestScalar_RendersEveryJSONShapeAsComparableText covers the one reader that
+// exists purely for comparison: a descriptor spells the value it expects in
+// YAML, where everything is text, while the payload may report the same fact as
+// a string, a bool or a number.
+func TestScalar_RendersEveryJSONShapeAsComparableText(t *testing.T) {
+	p := decode(t, `{"str":"assistant","yes":true,"no":false,"whole":7,"frac":19.5}`)
+
+	testCases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"string", "str", "assistant"},
+		{"true", "yes", "true"},
+		{"false", "no", "false"},
+		{"whole number", "whole", "7"},
+		{"fractional number", "frac", "19.5"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := payload.Scalar(p, tc.path)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestScalar_ANullLeafIsAbsentNotTheStringNull is why Scalar exists rather than
+// a generic stringifier: a Reject rule tests for absence, and a payload that
+// spells that absence as an explicit JSON null must answer exactly like one that
+// omits the key, not like a leaf holding the word "null".
+func TestScalar_ANullLeafIsAbsentNotTheStringNull(t *testing.T) {
+	p := decode(t, `{"isSidechain":null}`)
+
+	_, ok := payload.Scalar(p, "isSidechain")
+
+	assert.False(t, ok)
+}
+
+func TestScalar_AbsentAndWrongShapesReportNotOK(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{"missing key", "nope"},
+		{"missing nested key", "a.nope"},
+		{"descend through a scalar", "top.b"},
+		{"an object is not a scalar", "obj"},
+		{"an array is not a scalar", "arr"},
+		{"empty path", ""},
+	}
+	p := decode(t, `{"a":{"b":"deep"},"top":"v","obj":{"k":1},"arr":[1]}`)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := payload.Scalar(p, tc.path)
+			assert.False(t, ok)
+		})
+	}
+}
+
+// TestScalar_AcceptsJSONNumberAndGoNumerics mirrors TestFloat_AcceptsJSONNumberAndGoNumerics:
+// Scalar shares the same numeric-shape acceptance so a value read one way and
+// compared another never disagrees about what a number is.
+func TestScalar_AcceptsJSONNumberAndGoNumerics(t *testing.T) {
+	p := map[string]any{
+		"jsonNumber": json.Number("42.5"),
+		"int":        7,
+		"int64":      int64(8),
+		"float32":    float32(1.5),
+	}
+
+	testCases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"json.Number", "jsonNumber", "42.5"},
+		{"int", "int", "7"},
+		{"int64", "int64", "8"},
+		{"float32", "float32", "1.5"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := payload.Scalar(p, tc.path)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
