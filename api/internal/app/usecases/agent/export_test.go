@@ -1,5 +1,12 @@
 package agent
 
+import (
+	"context"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
 // WaitingForTurnLog is the log record a provider switch emits at the INSTANT it parks on
 // an in-flight turn, exposed to this package's (external) tests. It is not production
 // surface: this file is compiled only under `go test`.
@@ -28,21 +35,22 @@ func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
 	u.prompts.syncDir = syncDir
 }
 
-// SetRewakeJoinHook installs a notification fired the instant a prompt collector
-// is registered and can be handed a message. It is test-only surface: this file
-// is compiled only under `go test`.
+// RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it
+// touches anything. It is test-only surface: this file is compiled only under
+// `go test`.
 //
-// It exists because every rewake test has the same precondition — a collector
-// BLOCKED on the daemon — and the alternative ways to establish it are all wrong.
-// A sleep is a guess. A poll on the collector count is a race that usually wins.
-// This is the causal edge itself.
-func SetRewakeJoinHook(u *Usecase, fn func(runnerID string)) {
-	u.rewake.onJoin = fn
-}
-
-// RewakeCollectors reports how many collectors are blocked for runnerID, so a test
-// can assert the negative this whole channel rests on: with none, a message is
-// never handed over and the restart floor takes it.
-func RewakeCollectors(u *Usecase, runnerID string) int {
-	return u.rewake.waiting(runnerID)
+// It is exposed because the guard's refusal branch has no descriptor that can
+// reach it. A strategy this daemon cannot drive is refused at LOAD by the
+// descriptor rules, so the only way to ask the guard about one is to hand it a
+// descriptor built in Go — which is the point: the day a strategy is made
+// declarable before it is made deliverable, this is the lock that still holds,
+// and a lock nothing exercises is a lock nobody notices going missing.
+func RequirePromptRestart(
+	ctx context.Context,
+	u *Usecase,
+	chatID string,
+	live domain.AgentRunner,
+	descriptor engineagents.Agent,
+) error {
+	return u.requirePromptRestart(ctx, chatID, live, descriptor)
 }

@@ -123,12 +123,6 @@ type fakeAgentUsecase struct {
 	selectionCalls []selectionCall
 	selectionErr   error
 
-	promptAwaitCalls  []promptAwaitCall
-	promptAwaitPrompt string
-	promptAwaitFound  bool
-	promptAwaitAcked  bool
-	promptAwaitErr    error
-
 	dispatchMCPCalls []dispatchMCPCall
 	dispatchMCPOut   []byte
 	dispatchMCPSend  bool
@@ -216,14 +210,6 @@ type renameCall struct {
 	chatID string
 	title  string
 	source string
-}
-
-// promptAwaitCall records one prompt-collector poll, so a handler test can assert
-// what the runner-keyed route actually forwarded.
-type promptAwaitCall struct {
-	runnerID string
-	token    string
-	waitMS   int64
 }
 
 type dispatchMCPCall struct {
@@ -359,19 +345,6 @@ func (f *fakeAgentUsecase) SetChatSelection(
 ) error {
 	f.selectionCalls = append(f.selectionCalls, selectionCall{chatID: chatID, model: model, effort: effort})
 	return f.selectionErr
-}
-
-func (f *fakeAgentUsecase) AwaitQueuedPrompt(
-	_ context.Context,
-	runnerID, token string,
-	waitMS int64,
-) (string, bool, func(), error) {
-	f.promptAwaitCalls = append(f.promptAwaitCalls,
-		promptAwaitCall{runnerID: runnerID, token: token, waitMS: waitMS})
-	if f.promptAwaitErr != nil {
-		return "", false, func() {}, f.promptAwaitErr
-	}
-	return f.promptAwaitPrompt, f.promptAwaitFound, func() { f.promptAwaitAcked = true }, nil
 }
 
 func (f *fakeAgentUsecase) DispatchMCP(

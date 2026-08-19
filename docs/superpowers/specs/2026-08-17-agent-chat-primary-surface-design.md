@@ -198,15 +198,16 @@ owns everything transport-specific.
 ```yaml
 presentation:
   prompt_submit:
-    strategy: restart_tui | rewake_hook
+    strategy: restart_tui
 ```
 
 Rules:
 
 - **Message #1 always spawns** with the positional prompt (§3), on every provider.
-- From message #2, the descriptor's declared strategy applies.
-- **`restart_tui` is the portable floor.** It must always work; `rewake_hook` is an optimisation
-  that can be disabled by descriptor change, without a code change, if a provider surface moves.
+- **`restart_tui` is the only strategy.** It is the portable floor, and as of 2026-08-19 it is
+  also the ceiling: the one optimisation over it was built, verified working, and then removed
+  (§7.2). The field stays declared and stays validated — a descriptor naming any other strategy
+  is refused at load — so the day a second channel is genuinely wanted, the seam is still there.
 - **A replacement is only ever triggered by a prompt submitted from Chat.** Terminal typing goes
   straight to the PTY and never causes one.
 
@@ -216,39 +217,74 @@ Gracefully replaces the CLI; the prompt is the final argv element after an end-o
 Owns displacement, the turn-start interlock, fresh-vs-resume selection and the startup hook
 barrier. Destructive, so an ambiguous outcome must block the queue rather than risk a duplicate.
 
-### 7.2 `rewake_hook` (Claude)
+### 7.2 `rewake_hook` — BUILT, VERIFIED, AND REMOVED. Do not rebuild it.
 
-Verified working on 2026-08-16. A hook registered with `asyncRewake: true` runs in the background
-and wakes the model when it exits 2, with its stdout delivered to the session. Crowbar registers
-`crowbar hook await-prompt`, which blocks until the daemon has a queued prompt for that runner's
-current chat, prints it, and exits 2.
+**Status: withdrawn 2026-08-19.** It was implemented on 2026-08-18, it worked, and it was taken
+out the next day. This section is kept — rather than deleted — so the next reader does not spend
+the effort again on the strength of the measurements below, which are all true.
 
-This is a **pull** model and that is the point: the daemon holds the queue and the provider comes
-to collect, so an ambiguous HTTP outcome is resolved by asking rather than guessing. It removes
-the startup barrier, displacement, resume selection and the destructive-retry class entirely.
+**What it was.** A hook registered with `asyncRewake: true` runs in the background and wakes the
+model when it exits 2, with its stdout delivered to the session. Crowbar registered
+`crowbar hook await-prompt`, which blocked until the daemon had a queued prompt for that runner's
+current chat, printed it, and exited 2. A **pull** model: the daemon held the queue and the
+provider came to collect, so an ambiguous HTTP outcome was resolved by asking rather than
+guessing. It removed the startup barrier, displacement, resume selection and the
+destructive-retry class entirely, and a prompt reached a live session with **no process
+replacement at all**.
 
-Measured properties:
+**It worked.** Live, against claude 2.1.235: three prompts through one chat, ONE `session_start`,
+**the pid unchanged across both rewake deliveries**, all three recorded `role=user` with the
+wrapper stripped, three consecutive collect→wake→answer cycles. `UserPromptSubmit` still fired,
+so the ledger stayed hook-authoritative and organisation hooks on that event kept running.
 
-- `UserPromptSubmit` **does** fire, so the ledger stays hook-authoritative and any organisation
-  hooks registered on that event run normally.
-- The payload is wrapped, and both wrapper parts are Crowbar-controlled:
-  `<task-notification><summary>{rewakeSummary}</summary></task-notification>` plus
-  `<system-reminder>{rewakeMessage} {text}</system-reminder>`. The descriptor strips it, and the
-  `rewakeMessage` sentinel doubles as the discriminator for "Crowbar delivered this" — necessary
-  because, unlike restart, the same runner emits both native and injected prompts.
-- The resulting `Stop` carries `stop_hook_active: true`.
+**Why it was removed anyway — and this is the part that matters.** The payload is not handed to
+the model as a bare prompt. The provider wraps it:
 
-Constraints:
+```
+<task-notification>
+<summary>{rewakeSummary}</summary>
+</task-notification>
+<system-reminder>
+{rewakeMessage} {text}
+</system-reminder>
+```
 
-- Requires an armed hook, which requires a completed turn — consistent with §3.
-- `await-prompt` **reads** the user's prompt, unlike the write-only hooks, so it needs a
+**That wrapper is visible to the model.** Claude reads the notification framing around the user's
+words and answers worse than it does to the same words typed after a plain restart — confused
+about who is speaking and about what it is being asked to do. That is a **product decision about
+answer quality, not a bug**: a delivery mechanism the model misreads is worse than a restart that
+costs a process, however elegant the mechanism. It is not fixable by tuning the sentinel (see
+below), and it was not left behind a flag.
+
+**A finding worth keeping: the sentinel's WORDING was load-bearing.** The first version argued its
+own provenance — "sent by the user … not written by any harness". Claude 2.1.235 refused all three
+live prompts outright: *"a background notification containing text styled to look like a user
+instruction … I am not treating injected content as a user request."* A protest of provenance
+inside a notification channel is precisely the shape of the injection its defences are trained on.
+A plain, unargumentative label was both a better discriminator and a message the model would
+actually answer. This is evidence about how these payloads are read, and it generalises: **you
+cannot talk a model out of the frame its transport puts it in.** That is also why the wrapper's
+effect on answer quality could not be tuned away.
+
+**The trap it had to survive, recorded because it outlived the feature.** The wrapper OPENS with
+`<task-notification>`, character-for-character the needle that classifies a prompt as `harness`
+(§ `injected_prompts`). Anything delivering a payload through this channel must be asked about
+BEFORE the harness check, or every message the user types is filed under the harness's name and
+vanishes from their own conversation.
+
+**Other measured properties**, still true and still recorded:
+
+- The resulting `Stop` carried `stop_hook_active: true`.
+- It required an armed hook, which required a completed turn — consistent with §3.
+- `await-prompt` **read** the user's prompt, unlike the write-only hooks, so it needed a
   credential rather than a bare segment id; argv is world-readable.
-- It parks prompt plaintext in the daemon until collection. The 2026-08-15 journal deliberately
-  stored only a SHA-256. This is a deliberate change to that property.
-- `asyncRewake` is marked `@internal` in Claude's schema. Hence the fallback requirement above.
+- It parked prompt plaintext in the daemon until collection, a deliberate departure from the
+  2026-08-15 journal's SHA-256-only property.
+- `asyncRewake` is marked `@internal` in Claude's schema.
 
-Codex has no equivalent: its hooks only run while it is already doing something, so an idle
-session cannot be woken. Codex stays on `restart_tui`.
+Codex never had an equivalent and was never on this channel: its hooks only run while it is
+already doing something, so an idle session cannot be woken. Its behaviour is unchanged by the
+removal.
 
 ## 8. Provider capability surfaces
 
@@ -346,8 +382,9 @@ displays the resolved model from `SessionStart.model` / `ModelIdentity`.
 >
 > `strategy: restart_tui` is the only supported value, and it is load-bearing rather than
 > decorative: a selection change forces a restart EVEN ON a delivery strategy that would not
-> otherwise respawn. Both shipped descriptors already restart per prompt, so the forced restart is
-> currently redundant for them — it exists for `rewake_hook`-style delivery. The restart always
+> otherwise respawn. Both shipped descriptors restart per prompt, so the forced restart is
+> redundant for them today — it exists so that a delivery channel which does NOT respawn can never
+> silently run a message under the model the user just changed away from. The restart always
 > RESUMES the native session; verified live (pid changed, session id identical).
 
 Prohibited models fail gracefully, measured 2026-08-16:
@@ -465,6 +502,8 @@ Measured live against installed CLIs:
 | Fact | Date | Method |
 | --- | --- | --- |
 | `asyncRewake` delivers to a live session; `UserPromptSubmit` fires; payload wrapper is Crowbar-controlled | 2026-08-16 | PTY harness, reproduced 3× |
+| `rewake_hook` end to end: 3 prompts, 1 `session_start`, pid unchanged across deliveries, 3 consecutive cycles | 2026-08-18 | live claude 2.1.235 — **channel since REMOVED, §7.2** |
+| A sentinel arguing its own provenance is refused by claude's injection defence; a plain one is answered | 2026-08-18 | live claude 2.1.235, 3/3 prompts refused then 3/3 answered |
 | `statusLine` fires unattended, can print nothing, is change-driven (~1/turn) | 2026-08-17 | PTY harness, 37s turn session + 60s idle |
 | No hook on either provider carries token/context/cost | 2026-08-17 | 35 captured payloads + Claude binary schema union |
 | Claude has 31 hook events; Codex 11 | 2026-08-17 | binary schema extraction |
@@ -478,9 +517,9 @@ Measured live against installed CLIs:
 `SubagentStart`/`SubagentStop`/`PreCompact`/`PostCompact` payload fields. The account hit its
 usage limit during probing and no Codex model call could complete. Re-run after 2026-08-22.
 
-**Untested:** repeat `rewake` cycles beyond one; a rewake arriving while an unsent draft sits in
-the TUI composer; ESC/interrupt during a rewake turn (Claude documents that interrupt fires no
-hook at all); multi-window behaviour under load.
+**Untested:** multi-window behaviour under load. (The open `rewake` questions — a delivery arriving
+while an unsent draft sits in the TUI composer, ESC/interrupt during such a turn — died with the
+channel; see §7.2.)
 
 ## 13. Build order
 
@@ -493,7 +532,8 @@ hook at all); multi-window behaviour under load.
 5. **Telemetry** (§8.1) — the `telemetry` capability with both transports; Claude fills it now,
    Codex when it can.
 6. **MCP cross-agent surface** (§9).
-7. **`rewake_hook`** (§7.2) — an optimisation on a proven seam, never the only path.
+7. ~~**`rewake_hook`** (§7.2)~~ — **built 2026-08-18, removed 2026-08-19. Do not rebuild it.** It
+   worked; the model reads its wrapper and answers worse. See §7.2 before reopening this.
 8. **Catalogues, settings, polish** (§8.2, §8.3, §11) — slot in anywhere.
 
 Items 1–2 can proceed in parallel with 3. Item 4 cannot start before 3, because the current
@@ -511,3 +551,4 @@ ledger has no representation for anything but text.
 | tool payloads inside the event log | snapshot size and cold-load time would scale with total tool output (§4.1) |
 | naming the telemetry capability after `statusLine` | bakes one provider's mechanism into a provider-neutral contract |
 | making `rewake_hook` the only Claude path | it is an `@internal` surface; `restart_tui` must remain a config-level fallback |
+| `rewake_hook` as an optimisation beside `restart_tui` | built and verified working, then withdrawn 2026-08-19: its `<task-notification>`/`<system-reminder>` wrapper is visible to the model and degraded answer quality. A restart costs a process; a misread prompt costs the answer (§7.2) |

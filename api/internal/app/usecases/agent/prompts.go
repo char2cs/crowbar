@@ -103,17 +103,9 @@ func (u *Usecase) SubmitPrompt(
 		return dto.PromptSubmissionDTO{}, err
 	}
 
-	// The runner this dispatch is ATTRIBUTED to from its first fsync. A restart
-	// attributes to the process it is about to create; a rewake attributes to the
-	// live one, because that is the process that will emit the prompt hook — which
-	// is what lets a daemon that dies mid-dispatch resolve the outcome from the
-	// conversation record instead of reporting it unknown.
-	journaledRunnerID := uuid.NewString()
-	if delivery.rewake {
-		journaledRunnerID = live.ID
-	}
+	replacementRunnerID := uuid.NewString()
 	prior, existingAttempt, err := u.prompts.begin(
-		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, journaledRunnerID, time.Now(),
+		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
@@ -136,64 +128,12 @@ func (u *Usecase) SubmitPrompt(
 		}
 		return dto.PromptSubmissionDTO{}, ErrPromptOutcomeUnknown
 	}
-	// The optimisation, and the ONE place it is allowed to be one: it is tried, and
-	// a failure to place the message costs nothing but the floor below. Everything
-	// after this line is the delivery Crowbar has always performed.
-	if delivery.rewake {
-		result, done, deliverErr := u.deliverToLiveSession(
-			ctx, journalDir, clientRequestID, textHash, chatID, live, text,
-		)
-		if done {
-			return result, deliverErr
-		}
-		// done=false is PROOF that no collector took these bytes (see
-		// rewakeDesk.deliver), not a hope. So the message is still undelivered, and
-		// the durable intent written above stands for the restart that follows.
-		slog.InfoContext(ctx, "agent: submit prompt: no rewake collector for this chat; delivering by restart",
-			"chat_id", chatID, "runner_id", live.ID, "provider", live.ProviderID)
-	}
-
-	return u.deliverByReplacement(
-		ctx, chat, journalDir, clientRequestID, textHash, journaledRunnerID, text, live, delivery,
-	)
-}
-
-// deliverByReplacement is the portable floor: the CLI is replaced by another
-// ordinary interactive one carrying the message as its final argv element.
-//
-// It is reached in two ways and behaves identically in both — a provider that
-// declares restart_tui, and a rewake provider whose message found no collector.
-// The second case is why the durable intent may have to be re-attributed first:
-// it was journaled against the live runner, which is about to be quit.
-func (u *Usecase) deliverByReplacement(
-	ctx context.Context,
-	chat domain.AgentChat,
-	journalDir, clientRequestID, textHash, journaledRunnerID, text string,
-	live domain.AgentRunner,
-	delivery promptDelivery,
-) (dto.PromptSubmissionDTO, error) {
-	// A rewake that fell through never created a process, so the replacement is a
-	// new identity — and the journal has to learn it BEFORE the displacement below
-	// kills the runner it is currently attributed to. See repointDispatch.
-	replacementRunnerID := journaledRunnerID
-	if delivery.rewake {
-		replacementRunnerID = uuid.NewString()
-		if err := u.prompts.repointDispatch(
-			journalDir, clientRequestID, replacementRunnerID, time.Now(),
-		); err != nil {
-			// Nothing destructive has happened and nothing was delivered, so this is
-			// a FAILED dispatch the same id may retry — not an unknown outcome.
-			_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
-			return dto.PromptSubmissionDTO{}, fmt.Errorf(
-				"agent: submit prompt: re-attribute dispatch for restart fallback: %w", err)
-		}
-	}
-	if err := u.displaceForPrompt(ctx, chat.ID, journalDir, clientRequestID, live.ID); err != nil {
+	if err := u.displaceForPrompt(ctx, chatID, journalDir, clientRequestID, live.ID); err != nil {
 		return dto.PromptSubmissionDTO{}, err
 	}
 
 	runnerID, err := u.spawnRunner(
-		ctx, chat.ID, chat.WorkspaceID, live.ProviderID, replacementRunnerID,
+		ctx, chatID, chat.WorkspaceID, live.ProviderID, replacementRunnerID,
 		delivery.resumeSteps, delivery.promptSteps, "", 0,
 		delivery.resuming, delivery.launchSessionID, false, text,
 	)
@@ -655,18 +595,9 @@ func (u *Usecase) reconcilePromptRunnerDeparture(
 }
 
 // promptDelivery is everything resolved before dispatch about HOW one message
-// reaches the CLI: which channel carries it, the argv that carries it if that
-// channel is a new process, whether that process continues the native
-// conversation, and which conversation that is.
-//
-// The argv half is resolved EVEN WHEN the chosen channel is rewake, and that is
-// deliberate. A rewake can fail to find a collector, and the only acceptable
-// answer to that is to restart the CLI with the message in its argv — so the
-// fallback has to be fully rendered and fully validated before the first
-// destructive step, not assembled in the failure path where its own errors would
-// arrive with a prompt already in flight.
+// reaches the CLI: the argv that carries it, whether the replacement process
+// continues the native conversation, and which conversation that is.
 type promptDelivery struct {
-	rewake          bool
 	promptSteps     []engineagents.InjectStep
 	resumeSteps     []engineagents.InjectStep
 	launchSessionID string
@@ -700,11 +631,10 @@ func (u *Usecase) resolvePromptDelivery(
 		}
 		return promptDelivery{}, fmt.Errorf("agent: submit prompt: render prompt mapping: %w", err)
 	}
-	byRewake, err := u.promptDeliveryChannel(ctx, chatID, live, descriptor)
-	if err != nil {
+	if err := u.requirePromptRestart(ctx, chatID, live, descriptor); err != nil {
 		return promptDelivery{}, err
 	}
-	out := promptDelivery{rewake: byRewake, promptSteps: promptSteps, resuming: resuming}
+	out := promptDelivery{promptSteps: promptSteps, resuming: resuming}
 	if !resuming {
 		return out, nil
 	}
@@ -748,97 +678,43 @@ func (u *Usecase) resumeTarget(
 	return resuming, live.CurrentSession, nil
 }
 
-// promptDeliveryChannel picks the channel this one message travels on, and
-// refuses a message Crowbar has no channel for at all.
+// requirePromptRestart refuses a message Crowbar has no way to deliver.
 //
-// TWO INDEPENDENT AUTHORITIES can insist on a REPLACEMENT PROCESS, and they are
-// asked in this order because the reasons are not interchangeable:
+// Replacing the TUI is the ONLY delivery channel that exists, and TWO
+// INDEPENDENT AUTHORITIES can call for one:
 //
-//   - the provider's declared delivery strategy. restart_tui — the portable floor,
-//     and what codex declares — respawns the CLI for every message, so the answer
-//     is already "restart" before anything else is asked. Asking it first is also
-//     what keeps that provider's path byte-identical to the one that existed
-//     before any other channel did: not one extra read is performed for it.
+//   - the provider's declared delivery strategy. restart_tui — what both shipped
+//     descriptors declare — respawns the CLI for every message, so the answer is
+//     already yes before anything else is asked.
 //   - a PENDING SELECTION SWITCH: the chat's model or effort has moved since this
 //     process was launched, and the model/effort block declares that a change
-//     takes effect on the next process. This one holds ON ITS OWN and it OUTRANKS
-//     the declared strategy, because a running CLI's model cannot be changed in
-//     place — delivering to the live session would silently run the message under
+//     takes effect on the next process. This one must hold ON ITS OWN, because a
+//     running CLI's model cannot be changed in place. A provider delivering
+//     prompts WITHOUT a respawn would otherwise silently run the message under
 //     the model the user just changed away from.
 //
-// Only with both of those satisfied does a rewake-declaring provider get its
-// optimisation. And when neither authority says restart and the strategy is one
-// this daemon does not implement, the message is refused rather than delivered by
-// a mechanism its descriptor did not ask for — unreachable for both shipped
-// descriptors, reachable for an on-disk override, and precisely the case that
-// must not be answered by guessing.
-func (u *Usecase) promptDeliveryChannel(
+// When neither says yes the descriptor has asked for a delivery this daemon does
+// not implement, and the prompt is refused rather than delivered by a mechanism
+// its descriptor did not ask for. Descriptor validation refuses such a strategy
+// at load, so this is the second of two locks on the same door rather than the
+// only one — and it is the lock that survives the day a new strategy is made
+// declarable before it is made deliverable.
+func (u *Usecase) requirePromptRestart(
 	ctx context.Context,
 	chatID string,
 	live domain.AgentRunner,
 	descriptor engineagents.Agent,
-) (byRewake bool, err error) {
+) error {
 	if descriptor.Capabilities().Delivery == engineagents.DeliveryRestartTUI {
-		return false, nil
+		return nil
 	}
 	desired, err := u.chatSelection(ctx, chatID, false)
 	if err != nil {
-		return false, err
+		return err
 	}
 	launched := engineagents.Selection{Model: live.LaunchModel, Effort: live.LaunchEffort}
 	if descriptor.SelectionRestart(launched, desired) {
-		return false, nil
+		return nil
 	}
-	if descriptor.Capabilities().Delivery == engineagents.DeliveryRewakeHook {
-		return true, nil
-	}
-	return false, ErrPromptUnsupported
-}
-
-// deliverToLiveSession hands one message to a collector blocked on the live CLI,
-// and reports whether this submission is finished.
-//
-// done=false is the ONLY answer a caller may act on destructively, and it means
-// exactly one thing: no collector took these bytes, so the message is still
-// entirely undelivered and restarting the CLI with it in argv cannot duplicate
-// anything. Every other outcome is done=true — delivered, or delivered-and-unsure
-// — because past the handoff there is nothing to take back, and a prompt whose
-// outcome is unknown must never be sent a second time on a guess.
-func (u *Usecase) deliverToLiveSession(
-	ctx context.Context,
-	journalDir, clientRequestID, textHash, chatID string,
-	live domain.AgentRunner,
-	text string,
-) (dto.PromptSubmissionDTO, bool, error) {
-	// Checked BEFORE the handoff, not after: without a terminal identity there is
-	// no result to return, and finding that out with the message already collected
-	// would turn a fallback into an unknown outcome for no reason.
-	if live.TerminalSession == "" {
-		return dto.PromptSubmissionDTO{}, false, nil
-	}
-	handed, acked := u.rewake.deliver(
-		live.ID, chatID, text, rewakeHandoffBudget, rewakeAckBudget,
-	)
-	if !handed {
-		return dto.PromptSubmissionDTO{}, false, nil
-	}
-	if !acked {
-		// A collector took the message and then went quiet. The bytes may be with
-		// its CLI already, so this is the uncertain class the journal exists for and
-		// never the retry class.
-		return dto.PromptSubmissionDTO{}, true, u.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "rewake collector never acknowledged the handoff", nil,
-		)
-	}
-	result := dto.PromptSubmissionDTO{RunnerID: live.ID, TerminalSessionID: live.TerminalSession}
-	committed, err := u.prompts.markSpawned(journalDir, clientRequestID, textHash, result, time.Now())
-	if err != nil {
-		return dto.PromptSubmissionDTO{}, true, u.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "persist rewake delivery", err,
-		)
-	}
-	if committed.State == promptStateUncertain {
-		return dto.PromptSubmissionDTO{}, true, ErrPromptOutcomeUnknown
-	}
-	return result, true, nil
+	return ErrPromptUnsupported
 }

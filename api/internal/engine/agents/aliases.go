@@ -118,7 +118,6 @@ const (
 // Prompt-delivery strategies.
 const (
 	DeliveryRestartTUI = spec.DeliveryRestartTUI
-	DeliveryRewakeHook = spec.DeliveryRewakeHook
 )
 
 // Catalogue completeness labels. They say exactly which provider-owned surface a

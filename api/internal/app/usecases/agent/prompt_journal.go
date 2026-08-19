@@ -283,37 +283,6 @@ func (j *promptJournal) markFailedDispatch(
 	return j.write(dir, record)
 }
 
-// repointDispatch re-attributes an in-flight dispatch to the runner that will
-// actually deliver it.
-//
-// It exists for exactly one transition: a rewake handoff that found no collector,
-// falling back to a restart. That dispatch was journaled against the LIVE runner,
-// because a rewake is delivered by the process already running — and the restart
-// is about to kill that process, at which point its departure reconciliation would
-// find an active record pointing at it, see no matching turn, and correctly report
-// an outcome nobody can determine. Correctly, but about a message that was
-// provably never delivered.
-//
-// It only ever moves a record that is still DISPATCHING, so it can never disturb
-// an outcome already decided, and it never touches state — only the attribution.
-func (j *promptJournal) repointDispatch(
-	dir, requestID, runnerID string,
-	now time.Time,
-) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	record, found, err := readPromptRecord(dir, requestID)
-	if err != nil || !found {
-		return err
-	}
-	if record.State != promptStateDispatching {
-		return nil
-	}
-	record.RunnerID = runnerID
-	record.UpdatedAt = now.UTC()
-	return j.write(dir, record)
-}
-
 func (j *promptJournal) markAcceptedByRequest(
 	dir, requestID string,
 	now time.Time,

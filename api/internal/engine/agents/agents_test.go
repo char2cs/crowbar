@@ -53,10 +53,7 @@ func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 	claude := get(t, "claude").Capabilities()
 	assert.True(t, claude.PromptSubmit)
-	// claude declares the rewake channel; codex below is the portable floor. The
-	// pair is what makes this assertion a fact about descriptors rather than a
-	// constant repeated in Go.
-	assert.Equal(t, agents.DeliveryRewakeHook, claude.Delivery)
+	assert.Equal(t, agents.DeliveryRestartTUI, claude.Delivery)
 	assert.True(t, claude.SlashCatalog)
 	assert.True(t, claude.Telemetry)
 	assert.True(t, claude.Declares(agents.HookToolPre))
@@ -64,6 +61,11 @@ func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 
 	codex := get(t, "codex").Capabilities()
 	assert.True(t, codex.PromptSubmit)
+	// Both shipped descriptors declare the same delivery, and both are pinned
+	// because restart_tui is now the ONLY strategy this daemon implements: a
+	// descriptor drifting off it would be refused at load, and pinning only one
+	// provider would let the other drift there unnoticed.
+	assert.Equal(t, agents.DeliveryRestartTUI, codex.Delivery)
 	assert.False(t, codex.Telemetry, "codex exposes no telemetry channel today")
 	assert.False(t, codex.Declares(agents.HookNotification), "codex has no Notification event")
 	assert.True(t, codex.Declares(agents.HookPermission))
@@ -451,9 +453,10 @@ func writeDescriptor(t *testing.T, home, id, body string) {
 }
 
 // selectingAgent resolves an on-disk descriptor that declares both selection
-// blocks, plus a prompt delivery whose strategy is NOT restart_tui — the shape
-// no shipped descriptor has, and the one that proves the selection block's own
-// strategy is what forces a restart.
+// blocks and NO prompt delivery at all — the shape no shipped descriptor has,
+// and the one that proves the selection block's own strategy is what forces a
+// restart. Nothing about delivering a message to this provider could respawn it,
+// because it declares no delivery to respawn for.
 func selectingAgent(t *testing.T) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
@@ -464,18 +467,6 @@ spawn:
   interactive_required: true
 session:
   resume: { arg: "--resume {id}" }
-presentation:
-  prompt_submit:
-    strategy: rewake_hook
-    rewake:
-      sentinel: "crowbar-delivered"
-      summary: "Message from Crowbar chat"
-      strip: '(?s)\A<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\z'
-      wake_status: 2
-    fresh:
-      - pass_arg: { positional: "{message}" }
-    resume:
-      - pass_arg: { positional: "{message}" }
 model:
   available: [sonnet, opus]
   strategy: restart_tui
@@ -608,9 +599,9 @@ func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *test
 }
 
 // TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy is the forced
-// restart, proved on a delivery path that would NOT otherwise restart: this
-// descriptor declares rewake_hook, so nothing about delivering a prompt respawns
-// the CLI — and a changed model still must.
+// restart, proved on a provider that would NOT otherwise restart: this descriptor
+// declares no prompt delivery at all, so nothing about a message respawns the CLI
+// — and a changed model still must.
 func TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy(t *testing.T) {
 	a := selectingAgent(t)
 	require.NotEqual(t, agents.DeliveryRestartTUI, a.Capabilities().Delivery,

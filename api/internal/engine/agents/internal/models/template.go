@@ -52,25 +52,6 @@ type TemplateCtx struct {
 	CrowbarHook string
 	Segid       string
 
-	// RewakeSentinel and RewakeSummary are the two halves of the wrapper a
-	// rewake-delivering provider builds around a collected prompt. They are
-	// DESCRIPTOR-DERIVED rather than caller-supplied — spawn.Plan fills them from
-	// the descriptor it is already rendering — because the string registered here
-	// and the string matched when the prompt comes back must be one fact. A caller
-	// that could pass its own would be a caller that could make delivery keep
-	// working while every prompt is attributed to the wrong author.
-	//
-	// Both are empty for a provider that declares no rewake channel, and the steps
-	// that read them are only present in a descriptor that does.
-	RewakeSentinel string
-	RewakeSummary  string
-
-	// RewakeWakeStatus is the exit status the collector must leave with for this
-	// provider to act on what it printed. It travels as a string because every
-	// placeholder does — it is rendered into one argv element and parsed back by
-	// the command that receives it.
-	RewakeWakeStatus string
-
 	// RunnerToken binds this runner's callbacks to the runner they claim to come
 	// from. The segment id cannot: it is published on the chats API, so a call
 	// naming one proves nothing. What the token buys is that acting as a sibling
@@ -131,9 +112,6 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{crowbar}", c.CrowbarHook,
 		"{segid}", c.Segid,
 		"{runner_token}", c.RunnerToken,
-		"{rewake_sentinel}", c.RewakeSentinel,
-		"{rewake_summary}", c.RewakeSummary,
-		"{rewake_wake_status}", c.RewakeWakeStatus,
 		"{provider}", c.Provider,
 		"{project_id}", c.ProjectID,
 		"{repo_id}", c.RepoID,

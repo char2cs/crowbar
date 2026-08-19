@@ -221,11 +221,6 @@ type Usecase struct {
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
 	answers *answerDesk
-	// rewake is the desk of prompt COLLECTORS currently blocked on a message. It
-	// is in memory for the same reason answers is — a slot describes a live hook
-	// process — and it holds a message only for the instant of a handoff, never as
-	// a queue; see rewake.go.
-	rewake *rewakeDesk
 	// minter issues the per-runner token an MCP call is authenticated by. It is
 	// held here because the spawn path is what hands a runner its token, and a
 	// runner's token must be minted by the same secret DispatchMCP verifies
@@ -290,7 +285,6 @@ func New(
 		hookDeliveries: newHookDeliveryJournal(),
 		catalogs:       newCatalogRuns(),
 		answers:        newAnswerDesk(),
-		rewake:         newRewakeDesk(),
 		tools:          tools,
 		minter:         minter,
 	}
@@ -2087,30 +2081,12 @@ func (u *Usecase) openTurnFromPrompt(
 	// landed on stops being something this turn may close onto. The position in
 	// the file is untouched; only the row is forgotten. See beginTurn.
 	u.beginTranscriptTurn(agent, ev)
-	// WHOSE WORDS ARE THESE? Three different authors reach this one hook, and
-	// under the rewake delivery channel all three reach it FROM THE SAME LIVE
-	// PROCESS — so unlike a restart, where the process emitting the hook was the
-	// process Crowbar spawned with the prompt in its argv, nothing about the
-	// runner answers the question. It is asked here explicitly, and the order is
-	// load-bearing.
+	// WHOSE WORDS ARE THESE? Three different authors reach this one hook — the
+	// user, Crowbar's own injected handoff, and the provider's harness — and the
+	// two checks below are what tell them apart. Neither is a guess about the
+	// runner: a prompt Crowbar delivered arrived in the argv of the process
+	// Crowbar spawned, so the only thing left to classify here is content.
 	//
-	// Crowbar's own delivery is asked FIRST, because the wrapper a rewake
-	// arrives in OPENS with exactly the `<task-notification>` document the
-	// harness check below matches on. Asked the other way round, every message
-	// the user typed would match that needle and be filed under the harness's
-	// name — which is to say deleted from the user's own side of their
-	// conversation, a worse failure than the restart this channel removes.
-	//
-	// The proof is the sentinel inside the wrapper: Crowbar authors it, hands it
-	// to the provider at spawn, and nothing else ever writes it (see the
-	// engine's rewake package). A match is therefore certainty rather than
-	// resemblance, which is why byCrowbar then SKIPS both checks below: this
-	// text is the user's, and no content rule may take it off them.
-	message := ev.Message
-	byCrowbar := false
-	if text, ok := engineagents.MatchRewakePrompt(agent, message); ok {
-		message, byCrowbar = text, true
-	}
 	// Crowbar's own context document coming back at us: a provider whose only
 	// resume channel is a user message (codex) fires user_prompt with the very
 	// handoff we injected. That is not something the user said — recording it would
@@ -2118,7 +2094,7 @@ func (u *Usecase) openTurnFromPrompt(
 	// then quote it inside itself (the nesting seen live). Drop it from the ledger
 	// and from title derivation, but still open the turn: the CLI really is working
 	// on it, and the workspace's working overlay must say so.
-	if !byCrowbar && u.agents.WasInjected(runner.ID, message) {
+	if u.agents.WasInjected(runner.ID, ev.Message) {
 		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
 		if err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
@@ -2142,7 +2118,7 @@ func (u *Usecase) openTurnFromPrompt(
 	// after nothing its user did. The turn still opens — the agent genuinely is
 	// about to work on this — and no prompt-delivery journal is advanced, because
 	// nothing Crowbar queued was accepted here.
-	if injected, ok := u.harnessInjection(agent, message, byCrowbar); ok {
+	if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
 		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
 			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
 			"kind", injected.Kind, "needle", injected.Needle)
@@ -2154,12 +2130,12 @@ func (u *Usecase) openTurnFromPrompt(
 		u.turns.begin(runner.ID, chat.ID)
 		appendErr := u.appendRunnerTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-			domain.TurnRoleHarness, message,
+			domain.TurnRoleHarness, ev.Message,
 		)
 		u.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	if err := u.RenameChat(ctx, chat.ID, deriveTitle(message), "derived"); err != nil {
+	if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
 	// A user prompt opens the turn: mark the chat Working so the read model (and
@@ -2175,7 +2151,7 @@ func (u *Usecase) openTurnFromPrompt(
 	u.turns.begin(runner.ID, chat.ID)
 	appendErr := u.appendRunnerTurn(
 		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-		domain.TurnRoleUser, message,
+		domain.TurnRoleUser, ev.Message,
 	)
 	// The reply this prompt is about to produce, opened NOW so the tool calls,
 	// subagents and interruptions that follow attach to it. Without an open turn
@@ -2189,11 +2165,7 @@ func (u *Usecase) openTurnFromPrompt(
 	// would wedge every future prompt. Conversely, a journal failure after a
 	// successful ledger append is repaired from that attributed turn by the
 	// turn_stop and pre-destructive reconciliation paths.
-	// The UNWRAPPED text, because the journal correlates a delivery by the digest
-	// of what the user typed. Hashing the provider's wrapper instead would leave
-	// every rewake dispatch permanently unconfirmed, and an unconfirmed dispatch
-	// blocks the next message on this chat.
-	confirmErr := u.confirmPromptAccepted(ctx, chat, runner, message)
+	confirmErr := u.confirmPromptAccepted(ctx, chat, runner, ev.Message)
 	if appendErr != nil {
 		return appendErr
 	}
@@ -3407,25 +3379,4 @@ func (u *Usecase) ConversationsForChat(
 	chatID string,
 ) ([]domain.ChatConversation, error) {
 	return u.runners.ConversationsForChat(ctx, chatID)
-}
-
-// harnessInjection is the "did the provider's own harness write this" check, with
-// the one thing that outranks it applied first.
-//
-// It exists as a named function rather than an inline `!byCrowbar &&` so that the
-// precedence has somewhere to be stated: a content rule may not overrule a
-// delivery Crowbar can PROVE it made. The needle is a string the harness happens
-// to open its reports with; the sentinel is a string only Crowbar writes. When
-// both match the same prompt — which is the normal case for every rewake, because
-// the wrapper opens with the needle — the proof wins and the message stays the
-// user's.
-func (u *Usecase) harnessInjection(
-	agent engineagents.Agent,
-	message string,
-	byCrowbar bool,
-) (engineagents.InjectedPrompt, bool) {
-	if byCrowbar {
-		return engineagents.InjectedPrompt{}, false
-	}
-	return engineagents.MatchInjectedPrompt(agent, message)
 }

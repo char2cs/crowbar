@@ -28,15 +28,6 @@ import (
 // authority must come from the runner's per-boot token rather than from a URL the
 // agent composes.
 //
-// .../agent/runners/:segid/prompt-await is keyed and authenticated the same way,
-// and for a sharper version of the same reason: it is the only Crowbar callback
-// that READS. Every other one posts a payload into the daemon and is content with
-// a segment id; this one returns a person's words to a process, so a published id
-// is not a credential and the per-boot token is what stands in its place. It is
-// how a chat message reaches a LIVE provider session instead of respawning it —
-// the daemon pushes nothing, and a collector the provider itself started blocks
-// here until there is something to fetch.
-//
 // It is the only runner-keyed write left: the agent's titling path was a sibling
 // route the vendor CLI shelled out to, and it is gone — titling is a tool on this
 // MCP surface now, so there is nothing for an agent to retype.
@@ -103,7 +94,6 @@ func Register(
 	wsScoped.PATCH("/agent/folders/:folderId", h.PatchFolder)
 	wsScoped.DELETE("/agent/folders/:folderId", h.DeleteFolder)
 	wsScoped.POST("/agent/runners/:segid/mcp", h.MCP)
-	wsScoped.POST("/agent/runners/:segid/prompt-await", h.AwaitPrompt)
 	wsScoped.POST("/agent/hooks", h.Hooks)
 	wsScoped.POST("/agent/hooks/await", h.AwaitHookAnswer)
 	wsScoped.POST("/agent/hooks/abandon", h.AbandonHookAnswer)

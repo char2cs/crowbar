@@ -515,3 +515,55 @@ hooks:
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }
+
+// TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI pins the
+// ONE delivery channel Crowbar has, on both shipped providers, end to end.
+//
+// It exists because a second channel was built and then withdrawn. A prompt was
+// delivered into the LIVE session through a provider background hook — it worked,
+// the process id never changed across deliveries — and it was removed anyway,
+// because the wrapper the provider builds around such a payload is visible to the
+// model and measurably degraded the answers. The verdict is a product decision
+// about output quality, so what has to be defended now is not that the mechanism
+// is gone but that its absence costs nothing: a message still reaches the CLI, it
+// still reaches it as the FINAL argv element of a REPLACEMENT process, and it is
+// still recorded as the user's own words.
+//
+// codex was never on the withdrawn channel, and is here to say so: its path is the
+// path it always had.
+func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			f := newFixture(t)
+			chatID, runnerID := f.spawn(t, provider)
+			turn(t, f, runnerID, provider, "a turn ended")
+			spawns := f.term.callCount()
+			message := "deliver me by restart"
+
+			result, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+			require.NoError(t, err)
+
+			require.Equal(t, spawns+1, f.term.callCount(),
+				"the message is carried by a process that did not exist before it")
+			require.NotEqual(t, runnerID, result.RunnerID,
+				"the replacement is a new runner: the CLI holding the chat was replaced")
+			call := f.term.calls[f.term.callCount()-1]
+			assert.Equal(t, message, call.argv[len(call.argv)-1],
+				"the prompt is the final argv element of the replacement")
+
+			// The CLI acknowledging it is what makes the delivery real, and it is the
+			// only thing that ever writes the ledger. Recorded as the USER's: no
+			// wrapper reaches this path any more, so nothing can reclassify it.
+			require.NoError(t, f.usecase.IngestHook(f.ctx, result.RunnerID, provider, "user_prompt",
+				mustJSON(t, map[string]any{"prompt": message})))
+			f.wait()
+
+			page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+			require.NoError(t, err)
+			require.NotEmpty(t, page.Items)
+			last := page.Items[len(page.Items)-1]
+			assert.Equal(t, domain.TurnRoleUser, last.Role)
+			assert.Equal(t, message, last.Text, "recorded verbatim, with no wrapper to strip")
+		})
+	}
+}

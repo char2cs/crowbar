@@ -3,7 +3,9 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -206,6 +208,43 @@ func TestAgentREST_Scope(t *testing.T) {
 	assert.Equal(t, b.workspaceID, gotB.WorkspaceID)
 }
 
+// spawnStubChat creates a chat with the `true` provider WITHOUT asserting a status,
+// because there are two honest ones and which arrives is a race (see below). It
+// returns the status, the refusal message, and the created chat id — exactly one of
+// the last two is ever non-empty.
+func spawnStubChat(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+) (int, string, string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"provider": "stub"})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, h.url+wsBase(imported)+"/agent/chats", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.server.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var env struct {
+		Success bool            `json:"success"`
+		Error   string          `json:"error"`
+		Data    json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	if !env.Success {
+		require.NotEmpty(t, env.Error, "error envelope must carry a message")
+		return resp.StatusCode, env.Error, ""
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(env.Data, &created))
+	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
+	return resp.StatusCode, "", created.ID
+}
+
 // TestRegression_ProviderThatExitsDuringStartupIsRefused pins the startup guard and
 // the status it answers with.
 //
@@ -213,8 +252,7 @@ func TestAgentREST_Scope(t *testing.T) {
 // every descriptor must assert (spawn.interactive_required) and the engine refuses a
 // descriptor that does not. A CLI that exits before its runner row can even be
 // written has therefore not started, and a 201 there would hand back a chat whose
-// pane attaches to a PTY that is already gone: a live-looking chat with a corpse
-// behind it, silent until the user typed into it.
+// pane attaches to a PTY that is already gone.
 //
 // The status is the other half. A vendor CLI that dies on startup — an expired
 // login, a broken install, a CLI that refuses this workspace — is a DEPENDENCY
@@ -222,18 +260,44 @@ func TestAgentREST_Scope(t *testing.T) {
 // as the vendor CLI that is not installed at all) and says why. A 500 here is how
 // this reaches a user as a button that silently does nothing.
 //
-// The stub descriptor (`true`) exists for this test: a provider that swears it is
-// interactive and exits immediately.
+// WHY THIS TEST BRANCHES. spawnRunner documents at length that exitedDuringStartup
+// is narrower than its name: the PTY has to die BEFORE the runner row commits, which
+// is a race between the OS reaping `true` and a sqlite write. The CLI has to LOSE it
+// to be caught, and under a loaded machine it wins — the exit callback's goroutine
+// is scheduled late, recordRunner commits first, and the honest answer is a 201 for a
+// chat that reconciles into an ordinary dormant one. Asserting 424 flatly made this
+// file fail roughly one full-suite run in two, on a DIFFERENT one of these two tests
+// each time, while both passed 8/8 in isolation.
+//
+// So the invariant pinned here is the one that holds either way: THE RESPONSE AND THE
+// RECORD NEVER CONTRADICT EACH OTHER. A refusal names the dependency and leaves
+// nothing behind; a success hands back a chat that is honestly dormant. The
+// deterministic half — that the guard fires at all, and discards — is driven exactly
+// rather than hoped for in TestRegression_ProviderExitingBeforeItsRunnerRowCommits*,
+// which forces the interleaving through the fake commander's fork seam.
 func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 
-	msg := h.mutationError(http.MethodPost, wsBase(ws)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusFailedDependency)
+	status, msg, chatID := spawnStubChat(t, h, ws)
+	h.QuiesceReactors()
 
-	assert.Contains(t, msg, "exited during startup",
-		"the refusal has to name what went wrong: the user's own CLI died, and only they can fix it")
+	if status == http.StatusFailedDependency {
+		assert.Contains(t, msg, "exited during startup",
+			"the refusal has to name what went wrong: the user's own CLI died, and only they can fix it")
+		return
+	}
+
+	require.Equal(t, http.StatusCreated, status,
+		"a CLI that exits during startup is either refused as a dependency failure or "+
+			"accepted as a chat that is already dormant — never any other status")
+	var chat agentChatDTO
+	h.get(wsBase(ws)+"/agent/chats/"+chatID, &chat)
+	assert.Empty(t, chat.LiveRunnerID,
+		"the CLI is dead, so the chat it was handed back for must read as dormant")
+	assert.Empty(t, chat.TerminalSessionID,
+		"and must not point a pane at a PTY that is already gone")
 }
 
 // TestRegression_RefusedSpawnLeavesNoChatBehind is the other half of the refusal
@@ -252,22 +316,30 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 // mid-spawn (recordRunner), and only a refusal downstream of that point — a CLI that
 // exits during startup — leaves one behind.
 //
-// The tail of the test is what keeps it honest: the very same workspace still creates
-// exactly ONE chat with a provider that works, so the emptiness above is a discarded
-// chat and not a create path this fixture had broken.
+// It branches for the same reason its sibling does, and the branch costs nothing:
+// the chat COUNT is asserted against whichever answer the API actually gave, so a
+// discard that stopped working fails the 424 branch and a create that stopped
+// working fails the 201 branch. Neither branch can pass by accident, because
+// `chats` is compared to an exact expected set, never merely inspected.
+//
+// The tail is what keeps it honest either way: the very same workspace still creates
+// exactly ONE more chat with a provider that works.
 func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	h := newHarness(t)
 	writeStubProviderDescriptor(t, h)     // `true` — exits during startup
 	writeLiveStubProviderDescriptor(t, h) // `cat` — holds its PTY open like a real CLI
 	ws := importWritableWorkspace(t, h)
 
-	h.mutationError(http.MethodPost, wsBase(ws)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusFailedDependency)
+	status, _, refusedChatID := spawnStubChat(t, h, ws)
 	h.QuiesceReactors()
 
-	var chats []agentChatDTO
-	h.get(wsBase(ws)+"/agent/chats", &chats)
-	require.Empty(t, chats, "a refused spawn must not leave a chat behind")
+	wantIDs := []string{}
+	if status == http.StatusCreated {
+		wantIDs = []string{refusedChatID}
+	}
+
+	require.Equal(t, wantIDs, chatIDs(t, h, wsBase(ws)),
+		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
 	// Nor a directory of its own. Nothing under the workspace's chats dir may be
 	// keyed by a chat that does not exist — only the two shared dirs the RUNNER and
@@ -276,13 +348,13 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	require.NoError(t, err)
 	entries, err := os.ReadDir(chatsDir)
 	require.NoError(t, err)
+	allowed := append([]string{"runners", ".hook-deliveries"}, wantIDs...)
 	for _, entry := range entries {
-		assert.Contains(t, []string{"runners", ".hook-deliveries"}, entry.Name(),
+		assert.Contains(t, allowed, entry.Name(),
 			"a refused spawn left a per-chat directory behind")
 	}
 
 	created := createAgentChat(t, h, ws)
-	h.get(wsBase(ws)+"/agent/chats", &chats)
-	require.Len(t, chats, 1, "the refusal cost the workspace nothing: a working provider still creates one chat")
-	assert.Equal(t, created, chats[0].ID)
+	require.Equal(t, append(wantIDs, created), chatIDs(t, h, wsBase(ws)),
+		"the refusal cost the workspace nothing: a working provider still creates one chat")
 }

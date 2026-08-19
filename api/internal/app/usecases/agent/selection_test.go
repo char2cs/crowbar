@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // writeDescriptor drops an on-disk descriptor override into the fixture's crowbar
@@ -23,13 +24,12 @@ func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o600))
 }
 
-// rewakeDescriptorBody is a provider whose prompt delivery does NOT restart the
-// TUI (strategy: rewake_hook) while its model/effort blocks do. It is the shape
-// that separates the two authorities on restarting: nothing about delivering a
-// message respawns this CLI, so any restart it gets is the selection's doing.
-const rewakeDescriptorBody = `
+// selectingDescriptorBody is a claude override that declares both selection
+// catalogues, so a test can move a chat's model or effort and read the result off
+// the argv the replacement CLI is started with.
+const selectingDescriptorBody = `
 id: claude
-display_name: Rewake
+display_name: Selecting
 spawn:
   cmd: claude
   interactive_required: true
@@ -38,12 +38,7 @@ session:
   resume: { arg: "--resume {id}" }
 presentation:
   prompt_submit:
-    strategy: rewake_hook
-    rewake:
-      sentinel: "crowbar-delivered"
-      summary: "Message from Crowbar chat"
-      strip: '(?s)\A<system-reminder>\n{sentinel} ?(?P<message>.*)\n</system-reminder>\z'
-      wake_status: 2
+    strategy: restart_tui
     fresh:
       - pass_arg: { positional: "{message}" }
     resume:
@@ -251,50 +246,52 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	assert.Equal(t, "high", live.LaunchEffort)
 }
 
-// TestSubmitPrompt_ASelectionSwitchForcesARestartADeliveryWouldNotHaveDone is the
-// point of the model/effort block's own strategy, and it needs a provider whose
-// DELIVERY would not have restarted anything — hence rewake_hook here.
+// undeliverableAgent is a descriptor whose declared delivery names a channel this
+// daemon does not drive. It is built in Go because no YAML can produce one: the
+// descriptor rules refuse an unsupported strategy at load, which is the FIRST lock
+// on that door and the one a test can reach through a file.
 //
-// Both halves are asserted against the same armed collector, because that is what
-// makes the second half mean anything: the channel that carried the first message
-// into the live process is still sitting there when the second one deliberately
-// bypasses it. A running CLI cannot be told to change model, so a pending
-// selection switch outranks the delivery strategy and starts a process.
-func TestSubmitPrompt_ASelectionSwitchForcesARestartADeliveryWouldNotHaveDone(t *testing.T) {
+// Everything except that single fact is the real claude override underneath —
+// SelectionRestart in particular, so the second half of the test below is the
+// descriptor's own answer about its model block and not a stub agreeing with the
+// assertion.
+type undeliverableAgent struct {
+	engineagents.Agent
+}
+
+func (undeliverableAgent) Capabilities() engineagents.Capabilities {
+	return engineagents.Capabilities{PromptSubmit: true, Delivery: "telepathy"}
+}
+
+// TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone is
+// the point of the model/effort block having a strategy of its OWN.
+//
+// Two authorities can oblige a restart, and this proves the second one holds
+// without the first. The provider here declares a delivery Crowbar implements no
+// channel for, so the message is refused outright — until the chat's model moves,
+// at which point the selection block obliges the restart on its own and the same
+// message has a way through. A running CLI cannot be told to change model, so
+// that authority may never be conditional on how prompts happen to be delivered.
+func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
-	writeDescriptor(t, f, "claude", rewakeDescriptorBody)
-	chatID, runnerID := f.spawn(t, "claude")
-	turn(t, f, runnerID, "claude", "a turn ended, so a collector can arm")
-	spawns := f.term.callCount()
-
-	collected := f.collector(t, runnerID)
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "no switch pending", uuid.NewString())
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
+	chatID, _ := f.spawn(t, "claude")
+	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	require.Equal(t, "no switch pending", <-collected,
-		"with nothing pending, the declared delivery keeps the process")
-	require.Equal(t, spawns, f.term.callCount(), "a rewake delivery starts no process")
-	// The CLI acknowledging the delivered prompt is what releases the durable
-	// dispatch barrier; without it the chat is legitimately busy for the next one.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "no switch pending"})))
-	turn(t, f, runnerID, "claude", "answered")
+	shipped, err := f.engine.Get(f.ctx, f.ws.home, "claude")
+	require.NoError(t, err)
+	descriptor := undeliverableAgent{Agent: shipped}
+	require.NotEqual(t, engineagents.DeliveryRestartTUI, descriptor.Capabilities().Delivery,
+		"the fixture must not restart for delivery reasons, or this proves nothing")
 
-	stillArmed := f.collector(t, runnerID)
+	err = agentusecase.RequirePromptRestart(f.ctx, f.usecase, chatID, live, descriptor)
+	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported,
+		"a delivery this daemon has no channel for is refused, never guessed at")
+
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "switch pending", uuid.NewString())
 
-	require.NoError(t, err, "a pending selection switch obliges a restart on its own")
-	assert.Equal(t, spawns+1, f.term.callCount(), "the switch started a process the delivery would not have")
-	call := f.term.calls[f.term.callCount()-1]
-	modelAt := indexOf(call.argv, "--model")
-	require.GreaterOrEqual(t, modelAt, 0)
-	assert.Equal(t, "opus", call.argv[modelAt+1])
-	assert.Equal(t, "switch pending", call.argv[len(call.argv)-1])
-	select {
-	case text := <-stillArmed:
-		require.Empty(t, text, "the message must not ALSO have gone to the live session")
-	default:
-	}
+	require.NoError(t, agentusecase.RequirePromptRestart(f.ctx, f.usecase, chatID, live, descriptor),
+		"a pending selection switch obliges a restart on its own")
 }
 
 // TestSubmitPrompt_TheRestartResumesTheNativeConversation: a forced restart must
@@ -302,7 +299,7 @@ func TestSubmitPrompt_ASelectionSwitchForcesARestartADeliveryWouldNotHaveDone(t 
 // session id it was resuming, exactly as an ordinary prompt restart does.
 func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	f := newFixture(t)
-	writeDescriptor(t, f, "claude", rewakeDescriptorBody)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "native-session")
 	turn(t, f, runnerID, "claude", "the conversation exists")
@@ -322,7 +319,7 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 // value, so returning to it needs a process launched without the flag.
 func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T) {
 	f := newFixture(t)
-	writeDescriptor(t, f, "claude", rewakeDescriptorBody)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, _ := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString())
@@ -508,13 +505,23 @@ hooks:
 // TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery: the restart decision
 // cannot be taken without knowing what the chat wants, and guessing would deliver
 // the message under the wrong model.
+//
+// It is asked of the guard directly, for the reason undeliverableAgent exists: a
+// provider that already restarts for delivery — which every shipped descriptor
+// does — never has to ask the chat what it wants, so it is only the second
+// authority that can be refused for not knowing.
 func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	f, cs, _ := newFaultFixture(t)
-	writeDescriptor(t, f, "claude", rewakeDescriptorBody)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, _ := f.spawn(t, "claude")
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	shipped, err := f.engine.Get(f.ctx, f.ws.home, "claude")
+	require.NoError(t, err)
 	cs.failLoadChat = errors.New("boom: load chat")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "which model?", uuid.NewString())
+	err = agentusecase.RequirePromptRestart(
+		f.ctx, f.usecase, chatID, live, undeliverableAgent{Agent: shipped})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat selection")

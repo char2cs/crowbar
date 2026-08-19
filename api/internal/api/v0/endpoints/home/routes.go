@@ -139,11 +139,6 @@ func registerAgent(
 	home.PATCH("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
 	home.DELETE("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/agent/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
-	// The prompt collector, for the same repo-less reason: a chat on the project
-	// home resolves to this mount, and a collector that 404'd here would leave
-	// every home chat permanently on the restart floor — silently, since a failed
-	// poll is indistinguishable from an unarmed one and both fall back correctly.
-	home.POST("/agent/runners/:segid/prompt-await", h.RequireHomeWorkspace, ah.AwaitPrompt)
 	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
 	// The answer channel's relay half. It mounts here for exactly the reason the
 	// hook ingress above does: a project-home workspace's repo-less scope resolves

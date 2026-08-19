@@ -215,25 +215,6 @@ type AgentUsecase interface {
 		message []byte,
 	) ([]byte, bool, error)
 
-	// AwaitQueuedPrompt blocks until the chat runnerID is CURRENTLY on has a
-	// message for it, and returns what the user typed. It is how a prompt reaches a
-	// live provider session without respawning it: the daemon holds nothing and
-	// pushes nothing, and a collector the provider itself started comes to fetch.
-	//
-	// found=false means "nothing this time" — the ordinary outcome — and the
-	// collector is expected to ask again. An error means stop asking: the
-	// credential is wrong, or the runner is gone.
-	//
-	// ack is never nil and MUST be called once the reply has been written. It is
-	// the daemon's only record that the handover completed, and the difference
-	// between reporting a message delivered and reporting its outcome unknown.
-	AwaitQueuedPrompt(
-		ctx context.Context,
-		runnerID string,
-		token string,
-		waitMS int64,
-	) (prompt string, found bool, ack func(), err error)
-
 	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
 	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
 	// read, including a direct GetChat by id — the instant this returns.

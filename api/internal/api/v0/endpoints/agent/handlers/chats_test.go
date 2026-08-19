@@ -278,14 +278,6 @@ func (c *configurableListGetUsecase) SetChatSelection(
 	return c.selectionErr
 }
 
-func (configurableListGetUsecase) AwaitQueuedPrompt(
-	_ context.Context,
-	_, _ string,
-	_ int64,
-) (string, bool, func(), error) {
-	return "", false, func() {}, nil
-}
-
 func (configurableListGetUsecase) DispatchMCP(
 	_ context.Context,
 	_, _ string,
