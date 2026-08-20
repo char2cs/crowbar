@@ -92,6 +92,7 @@ interface AgentStreamEvent {
     | 'turn_started'
     | 'turn_stopped'
     | 'terminal_wait'
+    | 'prompt_settled'
     | 'title_set'
     | 'deleted'
     | 'started'
@@ -140,6 +141,11 @@ interface AgentStreamEvent {
    * answer a round trip later is an answer after they have given up.
    */
   terminalWait?: AgentTerminalWait
+  /**
+   * The client request id of one prompt that is over, on the `prompt_settled`
+   * kind and nowhere else. See AgentChatsState.settledPrompts.
+   */
+  clientRequestId?: string
 }
 
 /**
@@ -150,6 +156,8 @@ interface AgentStreamEvent {
  *   - turn_started / turn_stopped: the frame carries the server's folded `working`
  *     — write it through, no refetch. `turn_stopped` is NOT "idle": a chat waiting on
  *     a background subagent keeps spinning through it.
+ *   - prompt_settled: a delivered prompt is over without having produced a turn, so
+ *     the composer's pending item can be released — nothing else will release it.
  *   - terminal_wait: the chat's CLI has become — or stopped being — blocked behind a
  *     prompt Crowbar cannot answer. The frame carries the whole answer; its absence
  *     on the payload is the clearing edge.
@@ -516,6 +524,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          return
+        case 'prompt_settled':
+          // A prompt Crowbar delivered turned out not to produce a turn — a
+          // provider built-in, handled inside the CLI, announcing nothing. The
+          // composer's pending queue is waiting on a user message that is never
+          // coming, and this frame is the only thing that releases it.
+          if (ev.clientRequestId) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
           return
         case 'terminal_wait':
           // The frame IS the answer, both ways round: a present payload raises

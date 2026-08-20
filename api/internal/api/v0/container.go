@@ -336,6 +336,21 @@ func (c *Container) PushAgentChatTerminalWait(
 	})
 }
 
+// PushAgentChatPromptSettled implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other fact about a conversation.
+func (c *Container) PushAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:          chatID,
+		WorkspaceID:     workspaceID,
+		Kind:            dto.AgentChatKindPromptSettled,
+		ClientRequestID: requestID,
+	})
+}
+
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle
 // event (folder_created/folder_updated/folder_deleted) out on the SAME
 // workspace-scoped agent-chat WebSocket as PushAgentChat — one feed for "what

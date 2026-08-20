@@ -54,6 +54,14 @@ type Subscriber interface {
 		workspaceID string,
 		wait *dto.AgentTerminalWaitDTO,
 	)
+	// PushAgentChatPromptSettled receives the frame that says one delivered prompt
+	// is over without having produced a turn, so a client holding it as pending can
+	// let it go. It names the client's own request id and nothing else.
+	PushAgentChatPromptSettled(
+		chatID string,
+		workspaceID string,
+		requestID string,
+	)
 	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
 	// (folder_created/folder_updated/folder_deleted). It carries the folder id and
 	// nothing else: the Chats socket is a bare event feed with no snapshot, so a

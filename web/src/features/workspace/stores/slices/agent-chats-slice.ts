@@ -8,6 +8,10 @@ import type {
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
+// The queue that reads these is itself capped, so an id older than this window is
+// already unreachable by anything that could act on it.
+const SETTLED_PROMPTS_PER_CHAT = 20
+
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
 
 function loadOrder(wsId: string): string[] {
@@ -91,6 +95,21 @@ export interface AgentChatsState {
    * that rule in TypeScript would be a second thing to get wrong.
    */
   terminalWaits: Record<string, AgentTerminalWait>
+  /**
+   * Client request ids the daemon has reported as SETTLED: delivered to a CLI,
+   * and over, without ever having produced a turn.
+   *
+   * The composer's pending queue normally resolves an item when the prompt it sent
+   * turns up in the ledger as a user message. A provider's own built-in command
+   * never produces one — the CLI handles it and announces nothing — so the item
+   * would wait forever on evidence that is not coming. This is the other way an
+   * item can be resolved.
+   *
+   * Bounded to the most recent SETTLED_PROMPTS_PER_CHAT per chat. An id only
+   * matters while the queue still holds it, and the queue is itself capped, so
+   * anything older than that window is already unreachable.
+   */
+  settledPrompts: Record<string, string[]>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -129,6 +148,8 @@ export interface AgentChatsSlice {
    * when somebody answers the dialog at the terminal or the CLI dies behind it.
    */
   setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
+  /** Record that one delivered prompt is over without having produced a turn. */
+  setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -169,6 +190,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
   terminalWaits: {},
+  settledPrompts: {},
   turnRevision: {},
   order: [],
   activeChatId: null,
@@ -341,6 +363,7 @@ export const createAgentChatsSlice: StateCreator<
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
       delete s.agentChats.terminalWaits[chatId]
+      delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.turnRevision[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
@@ -358,6 +381,15 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       if (wait) s.agentChats.terminalWaits[chatId] = wait
       else delete s.agentChats.terminalWaits[chatId]
+    }),
+
+  setAgentChatPromptSettled: (chatId, clientRequestId) =>
+    set((s) => {
+      const seen = s.agentChats.settledPrompts[chatId] ?? []
+      if (seen.includes(clientRequestId)) return
+      s.agentChats.settledPrompts[chatId] = [...seen, clientRequestId].slice(
+        -SETTLED_PROMPTS_PER_CHAT,
+      )
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

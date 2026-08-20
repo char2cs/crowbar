@@ -78,6 +78,15 @@ interface AgentChatViewProps {
    * would be two voices on one fact, one of them hedging.
    */
   terminalWaiting?: boolean
+  /**
+   * Client request ids the daemon has reported as delivered-and-over.
+   *
+   * A pending item is normally resolved by its own text arriving in the ledger as
+   * a user message. A provider's own built-in command never produces one — the CLI
+   * handles it and announces nothing — so this is the only evidence that will ever
+   * come for those, and without it the FIFO head blocks the composer forever.
+   */
+  settledPrompts?: string[]
   onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
@@ -128,6 +137,16 @@ function mergeMessages(current: AgentChatMessage[], incoming: AgentChatMessage[]
   const bySequence = new Map(current.map((item) => [item.sequence, item]))
   for (const item of incoming) bySequence.set(item.sequence, item)
   return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence)
+}
+
+/** A queue item that has been handed to the server and is waiting to be proven
+ *  delivered. Only these are resolvable by evidence; the rest are the user's. */
+function awaitingEvidence(item: PromptQueueItem): boolean {
+  return (
+    item.state === 'submitting' ||
+    item.state === 'awaiting_turn' ||
+    item.state === 'outcome_uncertain'
+  )
 }
 
 function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
@@ -384,7 +403,7 @@ function SlashPicker({
     >
       {state.state === 'loading' && (
         <div className="flex items-center gap-2 px-3 py-5 text-muted-foreground text-sm">
-          <FlickerSpinner className="size-4" /> Discovering skills…
+          <FlickerSpinner className="size-4" /> Discovering skills… Enter still sends.
         </div>
       )}
       {state.state === 'error' && (
@@ -417,7 +436,8 @@ function SlashPicker({
           )}
           {items.length === 0 ? (
             <p className="px-3 py-5 text-center text-muted-foreground text-sm">
-              No matching skills
+              No matching skill. Press Enter to send it to the provider anyway — its own commands
+              are not in this catalog.
             </p>
           ) : (
             items.map((item, index) => (
@@ -471,6 +491,7 @@ export function AgentChatView({
   visible,
   onOpenTerminal,
   terminalWaiting = false,
+  settledPrompts,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
@@ -650,12 +671,7 @@ export function AgentChatView({
       updateQueue((items) => {
         let changed = false
         const remaining = items.filter((item) => {
-          if (
-            item.state !== 'submitting' &&
-            item.state !== 'awaiting_turn' &&
-            item.state !== 'outcome_uncertain'
-          )
-            return true
+          if (!awaitingEvidence(item)) return true
           const confirmed = authoritative.some((message) => samePrompt(message, item))
           if (confirmed) changed = true
           return !confirmed
@@ -665,6 +681,22 @@ export function AgentChatView({
     },
     [updateQueue],
   )
+
+  // A delivery the daemon has RETIRED resolves its own queue item, and nothing
+  // else ever will: a provider built-in is handled inside the CLI, so no user
+  // message for it is coming to the ledger and reconcileQueue above can never fire
+  // on it. Without this the FIFO head sits in awaiting_turn and blocks the
+  // composer for the rest of the runner's life.
+  useEffect(() => {
+    if (!settledPrompts?.length) return
+    const settled = new Set(settledPrompts)
+    updateQueue((items) => {
+      const remaining = items.filter(
+        (item) => !(awaitingEvidence(item) && settled.has(item.clientRequestId)),
+      )
+      return remaining.length === items.length ? items : remaining
+    })
+  }, [settledPrompts, updateQueue])
 
   const applyMessages = useCallback(
     (incoming: AgentChatMessage[]) => {
@@ -696,21 +728,10 @@ export function AgentChatView({
       setHasOlder(page.hasMore)
       applyMessages(page.items)
 
-      const evidencePending = () =>
-        queueRef.current.some(
-          (item) =>
-            item.state === 'submitting' ||
-            item.state === 'awaiting_turn' ||
-            item.state === 'outcome_uncertain',
-        )
+      const evidencePending = () => queueRef.current.some(awaitingEvidence)
       if (!evidencePending()) return
       const baselines = queueRef.current
-        .filter(
-          (item) =>
-            item.state === 'submitting' ||
-            item.state === 'awaiting_turn' ||
-            item.state === 'outcome_uncertain',
-        )
+        .filter(awaitingEvidence)
         .map((item) => item.baselineSequence)
       const baseline = Math.min(...baselines)
       let exhaustedRecoveryBudget = false
@@ -1124,6 +1145,11 @@ export function AgentChatView({
     if (slashSelected >= slashItems.length) setSlashSelected(Math.max(0, slashItems.length - 1))
   }, [slashItems.length, slashSelected])
 
+  // The one thing Enter and Tab both need: is there a completion to accept? An
+  // open picker is not enough — it is open while the probe is still running, and
+  // open over an empty result for every command the probe cannot see.
+  const highlightedSlashItem = slashOpen ? slashItems[slashSelected] : undefined
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     setDraft(item.insertText)
     slashLeadingRef.current = item.insertText.startsWith('/')
@@ -1147,15 +1173,32 @@ export function AgentChatView({
       setSlashSelected((selected) => (selected + direction + slashItems.length) % slashItems.length)
       return
     }
+    // Tab is the completion key, and it is unconditional while something is
+    // highlighted: it never sends, so it is the one keystroke a user can press
+    // without first working out what the picker currently thinks it has.
+    if (event.key === 'Tab' && !event.shiftKey && highlightedSlashItem) {
+      event.preventDefault()
+      selectSlashItem(highlightedSlashItem)
+      return
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      if (slashOpen) {
-        const selected = slashItems[slashSelected]
-        if (selected) selectSlashItem(selected)
-        // While the deterministic probe is loading, empty, or unavailable,
-        // Enter belongs to the open picker. It must not accidentally send the
-        // slash query as a model prompt and spend tokens. Escape closes the
-        // picker if the user intentionally wants to submit literal slash text.
+      // Enter accepts a completion when there IS one, and otherwise sends.
+      //
+      // It used to be swallowed for as long as the picker was open, on the
+      // reasoning that Enter belonged to the picker and sending the query as a
+      // prompt would spend tokens. That reasoning does not survive the catalog
+      // being INCOMPLETE BY DECLARATION: no probe reports a provider's own
+      // built-in commands, so /compact, /clear, /model and /context match nothing
+      // and never will. With nothing to accept, the picker had no claim on the
+      // key — and the composer went on saying "Enter to send" under a key that
+      // did nothing at all, for exactly the commands a user reaches for most.
+      //
+      // A loading probe is the same case: the alternative is a composer that
+      // silently ignores Enter for as long as a provider takes to answer, which
+      // is up to ten seconds. Esc still closes the picker outright.
+      if (highlightedSlashItem) {
+        selectSlashItem(highlightedSlashItem)
         return
       }
       enqueueDraft()
@@ -1317,7 +1360,9 @@ export function AgentChatView({
               />
               <div className="flex items-center justify-between gap-2 px-1 pb-1">
                 <span className="text-muted-foreground text-xs">
-                  Enter to send · Shift+Enter for newline
+                  {highlightedSlashItem
+                    ? 'Enter or Tab to insert · Esc to dismiss'
+                    : 'Enter to send · Shift+Enter for newline'}
                 </span>
                 <Button
                   size="icon-sm"

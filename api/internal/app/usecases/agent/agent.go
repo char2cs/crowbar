@@ -183,6 +183,12 @@ type Usecase struct {
 	// NIL when the terminal seam cannot render a screen, in which case every chat
 	// reports the zero verdict — see newTerminalWaitDetector.
 	termWait termwait.Detector
+
+	// promptSettled fans out the edge where a delivery is retired without ever
+	// having produced a turn. Wired at sweep start rather than at construction,
+	// because the thing it publishes through is the hub — a layer above this one.
+	// Nil until then, and nil forever in a daemon with no detector.
+	promptSettled func(chatID, workspaceID, requestID string)
 	// spawns serialises the USER-INITIATED spawn paths per chat (SpawnChat,
 	// SwitchProvider, ResumeChat). See chatGate: it is the only thing that can stop two
 	// concurrent switches putting two CLIs on one chat, and it is NEVER taken on the

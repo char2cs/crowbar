@@ -613,7 +613,24 @@ type AgentChatEvent struct {
 	// the user is looking at a pane that explains nothing, and a banner that
 	// arrives a round trip later is a banner that arrives after they gave up.
 	TerminalWait *AgentTerminalWaitDTO `json:"terminalWait,omitempty"`
+
+	// ClientRequestID names one prompt the browser is still holding in its pending
+	// queue, and is set ONLY on the prompt_settled kind.
+	//
+	// The queue resolves an item when the prompt it sent turns up in the ledger as
+	// a user message. A provider's own built-in command never produces one — the
+	// CLI handles it and announces nothing — so without this frame the item waits
+	// forever on evidence that is not coming.
+	ClientRequestID string `json:"clientRequestId,omitempty"`
 }
+
+// AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
+// without having produced a turn, so nothing is still owed on it.
+//
+// It is emitted at most once per delivery, and only for the deliveries that need
+// it: an ordinary prompt is resolved by its own user message arriving in the
+// ledger and never reaches this path.
+const AgentChatKindPromptSettled = "prompt_settled"
 
 // AgentChatKindTerminalWait is the lifecycle kind that announces a change in
 // whether a chat's CLI is blocked behind a terminal-only prompt.

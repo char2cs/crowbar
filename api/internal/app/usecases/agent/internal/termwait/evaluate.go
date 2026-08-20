@@ -74,7 +74,56 @@ func (d *detector) evaluate(
 	// Gate 4 — the screen. The only gate that costs anything, and the only one
 	// that can be skipped.
 	screen := d.readScreen(ctx, runner, prev)
+	d.settleDelivery(ctx, runner, &screen)
 	return screen.matched, screen, false
+}
+
+// settleDelivery retires a prompt delivery whose CLI has come to rest without
+// producing a turn, and latches the answer so one quiet screen retires it once.
+//
+// It rides this branch of the walk rather than living anywhere else because the
+// three things it needs have already been established here: the chat is NOT
+// Working, so no turn came of the delivery; nothing is pending that the chat could
+// answer; and the screen has just been read, so its quiet clock is current.
+//
+// The gate that carries the argument is the FIRST one. A CLI parked on a modal is
+// perfectly still and perfectly innocent — it has not consumed the prompt, it is
+// waiting for a human — and retiring the delivery there would drop the barrier
+// protecting a process that is still going to read its argv the moment somebody
+// answers the dialog. Stillness only means "finished" once it is stillness at the
+// CLI's own composer.
+//
+// Every other outcome errs the same way the rest of this package does: a question
+// that cannot be asked, or a journal write that fails, leaves the record open and
+// asks again on a later tick.
+func (d *detector) settleDelivery(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	screen *screenCache,
+) {
+	if screen.settled || d.deps.Deliveries == nil {
+		return
+	}
+	if screen.matched.Waiting {
+		return
+	}
+	if screen.gen == 0 || screen.since.IsZero() {
+		return
+	}
+	if d.now().Sub(screen.since) < d.deliveryQuiet() {
+		return
+	}
+	delivery, ok := d.deps.Deliveries.PendingDelivery(ctx, runner.CurrentChatID)
+	// Only against the runner the prompt was actually handed to. A record naming
+	// some other process is a delivery this screen is no evidence about.
+	if !ok || delivery.RunnerID == "" || delivery.RunnerID != runner.ID {
+		return
+	}
+	retired, err := d.deps.Deliveries.SettleDelivery(ctx, runner.CurrentChatID, delivery.RequestID)
+	if err != nil || !retired {
+		return
+	}
+	screen.settled = true
 }
 
 // readScreen reads the PTY's visible screen ONCE and answers everything the

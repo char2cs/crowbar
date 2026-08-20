@@ -258,3 +258,52 @@ func (c *clock) advance(d time.Duration) {
 	defer c.mu.Unlock()
 	c.now = c.now.Add(d)
 }
+
+// fakeDeliveries is the prompt journal as the third question sees it. It records
+// what was settled AND how often it was asked, because most of what that gate
+// promises is about the ticks on which it does nothing.
+type fakeDeliveries struct {
+	mu        sync.Mutex
+	pending   map[string]termwait.Delivery
+	err       error
+	asked     int
+	settled   []string
+	settleErr error
+	// declineSettle models the journal answering "nothing to retire" — a record
+	// that never reached a process, or one a hook already accounted for.
+	declineSettle bool
+}
+
+func (f *fakeDeliveries) PendingDelivery(
+	_ context.Context,
+	chatID string,
+) (termwait.Delivery, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked++
+	if f.err != nil {
+		return termwait.Delivery{}, false
+	}
+	delivery, ok := f.pending[chatID]
+	return delivery, ok
+}
+
+func (f *fakeDeliveries) SettleDelivery(_ context.Context, chatID, requestID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.settleErr != nil {
+		return false, f.settleErr
+	}
+	if f.declineSettle {
+		return false, nil
+	}
+	f.settled = append(f.settled, requestID)
+	delete(f.pending, chatID)
+	return true, nil
+}
+
+func (f *fakeDeliveries) allSettled() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.settled...)
+}

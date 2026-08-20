@@ -35,10 +35,12 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 func (u *Usecase) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
+	promptSettled func(chatID, workspaceID, requestID string),
 ) {
 	if u.termWait == nil {
 		return
 	}
+	u.promptSettled = promptSettled
 	u.termWait.Run(ctx, publish)
 }
 
@@ -96,5 +98,8 @@ func newTerminalWaitDetector(u *Usecase) termwait.Detector {
 		Notices: u,
 		Work:    u,
 		OnStall: u.closeStalledTurn,
+		// The third question. Same shape as the stall half: the read and the write
+		// are both this usecase's own business, so neither is passed in.
+		Deliveries: u,
 	})
 }

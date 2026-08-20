@@ -39,7 +39,7 @@ func TestUsecase_TerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	// And starting the sweep on one is a no-op rather than a nil dereference: the
 	// app wires this unconditionally, and a daemon must not fail to boot because a
 	// capability it does not have was switched on.
-	u.StartTerminalWaitSweep(t.Context(), nil)
+	u.StartTerminalWaitSweep(t.Context(), nil, nil)
 }
 
 // screenReadingCommander is a terminal seam that CAN render a screen — the shape
@@ -98,7 +98,7 @@ func TestUsecase_StartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	u := &Usecase{}
 	u.termWait = sweepRecorder{swept: swept}
 
-	u.StartTerminalWaitSweep(t.Context(), nil)
+	u.StartTerminalWaitSweep(t.Context(), nil, nil)
 
 	select {
 	case <-swept:

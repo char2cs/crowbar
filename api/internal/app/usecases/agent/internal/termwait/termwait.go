@@ -207,6 +207,25 @@ const DefaultInterval = 2 * time.Second
 // to rest, so the real quiet period is always at least this long.
 const DefaultStallQuiet = 120 * time.Second
 
+// DefaultDeliveryQuiet is how long a freshly-spawned CLI's screen must sit
+// COMPLETELY STILL before Crowbar concludes the prompt it was handed produced no
+// turn and never will.
+//
+// Much shorter than DefaultStallQuiet, because it is answering a much narrower
+// question: not "is this agent working?" but "has this process finished starting
+// up and consumed its argv?". A CLI that is about to consume a prompt is painting
+// — booting, then echoing the message, then a spinner whose elapsed counter
+// changes on every repaint. The longest gap ever measured between consecutive
+// screen writes on a live claude was under two seconds, so thirty is an order of
+// magnitude of margin against the only thing that could be misread.
+//
+// The risk is one-sided in the other direction from the stall clock, which is why
+// the numbers differ so much. Settling too EARLY costs at most a race that the
+// FIFO already serialises — another caller could displace a CLI that was still
+// about to read its argv. Settling too LATE, or never, is the wedge itself: a
+// composer that refuses every prompt for the rest of the runner's life.
+const DefaultDeliveryQuiet = 30 * time.Second
+
 // Runners is the live-runner census. A row exists exactly while its PTY does, so
 // this is both "which chats have a process" and "which PTY each one holds".
 type Runners interface {
@@ -321,6 +340,44 @@ type Stall struct {
 // with the close is not closed again on the next tick.
 type Stalled func(ctx context.Context, stall Stall)
 
+// Deliveries is the at-most-once prompt journal, as the third question needs it.
+//
+// The journal holds a record open from the moment a prompt is handed to a
+// replacement CLI until the provider's prompt hook acknowledges it, and an open
+// record blocks the next submission and every destructive action on the chat. The
+// assumption underneath that is EVERY DELIVERED PROMPT PRODUCES A TURN, and it is
+// false: a CLI's own built-in commands are handled inside the CLI and announce
+// nothing. Measured against claude 2.1.236, /compact fires neither
+// UserPromptSubmit nor Stop — so one of them wedged the chat permanently.
+//
+// This is the seam that closes it, and it is here rather than on a timer of its
+// own because the answer needs the same screen this package already reads.
+type Deliveries interface {
+	// PendingDelivery reports the chat's one open delivery, if it has one.
+	PendingDelivery(ctx context.Context, chatID string) (Delivery, bool)
+
+	// SettleDelivery records that this delivery is over: it reached a CLI that has
+	// since come to rest without producing a turn. It must be idempotent.
+	//
+	// It reports whether the record was actually RETIRED, and that is what the
+	// caller latches on — not the absence of an error. A record can legitimately
+	// decline to settle (it was acknowledged a moment ago, or it never reached a
+	// process at all), and treating "nothing to do" as "done" would latch the
+	// question shut against a record that is still open.
+	SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error)
+}
+
+// Delivery is one prompt in flight to a CLI.
+type Delivery struct {
+	// RequestID is the client's idempotency key, which is what the journal and the
+	// browser's own pending queue both name it by.
+	RequestID string
+	// RunnerID is the replacement process the prompt was handed to. A delivery is
+	// only ever settled against the runner that received it: the record may
+	// otherwise belong to a spawn that has already been displaced by another.
+	RunnerID string
+}
+
 // Deps is the detector's dependency set.
 type Deps struct {
 	Runners Runners
@@ -338,11 +395,18 @@ type Deps struct {
 	Work    Work
 	OnStall Stalled
 
+	// Deliveries is the third question. Nil means no delivery is ever settled
+	// here, which is the behaviour of a daemon built before this existed.
+	Deliveries Deliveries
+
 	// Interval overrides DefaultInterval. Zero takes the default.
 	Interval time.Duration
 
 	// StallQuiet overrides DefaultStallQuiet. Zero takes the default.
 	StallQuiet time.Duration
+
+	// DeliveryQuiet overrides DefaultDeliveryQuiet. Zero takes the default.
+	DeliveryQuiet time.Duration
 
 	// Now is the clock the quiet period is measured on. Zero takes time.Now.
 	//
@@ -441,6 +505,12 @@ type screenCache struct {
 	// stillness and never age.
 	since time.Time
 
+	// settled latches a delivery already retired, so one quiet screen retires it
+	// once. Like `fired`, it clears with the cache whenever the screen moves,
+	// because a genuinely new screen is a genuinely new question — including the
+	// screen of the NEXT prompt's replacement process.
+	settled bool
+
 	// fired latches a stall already acted on, so one wedge produces one closed
 	// turn and one notice.
 	//
@@ -475,6 +545,13 @@ func (d *detector) stallQuiet() time.Duration {
 		return d.deps.StallQuiet
 	}
 	return DefaultStallQuiet
+}
+
+func (d *detector) deliveryQuiet() time.Duration {
+	if d.deps.DeliveryQuiet > 0 {
+		return d.deps.DeliveryQuiet
+	}
+	return DefaultDeliveryQuiet
 }
 
 func (d *detector) now() time.Time {

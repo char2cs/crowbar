@@ -97,6 +97,9 @@ const baseProps = () => ({
   onPromptDispatchSettled: vi.fn(),
   onRefreshChat: vi.fn().mockResolvedValue(true),
   onQueueCountChange: vi.fn(),
+  // Declared so `setup`/`rerenderProps` accept it: the daemon only ever sends
+  // these for a delivery that produced no turn, so the default is none.
+  settledPrompts: undefined as string[] | undefined,
   // No sticky selection: these fixtures' providers declare no catalogue, so the
   // picker renders nothing at all here (see agent-model-picker.test.tsx).
   model: '',
@@ -601,6 +604,60 @@ describe('AgentChatView durable FIFO', () => {
     expect(submitPromptFn).not.toHaveBeenCalled()
   })
 
+  // THE WEDGE. A provider's own built-in — /compact, measured against claude
+  // 2.1.236 — is handled inside the CLI and produces no user message in the
+  // ledger, so the only evidence this queue normally waits for never arrives. The
+  // head sat in awaiting_turn forever and the composer refused every later prompt.
+  it('releases a pending prompt the daemon reports as settled without a turn', async () => {
+    localStorage.setItem(
+      promptQueueStorageKey('w1', 'c1'),
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            clientRequestId: 'dd068894-7cf0-4a2c-aa7c-c08531805bb0',
+            text: '/compact',
+            state: 'awaiting_turn',
+            createdAt: '2026-08-16T00:00:00.000Z',
+            baselineSequence: 2,
+          },
+        ],
+      }),
+    )
+    const view = setup()
+    expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('/compact')
+
+    view.rerenderProps({ settledPrompts: ['dd068894-7cf0-4a2c-aa7c-c08531805bb0'] })
+
+    await waitFor(() => expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument())
+    expect(submitPromptFn).not.toHaveBeenCalled()
+  })
+
+  // A settled id for some OTHER prompt must not take this one down with it.
+  it('leaves a pending prompt alone when a different delivery settles', async () => {
+    localStorage.setItem(
+      promptQueueStorageKey('w1', 'c1'),
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            clientRequestId: 'dd068894-7cf0-4a2c-aa7c-c08531805bb0',
+            text: '/compact',
+            state: 'awaiting_turn',
+            createdAt: '2026-08-16T00:00:00.000Z',
+            baselineSequence: 2,
+          },
+        ],
+      }),
+    )
+    const view = setup()
+    expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('/compact')
+
+    view.rerenderProps({ settledPrompts: ['11111111-2222-3333-4444-555555555555'] })
+
+    expect(screen.getByTestId('queued-prompt')).toHaveTextContent('/compact')
+  })
+
   it('keeps Shift+Enter multiline content in the composer and sends it as one prompt', async () => {
     setup({ working: true })
     const input = await composer()
@@ -663,21 +720,78 @@ describe('AgentChatView durable FIFO', () => {
 })
 
 describe('AgentChatView slash catalog', () => {
-  it('does not submit a slash query as a model prompt while the deterministic probe is open', async () => {
+  // The picker owns Enter only while it has something to accept. It used to own
+  // the key for as long as it was OPEN, which made every provider built-in
+  // unsendable: no probe reports /compact, /clear, /model or /context, so the
+  // picker sat there matching nothing while the composer said "Enter to send"
+  // under a key that did nothing at all.
+  it('sends a slash command the catalog cannot match, rather than swallowing Enter', async () => {
+    vi.useFakeTimers()
+    slashCatalogFn.mockResolvedValue({
+      providerId: 'claude',
+      completeness: 'plugin_only',
+      warnings: [],
+      items: [],
+    })
+    setup()
+    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(input, { target: { value: '/compact' } })
+    await act(async () => vi.advanceTimersByTimeAsync(150))
+    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String))
+    vi.useRealTimers()
+  })
+
+  it('accepts the highlighted completion with Tab, which never sends', async () => {
+    vi.useFakeTimers()
+    slashCatalogFn.mockResolvedValue({
+      providerId: 'codex',
+      completeness: 'model_visible',
+      warnings: [],
+      items: [
+        {
+          id: 'one',
+          kind: 'skill',
+          label: 'review-code',
+          description: 'Review a change',
+          insertText: '$review-code ',
+          source: 'builtin',
+        },
+      ],
+    })
+    setup()
+    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(input, { target: { value: '/rev' } })
+    await act(async () => vi.advanceTimersByTimeAsync(150))
+
+    fireEvent.keyDown(input, { key: 'Tab' })
+
+    expect(input).toHaveValue('$review-code ')
+    expect(submitPromptFn).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  // Same rule, the other side of it: a probe that has not answered yet has
+  // nothing to accept either, and blocking Enter behind it would make the user
+  // wait out a ten-second provider timeout to send four characters.
+  it('sends while the deterministic probe is still running', async () => {
     vi.useFakeTimers()
     const catalog = deferred<SlashCatalog>()
     slashCatalogFn.mockReturnValue(catalog.promise)
     setup()
     const input = screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(input, { target: { value: '/' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    expect(submitPromptFn).not.toHaveBeenCalled()
-    expect(input).toHaveValue('/')
+    fireEvent.change(input, { target: { value: '/clear' } })
     await act(async () => vi.advanceTimersByTimeAsync(150))
     expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(submitPromptFn).not.toHaveBeenCalled()
+
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/clear', expect.any(String))
     vi.useRealTimers()
   })
 

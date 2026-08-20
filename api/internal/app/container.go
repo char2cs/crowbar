@@ -436,9 +436,15 @@ func startTerminalWaitSweep(
 	h *hub.Hub,
 	ucs *usecases.Container,
 ) {
-	ucs.Agent.StartTerminalWaitSweep(ctx, func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
-		h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
-	})
+	ucs.Agent.StartTerminalWaitSweep(
+		ctx,
+		func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
+			h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
+		},
+		func(chatID, workspaceID, requestID string) {
+			h.BroadcastAgentChatPromptSettled(chatID, workspaceID, requestID)
+		},
+	)
 }
 
 func startProviderSweep(

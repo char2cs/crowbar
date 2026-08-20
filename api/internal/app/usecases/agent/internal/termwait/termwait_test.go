@@ -53,6 +53,7 @@ type rig struct {
 	prompts  *fakePrompts
 	notices  *fakeNotices
 	work     *fakeWork
+	deliv    *fakeDeliveries
 	clock    *clock
 	rec      *recorder
 	stalls   *stalls
@@ -96,18 +97,20 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		runners: runners, chats: chats, choices: choices, screens: screens,
 		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
 		rec: &recorder{}, stalls: &stalls{},
+		deliv: &fakeDeliveries{pending: map[string]termwait.Delivery{}},
 	}
 	r.detector = termwait.New(termwait.Deps{
-		Runners:  runners,
-		Chats:    chats,
-		Choices:  choices,
-		Screens:  screens,
-		Prompts:  prompts,
-		Notices:  notices,
-		Work:     r.work,
-		OnStall:  r.stalls.onStall,
-		Interval: interval,
-		Now:      r.clock.Now,
+		Runners:    runners,
+		Chats:      chats,
+		Choices:    choices,
+		Screens:    screens,
+		Prompts:    prompts,
+		Notices:    notices,
+		Work:       r.work,
+		OnStall:    r.stalls.onStall,
+		Deliveries: r.deliv,
+		Interval:   interval,
+		Now:        r.clock.Now,
 	})
 	return r
 }
@@ -119,6 +122,14 @@ func (r *rig) wedged() {
 	r.runners.live[0].ProviderID = "codex"
 	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.screens.set(session, usageLimitScreen)
+}
+
+// delivering puts the rig in the state defect 2 was measured in: an idle chat at
+// its own composer, with one prompt still open in the delivery journal against the
+// runner that received it.
+func (r *rig) delivering() {
+	r.screens.set(session, idleScreen)
+	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
 }
 
 func (r *rig) sweep() {
@@ -887,4 +898,157 @@ func TestDetector_Sweep_CursorMovementCannotResetTheClock(t *testing.T) {
 	}
 
 	assert.Len(t, r.stalls.all(), 1)
+}
+
+// TestDetector_Sweep_SettlesADeliveryThatProducedNoTurn is the wedge this gate
+// exists for. A provider built-in — /compact, measured against claude 2.1.236 —
+// is handled inside the CLI and fires neither UserPromptSubmit nor Stop, so the
+// journal record waited on an acknowledgement that was never coming and the chat
+// refused every later prompt for the rest of the runner's life.
+func TestDetector_Sweep_SettlesADeliveryThatProducedNoTurn(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+
+	r.sweep()
+	assert.Empty(t, r.deliv.allSettled(), "the quiet clock has not started yet")
+
+	r.clock.advance(termwait.DefaultDeliveryQuiet)
+	r.sweep()
+
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
+}
+
+// The screen having stopped is only evidence once it has stopped for the whole
+// window. One tick short must decide nothing.
+func TestDetector_Sweep_LeavesADeliveryAloneUntilTheScreenHasBeenStillLongEnough(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.sweep()
+
+	r.clock.advance(termwait.DefaultDeliveryQuiet - time.Second)
+	r.sweep()
+
+	assert.Empty(t, r.deliv.allSettled())
+}
+
+// TestDetector_Sweep_NeverSettlesADeliveryBehindABlockingModal is the gate that
+// carries the argument. A CLI parked on the trust dialog is perfectly still and
+// perfectly innocent: it has NOT consumed the prompt, it is waiting for a human,
+// and it will read its argv the moment somebody answers. Retiring the delivery
+// there drops the barrier protecting a prompt that is still going to arrive.
+func TestDetector_Sweep_NeverSettlesADeliveryBehindABlockingModal(t *testing.T) {
+	r := newRig(t)
+	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
+	// trustScreen is already on the rig's screen, and the rig's provider declares
+	// its needle — so this chat reports waiting AND has a delivery open.
+	r.sweep()
+	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
+
+	r.sweep()
+
+	assert.True(t, r.detector.Wait(chatID).Waiting)
+	assert.Empty(t, r.deliv.allSettled())
+}
+
+// A record naming some other process is a delivery this screen is no evidence
+// about: the runner that received it has already been displaced by another.
+func TestDetector_Sweep_OnlySettlesAgainstTheRunnerThatReceivedThePrompt(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-OTHER"}
+	r.sweep()
+	r.clock.advance(termwait.DefaultDeliveryQuiet)
+
+	r.sweep()
+
+	assert.Empty(t, r.deliv.allSettled())
+}
+
+// A journal write that fails must not latch. The record is still open, so the
+// question is still live and a later tick has to ask it again.
+func TestDetector_Sweep_RetriesASettleThatCouldNotBePersisted(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.deliv.settleErr = errBoom
+	r.sweep()
+	r.clock.advance(termwait.DefaultDeliveryQuiet)
+	r.sweep()
+	require.Empty(t, r.deliv.allSettled())
+
+	r.deliv.settleErr = nil
+	r.sweep()
+
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
+}
+
+// One quiet screen retires one delivery. Without the latch the journal would be
+// written on every tick for as long as the CLI sat at its composer.
+func TestDetector_Sweep_SettlesOnce(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.sweep()
+	r.clock.advance(termwait.DefaultDeliveryQuiet)
+
+	r.sweep()
+	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
+	r.sweep()
+	r.sweep()
+
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
+}
+
+// A chat that is Working took the delivery and turned it into a turn, which is the
+// ordinary case. Its record is retired by the provider's own hook, and this gate
+// must not reach for it — the stall question owns that branch.
+func TestDetector_Sweep_NeverSettlesADeliveryOnAWorkingChat(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.sweep()
+	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
+
+	r.sweep()
+
+	assert.Empty(t, r.deliv.allSettled())
+	assert.Zero(t, r.deliv.asked, "a busy chat's journal is never read")
+}
+
+// A daemon built without the port settles nothing, which is the behaviour every
+// existing harness has and the safe direction to fail in.
+func TestDetector_Sweep_SettlesNothingWithoutTheDeliveriesPort(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	waitOnly := termwait.New(termwait.Deps{
+		Runners: r.runners,
+		Chats:   r.chats,
+		Choices: r.choices,
+		Screens: r.screens,
+		Prompts: r.prompts,
+		Now:     r.clock.Now,
+	})
+	waitOnly.Sweep(context.Background(), r.rec.publish)
+	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
+
+	waitOnly.Sweep(context.Background(), r.rec.publish)
+
+	assert.Empty(t, r.deliv.allSettled())
+	assert.Zero(t, r.deliv.asked)
+}
+
+// A settle that retires NOTHING must not latch. The record is still open, so the
+// question is still live — latching on the absence of an error would shut it
+// against a delivery that is exactly as stuck as it was.
+func TestDetector_Sweep_DoesNotLatchWhenNothingWasRetired(t *testing.T) {
+	r := newRig(t)
+	r.delivering()
+	r.deliv.declineSettle = true
+	r.sweep()
+	r.clock.advance(termwait.DefaultDeliveryQuiet)
+	r.sweep()
+	require.Empty(t, r.deliv.allSettled())
+
+	r.deliv.declineSettle = false
+	r.sweep()
+
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
 }

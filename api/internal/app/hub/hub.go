@@ -169,6 +169,25 @@ func (h *Hub) BroadcastAgentChatTerminalWait(
 	}
 }
 
+// BroadcastAgentChatPromptSettled fans out the edge where a delivered prompt is
+// retired without ever having produced a turn, on the same workspace-scoped feed
+// as BroadcastAgentChat.
+//
+// Fed by the terminal-wait detector, like the wait edge and for the same reason:
+// the fact is derived from a live PTY's screen joined against the chat's busy
+// state and its delivery journal, so no aggregate's event log can emit it.
+func (h *Hub) BroadcastAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID)
+	}
+}
+
 // BroadcastAgentChatFolder fans a CHAT FOLDER lifecycle event
 // (folder_created/folder_updated/folder_deleted) out on the SAME workspace-scoped
 // agent-chat WebSocket as BroadcastAgentChat. A chat folder is a plain GORM row

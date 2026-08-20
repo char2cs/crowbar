@@ -25,6 +25,22 @@ const (
 	promptStateAccepted    = "accepted"
 	promptStateFailed      = "failed"
 	promptStateUncertain   = "uncertain"
+
+	// promptStateSettled is a delivery that reached a CLI and is OVER, without any
+	// prompt hook ever acknowledging it.
+	//
+	// It exists because "every delivered prompt produces a turn" is false for every
+	// CLI's built-in commands. /compact is handled inside claude's own client: no
+	// UserPromptSubmit, no Stop, nothing. A record waiting on that acknowledgement
+	// is never retired, and since an active record refuses the next submission and
+	// every destructive action on the chat, one built-in wedged the chat until its
+	// runner was replaced.
+	//
+	// TERMINAL, so it stops being a barrier, and DISTINCT from accepted, because
+	// accepted means a provider hook said so and this means Crowbar concluded it
+	// from a screen that stopped moving. To a same-id retry the two are the same
+	// answer: already delivered, do not send it twice.
+	promptStateSettled = "settled"
 )
 
 // promptRequestRecord is Crowbar's durable at-most-once delivery journal. It
@@ -137,7 +153,7 @@ func (j *promptJournal) begin(
 			return promptRequestRecord{}, false, ErrPromptRequestIDConflict
 		}
 		switch existing.State {
-		case promptStateSpawned, promptStateAccepted, promptStateDispatching:
+		case promptStateSpawned, promptStateAccepted, promptStateSettled, promptStateDispatching:
 			return existing, true, nil
 		case promptStateFailed:
 			// Only failures proven to happen before the replacement process
@@ -227,7 +243,14 @@ func (j *promptJournal) confirmAccepted(
 		return err
 	}
 	for _, record := range records {
-		if record.State != promptStateDispatching && record.State != promptStateSpawned && record.State != promptStateUncertain {
+		// A settled record is upgraded rather than skipped. Crowbar concluded that
+		// delivery was over without an acknowledgement; a real hook arriving
+		// afterwards is better evidence about the same delivery, and the journal
+		// should record the better evidence.
+		if record.State != promptStateDispatching &&
+			record.State != promptStateSpawned &&
+			record.State != promptStateUncertain &&
+			record.State != promptStateSettled {
 			continue
 		}
 		if record.TextHash != textHash || record.ProviderID != providerID {
@@ -299,6 +322,33 @@ func (j *promptJournal) markAcceptedByRequest(
 	record.State = promptStateAccepted
 	record.UpdatedAt = now.UTC()
 	return record, j.write(dir, record)
+}
+
+// settle retires a spawned record whose CLI came to rest without producing a turn.
+//
+// Only a SPAWNED record settles. A dispatching one has not reached a process at
+// all, and every other state is already terminal — including accepted, which is
+// strictly better evidence and must never be walked back to a conclusion Crowbar
+// drew from pixels.
+func (j *promptJournal) settle(
+	dir, requestID string,
+	now time.Time,
+) (bool, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	record, found, err := readPromptRecord(dir, requestID)
+	if err != nil || !found {
+		return false, err
+	}
+	if record.State != promptStateSpawned {
+		return false, nil
+	}
+	record.State = promptStateSettled
+	record.UpdatedAt = now.UTC()
+	if err := j.write(dir, record); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (j *promptJournal) activeForRunner(

@@ -223,6 +223,11 @@ export function AgentChatPane({
   const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
   const waiting = waitKind !== undefined
 
+  // Prompts the daemon has reported as delivered-and-over without a turn. The
+  // composer resolves a pending item when its text turns up in the ledger, and for
+  // a provider built-in it never does — see AgentChatsState.settledPrompts.
+  const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
+
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   // Seeded from the user's preference, never subscribed to it: a chat already open
   // keeps the surface it is on if the setting changes underneath it.
@@ -998,6 +1003,7 @@ export function AgentChatPane({
                 setPresentation('terminal')
               }}
               terminalWaiting={waiting}
+              settledPrompts={settledPrompts}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)

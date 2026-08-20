@@ -23,6 +23,16 @@ import (
 // would silently recover every record before the test could assert on it.
 var jnow = time.Now()
 
+// requireSettled retires a record and asserts it actually was. `settle` reporting
+// false is not an error — it is how the journal declines a record that never
+// reached a process, or one a provider hook already accounted for.
+func requireSettled(t *testing.T, j *promptJournal, dir, requestID string) {
+	t.Helper()
+	retired, err := j.settle(dir, requestID, jnow)
+	require.NoError(t, err)
+	require.True(t, retired)
+}
+
 func journal(t *testing.T) (*promptJournal, string) {
 	t.Helper()
 	dir := promptJournalDir(t.TempDir())
@@ -346,4 +356,112 @@ func mustRecord(t *testing.T, dir, id string) promptRequestRecord {
 	require.NoError(t, err)
 	require.True(t, ok)
 	return record
+}
+
+// TestRegression_SettledDeliveryStopsBlockingTheChat.
+//
+// The measured wedge: a provider built-in produces no prompt hook, so the spawned
+// record was never acknowledged, and an active record refuses BOTH the next
+// submission (begin → ErrPromptBusy) and every destructive action on the chat
+// (requireNoPendingPromptDelivery → ErrPromptBusy). Nothing in the daemon retired
+// it, so the chat stayed wedged until its runner was replaced.
+func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	require.NoError(t, err)
+	_, err = j.markSpawned(dir, "req-1", "hash",
+		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+	require.NoError(t, err)
+
+	pending, err := j.hasPendingDelivery(dir)
+	require.NoError(t, err)
+	require.True(t, pending, "a spawned delivery blocks, which is the point of it")
+	_, _, err = j.begin(dir, "req-2", "other", "claude", "out", "new2", jnow)
+	require.ErrorIs(t, err, ErrPromptBusy)
+
+	requireSettled(t, j, dir, "req-1")
+
+	pending, err = j.hasPendingDelivery(dir)
+	require.NoError(t, err)
+	assert.False(t, pending)
+	_, _, err = j.begin(dir, "req-2", "other", "claude", "out", "new2", jnow)
+	assert.NoError(t, err, "the next prompt must be accepted once nothing is owed")
+}
+
+// Settling is not forgetting. The delivery DID reach a CLI, so the same id must
+// still be answered as already-delivered rather than sent a second time.
+func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	require.NoError(t, err)
+	_, err = j.markSpawned(dir, "req-1", "hash",
+		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+	require.NoError(t, err)
+	requireSettled(t, j, dir, "req-1")
+
+	record, existing, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+
+	require.NoError(t, err)
+	assert.True(t, existing)
+	assert.Equal(t, promptStateSettled, record.State)
+}
+
+// A real hook is better evidence about the same delivery than a screen that
+// stopped moving, so it wins even after Crowbar has concluded otherwise.
+func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	require.NoError(t, err)
+	_, err = j.markSpawned(dir, "req-1", "hash",
+		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+	require.NoError(t, err)
+	requireSettled(t, j, dir, "req-1")
+
+	require.NoError(t, j.confirmAccepted(dir, "new", "claude", "hash", jnow))
+
+	found, ok, err := readPromptRecord(dir, "req-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, promptStateAccepted, found.State)
+}
+
+// Only a spawned record settles. Accepted is strictly better evidence and must
+// never be walked back to a conclusion Crowbar drew from pixels; dispatching never
+// reached a process at all.
+func TestJournal_SettleOnlyRetiresASpawnedRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(j *promptJournal, dir string)
+		want string
+	}{
+		{
+			name: "dispatching has not reached a process",
+			set:  func(*promptJournal, string) {},
+			want: promptStateDispatching,
+		},
+		{
+			name: "accepted is a provider's own word",
+			set: func(j *promptJournal, dir string) {
+				_, err := j.markAcceptedByRequest(dir, "req-1", jnow)
+				require.NoError(t, err)
+			},
+			want: promptStateAccepted,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j, dir := journal(t)
+			_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+			require.NoError(t, err)
+			tc.set(j, dir)
+
+			retired, err := j.settle(dir, "req-1", jnow)
+
+			require.NoError(t, err)
+			assert.False(t, retired, "only a spawned record is retired")
+			found, ok, err := readPromptRecord(dir, "req-1")
+			require.NoError(t, err)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, found.State)
+		})
+	}
 }
