@@ -1,8 +1,5 @@
-# Validated against codex 0.139.0 (Phase-0 spike) EXCEPT the three MCP entries below
-# — mcp_servers.crowbar.{command,args}, .env_vars and
-# .default_tools_approval_mode — which were validated against 0.146.0, the first
-# version any of them was exercised by a live tool call. Each carries its own note
-# saying what was proven and how. Documentation only.
+# Validated against codex 0.139.0, except the mcp_servers.crowbar entries below,
+# which were first exercised by a live tool call on 0.146.0.
 id: codex
 display_name: Codex
 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>'
@@ -10,10 +7,9 @@ spawn:
   cmd: codex
   interactive_required: true
   forbid_flags: ["exec"]
-  # codex has no single "auto" switch: its equivalent is a workspace-write sandbox
-  # with model-decided approvals — it works inside the workspace without asking and
-  # only escalates to the user when it needs to step OUTSIDE it. NOT
-  # --dangerously-bypass-approvals-and-sandbox, which drops the sandbox entirely.
+  # codex has no single "auto" switch: workspace-write + on-request is its
+  # equivalent — it works inside the workspace and escalates only to step outside.
+  # NOT --dangerously-bypass-approvals-and-sandbox, which drops the sandbox.
   args:
     - "--dangerously-bypass-hook-trust"
     - "--sandbox"
@@ -31,10 +27,9 @@ presentation:
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
-  # `debug prompt-input` asks codex to deterministically render the instructions
-  # it would make model-visible. It does not start a model turn and is deliberately
-  # labelled model_visible: codex's native /skills menu may contain additional
-  # explicitly installed or plugin-owned entries.
+  # `debug prompt-input` renders the instructions codex would make model-visible,
+  # without starting a model turn. Its native /skills menu may hold more, hence
+  # model_visible rather than complete.
   slash_catalog:
     completeness: model_visible
     timeout_ms: 10000
@@ -47,62 +42,27 @@ presentation:
       text_path: "[].content[].text"
       start_marker: "<skills_instructions>"
       end_marker: "</skills_instructions>"
-      # A skill name may itself be plugin-qualified with colons. The field
-      # delimiter is the first colon FOLLOWED BY whitespace, not the first
-      # colon in the line (`plugin:skill: Description`).
+      # A skill name may itself be plugin-qualified with colons, so the field
+      # delimiter is the first colon FOLLOWED BY WHITESPACE (`plugin:skill: Desc`).
       item_pattern: '(?m)^- (?P<name>[^\r\n]+?):\s+(?P<description>.*?)(?:\s+\((?:file|orchestrator resource|environment resource|custom resource):[^\r\n]*\))?\r?$'
       item:
         label: "{name}"
         description: "{description}"
         insert_text: "${name} "
         source: "model-visible"
-# Crowbar does NOT own codex's home. It runs codex against the user's real
-# ~/.codex and injects everything it needs as session-layer config overrides
-# (-c), which codex honours for hooks — verified against 0.139.0: SessionStart,
-# UserPromptSubmit and Stop all fire with no CODEX_HOME override and no file
-# written anywhere.
-#
-# The alternative — pointing CODEX_HOME at a Crowbar-owned directory to drop a
-# hooks.json into it — is what the descriptor used to do, and it was wrong twice
-# over. It made Crowbar the custodian of codex's SESSIONS (they live in
-# $CODEX_HOME), so Crowbar deleted codex's own session whenever it cleaned up the
-# directory: switching away from codex destroyed the thread, and switching back
-# killed the CLI on startup with "no rollout found for thread id ...". And it hid
-# the user's real codex from itself — no skills, no MCP servers, no memories, no
-# model prefs, none of their own hooks.
-#
-# A provider owns its sessions. Crowbar only observes.
-# Model and reasoning-effort selection.
-#
-# This is a SNAPSHOT OF A LIVE ENUMERATION, and it differs in kind from claude's
-# declared list: codex genuinely can enumerate its own catalogue. Measured
-# 2026-08-17 against codex-cli 0.146.0 with `codex debug models` — account
-# metadata, not a model turn — which reports, per model, a `priority`, a
-# `visibility`, a `default_reasoning_level` and the `supported_reasoning_levels`
-# copied below. Models are listed in codex's own priority order;
-# `codex-auto-review` is omitted because it reports `visibility: hide`.
-#
-# It is a copy so a picker works BEFORE the live probe exists, and it WILL drift
-# from the account's real catalogue — a model added or retired upstream changes
-# nothing here until somebody re-runs the command. The probe supersedes this
-# block when it lands; until then a stale id fails at spawn with codex's own
-# message.
-#
-# THIS IS THE CASE THE PER-MODEL MAP EXISTS FOR. The levels genuinely vary:
-# sol/terra reach `ultra`, luna stops at `max`, the 5.4/5.5 family stops at
-# `xhigh`. There is deliberately NO "*" fallback key — an unlisted model must
-# answer with NO levels rather than with another model's.
+# A SNAPSHOT OF A LIVE ENUMERATION, unlike claude's declared list: measured with
+# `codex debug models` (account metadata, not a model turn), in codex's own priority
+# order, omitting codex-auto-review which reports visibility: hide. It still drifts —
+# a model added upstream changes nothing here until somebody re-runs the command.
 model:
   available: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.4-mini]
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--model", value: "{model}" }
-# `-c model_reasoning_effort=` rather than a dedicated flag: codex has no
-# `--effort`, and `-c key=value` is its config-override channel (its own --help
-# shows the string form as `-c model="o3"`). The key appears 25 times in the
-# 0.146.0 binary. The quoted value matches the `-c` steps in config_injection
-# below, which is the shape codex parses as a string.
 effort:
+  # THE CASE THE PER-MODEL MAP EXISTS FOR — the levels genuinely vary. There is
+  # deliberately NO "*" fallback: an unlisted model must answer with no levels
+  # rather than with another model's.
   available:
     gpt-5.6-sol:   [low, medium, high, xhigh, max, ultra]
     gpt-5.6-terra: [low, medium, high, xhigh, max, ultra]
@@ -112,87 +72,41 @@ effort:
     gpt-5.4-mini:  [low, medium, high, xhigh]
   strategy: restart_tui
   apply:
+    # codex has no --effort; `-c key=value` is its config-override channel.
     - pass_arg: { arg: "-c", value: 'model_reasoning_effort="{effort}"' }
+# THE LAW THIS DESCRIPTOR IS BUILT ON: Crowbar does not own ~/.codex. Everything is
+# a session-layer `-c` override, so nothing is written and the user's own skills, MCP
+# servers, memories and hooks all stay live.
+#
+# Pointing CODEX_HOME at a Crowbar-owned directory — what this used to do — made
+# Crowbar the custodian of codex's SESSIONS, so cleaning up the directory destroyed
+# the user's thread and switching back died with "no rollout found for thread id".
 config_injection:
-  # codex prompts to self-update on startup, which would eat the first keystrokes
-  # in the chat pane.
+  # codex prompts to self-update on startup, which eats the pane's first keystrokes.
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
-  # TUI-NATIVE modals, suppressed rather than answered.
+  # TUI-NATIVE modals, suppressed rather than answered: the TUI draws these itself,
+  # no hook fires, and nothing Crowbar can send reaches them.
   #
-  # These are a DIFFERENT class from the prompts the answer channel handles. A
-  # permission request, an AskUserQuestion and an MCP elicitation all travel
-  # through the hook surface, so Crowbar can see them and answer them. These do
-  # not: the TUI draws them itself, no hook fires, and nothing Crowbar can send
-  # would reach them. They simply block the pane until a human presses a key —
-  # the same failure `check_for_update_on_startup` above already avoids.
+  # Only the three unambiguous ones. `fast_default_opt_out` is a SERVICE-TIER choice
+  # the user owns, and the migration prompts are left alone because their key
+  # spelling contains dots, which a TOML dotted-key override parses as nested tables.
   #
-  # The observed one is the rate-limit nudge ("Approaching rate limits — switch
-  # to gpt-5.6-luna?", three options, the third being "never show again"). That
-  # third option writes exactly the flag set here; the others are its siblings in
-  # the same `Notice` struct in the 0.146.0 binary:
-  #
-  #   hide_full_access_warning       hide_world_writable_warning
-  #   fast_default_opt_out           hide_rate_limit_model_nudge
-  #   hide_gpt5_1_migration_prompt   hide_gpt-5.1-codex-max_migration_prompt
-  #   external_config_migration_prompts
-  #
-  # Only the three unambiguous modal suppressions are set. `fast_default_opt_out`
-  # is a SERVICE-TIER choice, not a modal, and is the user's to make. The two
-  # migration prompts and `external_config_migration_prompts` are left alone
-  # because their key spelling contains dots (`hide_gpt-5.1-...`), which a TOML
-  # dotted-key override would parse as nested tables rather than as the key.
-  #
-  # The `notice.` prefix IS the table path. Confirmed 2026-08-18 by reading the
-  # top-level config struct's own field list out of the 0.146.0 binary, where
-  # `notice` sits among the other top-level keys:
-  #
-  #   … project_root_markers  check_for_update_on_startup  disable_paste_burst
-  #     analytics  feedback  apps  desktop  otel  windows  notice  experimental_…
-  #
-  # `check_for_update_on_startup` in that same list is the key set above, which is
-  # what keeps codex's UpdatePromptScreen (a full blocking TUI screen, reached via
-  # codex_tui::update_prompt::run_update_prompt_if_needed) from ever appearing on a
-  # Crowbar spawn.
-  #
-  # Note `--strict-config` cannot be used to check any of this: it validates
-  # config.toml ONLY, and measurably accepts `-c notice.total_nonsense_key=true`
-  # with no error. An unknown `-c` key is inert, so a wrong key here could only
-  # ever leave a modal showing as it does today — it can break nothing.
+  # An unknown `-c` key is inert — `--strict-config` validates config.toml only and
+  # accepts `-c notice.total_nonsense_key=true` — so a wrong key here can break
+  # nothing, it can only leave a modal showing.
   - pass_arg: { arg: "-c", value: 'notice.hide_rate_limit_model_nudge=true' }
   - pass_arg: { arg: "-c", value: 'notice.hide_full_access_warning=true' }
   - pass_arg: { arg: "-c", value: 'notice.hide_world_writable_warning=true' }
-  # workspace-write DENIES NETWORK, and on macOS a unix-socket connect IS network — so a
-  # sandboxed codex cannot reach the daemon at all. That is not theoretical. It was found
-  # through the one command Crowbar used to ask the AGENT itself to run (a shell titling
-  # command, since retired in favour of the MCP tool): an agent runs such a command as a
-  # TOOL, a tool runs inside the sandbox, and so it died every single time on
+  # workspace-write DENIES NETWORK, and on macOS a unix-socket connect IS network, so
+  # a sandboxed codex cannot reach the daemon at all. Found through the shell titling
+  # command, which died every time on `connect: operation not permitted`; it hid
+  # because codex spawns HOOKS outside the sandbox, so everything else looked healthy.
   #
-  #   connect: operation not permitted
-  #
-  # which is why codex could never title its own chat. It hid for so long because codex's
-  # HOOKS are unaffected — codex spawns those OUTSIDE the sandbox — so sessions bound and
-  # turns landed and everything looked healthy.
-  #
-  # Whether the `crowbar mcp` relay codex now spawns for the tool surface is itself inside
-  # this sandbox has NOT been measured, and the grant is not justified on a guess about it:
-  # the standing reason is the asymmetry below.
-  #
-  # This grants NETWORK, not the filesystem: codex still cannot write outside the
-  # workspace, so the sandbox keeps doing the job it is there for. What it ends is an
-  # asymmetry nobody chose. claude runs with NO kernel sandbox at all (--permission-mode
-  # auto is a policy inside claude, not a seatbelt) and has had unrestricted network the
-  # whole time; codex had none, so it could not fetch a doc or install a package while its
-  # peer could. Even after this, codex remains the more confined of the two.
-  #
-  # And there is no gentler knob to reach for: `--full-auto` was REMOVED in 0.139 ("use
-  # --sandbox workspace-write instead"), so workspace-write IS codex's auto mode. The
-  # sandbox is not a setting we picked over a laxer one — it is the mode — and network is
-  # the one dimension of it we actually need back.
+  # This grants network, not the filesystem. claude runs with no kernel sandbox at
+  # all, so even after this codex remains the more confined of the two.
   - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
-  # The hooks Crowbar listens on. They are the ONLY thing it injects: the segment
-  # id travels in the command itself, so nothing is written to disk and nothing of
-  # the user's is overridden — their own ~/.codex/hooks.json still fires alongside
-  # these.
+  # The hooks Crowbar listens on, and the only thing it injects. The user's own
+  # ~/.codex/hooks.json still fires alongside these.
   - pass_arg:
       arg: "-c"
       value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
@@ -202,15 +116,12 @@ config_injection:
   - pass_arg:
       arg: "-c"
       value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
-  # The observation surface. codex 0.146.0 fires these event names — extracted
-  # from the binary's hook schema — but their PAYLOAD FIELDS have not been
-  # captured live: the account hit its usage limit mid-probe and no model call
-  # could complete. The mappings below are therefore the shapes the binary
-  # declares, and every one of them degrades to empty rather than to wrong if a
-  # field turns out to sit elsewhere. Re-capture and confirm.
+  # codex 0.146.0 fires these event names — extracted from the binary's hook schema —
+  # but their PAYLOAD FIELDS have not been captured live: the account hit its usage
+  # limit mid-probe. Every mapping degrades to empty rather than to wrong if a field
+  # sits elsewhere. Re-capture and confirm.
   #
-  # codex exposes no Notification event, so a codex chat reports permission waits
-  # and nothing else in that class. Absent capability, absent UI.
+  # codex exposes no Notification event. Absent capability, absent UI.
   - pass_arg:
       arg: "-c"
       value: 'hooks.PreToolUse=[{hooks=[{type="command",command="{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
@@ -237,33 +148,19 @@ config_injection:
       value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{crowbar_hook} hook session_end --segment {segid} --provider {provider} {scope_flags}"}]}]'
 hooks:
   format: json
-  # codex's hooks are not only its user's. With `[features] memories = true` its
-  # Memory Writing Agent runs as an INTERNAL session inside the SAME codex process,
-  # so it inherits the `-c hooks.*` above and fires the full lifecycle at Crowbar —
-  # SessionStart, UserPromptSubmit, Stop, SessionEnd — on a session the user never
-  # opened. Captured live from codex 0.146.0, alongside the real session's hooks:
-  #
-  #   real:     session_id 019fafae-f27f…  source startup  transcript_path <rollout>
-  #             cwd <worktree>             model gpt-5.6-sol    permission_mode default
-  #   internal: session_id 019fafaf-4f2c…  source startup  transcript_path NULL
-  #             cwd ~/.codex/memories      model gpt-5.6-terra  permission_mode bypassPermissions
-  #
-  # `source` is IDENTICAL, so no move label can separate them (see reducer.go, which
-  # must never branch on that vocabulary anyway). What separates them is that the
-  # internal one is not a conversation: transcript_path is null, because it has no
-  # rollout — and a session with no rollout is one codex itself cannot resume, so it
-  # was never something Crowbar could host. Requiring the transcript therefore drops
-  # every hook of every internal session codex runs, present and future, without
-  # Crowbar having to enumerate them.
-  #
-  # NOT the other three columns. cwd would work today but needs symlink- and
-  # case-exact path comparison against the worktree to be safe, and model and
-  # permission_mode are a user's to configure — `consolidation_model` is a config key.
+  # THE DISCRIMINATOR FOR CODEX'S OWN INTERNAL SESSIONS. With memories enabled its
+  # Memory Writing Agent runs inside the SAME process, inherits these `-c hooks.*`,
+  # and fires a full lifecycle at Crowbar on a session the user never opened. Its
+  # `source` is identical to a real session's — but transcript_path is NULL, because
+  # it has no rollout, and a session with no rollout is one codex itself cannot
+  # resume. Requiring the field drops every internal session, present and future,
+  # without Crowbar enumerating them.
   require_payload_fields: [transcript_path]
   events:
     session_start: { session_id: session_id, model: model }
     user_prompt:   { message: prompt }
     turn_stop:     { session_id: session_id, message: last_assistant_message }
+    # A comma-separated value is an ALTERNATION, first non-empty wins.
     tool_pre:
       session_id:  session_id
       tool_id:     tool_use_id
@@ -280,17 +177,9 @@ hooks:
       duration_ms: duration_ms
     subagent_pre:  { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     subagent_post: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
-    # Only what codex genuinely has. It fires PermissionRequest — the event is
-    # already registered in config_injection above — and the tool vocabulary here is
-    # the same shape its own PreToolUse/PostToolUse declare, so a permission carries
-    # WHAT is being asked for and not merely the tool's name.
-    #
     # Deliberately absent: prompt_id, permission_suggestions and the AskUserQuestion
-    # question vocabulary. Those are claude's payload, measured on claude; nothing
-    # says codex sends them, and a mapping that names a path a provider does not have
-    # would report an empty prompt where an honest one reports none. Equally absent
-    # are tool_fail and elicitation — codex declares neither event, so both stay
-    # unmapped and simply never fire for a codex chat.
+    # vocabulary — those are claude's payload, measured on claude. tool_fail and
+    # elicitation too: codex declares neither event.
     permission:
       session_id:  session_id
       message:     tool_name
@@ -300,45 +189,18 @@ hooks:
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }
-# codex's OWN transcript — its rollout file, the same one `require_payload_fields`
-# above already leans on to tell a real conversation from an internal one.
+# codex's rollout file. Same defect and same fix as claude: turn_stop.message is the
+# LAST message of a turn, so everything said earlier reaches Crowbar only from here.
+# READ-ONLY — open, stat, read — which is what keeps the `-c`-only law above intact.
 #
-# Same defect, same fix as claude: `turn_stop.message` is `last_assistant_message`,
-# which is the LAST message of a turn, so everything the agent said earlier in
-# that turn was never ingested at all. The rollout has one entry per message.
+# NOT `type: event_msg` / `payload.type: agent_message`: that carries the IDENTICAL
+# text as a UI event, so ingesting both records every message twice. NOT
+# `payload.type: agent_message` under response_item either — that is inter-agent
+# traffic. Both `phase` values are kept: the commentary is exactly what this exists
+# to stop losing.
 #
-# READ-ONLY. The rest of this descriptor exists to keep Crowbar out of ~/.codex —
-# every setting travels on `-c`, the session layer, and nothing is written there.
-# This does not break that law: the file is opened O_RDONLY and Stat'd through
-# that handle, and nothing else in ~/.codex is touched.
-#
-# STRUCTURE, read off real 0.146.0 rollouts (2,883 entries in the one measured):
-#
-#   * `type: response_item` with `payload.type: message` and
-#     `payload.role: assistant` is what codex said. Its words are
-#     `payload.content[]` blocks of type `output_text`. Both `phase` values —
-#     `commentary` (its running narration) and `final_answer` — are the agent
-#     speaking to its user, so neither is filtered: the commentary is exactly the
-#     material this whole block exists to stop losing.
-#
-#   * NOT `type: event_msg` / `payload.type: agent_message`, which carries the
-#     IDENTICAL text as a UI event. Ingesting both would record every codex
-#     message twice.
-#
-#   * NOT `payload.type: agent_message` under response_item either: that is
-#     INTER-AGENT traffic (it carries `author`/`recipient` and encrypted content),
-#     not something codex said to the user.
-#
-#   * `role: user` and `role: developer` entries are other people's words and are
-#     excluded by the role match, as are `reasoning`, `function_call` and
-#     `custom_tool_call` items, which the tool hooks already record with their own
-#     identity.
-#
-# UNVERIFIED BY A LIVE TURN. codex model turns were rate-limited on this account
-# until 2026-08-22, so this mapping was checked against rollout files on disk and
-# by structure only — never by driving a live codex turn end to end. If it is
-# wrong, the failure is the one this whole feature is built to degrade to: no
-# transcript messages, and `last_assistant_message` recorded exactly as before.
+# UNVERIFIED BY A LIVE TURN — codex was rate-limited — so this was checked against
+# rollout files on disk and by structure only.
 transcript:
   path_field: transcript_path
   format: jsonl
@@ -353,213 +215,94 @@ transcript:
     block_text: text
     join: "\n\n"
     timestamp: timestamp
-# The Crowbar tool surface, injected through the same session-layer -c channel
-# the hooks above use: nothing is written to disk and ~/.codex is untouched,
-# which is the law this descriptor is built on. Verified against codex 0.139.0
-# via `codex mcp list -c mcp_servers.…` — the server registers enabled.
+# The Crowbar tool surface, on the same session-layer `-c` channel. Its own step list
+# so the user can switch the surface off without disabling the provider; only ONE of
+# these steps carries {runner_token}, which is why it is a named group rather than a
+# filter over templated steps.
 #
-# It lives in its own step list because the user can switch the tool surface off
-# for this provider without disabling the provider: everything in
-# config_injection above still runs, so the CLI spawns and its hooks still fire,
-# and only these steps are skipped. See Descriptor.MCPInject.
+# codex does NOT defer MCP tool schemas, so every tool costs context on every turn.
+# Keep the surface small.
 #
-# Only ONE of these four steps carries {runner_token}, which is why the switch
-# had to be a named group rather than a filter over templated steps: dropping the
-# templated ones alone would leave .command, .env_vars and
-# .default_tools_approval_mode behind, registering a server with no arguments.
-#
-# codex does NOT defer MCP tool schemas, so every tool costs context on every
-# turn here. Keep the surface small.
-#
-# Scope travels as discrete array elements, never {scope_flags}: each element
-# reaches the process as its own argument, so a project-home workspace's empty
-# repo id arrives as an empty string instead of swallowing the next token the
-# way a flat shell string would (see TemplateCtx.ScopeFlags).
-#
-# The token is a SEPARATE credential from the segment id, not a reuse of it. The
-# segment id is not secret — it is published on the chats API — so requiring a
-# token beside it is what stops a copied command line or a mis-pointed relay
-# acting as another runner by accident, and what keeps this relay unable to
-# authorize itself: it forwards bytes, the daemon decides.
-#
-# It is NOT containment against an agent with a shell. The token sits in argv
-# exactly as the id does and `ps` shows argv to the same user, and the daemon
-# socket has no authentication at all — so shell access already reaches more
-# than these tools do. See agenttools.TokenMinter.
+# Scope travels as discrete array elements, never {scope_flags}, so a project-home
+# workspace's empty repo id stays an empty argument instead of swallowing the next
+# token. The token is a separate credential from the segment id, which is published
+# on the chats API — it is not containment against an agent with a shell.
 mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"
       value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
-  # codex starts an MCP server with a SCRUBBED environment — a fixed allowlist
-  # (HOME, PATH, LANG, TMPDIR, USER, TERM, PWD, SHELL …) and nothing else. Verified
-  # against 0.146.0 by registering a server that dumps its own env: CROWBAR_HOME did
-  # not survive, and neither did an arbitrary sentinel var. `env_vars` extends that
-  # allowlist with named vars taken from the PARENT's environment, and the same probe
-  # confirms CROWBAR_HOME then arrives intact.
+  # codex starts an MCP server with a SCRUBBED environment — a fixed allowlist and
+  # nothing else — and CROWBAR_HOME does not survive it. That variable is the ONLY
+  # thing selecting which daemon socket a `crowbar` subprocess dials, so without this
+  # a codex relay walks past the daemon that spawned it and dials the default one:
+  # off the default home the tool surface is entirely DEAD (the runner token is HMAC'd
+  # with a per-process secret, so it cannot validate there), and a runner id and
+  # bearer token cross a boundary they were never scoped for.
   #
-  # Losing it is not cosmetic. CROWBAR_HOME is the ONLY thing that selects which
-  # daemon socket a `crowbar` subprocess dials (transports.SocketPath: an override
-  # home hashes to $TMPDIR/crowbar-<hash>.sock, an unset one means
-  # ~/.crowbar/crowbar.sock). Without it a codex relay walks past the daemon that
-  # spawned it and dials the DEFAULT one. Precisely what that costs:
-  #
-  #   * Off the default home — every dev instance, every integration test — the
-  #     codex tool surface is entirely DEAD. Not misdirected: dead. The runner token
-  #     is HMAC'd with a per-daemon-process crypto/rand secret (agenttools/tokens.go)
-  #     and Resolve verifies it BEFORE any lookup (agenttools/scope.go), so a
-  #     dev-minted token cannot validate against the production daemon and the dev
-  #     runner's id does not exist in its store either. Every call comes back
-  #     `unauthorized` — or, as it did here, HTTP 404 from an older installed build
-  #     that has no /mcp route at all. That 404 is how this was found.
-  #   * A runner id and a bearer token LEAK to a foreign daemon process on every
-  #     call. They buy the recipient nothing, but they are credentials and they are
-  #     crossing a boundary they were never scoped for.
-  #   * PACKAGED PRODUCTION IS UNAFFECTED, and only by coincidence: it leaves
-  #     CROWBAR_HOME unset, so the scrubbed child resolves the same default socket
-  #     its parent did and the surface works.
-  #
-  # A cross-home WRITE is not among the consequences and must not be claimed as one:
-  # the token check makes it structurally impossible.
-  #
-  # Forwarding rather than injecting a literal value is deliberate — an UNSET
-  # CROWBAR_HOME must stay unset in the child, because that is what selects the
-  # default home, which is exactly what the daemon itself resolved. claude needs none
-  # of this: it hands its MCP servers the full environment.
-  #
-  # TMPDIR matters just as much for an override home (it is half the socket path) and
-  # is already in codex's default allowlist, so it needs no entry here.
+  # FORWARDED, not injected with a literal: an unset CROWBAR_HOME must stay unset in
+  # the child, because unset is what selects the default home.
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.env_vars=["CROWBAR_HOME"]' }
-  # Without this, codex STOPS on every single Crowbar tool call and waits for a human:
+  # Without this codex STOPS on every Crowbar tool call and waits for a human —
+  # `on-request` is its approval policy for the SHELL, and MCP calls are gated
+  # separately and default to prompting.
   #
-  #   Allow the crowbar MCP server to run tool "set_chat_title"?
-  #   › 1. Allow  2. Allow for this session  3. Always allow  4. Cancel
+  # SERVER-WIDE by owner decision (2026-07-29), not a workaround: an agent that acts
+  # without a per-call modal is the point of this surface. It is also the only form
+  # that does not rot — the per-tool key it replaced needed a line per tool, and an
+  # omitted line stalls that tool on a modal nobody in a Crowbar pane can answer.
   #
-  # Observed live on 0.146.0 — the model called crowbar.set_chat_title correctly and
-  # then sat on that modal until the test's backstop expired. `on-request` is codex's
-  # approval policy for the SHELL; MCP tool calls are gated separately and default to
-  # prompting, so the tool surface is unusable in a Crowbar pane until this is set.
-  #
-  # SERVER-WIDE, and that is an OWNER DECISION taken 2026-07-29, not a workaround.
-  # An agent that acts on real state without stopping for a per-call modal IS the
-  # point of this surface — the owner's words: "Server wide, I don't care that agent
-  # can mutate over real state, thats the whole thing related to this." So every tool
-  # Crowbar registers, present and future, is auto-approved here by intent.
-  #
-  # It is also the only form that does not rot. The per-tool key
-  # (mcp_servers.crowbar.tools.<name>.approval_mode) it replaced needed one new line
-  # for every tool a later phase adds, and an omitted line does not fail loudly — it
-  # stalls that one tool on a modal nobody in a Crowbar pane can answer, indefinitely,
-  # exactly as observed above.
-  #
-  # It stays correctly scoped either way: this key is a field of the crowbar SERVER's
-  # config, so it cannot reach the user's own MCP servers, and a global
-  # `mcp_servers.default_tools_approval_mode` is rejected outright by codex's loader.
-  # And it travels on `-c`, the session layer, so nothing is written to ~/.codex — the
-  # law this whole descriptor is built on.
-  #
-  # What is being auto-approved is Crowbar's own daemon, reached over Crowbar's own
-  # socket, authenticated with a token Crowbar minted for this runner and scoped by
-  # Crowbar's own resolver — the user consented to all of it by opening an agent chat
-  # in this workspace. It also restores parity with claude, which prompts for none of
-  # this under --permission-mode auto.
-  #
-  # codex's own config loader enumerates the mode when it rejects a bad one, so this
-  # list is quoted rather than guessed: `auto`, `prompt`, `writes`, `approve`.
-  # `approve` is the one verified live to suppress the modal. `auto` is NOT evaluated
-  # here and its semantics are undocumented — 0.146.0 ships no docs and the binary
-  # carries no doc comment for the variant, only the name — so it is deliberately not
-  # used: a mode nobody can describe is not a mode to grant a write with.
+  # `approve` is the one mode verified live to suppress it. `auto` is deliberately
+  # unused: 0.146.0 documents nothing about it, and a mode nobody can describe is not
+  # one to grant a write with.
   - pass_arg:
       arg: "-c"
       value: 'mcp_servers.crowbar.default_tools_approval_mode="approve"'
-# codex ships no --append-system-prompt (the upstream request for it is closed
-# unimplemented) and its positional [PROMPT] IS the user's first message — passing
-# the handoff there is what made codex answer the handoff on sight instead of
-# waiting for the user. `developer_instructions` is the documented additive
-# channel ("Additional developer instructions injected into the session") and is
-# verified against codex 0.139.0: the CLI comes up with an EMPTY composer, starts
-# no turn, and answers from the injected context once the user types.
-# NOT model_instructions_file — that REPLACES codex's built-in system prompt.
+# codex ships no --append-system-prompt, and its positional [PROMPT] IS the user's
+# first message — passing the handoff there made codex answer it on sight.
+# developer_instructions is the documented additive channel and leaves the composer
+# empty. NOT model_instructions_file, which REPLACES codex's built-in system prompt.
 context_inject:
   - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
-# A RESUMED codex session cannot be told anything through config. Verified against
-# 0.139.0: `codex resume` rebuilds the conversation from its rollout .jsonl, which
-# never records developer instructions — a fresh `-c developer_instructions=` is
-# ignored, a fresh AGENTS.md is not re-read, and `codex fork` behaves identically.
-# The ONLY channel that reaches a resumed codex is a USER MESSAGE.
+# A RESUMED codex session cannot be told anything through config: `codex resume`
+# rebuilds from its rollout, which never records developer instructions. The ONLY
+# channel that reaches it is a USER MESSAGE.
 #
-# So it is handed a POINTER, not a transcript: the conversation is already on disk
-# (Crowbar's ledger, one file per turn), and an agent reads files. Pasting the whole
-# handed-off exchange into the chat instead — which is what this used to do — dumped
-# a wall of text into the transcript for the user to scroll past, every single switch.
+# So it is handed a POINTER, not a transcript — the conversation is already on disk
+# and an agent reads files. Pasting the whole exchange in, which is what this used to
+# do, dumped a wall of text into the chat on every switch.
 resume_context_inject:
   - pass_arg: { positional: "{context_pointer}" }
-# Blocking modals no hook reports. See claude.yaml's terminal_prompts for the full
-# rationale; the short version is that codex, like claude, asks about trust before it
-# reports anything, and a chat behind that dialog otherwise renders as a dead pane.
+# Blocking modals no hook reports — see claude.yaml's terminal_prompts. codex asks
+# about trust before it reports anything, so a chat behind that dialog renders as a
+# dead pane.
 #
-# Captured live from codex 0.139.0 and recorded in
-# tests/integration/agent/barriers_test.go, where the suite blocks on this exact line
-# to know the dialog has painted:
-#
-#     › 1. Yes, continue
-#       2. No, exit
-#       Press enter to continue
-#
-# UNKINDED, unlike claude's pair, and that is the honest reading rather than an
-# oversight: NEITHER line on codex's dialog says anything about trust. "Yes, continue"
-# and "Press enter to continue" are the same words codex would use for any
-# confirmation, so all this needle can truthfully report is THAT the CLI is blocked.
-# A specific needle gets a kind when one has been captured — never before.
+# UNKINDED, unlike claude's pair, and that is honest rather than an oversight:
+# NEITHER line says anything about trust. "Press enter to continue" is what codex
+# would print for any confirmation, so all this can truthfully report is THAT the CLI
+# is blocked. A needle gets a kind when a specific one has been captured, never
+# before.
 terminal_prompts:
   - needle: "Press enter to continue"
-  # The SECOND modal captured from the same repro, and a different sentence
-  # entirely. codex 0.146.0 put up
-  #
-  #     Press enter to confirm or esc to go back
-  #
-  # which the needle above does NOT match: "Press enter to continue" reduces to
-  # `pressentertocontinue`, and this line reduces to
-  # `pressentertoconfirmoresctogoback` — the two share a prefix and diverge, so
-  # the substring search finds nothing. Also unkinded, for exactly the reason the
-  # first one is: the words name no dialog, only the fact that one is up.
+  # A SECOND modal, and a different sentence: the needle above does not match it.
+  # Reduced, they share a prefix and diverge —  `pressentertocontinue` against
+  # `pressentertoconfirmoresctogoback` — so the substring search finds nothing.
   - needle: "Press enter to confirm or esc to go back"
-# Messages codex paints INSTEAD of finishing a turn. See the terminal_notices
-# doc on spec.TerminalNoticeSpec for what separates this from terminal_prompts:
-# nobody is being asked anything here, the attempt is simply over.
+# Messages codex paints INSTEAD of finishing a turn: nobody is being asked anything,
+# the attempt is simply over. Captured live from 0.146.0 — a prompt was accepted,
+# UserPromptSubmit fired, the turn opened, and codex painted this and sat there. No
+# Stop, no SessionEnd, no exit, so the runner-exit reconcile never ran either; the
+# turn stayed open for 44 minutes and closed only because a human switched provider.
 #
-# CAPTURED LIVE from codex-cli 0.146.0 on 2026-08-18. A prompt was accepted,
-# UserPromptSubmit fired, Crowbar opened the turn — and codex then painted this,
-# wrapped across three screen rows at 100 columns, and sat there:
-#
-#     ■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit
-#     https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026
-#     12:30 PM.
-#
-# No Stop hook. No SessionEnd. No exit — the process stayed alive, so the
-# runner-exit reconcile that closes an abandoned turn was never reached either.
-# The turn stayed open for 44 minutes (turn_started 16:26:34Z, turn_stopped
-# 17:10:24Z) and only closed then because the user manually switched provider and
-# the displace closed it. Nothing in the daemon would have closed it otherwise.
-#
-# `ends_turn: true` is the whole claim: this banner is painted BECAUSE the attempt
+# `ends_turn: true` is the whole claim: the banner is painted BECAUSE the attempt
 # ended, so finding it on a screen that has not moved for the quiet period is
-# positive evidence the CLI is not working. It is NOT a substitute for an "idle
-# composer" needle and no such needle is declared here — codex's composer
-# placeholder ROTATES between sessions (`Implement {feature}`, `Use /skills to
-# list available skills`, `Explain this codebase`, from three consecutive fresh
-# sessions in the same directory), so it could only ever match sometimes.
+# positive evidence the CLI is not working. Only the FIRST LINE is declared — the
+# URLs and reset time are account- and clock-specific, and the capture rule reads
+# them off the screen into the chat verbatim.
 #
-# Only the first line is declared. The URLs and the reset time are ACCOUNT- and
-# CLOCK-specific and would make the needle match one machine on one day; the
-# capture rule reads them off the screen instead and carries them into the chat
-# verbatim, which is where they are actually wanted.
-#
-# NOT MEASURED, and deliberately not relied on: codex's BUSY indicator. The
-# account was rate-limited for the whole probe, so no codex turn could run and no
-# working screen could be captured. Nothing here — and nothing in the detector —
-# depends on recognising one.
+# NOT an idle needle, and none is declared: codex's composer placeholder ROTATES
+# between sessions. Its BUSY indicator was never measured either — the account was
+# rate-limited throughout — and nothing in the detector depends on recognising one.
 terminal_notices:
   - kind: usage_limit
     needle: "You've hit your usage limit"

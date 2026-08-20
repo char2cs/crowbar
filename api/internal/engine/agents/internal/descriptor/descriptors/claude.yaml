@@ -1,23 +1,18 @@
-# Validated against claude 2.1.201 (Phase-0 spike); the Stop hook's background_tasks
-# against 2.1.212, by tracing every hook it fires through real sessions. Documentation
-# only.
-#
-# Degrading safely on an OLDER claude needs no version gate: a Stop payload without
-# background_tasks yields a count of 0, and Working folds back to the turn alone —
-# exactly the behaviour before this existed.
+# Validated against claude 2.1.236. An older claude degrades safely: a Stop payload
+# without background_tasks yields a count of 0 and Working folds from the turn alone.
 id: claude
 display_name: Claude
 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>'
 spawn:
   cmd: claude
   interactive_required: true
+  # Crowbar wraps the INTERACTIVE TUI. -p/--print would make it headless.
   forbid_flags: ["-p", "--print"]
-  # A Crowbar chat opens in AUTO mode, not the default ask-before-everything one:
-  # the pane is a working agent, and being prompted for each edit makes it useless.
-  # (claude's own mode list: acceptEdits | auto | bypassPermissions | manual |
-  # dontAsk | plan. NOT bypassPermissions/dontAsk — those skip every check.)
+  # auto, not the default ask-before-everything: the pane is a working agent.
+  # NOT bypassPermissions/dontAsk — those skip every check.
   args: ["--permission-mode", "auto"]
   env:
+    # Unset, or a claude spawned by Crowbar believes it is a nested child session.
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
 session:
   resume: { arg: "--resume {id}" }
@@ -25,15 +20,14 @@ presentation:
   prompt_submit:
     strategy: restart_tui
     fresh:
+      # `--` first, so a message starting with a dash is text and not a flag.
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
-  # Claude exposes enabled plugin metadata without a model turn. The generic
-  # inventory/detail adapter fans out only enabled rows and never reads Claude's
-  # config or skill directories. Standalone user/project skills are not exposed
-  # by this command surface, hence plugin_only rather than complete.
+  # Enabled plugin metadata is readable without a model turn. Standalone
+  # user/project skills are not, hence plugin_only rather than complete.
   slash_catalog:
     completeness: plugin_only
     timeout_ms: 10000
@@ -48,14 +42,8 @@ presentation:
       id_field: "id"
       source_pattern: '^(?P<source>[^@]+)'
       detail_command: ["plugin", "details", "{id}"]
-      # Horizontal whitespace ONLY ([^\S\r\n]) between the count and the list.
-      # `\s+` there crosses the newline, so a plugin printing `Skills (0)` had the
-      # NEXT inventory line captured as its skills — real output is
-      #   Skills (0)
-      #   Agents (1)  code-simplifier
-      # which yielded a phantom skill named "Agents (1)  code-simplifier" and hid
-      # the empty case, because the empty pattern is only consulted when this one
-      # fails to match.
+      # Horizontal whitespace ONLY. `\s+` crosses the newline, so a plugin printing
+      # `Skills (0)` captured the NEXT inventory line as its skills.
       detail_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(\d+\):?[^\S\r\n]+(?P<items>[^\r\n]+?)[^\S\r\n]*$'
       detail_empty_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(0\)[^\S\r\n]*:?[^\S\r\n]*$'
       detail_items_group: "items"
@@ -66,67 +54,32 @@ presentation:
         description: ""
         insert_text: "/{source}:{name} "
         source: "{source}"
-# Model selection. The catalogue is DECLARED, NOT ENUMERATED, and it will go stale.
-#
-# claude exposes no machine-readable list of valid --model values: there is no
-# `models list` command and no flag that prints one, so unlike the effort levels
-# below there is nothing to verify this list against. What is declared here is a
-# conservative set of the aliases currently accepted; a model added or retired by
-# Anthropic changes nothing in this file until somebody edits it, and a chat
-# holding a retired id fails at spawn with claude's own message. That is the
-# accepted cost of shipping a picker at all, and it is why this block is
-# overridable on disk like every other part of the descriptor.
-#
-# restart_tui is the only strategy: a running claude cannot be told to change
-# model through any channel Crowbar has, so a changed choice takes effect on the
-# next process. Every prompt already spawns one (presentation.prompt_submit),
-# and a selection change forces one even when the delivery would not have.
+# DECLARED, NOT ENUMERATED: claude exposes no machine-readable list of --model values,
+# so this goes stale silently. A retired id fails at spawn with claude's own message.
+# restart_tui because a running claude cannot be told to change model.
 model:
   available: [sonnet, opus, haiku]
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--model", value: "{model}" }
-# Reasoning effort. This enum IS verified: measured 2026-08-17 by passing an
-# invalid value, which claude rejects with
-#   Error: Invalid effort level: <value>. Valid values: low, medium, high, xhigh, max.
-# and exit status 1 — so the list is the CLI's own, not a guess.
-#
-# Keyed by "*" because claude's levels do not vary by model. The map shape exists
-# for providers whose do (codex reports supported_reasoning_levels per model),
-# and declaring the fallback key alone is how a provider says "these apply to
-# everything".
 effort:
+  # Verified: claude rejects an invalid --effort with "Valid values: low, medium,
+  # high, xhigh, max". Keyed by "*" because its levels do not vary by model; the map
+  # shape exists for providers whose do.
   available:
     "*": [low, medium, high, xhigh, max]
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
 config_injection:
-  # Every channel Crowbar listens on. The conversation trio was always here; the
-  # rest is the observation surface, and its absence is what made a working agent
-  # look like a frozen one — a provider blocked on a trust prompt showed nothing,
-  # a compaction was invisible, and minutes of tool work rendered as "working…".
+  # Hooks and statusLine go in through --settings; Crowbar never writes to ~/.claude.
+  # statusLine is claude's TELEMETRY channel, registered as a hook because from this
+  # side it is one. What arrives over it is mapped by `telemetry:` below.
   #
-  # statusLine is claude's telemetry channel. It is registered as an ordinary
-  # `crowbar hook` invocation because from Crowbar's side it IS one: a command, a
-  # JSON payload on stdin, write-only, scoped to the same segment. What arrives
-  # over it is mapped by the provider-neutral `telemetry:` block below, NOT by a
-  # section named after this mechanism.
-  #
-  # crowbar hook prints nothing on stdout, so claude renders an empty status line
-  # rather than one of Crowbar's making.
-  #
-  # PermissionRequest and Elicitation carry an EXPLICIT `timeout`, in SECONDS,
-  # because those two are the hooks Crowbar HOLDS OPEN while a human decides in
-  # the chat (see `answer:` below). Measured against claude 2.1.234 on 2026-08-18:
-  # the default is 600s, the value is honoured verbatim with no ceiling, and a
-  # hook that overruns it is KILLED rather than abandoned. So the budget has to be
-  # ours rather than a default we inherit, and the daemon's own wait
-  # (answer.*.timeout_seconds) is set comfortably shorter than this so the relay
-  # exits under its own control instead of being cut off mid-write.
-  #
-  # Every other hook is left on the provider's default: they return in
-  # milliseconds and inheriting a default they never approach costs nothing.
+  # PermissionRequest and Elicitation carry an explicit timeout because they are the
+  # two hooks Crowbar HOLDS OPEN while a human decides. The default is 600s, honoured
+  # verbatim with no ceiling, and an overrun is KILLED rather than abandoned — so the
+  # budget must be ours, and answer.*.timeout_seconds sits under it.
   - write_file:
       path: "{tmp}/settings.json"
       content: |
@@ -163,42 +116,14 @@ config_injection:
         "statusLine":{"type":"command",
           "command":"{crowbar_hook} hook telemetry --segment {segid} --provider {provider} {scope_flags}"}}
   - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
-# The Crowbar tool surface. --mcp-config takes a JSON STRING, so nothing is
-# written to disk and the user's own MCP servers are untouched (verified
-# against claude 2.1.220: the tools arrive as mcp__crowbar__*, and claude
-# DEFERS their schemas until first use).
+# --mcp-config takes a JSON STRING: nothing is written to disk and the user's own MCP
+# servers are untouched. Scope travels as discrete array elements so a project-home
+# workspace's empty repo id stays an empty argument instead of swallowing the next
+# token. The token is a separate credential from the segment id, which is published.
 #
-# It lives in its own step list because the user can switch the tool surface off
-# for this provider without disabling the provider: everything in
-# config_injection above still runs, so the CLI spawns and its hooks still fire,
-# and only these steps are skipped. See Descriptor.MCPInject.
-#
-# Scope travels as discrete array elements, never {scope_flags}: each element
-# reaches the process as its own argument, so a project-home workspace's empty
-# repo id arrives as an empty string instead of swallowing the next token the
-# way a flat shell string would (see TemplateCtx.ScopeFlags).
-#
-# The token is a SEPARATE credential from the segment id, not a reuse of it. The
-# segment id is not secret — it is published on the chats API — so requiring a
-# token beside it is what stops a copied command line or a mis-pointed relay
-# acting as another runner by accident, and what keeps this relay unable to
-# authorize itself: it forwards bytes, the daemon decides.
-#
-# It is NOT containment against an agent with a shell. The token sits in argv
-# exactly as the id does and `ps` shows argv to the same user, and the daemon
-# socket has no authentication at all — so shell access already reaches more
-# than these tools do. See agenttools.TokenMinter.
-#
-# A BARE POSITIONAL MUST NEVER IMMEDIATELY FOLLOW THE JSON. `--mcp-config
-# <configs...>` is VARIADIC — it keeps eating tokens until it meets a
-# dash-prefixed one — so a positional after it is swallowed as an extra config.
-# Observed on 2.1.220: `claude --mcp-config '<json>' mcp list` dies with "MCP
-# config file not found: /private/tmp/mcp", having taken the subcommand as two
-# more config paths. This list is rendered BEFORE the session/handoff steps, and
-# those can be positionals (a resumed session's id), so what guarantees the rule
-# today is that claude's own resume and context channels are both flags. That is
-# not self-evident from here, so it is pinned by a test rather than by trust —
-# see TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
+# --mcp-config is VARIADIC — it eats tokens until a dash-prefixed one — so a bare
+# positional must NEVER follow it. Pinned by
+# TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
 mcp_injection:
   - pass_arg:
       arg: "--mcp-config"
@@ -208,11 +133,8 @@ hooks:
   events:
     session_start: { session_id: session_id, model: model }
     user_prompt:   { message: prompt }
-    # tool_target is an ALTERNATION, first non-empty wins: one Crowbar concept
-    # lives at different payload paths depending on which tool fired. A file edit
-    # puts it in file_path, a shell call in command, a fetch in url. Enumerating
-    # claude's tool catalogue in the descriptor instead would go stale on every
-    # release; naming the three shapes a target can take does not.
+    # A comma-separated value is an ALTERNATION, first non-empty wins: one Crowbar
+    # concept lives at different payload paths depending on which tool fired.
     tool_pre:
       session_id:  session_id
       tool_id:     tool_use_id
@@ -227,16 +149,8 @@ hooks:
       tool_input:  tool_input
       tool_result: tool_response
       duration_ms: duration_ms
-    # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it (measured
-    # against claude 2.1.234 on 2026-08-17). Mapping only tool_post therefore left a
-    # failed tool with no completion at all: it stayed in flight until the turn-close
-    # sweep abandoned it, so "the Edit failed" rendered as "the Edit is still running"
-    # for the rest of the turn.
-    #
-    # tool_result is an ALTERNATION here for the same reason tool_target is one: the
-    # failure text lives under `error` where a success puts it under `tool_response`,
-    # and both belong in the content store. tool_error additionally keeps a short,
-    # inline copy so a timeline can say WHY without fetching a payload.
+    # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
+    # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
     tool_fail:
       session_id:  session_id
       tool_id:     tool_use_id
@@ -249,26 +163,16 @@ hooks:
     subagent_pre:  { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     subagent_post: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
     notification:  { session_id: session_id, message: message }
-    # The permission's WHOLE useful payload, not just the tool's name.
+    # The permission's whole payload, not just the tool name — "waiting on Bash" with
+    # no way to see what Bash would run is what mapping only tool_name produced.
     #
-    # Measured against claude 2.1.234 on 2026-08-17, a PermissionRequest carries
-    # prompt_id, permission_mode, tool_name, tool_input and permission_suggestions.
-    # Keeping only tool_name is what made a blocked agent render as "waiting on
-    # Bash" with no way to see what Bash was about to run.
+    # No tool_use_id despite claude's docs, so prompt_id is the only id here.
+    # permission_mode is deliberately unmapped: it read "default" in every payload
+    # captured, including ones taken in manual and in auto.
     #
-    # It carries NO tool_use_id, despite claude's own documentation claiming one, so
-    # prompt_id is the only id here and the in-flight PreToolUse of the same tool name
-    # is what the prompt is correlated to.
-    #
-    # permission_mode is deliberately NOT mapped. It read "default" in every payload
-    # captured, including ones taken while the TUI was demonstrably in manual and in
-    # auto — so it is a field that reports a value rather than the truth, and a
-    # descriptor that maps nothing is more honest than one that maps that.
-    #
-    # AskUserQuestion is a TOOL, not an event: its questions arrive inside this very
-    # tool_input, which is why the question vocabulary below is mapped on the
-    # permission and nowhere else. Mapping it on tool_pre as well would open the same
-    # prompt twice, under two ids that nothing can reconcile.
+    # AskUserQuestion is a TOOL, not an event — its questions arrive inside this
+    # tool_input, which is why the question vocabulary is mapped here and nowhere
+    # else. Mapping it on tool_pre too would open the same prompt twice.
     permission:
       session_id:             session_id
       message:                tool_name
@@ -277,23 +181,14 @@ hooks:
       tool_target:            tool_input.file_path,tool_input.command,tool_input.url,tool_input.pattern
       tool_input:             tool_input
       suggestions:            permission_suggestions
-      # suggestion_type is the path to claude's OWN machine name for a broader
-      # grant. It is never shown: putting it on a control is how `addRules`
-      # appeared in the chat as though it were a choice a person could press.
+      # claude's own machine name for a broader grant, never shown: putting it on a
+      # control is how `addRules` appeared as though it were a pressable choice.
       suggestion_type:        type
       suggestion_description: mode,destination
-      # The human words for each type, declared here because they are provider
-      # vocabulary and Go must not learn any. This set is a CAPTURE, not an
-      # enumeration of what claude can send: these are the type values that have
-      # actually arrived in a payload (addDirectories and setMode on 2026-08-17,
-      # addRules on 2026-08-18 against 2.1.234). A value nobody has captured takes
-      # `default`, which says what every suggestion has in common and claims
-      # nothing about the particular one.
-      #
-      # None of them is sendable from Crowbar: claude declares no response
-      # template for a suggestion, because the updatedPermissions shape has never
-      # been measured. They are labelled so a reader can see what the CLI offered
-      # and take it to the terminal — not so they can be pressed.
+      # Crowbar's words for each type — provider vocabulary, which Go must not learn.
+      # A CAPTURE of the values that have actually arrived, not an enumeration;
+      # anything else takes `default`. None is sendable: claude declares no response
+      # template for a suggestion, so these are labelled to be read, not pressed.
       suggestion_label.addRules:       "Add a permanent rule for this"
       suggestion_label.addDirectories: "Allow this directory from now on"
       suggestion_label.setMode:        "Switch to a more permissive mode"
@@ -305,13 +200,8 @@ hooks:
       question_multi:         multiSelect
       option_label:           label
       option_description:     description
-    # Elicitation IS a hook event of its own — an MCP server asking the human a
-    # question through the CLI. Measured against claude 2.1.234 on 2026-08-17:
-    #   {"hook_event_name":"Elicitation","mcp_server_name":"spike",
-    #    "message":"do you prefer A or B?","mode":"form",
-    #    "requested_schema":{...}}
-    # The schema is carried verbatim and never interpreted: what an elicitation
-    # offers is a form, and a client renders it the way any MCP client would.
+    # An MCP server asking the human a question through the CLI. The schema is
+    # carried verbatim and never interpreted.
     elicitation:
       session_id: session_id
       message:    message
@@ -321,89 +211,25 @@ hooks:
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }
-    # async_work names the array on the Stop payload whose LENGTH is how much
-    # asynchronous work claude says is STILL RUNNING as it goes quiet. That is the
-    # whole fix for the dark spinner: claude hands work to a background subagent and
-    # then ends its turn for real — it fires Stop right there and is re-invoked when
-    # the subagent reports back — so Working folded from the turn alone went dark
-    # under a live subagent and the chat looked dead.
+    # async_work is the LEVEL of background work claude RESTATES on every Stop, and it
+    # converges on its own — the length is the answer and Crowbar keeps no tally. This
+    # is the fix for the dark spinner: claude hands work to a subagent and ends its
+    # turn for real, so Working folded from the turn alone went dark under a live one.
     #
-    # background_tasks, NOT the SubagentStart/SubagentStop pair, and not
-    # session_crons. Traced against 2.1.212 through real sessions:
+    # NOT SubagentStart/SubagentStop: they observe different populations and DO NOT
+    # BALANCE (traced: 1 Start/3 Stops; 4 Starts/9 Stops). Counting them shipped a
+    # spinner that spun forever. NOT session_crons: a schedule is not work in flight.
     #
-    #   * background_tasks is a LEVEL claude RESTATES on every Stop, and it converges
-    #     on its own: [running,running,running] → [running x4] (a subagent spawned
-    #     more) → [running] → []. Entries vanish when their work is done, so the
-    #     length is the answer and no arithmetic is needed. Crowbar keeps no tally,
-    #     so it has no tally to get wrong — the spinner cannot be stranded ON by any
-    #     sequence of hooks, only by a CLI that dies (which the reconcile paths
-    #     handle) .
-    #
-    #   * SubagentStart/SubagentStop DO NOT BALANCE, in either direction, because
-    #     they observe DIFFERENT POPULATIONS: Start fires only for typed subagents,
-    #     while Stop ALSO fires for anonymous internal ones (agent_type: ""). One
-    #     traced run: 1 Start, 3 Stops — the first Stop landing while the subagent
-    #     was demonstrably still sleeping. Another: 4 Starts, 9 Stops. A previous
-    #     attempt counted these (+1/-1) and shipped a spinner that spun forever.
-    #     Under-counting strands it ON, over-counting clears it early. Do not count
-    #     them.
-    #
-    #   * session_crons rides the same payload and is deliberately NOT counted: a
-    #     cron is a SCHEDULE, not work in flight, so counting it would spin the
-    #     spinner for the lifetime of the session.
-    #
-    # An INTERRUPT (ESC) fires no hook at all — not Stop, not Notification, nothing —
-    # so no mapping here can observe it; the turn is closed by the next prompt
-    # (StartTurn supersedes) or by the reconcile paths. That is pre-existing and
-    # unreachable from the hook surface.
+    # An INTERRUPT (ESC) fires no hook at all, so nothing here can observe it.
     turn_stop:
       session_id: session_id
       message: last_assistant_message
       async_work: background_tasks
       effort: effort.level
-# The provider's OWN transcript — the only source that has EVERY message a turn
-# produced, rather than just its last.
-#
-# WHY THIS EXISTS. `turn_stop.message` above is `last_assistant_message`, and
-# that is literally what it says: the LAST one. Asked to "send me a message, wait
-# 30 seconds, then send another", claude did exactly that and Crowbar recorded a
-# single assistant turn — the second message. The first was never ingested,
-# because no hook ever carried it. The record is what get_chat_log serves to
-# sibling agents, so the loss is not cosmetic: another agent reads a transcript
-# of this conversation with the middle of every turn missing.
-#
-# Every claude hook payload carries `transcript_path`, and the file it names has
-# one entry PER MESSAGE. Measured against claude 2.1.234 on 2026-08-18 over a
-# real 15 MB session file: 8,086 entries, 2,723 of them `type: assistant`, of
-# which 547 carried a `text` block — 547 messages where the Stop hooks reported
-# 381.
-#
-# READ-ONLY, ALWAYS. This is the first thing in Crowbar that opens a file the
-# provider owns. It is acceptable for exactly one reason: it only ever reads —
-# os.Open(O_RDONLY) and a Stat through that handle, nothing else. No lock file,
-# no temp file, no rename, no truncation, nothing written into ~/.claude.
-#
-# WHAT IS AND IS NOT A MESSAGE, all measured on the same file:
-#
-#   * `type: assistant` with a `message.content` array whose blocks are one of
-#     `text`, `thinking` or `tool_use`. Only `text` is the agent's words —
-#     thinking is not something it said, and a tool_use is recorded by the tool
-#     hooks with its own identity, so ingesting either would duplicate the record
-#     or put reasoning in the conversation.
-#
-#   * `isSidechain: true` marks a SUBAGENT's messages. In 2.1.234 those live in a
-#     sibling `<session>/subagents/*.jsonl` rather than in this file, so the
-#     rejection matches nothing today — it is declared because that layout is the
-#     provider's to change, and the failure mode if it does (every subagent's
-#     internal chatter filed as the user's agent speaking) is bad enough to guard
-#     against before it happens.
-#
-#   * `isApiErrorMessage: true` is claude's own failure notice ("API Error: 529
-#     Overloaded…"), which it writes as an assistant text entry. It is a CLI
-#     status line, not something the model said. Four of them in the same file.
-#
-# Neither key is present at all on an ordinary entry, which is why they are
-# `reject` and not `match`: no positive rule can express "not that".
+# The provider's own transcript, because turn_stop.message is `last_assistant_message`
+# — literally the last one. Everything a turn said before it reaches Crowbar only from
+# here. Each hook payload hands us the path; this file declares the field NAME, never a
+# location. READ-ONLY, always: open, stat, read, nothing else.
 transcript:
   path_field: transcript_path
   format: jsonl
@@ -411,6 +237,11 @@ transcript:
     match:
       type: assistant
       message.role: assistant
+    # reject rather than match, because no positive rule expresses "not that" — neither
+    # key is present on an ordinary entry. isSidechain marks a subagent's messages;
+    # isApiErrorMessage is claude's own "API Error: 529" notice, written as assistant
+    # text. Only `text` blocks are the agent's words: thinking is not something it
+    # said, and a tool_use is already recorded by the tool hooks.
     reject:
       isSidechain: "true"
       isApiErrorMessage: "true"
@@ -418,86 +249,45 @@ transcript:
     block_match:
       type: text
     block_text: text
-    # Two text blocks in ONE entry are one message claude rendered as one, so
-    # they are joined rather than recorded as two.
     join: "\n\n"
     timestamp: timestamp
-# The ANSWER channel — the write side of the two hooks above that ask a question.
+# The hookSpecificOutput WRAPPER IS MANDATORY. A bare {"decision":{...}} is rejected by
+# claude's own hook output validator and the CLI falls through to its TUI dialog.
 #
-# Everything here was measured live against claude 2.1.234 on 2026-08-18, by
-# driving a real interactive PTY under `--permission-mode auto` (Crowbar's own
-# spawn args) with these exact shapes on a throwaway --settings file:
+# `answer` is also how AskUserQuestion is satisfied: allow, with updatedInput carrying
+# the original tool_input plus an `answers` object keyed by question TEXT and valued
+# with the option LABEL. No dialog is drawn and the model reads the label back.
 #
-#   * The `hookSpecificOutput` WRAPPER IS MANDATORY. A bare
-#     {"decision":{"behavior":"allow"|"deny",...}} is rejected by claude's own hook
-#     output validator — `Hook JSON output validation failed — (root): Invalid
-#     input` — and the CLI falls straight through to its TUI dialog. Both the allow
-#     and the deny form were measured failing without it and passing with it.
+# 270s against the hook's own 300s, so the relay exits under its own control rather
+# than being cut off mid-write. Nothing blocks on tool_pre: a PreToolUse that allows
+# suppresses PermissionRequest entirely, and that hook fires for every tool call.
 #
-#   * AskUserQuestion IS answerable from PermissionRequest, which settles the one
-#     open question this block existed to answer. The prompt arrives as
-#     PreToolUse → PermissionRequest → (dialog), and returning `behavior: allow`
-#     with an `updatedInput` carrying the original tool_input plus an `answers`
-#     object keyed by the question's TEXT and valued with the option's LABEL makes
-#     the tool return the answer: the following PostToolUse carried
-#     "answers":{"Which option do you prefer?":"Option A"} in both tool_input and
-#     tool_response, no dialog was drawn, no Notification fired, and the model
-#     printed the label back. So the question vocabulary stays mapped on
-#     `permission` — where it is observed — and is answered there too.
-#
-#   * A PreToolUse that ALLOWS suppresses PermissionRequest entirely, which is why
-#     nothing here blocks on tool_pre: that hook fires for EVERY tool call, and
-#     holding it open would stall work nobody was ever asked about.
-#
-#   * A hook that prints NOTHING and exits 0 falls through to the dialog in
-#     milliseconds. That is the degradation route the relay takes whenever the
-#     daemon cannot be reached, and it is why an unanswerable prompt costs nothing.
-#
-# `deny` carries the human's words through claude's `message`. There is
-# deliberately no template for a `suggestion` option: claude's permission_suggestions
-# would ride an `updatedPermissions` field that was never measured, and a broader
-# grant that silently narrows to a plain allow is worse than a button that says it
-# cannot do that.
+# No `suggestion` response: its updatedPermissions shape was never measured, and
+# silently narrowing a broader grant to a plain allow is worse than refusing.
 answer:
   permission:
-    # Shorter than the 300s `timeout` injected on the PermissionRequest hook, so
-    # the relay stops waiting and exits cleanly rather than being killed mid-write.
     timeout_seconds: 270
     answers_into: answers
     responses:
       allow: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
       deny: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
-  # An elicitation offers no options, so its decision keys are the MCP verbs
-  # themselves. The accept shape is the one the earlier spike drove through a real
-  # MCP server against 2.1.234: the server received
-  # {"action":"accept","content":{...}} as its elicitation result.
   elicitation:
     timeout_seconds: 270
     responses:
       accept: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"accept","content":{content_json}}}'
       decline: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"decline"}}'
       cancel: '{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"cancel"}}'
-# claude reads an appended system prompt without being given a turn, and honours
-# a FRESH one on --resume too (verified: `claude --resume <id>
-# --append-system-prompt "<secret>"` answers from the secret), so the same silent
-# channel serves both a fresh session and a resumed one.
+# claude reads an appended system prompt without being given a turn, and honours a
+# fresh one on --resume too, so one silent channel serves both.
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 resume_context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
-# Telemetry — the FACTS, not the transport.
-#
-# claude happens to deliver all four through one statusLine payload; another
-# provider will split them differently, and a third will report only one. Each is
-# therefore mapped independently, and a fact this block does not name simply never
-# appears. Nothing is derived that was not reported.
-#
-# Measured live on 2026-08-17: the payload arrives with no client attached to the
-# PTY (so it works with the Terminal closed), and it is change-driven rather than
-# per-frame — 3 invocations across a 37s session with one turn, 2 across 60s of
-# idle. context_window is null until the first turn completes, so a fresh session
-# legitimately has no gauge.
+# The telemetry FACTS, not the transport. No claude HOOK carries token, context or cost
+# data; statusLine is the only channel that does. Each fact is mapped independently so
+# a provider that reports only one still works. context_window is null until the first
+# turn completes, so a fresh session legitimately has no gauge.
 telemetry:
   callback:
     format: json
@@ -521,107 +311,35 @@ telemetry:
         resets_at: rate_limits.seven_day.resets_at
 # Prompts claude's OWN HARNESS submits, which arrive on the same hook the user's do.
 #
-# UserPromptSubmit carries two completely different things and its payload does not
-# say which. Measured live against claude 2.1.234 on 2026-08-18, by capturing raw
-# hook stdin from real interactive PTY sessions through a throwaway --settings file,
-# these three all arrive with an IDENTICAL key set —
+# UserPromptSubmit carries both and its payload does not say which: Crowbar's delivery,
+# a human typing, and the harness's subagent report all arrive with an identical key
+# set, and the documented `source` field was ABSENT on all three. So this is a TEXT
+# MATCH, which is weaker than a discriminator, and it should be deleted the day claude
+# starts sending one.
 #
-#     session_id, transcript_path, cwd, prompt_id, permission_mode,
-#     hook_event_name, prompt
-#
-#   * Crowbar's own delivery (the prompt as a positional arg after `--`)
-#   * a human typing into claude's composer and pressing Enter
-#   * the harness's `<task-notification>` subagent-completion report
-#
-# claude's documented schema declares an optional
-# `source: user|sdk|system|loop_wakeup|schedule_wakeup|poll_event`, and it was ABSENT
-# on all three. So `source` discriminates nothing in this version: keying on
-# `source == user` would drop every real message the user sent, and its inverse would
-# attribute every real message to the harness.
-#
-# THIS IS THEREFORE A TEXT MATCH, AND A TEXT MATCH IS WEAKER THAN A DISCRIMINATOR.
-# It is here because there is no discriminator to read, and it should be deleted the
-# day claude starts sending one.
-#
-# The needle is compared as a case-sensitive PREFIX of the raw prompt, after leading
-# whitespace (see the promptorigin package) — NOT with the reduction terminal_prompts
-# uses, which would strip the angle brackets that are the whole point. Prefix rather
-# than substring so a person asking ABOUT a task notification is still recorded as
-# the person: a miss here degrades to "recorded as the user", which is exactly the
-# behaviour that preceded this block, and a false hit would silence a human.
-#
-# The measured payload opens:
-#
-#     <task-notification>
-#     <task-id>aa3b60603214670cc</task-id>
-#     <tool-use-id>toolu_01CZ…</tool-use-id>
-#     …
-#     <result>PONG</result>
-#     </task-notification>
+# Compared as a case-sensitive PREFIX of the raw prompt after leading whitespace — NOT
+# with the reduction terminal_prompts uses, which would strip the angle brackets that
+# are the whole point. Prefix, so a person asking ABOUT a task notification is still
+# recorded as the person: a miss degrades to "recorded as the user", a false hit
+# silences a human.
 injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
-# Blocking modals no hook reports — the COMPLEMENT of `answer:` above.
-#
-# `answer:` covers the prompts that travel through hooks and can therefore be
-# decided from the chat. These are the ones that cannot: claude puts up its
-# first-run workspace-trust dialog BEFORE it fires a single hook, so a chat sitting
-# behind one shows no spinner, no message and no error — an empty pane over a live,
-# blocked process, which is the single most common "Crowbar is broken" report.
-# Crowbar has no channel to answer these, so the only correct behaviour is to say
-# so and send the user to the terminal.
-#
-# BOTH NEEDLES COME FROM ONE LIVE CAPTURE of claude 2.1.207's trust dialog, recorded
-# in tests/integration/agent/barriers_test.go (the suite blocks on the footer line to
-# know the dialog has finished painting). The screen is:
-#
-#     ❯ 1. Yes, I trust this folder
-#       2. No, exit
-#       Enter to confirm · Esc to cancel
-#
-# They are deliberately two DIFFERENT statements, and the second is why the kinded
-# one exists:
-#
-#   * "I trust this folder" identifies the dialog. It is trust's own option text and
-#     appears on no other screen, so a match justifies naming it.
-#   * "Enter to confirm" is the footer EVERY claude selection modal paints — the
-#     trust dialog, and equally a login prompt, a migration notice, or anything a
-#     future release adds. It proves only that a modal is up. Labelling that one
-#     "workspace trust" would be a guess, so it declares no kind and is reported as
-#     "waiting for input in the terminal".
+# Modals that reach Crowbar through NO hook — the complement of `answer:` above.
+# claude paints its first-run trust dialog BEFORE it fires a single hook, so a chat
+# behind one is an empty pane over a live, blocked process. Crowbar has no channel to
+# answer these; it can only say so and send the user to the terminal.
 #
 # Matching ignores spacing and punctuation (see the termprompt package), so the box
-# drawing, centring and wrapping claude puts around these does not defeat them.
+# drawing and wrapping claude puts around these does not defeat them.
 terminal_prompts:
+  # trust's own option text, which appears on no other screen.
   - kind: workspace_trust
     needle: "I trust this folder"
+  # the footer EVERY claude selection modal paints — trust, a login, a migration
+  # notice. Unkinded, because a match justifies only "something is blocking".
   - needle: "Enter to confirm"
-# NO terminal_notices, AND NO IDLE NEEDLE. Both absences are measured results, not
-# gaps waiting to be filled.
-#
-# 1. claude declares no notice because its Stop hook is reliable and no message of
-#    that shape has been captured from it. The mechanism only ever acts on a
-#    declared string, so this file's silence means a claude chat behaves
-#    byte-for-byte as it did before terminal_notices existed. That is the same
-#    degradation story terminal_prompts above is built on.
-#
-# 2. DO NOT ADD `shift+tab to cycle`, OR ANY OTHER FOOTER LINE, AS AN "IDLE"
-#    NEEDLE. It is not one. Measured 2026-08-18 against claude 2.1.234 in a real
-#    PTY, rendered with the same emulator the daemon uses: snapshots taken
-#    MID-GENERATION, with assistant prose visibly streaming, carried
-#
-#        ❯
-#        ────────────────────────────────────────────────
-#          ⚠ Transcript saving is off — …
-#          Est. usage: $0.00
-#          ⏵⏵ auto mode on (shift+tab to cycle)
-#
-#    — identical to the idle screen, composer row empty in both. That line proves
-#    the TUI has MOUNTED, nothing more, which is exactly what
-#    tests/integration/agent/barriers_test.go uses it for (claudeReadyNeedle). It
-#    is mode- and model-dependent besides: under `--model haiku` the same footer
-#    reads `⏸ manual mode on` and `auto mode unavailable for this model`.
-#
-#    Declaring it as evidence that claude is idle would darken a WORKING agent's
-#    spinner and close a live turn out from under it — the one outcome worse than
-#    the wedge the notice mechanism exists to end.
+# NO terminal_notices AND NO IDLE NEEDLE, both measured rather than missing. claude's
+# Stop hook is reliable and no notice-shaped message has been captured from it; and its
+# footer hint is painted while generating and is mode- and model-dependent, so there is
+# nothing to read as "idle".
