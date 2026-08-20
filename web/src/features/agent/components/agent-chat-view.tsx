@@ -87,6 +87,16 @@ interface AgentChatViewProps {
    * come for those, and without it the FIFO head blocks the composer forever.
    */
   settledPrompts?: string[]
+  /**
+   * The assistant message being produced RIGHT NOW, if any.
+   *
+   * It is not in `messages` and never will be under this identity: the ledger
+   * receives the message once, complete, and this is the view of it growing in
+   * the meantime. Rendered below the recorded messages and dropped the moment the
+   * finished one arrives.
+   */
+  streamingMessageId?: string
+  streamingMessageText?: string
   onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
@@ -492,6 +502,8 @@ export function AgentChatView({
   onOpenTerminal,
   terminalWaiting = false,
   settledPrompts,
+  streamingMessageId,
+  streamingMessageText,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
@@ -1150,6 +1162,29 @@ export function AgentChatView({
   // open over an empty result for every command the probe cannot see.
   const highlightedSlashItem = slashOpen ? slashItems[slashSelected] : undefined
 
+  // The message being said right now, as a bubble below the recorded ones.
+  //
+  // Suppressed once the ledger has it. The two arrive from different places — the
+  // live frame and the message poll — so for a moment both are present, and
+  // rendering both would show the same sentence twice. Comparing the TEXT rather
+  // than an id is what makes that work: the ledger row is keyed by the provider's
+  // message id and this frame carries the same id, but the row is only written
+  // when the message completes, so equal text is the earliest reliable signal
+  // that the record has caught up.
+  const streamingBubble = useMemo(() => {
+    const text = streamingMessageText?.trim()
+    if (!text || !streamingMessageId) return undefined
+    if (messages.some((m) => m.role === 'assistant' && m.text.trim() === text)) return undefined
+    return {
+      sequence: Number.MAX_SAFE_INTEGER,
+      role: 'assistant' as const,
+      text: streamingMessageText ?? '',
+      providerId,
+      turnId: '',
+      at: '',
+    }
+  }, [streamingMessageId, streamingMessageText, messages, providerId])
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     setDraft(item.insertText)
     slashLeadingRef.current = item.insertText.startsWith('/')
@@ -1268,6 +1303,13 @@ export function AgentChatView({
               )}
             </div>
           ))}
+          {streamingBubble && (
+            <MessageRow
+              message={streamingBubble}
+              providers={providers}
+              showProvider={false}
+            />
+          )}
           {queue.map((item) => (
             <QueueRow
               key={item.clientRequestId}

@@ -228,6 +228,13 @@ export function AgentChatPane({
   // a provider built-in it never does — see AgentChatsState.settledPrompts.
   const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
 
+  // The message the agent is mid-way through saying. Selected as two PRIMITIVES
+  // rather than as the object: the object is replaced on every frame — roughly
+  // 1.4 a second — so a selector returning it would re-run every consumer on
+  // identity alone even when the text had not moved.
+  const streamingId = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.id)
+  const streamingText = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.text)
+
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   // Seeded from the user's preference, never subscribed to it: a chat already open
   // keeps the surface it is on if the setting changes underneath it.
@@ -1004,6 +1011,8 @@ export function AgentChatPane({
               }}
               terminalWaiting={waiting}
               settledPrompts={settledPrompts}
+              streamingMessageId={streamingId}
+              streamingMessageText={streamingText}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)

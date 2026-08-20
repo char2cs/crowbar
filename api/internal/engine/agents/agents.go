@@ -29,7 +29,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/termprompt"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/transcript"
 )
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
@@ -134,30 +133,6 @@ type Agent interface {
 	// provider's own internal session being filed as the user's conversation, and
 	// a guard a caller can forget to call is a guard that will be forgotten.
 	ParseHook(canonical string, raw []byte) (CanonicalEvent, error)
-
-	// TranscriptPath returns the provider's OWN transcript of the conversation a
-	// parsed hook belongs to, and whether this provider declares one.
-	//
-	// It exists because a terminating hook reports ONE message, and an agent that
-	// speaks, works, and speaks again therefore had everything but its last message
-	// thrown away. The path is taken from the payload the provider itself sent, so
-	// nothing above this package learns where a CLI keeps its files.
-	//
-	// false means the provider declares no transcript, and every caller must then
-	// behave exactly as it did before this existed.
-	TranscriptPath(ev CanonicalEvent) (string, bool)
-
-	// TranscriptEnd is where a transcript currently ends: the position a session
-	// Crowbar has only just started watching begins at. Starting anywhere else
-	// would replay a resumed conversation's whole history as though the agent had
-	// just said it.
-	TranscriptEnd(path string) int64
-
-	// ReadTranscript returns the messages appended to a transcript since from,
-	// together with where to resume. It opens the file READ-ONLY and writes nothing
-	// to the provider's home; every failure yields no messages rather than an error
-	// a hook could be failed on.
-	ReadTranscript(path string, from int64) (TranscriptRead, error)
 
 	// ParseTelemetry maps a provider-pushed telemetry payload onto whichever facts
 	// it reported. Absent facts stay absent; nothing is derived that was not
@@ -338,18 +313,6 @@ func (a *agent) ResumeArg() (string, bool) {
 
 func (a *agent) ParseHook(canonical string, raw []byte) (CanonicalEvent, error) {
 	return hooks.Parse(a.spec, canonical, raw)
-}
-
-func (a *agent) TranscriptPath(ev CanonicalEvent) (string, bool) {
-	return transcript.Path(a.spec, ev.Raw)
-}
-
-func (a *agent) TranscriptEnd(path string) int64 {
-	return transcript.End(a.spec, path)
-}
-
-func (a *agent) ReadTranscript(path string, from int64) (TranscriptRead, error) {
-	return transcript.Read(a.spec, path, from)
 }
 
 func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {

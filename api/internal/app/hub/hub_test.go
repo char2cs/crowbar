@@ -128,7 +128,8 @@ func (f *fakeSubscriber) PushAgentChatTerminalWait(
 	})
 }
 
-func (f *fakeSubscriber) PushAgentChatPromptSettled(_, _, _ string) {}
+func (f *fakeSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
+func (f *fakeSubscriber) PushAgentChatMessageDelta(_, _, _, _ string) {}
 
 func (f *fakeSubscriber) PushAgentChatFolder(
 	folderID string,

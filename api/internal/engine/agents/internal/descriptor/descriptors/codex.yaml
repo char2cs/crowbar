@@ -189,44 +189,12 @@ hooks:
     compact_pre:   { session_id: session_id, trigger: trigger }
     compact_post:  { session_id: session_id, trigger: trigger }
     session_end:   { session_id: session_id, reason: reason }
-# codex's rollout file. Same defect and same fix as claude: turn_stop.message is the
-# LAST message of a turn, so everything said earlier reaches Crowbar only from here.
-# READ-ONLY — open, stat, read — which is what keeps the `-c`-only law above intact.
-#
-# NOT `type: event_msg` / `payload.type: agent_message`: that carries the IDENTICAL
-# text as a UI event, so ingesting both records every message twice. NOT
-# `payload.type: agent_message` under response_item either — that is inter-agent
-# traffic. Both `phase` values are kept: the commentary is exactly what this exists
-# to stop losing.
-#
-# UNVERIFIED BY A LIVE TURN — codex was rate-limited — so this was checked against
-# rollout files on disk and by structure only.
-transcript:
-  path_field: transcript_path
-  format: jsonl
-  message:
-    match:
-      type: response_item
-      payload.type: message
-      payload.role: assistant
-    blocks: payload.content
-    block_match:
-      type: output_text
-    block_text: text
-    join: "\n\n"
-    timestamp: timestamp
-# The Crowbar tool surface, on the same session-layer `-c` channel. Its own step list
-# so the user can switch the surface off without disabling the provider; only ONE of
-# these steps carries {runner_token}, which is why it is a named group rather than a
-# filter over templated steps.
-#
-# codex does NOT defer MCP tool schemas, so every tool costs context on every turn.
-# Keep the surface small.
-#
-# Scope travels as discrete array elements, never {scope_flags}, so a project-home
-# workspace's empty repo id stays an empty argument instead of swallowing the next
-# token. The token is a separate credential from the segment id, which is published
-# on the chats API — it is not containment against an agent with a shell.
+# NO `transcript:` BLOCK, and unlike claude nothing replaces it. Crowbar used to
+# read codex's rollout file for the messages turn_stop drops; that is a private
+# implementation detail and it is gone. codex declares eleven hook events and none
+# of them streams, so until it grows one this provider records what it always
+# recorded before the transcript read existed: the LAST message of each turn, from
+# turn_stop. Anything said before a tool call is not observable from the outside.
 mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:

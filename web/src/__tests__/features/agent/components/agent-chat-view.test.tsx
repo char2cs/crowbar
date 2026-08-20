@@ -100,6 +100,8 @@ const baseProps = () => ({
   // Declared so `setup`/`rerenderProps` accept it: the daemon only ever sends
   // these for a delivery that produced no turn, so the default is none.
   settledPrompts: undefined as string[] | undefined,
+  streamingMessageId: undefined as string | undefined,
+  streamingMessageText: undefined as string | undefined,
   // No sticky selection: these fixtures' providers declare no catalogue, so the
   // picker renders nothing at all here (see agent-model-picker.test.tsx).
   model: '',
@@ -716,6 +718,49 @@ describe('AgentChatView durable FIFO', () => {
     expect(await screen.findByText('Open the native TUI first')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
     expect(screen.queryByText(/does not support React prompt submission/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentChatView streaming', () => {
+  // The agent is mid-sentence. Its text is not in the ledger yet — a message that
+  // is still growing is a view, not a record — so it arrives on the live feed and
+  // must be rendered anyway. Without this the chat sits blank while the agent
+  // visibly types in the terminal beside it.
+  it('renders the message the agent is still saying', async () => {
+    const view = setup()
+    await screen.findByTestId('agent-message-list')
+
+    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sen' })
+
+    expect(await screen.findByText('half a sen')).toBeInTheDocument()
+  })
+
+  // Frames carry the text SO FAR, not the increment, so a client that missed one
+  // is correct again on the next.
+  it('replaces the partial text rather than appending to it', async () => {
+    const view = setup()
+    await screen.findByTestId('agent-message-list')
+
+    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sen' })
+    await screen.findByText('half a sen')
+    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sentence' })
+
+    expect(await screen.findByText('half a sentence')).toBeInTheDocument()
+    expect(screen.queryByText('half a sen')).not.toBeInTheDocument()
+  })
+
+  // The live frame and the message poll arrive from different places, so for a
+  // moment both hold the same sentence. Rendering both would show it twice.
+  it('drops the partial once the ledger has the finished message', async () => {
+    initialMessages = [message(3, 'assistant', 'the whole sentence')]
+    const view = setup()
+    expect(await screen.findByTestId('agent-message-3')).toBeInTheDocument()
+
+    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'the whole sentence' })
+
+    await waitFor(() =>
+      expect(screen.getAllByText('the whole sentence')).toHaveLength(1),
+    )
   })
 })
 

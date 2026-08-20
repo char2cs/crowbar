@@ -38,7 +38,6 @@ func All() []Rule {
 		identity{},
 		spawnCommand{},
 		hookVocabulary{},
-		transcript{},
 		promptSubmit{},
 		catalogBounds{},
 		catalogCommand{},

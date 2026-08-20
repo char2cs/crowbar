@@ -17,12 +17,6 @@ type (
 	Capabilities   = models.Capabilities
 	CanonicalEvent = models.CanonicalEvent
 
-	// TranscriptMessage is one thing the agent SAID, read from the provider's own
-	// transcript rather than from a hook — the only source that has every message
-	// of a turn instead of just its last.
-	TranscriptMessage = models.TranscriptMessage
-	// TranscriptRead is one incremental read of a provider transcript.
-	TranscriptRead = models.TranscriptRead
 	ToolEvent      = models.ToolEvent
 	SubagentEvent  = models.SubagentEvent
 	InterruptEvent = models.InterruptEvent
@@ -42,6 +36,8 @@ type (
 	Selection        = models.Selection
 	MoveKind         = models.MoveKind
 
+	MessageDelta     = models.MessageDelta
+	TurnFailure      = models.TurnFailure
 	SlashCatalog     = models.SlashCatalog
 	SlashCatalogItem = models.SlashCatalogItem
 	ProbeOptions     = models.ProbeOptions
@@ -83,6 +79,8 @@ const (
 	HookTelemetry    = spec.HookTelemetry
 	HookToolFail     = spec.HookToolFail
 	HookElicitation  = spec.HookElicitation
+	HookMessageDelta = spec.HookMessageDelta
+	HookTurnFailed   = spec.HookTurnFailed
 )
 
 // Interruption kinds.

@@ -307,3 +307,39 @@ func (f *fakeDeliveries) allSettled() []string {
 	defer f.mu.Unlock()
 	return append([]string(nil), f.settled...)
 }
+
+// fakeMessages is the assistant-message stream as the abandoned-message question
+// sees it: is there an unfinished message, and when did it last grow?
+type fakeMessages struct {
+	mu         sync.Mutex
+	since      time.Time
+	unfinished bool
+	abandoned  int
+	closed     bool
+	err        error
+	asked      int
+}
+
+func (f *fakeMessages) UnfinishedSince(string) (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked++
+	return f.since, f.unfinished
+}
+
+func (f *fakeMessages) AbandonMessage(context.Context, string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return false, f.err
+	}
+	f.abandoned++
+	f.unfinished = false
+	return f.closed, nil
+}
+
+func (f *fakeMessages) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.abandoned
+}

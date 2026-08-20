@@ -93,6 +93,7 @@ interface AgentStreamEvent {
     | 'turn_stopped'
     | 'terminal_wait'
     | 'prompt_settled'
+    | 'message_delta'
     | 'title_set'
     | 'deleted'
     | 'started'
@@ -146,6 +147,15 @@ interface AgentStreamEvent {
    * kind and nowhere else. See AgentChatsState.settledPrompts.
    */
   clientRequestId?: string
+  /**
+   * An assistant message still being produced, on the `message_delta` kind.
+   *
+   * Carries the text SO FAR rather than the newest increment, so a client that
+   * missed a frame is correct again on the next one and needs no reassembly of
+   * its own. It is deliberately not in the ledger: a message still growing is a
+   * view, and the ledger gets it once, when it is finished.
+   */
+  message?: { id: string; text: string }
 }
 
 /**
@@ -156,6 +166,8 @@ interface AgentStreamEvent {
  *   - turn_started / turn_stopped: the frame carries the server's folded `working`
  *     — write it through, no refetch. `turn_stopped` is NOT "idle": a chat waiting on
  *     a background subagent keeps spinning through it.
+ *   - message_delta: an assistant message has grown. Transient; the ledger holds the
+ *     finished message and this only makes the growing one visible.
  *   - prompt_settled: a delivered prompt is over without having produced a turn, so
  *     the composer's pending item can be released — nothing else will release it.
  *   - terminal_wait: the chat's CLI has become — or stopped being — blocked behind a
@@ -524,6 +536,12 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          return
+        case 'message_delta':
+          // The agent is mid-sentence. This is the only frame in the feed that is
+          // not a record of anything — it is replaced by the ledger's own copy the
+          // moment the message completes.
+          if (ev.message) st.setAgentChatStreamingMessage(ev.chatId, ev.message)
           return
         case 'prompt_settled':
           // A prompt Crowbar delivered turned out not to produce a turn — a

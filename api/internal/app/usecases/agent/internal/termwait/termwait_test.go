@@ -54,6 +54,7 @@ type rig struct {
 	notices  *fakeNotices
 	work     *fakeWork
 	deliv    *fakeDeliveries
+	msgs     *fakeMessages
 	clock    *clock
 	rec      *recorder
 	stalls   *stalls
@@ -98,6 +99,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
 		rec: &recorder{}, stalls: &stalls{},
 		deliv: &fakeDeliveries{pending: map[string]termwait.Delivery{}},
+		msgs:  &fakeMessages{closed: true},
 	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:    runners,
@@ -109,6 +111,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		Work:       r.work,
 		OnStall:    r.stalls.onStall,
 		Deliveries: r.deliv,
+		Messages:   r.msgs,
 		Interval:   interval,
 		Now:        r.clock.Now,
 	})
@@ -130,6 +133,16 @@ func (r *rig) wedged() {
 func (r *rig) delivering() {
 	r.screens.set(session, idleScreen)
 	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
+}
+
+// cutOff puts the rig in the state a human INTERRUPT leaves behind: the chat is
+// Working because the prompt hook opened a turn, an assistant message is part
+// written, and the provider has fired nothing since — because for an interrupt it
+// never will.
+func (r *rig) cutOff() {
+	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.msgs.unfinished = true
+	r.msgs.since = r.clock.Now()
 }
 
 func (r *rig) sweep() {
@@ -1051,4 +1064,115 @@ func TestDetector_Sweep_DoesNotLatchWhenNothingWasRetired(t *testing.T) {
 	r.sweep()
 
 	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
+}
+
+// TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff.
+//
+// A human interrupt fires NO hook on claude 2.1.236/2.1.237 — not Stop, not
+// StopFailure, not even a display event for the CLI's own "Interrupted" line,
+// across ESC, double-ESC and Ctrl+C. The turn the prompt hook opened therefore
+// stays open over a live process until a later prompt supersedes it, and the user
+// — who KNOWS they pressed stop — watches a spinner run on forever.
+//
+// The only evidence left is the shape of the message stream: an assistant message
+// the provider began, never marked final, and stopped adding to.
+func TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+
+	r.sweep()
+	assert.Zero(t, r.msgs.count(), "the quiet window has not elapsed yet")
+
+	r.clock.advance(termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.count())
+}
+
+// TestDetector_Sweep_LeavesAThinkingPauseAlone is the false positive that must
+// never happen. Measured on claude 2.1.237 at the highest thinking budget, the
+// largest pause WITHIN one message was 2.811s — real reasoning between two parts
+// of an answer. Closing the turn there would darken the spinner on an agent that
+// was working.
+func TestDetector_Sweep_LeavesAThinkingPauseAlone(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.sweep()
+
+	r.clock.advance(3 * time.Second)
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count())
+}
+
+// A message that is still growing has not been abandoned, however long ago it
+// started. The clock tracks the LATEST increment.
+func TestDetector_Sweep_AGrowingMessageNeverLooksAbandoned(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+
+	for range 6 {
+		r.clock.advance(termwait.DefaultMessageQuiet - time.Second)
+		r.msgs.since = r.clock.Now()
+		r.sweep()
+	}
+
+	assert.Zero(t, r.msgs.count())
+}
+
+// An open tool is HOOK evidence that the CLI is working, whatever its message
+// stream is doing, and hook evidence outranks silence.
+func TestDetector_Sweep_NeverAbandonsAMessageWhileAToolIsOpen(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.work.open = true
+	r.sweep()
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count())
+}
+
+// A chat blocked on a prompt a human must answer is honestly Working, and its
+// turn is not abandoned.
+func TestDetector_Sweep_NeverAbandonsAMessageWithAPendingChoice(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1"}}
+	r.sweep()
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count())
+}
+
+// A finished message ended the way it was supposed to and is no evidence of
+// anything.
+func TestDetector_Sweep_AFinishedMessageIsNotEvidence(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.msgs.unfinished = false
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count())
+}
+
+// A daemon built without the port closes nothing, which is the behaviour every
+// existing harness has and the safe direction to fail in.
+func TestDetector_Sweep_AbandonsNothingWithoutTheMessagesPort(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	noMessages := termwait.New(termwait.Deps{
+		Runners: r.runners, Chats: r.chats, Choices: r.choices,
+		Screens: r.screens, Prompts: r.prompts, Now: r.clock.Now,
+	})
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+
+	noMessages.Sweep(context.Background(), r.rec.publish)
+
+	assert.Zero(t, r.msgs.count())
 }

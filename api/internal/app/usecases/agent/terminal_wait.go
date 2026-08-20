@@ -36,11 +36,13 @@ func (u *Usecase) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 	promptSettled func(chatID, workspaceID, requestID string),
+	messageDelta func(chatID, workspaceID, messageID, text string),
 ) {
+	u.promptSettled = promptSettled
+	u.messageDelta = messageDelta
 	if u.termWait == nil {
 		return
 	}
-	u.promptSettled = promptSettled
 	u.termWait.Run(ctx, publish)
 }
 
@@ -101,5 +103,9 @@ func newTerminalWaitDetector(u *Usecase) termwait.Detector {
 		// The third question. Same shape as the stall half: the read and the write
 		// are both this usecase's own business, so neither is passed in.
 		Deliveries: u,
+		// The fourth question, and the only one that needs no screen: an assistant
+		// message the provider began and never finished is what a human interrupt
+		// leaves behind, because it leaves no hook at all.
+		Messages: u,
 	})
 }

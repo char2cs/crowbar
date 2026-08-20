@@ -62,6 +62,15 @@ type Subscriber interface {
 		workspaceID string,
 		requestID string,
 	)
+	// PushAgentChatMessageDelta receives an assistant message as far as it has been
+	// said, so a client can render it growing. Carries the text so far rather than
+	// the increment, so a dropped frame costs nothing.
+	PushAgentChatMessageDelta(
+		chatID string,
+		workspaceID string,
+		messageID string,
+		text string,
+	)
 	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
 	// (folder_created/folder_updated/folder_deleted). It carries the folder id and
 	// nothing else: the Chats socket is a bare event feed with no snapshot, so a

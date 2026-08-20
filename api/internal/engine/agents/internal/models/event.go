@@ -43,6 +43,13 @@ type CanonicalEvent struct {
 	Subagent  *SubagentEvent
 	Interrupt *InterruptEvent
 
+	// Delta is a chunk of what the agent is saying, on message_delta and nowhere
+	// else. See MessageDelta.
+	Delta *MessageDelta
+
+	// Failure is why a turn ended badly, on turn_failed and nowhere else.
+	Failure *TurnFailure
+
 	// Choice is a prompt the agent is BLOCKED on until a human answers it. It sits
 	// beside Interrupt rather than inside it because the two answer different
 	// questions: an interruption says the agent stopped, a choice says what it is
@@ -51,6 +58,58 @@ type CanonicalEvent struct {
 	Choice *ChoicePrompt
 
 	Raw map[string]any
+}
+
+// MessageDelta is one increment of an assistant message, delivered while the
+// agent is producing it.
+//
+// It is the answer to a defect rather than a feature: turn_stop carries the LAST
+// message of a turn and no other, so an agent that spoke, used a tool, and spoke
+// again reported half of what it said. These carry all of it.
+type MessageDelta struct {
+	// TurnID and MessageID are the provider's own identities. One turn holds many
+	// messages; one message holds many deltas. Both are opaque — Crowbar groups by
+	// them and never parses them.
+	TurnID    string
+	MessageID string
+
+	// Index is this delta's position WITHIN its message, contiguous from zero.
+	//
+	// It is the integrity check, and the only one there is. Hook delivery has no
+	// acknowledgement, so a chunk that never arrives is otherwise a silent hole in
+	// what the agent said; a gap in this counter is how a reader knows a message
+	// is incomplete rather than short.
+	Index int
+
+	// Final marks the last delta of its message.
+	//
+	// It is NOT guaranteed to arrive. A message the human interrupts simply stops:
+	// measured against claude 2.1.236, ESC mid-generation produces no Final, no
+	// turn_stop, and no other hook of any kind. An unfinished message is therefore
+	// evidence in its own right, and the usecase reads it as such.
+	Final bool
+
+	// Text is the increment itself — never a cumulative snapshot of the message so
+	// far. Concatenating a message's deltas in Index order reproduces the
+	// provider's own report of that message exactly.
+	Text string
+}
+
+// TurnFailure is a turn the provider ended because it could not run it.
+//
+// Distinct from an interruption, which is a human deciding to stop, and from
+// turn_stop, which is a turn that finished. A provider fires this INSTEAD OF
+// turn_stop, so a chat that maps only the latter is left with a turn nothing ever
+// closes.
+type TurnFailure struct {
+	// Reason is the provider's own classification, carried verbatim and never
+	// interpreted. claude 2.1.236 reports one of eleven: authentication_failed,
+	// oauth_org_not_allowed, account_on_hold, billing_error, rate_limit,
+	// overloaded, invalid_request, model_not_found, server_error, unknown,
+	// max_output_tokens.
+	Reason string
+	// Detail is the provider's longer explanation when it sends one.
+	Detail string
 }
 
 // ToolEvent is one tool invocation or completion. Input and Result are the raw

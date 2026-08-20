@@ -31,6 +31,38 @@ const (
 	// permission — this is a hook event in its own right (measured against claude
 	// 2.1.234 on 2026-08-17), so nothing but a canonical kind can observe it.
 	HookElicitation = "elicitation"
+
+	// HookMessageDelta is a chunk of what the agent is SAYING, delivered while it
+	// says it.
+	//
+	// It exists because turn_stop.message is the LAST message of a turn and nothing
+	// else. An agent that speaks, calls a tool, and speaks again produced two
+	// messages and reported one, so everything before the final tool call was lost
+	// — the defect this kind closes. Measured against claude 2.1.236: a turn with
+	// ALPHA -> Bash -> OMEGA delivers both as separate messages here, while Stop
+	// carried only OMEGA.
+	//
+	// Deltas are INCREMENTS, not cumulative snapshots, and Index is contiguous from
+	// zero within each MessageID. Concatenating one message's deltas in Index order
+	// reproduces the provider's own report of it byte for byte.
+	//
+	// A provider that declares nothing here keeps exactly its previous behaviour:
+	// the last message of each turn, from turn_stop.
+	HookMessageDelta = "message_delta"
+
+	// HookTurnFailed is a turn that ENDED BADLY, with the provider's own reason.
+	//
+	// It is not turn_stop with a flag: the two are mutually exclusive on the wire.
+	// A turn that fails fires this and NEVER fires turn_stop, so a chat mapping
+	// only turn_stop is left with a turn nothing closes — indistinguishable from an
+	// agent still working. Measured against claude 2.1.236, which reports
+	// authentication, billing, rate_limit, overloaded, invalid_request,
+	// model_not_found, server_error, max_output_tokens and prompt-too-long through
+	// it. Those are precisely the endings that otherwise read as a hang.
+	//
+	// It does NOT cover a human INTERRUPT. That was measured too, and claude fires
+	// no hook of any kind for one — see the interrupt detection in the usecase.
+	HookTurnFailed = "turn_failed"
 )
 
 // HookSpec is the read side: how to parse this CLI's hook payloads (format) and

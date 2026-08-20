@@ -444,6 +444,9 @@ func startTerminalWaitSweep(
 		func(chatID, workspaceID, requestID string) {
 			h.BroadcastAgentChatPromptSettled(chatID, workspaceID, requestID)
 		},
+		func(chatID, workspaceID, messageID, text string) {
+			h.BroadcastAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+		},
 	)
 }
 

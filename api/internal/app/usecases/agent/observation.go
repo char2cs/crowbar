@@ -33,13 +33,12 @@ func (u *Usecase) handleObservation(
 	now := time.Now()
 
 	switch ev.Kind {
+	case engineagents.HookMessageDelta:
+		// What the agent is SAYING, while it says it. Recorded here rather than at
+		// the end of the turn because the terminating hook carries only the LAST
+		// message, so everything said before a tool call has no other way in.
+		u.recordMessageDelta(ctx, chat, runner, ev)
 	case engineagents.HookToolPre:
-		// Whatever the agent SAID before reaching for this tool, first. A turn's
-		// terminating hook reports one message, so a message said mid-turn only
-		// exists in the provider's own transcript — and recording it here rather
-		// than at the end of the turn is what keeps it AHEAD of the work it went on
-		// to do. See recordSaidSoFar.
-		u.recordSaidSoFar(ctx, chat, runner, agent, ev)
 		u.note(ctx, "tool invoked", u.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
 			Request: ev.Tool.Input, Now: now,

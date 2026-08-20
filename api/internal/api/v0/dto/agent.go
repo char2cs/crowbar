@@ -622,6 +622,27 @@ type AgentChatEvent struct {
 	// CLI handles it and announces nothing — so without this frame the item waits
 	// forever on evidence that is not coming.
 	ClientRequestID string `json:"clientRequestId,omitempty"`
+
+	// Message is an assistant message still being produced, on the message_delta
+	// kind and nowhere else.
+	//
+	// It is deliberately NOT in the ledger. A message that is still growing is not
+	// a record of anything yet — it is a view — and writing every increment to
+	// durable storage would mean roughly 1.4 writes per second per streaming chat
+	// to persist text that is replaced a moment later. So the partial travels on
+	// the live feed only, and the ledger gets the message once, when it is done.
+	Message *AgentStreamingMessageDTO `json:"message,omitempty"`
+}
+
+// AgentStreamingMessageDTO is one assistant message as far as it has been said.
+type AgentStreamingMessageDTO struct {
+	// ID is the provider's own message identity, so a client can tell a message
+	// that is still growing from the next one starting.
+	ID string `json:"id"`
+	// Text is everything said SO FAR, not the newest increment. A client that
+	// missed a frame is therefore correct again on the next one, with no
+	// reassembly and no gap detection of its own.
+	Text string `json:"text"`
 }
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
@@ -631,6 +652,13 @@ type AgentChatEvent struct {
 // it: an ordinary prompt is resolved by its own user message arriving in the
 // ledger and never reaches this path.
 const AgentChatKindPromptSettled = "prompt_settled"
+
+// AgentChatKindMessageDelta announces that an assistant message has grown.
+//
+// It carries the message SO FAR rather than the increment, so a dropped frame
+// self-heals on the next one. It stops when the message is complete: the message
+// then exists in the ledger, and the ledger is what the chat reads.
+const AgentChatKindMessageDelta = "message_delta"
 
 // AgentChatKindTerminalWait is the lifecycle kind that announces a change in
 // whether a chat's CLI is blocked behind a terminal-only prompt.

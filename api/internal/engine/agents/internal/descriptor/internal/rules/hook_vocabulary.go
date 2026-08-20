@@ -19,5 +19,23 @@ func (hookVocabulary) Check(d *spec.Descriptor) error {
 	if d.Hooks.Events[spec.HookTurnStop]["message"] == "" {
 		return invalid(d.ID, "hooks.events.turn_stop must map message")
 	}
+	// message_delta is optional, but a HALF-mapped one is worse than none. Its
+	// three identity fields are what make a stream of increments reassemblable:
+	// without message_id every delta of a turn merges into one message, and
+	// without index a dropped chunk is a silent hole instead of a detectable gap.
+	// A descriptor that maps the text and forgets those would look like it works
+	// and would quietly corrupt what the agent is recorded as having said.
+	if delta, ok := d.Hooks.Events[spec.HookMessageDelta]; ok {
+		for _, field := range []string{"message_id", "index", "text"} {
+			if delta[field] == "" {
+				return invalid(d.ID, "hooks.events.message_delta must map %s", field)
+			}
+		}
+	}
+	// Same rule, same reason: turn_failed exists to say WHY a turn ended, and one
+	// that cannot say why is turn_stop with extra steps.
+	if failed, ok := d.Hooks.Events[spec.HookTurnFailed]; ok && failed["reason"] == "" {
+		return invalid(d.ID, "hooks.events.turn_failed must map reason")
+	}
 	return nil
 }

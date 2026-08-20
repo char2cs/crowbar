@@ -226,6 +226,24 @@ const DefaultStallQuiet = 120 * time.Second
 // composer that refuses every prompt for the rest of the runner's life.
 const DefaultDeliveryQuiet = 30 * time.Second
 
+// DefaultMessageQuiet is how long an UNFINISHED assistant message must stop
+// growing before Crowbar concludes the turn producing it was interrupted.
+//
+// Thirty seconds, and the number is measured rather than chosen. The provider
+// flushes increments on a ~700ms timer, and across seven workloads on claude
+// 2.1.237 at the highest thinking budget the largest gap ever seen WITHIN one
+// message was 2.811s — extended reasoning between two parts of an answer. Thirty
+// is an order of magnitude above that ceiling.
+//
+// The clock starts at the FIRST INCREMENT of a message and never at prompt
+// submission, and that distinction is load-bearing rather than tidy: the same
+// measurements found a turn that spent 72.54 SECONDS thinking before it emitted
+// anything at all. A detector armed when the prompt was accepted would call that
+// healthy turn interrupted, darkening the spinner on an agent that was working
+// hard — the one outcome this whole subsystem refuses to produce. A message that
+// does not exist yet cannot be abandoned.
+const DefaultMessageQuiet = 30 * time.Second
+
 // Runners is the live-runner census. A row exists exactly while its PTY does, so
 // this is both "which chats have a process" and "which PTY each one holds".
 type Runners interface {
@@ -340,6 +358,30 @@ type Stall struct {
 // with the close is not closed again on the next tick.
 type Stalled func(ctx context.Context, stall Stall)
 
+// Messages is the assistant-message stream, as the abandoned-message question
+// needs it.
+//
+// It answers one thing: has this chat a message the provider began and never
+// finished, and when did it last grow? That pair is the only hook-derived
+// evidence a human INTERRUPT leaves behind. Measured against claude 2.1.236 and
+// 2.1.237, an interrupt fires NO hook at all — not Stop, not StopFailure, not
+// even a display event for the CLI's own "Interrupted" line — across ESC,
+// double-ESC and Ctrl+C, verified against a positive control that fires
+// StopFailure in 1.6s. What DOES happen is that the increments simply stop and
+// the message is never marked final.
+type Messages interface {
+	// UnfinishedSince reports the oldest unfinished message's last-growth time.
+	// ok is false when the chat has no unfinished message, which is the ordinary
+	// answer and the one that ends the walk.
+	UnfinishedSince(chatID string) (at time.Time, ok bool)
+
+	// AbandonMessage records what the agent had said before it was cut off and
+	// closes the turn. It reports whether anything was actually closed, and the
+	// caller latches only on true — an abandon that declined leaves the question
+	// live for a later tick.
+	AbandonMessage(ctx context.Context, chatID string) (bool, error)
+}
+
 // Deliveries is the at-most-once prompt journal, as the third question needs it.
 //
 // The journal holds a record open from the moment a prompt is handed to a
@@ -399,6 +441,9 @@ type Deps struct {
 	// here, which is the behaviour of a daemon built before this existed.
 	Deliveries Deliveries
 
+	// Messages is the fourth. Nil means no interrupted turn is ever closed here.
+	Messages Messages
+
 	// Interval overrides DefaultInterval. Zero takes the default.
 	Interval time.Duration
 
@@ -407,6 +452,9 @@ type Deps struct {
 
 	// DeliveryQuiet overrides DefaultDeliveryQuiet. Zero takes the default.
 	DeliveryQuiet time.Duration
+
+	// MessageQuiet overrides DefaultMessageQuiet. Zero takes the default.
+	MessageQuiet time.Duration
 
 	// Now is the clock the quiet period is measured on. Zero takes time.Now.
 	//
@@ -552,6 +600,13 @@ func (d *detector) deliveryQuiet() time.Duration {
 		return d.deps.DeliveryQuiet
 	}
 	return DefaultDeliveryQuiet
+}
+
+func (d *detector) messageQuiet() time.Duration {
+	if d.deps.MessageQuiet > 0 {
+		return d.deps.MessageQuiet
+	}
+	return DefaultMessageQuiet
 }
 
 func (d *detector) now() time.Time {

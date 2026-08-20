@@ -743,126 +743,48 @@ func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
 
 // TestApply_DeclaringNoTerminalNoticesIsValid pins the default, and it is the one
 // claude ships with: declaring none must never be a validation failure.
-func TestApply_DeclaringNoTerminalNoticesIsValid(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = nil
+func TestHookVocabulary_RefusesAHalfMappedMessageDelta(t *testing.T) {
+	for _, missing := range []string{"message_id", "index", "text"} {
+		t.Run("missing "+missing, func(t *testing.T) {
+			d := valid()
+			delta := map[string]string{
+				"message_id": "message_id", "index": "index", "text": "delta", "final": "final",
+			}
+			delete(delta, missing)
+			d.Hooks.Events[spec.HookMessageDelta] = delta
 
-	assert.NoError(t, rules.Apply(d))
-}
+			err := rules.Apply(d)
 
-// --- transcript ---
-
-// withTranscript gives a descriptor the transcript block in the shape
-// claude.yaml declares it: content split into blocks and joined into one
-// message.
-func withTranscript(d *spec.Descriptor) *spec.Descriptor {
-	d.Transcript = spec.TranscriptSpec{
-		PathField: "transcript_path",
-		Format:    "jsonl",
-		Message: spec.TranscriptMessageSpec{
-			Match:      map[string]string{"type": "assistant"},
-			Blocks:     "message.content",
-			BlockMatch: map[string]string{"type": "text"},
-			BlockText:  "text",
-			Join:       "\n\n",
-			Timestamp:  "timestamp",
-		},
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), "message_delta must map "+missing)
+		})
 	}
-	return d
 }
 
-func TestTranscript_AcceptsAFullyDeclaredBlock(t *testing.T) {
-	require.NoError(t, rules.Apply(withTranscript(valid())))
-}
-
-// TestTranscript_AcceptsATextLeafDescriptorWithNoBlocks covers the other legal
-// shape: a provider that does not split a message into blocks reads its whole
-// entry's text from a single declared leaf instead.
-func TestTranscript_AcceptsATextLeafDescriptorWithNoBlocks(t *testing.T) {
-	d := withTranscript(valid())
-	d.Transcript.Message.Blocks = ""
-	d.Transcript.Message.BlockMatch = nil
-	d.Transcript.Message.BlockText = ""
-	d.Transcript.Message.Text = "message.content"
+func TestHookVocabulary_AcceptsAFullyMappedMessageDelta(t *testing.T) {
+	d := valid()
+	d.Hooks.Events[spec.HookMessageDelta] = map[string]string{
+		"session_id": "session_id", "turn_id": "turn_id", "message_id": "message_id",
+		"index": "index", "final": "final", "text": "delta",
+	}
 
 	require.NoError(t, rules.Apply(d))
 }
 
-// TestTranscript_DeclaringNoneIsValid pins the degradation contract: a provider
-// naming no transcript block at all behaves exactly as it did before the field
-// existed, which must never be a validation failure.
-func TestTranscript_DeclaringNoneIsValid(t *testing.T) {
-	require.NoError(t, rules.Apply(valid()))
-}
-
-// TestTranscript_AHalfDeclaredBlockIsRejected is the property the rule's own doc
-// comment promises: naming one field without the rest would silently read
-// nothing while looking, in the descriptor file, exactly like a working
-// declaration.
-func TestTranscript_AHalfDeclaredBlockIsRejected(t *testing.T) {
+// A turn_failed that cannot say WHY is turn_stop with extra steps, and the reason
+// is the entire reason the kind exists.
+func TestHookVocabulary_RefusesATurnFailedWithNoReason(t *testing.T) {
 	d := valid()
-	d.Transcript.PathField = "transcript_path"
+	d.Hooks.Events[spec.HookTurnFailed] = map[string]string{"session_id": "session_id"}
 
 	err := rules.Apply(d)
 
 	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "turn_failed must map reason")
 }
 
-func TestTranscript_RejectsTheBrokenShapes(t *testing.T) {
-	testCases := []struct {
-		name    string
-		mutate  func(*spec.Descriptor)
-		wantMsg string
-	}{
-		{
-			"no path_field",
-			func(d *spec.Descriptor) { d.Transcript.PathField = "" },
-			"path_field is required",
-		},
-		{
-			"unsupported format",
-			func(d *spec.Descriptor) { d.Transcript.Format = "ndjson" },
-			`unsupported format "ndjson"`,
-		},
-		{
-			// Without at least one match pair every line in the file would count as
-			// a message.
-			"no match fields",
-			func(d *spec.Descriptor) { d.Transcript.Message.Match = nil },
-			"message.match must name at least one field",
-		},
-		{
-			"neither blocks nor text",
-			func(d *spec.Descriptor) {
-				d.Transcript.Message.Blocks = ""
-				d.Transcript.Message.Text = ""
-			},
-			"message needs blocks or text",
-		},
-		{
-			"blocks without block_text",
-			func(d *spec.Descriptor) { d.Transcript.Message.BlockText = "" },
-			"message.blocks needs message.block_text",
-		},
-		{
-			"negative max_read_bytes",
-			func(d *spec.Descriptor) { d.Transcript.MaxReadBytes = -1 },
-			"byte ceilings cannot be negative",
-		},
-		{
-			"negative max_message_bytes",
-			func(d *spec.Descriptor) { d.Transcript.MaxMessageBytes = -1 },
-			"byte ceilings cannot be negative",
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			d := withTranscript(valid())
-			tc.mutate(d)
-			err := rules.Apply(d)
-			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-			assert.Contains(t, err.Error(), tc.wantMsg)
-		})
-	}
+// Neither kind is required. codex declares no streaming hook at all, and a
+// descriptor omitting both must load exactly as it did before they existed.
+func TestHookVocabulary_BothNewKindsAreOptional(t *testing.T) {
+	require.NoError(t, rules.Apply(valid()))
 }

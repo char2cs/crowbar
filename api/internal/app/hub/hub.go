@@ -188,6 +188,26 @@ func (h *Hub) BroadcastAgentChatPromptSettled(
 	}
 }
 
+// BroadcastAgentChatMessageDelta fans a growing assistant message out on the same
+// workspace-scoped feed as every other fact about a conversation.
+//
+// Unlike the other chat broadcasts this one is HIGH FREQUENCY — roughly 1.4 per
+// second per streaming chat — and it is deliberately the only thing in this
+// feature that never touches durable storage. A partial message is a view, not a
+// record; the ledger gets the message once, when it is finished.
+func (h *Hub) BroadcastAgentChatMessageDelta(
+	chatID string,
+	workspaceID string,
+	messageID string,
+	text string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+	}
+}
+
 // BroadcastAgentChatFolder fans a CHAT FOLDER lifecycle event
 // (folder_created/folder_updated/folder_deleted) out on the SAME workspace-scoped
 // agent-chat WebSocket as BroadcastAgentChat. A chat folder is a plain GORM row

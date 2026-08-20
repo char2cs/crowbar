@@ -127,6 +127,10 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
+	case spec.HookMessageDelta:
+		ev.Delta = buildDelta(fields, decoded)
+	case spec.HookTurnFailed:
+		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
 	case spec.HookCompactPre:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptCompaction, Detail: get("trigger")}
 	case spec.HookCompactPost:
@@ -135,6 +139,24 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 		}
 	}
 	return ev
+}
+
+// buildDelta reads one increment of an assistant message.
+//
+// Index defaults to zero and Final to false when a provider omits them, which is
+// the safe direction for both: a missing index reads as the start of a message
+// rather than as a gap, and a missing Final leaves the message open rather than
+// closing one the provider never said was done.
+func buildDelta(fields map[string]string, decoded map[string]any) *models.MessageDelta {
+	index, _ := payload.Int(decoded, fields["index"])
+	final, _ := payload.Bool(decoded, fields["final"])
+	return &models.MessageDelta{
+		TurnID:    firstNonEmpty(decoded, fields["turn_id"]),
+		MessageID: firstNonEmpty(decoded, fields["message_id"]),
+		Index:     index,
+		Final:     final,
+		Text:      firstNonEmpty(decoded, fields["text"]),
+	}
 }
 
 func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEvent {

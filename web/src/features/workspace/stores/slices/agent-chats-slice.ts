@@ -110,6 +110,15 @@ export interface AgentChatsState {
    * anything older than that window is already unreachable.
    */
   settledPrompts: Record<string, string[]>
+  /**
+   * The assistant message each chat is CURRENTLY producing, if any.
+   *
+   * Transient by design and never persisted: it is replaced wholesale by every
+   * frame and dropped when the message lands in the ledger. Keeping it out of the
+   * ledger is what stops roughly 1.4 durable writes a second per streaming chat
+   * to store text that is superseded a moment later.
+   */
+  streamingMessages: Record<string, { id: string; text: string }>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -150,6 +159,11 @@ export interface AgentChatsSlice {
   setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
+  /** Write the message a chat is mid-way through saying, or clear it with null. */
+  setAgentChatStreamingMessage: (
+    chatId: string,
+    message: { id: string; text: string } | null,
+  ) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -191,6 +205,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   working: {},
   terminalWaits: {},
   settledPrompts: {},
+  streamingMessages: {},
   turnRevision: {},
   order: [],
   activeChatId: null,
@@ -364,6 +379,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.working[chatId]
       delete s.agentChats.terminalWaits[chatId]
       delete s.agentChats.settledPrompts[chatId]
+      delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.turnRevision[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
@@ -390,6 +406,12 @@ export const createAgentChatsSlice: StateCreator<
       s.agentChats.settledPrompts[chatId] = [...seen, clientRequestId].slice(
         -SETTLED_PROMPTS_PER_CHAT,
       )
+    }),
+
+  setAgentChatStreamingMessage: (chatId, message) =>
+    set((s) => {
+      if (message) s.agentChats.streamingMessages[chatId] = message
+      else delete s.agentChats.streamingMessages[chatId]
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

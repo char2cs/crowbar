@@ -47,6 +47,12 @@ func (d *detector) evaluate(
 	}
 
 	if chat.Working {
+		// The abandoned-message question, asked BEFORE the screen is read because
+		// it needs no screen at all — it is answered from the hook stream, which
+		// makes it both cheaper and better evidence than anything pixels can offer.
+		if d.abandonedMessage(ctx, runner) {
+			return domain.AgentTerminalWait{}, prev, false
+		}
 		// The stall question. A busy agent is never reported waiting — the
 		// spinner already says what it is doing, and a "your agent is stuck"
 		// banner over the commonest state a chat is ever in would be a false
@@ -271,4 +277,54 @@ func (d *detector) stalled(
 
 	screen.fired = true
 	return true
+}
+
+// abandonedMessage closes a turn whose assistant message was cut off.
+//
+// This is what a human INTERRUPT looks like from the outside, and it is the only
+// shape it has: measured against claude 2.1.236 and 2.1.237, ESC fires no hook of
+// any kind, so there is no event to observe and no reason string to read. What is
+// left is a message the provider began, never marked final, and stopped adding to.
+//
+// It is a CONJUNCTION for the same reason every other decision in this package is
+// one — a quiet stream alone is not enough. A stalled network read looks identical
+// to an interrupt for as long as it lasts, and closing a turn on one would darken
+// the spinner under an agent that is still working. So:
+//
+//   - the message must be UNFINISHED. A finished one ended the way it should.
+//   - it must have stopped growing for the measured quiet window, which is an
+//     order of magnitude above the largest within-message pause ever observed.
+//   - the chat must have NO OPEN TOOL OR SUBAGENT. That is hook evidence that the
+//     CLI is working however quiet its message stream is, and it outranks silence.
+//   - it must have NO PENDING CHOICE, because a chat blocked on a human is
+//     honestly Working and its turn is not abandoned.
+//
+// The two repository reads come last, after the in-memory clock has already
+// agreed, so an ordinary tick over a healthy working chat costs one map lookup.
+func (d *detector) abandonedMessage(ctx context.Context, runner domain.AgentRunner) bool {
+	if d.deps.Messages == nil {
+		return false
+	}
+	since, ok := d.deps.Messages.UnfinishedSince(runner.CurrentChatID)
+	if !ok || since.IsZero() {
+		return false
+	}
+	if d.now().Sub(since) < d.messageQuiet() {
+		return false
+	}
+	pending, err := d.deps.Choices.PendingChoices(ctx, runner.CurrentChatID)
+	if err != nil || len(pending) > 0 {
+		return false
+	}
+	if d.deps.Work != nil {
+		open, err := d.deps.Work.OpenWork(ctx, runner.CurrentChatID)
+		if err != nil || open {
+			return false
+		}
+	}
+	closed, err := d.deps.Messages.AbandonMessage(ctx, runner.CurrentChatID)
+	if err != nil {
+		return false
+	}
+	return closed
 }

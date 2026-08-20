@@ -90,6 +90,10 @@ config_injection:
             "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}],
           "Stop":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "StopFailure":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook turn_failed --segment {segid} --provider {provider} {scope_flags}"}]}],
+          "MessageDisplay":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook message_delta --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PreToolUse":[{"hooks":[{"type":"command",
             "command":"{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}],
           "PostToolUse":[{"hooks":[{"type":"command",
@@ -226,44 +230,49 @@ hooks:
       message: last_assistant_message
       async_work: background_tasks
       effort: effort.level
-# The provider's own transcript, because turn_stop.message is `last_assistant_message`
-# — literally the last one. Everything a turn said before it reaches Crowbar only from
-# here. Each hook payload hands us the path; this file declares the field NAME, never a
-# location. READ-ONLY, always: open, stat, read, nothing else.
-transcript:
-  path_field: transcript_path
-  format: jsonl
-  message:
-    match:
-      type: assistant
-      message.role: assistant
-    # reject rather than match, because no positive rule expresses "not that" — neither
-    # key is present on an ordinary entry. isSidechain marks a subagent's messages;
-    # isApiErrorMessage is claude's own "API Error: 529" notice, written as assistant
-    # text. Only `text` blocks are the agent's words: thinking is not something it
-    # said, and a tool_use is already recorded by the tool hooks.
-    reject:
-      isSidechain: "true"
-      isApiErrorMessage: "true"
-    blocks: message.content
-    block_match:
-      type: text
-    block_text: text
-    join: "\n\n"
-    timestamp: timestamp
-# The hookSpecificOutput WRAPPER IS MANDATORY. A bare {"decision":{...}} is rejected by
-# claude's own hook output validator and the CLI falls through to its TUI dialog.
-#
-# `answer` is also how AskUserQuestion is satisfied: allow, with updatedInput carrying
-# the original tool_input plus an `answers` object keyed by question TEXT and valued
-# with the option LABEL. No dialog is drawn and the model reads the label back.
-#
-# 270s against the hook's own 300s, so the relay exits under its own control rather
-# than being cut off mid-write. Nothing blocks on tool_pre: a PreToolUse that allows
-# suppresses PermissionRequest entirely, and that hook fires for every tool call.
-#
-# No `suggestion` response: its updatedPermissions shape was never measured, and
-# silently narrowing a broader grant to a plain allow is worse than refusing.
+    # What the agent is saying, WHILE it says it. turn_stop.message above is
+    # `last_assistant_message` — literally the last one — so an agent that speaks,
+    # calls a tool and speaks again reported half of what it said. Measured on
+    # 2.1.236: ALPHA -> Bash -> OMEGA delivers both messages here as separate
+    # message_ids, while Stop carried only OMEGA.
+    #
+    # Deltas are INCREMENTS. Concatenated in index order they reproduce
+    # last_assistant_message byte for byte, which is what makes turn_stop a free
+    # reconciliation pass over the last message of every turn.
+    #
+    # ~1.4 events/second while generating, so this is the highest-volume hook
+    # Crowbar registers by an order of magnitude.
+    message_delta:
+      session_id: session_id
+      turn_id:    turn_id
+      message_id: message_id
+      index:      index
+      final:      final
+      text:       delta
+    # A turn that ended BADLY, fired INSTEAD OF Stop — so without this a failed
+    # turn is one nothing closes, which reads as an agent still working.
+    #
+    # Registered with NO matcher, deliberately. claude filters these hooks against
+    # the `error` value and `!matcher` short-circuits that filter, so an absent
+    # matcher receives every reason. A matcher of "interrupted" would match nothing:
+    # the enum is authentication_failed, oauth_org_not_allowed, account_on_hold,
+    # billing_error, rate_limit, overloaded, invalid_request, model_not_found,
+    # server_error, unknown, max_output_tokens — API failures, no aborts.
+    #
+    # It therefore does NOT cover a human interrupt. Nothing does: measured on
+    # 2.1.236, ESC, double-ESC and Ctrl+C each visibly abort the turn and fire no
+    # hook at all, verified against a positive control that fires this one in 1.6s.
+    turn_failed:
+      session_id: session_id
+      reason:     error
+      detail:     error_details
+      message:    last_assistant_message
+# NO `transcript:` BLOCK. Crowbar used to open claude's own JSONL transcript to
+# recover the messages turn_stop drops, and that was wrong: a provider's private
+# file format is not a contract, it changes without notice, and reaching into it is
+# not something to ship to users. Everything Crowbar records now arrives on a
+# declared hook — see the message_delta mapping above, which carries the same text
+# from the outside and adds live delivery.
 answer:
   permission:
     timeout_seconds: 270
