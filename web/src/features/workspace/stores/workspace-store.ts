@@ -86,20 +86,18 @@ export type WorkspaceSnapshot = Partial<
 
 export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot): WorkspaceStore {
   const store = createStore<WorkspaceState>()(
-    immer(
-      (set, get, api): WorkspaceState => ({
-        workspaceId: wsId,
-        ...createPaneSlice(set, get, api),
-        ...createBufferSlice(set, get, api),
-        ...createLspSlice(set, get, api),
-        ...createTerminalSlice(set, get, api),
-        ...createFileWatcherSlice(set, get, api),
-        ...createRecentFilesSlice(set, get, api),
-        ...createBranchReviewSlice(set, get, api),
-        ...createAgentChatsSlice(set, get, api),
-        ...(snapshot ?? {}),
-      }),
-    ),
+    immer((set, get, api): WorkspaceState => ({
+      workspaceId: wsId,
+      ...createPaneSlice(set, get, api),
+      ...createBufferSlice(set, get, api),
+      ...createLspSlice(set, get, api),
+      ...createTerminalSlice(set, get, api),
+      ...createFileWatcherSlice(set, get, api),
+      ...createRecentFilesSlice(set, get, api),
+      ...createBranchReviewSlice(set, get, api),
+      ...createAgentChatsSlice(set, get, api),
+      ...(snapshot ?? {}),
+    })),
   )
 
   // Persist session (open buffers + active buffer) to IndexedDB on buffer changes.

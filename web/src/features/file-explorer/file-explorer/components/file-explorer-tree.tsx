@@ -800,8 +800,7 @@ function FileExplorerTreeComponent({
   const getTargetItem = useCallback(
     (target: EventTarget | null) => {
       const el = (target as HTMLElement | null)?.closest('[data-file-path]') as
-        | (HTMLElement & { dataset: { filePath?: string; isDir?: string } })
-        | null
+        (HTMLElement & { dataset: { filePath?: string; isDir?: string } }) | null
       if (!el) return null
       const path = el.dataset.filePath || el.getAttribute('data-file-path') || ''
       const isDir = (el.dataset.isDir || el.getAttribute('data-is-dir')) === 'true'
