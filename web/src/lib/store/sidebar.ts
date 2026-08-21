@@ -13,13 +13,7 @@ import { recordWorkspaceScope } from '@/lib/workspace-scope'
 // flight is now the separate `working` flag). locked / pr-conflicts / deleted
 // are first-class statuses.
 export type WorkspaceStatus =
-  | 'new'
-  | 'locked'
-  | 'pr-conflicts'
-  | 'deleted'
-  | 'pr-merged'
-  | 'pr-open'
-  | 'pr-closed'
+  'new' | 'locked' | 'pr-conflicts' | 'deleted' | 'pr-merged' | 'pr-open' | 'pr-closed'
 
 /**
  * A sidebar grouping folder. Purely a tree edge: it holds no worktree and no

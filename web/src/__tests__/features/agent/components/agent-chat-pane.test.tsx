@@ -205,8 +205,7 @@ function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat
 function PaneHost({ bufferId, isVisible = true }: { bufferId: string; isVisible?: boolean }) {
   const store = useWorkspaceStore()
   const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    | AgentChatContent
-    | undefined
+    AgentChatContent | undefined
   if (!buf) return null
   return createElement(AgentChatPane, {
     chatId: buf.chatId,

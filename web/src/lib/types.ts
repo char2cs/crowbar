@@ -49,13 +49,7 @@ export interface Prerequisites {
 // ---------------------------------------------------------------------------
 
 export type WorkspaceStatusDTO =
-  | 'new'
-  | 'locked'
-  | 'pr-conflicts'
-  | 'deleted'
-  | 'pr-merged'
-  | 'pr-open'
-  | 'pr-closed'
+  'new' | 'locked' | 'pr-conflicts' | 'deleted' | 'pr-merged' | 'pr-open' | 'pr-closed'
 
 export interface WorkspaceDTO {
   id: string

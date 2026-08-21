@@ -36,8 +36,7 @@ export interface FileSystemState {
   isFileTreeLoading: boolean
   isSwitchingProject: boolean
   handleCreateNewFileInDirectory:
-    | ((dirPath: string, fileName?: string) => Promise<string | undefined>)
-    | null
+    ((dirPath: string, fileName?: string) => Promise<string | undefined>) | null
   handleCreateNewFolderInDirectory: ((dirPath: string, folderName?: string) => Promise<void>) | null
   handleDeletePath: ((path: string, isDir?: boolean) => Promise<void>) | null
   handleRevealInFolder: ((path: string) => void) | null

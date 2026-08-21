@@ -78,8 +78,7 @@ interface PaneContainerProps {
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
 type PaneRenderBuffer =
-  | Exclude<import('../types/pane-content').PaneContent, EditorContent>
-  | EditorBufferShell
+  Exclude<import('../types/pane-content').PaneContent, EditorContent> | EditorBufferShell
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane renderer — resolves pane content to lazily-loaded surfaces and owns split routing; its length is the routing table, not multiple concerns.
 export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneContainerProps) {
