@@ -83,7 +83,7 @@
     "lucide-react": "^1.31.0",
     "material-file-icons": "^2.4.0",
     "mermaid": "11.16.1",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.56.0",
     "nanoid": "^6.0.1",
     "platejs": "^53.3.6",
     "react": "^19.2.8",
