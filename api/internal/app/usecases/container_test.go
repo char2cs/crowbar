@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
@@ -65,6 +68,8 @@ func newContainerDeps(
 		newTestAsynx[domain.AgentRunner](t, adapters.AgentRunnerES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test
+		noChatWatch,
+		noRunnerWatch,
 	)
 	require.NoError(t, err)
 
@@ -106,7 +111,11 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.ProviderSync)
 	assert.NotNil(t, c.Worktree)
 	assert.NotNil(t, c.BranchReview)
-	assert.NotNil(t, c.Agent)
+	assert.NotNil(t, c.AgentChat)
+	assert.NotNil(t, c.AgentTurn)
+	assert.NotNil(t, c.AgentRunner)
+	assert.NotNil(t, c.AgentAnswer)
+	assert.NotNil(t, c.AgentProvider)
 }
 
 // TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
@@ -119,9 +128,9 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // repositories, advertises the complete surface by name.
 //
 // Chats and ChatLogs are filled in the way production fills them: agent.New
-// assigns the usecase to itself as both the ChatRenamer and the ChatLogReader
-// (see its doc comment), so c.Agent is the exact value the running daemon's
-// Deps carries for either port.
+// binds the CHAT concern as both the ChatRenamer and the ChatLogReader (see its
+// doc comment), so c.AgentChat is the exact value the running daemon's Deps
+// carries for either port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -132,8 +141,8 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast,
 		chatlineage.New(gormStores.AgentChatFolders, repos.AgentChat))
 	require.NoError(t, err)
-	deps.Chats = c.Agent
-	deps.ChatLogs = c.Agent
+	deps.Chats = c.AgentChat
+	deps.ChatLogs = c.AgentChat
 
 	names := []string{}
 	for _, tool := range agenttools.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
@@ -168,7 +177,7 @@ func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 
 	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
 
-	_, _, err = c.Agent.DispatchMCP(context.Background(), "RUN", "forged-token", []byte(
+	_, _, err = c.AgentProvider.DispatchMCP(context.Background(), "RUN", "forged-token", []byte(
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
 	require.NoError(t, err, "a rejected tool call is an RPC-level error, not a dispatch failure")
 
@@ -290,3 +299,10 @@ func (containerStatusStub) GitStatus(
 ) (gitdomain.GitStatus, error) {
 	return gitdomain.GitStatus{}, nil
 }
+
+// noChatWatch / noRunnerWatch are the agent announcement seams for tests that assert
+// nothing about WS frames. They are non-nil on purpose: agentrunner's store REFUSES a
+// nil watch at construction (a store that silently drops every frame is worse than one
+// that fails to build), so `nil` here would break every container in this file.
+func noChatWatch(_ agentchat.ChatEvent)       {}
+func noRunnerWatch(_ agentrunner.RunnerEvent) {}

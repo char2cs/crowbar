@@ -115,6 +115,10 @@ func New(
 	}
 
 	h := hub.NewHub()
+	// The agent aggregates announce; the fanout decides what a client is told. The hub
+	// still reaches the repository layer for workspace frames, which are outside this
+	// subsystem.
+	agentFanout := agent.NewFanout(h)
 	repos, err := repositories.New(
 		ctx,
 		adapters,
@@ -126,6 +130,8 @@ func New(
 		axAgentRunner,
 		engines.Git,
 		terminateAgentSession(engines.Terminal),
+		agentFanout.ChatWatch(),
+		agentFanout.RunnerWatch(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
@@ -436,7 +442,7 @@ func startTerminalWaitSweep(
 	h *hub.Hub,
 	ucs *usecases.Container,
 ) {
-	ucs.Agent.StartTerminalWaitSweep(
+	ucs.AgentRunner.StartTerminalWaitSweep(
 		ctx,
 		func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
 			h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
@@ -624,10 +630,10 @@ func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,
 ) {
-	if ucs.Agent == nil {
+	if ucs.AgentRunner == nil {
 		return
 	}
-	if err := ucs.Agent.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
+	if err := ucs.AgentRunner.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
 	}
 }

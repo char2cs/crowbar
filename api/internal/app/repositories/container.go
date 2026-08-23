@@ -149,6 +149,8 @@ func New(
 	axAgentRunner asynx.Asynx[domain.AgentRunner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
+	chatWatch agentchat.WatchFunc,
+	runnerWatch agentrunner.WatchFunc,
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
@@ -189,17 +191,13 @@ func New(
 
 	// agentchat: build the asynx-backed EventStore over the singleton
 	// axAgentChat, registering its store + hub projections (store.New, invoked by
-	// NewEventSourced) exactly once. h.BroadcastAgentChat is the SOLE source of
+	// NewEventSourced) exactly once. chatWatch is the SOLE source of
 	// agent-chat lifecycle frames: every agentchat.* event the agent usecase's
 	// commands emit is fanned out here by the hub projection. The usecase no
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
-	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(),
-		// Bridged inline until the fanout lands (plan task 4), which takes this
-		// decision out of the repository layer entirely.
-		func(e agentchat.ChatEvent) {
-			h.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
-		})
+	agentChat, err := agentchat.NewEventSourced(
+		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -223,16 +221,12 @@ func New(
 	// axAgentRunner, registering its two read projections (live runners +
 	// append-only conversation history) and its hub projection exactly once, over
 	// its OWN per-type planes (state/events/agent_runner.db and
-	// state/store/agent_runner.db). h.BroadcastAgentRunner is the sole source of
+	// state/store/agent_runner.db). runnerWatch is the sole source of
 	// runner lifecycle frames (started/session_bound/moved/displaced/exited). The agent
 	// usecase sends every runner command through this store, and the workspace-delete
 	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(),
-		// Bridged inline until the fanout lands (plan task 4).
-		func(e agentrunner.RunnerEvent) {
-			h.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
-		})
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), runnerWatch)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
 	}
