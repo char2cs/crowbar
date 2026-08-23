@@ -58,7 +58,6 @@ func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 }
 
 func TestDecide_HasNoRejectOutcome(t *testing.T) {
-
 	for _, d := range []models.Decision{
 		move.Decide("", "", "", false),
 		move.Decide("a", "a", "", false),

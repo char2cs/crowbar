@@ -7,6 +7,12 @@ type hookVocabulary struct{}
 func (hookVocabulary) Name() string { return "hook_vocabulary" }
 
 func (hookVocabulary) Check(d *spec.Descriptor) error {
+	// A v3 descriptor's event table is validated against vocabulary.yaml by
+	// schema.Validate, which is stricter than this and driven by data. This rule
+	// covers only the v2 files, and dies with them.
+	if d.IsV3() {
+		return nil
+	}
 	if d.Hooks.Format == "" {
 		return invalid(d.ID, "missing hooks.format")
 	}

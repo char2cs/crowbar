@@ -314,7 +314,6 @@ func indexOf(ss []string, target string) int {
 }
 
 func TestAgent_InstalledReportsWhetherTheCLIIsPresent(t *testing.T) {
-
 	assert.NotPanics(t, func() { _ = get(t, "claude").Installed() })
 
 	sh := stubAgent(t, "sh")
@@ -554,11 +553,14 @@ func TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy(t *testing.T) 
 		"the fixture must not restart for delivery reasons, or this proves nothing")
 
 	assert.False(t, a.SelectionRestart(
-		agents.Selection{Model: "opus"}, agents.Selection{Model: "opus"}))
+		agents.Selection{Model: "opus"}, agents.Selection{Model: "opus"},
+	))
 	assert.True(t, a.SelectionRestart(
-		agents.Selection{}, agents.Selection{Model: "opus"}))
+		agents.Selection{}, agents.Selection{Model: "opus"},
+	))
 	assert.True(t, a.SelectionRestart(
-		agents.Selection{Effort: "high"}, agents.Selection{}))
+		agents.Selection{Effort: "high"}, agents.Selection{},
+	))
 }
 
 func TestAgent_SelectionIsAbsentWhereNothingIsDeclared(t *testing.T) {
@@ -715,7 +717,8 @@ func TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches(t *testing.T) {
 		"id: silent\nspawn:\n  cmd: silent-cli\n  interactive_required: true\n"+
 			"hooks:\n  format: json\n  events:\n"+
 			"    session_start: { session_id: session_id }\n"+
-			"    turn_stop: { message: last }\n"), 0o600))
+			"    turn_stop: { message: last }\n",
+	), 0o600))
 
 	a, err := agents.New().Get(context.Background(), home, "silent")
 	require.NoError(t, err)

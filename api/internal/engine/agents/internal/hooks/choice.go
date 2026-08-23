@@ -68,7 +68,6 @@ func questionChoice(
 		ToolName: toolName,
 	}
 	if len(questions) > maxChoiceQuestions {
-
 		return prompt
 	}
 	for i, question := range questions {

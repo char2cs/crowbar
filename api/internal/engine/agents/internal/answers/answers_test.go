@@ -57,7 +57,6 @@ func askUserQuestionPayload() []byte {
 }
 
 func TestCapability_AbsentBlockIsNotAnswerable(t *testing.T) {
-
 	_, ok := answers.Capability(&spec.Descriptor{ID: "silent"}, "permission")
 	assert.False(t, ok)
 
@@ -151,7 +150,6 @@ func TestRender_AnswerEchoesTheToolInputWithThePicksMergedIn(t *testing.T) {
 }
 
 func TestRender_AnswerWithNoReadablePayloadStillCarriesThePicks(t *testing.T) {
-
 	out, err := answers.Render(answering(), "permission", []byte("not json"),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)

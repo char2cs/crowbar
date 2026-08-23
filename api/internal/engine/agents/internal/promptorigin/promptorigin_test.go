@@ -68,19 +68,16 @@ func TestMatch_IsPrefixAnchoredAndNotSqueezed(t *testing.T) {
 		want   bool
 	}{
 		{
-
 			name:   "a human quoting the tag mid-sentence is still the human",
 			prompt: "why is <task-notification> showing up in my chat log?",
 			want:   false,
 		},
 		{
-
 			name:   "the tag without its brackets is prose, not markup",
 			prompt: "task notification handling is broken",
 			want:   false,
 		},
 		{
-
 			name:   "leading whitespace does not hide the document",
 			prompt: "\n  " + taskNotification,
 			want:   true,

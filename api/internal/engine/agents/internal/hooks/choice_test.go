@@ -224,7 +224,8 @@ func TestParse_AnAbsurdQuestionListIsModelledWithNoQuestionsAtAll(t *testing.T) 
 
 	ev, err := hooks.Parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"AskUserQuestion","tool_input":{"questions":[`+
-			strings.Join(questions, ",")+`]}}`))
+			strings.Join(questions, ",")+`]}}`,
+	))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -325,7 +326,6 @@ func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {
 }
 
 func TestParse_ADescriptorMappingNoChoiceVocabularyReportsNoPrompt(t *testing.T) {
-
 	d := descriptor(map[string]map[string]string{
 		spec.HookPermission: {"session_id": "session_id", "message": "tool_name"},
 	})
@@ -393,14 +393,16 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 
 	question, err := hooks.Parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"q",
-		 "options":[`+strings.Join(options, ",")+`]}]}}`))
+		 "options":[`+strings.Join(options, ",")+`]}]}}`,
+	))
 	require.NoError(t, err)
 	require.NotNil(t, question.Choice)
 	require.Len(t, question.Choice.Questions, 1)
 	assert.Len(t, question.Choice.Questions[0].Options, 32)
 
 	permission, err := hooks.Parse(d, spec.HookPermission, []byte(
-		`{"tool_name":"Bash","permission_suggestions":[`+strings.Join(suggestions, ",")+`]}`))
+		`{"tool_name":"Bash","permission_suggestions":[`+strings.Join(suggestions, ",")+`]}`,
+	))
 	require.NoError(t, err)
 	require.NotNil(t, permission.Choice)
 	assert.Len(t, permission.Choice.Options, 34, "allow and deny, then the capped suggestions")

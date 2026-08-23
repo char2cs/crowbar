@@ -66,7 +66,6 @@ func TestTruncateRunes_BoundsByVisibleCharacters(t *testing.T) {
 }
 
 func TestTruncateBytes_NeverSplitsARune(t *testing.T) {
-
 	got := normalize.TruncateBytes("aé", 2)
 
 	assert.Equal(t, "a", got)

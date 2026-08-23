@@ -37,7 +37,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	if field, ok := ownsConversation(d, decoded); !ok {
 		return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 	}
-	fields, declared := d.Hooks.Event(canonical)
+	fields, declared := d.EventFields(canonical)
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf("%w: %q on %q", ErrUndeclaredEvent, canonical, d.ID)
 	}
@@ -45,8 +45,8 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
-	if d.Hooks.Format != "json" {
-		return nil, fmt.Errorf("%w %q on %q", ErrUnsupportedFormat, d.Hooks.Format, d.ID)
+	if format := d.HookFormat(); format != "json" {
+		return nil, fmt.Errorf("%w %q on %q", ErrUnsupportedFormat, format, d.ID)
 	}
 	if len(raw) == 0 {
 		return map[string]any{}, nil
@@ -59,7 +59,7 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 }
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
-	for _, field := range d.Hooks.RequirePayloadFields {
+	for _, field := range d.RequiredPayloadFields() {
 		if payload.String(decoded, field) == "" {
 			return field, false
 		}
@@ -137,14 +137,20 @@ func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEve
 	}
 }
 
-func firstNonEmptyJSON(decoded map[string]any, mapping string) []byte {
-	if mapping == "" {
+// branches splits an alternation. v2 spelled it with a comma and v3 spells it `||`;
+// both are accepted so one parser serves both shapes while they coexist.
+func branches(expr string) []string {
+	if strings.Contains(expr, "||") {
+		return strings.Split(expr, "||")
+	}
+	return strings.Split(expr, ",")
+}
+
+func firstNonEmptyJSON(decoded map[string]any, expr string) []byte {
+	if expr == "" {
 		return nil
 	}
-	if !strings.Contains(mapping, ",") {
-		return payload.JSON(decoded, mapping)
-	}
-	for _, path := range strings.Split(mapping, ",") {
+	for _, path := range branches(expr) {
 		if v := payload.JSON(decoded, strings.TrimSpace(path)); len(v) > 0 {
 			return v
 		}
@@ -152,14 +158,11 @@ func firstNonEmptyJSON(decoded map[string]any, mapping string) []byte {
 	return nil
 }
 
-func firstNonEmpty(decoded map[string]any, mapping string) string {
-	if mapping == "" {
+func firstNonEmpty(decoded map[string]any, expr string) string {
+	if expr == "" {
 		return ""
 	}
-	if !strings.Contains(mapping, ",") {
-		return payload.String(decoded, mapping)
-	}
-	for _, path := range strings.Split(mapping, ",") {
+	for _, path := range branches(expr) {
 		if v := payload.String(decoded, strings.TrimSpace(path)); v != "" {
 			return v
 		}
@@ -171,18 +174,5 @@ func Declared(d *spec.Descriptor) []string {
 	if d == nil {
 		return nil
 	}
-	out := make([]string, 0, len(d.Hooks.Events))
-	for kind := range d.Hooks.Events {
-		out = append(out, kind)
-	}
-	sortStrings(out)
-	return out
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
+	return d.DeclaredEvents()
 }

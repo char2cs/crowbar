@@ -37,6 +37,9 @@ type APISpec struct {
 type HooksWire struct {
 	Format   string `yaml:"format"`
 	Delivery string `yaml:"delivery"`
+	// RequirePayloadFields are the fields whose absence means the payload describes
+	// some other CLI's conversation, not this one.
+	RequirePayloadFields []string `yaml:"require_payload_fields"`
 }
 
 // EventSpec is one conversational fact. Exactly one of In/Out/Ask names the wire event.

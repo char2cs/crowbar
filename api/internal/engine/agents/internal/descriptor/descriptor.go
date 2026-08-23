@@ -17,11 +17,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-//go:embed descriptors/*.yaml
+//go:embed descriptors-v3/*.yaml
 var embedded embed.FS
 
 const (
-	embeddedDir = "descriptors"
+	// The shipped descriptors are v3 (event-centric). The v2 tree is retained only
+	// so the migration-completeness test can compare against it, and is deleted with
+	// the v2 code paths.
+	embeddedDir = "descriptors-v3"
 	overrideDir = "descriptors"
 	yamlSuffix  = ".yaml"
 )
@@ -30,10 +33,18 @@ var ErrUnknown = fmt.Errorf("agents: unknown provider")
 
 var ErrInvalid = rules.ErrInvalidDescriptor
 
+// Load parses a descriptor of either shape. A v3 file is additionally validated
+// against Crowbar's canonical vocabulary, which is stricter than the v2 Go rules and
+// is what makes a typo a startup failure rather than a field that maps to nothing.
 func Load(data []byte) (*spec.Descriptor, error) {
 	var d spec.Descriptor
 	if err := yaml.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("agents: descriptor unmarshal: %w", err)
+	}
+	if d.IsV3() {
+		if _, err := ParseV3(data); err != nil {
+			return nil, err
+		}
 	}
 	if err := rules.Apply(&d); err != nil {
 		return nil, err

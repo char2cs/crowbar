@@ -146,6 +146,12 @@ func assertNonEventSectionsSurvive(t *testing.T, v2, v3 *spec.Descriptor) {
 		{"terminal_prompts", len(v2.TerminalPrompts) > 0, len(v3.TerminalPrompts) > 0},
 		{"terminal_notices", len(v2.TerminalNotices) > 0, len(v3.TerminalNotices) > 0},
 		{"injected_prompts", len(v2.InjectedPrompts) > 0, len(v3.InjectedPrompts) > 0},
+		{"telemetry", v2.Telemetry != nil, v3.Telemetry != nil},
+		{
+			"hooks.require_payload_fields",
+			len(v2.Hooks.RequirePayloadFields) > 0,
+			len(v3.RequiredPayloadFields()) > 0,
+		},
 	} {
 		if c.inV2 && !c.inV3 {
 			t.Errorf("v3 dropped %s, which v2 declares", c.name)

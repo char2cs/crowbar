@@ -27,13 +27,12 @@ func Capability(d *spec.Descriptor, canonical string) (models.AnswerCapability, 
 	if d == nil {
 		return models.AnswerCapability{}, false
 	}
-	event, ok := d.Answer.Event(canonical)
+	event, ok := d.AnswerFor(canonical)
 	if !ok {
 		return models.AnswerCapability{}, false
 	}
 	keys := make([]string, 0, len(event.Responses))
 	for key, template := range event.Responses {
-
 		if strings.TrimSpace(template) != "" {
 			keys = append(keys, key)
 		}
@@ -57,7 +56,7 @@ func Render(
 	if d == nil {
 		return nil, ErrNotAnswerable
 	}
-	event, ok := d.Answer.Event(canonical)
+	event, ok := d.AnswerFor(canonical)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q on %q", ErrNotAnswerable, canonical, d.ID)
 	}
@@ -107,7 +106,7 @@ func toolInput(
 }
 
 func declaredToolInput(d *spec.Descriptor, canonical string, raw []byte) map[string]any {
-	fields, declared := d.Hooks.Event(canonical)
+	fields, declared := d.EventFields(canonical)
 	if !declared || len(raw) == 0 {
 		return map[string]any{}
 	}

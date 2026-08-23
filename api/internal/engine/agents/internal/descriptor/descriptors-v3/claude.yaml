@@ -111,26 +111,6 @@ events:
   # No claude HOOK carries token, context or cost data; statusLine is the only channel
   # that does. Each fact is mapped independently so a provider reporting only one still
   # works. context_window is null until the first turn completes.
-  telemetry:
-    in: statusline
-    map:
-      context.capacity_tokens:   context_window.context_window_size
-      context.used_tokens:       context_window.total_input_tokens
-      context.used_percent:      context_window.used_percentage
-      context.remaining_percent: context_window.remaining_percentage
-      cost.total_usd:            cost.total_cost_usd
-      cost.api_duration_ms:      cost.total_api_duration_ms
-      model.id:                  model.id
-      model.display_name:        model.display_name
-    rate_limits:
-      - id: five_hour
-        label: "5-hour"
-        used_percent: rate_limits.five_hour.used_percentage
-        resets_at: rate_limits.five_hour.resets_at
-      - id: seven_day
-        label: "7-day"
-        used_percent: rate_limits.seven_day.used_percentage
-        resets_at: rate_limits.seven_day.resets_at
 
   # AskUserQuestion is a TOOL, not an event — its questions arrive inside this
   # tool_input, which is why the question vocabulary is mapped here and nowhere else.
@@ -328,6 +308,44 @@ context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 resume_context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
+# The telemetry FACTS, not the transport. No claude HOOK carries token, context or cost
+# data; statusLine is the only channel that does. Each fact is mapped independently so
+# a provider that reports only one still works. context_window is null until the first
+# turn completes, so a fresh session legitimately has no gauge.
+telemetry:
+  callback:
+    format: json
+    fields:
+      context.capacity_tokens:   context_window.context_window_size
+      context.used_tokens:       context_window.total_input_tokens
+      context.used_percent:      context_window.used_percentage
+      context.remaining_percent: context_window.remaining_percentage
+      cost.total_usd:            cost.total_cost_usd
+      cost.api_duration_ms:      cost.total_api_duration_ms
+      model.id:                  model.id
+      model.display_name:        model.display_name
+    rate_limits:
+      - id: five_hour
+        label: "5-hour"
+        used_percent: rate_limits.five_hour.used_percentage
+        resets_at: rate_limits.five_hour.resets_at
+      - id: seven_day
+        label: "7-day"
+        used_percent: rate_limits.seven_day.used_percentage
+        resets_at: rate_limits.seven_day.resets_at
+# Prompts claude's OWN HARNESS submits, which arrive on the same hook the user's do.
+#
+# UserPromptSubmit carries both and its payload does not say which: Crowbar's delivery,
+# a human typing, and the harness's subagent report all arrive with an identical key
+# set, and the documented `source` field was ABSENT on all three. So this is a TEXT
+# MATCH, which is weaker than a discriminator, and it should be deleted the day claude
+# starts sending one.
+#
+# Compared as a case-sensitive PREFIX of the raw prompt after leading whitespace — NOT
+# with the reduction terminal_prompts uses, which would strip the angle brackets that
+# are the whole point. Prefix, so a person asking ABOUT a task notification is still
+# recorded as the person: a miss degrades to "recorded as the user", a false hit
+# silences a human.
 injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
