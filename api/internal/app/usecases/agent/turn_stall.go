@@ -13,7 +13,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) closeStalledTurn(ctx context.Context, stall termwait.Stall) {
+func (u *turnUsecase) closeStalledTurn(ctx context.Context, stall termwait.Stall) {
 	if stall.ChatID == "" {
 		return
 	}
@@ -47,7 +47,7 @@ func (u *Usecase) closeStalledTurn(ctx context.Context, stall termwait.Stall) {
 		"runner_id", stall.RunnerID, "notice", stall.Notice.Kind)
 }
 
-func (u *Usecase) recordStallNotice(ctx context.Context, stall termwait.Stall) {
+func (u *turnUsecase) recordStallNotice(ctx context.Context, stall termwait.Stall) {
 	if stall.Notice.Text == "" {
 		return
 	}
@@ -57,7 +57,7 @@ func (u *Usecase) recordStallNotice(ctx context.Context, stall termwait.Stall) {
 			"chat_id", stall.ChatID, "err", err)
 		return
 	}
-	if err := u.recordTurn(
+	if err := u.chat.recordTurn(
 		ctx, chat,
 		stall.ProviderID, stall.RunnerID, stall.SessionID,
 		domain.TurnRoleNotice, stall.Notice.Text, "",
@@ -67,7 +67,7 @@ func (u *Usecase) recordStallNotice(ctx context.Context, stall termwait.Stall) {
 	}
 }
 
-func (u *Usecase) MatchTerminalNotice(
+func (u *turnUsecase) MatchTerminalNotice(
 	ctx context.Context,
 	providerID string,
 	screen string,
@@ -87,7 +87,7 @@ func (u *Usecase) MatchTerminalNotice(
 	return matcher.MatchTerminalNotice(screen)
 }
 
-func (u *Usecase) OpenWork(ctx context.Context, chatID string) (bool, error) {
+func (u *turnUsecase) OpenWork(ctx context.Context, chatID string) (bool, error) {
 	tools, err := u.activity.ToolCalls(ctx, chatID, 0, 0)
 	if err != nil {
 		return false, err

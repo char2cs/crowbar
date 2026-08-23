@@ -7,5 +7,5 @@ import (
 )
 
 func CloseStalledTurn(u *Usecase, ctx context.Context, stall termwait.Stall) {
-	u.closeStalledTurn(ctx, stall)
+	u.turn.closeStalledTurn(ctx, stall)
 }

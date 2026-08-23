@@ -12,7 +12,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) handleObservation(
+func (u *turnUsecase) handleObservation(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	agent engineagents.Agent,
@@ -62,7 +62,7 @@ func (u *Usecase) handleObservation(
 	return nil
 }
 
-func (u *Usecase) openChoice(
+func (u *turnUsecase) openChoice(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -206,7 +206,7 @@ func itoa(v int64) string {
 	return string(buf[i:])
 }
 
-func (u *Usecase) handleTelemetry(
+func (u *turnUsecase) handleTelemetry(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	agent engineagents.Agent,
@@ -228,7 +228,7 @@ func (u *Usecase) handleTelemetry(
 	return nil
 }
 
-func (u *Usecase) Telemetry(chatID string) (engineagents.Telemetry, bool) {
+func (u *turnUsecase) Telemetry(chatID string) (engineagents.Telemetry, bool) {
 	return u.telemetry.get(chatID)
 }
 
@@ -270,7 +270,7 @@ type ChatActivity struct {
 
 const maxActivityPage = 500
 
-func (u *Usecase) ReadActivity(
+func (u *turnUsecase) ReadActivity(
 	ctx context.Context,
 	chatID string,
 	after int64,
@@ -306,7 +306,7 @@ func (u *Usecase) ReadActivity(
 	}, nil
 }
 
-func (u *Usecase) ReadPendingChoices(
+func (u *turnUsecase) ReadPendingChoices(
 	ctx context.Context,
 	chatID string,
 ) ([]domain.ActivityChoice, error) {
@@ -320,7 +320,7 @@ func (u *Usecase) ReadPendingChoices(
 	return choices, nil
 }
 
-func (u *Usecase) ReadToolPayload(
+func (u *turnUsecase) ReadToolPayload(
 	ctx context.Context,
 	chatID, toolID, side string,
 ) ([]byte, error) {

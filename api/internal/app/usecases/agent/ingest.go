@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) IngestHook(
+func (u *turnUsecase) IngestHook(
 	ctx context.Context,
 	runnerID string,
 	provider string,
@@ -28,7 +30,7 @@ func (u *Usecase) IngestHook(
 	return u.ingestHookNow(ctx, runnerID, provider, canonicalEvent, rawPayload)
 }
 
-func (u *Usecase) ingestUserPromptInterlocked(
+func (u *turnUsecase) ingestUserPromptInterlocked(
 	ctx context.Context,
 	runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
@@ -66,7 +68,7 @@ func (u *Usecase) ingestUserPromptInterlocked(
 	}
 }
 
-func (u *Usecase) ingestResolvedHook(
+func (u *turnUsecase) ingestResolvedHook(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	provider string,
@@ -133,7 +135,7 @@ func (u *Usecase) ingestResolvedHook(
 
 	switch ev.Kind {
 	case engineagents.HookSessionStart:
-		return u.handleSessionStart(ctx, runner, ev)
+		return u.runner.handleSessionStart(ctx, runner, ev)
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		return u.handleTurn(ctx, runner, descriptor, ev)
 	case engineagents.HookMessageDelta,
@@ -150,4 +152,76 @@ func (u *Usecase) ingestResolvedHook(
 		return nil
 	}
 	return nil
+}
+
+func (u *turnUsecase) replayStartupHook(
+	runnerID string,
+	hook pendingRunnerHook,
+) {
+	replayCtx := context.Background()
+	if hook.deliveryID != "" {
+		replayCtx = context.WithValue(replayCtx, hookDeliveryContextKey{}, hook.deliveryID)
+	}
+	if err := u.ingestHookNow(
+		replayCtx, runnerID, hook.provider, hook.canonicalEvent, hook.rawPayload,
+	); err != nil {
+		slog.Error("agent: replay startup hook (best-effort, continuing)",
+			"runner_id", runnerID, "event", hook.canonicalEvent, "err", err)
+		return
+	}
+	if hook.deliveryID == "" {
+		return
+	}
+	if err := u.hookDeliveries.Complete(
+		hook.deliveryDir, hook.deliveryID, hook.deliveryHash, time.Now(),
+	); err != nil {
+		slog.Error("agent: persist replayed startup hook delivery (effects already committed)",
+			"runner_id", runnerID, "delivery_id", hook.deliveryID, "err", err)
+	}
+}
+
+func (u *turnUsecase) ingestHookNow(
+	ctx context.Context,
+	runnerID string,
+	provider string,
+	canonicalEvent string,
+	rawPayload []byte,
+) error {
+	if canonicalEvent == "user_prompt" {
+		return u.ingestUserPromptInterlocked(ctx, runnerID, provider, canonicalEvent, rawPayload)
+	}
+	runner, err := u.runners.Get(ctx, runnerID)
+	if err != nil {
+		if errors.Is(err, agentrunner.ErrNotFound) {
+			// A hook from a runner we do not know (or one whose PTY has already died):
+			// ignore it. Never resurrect a runner from a hook.
+			return nil
+		}
+		return fmt.Errorf("agent: ingest hook: runner: %w", err)
+	}
+	return u.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
+}
+
+func (u *turnUsecase) chatForRunner(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) (domain.AgentChat, bool, error) {
+	if runner.CurrentChatID == "" {
+		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing
+		// it (a switch, an eviction, a chat deleted under it), and a SIGTERM'd CLI keeps
+		// talking for a moment. Its turns belong to nobody, and nowhere is never looked up
+		// — GetChat("") would miss and trigger agentchat's lazy self-heal, replaying the
+		// ENTIRE event log, on every hook of a dying CLI.
+		return domain.AgentChat{}, false, nil
+	}
+	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
+	if err != nil {
+		if errors.Is(err, agentchat.ErrNotFound) {
+			// The chat was deleted out from under the CLI (which is still dying). A turn
+			// typed into a chat the user has just removed goes nowhere, by design.
+			return domain.AgentChat{}, false, nil
+		}
+		return domain.AgentChat{}, false, fmt.Errorf("agent: ingest hook: chat: %w", err)
+	}
+	return chat, true, nil
 }

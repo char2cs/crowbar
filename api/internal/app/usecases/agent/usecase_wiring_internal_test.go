@@ -2,6 +2,7 @@ package agent
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,17 +31,19 @@ type wiringPrefs struct {
 	store.Store[domain.AgentProviderPreference, string]
 }
 
-// constructorUnsetFields are the Usecase fields agent.New is deliberately NOT
-// responsible for. Every other nilable field must come back non-nil, so a field
-// added to the struct is guarded the day it is added; anything added here has to
-// carry the reason it is legitimately nil after construction.
+// constructorUnsetFields are the fields agent.New is deliberately NOT
+// responsible for, keyed the way assertFieldWired names them: bare for a
+// Usecase field, "concern.field" for one of the types it delegates to. Every
+// other nilable field must come back non-nil, so a field added to any of those
+// structs is guarded the day it is added; anything added here has to carry the
+// reason it is legitimately nil after construction.
 var constructorUnsetFields = map[string]string{
-	"promptSettled": "wired by StartTerminalWaitSweep, not New: it publishes " +
-		"through the hub, a layer above this one, and stays nil in a daemon with " +
-		"no detector (usecase.go).",
-	"messageDelta": "wired by StartTerminalWaitSweep beside promptSettled, for " +
-		"the same reason: a daemon with nobody to publish to records the message " +
-		"when it finishes instead (usecase.go).",
+	"runner.promptSettled": "wired by StartTerminalWaitSweep, not New: it " +
+		"publishes through the hub, a layer above this one, and stays nil in a " +
+		"daemon with no detector (runner_usecase.go).",
+	"turn.messageDelta": "wired by StartTerminalWaitSweep beside promptSettled, " +
+		"for the same reason: a daemon with nobody to publish to records the " +
+		"message when it finishes instead (turn_usecase.go).",
 }
 
 var nilableKinds = map[reflect.Kind]bool{
@@ -94,7 +97,7 @@ func TestNew_LeavesNoConstructorOwnedFieldNil(t *testing.T) {
 	for i := range fields.NumField() {
 		assertFieldWired(t, fields.Type().Field(i).Name, fields.Field(i))
 	}
-	assertExcludedFieldsStillExist(t, fields.Type())
+	assertExcludedFieldsStillExist(t, u)
 }
 
 // TestNew_LeavesNoExtractedUsecaseFieldNil extends the guard above across the
@@ -104,15 +107,25 @@ func TestNew_LeavesNoConstructorOwnedFieldNil(t *testing.T) {
 func TestNew_LeavesNoExtractedUsecaseFieldNil(t *testing.T) {
 	u := newWiringFixture(t)
 
-	for name, extracted := range map[string]any{
-		"answers":   u.answers,
-		"providers": u.providers,
-	} {
+	for name, extracted := range extractedUsecases(u) {
 		fields := reflect.ValueOf(extracted).Elem()
 		require.NotZero(t, fields.NumField())
 		for i := range fields.NumField() {
 			assertFieldWired(t, name+"."+fields.Type().Field(i).Name, fields.Field(i))
 		}
+	}
+}
+
+// extractedUsecases are the concern types Usecase delegates to, keyed by the
+// field that holds each one. The key is the prefix every guard below names a
+// field of that concern by.
+func extractedUsecases(u *Usecase) map[string]any {
+	return map[string]any{
+		"chat":      u.chat,
+		"turn":      u.turn,
+		"runner":    u.runner,
+		"answers":   u.answers,
+		"providers": u.providers,
 	}
 }
 
@@ -129,7 +142,7 @@ func assertFieldWired(
 		return
 	}
 	assert.Falsef(t, field.IsNil(),
-		"agent.New left Usecase.%s nil. Nothing else fails until the daemon "+
+		"agent.New left %s nil. Nothing else fails until the daemon "+
 			"dereferences it at runtime, so either restore the initialiser or add "+
 			"%s to constructorUnsetFields with the reason it is legitimately nil.",
 		name, name)
@@ -137,16 +150,36 @@ func assertFieldWired(
 
 func assertExcludedFieldsStillExist(
 	t *testing.T,
-	usecase reflect.Type,
+	u *Usecase,
 ) {
 	t.Helper()
+	owners := map[string]reflect.Type{"": reflect.TypeOf(u).Elem()}
+	for concern, extracted := range extractedUsecases(u) {
+		owners[concern] = reflect.TypeOf(extracted).Elem()
+	}
 	for name, reason := range constructorUnsetFields {
-		_, ok := usecase.FieldByName(name)
+		concern, field := splitExcludedField(name)
+		owner, known := owners[concern]
+		if !known {
+			assert.Failf(t, "unknown concern",
+				"constructorUnsetFields excuses %q (%s) but %q is not a concern "+
+					"Usecase delegates to", name, reason, concern)
+			continue
+		}
+		_, ok := owner.FieldByName(field)
 		assert.Truef(t, ok,
 			"constructorUnsetFields excuses %q (%s) but no such field exists — a "+
 				"stale exclusion silently stops guarding whatever replaced it",
 			name, reason)
 	}
+}
+
+func splitExcludedField(name string) (concern, field string) {
+	dot := strings.IndexByte(name, '.')
+	if dot < 0 {
+		return "", name
+	}
+	return name[:dot], name[dot+1:]
 }
 
 func TestNew_WiresTheToolSurfaceBackToTheUsecase(t *testing.T) {

@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -16,7 +20,48 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-func (u *Usecase) spawnRunner(
+func (u *runnerUsecase) SpawnChat(
+	ctx context.Context,
+	workspaceID string,
+	providerID string,
+) (chatID, runnerID string, err error) {
+	chatID = uuid.NewString()
+	defer u.spawns.lock(chatID)()
+
+	runnerID, err = u.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
+	if err != nil {
+		return "", "", u.discardSpawnedChat(ctx, chatID, err)
+	}
+	return chatID, runnerID, nil
+}
+
+func (u *runnerUsecase) StartRunner(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	defer u.spawns.lock(chatID)()
+
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: start runner: chat: %w", err)
+	}
+	return u.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
+}
+
+func (u *runnerUsecase) discardSpawnedChat(
+	ctx context.Context,
+	chatID string,
+	cause error,
+) error {
+	if err := u.chat.purgeChatLocked(ctx, chatID); err != nil && !errors.Is(err, agentchat.ErrNotFound) {
+		slog.WarnContext(ctx, "agent: discard chat of a refused spawn (best-effort, reporting the spawn failure)",
+			"chat_id", chatID, "err", err)
+	}
+	return cause
+}
+
+func (u *runnerUsecase) spawnRunner(
 	ctx context.Context,
 	chatID string,
 	workspaceID string,
@@ -159,7 +204,7 @@ func (u *Usecase) spawnRunner(
 	// spawn, paying latency on the common path to close a corner. That is the trade,
 	// deliberately made in this direction; it is not an oversight to be tightened.
 	exitedDuringStartup := u.pendingHooks.finish(runnerID, func(hook pendingRunnerHook) {
-		u.replayStartupHook(runnerID, hook)
+		u.turn.replayStartupHook(runnerID, hook)
 	})
 	if exitedDuringStartup {
 		// onExit could not reconcile before the row existed. Now it does, after
@@ -179,7 +224,7 @@ type spawnPaths struct {
 	tmpDir      string
 }
 
-func (u *Usecase) spawnPaths(
+func (u *runnerUsecase) spawnPaths(
 	ctx context.Context,
 	workspaceID, runnerID, providerID string,
 ) (spawnPaths, error) {
@@ -224,7 +269,7 @@ func (u *Usecase) spawnPaths(
 	}, nil
 }
 
-func (u *Usecase) renderSpawnContext(
+func (u *runnerUsecase) renderSpawnContext(
 	in spawnContext,
 ) (engineagents.TemplateCtx, bool) {
 	tctx := engineagents.TemplateCtx{
@@ -287,7 +332,7 @@ func (u *Usecase) renderSpawnContext(
 	return tctx, inject
 }
 
-func (u *Usecase) forkCLI(
+func (u *runnerUsecase) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
@@ -315,7 +360,7 @@ func (u *Usecase) forkCLI(
 	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 }
 
-func (u *Usecase) recordRunner(
+func (u *runnerUsecase) recordRunner(
 	ctx context.Context,
 	chatID string,
 	workspaceID string,
@@ -371,4 +416,120 @@ func (u *Usecase) recordRunner(
 	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
 	u.retireOthersOn(ctx, chatID, runnerID)
 	return nil
+}
+
+func (u *runnerUsecase) mintRunnerToken(runnerID string) string {
+	if u.minter == nil {
+		return ""
+	}
+	return u.minter.Mint(runnerID)
+}
+
+func newRunnerID(
+	preallocated string,
+) string {
+	if preallocated != "" {
+		return preallocated
+	}
+	return uuid.NewString()
+}
+
+type spawnContext struct {
+	chatID        string
+	workspaceID   string
+	providerID    string
+	projectID     string
+	repoID        string
+	runnerID      string
+	tmpDir        string
+	worktree      string
+	crowbarHome   string
+	threads       string
+	conversation  string
+	promptMessage string
+	gapTurns      int
+	resuming      bool
+	selection     engineagents.Selection
+}
+
+type spawnPreflight struct {
+	mcpOn     bool
+	threads   string
+	selection engineagents.Selection
+}
+
+func (u *runnerUsecase) spawnPreflight(
+	ctx context.Context,
+	chatID, providerID string,
+	create bool,
+) (spawnPreflight, error) {
+	// This is the ONE seam every vendor CLI is launched through, which makes it the
+	// only place a disabled provider can actually be stopped.
+	if err := u.providers.requireProviderEnabled(ctx, providerID); err != nil {
+		return spawnPreflight{}, err
+	}
+	// The tool switch is a SEPARATE axis from whether the provider is enabled: a CLI
+	// spawned with its tools off still comes up, still fires its hooks and still
+	// holds a normal chat.
+	mcpOn, err := u.providers.providerMCPEnabled(ctx, providerID)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	threads, err := u.chat.threadContext(ctx, chatID, create)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	// The selection is also what gets RECORDED on the runner, so the record and the
+	// argv are rendered from ONE read: two reads could disagree across a concurrent
+	// change and leave a process whose recorded selection is not the one it runs.
+	sel, err := u.chat.chatSelection(ctx, chatID, create)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel}, nil
+}
+
+type forkRequest struct {
+	runnerID    string
+	providerID  string
+	workspaceID string
+	worktree    string
+	crowbarHome string
+	tmpDir      string
+	argv        []string
+	env         []string
+}
+
+func (u *runnerUsecase) teardownAfterPersistFailure(
+	ctx context.Context,
+	chatID, runnerID, termSessID string,
+	cause error,
+) error {
+	if err := u.term.TerminateGraceful(ctx, termSessID); err != nil &&
+		!errors.Is(err, engineterminal.ErrSessionNotFound) {
+		slog.WarnContext(ctx, "agent: spawn runner: teardown after persist failure",
+			"chat_id", chatID, "runner_id", runnerID, "terminal_session_id", termSessID, "err", err)
+	}
+	return cause
+}
+
+func (u *runnerUsecase) onRunnerExit(home, runnerID, tmpDir string) func() {
+	return func() {
+		RemoveUnderHome(context.Background(), home, tmpDir)
+		// CreateCommand can observe process exit before recordRunner has a
+		// terminal-session id to persist. The startup barrier remembers that fact;
+		// spawnRunner reconciles it immediately after persistence and ordered hook
+		// replay, instead of this callback missing the not-yet-existing row forever.
+		if u.pendingHooks.markExited(runnerID) {
+			return
+		}
+		u.reconcileRunnerExit(context.Background(), runnerID)
+	}
+}
+
+func (u *runnerUsecase) crowbarHookPath(home string) string {
+	if v := os.Getenv("CROWBAR_HOOK_BIN"); v != "" {
+		return v
+	}
+	return filepath.Join(home, "bin", "crowbar")
 }

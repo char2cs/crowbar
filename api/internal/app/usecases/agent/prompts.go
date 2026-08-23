@@ -25,31 +25,7 @@ const (
 	maxReactPromptBytes     = 64 * 1024
 )
 
-func (u *Usecase) ReadMessages(
-	ctx context.Context,
-	chatID string,
-	after, before, limit int,
-) (chatlog.Page, error) {
-	if after < 0 || before < 0 || (after > 0 && before > 0) {
-		return chatlog.Page{}, fmt.Errorf("agent: read messages: invalid cursor: %w", apperr.ErrInvalidArgument)
-	}
-	if limit == 0 {
-		limit = defaultMessagePageLimit
-	}
-	if limit < 1 || limit > maxMessagePageLimit {
-		return chatlog.Page{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, apperr.ErrInvalidArgument)
-	}
-	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
-		return chatlog.Page{}, fmt.Errorf("agent: read messages: chat: %w", err)
-	}
-	page, err := u.chatPage(ctx, chatID, after, before, limit)
-	if err != nil {
-		return chatlog.Page{}, fmt.Errorf("agent: read messages: %w", err)
-	}
-	return page, nil
-}
-
-func (u *Usecase) SubmitPrompt(
+func (u *runnerUsecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
@@ -154,7 +130,7 @@ func normalisePromptRequest(
 	return requestUUID.String(), nil
 }
 
-func (u *Usecase) replayPriorAttempt(
+func (u *runnerUsecase) replayPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID, textHash string,
@@ -175,7 +151,7 @@ func (u *Usecase) replayPriorAttempt(
 	return u.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
 }
 
-func (u *Usecase) promptTarget(
+func (u *runnerUsecase) promptTarget(
 	ctx context.Context,
 	chat domain.AgentChat,
 ) (domain.AgentRunner, engineagents.Agent, error) {
@@ -197,7 +173,7 @@ func (u *Usecase) promptTarget(
 	return live, descriptor, nil
 }
 
-func (u *Usecase) displaceForPrompt(
+func (u *runnerUsecase) displaceForPrompt(
 	ctx context.Context,
 	chatID, journalDir, clientRequestID, liveRunnerID string,
 ) error {
@@ -216,7 +192,7 @@ func (u *Usecase) displaceForPrompt(
 	return nil
 }
 
-func (u *Usecase) commitPromptSpawn(
+func (u *runnerUsecase) commitPromptSpawn(
 	ctx context.Context,
 	journalDir, clientRequestID, textHash, runnerID string,
 ) (domain.AgentPromptSubmission, error) {
@@ -258,7 +234,7 @@ func uncertainPromptOutcome(ctx context.Context, stage string, cause error) erro
 	return ErrPromptOutcomeUnknown
 }
 
-func (u *Usecase) markPromptOutcomeUncertain(
+func (u *runnerUsecase) markPromptOutcomeUncertain(
 	ctx context.Context,
 	journalDir, clientRequestID, stage string,
 	cause error,
@@ -270,7 +246,7 @@ func (u *Usecase) markPromptOutcomeUncertain(
 	return uncertainPromptOutcome(ctx, stage, cause)
 }
 
-func (u *Usecase) requirePromptIdle(ctx context.Context, chatID, runnerID string) error {
+func (u *runnerUsecase) requirePromptIdle(ctx context.Context, chatID, runnerID string) error {
 	current, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
 		return ErrPromptSessionUnavailable
@@ -292,7 +268,7 @@ func (u *Usecase) requirePromptIdle(ctx context.Context, chatID, runnerID string
 	return nil
 }
 
-func (u *Usecase) requireNoPendingPromptDelivery(ctx context.Context, chat domain.AgentChat) error {
+func (u *runnerUsecase) requireNoPendingPromptDelivery(ctx context.Context, chat domain.AgentChat) error {
 	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: reconcile ledger evidence: %w", err)
 	}
@@ -310,7 +286,7 @@ func (u *Usecase) requireNoPendingPromptDelivery(ctx context.Context, chat domai
 	return nil
 }
 
-func (u *Usecase) reconcilePromptJournalsOnBoot(ctx context.Context) error {
+func (u *runnerUsecase) reconcilePromptJournalsOnBoot(ctx context.Context) error {
 	chats, err := u.chats.ListChats(ctx)
 	if err != nil {
 		return fmt.Errorf("agent: boot reconcile prompt journals: list chats: %w", err)
@@ -358,7 +334,7 @@ func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmi
 	}
 }
 
-func (u *Usecase) classifyPriorAttempt(
+func (u *runnerUsecase) classifyPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
@@ -379,7 +355,7 @@ func (u *Usecase) classifyPriorAttempt(
 	return domain.AgentPromptSubmission{}, false, nil
 }
 
-func (u *Usecase) recoverPriorDelivery(
+func (u *runnerUsecase) recoverPriorDelivery(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
@@ -401,12 +377,12 @@ func (u *Usecase) recoverPriorDelivery(
 	return domain.AgentPromptSubmission{}, true, ErrPromptAlreadyAccepted
 }
 
-func (u *Usecase) promptRecordAccepted(
+func (u *runnerUsecase) promptRecordAccepted(
 	ctx context.Context,
 	chat domain.AgentChat,
 	record agentjournal.PromptRequest,
 ) (bool, error) {
-	turns, err := u.chatTurns(ctx, chat.ID)
+	turns, err := u.chat.chatTurns(ctx, chat.ID)
 	if err != nil {
 		return false, fmt.Errorf("agent: recover prompt request: turns: %w", err)
 	}
@@ -431,7 +407,7 @@ func deliveredThisRequest(
 	return turn.RunnerID != "" && turn.RunnerID != record.OutgoingRunnerID
 }
 
-func (u *Usecase) reconcilePendingPromptFromLedger(
+func (u *runnerUsecase) reconcilePendingPromptFromLedger(
 	ctx context.Context,
 	chat domain.AgentChat,
 ) error {
@@ -454,7 +430,7 @@ func (u *Usecase) reconcilePendingPromptFromLedger(
 	return nil
 }
 
-func (u *Usecase) confirmPromptAccepted(
+func (u *runnerUsecase) confirmPromptAccepted(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -470,7 +446,7 @@ func (u *Usecase) confirmPromptAccepted(
 	)
 }
 
-func (u *Usecase) reconcilePromptRunnerDeparture(
+func (u *runnerUsecase) reconcilePromptRunnerDeparture(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	chatID string,
@@ -510,7 +486,7 @@ type promptDelivery struct {
 	resuming        bool
 }
 
-func (u *Usecase) resolvePromptDelivery(
+func (u *runnerUsecase) resolvePromptDelivery(
 	ctx context.Context,
 	chatID string,
 	live domain.AgentRunner,
@@ -543,7 +519,7 @@ func (u *Usecase) resolvePromptDelivery(
 	return out, nil
 }
 
-func (u *Usecase) resumeTarget(
+func (u *runnerUsecase) resumeTarget(
 	ctx context.Context,
 	chatID string,
 	live domain.AgentRunner,
@@ -566,7 +542,7 @@ func (u *Usecase) resumeTarget(
 	return resuming, live.CurrentSession, nil
 }
 
-func (u *Usecase) requirePromptRestart(
+func (u *runnerUsecase) requirePromptRestart(
 	ctx context.Context,
 	chatID string,
 	live domain.AgentRunner,
@@ -575,7 +551,7 @@ func (u *Usecase) requirePromptRestart(
 	if descriptor.Capabilities().Delivery == engineagents.DeliveryRestartTUI {
 		return nil
 	}
-	desired, err := u.chatSelection(ctx, chatID, false)
+	desired, err := u.chat.chatSelection(ctx, chatID, false)
 	if err != nil {
 		return err
 	}

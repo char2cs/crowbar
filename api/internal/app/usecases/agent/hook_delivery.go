@@ -34,7 +34,7 @@ func hookDeliveryID(ctx context.Context) string {
 //
 // The runner gate is held across the WHOLE of that — not inside the journal —
 // because what must not interleave is the ingestion, not the record write.
-func (u *Usecase) IngestHookDelivery(
+func (u *turnUsecase) IngestHookDelivery(
 	ctx context.Context,
 	workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
@@ -77,7 +77,7 @@ func (u *Usecase) IngestHookDelivery(
 	return nil
 }
 
-func (u *Usecase) hookDeliveryScope(
+func (u *turnUsecase) hookDeliveryScope(
 	ctx context.Context,
 	workspaceID, runnerID string,
 ) (string, bool, error) {

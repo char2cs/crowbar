@@ -2,16 +2,19 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
+	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/google/uuid"
+
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-func (u *Usecase) RenameChat(
+func (u *chatUsecase) RenameChat(
 	ctx context.Context,
 	chatID, title, source string,
 ) error {
@@ -40,7 +43,7 @@ func (u *Usecase) RenameChat(
 	return nil
 }
 
-func (u *Usecase) RenameByRunner(
+func (u *chatUsecase) RenameByRunner(
 	ctx context.Context,
 	runnerID, title, source string,
 ) error {
@@ -54,7 +57,7 @@ func (u *Usecase) RenameByRunner(
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
 }
 
-func (u *Usecase) PurgeChat(
+func (u *chatUsecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
@@ -67,7 +70,11 @@ func (u *Usecase) PurgeChat(
 	return u.purgeChatLocked(ctx, chatID)
 }
 
-func (u *Usecase) purgeChatLocked(
+// The caller already holds chatID's spawn gate: PurgeChat above takes it, and
+// the spawn path reaches this from INSIDE it (runnerUsecase.discardSpawnedChat).
+// chatGate is not reentrant, so wiring either caller to PurgeChat instead
+// compiles and deadlocks that goroutine on its own gate forever.
+func (u *chatUsecase) purgeChatLocked(
 	ctx context.Context,
 	chatID string,
 ) error {
@@ -78,7 +85,7 @@ func (u *Usecase) purgeChatLocked(
 	if err := u.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
-	u.retireChatRunners(ctx, chatID)
+	u.runner.retireChatRunners(ctx, chatID)
 
 	// Drop the conversation record and its telemetry. The record outlives the
 	// process and nothing else removes it, so a hard delete that skipped it would
@@ -127,57 +134,70 @@ func (u *Usecase) purgeChatLocked(
 	return nil
 }
 
-func (u *Usecase) ResumeChat(
-	ctx context.Context,
-	chatID string,
-) (string, error) {
-	defer u.spawns.lock(chatID)()
-
-	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
-		return live.ID, nil
-	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: resume chat: live runner: %w", err)
-	}
-	last, err := u.runners.LastConversation(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: resume chat: no conversation to resume: %w", err)
-	}
-	// The gate is already held: call the inner body, never SwitchProvider itself.
-	return u.switchProviderLocked(ctx, chatID, last.ProviderID)
-}
-
-func (u *Usecase) StopChat(
-	ctx context.Context,
-	chatID string,
-) error {
-	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
-	// racing a switch or resume must not terminate a runner the other path is mid-way
-	// through placing. It is never taken on the hook path, so a CLI still talking as it
-	// dies can always reach us.
-	defer u.spawns.lock(chatID)()
-
-	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil // already dormant: there is no live CLI to stop
-	}
-	if err != nil {
-		return fmt.Errorf("agent: stop chat: live runner: %w", err)
-	}
-	u.retire(ctx, live)
-	return nil
-}
-
-func (u *Usecase) ListChats(
+func (u *chatUsecase) ListChats(
 	ctx context.Context,
 ) ([]domain.AgentChat, error) {
 	return u.chats.ListChats(ctx)
 }
 
-func (u *Usecase) GetChat(
+func (u *chatUsecase) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.AgentChat, error) {
 	return u.chats.GetChat(ctx, id)
+}
+
+func (u *chatUsecase) MintChat(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	chatID := uuid.NewString()
+	created, err := u.chats.Create(ctx, agentchat.CreateInput{
+		ID:          chatID,
+		WorkspaceID: workspaceID,
+		Now:         time.Now(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("agent: mint chat: %w", err)
+	}
+	u.work.set(chatID, created.Working)
+	return chatID, nil
+}
+
+func (u *chatUsecase) NoteThreadLineage(
+	ctx context.Context,
+	chatID string,
+	ancestors []string,
+) error {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note thread lineage: chat: %w", err)
+	}
+	turns, err := u.chatTurns(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note thread lineage: turns: %w", err)
+	}
+	if len(turns) == 0 {
+		return nil
+	}
+	return u.appendTurn(ctx, chat, lineageNoteProvider, "user", lineageNoteText(ancestors))
+}
+
+const lineageNoteProvider = "crowbar"
+
+func lineageNoteText(
+	ancestors []string,
+) string {
+	return "[Crowbar] This chat was moved in the Chats panel and is a THREAD of " +
+		strings.Join(ancestors, ", ") + " (nearest parent first) from this point on. " +
+		"Read those chats with get_chat_log. Everything above this line was said BEFORE the move, " +
+		"without any of that context: the move changes what this chat reads from now on and " +
+		"rewrites nothing it has already read."
+}
+
+func (u *chatUsecase) ListChatsByWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) ([]domain.AgentChat, error) {
+	return u.chats.ListByWorkspace(ctx, workspaceID)
 }

@@ -14,7 +14,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-func (u *Usecase) recordMessageDelta(
+func (u *turnUsecase) recordMessageDelta(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -46,7 +46,7 @@ func (u *Usecase) recordMessageDelta(
 	u.messages.markRecorded(chat.ID, message.ID, message.Text)
 }
 
-func (u *Usecase) recordAssistantMessage(
+func (u *turnUsecase) recordAssistantMessage(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -76,7 +76,7 @@ func (u *Usecase) recordAssistantMessage(
 
 func assistantTurnID(messageID string) string { return "msg-" + messageID }
 
-func (u *Usecase) closeAssistantTurn(
+func (u *turnUsecase) closeAssistantTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -125,7 +125,7 @@ func (u *Usecase) closeAssistantTurn(
 
 func hookMessageID(ctx context.Context) string { return "hook-" + turnID(ctx) }
 
-func (u *Usecase) closeTurnFromFailure(
+func (u *turnUsecase) closeTurnFromFailure(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -135,7 +135,7 @@ func (u *Usecase) closeTurnFromFailure(
 	defer u.turns.complete(runner.ID)
 
 	if reason := failureNotice(ev); reason != "" {
-		note(ctx, "record turn failure", u.recordTurn(
+		note(ctx, "record turn failure", u.chat.recordTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 			domain.TurnRoleNotice, reason, "",
 		))
@@ -163,7 +163,7 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 // message is still unterminated. It answers with the NEWEST increment across every
 // unfinished message, not the oldest: one message still advancing means the CLI is
 // alive, so the quiet period the sweep measures must restart on any of them.
-func (u *Usecase) UnfinishedSince(chatID string) (time.Time, bool) {
+func (u *turnUsecase) UnfinishedSince(chatID string) (time.Time, bool) {
 	unfinished := u.messages.unfinished(chatID)
 	if len(unfinished) == 0 {
 		return time.Time{}, false
@@ -177,7 +177,7 @@ func (u *Usecase) UnfinishedSince(chatID string) (time.Time, bool) {
 	return newest, true
 }
 
-func (u *Usecase) AbandonMessage(ctx context.Context, chatID string) (bool, error) {
+func (u *turnUsecase) AbandonMessage(ctx context.Context, chatID string) (bool, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("agent: abandon message: chat: %w", err)

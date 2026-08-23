@@ -59,7 +59,7 @@ func (raceActivity) CloseTurn(
 }
 
 type streamRacer struct {
-	usecase *Usecase
+	usecase *turnUsecase
 	done    chan struct{}
 }
 
@@ -93,7 +93,7 @@ func TestMessageStreams_TheSweepAbandonsWhileAHookIsStillStreaming(t *testing.T)
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 
 	racer := &streamRacer{
-		usecase: &Usecase{
+		usecase: &turnUsecase{
 			chats:    raceChats{},
 			runners:  raceRunners{},
 			activity: raceActivity{},

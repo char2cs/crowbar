@@ -10,7 +10,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) SetChatSelection(
+func (u *chatUsecase) SetChatSelection(
 	ctx context.Context,
 	chatID string,
 	model string,
@@ -30,7 +30,7 @@ func (u *Usecase) SetChatSelection(
 	return nil
 }
 
-func (u *Usecase) validateSelection(
+func (u *chatUsecase) validateSelection(
 	ctx context.Context,
 	chatID string,
 	model string,
@@ -51,7 +51,7 @@ func (u *Usecase) validateSelection(
 	return nil
 }
 
-func (u *Usecase) chatAgent(
+func (u *chatUsecase) chatAgent(
 	ctx context.Context,
 	chatID string,
 ) (engineagents.Agent, error) {
@@ -70,7 +70,7 @@ func (u *Usecase) chatAgent(
 	return agent, nil
 }
 
-func (u *Usecase) chatProviderID(
+func (u *chatUsecase) chatProviderID(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
@@ -92,7 +92,7 @@ func (u *Usecase) chatProviderID(
 	return last.ProviderID, nil
 }
 
-func (u *Usecase) chatSelection(
+func (u *chatUsecase) chatSelection(
 	ctx context.Context,
 	chatID string,
 	minting bool,

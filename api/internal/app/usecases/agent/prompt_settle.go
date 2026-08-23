@@ -9,7 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 )
 
-func (u *Usecase) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
+func (u *runnerUsecase) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
 	dir, err := u.promptJournalDirFor(ctx, chatID)
 	if err != nil {
 		return termwait.Delivery{}, false
@@ -21,7 +21,7 @@ func (u *Usecase) PendingDelivery(ctx context.Context, chatID string) (termwait.
 	return termwait.Delivery{RequestID: record.RequestID, RunnerID: record.RunnerID}, true
 }
 
-func (u *Usecase) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
+func (u *runnerUsecase) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("agent: settle prompt delivery: chat: %w", err)
@@ -48,7 +48,7 @@ func (u *Usecase) SettleDelivery(ctx context.Context, chatID, requestID string) 
 	return true, nil
 }
 
-func (u *Usecase) promptJournalDirFor(ctx context.Context, chatID string) (string, error) {
+func (u *runnerUsecase) promptJournalDirFor(ctx context.Context, chatID string) (string, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: prompt journal dir: chat: %w", err)

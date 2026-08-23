@@ -4,32 +4,10 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
-	if u.termWait == nil {
-		return domain.AgentTerminalWait{}
-	}
-	return u.termWait.Wait(chatID)
-}
-
-func (u *Usecase) StartTerminalWaitSweep(
-	ctx context.Context,
-	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string),
-	messageDelta func(chatID, workspaceID, messageID, text string),
-) {
-	u.promptSettled = promptSettled
-	u.messageDelta = messageDelta
-	if u.termWait == nil {
-		return
-	}
-	u.termWait.Run(ctx, publish)
-}
-
-func (u *Usecase) MatchTerminalPrompt(
+func (u *turnUsecase) MatchTerminalPrompt(
 	ctx context.Context,
 	providerID string,
 	screen string,
@@ -45,24 +23,31 @@ func (u *Usecase) MatchTerminalPrompt(
 	return descriptor.MatchTerminalPrompt(screen)
 }
 
+// newTerminalWaitDetector builds the detector LAST, after the concern types
+// exist: its ports are spread across them (the prompt and notice matchers, the
+// open-work read, the message stream and the prompt-delivery journal), and it
+// binds them by value. Building it earlier would bind nil.
+//
+// It returns NIL when the terminal seam cannot render a screen, which is the
+// whole of the "no detector" case every reader of u.termWait guards for.
 func newTerminalWaitDetector(u *Usecase) termwait.Detector {
-	screens, ok := u.term.(termwait.Screens)
+	screens, ok := u.runner.term.(termwait.Screens)
 	if !ok {
 		return nil
 	}
 	return termwait.New(termwait.Deps{
-		Runners: u.runners,
-		Chats:   u.chats,
-		Choices: u.activity,
+		Runners: u.runner.runners,
+		Chats:   u.chat.chats,
+		Choices: u.turn.activity,
 		Screens: screens,
-		Prompts: u,
+		Prompts: u.turn,
 
-		Notices: u,
-		Work:    u,
-		OnStall: u.closeStalledTurn,
+		Notices: u.turn,
+		Work:    u.turn,
+		OnStall: u.turn.closeStalledTurn,
 
-		Deliveries: u,
+		Deliveries: u.runner,
 
-		Messages: u,
+		Messages: u.turn,
 	})
 }

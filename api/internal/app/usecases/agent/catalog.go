@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -62,7 +63,7 @@ func (r *catalogRuns) acquireProcess(ctx context.Context) (func(), error) {
 	}
 }
 
-func (u *Usecase) SlashCatalog(
+func (u *runnerUsecase) SlashCatalog(
 	ctx context.Context,
 	chatID string,
 ) (engineagents.SlashCatalog, error) {
@@ -93,37 +94,57 @@ func (u *Usecase) SlashCatalog(
 		Env: os.Environ(),
 	}, u.catalogs.acquireProcess)
 
-	current, placementErr := u.runners.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(placementErr, agentrunner.ErrNotFound) ||
-		(placementErr == nil && (current.ID != runner.ID || current.ProviderID != runner.ProviderID)) {
-		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
+	if err := u.catalogStillCurrent(ctx, chatID, runner); err != nil {
+		return engineagents.SlashCatalog{}, err
 	}
-	if placementErr != nil {
-		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: revalidate live runner: %w", placementErr)
+	if err != nil {
+		return engineagents.SlashCatalog{}, slashCatalogError(ctx, err)
 	}
-	if err == nil {
-		return catalog, nil
+	return catalog, nil
+}
+
+func (u *runnerUsecase) catalogStillCurrent(
+	ctx context.Context,
+	chatID string,
+	probed domain.AgentRunner,
+) error {
+	current, err := u.runners.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return ErrSlashCatalogSuperseded
 	}
+	if err != nil {
+		return fmt.Errorf("agent: slash catalog: revalidate live runner: %w", err)
+	}
+	if current.ID != probed.ID || current.ProviderID != probed.ProviderID {
+		return ErrSlashCatalogSuperseded
+	}
+	return nil
+}
+
+func slashCatalogError(
+	ctx context.Context,
+	err error,
+) error {
 	if errors.Is(err, context.Canceled) {
 		if ctx.Err() != nil {
-			return engineagents.SlashCatalog{}, ctx.Err()
+			return ctx.Err()
 		}
-		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
+		return ErrSlashCatalogSuperseded
 	}
 	switch {
 	case errors.Is(err, engineagents.ErrCatalogUnsupported):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogUnsupported
+		return ErrSlashCatalogUnsupported
 	case errors.Is(err, engineagents.ErrProbeTimeout):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogTimeout
+		return ErrSlashCatalogTimeout
 	case errors.Is(err, engineagents.ErrProbeCommandUnavailable):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogUnavailable
+		return ErrSlashCatalogUnavailable
 	case errors.Is(err, engineagents.ErrProbeOutputLimit):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogOutputLimit
+		return ErrSlashCatalogOutputLimit
 	case errors.Is(err, engineagents.ErrProbeCommandFailed):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogCommand
+		return ErrSlashCatalogCommand
 	case errors.Is(err, engineagents.ErrCatalogMalformedOutput):
-		return engineagents.SlashCatalog{}, ErrSlashCatalogMalformed
+		return ErrSlashCatalogMalformed
 	default:
-		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: probe: %w", err)
+		return fmt.Errorf("agent: slash catalog: probe: %w", err)
 	}
 }

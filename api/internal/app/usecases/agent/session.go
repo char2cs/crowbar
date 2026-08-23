@@ -14,31 +14,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) chatForRunner(
-	ctx context.Context,
-	runner domain.AgentRunner,
-) (domain.AgentChat, bool, error) {
-	if runner.CurrentChatID == "" {
-		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing
-		// it (a switch, an eviction, a chat deleted under it), and a SIGTERM'd CLI keeps
-		// talking for a moment. Its turns belong to nobody, and nowhere is never looked up
-		// — GetChat("") would miss and trigger agentchat's lazy self-heal, replaying the
-		// ENTIRE event log, on every hook of a dying CLI.
-		return domain.AgentChat{}, false, nil
-	}
-	chat, err := u.chats.GetChat(ctx, runner.CurrentChatID)
-	if err != nil {
-		if errors.Is(err, agentchat.ErrNotFound) {
-			// The chat was deleted out from under the CLI (which is still dying). A turn
-			// typed into a chat the user has just removed goes nowhere, by design.
-			return domain.AgentChat{}, false, nil
-		}
-		return domain.AgentChat{}, false, fmt.Errorf("agent: ingest hook: chat: %w", err)
-	}
-	return chat, true, nil
-}
-
-func (u *Usecase) handleSessionStart(
+func (u *runnerUsecase) handleSessionStart(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	ev engineagents.CanonicalEvent,
@@ -110,7 +86,7 @@ func (u *Usecase) handleSessionStart(
 	return nil
 }
 
-func (u *Usecase) moveToNewChat(
+func (u *runnerUsecase) moveToNewChat(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	sessionID string,
@@ -150,7 +126,7 @@ func (u *Usecase) moveToNewChat(
 	return nil
 }
 
-func (u *Usecase) moveToKnownChat(
+func (u *runnerUsecase) moveToKnownChat(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	toChatID string,

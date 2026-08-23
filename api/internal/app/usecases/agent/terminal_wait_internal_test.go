@@ -18,7 +18,7 @@ import (
 var _ termwait.Screens = (engineterminal.Engine)(nil)
 
 func TestUsecase_TerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
-	u := &Usecase{}
+	u := &Usecase{turn: &turnUsecase{}, runner: &runnerUsecase{}}
 
 	assert.False(t, u.TerminalWait("any-chat").Waiting)
 
@@ -42,7 +42,11 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 }
 
 func TestUsecase_TerminalWait_ReadsThroughTheDetector(t *testing.T) {
-	u := &Usecase{term: screenReadingCommander{}}
+	u := &Usecase{
+		chat:   &chatUsecase{},
+		turn:   &turnUsecase{},
+		runner: &runnerUsecase{term: screenReadingCommander{}},
+	}
 	u.termWait = newTerminalWaitDetector(u)
 
 	require.NotNil(t, u.termWait)
@@ -50,10 +54,10 @@ func TestUsecase_TerminalWait_ReadsThroughTheDetector(t *testing.T) {
 }
 
 func TestUsecase_MatchTerminalPrompt_UnresolvableHomeIsSilent(t *testing.T) {
-	u := &Usecase{
+	u := &Usecase{turn: &turnUsecase{
 		agents: engineagents.New(),
 		home:   func() (string, error) { return "", errors.New("no home") },
-	}
+	}}
 
 	_, ok := u.MatchTerminalPrompt(t.Context(), "claude", "❯ 1. Yes, I trust this folder")
 
@@ -62,7 +66,7 @@ func TestUsecase_MatchTerminalPrompt_UnresolvableHomeIsSilent(t *testing.T) {
 
 func TestUsecase_StartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	swept := make(chan struct{}, 1)
-	u := &Usecase{}
+	u := &Usecase{turn: &turnUsecase{}, runner: &runnerUsecase{}}
 	u.termWait = sweepRecorder{swept: swept}
 
 	u.StartTerminalWaitSweep(t.Context(), nil, nil, nil)

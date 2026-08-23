@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
@@ -11,7 +12,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *Usecase) openAssistantTurn(
+func (u *turnUsecase) openAssistantTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -33,7 +34,7 @@ func openTurnID(chatID, runnerID string) string {
 	return "open-" + chatID + "-" + runnerID
 }
 
-func (u *Usecase) handleTurn(
+func (u *turnUsecase) handleTurn(
 	ctx context.Context,
 	runner domain.AgentRunner,
 	agent engineagents.Agent,
@@ -55,7 +56,7 @@ func (u *Usecase) handleTurn(
 	return nil
 }
 
-func (u *Usecase) openTurnFromPrompt(
+func (u *turnUsecase) openTurnFromPrompt(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -109,14 +110,14 @@ func (u *Usecase) openTurnFromPrompt(
 		}
 		u.work.set(chat.ID, started.Working)
 		u.turns.begin(runner.ID, chat.ID)
-		appendErr := u.appendRunnerTurn(
+		appendErr := u.chat.appendRunnerTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 			domain.TurnRoleHarness, ev.Message,
 		)
 		u.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
+	if err := u.chat.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
 	// A user prompt opens the turn: mark the chat Working so the read model (and
@@ -130,7 +131,7 @@ func (u *Usecase) openTurnFromPrompt(
 	// in front of it — a provider switch blocks on this rather than on Working, so that
 	// it never quits a CLI that is still answering (turnWaits).
 	u.turns.begin(runner.ID, chat.ID)
-	appendErr := u.appendRunnerTurn(
+	appendErr := u.chat.appendRunnerTurn(
 		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 		domain.TurnRoleUser, ev.Message,
 	)
@@ -146,7 +147,7 @@ func (u *Usecase) openTurnFromPrompt(
 	// would wedge every future prompt. Conversely, a journal failure after a
 	// successful ledger append is repaired from that attributed turn by the
 	// turn_stop and pre-destructive reconciliation paths.
-	confirmErr := u.confirmPromptAccepted(ctx, chat, runner, ev.Message)
+	confirmErr := u.runner.confirmPromptAccepted(ctx, chat, runner, ev.Message)
 	if appendErr != nil {
 		return appendErr
 	}
@@ -156,7 +157,7 @@ func (u *Usecase) openTurnFromPrompt(
 	return nil
 }
 
-func (u *Usecase) closeTurnFromStop(
+func (u *turnUsecase) closeTurnFromStop(
 	ctx context.Context,
 	chat domain.AgentChat,
 	runner domain.AgentRunner,
@@ -194,14 +195,14 @@ func (u *Usecase) closeTurnFromStop(
 		return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 	}
 	u.work.set(chat.ID, stopped.Working)
-	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
+	if err := u.runner.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
 			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
 	}
 	return appendErr
 }
 
-func (u *Usecase) awaitTurnComplete(
+func (u *turnUsecase) awaitTurnComplete(
 	ctx context.Context,
 	chatID string,
 ) error {
@@ -235,7 +236,7 @@ func (u *Usecase) awaitTurnComplete(
 	}
 }
 
-func (u *Usecase) chatWorking(ctx context.Context, chatID string) (bool, error) {
+func (u *turnUsecase) chatWorking(ctx context.Context, chatID string) (bool, error) {
 	if working, known, _ := u.work.observe(chatID); known {
 		return working, nil
 	}
@@ -247,4 +248,34 @@ func (u *Usecase) chatWorking(ctx context.Context, chatID string) (bool, error) 
 		return working, nil
 	}
 	return chat.Working, nil
+}
+
+func deriveTitle(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		r := []rune(line)
+		if len(r) > 60 {
+			return strings.TrimSpace(string(r[:60])) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
+func (u *turnUsecase) seedWorkFromProjection(
+	ctx context.Context,
+	chatID string,
+) (bool, <-chan struct{}, error) {
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, nil, fmt.Errorf("agent: switch provider: inspect chat work: %w", err)
+	}
+	current, known, changed := u.work.observe(chatID)
+	if known {
+		return current, changed, nil
+	}
+	return chat.Working, changed, nil
 }

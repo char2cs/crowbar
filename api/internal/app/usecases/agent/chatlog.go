@@ -14,7 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-func (u *Usecase) recordTurn(
+func (u *chatUsecase) recordTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
 	providerID, runnerID, sessionID string,
@@ -43,7 +43,7 @@ func turnID(ctx context.Context) string {
 	return uuid.NewString()
 }
 
-func (u *Usecase) chatTurns(ctx context.Context, chatID string) ([]chatlog.Turn, error) {
+func (u *chatUsecase) chatTurns(ctx context.Context, chatID string) ([]chatlog.Turn, error) {
 	rows, err := u.activity.Turns(ctx, chatID, 0, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("agent: chat turns: %w", err)
@@ -68,7 +68,7 @@ func toChatTurns(rows []domain.ActivityTurn) []chatlog.Turn {
 	return out
 }
 
-func (u *Usecase) chatPage(
+func (u *chatUsecase) chatPage(
 	ctx context.Context,
 	chatID string,
 	after, before, limit int,
@@ -120,7 +120,7 @@ func page(rows []domain.ActivityTurn, hasMore bool) chatlog.Page {
 	return out
 }
 
-func (u *Usecase) renderConversation(
+func (u *chatUsecase) renderConversation(
 	ctx context.Context,
 	chatID string,
 	cut time.Time,
@@ -145,4 +145,49 @@ func (u *Usecase) renderConversation(
 		b.WriteString("\n\n")
 	}
 	return []byte(b.String()), nil
+}
+
+func (u *chatUsecase) appendTurn(
+	ctx context.Context,
+	chat domain.AgentChat,
+	providerID string,
+	role, text string,
+) error {
+	return u.appendRunnerTurn(ctx, chat, providerID, "", "", role, text)
+}
+
+func (u *chatUsecase) appendRunnerTurn(
+	ctx context.Context,
+	chat domain.AgentChat,
+	providerID, runnerID, sessionID string,
+	role, text string,
+) error {
+	if err := u.recordTurn(ctx, chat, providerID, runnerID, sessionID, role, text, ""); err != nil {
+		return fmt.Errorf("agent: append turn: %w", err)
+	}
+	return nil
+}
+
+func (u *chatUsecase) ReadMessages(
+	ctx context.Context,
+	chatID string,
+	after, before, limit int,
+) (chatlog.Page, error) {
+	if after < 0 || before < 0 || (after > 0 && before > 0) {
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: invalid cursor: %w", apperr.ErrInvalidArgument)
+	}
+	if limit == 0 {
+		limit = defaultMessagePageLimit
+	}
+	if limit < 1 || limit > maxMessagePageLimit {
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, apperr.ErrInvalidArgument)
+	}
+	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: chat: %w", err)
+	}
+	page, err := u.chatPage(ctx, chatID, after, before, limit)
+	if err != nil {
+		return chatlog.Page{}, fmt.Errorf("agent: read messages: %w", err)
+	}
+	return page, nil
 }

@@ -9,11 +9,14 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-func (u *Usecase) displace(
+func (u *runnerUsecase) displace(
 	ctx context.Context,
 	runner domain.AgentRunner,
 ) error {
@@ -42,7 +45,7 @@ func (u *Usecase) displace(
 	return nil
 }
 
-func (u *Usecase) closeAbandonedTurn(
+func (u *runnerUsecase) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
 ) {
@@ -84,7 +87,7 @@ func (u *Usecase) closeAbandonedTurn(
 	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
 }
 
-func (u *Usecase) ReconcileRunnersOnBoot(
+func (u *runnerUsecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
 	runners, err := u.runners.AllLive(ctx)
@@ -139,7 +142,7 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 	return nil
 }
 
-func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
+func (u *runnerUsecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// The echo guard is per-spawn and means nothing once the process is gone.
 	u.agents.ForgetRunner(runnerID)
 	// Nor does a prompt it was blocked on. Its hooks may still be ALIVE — they are
@@ -172,4 +175,186 @@ func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// chat (if it still had a turn to close) was dealt with at displacement time and
 	// CurrentChatID is now empty, meaning nowhere.
 	u.closeAbandonedTurn(ctx, runner.CurrentChatID)
+}
+
+func (u *runnerUsecase) retireChatRunners(
+	ctx context.Context,
+	chatID string,
+) {
+	placed, err := u.runners.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: look up runners on chat (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+		return
+	}
+	for _, r := range placed {
+		u.retire(ctx, r)
+	}
+}
+
+func (u *runnerUsecase) retire(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) {
+	if err := u.displace(ctx, runner); err != nil {
+		// Best-effort: the runner is still on its chat, so its own exit will close any turn
+		// it leaves open. We still kill it.
+		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
+			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+	}
+	if err := u.term.TerminateGraceful(ctx, runner.TerminalSession); err != nil &&
+		!errors.Is(err, engineterminal.ErrSessionNotFound) {
+		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
+			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
+	}
+}
+
+func (u *runnerUsecase) reapCrashOrphanRunnerTmp(
+	ctx context.Context,
+	runner domain.AgentRunner,
+) {
+	chatsDir, err := u.ws.AgentChatsDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: chats dir (best-effort, continuing)",
+			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+		return
+	}
+	home, _, _, _, err := u.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: home (best-effort, continuing)",
+			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+		return
+	}
+	RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
+}
+
+func (u *runnerUsecase) retireOthersOn(
+	ctx context.Context,
+	chatID string,
+	keepID string,
+) {
+	placed, err := u.runners.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: look up runners placed on chat (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+		return
+	}
+	u.retireOlderThan(ctx, placed, keepID, "chat", chatID)
+}
+
+func (u *runnerUsecase) evictHolderOf(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	sessionID string,
+) {
+	holders, err := u.runners.LiveRunnersForSession(ctx, runner.WorkspaceID, sessionID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: look up runners holding this conversation (best-effort, continuing)",
+			"session_id", sessionID, "err", err)
+		return
+	}
+	u.retireOlderThan(ctx, holders, runner.ID, "conversation", sessionID)
+}
+
+func (u *runnerUsecase) retireOlderThan(
+	ctx context.Context,
+	present []domain.AgentRunner,
+	keepID string,
+	whereKind string,
+	whereID string,
+) {
+	me := -1
+	for i, r := range present {
+		if r.ID == keepID {
+			me = i
+			break
+		}
+	}
+	if me < 0 {
+		return
+	}
+	for _, older := range present[me+1:] {
+		slog.WarnContext(ctx, "agent: another CLI was already here; retiring it",
+			whereKind, whereID, "keeping", keepID, "retiring", older.ID)
+		u.retire(ctx, older)
+	}
+}
+
+func (u *runnerUsecase) requirePlacement(
+	ctx context.Context,
+	runner domain.AgentRunner,
+	chatID string,
+) (bool, error) {
+	if chatID == "" {
+		// Already displaced (we are killing it, and it has not fallen over yet).
+		u.retire(ctx, runner)
+		return false, nil
+	}
+	_, err := u.chats.GetChat(ctx, chatID)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, agentchat.ErrNotFound) {
+		return false, fmt.Errorf("agent: ingest hook: chat: %w", err)
+	}
+	slog.WarnContext(ctx, "agent: ingest hook: the runner's chat no longer exists; dropping the announcement and retiring the CLI",
+		"runner_id", runner.ID, "chat_id", chatID)
+	u.retire(ctx, runner)
+	return false, nil
+}
+
+func (u *runnerUsecase) LiveRunnerForChat(
+	ctx context.Context,
+	chatID string,
+) (domain.AgentRunner, error) {
+	return u.runners.LiveRunnerForChat(ctx, chatID)
+}
+
+func (u *runnerUsecase) ConversationsForChat(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ChatConversation, error) {
+	return u.runners.ConversationsForChat(ctx, chatID)
+}
+
+func (u *runnerUsecase) ResumeChat(
+	ctx context.Context,
+	chatID string,
+) (string, error) {
+	defer u.spawns.lock(chatID)()
+
+	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
+	if err == nil {
+		return live.ID, nil
+	}
+	if !errors.Is(err, agentrunner.ErrNotFound) {
+		return "", fmt.Errorf("agent: resume chat: live runner: %w", err)
+	}
+	last, err := u.runners.LastConversation(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: resume chat: no conversation to resume: %w", err)
+	}
+	// The gate is already held: call the inner body, never SwitchProvider itself.
+	return u.switchProviderLocked(ctx, chatID, last.ProviderID)
+}
+
+func (u *runnerUsecase) StopChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
+	// racing a switch or resume must not terminate a runner the other path is mid-way
+	// through placing. It is never taken on the hook path, so a CLI still talking as it
+	// dies can always reach us.
+	defer u.spawns.lock(chatID)()
+
+	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return nil // already dormant: there is no live CLI to stop
+	}
+	if err != nil {
+		return fmt.Errorf("agent: stop chat: live runner: %w", err)
+	}
+	u.retire(ctx, live)
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/config"
 )
 
-func (u *Usecase) ReadChatLog(
+func (u *chatUsecase) ReadChatLog(
 	ctx context.Context,
 	chatID string,
 ) ([]agenttools.ChatTurn, error) {
@@ -28,7 +28,7 @@ func (u *Usecase) ReadChatLog(
 	return out, nil
 }
 
-func (u *Usecase) assembleConversation(
+func (u *chatUsecase) assembleConversation(
 	ctx context.Context,
 	chatID string,
 	resuming bool,
@@ -63,4 +63,39 @@ func composeContext(sections ...string) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func (u *chatUsecase) AssembleHandoff(
+	ctx context.Context,
+	chatID string,
+) (string, error) {
+	return u.assembleConversation(ctx, chatID, false, time.Time{})
+}
+
+func (u *chatUsecase) threadContext(
+	ctx context.Context,
+	chatID string,
+	minting bool,
+) (string, error) {
+	if minting || u.lineage == nil {
+		return "", nil
+	}
+	ancestors, err := u.lineage.Ancestors(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: spawn runner: chat lineage: %w", err)
+	}
+	if len(ancestors) == 0 {
+		return "", nil
+	}
+	return strings.ReplaceAll(config.GetPrompts().ThreadLineage, "{lineage}", renderLineage(ancestors)), nil
+}
+
+func renderLineage(
+	ancestors []string,
+) string {
+	lines := make([]string, 0, len(ancestors))
+	for _, id := range ancestors {
+		lines = append(lines, "- "+id)
+	}
+	return strings.Join(lines, "\n")
 }

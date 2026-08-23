@@ -13,7 +13,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-func (u *Usecase) SwitchProvider(
+func (u *runnerUsecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
@@ -22,7 +22,11 @@ func (u *Usecase) SwitchProvider(
 	return u.switchProviderLocked(ctx, chatID, targetProviderID)
 }
 
-func (u *Usecase) switchProviderLocked(
+// The caller already holds chatID's spawn gate: SwitchProvider above takes it,
+// and ResumeChat reaches this from inside its own. chatGate is not reentrant, so
+// wiring either caller to SwitchProvider instead compiles and deadlocks that
+// goroutine on its own gate forever.
+func (u *runnerUsecase) switchProviderLocked(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
@@ -67,7 +71,7 @@ func (u *Usecase) switchProviderLocked(
 		// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
 		// handoff to go stale while it waits. And it runs before the terminate, so the handoff
 		// assembled below contains the turn we waited for.
-		if err := u.awaitTurnComplete(ctx, chatID); err != nil {
+		if err := u.turn.awaitTurnComplete(ctx, chatID); err != nil {
 			return "", err
 		}
 
@@ -88,7 +92,7 @@ func (u *Usecase) switchProviderLocked(
 		// ledger to it would duplicate its own history back at it — noise that dilutes the
 		// very turns it is meant to notice. A provider new to this chat has no history at
 		// all, so it gets the whole conversation.
-		conversation, err := u.assembleConversation(ctx, chatID, resuming, leftAt)
+		conversation, err := u.chat.assembleConversation(ctx, chatID, resuming, leftAt)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
 		}
@@ -130,7 +134,7 @@ func (u *Usecase) switchProviderLocked(
 	}
 }
 
-func (u *Usecase) displaceForSwitch(
+func (u *runnerUsecase) displaceForSwitch(
 	ctx context.Context,
 	chat domain.AgentChat,
 ) (bool, error) {
@@ -145,7 +149,7 @@ func (u *Usecase) displaceForSwitch(
 		// handoff from the now-newer record before trying again.
 		return true, nil
 	}
-	working, err := u.chatWorking(ctx, chat.ID)
+	working, err := u.turn.chatWorking(ctx, chat.ID)
 	if err != nil {
 		return false, fmt.Errorf("agent: switch provider: final chat work check: %w", err)
 	}
@@ -161,7 +165,7 @@ func (u *Usecase) displaceForSwitch(
 	return false, nil
 }
 
-func (u *Usecase) quitOutgoingCLI(
+func (u *runnerUsecase) quitOutgoingCLI(
 	ctx context.Context,
 	chatID string,
 ) error {
@@ -193,7 +197,7 @@ func (u *Usecase) quitOutgoingCLI(
 	return nil
 }
 
-func (u *Usecase) resumableConversation(
+func (u *runnerUsecase) resumableConversation(
 	ctx context.Context,
 	chat domain.AgentChat,
 	targetProviderID string,
