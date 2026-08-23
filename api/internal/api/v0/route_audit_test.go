@@ -293,6 +293,27 @@ func extraRoutes() []string {
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
 		"POST " + ws + "/agent/chats/:id/stop",
+		// The read surface the Chats tab polls: the activity feed, a tool call's
+		// full payload, open choices, message history, and provider telemetry.
+		"GET " + ws + "/agent/chats/:id/activity",
+		"GET " + ws + "/agent/chats/:id/activity/:toolId/payload",
+		"GET " + ws + "/agent/chats/:id/choices",
+		"GET " + ws + "/agent/chats/:id/messages",
+		"GET " + ws + "/agent/chats/:id/telemetry",
+		// The provider's own slash-command list, so the composer can autocomplete
+		// commands the CLI itself defines.
+		"GET " + ws + "/agent/chats/:id/slash-catalog",
+		// The chat's sticky model/reasoning-effort choice.
+		"PATCH " + ws + "/agent/chats/:id/selection",
+		// A human deciding a question the agent put to them mid-turn.
+		"POST " + ws + "/agent/chats/:id/choices/:choiceId/answer",
+		// Submitting the user's own text into the chat.
+		"POST " + ws + "/agent/chats/:id/prompts",
+		// The answer channel's other two legs (routes.go): the in-PTY relay parking
+		// alive while the provider's gate stays open, and what it reports when the
+		// provider decided at the terminal instead.
+		"POST " + ws + "/agent/hooks/await",
+		"POST " + ws + "/agent/hooks/abandon",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
@@ -363,6 +384,21 @@ func extraRoutes() []string {
 		"POST " + home + "/agent/folders",
 		"PATCH " + home + "/agent/folders/:folderId",
 		"DELETE " + home + "/agent/folders/:folderId",
+		// The same read surface, slash-catalog, selection, answer, and prompts
+		// routes, mounted on the home group for the same reason as the rest of this
+		// block: a chat in the project home behaves like a chat anywhere else.
+		"GET " + home + "/agent/chats/:id/activity",
+		"GET " + home + "/agent/chats/:id/activity/:toolId/payload",
+		"GET " + home + "/agent/chats/:id/choices",
+		"GET " + home + "/agent/chats/:id/messages",
+		"GET " + home + "/agent/chats/:id/telemetry",
+		"GET " + home + "/agent/chats/:id/slash-catalog",
+		"PATCH " + home + "/agent/chats/:id/selection",
+		"POST " + home + "/agent/chats/:id/choices/:choiceId/answer",
+		"POST " + home + "/agent/chats/:id/prompts",
+		// And the same answer-channel pair, for the same reason.
+		"POST " + home + "/agent/hooks/await",
+		"POST " + home + "/agent/hooks/abandon",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
 		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a

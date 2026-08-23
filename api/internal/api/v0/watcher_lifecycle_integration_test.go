@@ -129,6 +129,10 @@ func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
 
 func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {}
 
+func (fileProbe) PushAgentChatPromptSettled(_, _, _ string) {}
+
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _ string) {}
+
 func (fileProbe) PushAgentRunner(_, _, _, _ string) {}
 
 func (p fileProbe) PushFile(
