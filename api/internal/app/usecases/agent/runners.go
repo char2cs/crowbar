@@ -7,18 +7,19 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 func (u *runnerUsecase) displace(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 ) error {
 	vacated := runner.CurrentChatID
 
@@ -194,7 +195,7 @@ func (u *runnerUsecase) retireChatRunners(
 
 func (u *runnerUsecase) retire(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 ) {
 	if err := u.displace(ctx, runner); err != nil {
 		// Best-effort: the runner is still on its chat, so its own exit will close any turn
@@ -211,7 +212,7 @@ func (u *runnerUsecase) retire(
 
 func (u *runnerUsecase) reapCrashOrphanRunnerTmp(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 ) {
 	chatsDir, err := u.ws.AgentChatsDir(ctx, runner.WorkspaceID)
 	if err != nil {
@@ -244,7 +245,7 @@ func (u *runnerUsecase) retireOthersOn(
 
 func (u *runnerUsecase) evictHolderOf(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	sessionID string,
 ) {
 	holders, err := u.runners.LiveRunnersForSession(ctx, runner.WorkspaceID, sessionID)
@@ -258,7 +259,7 @@ func (u *runnerUsecase) evictHolderOf(
 
 func (u *runnerUsecase) retireOlderThan(
 	ctx context.Context,
-	present []domain.AgentRunner,
+	present []agents.Runner,
 	keepID string,
 	whereKind string,
 	whereID string,
@@ -282,7 +283,7 @@ func (u *runnerUsecase) retireOlderThan(
 
 func (u *runnerUsecase) requirePlacement(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	chatID string,
 ) (bool, error) {
 	if chatID == "" {
@@ -306,14 +307,14 @@ func (u *runnerUsecase) requirePlacement(
 func (u *runnerUsecase) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	return u.runners.LiveRunnerForChat(ctx, chatID)
 }
 
 func (u *runnerUsecase) ConversationsForChat(
 	ctx context.Context,
 	chatID string,
-) ([]domain.ChatConversation, error) {
+) ([]agents.ChatConversation, error) {
 	return u.runners.ConversationsForChat(ctx, chatID)
 }
 

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -28,7 +30,7 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
@@ -123,7 +125,7 @@ func TestToolSet_BadTokenCannotReachAnyTool(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{}, stubWorkspaces{all: tree()})
 	ts := agenttools.NewToolSet(agenttools.Deps{Resolver: res, Chats: spy}, "RUN", "forged")
 
@@ -152,7 +154,7 @@ func toolsetGatedOn(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{
+		stubRunners{r: agents.Runner{
 			ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a", ProviderID: "codex",
 		}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},

@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // eventKeyPrefix is the namespace asynx prepends to an aggregate id when it
@@ -70,7 +71,7 @@ const eventKeyPrefix = "events:"
 func healConversations(
 	db *gormdb.DB,
 	es asynxModels.Store,
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 ) error {
 	ctx := context.Background()
 	built, err := readModelWasBuilt(ctx, db)
@@ -98,7 +99,7 @@ func replayHistory(
 	ctx context.Context,
 	db *gormdb.DB,
 	es asynxModels.Store,
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 ) error {
 	lister, ok := es.(serialize.AggregateLister)
 	if !ok {
@@ -158,7 +159,7 @@ type historyProjector struct {
 
 func (p *historyProjector) onEvent(
 	ctx context.Context,
-	evt asynxModels.Event[domain.AgentRunner],
+	evt asynxModels.Event[agents.Runner],
 ) {
 	err := appendConversation(ctx, p.db, evt.Aggregate)
 	if err != nil && p.failure == nil {

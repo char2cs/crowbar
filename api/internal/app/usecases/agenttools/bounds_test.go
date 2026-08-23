@@ -448,7 +448,8 @@ func TestListReviewThreads_PagesTheThreadListAndSaysWhatIsMissing(t *testing.T) 
 	require.Equal(t, agenttools.DefaultThreadPageForTest, threadRows(out))
 	require.Contains(t, out, fmt.Sprintf(
 		"Showing threads 1-%d of %d. 5 not shown — call list_review_threads with offset=%d for the next page.",
-		agenttools.DefaultThreadPageForTest, over, agenttools.DefaultThreadPageForTest))
+		agenttools.DefaultThreadPageForTest, over, agenttools.DefaultThreadPageForTest,
+	))
 	require.Contains(t, out, "t-1")
 	require.NotContains(t, out, fmt.Sprintf("t-%d ", over))
 }
@@ -468,7 +469,8 @@ func TestListReviewThreads_TheOffsetTheNoteGivesFetchesTheRest(t *testing.T) {
 	require.Equal(t, 5, threadRows(out))
 	require.Contains(t, out, fmt.Sprintf(
 		"Showing threads %d-%d of %d. This is the last page.",
-		agenttools.DefaultThreadPageForTest+1, over, over))
+		agenttools.DefaultThreadPageForTest+1, over, over,
+	))
 	require.Contains(t, out, fmt.Sprintf("t-%d", over))
 	require.NotContains(t, out, "next page")
 }
@@ -526,7 +528,8 @@ func TestListReviewThreads_CapsMessagesPerThreadAndNamesWhatItDropped(t *testing
 		"the anchor row must report every message, so the elision below is checkable")
 	require.Contains(t, out, fmt.Sprintf(
 		"... %d middle replies not shown (root + %d most recent below)",
-		total-agenttools.MaxThreadMessagesForTest, agenttools.MaxThreadMessagesForTest-1))
+		total-agenttools.MaxThreadMessagesForTest, agenttools.MaxThreadMessagesForTest-1,
+	))
 
 	// Each needle carries the whole rendered message row. "msg-1" alone is a
 	// substring of "msg-10", so it would match the newest reply and pass even
@@ -548,7 +551,8 @@ func TestGetReviewScope_CapsTheChangedFileListAndSaysSo(t *testing.T) {
 	require.Equal(t, agenttools.DefaultScopeFilesForTest, fileRows(out))
 	require.Contains(t, out, fmt.Sprintf(
 		"Showing changed files 1-%d of %d. 50 not shown — call get_review_scope with offset=%d for the next page.",
-		agenttools.DefaultScopeFilesForTest, over, agenttools.DefaultScopeFilesForTest))
+		agenttools.DefaultScopeFilesForTest, over, agenttools.DefaultScopeFilesForTest,
+	))
 	// The base ref survives the cap: it is the anchor for every finding, and a
 	// paged file list that lost it would describe a diff against nothing.
 	require.Contains(t, out, "abc123")
@@ -596,7 +600,8 @@ func TestGetChatLog_KeepsTheMostRecentTurnsAndSaysWhatItDropped(t *testing.T) {
 	kept := agenttools.DefaultChatLogTurnsForTest
 	require.Contains(t, out, fmt.Sprintf(
 		"Showing turns %d-%d of %d, oldest first. %d older turns not shown — call get_chat_log with offset=%d for the %d before these.",
-		total-kept+1, total, total, total-kept, kept, kept))
+		total-kept+1, total, total, total-kept, kept, kept,
+	))
 	require.Contains(t, out, fmt.Sprintf("turn-%d", total))
 	require.Contains(t, out, fmt.Sprintf("turn-%d", total-kept+1))
 	require.NotContains(t, out, "turn-1\n", "the oldest turns are the ones the cap drops")

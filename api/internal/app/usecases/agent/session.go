@@ -10,13 +10,12 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func (u *runnerUsecase) handleSessionStart(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
 	if ev.SessionID == "" {
@@ -88,7 +87,7 @@ func (u *runnerUsecase) handleSessionStart(
 
 func (u *runnerUsecase) moveToNewChat(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	sessionID string,
 ) error {
 	newChatID := uuid.NewString()
@@ -128,7 +127,7 @@ func (u *runnerUsecase) moveToNewChat(
 
 func (u *runnerUsecase) moveToKnownChat(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	toChatID string,
 	sessionID string,
 ) error {

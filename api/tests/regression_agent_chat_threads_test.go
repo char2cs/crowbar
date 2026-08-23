@@ -165,7 +165,8 @@ func runnerFile(
 ) string {
 	t.Helper()
 	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(
-		context.Background(), imported.workspaceID)
+		context.Background(), imported.workspaceID,
+	)
 	require.NoError(t, err)
 	data, err := os.ReadFile(filepath.Join(chatsDir, "runners", runnerID+"-threadstub", name))
 	require.NoError(t, err, "runner %s wrote no %s", runnerID, name)

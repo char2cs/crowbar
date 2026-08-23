@@ -14,9 +14,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 const (
@@ -75,7 +75,8 @@ func (u *runnerUsecase) SubmitPrompt(
 	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf(
-			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err))
+			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err),
+		)
 	}
 	if existingAttempt {
 		result, done, classifyErr := u.classifyPriorAttempt(
@@ -154,21 +155,21 @@ func (u *runnerUsecase) replayPriorAttempt(
 func (u *runnerUsecase) promptTarget(
 	ctx context.Context,
 	chat domain.AgentChat,
-) (domain.AgentRunner, engineagents.Agent, error) {
+) (engineagents.Runner, engineagents.Agent, error) {
 	live, err := u.runners.LiveRunnerForChat(ctx, chat.ID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
-		return domain.AgentRunner{}, nil, ErrPromptSessionUnavailable
+		return engineagents.Runner{}, nil, ErrPromptSessionUnavailable
 	}
 	if err != nil {
-		return domain.AgentRunner{}, nil, fmt.Errorf("agent: submit prompt: live runner: %w", err)
+		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: live runner: %w", err)
 	}
 	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return domain.AgentRunner{}, nil, fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
+		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
 	}
 	descriptor, err := u.agents.Get(ctx, crowbarHome, live.ProviderID)
 	if err != nil {
-		return domain.AgentRunner{}, nil, fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
+		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
 	}
 	return live, descriptor, nil
 }
@@ -433,7 +434,7 @@ func (u *runnerUsecase) reconcilePendingPromptFromLedger(
 func (u *runnerUsecase) confirmPromptAccepted(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	text string,
 ) error {
 	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
@@ -448,7 +449,7 @@ func (u *runnerUsecase) confirmPromptAccepted(
 
 func (u *runnerUsecase) reconcilePromptRunnerDeparture(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	chatID string,
 ) {
 	if chatID == "" {
@@ -489,7 +490,7 @@ type promptDelivery struct {
 func (u *runnerUsecase) resolvePromptDelivery(
 	ctx context.Context,
 	chatID string,
-	live domain.AgentRunner,
+	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (promptDelivery, error) {
 	resuming, nativeSessionID, err := u.resumeTarget(ctx, chatID, live)
@@ -522,7 +523,7 @@ func (u *runnerUsecase) resolvePromptDelivery(
 func (u *runnerUsecase) resumeTarget(
 	ctx context.Context,
 	chatID string,
-	live domain.AgentRunner,
+	live engineagents.Runner,
 ) (bool, string, error) {
 	if live.LaunchSessionID != "" &&
 		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
@@ -545,7 +546,7 @@ func (u *runnerUsecase) resumeTarget(
 func (u *runnerUsecase) requirePromptRestart(
 	ctx context.Context,
 	chatID string,
-	live domain.AgentRunner,
+	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) error {
 	if descriptor.Capabilities().Delivery == engineagents.DeliveryRestartTUI {

@@ -28,7 +28,6 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			chatID, idleRunnerID, idleTermID, idleTap := spawnReady(t, h, wsID, provider)
 			if provider == "claude" {
-
 				_, _ = awaitSessionBound(t, h, idleRunnerID, idleTermID, idleTap)
 			}
 

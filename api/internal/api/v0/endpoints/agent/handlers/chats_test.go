@@ -131,13 +131,13 @@ type configurableListGetUsecase struct {
 	// the map is DORMANT, and LiveRunnerForChat answers agentrunner.ErrNotFound —
 	// which is the real answer (no live row exists, because no PTY does), not a
 	// failure. liveErr is the genuine-failure branch (a read that blew up).
-	liveRunners map[string]domain.AgentRunner
+	liveRunners map[string]engineagents.Runner
 	liveErr     error
 
 	// conversations maps a chat id to its append-only history, OLDEST FIRST, so
 	// the last element is the chat's last conversation — the provider fallback a
 	// dormant chat's activeProviderId derives from.
-	conversations map[string][]domain.ChatConversation
+	conversations map[string][]engineagents.ChatConversation
 	convErr       error
 
 	selection    selectionCall
@@ -221,13 +221,13 @@ func (*configurableListGetUsecase) SlashCatalog(
 func (u *configurableListGetUsecase) LiveRunnerForChat(
 	_ context.Context,
 	chatID string,
-) (domain.AgentRunner, error) {
+) (engineagents.Runner, error) {
 	if u.liveErr != nil {
-		return domain.AgentRunner{}, u.liveErr
+		return engineagents.Runner{}, u.liveErr
 	}
 	runner, ok := u.liveRunners[chatID]
 	if !ok {
-		return domain.AgentRunner{}, agentrunner.ErrNotFound
+		return engineagents.Runner{}, agentrunner.ErrNotFound
 	}
 	return runner, nil
 }
@@ -235,7 +235,7 @@ func (u *configurableListGetUsecase) LiveRunnerForChat(
 func (u *configurableListGetUsecase) ConversationsForChat(
 	_ context.Context,
 	chatID string,
-) ([]domain.ChatConversation, error) {
+) ([]engineagents.ChatConversation, error) {
 	if u.convErr != nil {
 		return nil, u.convErr
 	}
@@ -388,7 +388,7 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 	uc := &configurableListGetUsecase{
 		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
 		// No live runner for c1: the chat is dormant.
-		conversations: map[string][]domain.ChatConversation{
+		conversations: map[string][]engineagents.ChatConversation{
 			"c1": {
 				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()},
 				{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC()},
@@ -423,7 +423,7 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 ) {
 	uc := &configurableListGetUsecase{
 		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
-		liveRunners: map[string]domain.AgentRunner{
+		liveRunners: map[string]engineagents.Runner{
 			"c1": {
 				ID:              "run-1",
 				WorkspaceID:     "ws1",
@@ -432,7 +432,7 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 				CurrentChatID:   "c1",
 			},
 		},
-		conversations: map[string][]domain.ChatConversation{
+		conversations: map[string][]engineagents.ChatConversation{
 			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1"}},
 		},
 	}
@@ -528,10 +528,10 @@ func TestGet_Success(
 ) {
 	uc := &configurableListGetUsecase{
 		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", Title: "a title"},
-		liveRunners: map[string]domain.AgentRunner{
+		liveRunners: map[string]engineagents.Runner{
 			"c1": {ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1", CurrentChatID: "c1"},
 		},
-		conversations: map[string][]domain.ChatConversation{
+		conversations: map[string][]engineagents.ChatConversation{
 			"c1": {{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()}},
 		},
 	}

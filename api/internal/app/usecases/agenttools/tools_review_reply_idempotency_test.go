@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -136,7 +138,7 @@ func newReplyIdemFixture(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{
+		stubRunners{r: agents.Runner{
 			ID:            "RUN",
 			CurrentChatID: "CHAT",
 			WorkspaceID:   callerWs,
@@ -323,7 +325,8 @@ func TestReplyToReviewThread_DoesNotShareAKeyspaceWithPostReviewComment(t *testi
 	)
 	out, err := post.post(
 		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right",` +
-			`"body":"leak","idempotencyKey":"nil-deref-in-auth"}`)
+			`"body":"leak","idempotencyKey":"nil-deref-in-auth"}`,
+	)
 	require.NoError(t, err)
 	require.Len(t, post.writer.opens, 1,
 		"a reply's key must not make the post that shares its name look like a retry")

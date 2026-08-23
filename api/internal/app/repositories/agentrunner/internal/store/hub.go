@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // eventNamePrefix is the aggregate-name segment every agentrunner command's
@@ -56,7 +56,7 @@ type WatchFunc func(RunnerEvent)
 // so the two derive independently from the same event stream and cannot drift.
 // Designed to register ONCE, on the singleton ax.
 func registerHubProjection(
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 	watch WatchFunc,
 ) error {
 	p := &hubProjector{watch: watch}
@@ -81,7 +81,7 @@ func (p *hubProjector) emit(e RunnerEvent) {
 
 func (p *hubProjector) onEvent(
 	_ context.Context,
-	evt asynxModels.Event[domain.AgentRunner],
+	evt asynxModels.Event[agents.Runner],
 ) {
 	r := evt.Aggregate
 	p.emit(RunnerEvent{

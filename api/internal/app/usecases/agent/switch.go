@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 func (u *runnerUsecase) SwitchProvider(

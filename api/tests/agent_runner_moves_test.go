@@ -767,7 +767,8 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	// RUNNER's id, and a title. No chat id — it does not have one.
 	const title = "Titled after the clear"
 	require.NoError(t, h.app.Usecases.AgentChat.RenameByRunner(
-		context.Background(), runner, title, "agent"))
+		context.Background(), runner, title, "agent",
+	))
 
 	frames.awaitChat(chatC, "title_set")
 	h.Quiesce()

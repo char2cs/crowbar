@@ -16,8 +16,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func (u *runnerUsecase) SpawnChat(

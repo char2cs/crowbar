@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-var _ termwait.Screens = (engineterminal.Engine)(nil)
+var _ termwait.Screens = engineterminal.Engine(nil)
 
 func TestUsecase_TerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	u := &runnerUsecase{turn: &turnUsecase{}}

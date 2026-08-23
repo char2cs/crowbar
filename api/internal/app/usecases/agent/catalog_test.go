@@ -175,7 +175,8 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600))
+`), 0o600,
+	))
 
 	chatID, _ := f.spawn(t, "codex")
 
@@ -231,5 +232,6 @@ presentation:
         label: "{name}"
         insert_text: "${name} "
         source: "test"
-`, command)), 0o600))
+`, command)), 0o600,
+	))
 }

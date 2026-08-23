@@ -487,7 +487,7 @@ type fakeRunnerStore struct {
 	failStart      error
 	failGet        error
 	failGetAfter   int
-	afterGet       func(domain.AgentRunner)
+	afterGet       func(engineagents.Runner)
 	failMove       error
 	failForgetChat error
 	// afterMove / afterStart run once each COMMAND HAS COMMITTED, so a test can pin an
@@ -503,13 +503,13 @@ type fakeRunnerStore struct {
 func (s *fakeRunnerStore) Get(
 	ctx context.Context,
 	runnerID string,
-) (domain.AgentRunner, error) {
+) (engineagents.Runner, error) {
 	if s.failGet != nil {
 		if s.failGetAfter > 0 {
 			s.failGetAfter--
 			return s.EventStore.Get(ctx, runnerID)
 		}
-		return domain.AgentRunner{}, s.failGet
+		return engineagents.Runner{}, s.failGet
 	}
 	runner, err := s.EventStore.Get(ctx, runnerID)
 	if err == nil && s.afterGet != nil {
@@ -521,7 +521,7 @@ func (s *fakeRunnerStore) Get(
 func (s *fakeRunnerStore) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentRunner, error) {
+) (engineagents.Runner, error) {
 	s.mu.Lock()
 	s.lookedUpAt = append(s.lookedUpAt, chatID)
 	s.mu.Unlock()
@@ -549,9 +549,9 @@ func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {
 	return s.EventStore.ForgetChat(ctx, chatID)
 }
 
-func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) (domain.AgentRunner, error) {
+func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) (engineagents.Runner, error) {
 	if s.failStart != nil {
-		return domain.AgentRunner{}, s.failStart
+		return engineagents.Runner{}, s.failStart
 	}
 	r, err := s.EventStore.Start(ctx, in)
 	if s.afterStart != nil {
@@ -565,9 +565,9 @@ func (s *fakeRunnerStore) Move(
 	runnerID, toChatID, sessionID string,
 	resumable bool,
 	now time.Time,
-) (domain.AgentRunner, error) {
+) (engineagents.Runner, error) {
 	if s.failMove != nil {
-		return domain.AgentRunner{}, s.failMove
+		return engineagents.Runner{}, s.failMove
 	}
 	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, resumable, now)
 	if s.afterMove != nil {
@@ -805,7 +805,7 @@ func (f testFixture) chat(t *testing.T, chatID string) domain.AgentChat {
 }
 
 // runner reads a live runner from the read model.
-func (f testFixture) runner(t *testing.T, runnerID string) domain.AgentRunner {
+func (f testFixture) runner(t *testing.T, runnerID string) engineagents.Runner {
 	t.Helper()
 	f.wait()
 	r, err := f.runners.Get(f.ctx, runnerID)
@@ -815,7 +815,7 @@ func (f testFixture) runner(t *testing.T, runnerID string) domain.AgentRunner {
 
 // liveRunnerFor answers "is this chat live, and who is on it" — the query that
 // replaced ActiveSegmentID.
-func (f testFixture) liveRunnerFor(t *testing.T, chatID string) (domain.AgentRunner, error) {
+func (f testFixture) liveRunnerFor(t *testing.T, chatID string) (engineagents.Runner, error) {
 	t.Helper()
 	f.wait()
 	return f.runners.LiveRunnerForChat(f.ctx, chatID)
@@ -826,12 +826,12 @@ func (f testFixture) liveRunnerFor(t *testing.T, chatID string) (domain.AgentRun
 // be more than one, at any instant. A runner Crowbar has taken off a chat (Displace) is
 // no longer pointed anywhere and so is not counted, even while its process is still
 // dying.
-func (f testFixture) placedRunnersFor(t *testing.T, chatID string) []domain.AgentRunner {
+func (f testFixture) placedRunnersFor(t *testing.T, chatID string) []engineagents.Runner {
 	t.Helper()
 	f.wait()
 	all, err := f.runners.AllLive(f.ctx)
 	require.NoError(t, err)
-	var out []domain.AgentRunner
+	var out []engineagents.Runner
 	for _, r := range all {
 		if r.CurrentChatID == chatID {
 			out = append(out, r)
@@ -936,7 +936,7 @@ func newRunnerStore(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[engineagents.Runner]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).

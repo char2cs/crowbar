@@ -134,7 +134,6 @@ func (c ResolveChoice) EmitEvent(current *domain.AgentActivity) domain.AgentActi
 	next := advance(current, c.ChatID)
 	item, known := next.Choices[c.ChoiceID]
 	if !known {
-
 		return next
 	}
 	delete(next.Choices, c.ChoiceID)

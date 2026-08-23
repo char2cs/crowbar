@@ -99,7 +99,7 @@ type agentChatDTO struct {
 	Order    int    `json:"order"`
 }
 
-// agentChatConversation mirrors one domain.ChatConversation on the wire: a
+// agentChatConversation mirrors one agents.ChatConversation on the wire: a
 // conversation the chat has HOSTED. Append-only history, projected from runner
 // events — it is what a segment really was, minus everything that described a
 // process (no status, no PTY, no runner id), which is why it cannot drift.

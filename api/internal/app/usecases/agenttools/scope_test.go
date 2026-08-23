@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -12,11 +14,11 @@ import (
 )
 
 type stubRunners struct {
-	r   domain.AgentRunner
+	r   agents.Runner
 	err error
 }
 
-func (s stubRunners) Get(context.Context, string) (domain.AgentRunner, error) { return s.r, s.err }
+func (s stubRunners) Get(context.Context, string) (agents.Runner, error) { return s.r, s.err }
 
 type stubChats struct {
 	c    domain.AgentChat
@@ -64,7 +66,7 @@ func resolverOn(t *testing.T, callerWs string) (*agenttools.Resolver, *agenttool
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	return agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()},
 	), m
@@ -125,7 +127,7 @@ func TestResolve_RejectsDisplacedRunner(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	r := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "", WorkspaceID: "ws-a"}},
 		stubChats{}, stubWorkspaces{all: tree()})
 
 	_, err = r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
@@ -166,7 +168,7 @@ func TestResolve_NeverSeesDeletedWorkspaces(t *testing.T) {
 			m, err := agenttools.NewTokenMinter()
 			require.NoError(t, err)
 			r := agenttools.NewResolver(m,
-				stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: tc.caller}},
+				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: tc.caller}},
 				stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: tc.caller}},
 				stubWorkspaces{all: deletedTree()})
 
@@ -194,7 +196,7 @@ func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	r := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: all})
 
@@ -225,7 +227,7 @@ func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 		{ID: "y", ProjectID: "P", RepoID: "R", Kind: domain.WorkspaceKindGit, ParentID: "x"},
 	}
 	r := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "x"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "x"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "x"}},
 		stubWorkspaces{all: cyc})
 
@@ -240,7 +242,7 @@ func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 // must certainly not be mistaken for "no authentication required".
 func TestResolve_NilMinterFailsClosed(t *testing.T) {
 	r := agenttools.NewResolver(nil,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 

@@ -409,7 +409,7 @@ func NewCommand(
 }
 
 // spawnCmd is spawn() with an explicit argv instead of a bare shell.
-func (s *Session) spawnCmd(argv []string, env []string, p spawnParams) error {
+func (s *Session) spawnCmd(argv, env []string, p spawnParams) error {
 	cols, rows, sbLines, redraw := s.resolveBirth(p)
 
 	cmd := exec.Command(argv[0], argv[1:]...)

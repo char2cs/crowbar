@@ -30,7 +30,8 @@ func (h *Handlers) ingest(
 		return h.turns.IngestHook(ctx, runnerID, provider, event, raw)
 	}
 	return h.turns.IngestHookDelivery(
-		ctx, workspaceID, deliveryID, runnerID, provider, event, raw)
+		ctx, workspaceID, deliveryID, runnerID, provider, event, raw,
+	)
 }
 
 // Hooks handles POST .../workspaces/:wsId/agent/hooks: the vendor-CLI hook forwarder posts a

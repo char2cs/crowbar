@@ -53,7 +53,8 @@ func (h *Handlers) Import(c *gin.Context) {
 	for _, b := range body.Branches {
 		if b == repo.DefaultBranch {
 			libs.WriteErr(c, http.StatusConflict, fmt.Sprintf(
-				"%s is the repository's default branch — it is already the repo's home workspace", b))
+				"%s is the repository's default branch — it is already the repo's home workspace", b,
+			))
 			return
 		}
 	}
@@ -65,7 +66,8 @@ func (h *Handlers) Import(c *gin.Context) {
 	// (a no-op in broadcastLastError), and the caller's row would spin forever.
 	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, body.Branches); len(missing) > 0 {
 		libs.WriteErr(c, http.StatusBadRequest, fmt.Sprintf(
-			"not found on the remote: %s", strings.Join(missing, ", ")))
+			"not found on the remote: %s", strings.Join(missing, ", "),
+		))
 		return
 	}
 	in := worktree.ImportInput{

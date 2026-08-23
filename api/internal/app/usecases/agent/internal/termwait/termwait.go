@@ -18,7 +18,7 @@ const DefaultDeliveryQuiet = 30 * time.Second
 const DefaultMessageQuiet = 30 * time.Second
 
 type Runners interface {
-	AllLive(ctx context.Context) ([]domain.AgentRunner, error)
+	AllLive(ctx context.Context) ([]engineagents.Runner, error)
 }
 
 type Chats interface {

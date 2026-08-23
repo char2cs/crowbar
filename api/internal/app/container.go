@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -24,11 +26,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the
@@ -61,7 +63,7 @@ type Container struct {
 	// turn, and sharing one single-writer event log would put a sidebar repaint
 	// behind a tool-call storm.
 	axAgentActivity asynx.Asynx[domain.AgentActivity]
-	axAgentRunner   asynx.Asynx[domain.AgentRunner]
+	axAgentRunner   asynx.Asynx[agents.Runner]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -99,12 +101,13 @@ func New(
 	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
 	axAgentActivity, err := newAsynx[domain.AgentActivity](
-		adapters.AgentActivityES(), adapters.AgentActivitySS())
+		adapters.AgentActivityES(), adapters.AgentActivitySS(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app container: agent activity asynx: %w", err)
 	}
 
-	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
+	axAgentRunner, err := newAsynx[agents.Runner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}

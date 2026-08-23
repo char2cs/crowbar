@@ -147,7 +147,7 @@ type RunnerUsecase interface {
 	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
-	) (domain.AgentRunner, error)
+	) (engineagents.Runner, error)
 
 	// ConversationsForChat returns every conversation chatID has hosted, oldest
 	// first — the append-only history that replaced the chat's embedded segments,
@@ -155,7 +155,7 @@ type RunnerUsecase interface {
 	ConversationsForChat(
 		ctx context.Context,
 		chatID string,
-	) ([]domain.ChatConversation, error)
+	) ([]engineagents.ChatConversation, error)
 
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,

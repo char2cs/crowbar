@@ -217,7 +217,6 @@ func (c ActivityChoice) AskedQuestions() []ActivityChoiceQuestion {
 	}
 	question := ActivityChoiceQuestion{ID: "q0", Multi: c.Multi, Options: c.Options}
 	if c.Kind == ChoiceKindQuestion {
-
 		question.Title, question.Text = c.Title, c.Question
 	}
 	return []ActivityChoiceQuestion{question}

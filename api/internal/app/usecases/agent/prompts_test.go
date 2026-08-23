@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -350,7 +352,7 @@ func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *t
 	f, _, runners := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "codex")
 	requestID := uuid.NewString()
-	runners.afterGet = func(replacement domain.AgentRunner) {
+	runners.afterGet = func(replacement agents.Runner) {
 		runners.afterGet = nil
 
 		f.term.exit(t, replacement.TerminalSession)
@@ -487,7 +489,8 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600))
+`), 0o600,
+	))
 	chatID, _ := f.spawn(t, "codex")
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())

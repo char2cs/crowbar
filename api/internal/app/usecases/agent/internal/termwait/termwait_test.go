@@ -55,7 +55,7 @@ func newRig(t *testing.T) *rig {
 
 func newRigEvery(t *testing.T, interval time.Duration) *rig {
 	t.Helper()
-	runners := &fakeRunners{live: []domain.AgentRunner{{
+	runners := &fakeRunners{live: []engineagents.Runner{{
 		ID:              "runner-1",
 		WorkspaceID:     wsID,
 		ProviderID:      "claude",

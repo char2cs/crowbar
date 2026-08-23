@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	asynxModels "github.com/char2cs/asynx/models"
 )
 
 // BindSession records the provider's conversation id for a runner that is
@@ -24,7 +24,7 @@ func (c BindSession) AggregateID() string  { return c.RunnerID }
 func (c BindSession) EventName() string    { return "agentrunner.session_bound." + c.RunnerID }
 func (c BindSession) ShouldSnapshot() bool { return false }
 
-func (c BindSession) Validate(current *domain.AgentRunner) error {
+func (c BindSession) Validate(current *agents.Runner) error {
 	if current == nil {
 		return fmt.Errorf("bind session: no runner: %w", asynxModels.ErrValidation)
 	}
@@ -43,7 +43,7 @@ func (c BindSession) Validate(current *domain.AgentRunner) error {
 // onto the aggregate (never dropped): the conversation projection reads it for
 // FirstSeenAt, and the runner's own StartedAt cannot stand in for it — a runner
 // binds its conversation after it spawns, sometimes hours after.
-func (c BindSession) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
+func (c BindSession) EmitEvent(current *agents.Runner) agents.Runner {
 	next := *current
 	next.CurrentSession = c.SessionID
 	next.CurrentSessionSince = c.Now

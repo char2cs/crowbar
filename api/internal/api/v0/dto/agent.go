@@ -3,6 +3,8 @@ package dto
 import (
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -19,12 +21,12 @@ import (
 type ChatRuntime struct {
 	// LiveRunner is the runner currently pointed at the chat, or nil when none is —
 	// i.e. when the chat is dormant because its CLI exited or died with the daemon.
-	LiveRunner *domain.AgentRunner
+	LiveRunner *agents.Runner
 
 	// Conversations is the chat's append-only history, OLDEST FIRST (so the last
 	// element is its last conversation). Empty on a chat no runner has ever spoken
 	// into.
-	Conversations []domain.ChatConversation
+	Conversations []agents.ChatConversation
 
 	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
 	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
@@ -481,7 +483,7 @@ func AgentChatDTOList(
 // the envelope carries [] rather than null.
 type AgentChatDetailDTO struct {
 	AgentChatDTO
-	Conversations []domain.ChatConversation `json:"conversations"`
+	Conversations []agents.ChatConversation `json:"conversations"`
 }
 
 // AgentChatDetailDTOFrom composes a chat and its derived runtime into the detail wire
@@ -492,7 +494,7 @@ func AgentChatDetailDTOFrom(
 ) AgentChatDetailDTO {
 	convs := rt.Conversations
 	if convs == nil {
-		convs = []domain.ChatConversation{}
+		convs = []agents.ChatConversation{}
 	}
 	return AgentChatDetailDTO{
 		AgentChatDTO:  AgentChatDTOFrom(c, rt),

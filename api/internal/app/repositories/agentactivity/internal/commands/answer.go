@@ -35,7 +35,6 @@ func (c AnswerChoice) Validate(current *domain.AgentActivity) error {
 	}
 	choice, open := current.Choices[c.ChoiceID]
 	if !open {
-
 		return fmt.Errorf("answer choice: prompt is no longer pending: %w", asynxModels.ErrValidation)
 	}
 	return validateOptions(choice, c.OptionIDs)
@@ -52,7 +51,6 @@ func (c AnswerChoice) EmitEvent(current *domain.AgentActivity) domain.AgentActiv
 	next := advance(current, c.ChatID)
 	item, known := next.Choices[c.ChoiceID]
 	if !known {
-
 		return next
 	}
 	delete(next.Choices, c.ChoiceID)

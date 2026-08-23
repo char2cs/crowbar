@@ -44,6 +44,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/require"
@@ -360,7 +362,7 @@ func newPerfRunnerStore(
 	adapters *adapter.Container,
 ) agentrunner.EventStore {
 	b.Helper()
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[agents.Runner]().
 		WithEventStore(adapters.AgentRunnerES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -515,7 +517,8 @@ func seedReviewFixture(
 	perfGit(b, repoPath, "worktree", "add", "-b", "feature/perf-review", featurePath)
 	for i := range spec.files {
 		perfWriteFile(b, featurePath, perfRelPath(i), perfTextChanged(
-			fmt.Sprintf("base%d", i), fmt.Sprintf("head%d", i), spec.linesPerFile()))
+			fmt.Sprintf("base%d", i), fmt.Sprintf("head%d", i), spec.linesPerFile(),
+		))
 	}
 	perfGit(b, featurePath, "add", "-A")
 	perfGit(b, featurePath, "commit", "-m", "perf: feature tree")

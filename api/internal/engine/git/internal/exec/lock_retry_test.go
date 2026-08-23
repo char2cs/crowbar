@@ -115,7 +115,8 @@ func TestRunWithLockRetry_CancelledContextStopsRetrying(t *testing.T) {
 
 func TestIsIndexLockFailure(t *testing.T) {
 	assert.True(t, exec.IsIndexLockFailure(
-		lockFailure("/r/.git/worktrees/wt/index.lock")))
+		lockFailure("/r/.git/worktrees/wt/index.lock"),
+	))
 	assert.False(t, exec.IsIndexLockFailure(exec.Result{
 		ExitCode: 0,
 		Stderr:   fmt.Sprintf(lockFailureStderrFmt, "/r/.git/index.lock"),

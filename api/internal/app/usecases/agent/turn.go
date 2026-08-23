@@ -15,7 +15,7 @@ import (
 func (u *turnUsecase) openAssistantTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 ) {
 	if err := u.activity.OpenTurn(ctx, agentactivity.TurnInput{
 		ChatID:     chat.ID,
@@ -36,7 +36,7 @@ func openTurnID(chatID, runnerID string) string {
 
 func (u *turnUsecase) handleTurn(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
@@ -59,7 +59,7 @@ func (u *turnUsecase) handleTurn(
 func (u *turnUsecase) openTurnFromPrompt(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
@@ -160,7 +160,7 @@ func (u *turnUsecase) openTurnFromPrompt(
 func (u *turnUsecase) closeTurnFromStop(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {

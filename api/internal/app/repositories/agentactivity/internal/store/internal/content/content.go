@@ -44,7 +44,6 @@ func (s *Store) Put(data []byte) (string, error) {
 
 	path, dir := s.pathFor(ref)
 	if _, err := os.Stat(path); err == nil {
-
 		return ref, nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {

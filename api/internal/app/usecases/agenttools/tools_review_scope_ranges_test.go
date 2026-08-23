@@ -201,7 +201,8 @@ func TestGetReviewScope_EveryRangeItReportsIsAnAnchorPostReviewCommentAccepts(t 
 		retry := scopeFixture(t, "abc123", files, outline)
 		_, err := retry.post(fmt.Sprintf(
 			`{"filePath":%q,"startLine":%d,"endLine":%d,"side":%q,"body":"x"}`,
-			a.path, a.start, a.end, a.side))
+			a.path, a.start, a.end, a.side,
+		))
 		require.NoError(t, err,
 			"get_review_scope offered %s %d-%d on %s, which post_review_comment then refused",
 			a.side, a.start, a.end, a.path)
@@ -294,7 +295,8 @@ func TestGetReviewScope_CapsTheRangesOfAWholePageAndNamesTheOffsetForTheRest(t *
 	require.Contains(t, out, fmt.Sprintf(
 		"Changed line ranges are listed for the first %d files below; the last %d have none listed — "+
 			"call get_review_scope with offset=%d for theirs.",
-		affordable, fileCount-affordable, affordable))
+		affordable, fileCount-affordable, affordable,
+	))
 	require.Equal(t, fileCount, fileRows(out), "every file on the page is still listed")
 
 	// The recovery move works: the offset the note named starts a page whose

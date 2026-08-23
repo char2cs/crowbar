@@ -35,12 +35,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
-
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ErrNotFound is returned when the read model holds no row for a query: no live
@@ -78,7 +78,7 @@ type Store struct {
 func New(
 	db *gormdb.DB,
 	es asynxModels.Store,
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 	watch WatchFunc,
 ) (*Store, error) {
 	if watch == nil {
@@ -133,13 +133,13 @@ const newestArrivalFirst = "MAX(current_session_since, started_at) DESC, id ASC"
 func (s *Store) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	// "" is NOWHERE, not a chat. A displaced runner's row carries an empty chat id, so
 	// without this an empty key would MATCH those rows and hand a caller back a runner that
 	// is on nothing — the read model volunteering a lie, which is the shape this whole
 	// model exists to delete.
 	if chatID == "" {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat: %w", ErrNotFound)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for chat: %w", ErrNotFound)
 	}
 	var row runnerRow
 	err := s.db.WithContext(ctx).
@@ -147,10 +147,10 @@ func (s *Store) LiveRunnerForChat(
 		Order(newestArrivalFirst).
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, ErrNotFound)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, ErrNotFound)
 	}
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, err)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for chat %q: %w", chatID, err)
 	}
 	return row.toRunner(), nil
 }
@@ -174,7 +174,7 @@ func (s *Store) LiveRunnerForChat(
 func (s *Store) LiveRunnersForChat(
 	ctx context.Context,
 	chatID string,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	if chatID == "" {
 		return nil, nil
 	}
@@ -186,7 +186,7 @@ func (s *Store) LiveRunnersForChat(
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner store: live runners for chat %q: %w", chatID, err)
 	}
-	out := make([]domain.AgentRunner, 0, len(rows))
+	out := make([]agents.Runner, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toRunner())
 	}
@@ -207,7 +207,7 @@ func (s *Store) LiveRunnersForSession(
 	ctx context.Context,
 	wsID string,
 	sessionID string,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	if sessionID == "" {
 		return nil, nil
 	}
@@ -219,7 +219,7 @@ func (s *Store) LiveRunnersForSession(
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner store: live runners for session %q: %w", sessionID, err)
 	}
-	out := make([]domain.AgentRunner, 0, len(rows))
+	out := make([]agents.Runner, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toRunner())
 	}
@@ -240,11 +240,11 @@ func (s *Store) LiveRunnerForSession(
 	ctx context.Context,
 	wsID string,
 	sessionID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	// "" is NOWHERE — see LiveRunnerForChat. A runner that has been displaced, or that has
 	// not announced a conversation yet, holds no session, and must never be matched by one.
 	if sessionID == "" {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session: %w", ErrNotFound)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session: %w", ErrNotFound)
 	}
 	var row runnerRow
 	err := s.db.WithContext(ctx).
@@ -252,10 +252,10 @@ func (s *Store) LiveRunnerForSession(
 		Order(newestArrivalFirst).
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, ErrNotFound)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, ErrNotFound)
 	}
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, err)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, err)
 	}
 	return row.toRunner(), nil
 }
@@ -292,17 +292,17 @@ func (s *Store) ChatForSession(
 func (s *Store) LastConversation(
 	ctx context.Context,
 	chatID string,
-) (domain.ChatConversation, error) {
+) (agents.ChatConversation, error) {
 	var row conversationRow
 	err := s.db.WithContext(ctx).
 		Where("chat_id = ?", chatID).
 		Order("first_seen_at DESC, rowid DESC").
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return domain.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, ErrNotFound)
+		return agents.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, ErrNotFound)
 	}
 	if err != nil {
-		return domain.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, err)
+		return agents.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, err)
 	}
 	return row.toConversation(), nil
 }
@@ -318,7 +318,7 @@ func (s *Store) LastConversation(
 func (s *Store) ConversationsForChat(
 	ctx context.Context,
 	chatID string,
-) ([]domain.ChatConversation, error) {
+) ([]agents.ChatConversation, error) {
 	var rows []conversationRow
 	err := s.db.WithContext(ctx).
 		Where("chat_id = ?", chatID).
@@ -327,7 +327,7 @@ func (s *Store) ConversationsForChat(
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner store: conversations for chat %q: %w", chatID, err)
 	}
-	out := make([]domain.ChatConversation, 0, len(rows))
+	out := make([]agents.ChatConversation, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toConversation())
 	}
@@ -340,14 +340,14 @@ func (s *Store) ConversationsForChat(
 func (s *Store) Get(
 	ctx context.Context,
 	runnerID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	var row runnerRow
 	err := s.db.WithContext(ctx).Where("id = ?", runnerID).Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: get %q: %w", runnerID, ErrNotFound)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: get %q: %w", runnerID, ErrNotFound)
 	}
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner store: get %q: %w", runnerID, err)
+		return agents.Runner{}, fmt.Errorf("agentrunner store: get %q: %w", runnerID, err)
 	}
 	return row.toRunner(), nil
 }
@@ -362,12 +362,12 @@ func (s *Store) Get(
 // now, and after a restart the honest answer is always "nothing".
 func (s *Store) AllLive(
 	ctx context.Context,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	var rows []runnerRow
 	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("agentrunner store: all live: %w", err)
 	}
-	out := make([]domain.AgentRunner, 0, len(rows))
+	out := make([]agents.Runner, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toRunner())
 	}
@@ -395,7 +395,7 @@ func (s *Store) ForgetChat(
 // singleton ax.
 func registerStoreProjection(
 	db *gormdb.DB,
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 ) error {
 	p := &projector{db: db}
 	if _, err := ax.Subscribe(asynx.Topic("agentrunner.*"), p.onEvent); err != nil {
@@ -410,7 +410,7 @@ type projector struct {
 
 func (p *projector) onEvent(
 	ctx context.Context,
-	evt asynxModels.Event[domain.AgentRunner],
+	evt asynxModels.Event[agents.Runner],
 ) {
 	r := evt.Aggregate
 
@@ -437,7 +437,7 @@ func (p *projector) onEvent(
 // cannot drift.
 func (p *projector) upsertLive(
 	ctx context.Context,
-	r domain.AgentRunner,
+	r agents.Runner,
 ) {
 	row := runnerRow{
 		ID:                      r.ID,
@@ -479,7 +479,7 @@ func (p *projector) upsertLive(
 func appendConversation(
 	ctx context.Context,
 	db *gormdb.DB,
-	r domain.AgentRunner,
+	r agents.Runner,
 ) error {
 	if r.CurrentSession == "" {
 		return nil

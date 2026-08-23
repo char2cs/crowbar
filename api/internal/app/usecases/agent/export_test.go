@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -56,7 +55,7 @@ func RequirePromptRestart(
 	ctx context.Context,
 	u RunnerUsecase,
 	chatID string,
-	live domain.AgentRunner,
+	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) error {
 	return u.(*runnerUsecase).requirePromptRestart(ctx, chatID, live, descriptor)

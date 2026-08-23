@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -56,7 +58,7 @@ func listWorkspacesToolsOn(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	chats := &stubChatsByWorkspace{byWS: byWS}
@@ -263,7 +265,7 @@ func chatLogToolsUnder(
 	require.NoError(t, err)
 	chats := stubChats{c: target}
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		chats, stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
 		Resolver: res, ChatReads: chats, ChatLogs: logs, Lineage: lineage,
@@ -439,7 +441,7 @@ func TestGetChatLog_IsNotAdvertisedWithoutTheLineagePort(t *testing.T) {
 	require.NoError(t, err)
 	chats := stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}}
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		chats, stubWorkspaces{all: tree()})
 	ts := agenttools.NewToolSet(agenttools.Deps{
 		Resolver: res, ChatReads: chats, ChatLogs: &stubChatLogs{},

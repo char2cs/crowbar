@@ -1073,7 +1073,8 @@ func (u *worktreeUsecase) RetryProvision(
 	// worktree that outlived its repo row, which is exactly the row that lands here.
 	if outcome.Kind == holder.HeldByManaged {
 		return domain.Workspace{}, fmt.Errorf(
-			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath)
+			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath,
+		)
 	}
 	path, err := u.deriveWorktreePath(ctx, home, ws.ProjectID, ws.RepoID, "", ws.Branch)
 	if err != nil {

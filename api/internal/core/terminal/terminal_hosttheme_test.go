@@ -34,9 +34,11 @@ const bgReportPrefixLen = 23
 // because `\033` is not portable across the shells that may back /bin/sh.
 func oscQueryScript(outPath string) []string {
 	const bgQuery = "\x1b]11;?\x07"
-	return []string{"/bin/sh", "-c",
+	return []string{
+		"/bin/sh", "-c",
 		"stty raw -echo; printf %s '" + bgQuery + "'; " +
-			"head -c " + strconv.Itoa(bgReportPrefixLen) + " > " + outPath}
+			"head -c " + strconv.Itoa(bgReportPrefixLen) + " > " + outPath,
+	}
 }
 
 // TestRegression_CommandSessionAnswersOSC11WithHostThemeAtBirth is the black-box guard for

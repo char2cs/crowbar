@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	asynxModels "github.com/char2cs/asynx/models"
 )
 
 // Start records a freshly-spawned CLI. No conversation is bound yet — the
@@ -27,7 +27,7 @@ func (c Start) AggregateID() string  { return c.RunnerID }
 func (c Start) EventName() string    { return "agentrunner.started." + c.RunnerID }
 func (c Start) ShouldSnapshot() bool { return false }
 
-func (c Start) Validate(current *domain.AgentRunner) error {
+func (c Start) Validate(current *agents.Runner) error {
 	if current != nil {
 		return fmt.Errorf("start runner: already started: %w", asynxModels.ErrValidation)
 	}
@@ -44,8 +44,8 @@ func (c Start) Validate(current *domain.AgentRunner) error {
 	return nil
 }
 
-func (c Start) EmitEvent(_ *domain.AgentRunner) domain.AgentRunner {
-	return domain.AgentRunner{
+func (c Start) EmitEvent(_ *agents.Runner) agents.Runner {
+	return agents.Runner{
 		ID:              c.RunnerID,
 		WorkspaceID:     c.WorkspaceID,
 		ProviderID:      c.ProviderID,

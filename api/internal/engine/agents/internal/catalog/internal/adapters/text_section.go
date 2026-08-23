@@ -15,7 +15,7 @@ type textSection struct{}
 func (textSection) Probe(
 	ctx context.Context,
 	s *spec.SlashCatalogSpec,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) (Result, error) {
 	p := &s.Pipeline
 	raw, err := runner.Run(ctx, p.Command)

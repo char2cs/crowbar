@@ -34,7 +34,8 @@ var (
 // and what failed is a dependency the user can act on — an expired login, a broken
 // install, a CLI that refuses this workspace.
 var ErrProviderExitedDuringStartup = fmt.Errorf(
-	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency)
+	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency,
+)
 
 // ErrProviderDisabled is returned when a request names an agent provider the
 // user has switched OFF in the global preference table.

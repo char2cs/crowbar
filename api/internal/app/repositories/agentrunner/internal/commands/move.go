@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	asynxModels "github.com/char2cs/asynx/models"
 )
 
 // Move repoints a runner at a different chat and conversation. This ONE command
@@ -33,7 +33,7 @@ func (c Move) AggregateID() string  { return c.RunnerID }
 func (c Move) EventName() string    { return "agentrunner.moved." + c.RunnerID }
 func (c Move) ShouldSnapshot() bool { return false }
 
-func (c Move) Validate(current *domain.AgentRunner) error {
+func (c Move) Validate(current *agents.Runner) error {
 	if current == nil {
 		return fmt.Errorf("move runner: no runner: %w", asynxModels.ErrValidation)
 	}
@@ -57,7 +57,7 @@ func (c Move) Validate(current *domain.AgentRunner) error {
 // time, which for a runner that moves is arbitrarily old — and two runners
 // writing into one chat would then order their conversations by whose PROCESS is
 // older rather than by which CONVERSATION is newer.
-func (c Move) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
+func (c Move) EmitEvent(current *agents.Runner) agents.Runner {
 	next := *current
 	next.CurrentChatID = c.ToChatID
 	next.CurrentSession = c.SessionID

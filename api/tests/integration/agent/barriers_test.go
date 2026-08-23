@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -472,12 +473,12 @@ func awaitSessionBound(
 	runnerID string,
 	termSessID string,
 	tap *kit.PTYTap,
-) (string, domain.AgentRunner) {
+) (string, agents.Runner) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), backstop)
 	defer cancel()
 
-	var last domain.AgentRunner
+	var last agents.Runner
 	sid := kit.Await(t, ctx, "runner "+runnerID+" to bind a provider conversation", func() (string, bool) {
 		h.app.Repositories.WaitQuiescent()
 		if runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil {

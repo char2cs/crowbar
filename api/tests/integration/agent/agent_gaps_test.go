@@ -15,10 +15,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -238,10 +239,10 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	//
 	// The move is announced by /clear re-firing claude's SessionStart with a CHANGED
 	// id, so the arriving hook is exactly the right thing to block on.
-	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (domain.AgentRunner, bool) {
+	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (agents.Runner, bool) {
 		r, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
 		if err != nil {
-			return domain.AgentRunner{}, false // its CLI died
+			return agents.Runner{}, false // its CLI died
 		}
 		return r, r.CurrentChatID != "" && r.CurrentChatID != originalChatID
 	})

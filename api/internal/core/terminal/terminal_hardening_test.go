@@ -22,10 +22,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ---------------------------------------------------------------------------

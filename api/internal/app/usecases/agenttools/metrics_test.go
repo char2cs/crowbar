@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -93,7 +95,7 @@ func TestToolSet_RecordsEveryCallIncludingUnauthorized(t *testing.T) {
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{}, stubWorkspaces{all: tree()})
 
 	ts := agenttools.NewToolSet(agenttools.Deps{
@@ -118,7 +120,7 @@ func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := minter.Mint("RUN")
@@ -148,7 +150,7 @@ func TestToolSet_FoldsUnknownToolNamesIntoOneBucket(t *testing.T) {
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
@@ -180,7 +182,7 @@ func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 

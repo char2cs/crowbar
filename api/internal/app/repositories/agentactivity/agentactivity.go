@@ -207,7 +207,6 @@ func (r *eventSourced) Abandon(ctx context.Context, chatID string, now time.Time
 func (r *eventSourced) InvokeTool(ctx context.Context, in ToolInput) error {
 	ref, err := r.store.Content().Put(in.Request)
 	if err != nil {
-
 		ref = ""
 	}
 	return r.send(ctx, commands.InvokeTool{
@@ -381,7 +380,6 @@ func (r *eventSourced) Payload(_ context.Context, ref string) ([]byte, error) {
 }
 
 func (r *eventSourced) Forget(ctx context.Context, chatID string) error {
-
 	if err := r.store.DeleteChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget rows: %w", err)
 	}

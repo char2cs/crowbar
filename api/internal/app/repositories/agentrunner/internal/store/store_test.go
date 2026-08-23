@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
@@ -18,7 +20,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	arCmds "github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/store"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // frame is one hub broadcast the projections emitted, captured for assertion.
@@ -80,7 +81,7 @@ func (s *frameSink) kinds() []string {
 type harness struct {
 	t    *testing.T
 	ctx  context.Context
-	ax   asynx.Asynx[domain.AgentRunner]
+	ax   asynx.Asynx[agents.Runner]
 	st   *store.Store
 	db   *gormdb.DB
 	es   asynxModels.Store
@@ -121,9 +122,9 @@ func newHarnessWithEventStore(
 func newAx(
 	t *testing.T,
 	es asynxModels.Store,
-) asynx.Asynx[domain.AgentRunner] {
+) asynx.Asynx[agents.Runner] {
 	t.Helper()
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[agents.Runner]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -515,7 +516,7 @@ func TestDisplace_ClearsPlacementButKeepsTheLiveRow(t *testing.T) {
 }
 
 // mustAllLive reads the live-runner table.
-func mustAllLive(t *testing.T, h *harness) []domain.AgentRunner {
+func mustAllLive(t *testing.T, h *harness) []agents.Runner {
 	t.Helper()
 	rows, err := h.st.AllLive(h.ctx)
 	require.NoError(t, err)

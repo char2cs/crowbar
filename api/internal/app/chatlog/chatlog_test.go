@@ -43,13 +43,11 @@ func TestSpeaker_NeverRendersANonUserTurnAsTheUser(t *testing.T) {
 			"harness (injected, NOT the user)",
 		},
 		{
-
 			"notice",
 			chatlog.Turn{Role: "notice", Provider: "claude"},
 			"notice",
 		},
 		{
-
 			"an unknown role renders as itself",
 			chatlog.Turn{Role: "summary", Provider: "claude"},
 			"summary",

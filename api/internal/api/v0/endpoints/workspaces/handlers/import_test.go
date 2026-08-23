@@ -35,7 +35,7 @@ func (f *fakeRemote) FetchPrune(_ context.Context, _ string) error {
 	return f.fetchErr
 }
 
-func (f *fakeRemote) RemoteTrackingBranchExists(_ context.Context, _ string, branch string) (bool, error) {
+func (f *fakeRemote) RemoteTrackingBranchExists(_ context.Context, _, branch string) (bool, error) {
 	if f.existsErr != nil {
 		return false, f.existsErr
 	}

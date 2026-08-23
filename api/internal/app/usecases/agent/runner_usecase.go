@@ -82,14 +82,14 @@ type RunnerUsecase interface {
 	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
-	) (domain.AgentRunner, error)
+	) (engineagents.Runner, error)
 
 	// ConversationsForChat lists every provider conversation ever bound to a chat,
 	// oldest first.
 	ConversationsForChat(
 		ctx context.Context,
 		chatID string,
-	) ([]domain.ChatConversation, error)
+	) ([]engineagents.ChatConversation, error)
 
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt

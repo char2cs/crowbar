@@ -17,7 +17,7 @@ import (
 func (u *turnUsecase) recordMessageDelta(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) {
 	if ev.Delta == nil {
@@ -49,7 +49,7 @@ func (u *turnUsecase) recordMessageDelta(
 func (u *turnUsecase) recordAssistantMessage(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	messageID, text, effort string,
 	reopen bool,
 ) error {
@@ -79,7 +79,7 @@ func assistantTurnID(messageID string) string { return "msg-" + messageID }
 func (u *turnUsecase) closeAssistantTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
 	streamed := u.messages.openMessages(chat.ID)
@@ -128,7 +128,7 @@ func hookMessageID(ctx context.Context) string { return "hook-" + turnID(ctx) }
 func (u *turnUsecase) closeTurnFromFailure(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
 	appendErr := u.closeAssistantTurn(ctx, chat, runner, ev)

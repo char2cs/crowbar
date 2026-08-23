@@ -79,7 +79,7 @@ func commitRange(
 // revParser is the sliver of the git port commitRange needs, named so the
 // helper can be tested without standing up the whole engine.
 type revParser interface {
-	RevParse(ctx context.Context, repoPath string, rev string) (string, error)
+	RevParse(ctx context.Context, repoPath, rev string) (string, error)
 }
 
 // isCommitScoped reports whether a scope pins the read to immutable trees, and

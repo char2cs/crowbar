@@ -79,7 +79,8 @@ func TestResolveChoice_ClearsThePromptExplicitly(t *testing.T) {
 	f.wait()
 
 	require.NoError(t, f.repo.ResolveChoice(
-		f.ctx, chat, "c1", domain.ChoiceResolutionAnswered, t0))
+		f.ctx, chat, "c1", domain.ChoiceResolutionAnswered, t0,
+	))
 	f.wait()
 
 	assert.Empty(t, mustPending(t, f))

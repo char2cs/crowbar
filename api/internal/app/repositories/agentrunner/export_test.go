@@ -3,9 +3,9 @@ package agentrunner
 import (
 	"context"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	asynxModels "github.com/char2cs/asynx/models"
 )
 
 // MaxOCCAttempts exposes the OCC retry bound so external tests can assert the
@@ -28,8 +28,8 @@ func WaitQuiescentForTest(
 // ErrValidation / ErrQueueFull) without standing up a real asynx.
 func OccSend(
 	ctx context.Context,
-	send func(context.Context, asynxModels.Command[domain.AgentRunner]) (asynxModels.Event[domain.AgentRunner], error),
-	cmd asynxModels.Command[domain.AgentRunner],
-) (asynxModels.Event[domain.AgentRunner], error) {
+	send func(context.Context, asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error),
+	cmd asynxModels.Command[agents.Runner],
+) (asynxModels.Event[agents.Runner], error) {
 	return occSend(ctx, send, cmd)
 }

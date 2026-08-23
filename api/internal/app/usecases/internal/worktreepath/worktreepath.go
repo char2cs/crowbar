@@ -64,7 +64,8 @@ func Derive(
 	path := filepath.Join(root, project, slug, branch, "worktree")
 	if !UnderHome(path, root) {
 		return "", fmt.Errorf(
-			"worktreepath: derive escapes the crowbar home: %q is not under %q", path, root)
+			"worktreepath: derive escapes the crowbar home: %q is not under %q", path, root,
+		)
 	}
 	return path, nil
 }

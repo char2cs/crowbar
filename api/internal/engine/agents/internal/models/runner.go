@@ -1,4 +1,14 @@
-package domain
+package models
+
+// Runner and ChatConversation are the engine's own model of a live vendor CLI and the
+// conversations it has hosted.
+//
+// They live here rather than in domain/ because the engine owns the runner lifecycle
+// (design spec 3.1): 11 of Runner's 13 fields describe the PROCESS — its PTY, its
+// native conversation, what it was launched with — and only WorkspaceID and
+// CurrentChatID are Crowbar's. They are in models rather than in the agents package
+// itself so the runner store, which is a child of agents, can name them without an
+// import cycle.
 
 import "time"
 
@@ -16,7 +26,7 @@ import "time"
 // What IS durable here is PLACEMENT — which chat, which conversation. Crowbar is
 // its only writer, so it cannot drift. Persisting it is what makes a conversation
 // switch a single atomic write instead of a torn cross-aggregate one.
-type AgentRunner struct {
+type Runner struct {
 	ID              string `json:"id"` // == crowbarSegmentID
 	WorkspaceID     string `json:"workspaceId"`
 	ProviderID      string `json:"providerId"`

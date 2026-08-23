@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -85,7 +87,7 @@ type Container struct {
 	axReviewThread  asynx.Asynx[domain.ReviewThread]
 	axAgentChat     asynx.Asynx[domain.AgentChat]
 	axAgentActivity asynx.Asynx[domain.AgentActivity]
-	axAgentRunner   asynx.Asynx[domain.AgentRunner]
+	axAgentRunner   asynx.Asynx[agents.Runner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -146,7 +148,7 @@ func New(
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.AgentChat],
 	axAgentActivity asynx.Asynx[domain.AgentActivity],
-	axAgentRunner asynx.Asynx[domain.AgentRunner],
+	axAgentRunner asynx.Asynx[agents.Runner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
 	chatWatch agentchat.WatchFunc,
@@ -197,7 +199,8 @@ func New(
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
 	agentChat, err := agentchat.NewEventSourced(
-		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch)
+		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -211,7 +214,8 @@ func New(
 	// tool payloads are swept by the same retention policy as the rest of it.
 	agentActivity, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		filepath.Join(adapters.CrowbarHome(), "state", "content"))
+		filepath.Join(adapters.CrowbarHome(), "state", "content"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
 	}
@@ -226,7 +230,8 @@ func New(
 	// usecase sends every runner command through this store, and the workspace-delete
 	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), runnerWatch)
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), runnerWatch,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
 	}
@@ -656,7 +661,8 @@ func (c *Container) registerAgentWorkingProjection() error {
 			if c.setAgentTurn(wsID, evt.AggregateID, false) {
 				c.rebroadcast(ctx, wsID)
 			}
-		}); err != nil {
+		},
+	); err != nil {
 		return fmt.Errorf("onforget: %w", err)
 	}
 	return nil

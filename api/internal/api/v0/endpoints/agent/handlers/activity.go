@@ -134,7 +134,8 @@ func (h *Handlers) ToolPayload(ctx *gin.Context) {
 	}
 
 	payload, err := h.turns.ReadToolPayload(
-		ctx.Request.Context(), chat.ID, ctx.Param("toolId"), side)
+		ctx.Request.Context(), chat.ID, ctx.Param("toolId"), side,
+	)
 	if errors.Is(err, agentactivity.ErrNotFound) {
 
 		libs.WriteErr(ctx, http.StatusNotFound, "payload is no longer available")

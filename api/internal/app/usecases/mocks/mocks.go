@@ -9,11 +9,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // ProjectStore is a fake store.Store[domain.Project, string].

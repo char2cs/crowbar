@@ -15,13 +15,13 @@ import (
 var errBoom = errors.New("read failed")
 
 type fakeRunners struct {
-	live []domain.AgentRunner
+	live []engineagents.Runner
 	err  error
 
 	calls int
 }
 
-func (f *fakeRunners) AllLive(context.Context) ([]domain.AgentRunner, error) {
+func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err

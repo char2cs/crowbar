@@ -14,7 +14,7 @@ import (
 
 func (u *turnUsecase) handleObservation(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 	raw []byte,
@@ -65,7 +65,7 @@ func (u *turnUsecase) handleObservation(
 func (u *turnUsecase) openChoice(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 	raw []byte,
@@ -208,7 +208,7 @@ func itoa(v int64) string {
 
 func (u *turnUsecase) handleTelemetry(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	raw []byte,
 ) error {

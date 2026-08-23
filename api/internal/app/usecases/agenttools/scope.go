@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,7 +35,8 @@ var (
 	// text — so it says which direction is closed rather than reporting a generic
 	// refusal the model would retry against.
 	ErrOwnThread = errors.New(
-		"agenttools: that chat is a thread of this one; a chat reads the chats ABOVE it, never below")
+		"agenttools: that chat is a thread of this one; a chat reads the chats ABOVE it, never below",
+	)
 	// ErrToolsDisabled means the caller is real and in scope, but the user has
 	// switched Crowbar's tool surface off for the provider it runs on.
 	//
@@ -42,13 +45,14 @@ var (
 	// generic refusal the model would retry against.
 	ErrToolsDisabled = errors.New(
 		"agenttools: Crowbar's tools are switched off for this provider " +
-			"(Settings → Providers → Tools); no tool call will be served")
+			"(Settings → Providers → Tools); no tool call will be served",
+	)
 )
 
 // RunnerReader is the narrow read port the resolver needs from the runner
 // store: enough to check who a token names and where that runner is placed.
 type RunnerReader interface {
-	Get(ctx context.Context, runnerID string) (domain.AgentRunner, error)
+	Get(ctx context.Context, runnerID string) (agents.Runner, error)
 }
 
 // ChatGetter is the single-chat read port: one chat looked up by id. It is

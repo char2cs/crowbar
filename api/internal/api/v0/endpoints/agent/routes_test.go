@@ -180,14 +180,14 @@ func (stubUsecase) SlashCatalog(
 func (stubUsecase) LiveRunnerForChat(
 	_ context.Context,
 	_ string,
-) (domain.AgentRunner, error) {
-	return domain.AgentRunner{}, agentrunner.ErrNotFound
+) (engineagents.Runner, error) {
+	return engineagents.Runner{}, agentrunner.ErrNotFound
 }
 
 func (stubUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
-) ([]domain.ChatConversation, error) {
+) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
 

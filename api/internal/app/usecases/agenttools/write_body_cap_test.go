@@ -26,7 +26,8 @@ func TestPostReviewComment_RefusesAnOverlongBodyAndNamesTheLimit(t *testing.T) {
 
 	_, err := f.post(fmt.Sprintf(
 		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":%q}`,
-		longBody(over)))
+		longBody(over),
+	))
 
 	require.Error(t, err)
 	// The model's only recovery is to shorten and retry, which it cannot do
@@ -42,7 +43,8 @@ func TestPostReviewComment_AcceptsABodyExactlyAtTheLimit(t *testing.T) {
 
 	_, err := f.post(fmt.Sprintf(
 		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":%q}`,
-		longBody(agenttools.MaxWrittenBodyCharsForTest)))
+		longBody(agenttools.MaxWrittenBodyCharsForTest),
+	))
 
 	require.NoError(t, err, "the limit is inclusive")
 	require.Len(t, f.writer.opens, 1)
@@ -58,7 +60,8 @@ func TestPostReviewComment_CountsTheBodyInRunesNotBytes(t *testing.T) {
 	require.Greater(t, len(body), agenttools.MaxWrittenBodyCharsForTest, "the fixture must be multi-byte")
 
 	_, err := f.post(fmt.Sprintf(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":%q}`, body))
+		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":%q}`, body,
+	))
 
 	require.NoError(t, err)
 	require.Len(t, f.writer.opens, 1)

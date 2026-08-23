@@ -3,12 +3,14 @@ package termwait
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func (d *detector) evaluate(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	prev screenCache,
 ) (domain.AgentTerminalWait, screenCache, bool) {
 	if runner.TerminalSession == "" {
@@ -44,7 +46,7 @@ func (d *detector) evaluate(
 
 func (d *detector) settleDelivery(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	screen *screenCache,
 ) {
 	if screen.settled || d.deps.Deliveries == nil {
@@ -73,7 +75,7 @@ func (d *detector) settleDelivery(
 
 func (d *detector) readScreen(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	prev screenCache,
 ) screenCache {
 	fresh := prev.session != runner.TerminalSession
@@ -113,7 +115,7 @@ func (d *detector) readScreen(
 
 func (d *detector) stalled(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner agents.Runner,
 	screen *screenCache,
 ) bool {
 	if screen.fired {
@@ -150,7 +152,7 @@ func (d *detector) stalled(
 	return true
 }
 
-func (d *detector) abandonedMessage(ctx context.Context, runner domain.AgentRunner) bool {
+func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) bool {
 	if d.deps.Messages == nil {
 		return false
 	}

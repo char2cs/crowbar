@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -106,7 +105,7 @@ func (u *runnerUsecase) SlashCatalog(
 func (u *runnerUsecase) catalogStillCurrent(
 	ctx context.Context,
 	chatID string,
-	probed domain.AgentRunner,
+	probed engineagents.Runner,
 ) error {
 	current, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {

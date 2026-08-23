@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
@@ -123,7 +125,7 @@ func (h *Handlers) chatRuntime(
 	ctx context.Context,
 	chatID string,
 ) (dto.ChatRuntime, error) {
-	var live *domain.AgentRunner
+	var live *agents.Runner
 	runner, err := h.runners.LiveRunnerForChat(ctx, chatID)
 	switch {
 	case err == nil:

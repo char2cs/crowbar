@@ -7,6 +7,12 @@ import (
 )
 
 type (
+	// Runner is one live vendor-CLI process and ChatConversation is a conversation it
+	// hosted. The engine owns both: they describe the PROCESS, not Crowbar's model of
+	// the chat (design spec 3.1).
+	Runner           = models.Runner
+	ChatConversation = models.ChatConversation
+
 	TemplateCtx    = models.TemplateCtx
 	SpawnPlan      = models.SpawnPlan
 	InjectStep     = spec.InjectStep

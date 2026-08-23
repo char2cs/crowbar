@@ -23,7 +23,7 @@ type Result struct {
 }
 
 type Adapter interface {
-	Probe(ctx context.Context, s *spec.SlashCatalogSpec, runner models.Runner) (Result, error)
+	Probe(ctx context.Context, s *spec.SlashCatalogSpec, runner models.ProbeRunner) (Result, error)
 }
 
 func For(name string) (Adapter, bool) {

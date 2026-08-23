@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // runnerRow is the LIVE-runner read model: one row per running CLI. A runner's
@@ -81,8 +81,8 @@ func (healMarkerRow) TableName() string {
 // toRunner maps a live row back to the aggregate's shape. ExitedAt is always nil
 // by construction: an exited runner has no row (that is the whole point), so a
 // row can only ever describe a runner the model believes is still running.
-func (r runnerRow) toRunner() domain.AgentRunner {
-	return domain.AgentRunner{
+func (r runnerRow) toRunner() agents.Runner {
+	return agents.Runner{
 		ID:                      r.ID,
 		WorkspaceID:             r.WorkspaceID,
 		ProviderID:              r.ProviderID,
@@ -98,8 +98,8 @@ func (r runnerRow) toRunner() domain.AgentRunner {
 	}
 }
 
-func (c conversationRow) toConversation() domain.ChatConversation {
-	return domain.ChatConversation{
+func (c conversationRow) toConversation() agents.ChatConversation {
+	return agents.ChatConversation{
 		ChatID:      c.ChatID,
 		ProviderID:  c.ProviderID,
 		SessionID:   c.SessionID,

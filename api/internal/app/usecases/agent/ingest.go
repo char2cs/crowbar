@@ -70,7 +70,7 @@ func (u *turnUsecase) ingestUserPromptInterlocked(
 
 func (u *turnUsecase) ingestResolvedHook(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	provider string,
 	canonicalEvent string,
 	rawPayload []byte,
@@ -204,7 +204,7 @@ func (u *turnUsecase) ingestHookNow(
 
 func (u *turnUsecase) chatForRunner(
 	ctx context.Context,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 ) (domain.AgentChat, bool, error) {
 	if runner.CurrentChatID == "" {
 		// The runner is placed NOWHERE: Crowbar has taken it off its chat and is killing

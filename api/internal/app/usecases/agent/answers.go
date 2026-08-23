@@ -239,7 +239,8 @@ func decide(
 ) (engineagents.AnswerDecision, error) {
 	if len(optionIDs) == 0 {
 		return engineagents.AnswerDecision{}, fmt.Errorf(
-			"%w: an answer must name at least one option", apperr.ErrInvalidArgument)
+			"%w: an answer must name at least one option", apperr.ErrInvalidArgument,
+		)
 	}
 	decision := engineagents.AnswerDecision{Reason: reason, Content: content}
 	answers, err := choice.ResolvePicks(optionIDs)
@@ -268,7 +269,8 @@ func decisionKey(answers []domain.ChoiceAnswer) (string, error) {
 		for _, option := range answer.Picked {
 			if key != "" && key != option.Kind {
 				return "", fmt.Errorf(
-					"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument)
+					"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument,
+				)
 			}
 			key = option.Kind
 		}

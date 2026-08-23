@@ -4,13 +4,13 @@ import (
 	"context"
 	"sync/atomic"
 
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // Container holds engine-layer dependencies. The AI Bridge engine and addon

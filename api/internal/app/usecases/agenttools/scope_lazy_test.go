@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -53,7 +55,7 @@ func lazyResolverOn(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	return agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		workspaces,
 	), m
@@ -142,7 +144,7 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 			require.NoError(t, err)
 			chats := stubChats{c: domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}}
 			res := agenttools.NewResolver(m,
-				stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 				chats, ws)
 			ts := agenttools.NewToolSet(agenttools.Deps{
 				Resolver:  res,

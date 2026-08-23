@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	asynxModels "github.com/char2cs/asynx/models"
 )
 
 // Displace takes a runner OFF the chat and conversation it was on, without saying
@@ -56,7 +56,7 @@ func (c Displace) AggregateID() string  { return c.RunnerID }
 func (c Displace) EventName() string    { return "agentrunner.displaced." + c.RunnerID }
 func (c Displace) ShouldSnapshot() bool { return false }
 
-func (c Displace) Validate(current *domain.AgentRunner) error {
+func (c Displace) Validate(current *agents.Runner) error {
 	if current == nil {
 		return fmt.Errorf("displace runner: no runner: %w", asynxModels.ErrValidation)
 	}
@@ -78,7 +78,7 @@ func (c Displace) Validate(current *domain.AgentRunner) error {
 // EmitEvent clears the placement. CurrentSessionSince goes with it: it describes when
 // the runner took the conversation it is no longer on, and leaving it set would let a
 // timestamp outlive the fact it timestamps.
-func (c Displace) EmitEvent(current *domain.AgentRunner) domain.AgentRunner {
+func (c Displace) EmitEvent(current *agents.Runner) agents.Runner {
 	next := *current
 	next.CurrentChatID = ""
 	next.CurrentSession = ""

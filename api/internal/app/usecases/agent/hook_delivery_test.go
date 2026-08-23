@@ -69,7 +69,8 @@ func TestRegression_IngestHookDelivery_ARetriedDeliveryIDRunsItsEffectsOnce(t *t
 
 	for range 3 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", deliveryID, runnerID, "claude", "turn_stop", payload))
+			f.ctx, "", deliveryID, runnerID, "claude", "turn_stop", payload,
+		))
 	}
 	f.wait()
 
@@ -86,7 +87,8 @@ func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
 
 	for range 2 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", uuid.NewString(), runnerID, "claude", "turn_stop", payload))
+			f.ctx, "", uuid.NewString(), runnerID, "claude", "turn_stop", payload,
+		))
 	}
 	f.wait()
 
@@ -101,7 +103,8 @@ func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing
 
 	for _, id := range []string{"", "not-a-uuid", "  " + uuid.NewString(), strings.ToUpper(uuid.NewString())} {
 		err := f.usecase.IngestHookDelivery(
-			f.ctx, "", id, runnerID, "claude", "turn_stop", mustJSON(t, map[string]any{}))
+			f.ctx, "", id, runnerID, "claude", "turn_stop", mustJSON(t, map[string]any{}),
+		)
 		assert.Error(t, err, "delivery id %q", id)
 	}
 }
@@ -136,7 +139,8 @@ func TestRegression_IngestHookDelivery_TheJournalIsBoundedInMemoryAndOnDisk(t *t
 		ids = append(ids, id)
 		event, payload := boundedJournalDelivery(t, i, guarded, total-1)
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", id, runnerID, "claude", event, payload))
+			f.ctx, "", id, runnerID, "claude", event, payload,
+		))
 	}
 	f.wait()
 
@@ -160,7 +164,8 @@ func TestRegression_IngestHookDelivery_TheJournalIsBoundedInMemoryAndOnDisk(t *t
 	require.Equal(t, "the guarded reply", before[0].Text)
 	_, guardedPayload := boundedJournalDelivery(t, guarded, guarded, total-1)
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", replayed, runnerID, "claude", "turn_stop", guardedPayload))
+		f.ctx, "", replayed, runnerID, "claude", "turn_stop", guardedPayload,
+	))
 	f.wait()
 
 	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
@@ -197,7 +202,8 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 	})
 
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload))
+		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload,
+	))
 	f.wait()
 	require.Equal(t, int64(2), syncs.Load(), "the fault must have landed on the completion write")
 	require.False(t, agentusecase.HookDeliveryMarked(f.usecase.TurnUsecase, firstID),
@@ -205,7 +211,8 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 
 	require.NoError(t, f.usecase.IngestHookDelivery(
 		f.ctx, "", uuid.NewString(), runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "the second reply"})))
+		mustJSON(t, map[string]any{"last_assistant_message": "the second reply"}),
+	))
 	f.wait()
 	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
 	require.NoError(t, err)
@@ -213,7 +220,8 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 	require.Equal(t, "the first reply", before[0].Text)
 
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload),
+		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload,
+	),
 		"a delivery whose effects already committed is done, however its marker fared")
 	f.wait()
 
@@ -223,7 +231,8 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 		"replaying the turn would bump its Seq and relocate it to the end of the log")
 	replayErr := f.usecase.IngestHookDelivery(
 		f.ctx, "", firstID, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "a different reply"}))
+		mustJSON(t, map[string]any{"last_assistant_message": "a different reply"}),
+	)
 	require.Error(t, replayErr)
 	assert.Contains(t, replayErr.Error(), "different payload")
 }

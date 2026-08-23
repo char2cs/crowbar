@@ -33,7 +33,8 @@ func TestWorktreeRepair_RepointsRegistrationAfterRootRename(
 	// Agent state lives beside the worktree, inside the same root.
 	require.NoError(t, os.MkdirAll(filepath.Join(oldRoot, "chats"), 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(oldRoot, "chats", "history.json"), []byte("agent state"), 0o600))
+		filepath.Join(oldRoot, "chats", "history.json"), []byte("agent state"), 0o600,
+	))
 
 	newRoot := filepath.Join(leaves, "feature", "x")
 	require.NoError(t, os.MkdirAll(filepath.Dir(newRoot), 0o755))

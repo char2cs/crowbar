@@ -565,7 +565,7 @@ func asString(v any) string {
 // location, resolving symlinks first: git worktree list (and thus a placeholder's
 // HeldByPath) emits fully-resolved paths (macOS /var -> /private/var) while the
 // imported repo path is not resolved, so a naive string compare would miss.
-func samePathResolved(t *testing.T, a string, b string) bool {
+func samePathResolved(t *testing.T, a, b string) bool {
 	t.Helper()
 	ra, err := filepath.EvalSymlinks(a)
 	require.NoError(t, err)

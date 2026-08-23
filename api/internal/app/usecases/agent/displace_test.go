@@ -5,12 +5,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ---------------------------------------------------------------------------
@@ -426,7 +427,7 @@ func TestRegression_ExitOfADisplacedRunner_AsksNeitherAggregateAboutNowhere(t *t
 }
 
 // mustLive reads the chat's live runner, failing the test if the chat is dormant.
-func mustLive(t *testing.T, f testFixture, chatID string) domain.AgentRunner {
+func mustLive(t *testing.T, f testFixture, chatID string) agents.Runner {
 	t.Helper()
 	r, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
@@ -43,8 +45,8 @@ type raceRunners struct {
 func (raceRunners) LiveRunnerForChat(
 	_ context.Context,
 	_ string,
-) (domain.AgentRunner, error) {
-	return domain.AgentRunner{ID: "runner-1", ProviderID: "claude"}, nil
+) (agents.Runner, error) {
+	return agents.Runner{ID: "runner-1", ProviderID: "claude"}, nil
 }
 
 type raceActivity struct {

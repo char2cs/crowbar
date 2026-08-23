@@ -47,7 +47,8 @@ func TestEngines_DoNotCrossImport(t *testing.T) {
 				rel, _ := filepath.Rel(root, dir)
 				t.Errorf(
 					"engine/%s imports %s — engines must not cross-import; promote the shared capability to core/",
-					rel, imp)
+					rel, imp,
+				)
 			}
 		})
 	}

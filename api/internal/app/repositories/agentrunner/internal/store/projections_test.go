@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestEventKind_ParsesAndFallsBack(t *testing.T) {
@@ -46,9 +47,9 @@ func newProjectorDB(
 }
 
 func evt(
-	r domain.AgentRunner,
-) asynxModels.Event[domain.AgentRunner] {
-	return asynxModels.Event[domain.AgentRunner]{AggregateID: r.ID, Aggregate: r}
+	r agents.Runner,
+) asynxModels.Event[agents.Runner] {
+	return asynxModels.Event[agents.Runner]{AggregateID: r.ID, Aggregate: r}
 }
 
 // A write failure in any of the three fold branches is logged, not fatal — the
@@ -57,7 +58,7 @@ func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 	p, closeDB := newProjectorDB(t)
 	closeDB()
 
-	live := domain.AgentRunner{
+	live := agents.Runner{
 		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
 		TerminalSession: "pty1", CurrentChatID: "c1", CurrentSession: "s1",
 		StartedAt: time.Unix(1, 0),
@@ -101,7 +102,7 @@ func TestProjector_UnboundRunnerAppendsNoConversation(t *testing.T) {
 	p, closeDB := newProjectorDB(t)
 	defer closeDB()
 
-	p.onEvent(context.Background(), evt(domain.AgentRunner{
+	p.onEvent(context.Background(), evt(agents.Runner{
 		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
 		TerminalSession: "pty1", CurrentChatID: "c1", StartedAt: time.Unix(1, 0),
 	}))

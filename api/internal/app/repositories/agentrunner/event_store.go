@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
@@ -18,7 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/store"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed:
@@ -81,7 +82,7 @@ type EventStore interface {
 	Start(
 		ctx context.Context,
 		in StartInput,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// BindSession records the provider's FIRST conversation id for a runner that is
 	// staying put. now is when the conversation OPENED and is required (a zero one
 	// is rejected): the history projection stamps FirstSeenAt from it, and the
@@ -93,7 +94,7 @@ type EventStore interface {
 		sessionID string,
 		resumable bool,
 		now time.Time,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// Move repoints a runner at a different chat and conversation — the /clear and
 	// /resume path. One write, one aggregate: the torn cross-aggregate write that
 	// bricked a chat in production has no way to happen here. The PTY, the provider
@@ -106,7 +107,7 @@ type EventStore interface {
 		sessionID string,
 		resumable bool,
 		now time.Time,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// Displace takes a runner OFF its chat and conversation, leaving its row — and
 	// saying NOTHING about whether the process is alive. It is a PLACEMENT fact, the
 	// one kind of fact Crowbar solely owns, and it is what makes "at most one runner
@@ -117,7 +118,7 @@ type EventStore interface {
 	Displace(
 		ctx context.Context,
 		runnerID string,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// Exit tombstones a runner whose PTY has died. It is emitted ONLY because the
 	// PTY died (the terminal engine's exit callback, or boot reconciliation asking
 	// the PTY) — never from an independent opinion about liveness. The projection
@@ -126,18 +127,18 @@ type EventStore interface {
 		ctx context.Context,
 		runnerID string,
 		now time.Time,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// Get returns the live runner, or ErrNotFound once it has exited.
 	Get(
 		ctx context.Context,
 		runnerID string,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// LiveRunnerForChat returns the runner currently pointed at chatID, or
 	// ErrNotFound when the chat is dormant. Row-existence IS the liveness answer.
 	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// LiveRunnersForChat returns EVERY live runner placed on chatID, newest arrival first.
 	// It is what the two PLACEMENT paths (a Move onto a chat, a Start onto a chat) ask
 	// immediately after their write commits, so they can retire everyone but themselves:
@@ -147,7 +148,7 @@ type EventStore interface {
 	LiveRunnersForChat(
 		ctx context.Context,
 		chatID string,
-	) ([]domain.AgentRunner, error)
+	) ([]agents.Runner, error)
 	// LiveRunnersForSession returns EVERY live runner holding a conversation, newest arrival
 	// first — the I3 twin of LiveRunnersForChat, and the read a placement onto a conversation
 	// (a bind, a move) must use. The single-row read cannot serve that: once the write has
@@ -157,7 +158,7 @@ type EventStore interface {
 		ctx context.Context,
 		wsID string,
 		sessionID string,
-	) ([]domain.AgentRunner, error)
+	) ([]agents.Runner, error)
 	// LiveRunnerForSession returns the runner currently HOLDING a conversation —
 	// the incumbent an eviction must displace. ErrNotFound means nobody is running
 	// that conversation right now, which is NOT "it never existed" (that question
@@ -166,7 +167,7 @@ type EventStore interface {
 		ctx context.Context,
 		wsID string,
 		sessionID string,
-	) (domain.AgentRunner, error)
+	) (agents.Runner, error)
 	// ChatForSession resolves which chat a provider conversation belongs to, from
 	// APPEND-ONLY history — so it still answers after the runner that opened it is
 	// long gone.
@@ -180,7 +181,7 @@ type EventStore interface {
 	LastConversation(
 		ctx context.Context,
 		chatID string,
-	) (domain.ChatConversation, error)
+	) (agents.ChatConversation, error)
 	// ConversationsForChat returns every conversation the chat has hosted, OLDEST
 	// FIRST. It is what a provider switch reads to find the conversation the
 	// INCOMING provider left behind here (LastConversation only answers for the
@@ -190,14 +191,14 @@ type EventStore interface {
 	ConversationsForChat(
 		ctx context.Context,
 		chatID string,
-	) ([]domain.ChatConversation, error)
+	) ([]agents.ChatConversation, error)
 	// AllLive returns every runner the read model believes is still running — the
 	// input to boot reconciliation, which asks the PTY (the sole authority) whether
 	// each one really is and Exits the ones that are not. On an idle machine an
 	// empty result is the normal, truthful answer.
 	AllLive(
 		ctx context.Context,
-	) ([]domain.AgentRunner, error)
+	) ([]agents.Runner, error)
 	// ForgetChat drops a chat's conversation history — the chat-delete cascade, and
 	// the ONLY thing permitted to remove append-only history. It deliberately does
 	// NOT delete the chat's live runner row: that row belongs to the PTY's
@@ -214,7 +215,7 @@ type EventStore interface {
 // writeMu: per-aggregate safety comes from asynx shard routing plus (id,version)
 // optimistic concurrency and the sendWithOCC retry below.
 type eventSourced struct {
-	ax    asynx.Asynx[domain.AgentRunner]
+	ax    asynx.Asynx[agents.Runner]
 	store *store.Store
 }
 
@@ -228,7 +229,7 @@ type eventSourced struct {
 // on every event, so a nil one would panic inside a projection goroutine far from
 // whoever built the repository.
 func NewEventSourced(
-	ax asynx.Asynx[domain.AgentRunner],
+	ax asynx.Asynx[agents.Runner],
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
 	watch WatchFunc,
@@ -243,8 +244,8 @@ func NewEventSourced(
 // sendFunc issues one command attempt against the aggregate.
 type sendFunc func(
 	ctx context.Context,
-	cmd asynxModels.Command[domain.AgentRunner],
-) (asynxModels.Event[domain.AgentRunner], error)
+	cmd asynxModels.Command[agents.Runner],
+) (asynxModels.Event[agents.Runner], error)
 
 // occSend runs send with OCC retry and the terminal error disposition contract
 // (mirrors agentchat's occSend):
@@ -262,8 +263,8 @@ type sendFunc func(
 func occSend(
 	ctx context.Context,
 	send sendFunc,
-	cmd asynxModels.Command[domain.AgentRunner],
-) (asynxModels.Event[domain.AgentRunner], error) {
+	cmd asynxModels.Command[agents.Runner],
+) (asynxModels.Event[agents.Runner], error) {
 	var lastErr error
 	for range maxOCCAttempts {
 		evt, err := send(ctx, cmd)
@@ -272,16 +273,16 @@ func occSend(
 		}
 		switch {
 		case errors.Is(err, asynxModels.ErrValidation):
-			return asynxModels.Event[domain.AgentRunner]{}, err
+			return asynxModels.Event[agents.Runner]{}, err
 		case errors.Is(err, asynxModels.ErrQueueFull):
-			return asynxModels.Event[domain.AgentRunner]{}, fmt.Errorf("agentrunner: send: %w", apperr.ErrUnavailable)
+			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("agentrunner: send: %w", apperr.ErrUnavailable)
 		case errors.Is(err, asynxModels.ErrPipelineFailed):
 			lastErr = err
 		default:
-			return asynxModels.Event[domain.AgentRunner]{}, err
+			return asynxModels.Event[agents.Runner]{}, err
 		}
 	}
-	return asynxModels.Event[domain.AgentRunner]{}, lastErr
+	return asynxModels.Event[agents.Runner]{}, lastErr
 }
 
 // sendWithOCC dispatches cmd to the singleton axAgentRunner with OCC retry.
@@ -303,15 +304,15 @@ func occSend(
 // writes plus a non-blocking hub push.
 func (r *eventSourced) sendWithOCC(
 	ctx context.Context,
-	cmd asynxModels.Command[domain.AgentRunner],
-) (asynxModels.Event[domain.AgentRunner], error) {
+	cmd asynxModels.Command[agents.Runner],
+) (asynxModels.Event[agents.Runner], error) {
 	return occSend(ctx, r.ax.SendWait, cmd)
 }
 
 func (r *eventSourced) Start(
 	ctx context.Context,
 	in StartInput,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Start{
 		RunnerID:        in.RunnerID,
 		WorkspaceID:     in.WorkspaceID,
@@ -324,7 +325,7 @@ func (r *eventSourced) Start(
 		Now:             in.Now,
 	})
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: start: %w", err)
+		return agents.Runner{}, fmt.Errorf("agentrunner: start: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -335,7 +336,7 @@ func (r *eventSourced) BindSession(
 	sessionID string,
 	resumable bool,
 	now time.Time,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.BindSession{
 		RunnerID:  runnerID,
 		SessionID: sessionID,
@@ -343,7 +344,7 @@ func (r *eventSourced) BindSession(
 		Now:       now,
 	})
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: bind session: %w", err)
+		return agents.Runner{}, fmt.Errorf("agentrunner: bind session: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -355,7 +356,7 @@ func (r *eventSourced) Move(
 	sessionID string,
 	resumable bool,
 	now time.Time,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Move{
 		RunnerID:  runnerID,
 		ToChatID:  toChatID,
@@ -364,7 +365,7 @@ func (r *eventSourced) Move(
 		Now:       now,
 	})
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: move: %w", err)
+		return agents.Runner{}, fmt.Errorf("agentrunner: move: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -372,10 +373,10 @@ func (r *eventSourced) Move(
 func (r *eventSourced) Displace(
 	ctx context.Context,
 	runnerID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Displace{RunnerID: runnerID})
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: displace: %w", err)
+		return agents.Runner{}, fmt.Errorf("agentrunner: displace: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -384,10 +385,10 @@ func (r *eventSourced) Exit(
 	ctx context.Context,
 	runnerID string,
 	now time.Time,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Exit{RunnerID: runnerID, Now: now})
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: exit: %w", err)
+		return agents.Runner{}, fmt.Errorf("agentrunner: exit: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -395,10 +396,10 @@ func (r *eventSourced) Exit(
 func (r *eventSourced) Get(
 	ctx context.Context,
 	runnerID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	runner, err := r.store.Get(ctx, runnerID)
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: get: %w", mapNotFound(err))
+		return agents.Runner{}, fmt.Errorf("agentrunner: get: %w", mapNotFound(err))
 	}
 	return runner, nil
 }
@@ -406,10 +407,10 @@ func (r *eventSourced) Get(
 func (r *eventSourced) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	runner, err := r.store.LiveRunnerForChat(ctx, chatID)
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: live runner for chat: %w", mapNotFound(err))
+		return agents.Runner{}, fmt.Errorf("agentrunner: live runner for chat: %w", mapNotFound(err))
 	}
 	return runner, nil
 }
@@ -417,7 +418,7 @@ func (r *eventSourced) LiveRunnerForChat(
 func (r *eventSourced) LiveRunnersForChat(
 	ctx context.Context,
 	chatID string,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	runners, err := r.store.LiveRunnersForChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: live runners for chat: %w", err)
@@ -429,7 +430,7 @@ func (r *eventSourced) LiveRunnersForSession(
 	ctx context.Context,
 	wsID string,
 	sessionID string,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	runners, err := r.store.LiveRunnersForSession(ctx, wsID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: live runners for session: %w", err)
@@ -441,10 +442,10 @@ func (r *eventSourced) LiveRunnerForSession(
 	ctx context.Context,
 	wsID string,
 	sessionID string,
-) (domain.AgentRunner, error) {
+) (agents.Runner, error) {
 	runner, err := r.store.LiveRunnerForSession(ctx, wsID, sessionID)
 	if err != nil {
-		return domain.AgentRunner{}, fmt.Errorf("agentrunner: live runner for session: %w", mapNotFound(err))
+		return agents.Runner{}, fmt.Errorf("agentrunner: live runner for session: %w", mapNotFound(err))
 	}
 	return runner, nil
 }
@@ -464,10 +465,10 @@ func (r *eventSourced) ChatForSession(
 func (r *eventSourced) LastConversation(
 	ctx context.Context,
 	chatID string,
-) (domain.ChatConversation, error) {
+) (agents.ChatConversation, error) {
 	conv, err := r.store.LastConversation(ctx, chatID)
 	if err != nil {
-		return domain.ChatConversation{}, fmt.Errorf("agentrunner: last conversation: %w", mapNotFound(err))
+		return agents.ChatConversation{}, fmt.Errorf("agentrunner: last conversation: %w", mapNotFound(err))
 	}
 	return conv, nil
 }
@@ -475,7 +476,7 @@ func (r *eventSourced) LastConversation(
 func (r *eventSourced) ConversationsForChat(
 	ctx context.Context,
 	chatID string,
-) ([]domain.ChatConversation, error) {
+) ([]agents.ChatConversation, error) {
 	convs, err := r.store.ConversationsForChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: conversations for chat: %w", err)
@@ -485,7 +486,7 @@ func (r *eventSourced) ConversationsForChat(
 
 func (r *eventSourced) AllLive(
 	ctx context.Context,
-) ([]domain.AgentRunner, error) {
+) ([]agents.Runner, error) {
 	rows, err := r.store.AllLive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: all live: %w", err)

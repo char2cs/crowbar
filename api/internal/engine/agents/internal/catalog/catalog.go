@@ -55,7 +55,7 @@ func Probe(
 func ProbeWith(
 	ctx context.Context,
 	d *spec.Descriptor,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) (models.SlashCatalog, error) {
 	if d == nil || d.Presentation.SlashCatalog == nil {
 		return models.SlashCatalog{}, ErrUnsupported
@@ -77,7 +77,7 @@ func assemble(
 	d *spec.Descriptor,
 	sc *spec.SlashCatalogSpec,
 	adapter adapters.Adapter,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) (models.SlashCatalog, error) {
 	result, err := adapter.Probe(probeCtx, sc, runner)
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,13 +39,13 @@ func TestAgentChatDTOFrom_CarriesIdentityAndTitle(t *testing.T) {
 // the history, whose last entry can still name the OUTGOING vendor mid-switch.
 func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
-		LiveRunner: &domain.AgentRunner{
+		LiveRunner: &agents.Runner{
 			ID:              "run-1",
 			ProviderID:      "vendor-b",
 			TerminalSession: "term-1",
 			CurrentChatID:   "c1",
 		},
-		Conversations: []domain.ChatConversation{{ChatID: "c1", ProviderID: "vendor-a"}},
+		Conversations: []agents.ChatConversation{{ChatID: "c1", ProviderID: "vendor-a"}},
 	})
 
 	assert.Equal(t, "run-1", got.LiveRunnerID)
@@ -57,7 +59,7 @@ func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
 // — so the provider dropdown shows the right vendor and Resume knows who to bring back.
 func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
-		Conversations: []domain.ChatConversation{
+		Conversations: []agents.ChatConversation{
 			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC()},
 			{ChatID: "c1", ProviderID: "vendor-b", FirstSeenAt: time.Unix(2, 0).UTC()},
 		},
@@ -89,7 +91,7 @@ func TestAgentChatDTOList_IsNonNil(t *testing.T) {
 	got = dto.AgentChatDTOList(
 		[]domain.AgentChat{{ID: "c1"}, {ID: "c2"}},
 		map[string]dto.ChatRuntime{
-			"c1": {LiveRunner: &domain.AgentRunner{ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1"}},
+			"c1": {LiveRunner: &agents.Runner{ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1"}},
 		},
 	)
 	require.Len(t, got, 2)
@@ -107,14 +109,14 @@ func TestAgentChatDTOList_IsNonNil(t *testing.T) {
 // chat's append-only conversation history (the successor of the deleted `segments`)
 // alongside the same derived runner facts the list rows carry.
 func TestAgentChatDetailDTOFrom_CarriesConversations(t *testing.T) {
-	convs := []domain.ChatConversation{
+	convs := []agents.ChatConversation{
 		{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()},
 		{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC()},
 	}
 	got := dto.AgentChatDetailDTOFrom(
 		domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
 		dto.ChatRuntime{
-			LiveRunner:    &domain.AgentRunner{ID: "run-1", ProviderID: "vendor-b", TerminalSession: "term-1"},
+			LiveRunner:    &agents.Runner{ID: "run-1", ProviderID: "vendor-b", TerminalSession: "term-1"},
 			Conversations: convs,
 		},
 	)

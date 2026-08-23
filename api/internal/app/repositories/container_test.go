@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
@@ -113,9 +115,9 @@ func agentActivityAx(
 func agentRunnerAx(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.AgentRunner] {
+) asynx.Asynx[agents.Runner] {
 	t.Helper()
-	a, err := asynx.New[domain.AgentRunner]().
+	a, err := asynx.New[agents.Runner]().
 		WithEventStore(ad.AgentRunnerES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -740,7 +742,7 @@ type fakeReapChatFiles struct {
 	failForID string
 }
 
-func (f *fakeReapChatFiles) reap(_ context.Context, _ string, chatID string) error {
+func (f *fakeReapChatFiles) reap(_ context.Context, _, chatID string) error {
 	f.mu.Lock()
 	f.calls = append(f.calls, chatID)
 	fail := chatID == f.failForID

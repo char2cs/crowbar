@@ -44,7 +44,8 @@ func TestAgentRepositories_DoNotReachTheFrontend(t *testing.T) {
 					rel, _ := filepath.Rel(root, dir)
 					t.Errorf(
 						"repositories/%s imports %s — an agent repository must announce, not broadcast",
-						rel, imp)
+						rel, imp,
+					)
 				}
 			}
 		})

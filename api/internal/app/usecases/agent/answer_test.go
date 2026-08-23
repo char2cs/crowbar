@@ -27,7 +27,8 @@ func deliver(
 	t.Helper()
 	deliveryID := uuid.NewString()
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "ws1", deliveryID, runnerID, provider, kind, mustJSON(t, payload)))
+		f.ctx, "ws1", deliveryID, runnerID, provider, kind, mustJSON(t, payload),
+	))
 	f.wait()
 	return deliveryID
 }
@@ -146,7 +147,8 @@ func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 
 	printed := await(f, deliveryID)
 	require.NoError(t, f.usecase.AnswerChoice(
-		f.ctx, chatID, choice.ID, []string{"deny"}, "not on this branch", nil))
+		f.ctx, chatID, choice.ID, []string{"deny"}, "not on this branch", nil,
+	))
 	f.wait()
 
 	assert.JSONEq(t,
@@ -165,7 +167,8 @@ func TestAnswer_AQuestionIsAnsweredByEchoingTheToolInputWithThePick(t *testing.T
 
 	printed := await(f, deliveryID)
 	require.NoError(t, f.usecase.AnswerChoice(
-		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil))
+		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil,
+	))
 	f.wait()
 
 	var decoded struct {
@@ -404,7 +407,8 @@ func TestAnswer_AnElicitationIsAnsweredWithAVerbAndAForm(t *testing.T) {
 
 	printed := await(f, deliveryID)
 	require.NoError(t, f.usecase.AnswerChoice(
-		f.ctx, chatID, pending[0].ID, []string{"accept"}, "", []byte(`{"choice":"B"}`)))
+		f.ctx, chatID, pending[0].ID, []string{"accept"}, "", []byte(`{"choice":"B"}`),
+	))
 	f.wait()
 
 	assert.JSONEq(t,
@@ -569,7 +573,8 @@ func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) 
 	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
 
 	err := f.usecase.AnswerChoice(
-		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 0)}, "", nil)
+		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 0)}, "", nil,
+	)
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument,
 		"one answer to three questions is not an answer")
 
@@ -680,7 +685,8 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 			defer racers.Done()
 			<-start
 			assert.NoError(t, f.usecase.AnswerChoice(
-				f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
+				f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil,
+			))
 		}()
 		close(start)
 		racers.Wait()

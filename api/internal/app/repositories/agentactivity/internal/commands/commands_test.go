@@ -211,7 +211,6 @@ func TestSubagent_StartThenStopClosesTheSameRecord(t *testing.T) {
 }
 
 func TestInterrupt_OpensAndResolvesTheSameRecord(t *testing.T) {
-
 	turn := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	opened := commands.Interrupt{
 		ChatID: chat, ID: "i1", Kind: "compaction", Detail: "auto", Now: now,
@@ -385,7 +384,6 @@ func itoa(v int) string {
 }
 
 func TestRegression_ACloseSideEventNeverConjuresATurn(t *testing.T) {
-
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	closed := commands.CloseTurn{ChatID: chat, TurnID: "reply", Text: "done", Now: now}.
 		EmitEvent(&opened)

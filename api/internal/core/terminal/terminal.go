@@ -21,11 +21,11 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/persistence"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/profile"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ptyEnv returns the process environment augmented with the terminal capability

@@ -30,7 +30,7 @@ type detailResult struct {
 func (a inventoryDetails) Probe(
 	ctx context.Context,
 	s *spec.SlashCatalogSpec,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) (Result, error) {
 	p := &s.Pipeline
 	raw, err := runner.Run(ctx, p.Command)
@@ -112,7 +112,7 @@ func (inventoryDetails) fanOut(
 	p *spec.CatalogPipelineSpec,
 	rows []row,
 	maxItems int,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) []detailResult {
 	results := make([]detailResult, len(rows))
 	slots := make(chan struct{}, p.EffectiveDetailConcurrency())
@@ -139,7 +139,7 @@ func detail(
 	p *spec.CatalogPipelineSpec,
 	r row,
 	maxItems int,
-	runner models.Runner,
+	runner models.ProbeRunner,
 ) detailResult {
 	argv := make([]string, len(p.DetailCommand))
 	for i, arg := range p.DetailCommand {

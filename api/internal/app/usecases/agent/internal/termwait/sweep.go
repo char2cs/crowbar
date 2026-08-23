@@ -3,6 +3,8 @@ package termwait
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -35,7 +37,7 @@ type change struct {
 
 func (d *detector) fold(
 	ctx context.Context,
-	runners []domain.AgentRunner,
+	runners []agents.Runner,
 ) ([]change, []Stall) {
 	d.mu.RLock()
 	prev := make(map[string]chatState, len(d.state))

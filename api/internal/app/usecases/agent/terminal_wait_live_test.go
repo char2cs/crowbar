@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 const liveTrustScreen = `╭─────────────────────────────────────────────╮
@@ -30,10 +30,10 @@ type liveRig struct {
 	engine   engineterminal.Engine
 	chat     domain.AgentChat
 	pending  []domain.ActivityChoice
-	runners  []domain.AgentRunner
+	runners  []engineagents.Runner
 }
 
-func (r *liveRig) AllLive(context.Context) ([]domain.AgentRunner, error) { return r.runners, nil }
+func (r *liveRig) AllLive(context.Context) ([]engineagents.Runner, error) { return r.runners, nil }
 
 func (r *liveRig) GetChat(context.Context, string) (domain.AgentChat, error) { return r.chat, nil }
 
@@ -71,7 +71,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 	rig := &liveRig{
 		engine: engine,
 		chat:   domain.AgentChat{ID: "chat-live", WorkspaceID: "ws-live"},
-		runners: []domain.AgentRunner{{
+		runners: []engineagents.Runner{{
 			ID:              "runner-live",
 			WorkspaceID:     "ws-live",
 			ProviderID:      "claude",

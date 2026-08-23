@@ -469,7 +469,8 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	cs.failLoadChat = errors.New("boom: load chat")
 
 	err = agentusecase.RequirePromptRestart(
-		f.ctx, f.usecase.RunnerUsecase, chatID, live, undeliverableAgent{Agent: shipped})
+		f.ctx, f.usecase.RunnerUsecase, chatID, live, undeliverableAgent{Agent: shipped},
+	)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat selection")

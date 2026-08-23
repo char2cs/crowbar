@@ -49,7 +49,8 @@ var ErrParentUnprovisioned = errors.New("usecases: parent branch is not yet prov
 // and must never relocate it, so the rename is refused rather than silently
 // moving a user's folder. Handlers map it to HTTP 409.
 var ErrRenameUnmanagedWorkspace = errors.New(
-	"usecases: cannot rename the branch of an adopted checkout")
+	"usecases: cannot rename the branch of an adopted checkout",
+)
 
 // ErrRenameTargetExists is returned when the directory a branch rename would
 // move the workspace into is already occupied. The guard runs before any git
@@ -70,4 +71,5 @@ var ErrBranchStillHeld = errors.New("usecases: branch is still held; detach the 
 // the workspace that owns it, so this is not ErrBranchStillHeld's "detach the
 // holder first". The retry can only succeed once that workspace is gone.
 var ErrBranchHeldByManagedWorkspace = errors.New(
-	"usecases: branch is checked out in another Crowbar workspace")
+	"usecases: branch is checked out in another Crowbar workspace",
+)

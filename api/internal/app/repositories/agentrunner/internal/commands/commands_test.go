@@ -4,11 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestStart_EmitsRunnerOnItsChat(t *testing.T) {
@@ -34,7 +35,7 @@ func TestStart_RejectsMissingChat(t *testing.T) {
 // It can never fail on the state of the destination chat, because it does not
 // touch the destination chat. That is what makes the torn write unrepresentable.
 func TestMove_RepointsRunnerAtomically(t *testing.T) {
-	cur := &domain.AgentRunner{
+	cur := &agents.Runner{
 		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
 		TerminalSession: "pty1", CurrentChatID: "c1", CurrentSession: "s1",
 	}
@@ -58,19 +59,19 @@ func TestMove_RejectsUnknownRunner(t *testing.T) {
 // zero and drop conversation ordering back onto insertion order — silently
 // reintroducing the inversion bug with no test failing. Refuse it at the door.
 func TestMove_RejectsZeroNow(t *testing.T) {
-	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1", CurrentSession: "s1"}
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1", CurrentSession: "s1"}
 	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2"}
 	require.Error(t, c.Validate(cur), "a move must say WHEN the conversation was entered")
 }
 
 func TestBindSession_RejectsZeroNow(t *testing.T) {
-	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1"}
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1"}
 	c := commands.BindSession{RunnerID: "r1", SessionID: "s1"}
 	require.Error(t, c.Validate(cur), "a bind must say WHEN the conversation opened")
 }
 
 func TestBindSession_SetsConversationWithoutMovingChat(t *testing.T) {
-	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1"}
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1"}
 	c := commands.BindSession{RunnerID: "r1", SessionID: "s1", Now: time.Unix(1, 0)}
 	require.NoError(t, c.Validate(cur))
 	got := c.EmitEvent(cur)
@@ -84,7 +85,7 @@ func TestBindSession_SetsConversationWithoutMovingChat(t *testing.T) {
 // audit; liveness is answered by the chat_liveness projection, which drops the
 // row, and ultimately by the PTY.
 func TestExit_TombstonesForAudit(t *testing.T) {
-	cur := &domain.AgentRunner{ID: "r1", CurrentChatID: "c1"}
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1"}
 	c := commands.Exit{RunnerID: "r1", Now: time.Unix(9, 0)}
 	require.NoError(t, c.Validate(cur))
 	got := c.EmitEvent(cur)
@@ -97,7 +98,7 @@ func TestExit_TombstonesForAudit(t *testing.T) {
 // is the whole reason the command is allowed to exist: Crowbar owns placement outright,
 // so it may write it the moment it decides it, while liveness stays the PTY's alone.
 func TestDisplace_ClearsPlacementWithoutTouchingLiveness(t *testing.T) {
-	cur := &domain.AgentRunner{
+	cur := &agents.Runner{
 		ID: "r1", CurrentChatID: "c1", CurrentSession: "s1",
 		CurrentSessionSince: time.Unix(5, 0), TerminalSession: "pty1",
 	}

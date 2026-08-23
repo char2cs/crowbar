@@ -109,7 +109,7 @@ func newAnswerUsecase(
 func (u *answerUsecase) holdForAnswer(
 	ctx context.Context,
 	chat domain.AgentChat,
-	runner domain.AgentRunner,
+	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 	choiceID string,
@@ -302,7 +302,8 @@ func (u *answerUsecase) releaseAnswerWaiters(
 ) {
 	for _, slot := range u.answers.releaseRunner(runnerID) {
 		err := u.activity.ResolveChoice(
-			ctx, slot.chatID, slot.choiceID, domain.ChoiceResolutionAbandoned, time.Now())
+			ctx, slot.chatID, slot.choiceID, domain.ChoiceResolutionAbandoned, time.Now(),
+		)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.WarnContext(ctx, "agent: answer: release prompt of dead runner",
 				"runner_id", runnerID, "choice_id", slot.choiceID, "err", err)

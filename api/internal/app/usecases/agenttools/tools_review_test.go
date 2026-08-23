@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -171,7 +173,7 @@ func reviewToolsetOn(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
@@ -236,7 +238,7 @@ func newPostFixture(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{
+		stubRunners{r: agents.Runner{
 			ID:            "RUN",
 			CurrentChatID: "CHAT",
 			WorkspaceID:   callerWs,
@@ -361,7 +363,8 @@ func TestPostReviewComment_AnchorsAndMarksItselfAsAgent(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
 	out, err := f.post(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`)
+		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`,
+	)
 	require.NoError(t, err)
 	require.Contains(t, out, "thread-1")
 
@@ -485,7 +488,8 @@ func TestPostReviewComment_AnchorEdgesAreInclusive(t *testing.T) {
 			f := postOn(t, "ws-a", authHunk())
 			_, err := f.post(fmt.Sprintf(
 				`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"right","body":"x"}`,
-				tc.line, tc.line))
+				tc.line, tc.line,
+			))
 			if !tc.accepted {
 				require.Error(t, err, "line %d is outside the 40-49 hunk", tc.line)
 				require.Empty(t, f.writer.opens)
@@ -514,7 +518,8 @@ func TestPostReviewComment_AnchorRangeEdgesAreInclusive(t *testing.T) {
 			f := postOn(t, "ws-a", authHunk())
 			_, err := f.post(fmt.Sprintf(
 				`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"right","body":"x"}`,
-				tc.start, tc.end))
+				tc.start, tc.end,
+			))
 			if !tc.accepted {
 				require.Error(t, err)
 				require.Empty(t, f.writer.opens)
@@ -587,7 +592,8 @@ func TestPostReviewComment_LeftSideEdgesAreInclusive(t *testing.T) {
 	for line, accepted := range map[int]bool{9: false, 10: true, 14: true, 15: false} {
 		f := postOn(t, "ws-a", skewed)
 		_, err := f.post(fmt.Sprintf(
-			`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"left","body":"x"}`, line, line))
+			`{"filePath":"src/auth.go","startLine":%d,"endLine":%d,"side":"left","body":"x"}`, line, line,
+		))
 		if !accepted {
 			require.Error(t, err, "left line %d is outside the 10-14 old range", line)
 			require.Empty(t, f.writer.opens)
@@ -655,11 +661,13 @@ func TestPostReviewComment_IdempotencyKeyCollapsesARetry(t *testing.T) {
 func TestPostReviewComment_ARetryReportsTheStoredAnchorNotItsArguments(t *testing.T) {
 	first := postOn(t, "ws-a", authHunk())
 	_, err := first.post(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`)
+		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`,
+	)
 	require.NoError(t, err)
 
 	out, err := first.retryOn(t, "ws-a", authHunk()).post(
-		`{"filePath":"src/auth.go","startLine":47,"endLine":48,"side":"right","body":"leak","idempotencyKey":"k"}`)
+		`{"filePath":"src/auth.go","startLine":47,"endLine":48,"side":"right","body":"leak","idempotencyKey":"k"}`,
+	)
 	require.NoError(t, err)
 
 	require.Len(t, first.writer.opens, 1)
@@ -671,10 +679,12 @@ func TestPostReviewComment_DifferentKeysOpenDifferentThreads(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
 	_, err := f.post(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"one","idempotencyKey":"finding-a"}`)
+		`{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"one","idempotencyKey":"finding-a"}`,
+	)
 	require.NoError(t, err)
 	_, err = f.post(
-		`{"filePath":"src/auth.go","startLine":43,"endLine":43,"side":"right","body":"two","idempotencyKey":"finding-b"}`)
+		`{"filePath":"src/auth.go","startLine":43,"endLine":43,"side":"right","body":"two","idempotencyKey":"finding-b"}`,
+	)
 	require.NoError(t, err)
 
 	require.Len(t, f.writer.opens, 2)
@@ -818,7 +828,7 @@ func reviewToolsOn(t *testing.T, threads *spyThreads) *agenttools.ToolSet {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
@@ -922,7 +932,7 @@ func newReplyResolveFixture(t *testing.T, callerWs string, thread domain.ReviewT
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
 		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	threads := &spyThreads{thread: thread}
@@ -1072,7 +1082,7 @@ func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 			m, err := agenttools.NewTokenMinter()
 			require.NoError(t, err)
 			deps.Resolver = agenttools.NewResolver(m,
-				stubRunners{r: domain.AgentRunner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
+				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 				stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
 				stubWorkspaces{all: tree()})
 			ts := agenttools.NewToolSet(deps, "RUN", m.Mint("RUN"))
@@ -1101,7 +1111,7 @@ func attributedReviewToolsOn(
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
-		stubRunners{r: domain.AgentRunner{
+		stubRunners{r: agents.Runner{
 			ID:            "RUN",
 			CurrentChatID: chatID,
 			WorkspaceID:   "ws-a",
@@ -1126,7 +1136,8 @@ func TestPostReviewComment_CarriesTheCallersProviderAndChat(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
 	_, err := f.post(
-		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`)
+		`{"filePath":"src/auth.go","startLine":42,"endLine":44,"side":"right","body":"This leaks the token."}`,
+	)
 	require.NoError(t, err)
 
 	require.Len(t, f.writer.opens, 1)

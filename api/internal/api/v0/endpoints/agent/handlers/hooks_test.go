@@ -291,14 +291,14 @@ func (f *fakeAgentUsecase) SlashCatalog(
 func (f *fakeAgentUsecase) LiveRunnerForChat(
 	_ context.Context,
 	_ string,
-) (domain.AgentRunner, error) {
-	return domain.AgentRunner{}, agentrunner.ErrNotFound
+) (engineagents.Runner, error) {
+	return engineagents.Runner{}, agentrunner.ErrNotFound
 }
 
 func (f *fakeAgentUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
-) ([]domain.ChatConversation, error) {
+) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
 

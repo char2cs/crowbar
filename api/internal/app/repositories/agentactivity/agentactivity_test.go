@@ -607,7 +607,8 @@ func TestRegression_AnInterruptionOutsideATurnIsAMomentNotABlockingState(t *test
 	}))
 
 	require.NoError(t, f.repo.Interrupt(
-		f.ctx, chat, "i1", "notification", "Claude is waiting for your input", t0.Add(time.Minute)))
+		f.ctx, chat, "i1", "notification", "Claude is waiting for your input", t0.Add(time.Minute),
+	))
 	f.wait()
 
 	got, err := f.repo.Interruptions(f.ctx, chat)

@@ -26,6 +26,9 @@ type ProbeOptions struct {
 	Home string
 }
 
-type Runner interface {
+// ProbeRunner executes a one-shot child process for a catalogue or telemetry probe.
+// Named for what it does, so `Runner` can mean the live vendor CLI it does not
+// describe.
+type ProbeRunner interface {
 	Run(ctx context.Context, argv []string) ([]byte, error)
 }

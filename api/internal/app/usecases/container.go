@@ -21,9 +21,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // GORMStores carries the plain-CRUD stores the usecases compose. It mirrors the

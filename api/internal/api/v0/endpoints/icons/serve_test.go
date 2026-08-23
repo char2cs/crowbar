@@ -243,7 +243,6 @@ func TestDefaultCrowbarHomeHonoursTheEnvOverride(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", "/tmp/crowbar-test-home")
 
 	got, err := icons.DefaultCrowbarHome()
-
 	if err != nil {
 		t.Fatalf("home: %v", err)
 	}

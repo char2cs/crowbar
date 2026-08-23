@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 
@@ -65,7 +67,7 @@ func newContainerDeps(
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		newTestAsynx[domain.AgentChat](t, adapters.AgentChatES()),
 		newTestAsynx[domain.AgentActivity](t, adapters.AgentActivityES()),
-		newTestAsynx[domain.AgentRunner](t, adapters.AgentRunnerES()),
+		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test
 		noChatWatch,
@@ -178,7 +180,8 @@ func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
 
 	_, _, err = c.AgentProvider.DispatchMCP(context.Background(), "RUN", "forged-token", []byte(
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`,
+	))
 	require.NoError(t, err, "a rejected tool call is an RPC-level error, not a dispatch failure")
 
 	require.Equal(t,

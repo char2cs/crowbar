@@ -22,7 +22,6 @@ func (c Abandon) Validate(*domain.AgentActivity) error {
 func (c Abandon) EmitEvent(current *domain.AgentActivity) domain.AgentActivity {
 	next := advance(current, c.ChatID)
 	if next.Turn == nil {
-
 		return next
 	}
 	turn := *next.Turn

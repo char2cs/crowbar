@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
@@ -19,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	arcmds "github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // captureBroadcast records every (runnerID, workspaceID, chatID, kind) frame the
@@ -60,7 +61,7 @@ func newRepoWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[agents.Runner]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -92,7 +93,7 @@ func startRunner(
 	runnerID string,
 	chatID string,
 	now time.Time,
-) domain.AgentRunner {
+) agents.Runner {
 	t.Helper()
 	r, err := repo.Start(ctx, agentrunner.StartInput{
 		RunnerID: runnerID, WorkspaceID: "w1", ProviderID: "claude",
@@ -375,9 +376,9 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 
 	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
 		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.AgentRunner]) (asynxModels.Event[domain.AgentRunner], error) {
+		send := func(context.Context, asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
 			calls++
-			return asynxModels.Event[domain.AgentRunner]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
+			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
 		}
 		_, err := agentrunner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
@@ -386,9 +387,9 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 
 	t.Run("ErrValidation never retried", func(t *testing.T) {
 		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.AgentRunner]) (asynxModels.Event[domain.AgentRunner], error) {
+		send := func(context.Context, asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
 			calls++
-			return asynxModels.Event[domain.AgentRunner]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
+			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
 		}
 		_, err := agentrunner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, asynxModels.ErrValidation)
@@ -397,9 +398,9 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 
 	t.Run("ErrQueueFull translated to unavailable, never retried", func(t *testing.T) {
 		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.AgentRunner]) (asynxModels.Event[domain.AgentRunner], error) {
+		send := func(context.Context, asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
 			calls++
-			return asynxModels.Event[domain.AgentRunner]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
+			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
 		}
 		_, err := agentrunner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, apperr.ErrUnavailable)
@@ -407,8 +408,8 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 	})
 
 	t.Run("success returns immediately", func(t *testing.T) {
-		send := func(_ context.Context, c asynxModels.Command[domain.AgentRunner]) (asynxModels.Event[domain.AgentRunner], error) {
-			return asynxModels.Event[domain.AgentRunner]{Aggregate: domain.AgentRunner{ID: c.AggregateID()}}, nil
+		send := func(_ context.Context, c asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
+			return asynxModels.Event[agents.Runner]{Aggregate: agents.Runner{ID: c.AggregateID()}}, nil
 		}
 		evt, err := agentrunner.OccSend(ctx, send, cmd)
 		require.NoError(t, err)
@@ -434,7 +435,7 @@ func TestAgentRunner_Start_ErrorOnDuplicate(t *testing.T) {
 func TestAgentRunner_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[agents.Runner]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -459,7 +460,7 @@ func TestAgentRunner_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 func TestAgentRunner_NewEventSourced_ErrorOnNilBroadcast(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentRunner]().
+	ax, err := asynx.New[agents.Runner]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
