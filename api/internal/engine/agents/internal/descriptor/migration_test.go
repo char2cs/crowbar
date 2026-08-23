@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 // A v3 descriptor must map every canonical field its v2 predecessor mapped.
@@ -59,6 +60,12 @@ func TestV3_MapsEverythingV2Mapped(t *testing.T) {
 					}
 				}
 			}
+
+			// A descriptor is not only its event table. Everything that is not
+			// hooks/answer/telemetry carries across UNCHANGED, and dropping any of it
+			// is a silent capability loss: no model picker, no slash catalog, no
+			// config injection, no terminal-prompt detection.
+			assertNonEventSectionsSurvive(t, v2, v3)
 
 			// The answer: block became each ask: event's reply:. Every decision v2
 			// could send must still be sendable.
@@ -113,6 +120,35 @@ func TestV3_HasNoLeftoverCommaAlternation(t *testing.T) {
 						d.ID, name, field, expr)
 				}
 			}
+		}
+	}
+}
+
+// assertNonEventSectionsSurvive checks the parts of a descriptor that v3 does not
+// restructure. They must be present in v3 exactly when they are present in v2.
+func assertNonEventSectionsSurvive(t *testing.T, v2, v3 *spec.Descriptor) {
+	t.Helper()
+	for _, c := range []struct {
+		name       string
+		inV2, inV3 bool
+	}{
+		{"spawn.cmd", v2.Spawn.Cmd != "", v3.Spawn.Cmd != ""},
+		{"spawn.args", len(v2.Spawn.Args) > 0, len(v3.Spawn.Args) > 0},
+		{"session.resume", v2.Session.Resume != nil, v3.Session.Resume != nil},
+		{"model", v2.Model != nil, v3.Model != nil},
+		{"effort", v2.Effort != nil, v3.Effort != nil},
+		{"presentation.prompt_submit", v2.Presentation.PromptSubmit != nil, v3.Presentation.PromptSubmit != nil},
+		{"presentation.slash_catalog", v2.Presentation.SlashCatalog != nil, v3.Presentation.SlashCatalog != nil},
+		{"config_injection", len(v2.ConfigInjection) > 0, len(v3.ConfigInjection) > 0},
+		{"mcp_injection", len(v2.MCPInject) > 0, len(v3.MCPInject) > 0},
+		{"context_inject", len(v2.ContextInject) > 0, len(v3.ContextInject) > 0},
+		{"resume_context_inject", len(v2.ResumeContextInject) > 0, len(v3.ResumeContextInject) > 0},
+		{"terminal_prompts", len(v2.TerminalPrompts) > 0, len(v3.TerminalPrompts) > 0},
+		{"terminal_notices", len(v2.TerminalNotices) > 0, len(v3.TerminalNotices) > 0},
+		{"injected_prompts", len(v2.InjectedPrompts) > 0, len(v3.InjectedPrompts) > 0},
+	} {
+		if c.inV2 && !c.inV3 {
+			t.Errorf("v3 dropped %s, which v2 declares", c.name)
 		}
 	}
 }
