@@ -1,6 +1,7 @@
 package mapping_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor/internal/mapping"
@@ -198,5 +199,94 @@ func TestString_ABracketedKeyIsStillAddressable(t *testing.T) {
 	d := map[string]any{"weird[key]": "kept"}
 	if got := mapping.String(d, "weird[key]"); got != "kept" {
 		t.Fatalf("got %q, want kept (whole-key match wins)", got)
+	}
+}
+
+// --- coverage of the numeric and object accessors --------------------------
+
+func TestFloat_AcceptsEveryNumericShapeAPayloadCanCarry(t *testing.T) {
+	d := map[string]any{
+		"f64": float64(1.5),
+		"f32": float32(2.5),
+		"i":   int(3),
+		"i64": int64(4),
+		"num": json.Number("5.5"),
+		"bad": json.Number("not-a-number"),
+		"str": "6",
+	}
+	for _, tc := range []struct {
+		path   string
+		want   float64
+		wantOK bool
+	}{
+		{"f64", 1.5, true},
+		{"f32", 2.5, true},
+		{"i", 3, true},
+		{"i64", 4, true},
+		{"num", 5.5, true},
+		{"bad", 0, false},
+		{"str", 0, false},
+		{"absent", 0, false},
+	} {
+		got, ok := mapping.Float(d, tc.path)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("Float(%q) = (%v,%v), want (%v,%v)", tc.path, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
+func TestScalar_RendersEveryScalarShape(t *testing.T) {
+	d := map[string]any{
+		"s": "text", "b": true, "f64": float64(1.5), "f32": float32(2.5),
+		"i": int(3), "i64": int64(4), "num": json.Number("7"),
+		"nil": nil, "obj": map[string]any{"a": 1},
+	}
+	for _, tc := range []struct {
+		path   string
+		want   string
+		wantOK bool
+	}{
+		{"s", "text", true},
+		{"b", "true", true},
+		{"f64", "1.5", true},
+		{"f32", "2.5", true},
+		{"i", "3", true},
+		{"i64", "4", true},
+		{"num", "7", true},
+		{"nil", "", false},
+		{"obj", "", false},
+		{"absent", "", false},
+	} {
+		got, ok := mapping.Scalar(d, tc.path)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("Scalar(%q) = (%q,%v), want (%q,%v)", tc.path, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
+func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
+	d := map[string]any{"obj": map[string]any{"a": "1"}, "notobj": "text"}
+	if got := mapping.Object(d, "obj"); got == nil || got["a"] != "1" {
+		t.Fatalf("Object(obj) = %+v", got)
+	}
+	if got := mapping.Object(d, "notobj"); got != nil {
+		t.Fatalf("Object of a non-object should be nil, got %+v", got)
+	}
+	if got := mapping.Object(d, "absent"); got != nil {
+		t.Fatalf("Object of a missing path should be nil, got %+v", got)
+	}
+}
+
+// A false bool is an ANSWER, not an absence: alternation must not skip past it.
+func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
+	d := map[string]any{"f": false, "zero": float64(0), "blank": "", "nil": nil}
+	if got, ok := mapping.Bool(d, "f || nil"); !ok || got {
+		t.Fatalf("Bool(f||nil) = (%v,%v), want (false,true): false is an answer", got, ok)
+	}
+	if got, ok := mapping.Float(d, "zero"); !ok || got != 0 {
+		t.Fatalf("Float(zero) = (%v,%v), want (0,true): zero is an answer", got, ok)
+	}
+	if got := mapping.String(d, "blank || nil"); got != "" {
+		t.Fatalf("all-empty alternation should be empty, got %q", got)
 	}
 }
