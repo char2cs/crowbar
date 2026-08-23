@@ -23,6 +23,7 @@ func (u *Usecase) requireProviderEnabled(
 	}
 	return nil
 }
+
 func (u *Usecase) ResolveProviders(
 	ctx context.Context,
 ) ([]dto.AgentProviderDTO, error) {
@@ -74,6 +75,7 @@ func (u *Usecase) ResolveProviders(
 	})
 	return out, nil
 }
+
 func (u *Usecase) ReplaceProviderPreferences(
 	ctx context.Context,
 	prefs []domain.AgentProviderPreference,

@@ -109,7 +109,6 @@ func (j *promptJournal) begin(
 		return promptRequestRecord{}, false, fmt.Errorf("agent: prompt journal: mkdir: %w", err)
 	}
 	if dirWasMissing {
-
 		if err := j.syncDir(filepath.Dir(dir)); err != nil {
 			return promptRequestRecord{}, false, err
 		}
@@ -208,7 +207,6 @@ func (j *promptJournal) confirmAccepted(
 		return err
 	}
 	for _, record := range records {
-
 		if record.State != promptStateDispatching &&
 			record.State != promptStateSpawned &&
 			record.State != promptStateUncertain &&
@@ -511,7 +509,6 @@ func prunePromptRecords(dir string, now time.Time) {
 	sort.Slice(records, func(i, k int) bool { return records[i].UpdatedAt.Before(records[k].UpdatedAt) })
 	removable := make([]promptRequestRecord, 0, len(records))
 	for _, record := range records {
-
 		if record.State != promptStateDispatching &&
 			record.State != promptStateSpawned &&
 			record.State != promptStateUncertain {

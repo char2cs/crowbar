@@ -147,7 +147,6 @@ func toolID(ev engineagents.CanonicalEvent) string {
 }
 
 func toolStatus(ev engineagents.CanonicalEvent) string {
-
 	if ev.Kind == engineagents.HookToolFail {
 		return domain.ToolStatusError
 	}
@@ -218,7 +217,6 @@ func (u *Usecase) handleTelemetry(
 		return nil
 	}
 	if report.Empty() {
-
 		return nil
 	}
 	u.telemetry.set(chat.ID, report)

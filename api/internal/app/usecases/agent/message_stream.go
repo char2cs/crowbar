@@ -50,6 +50,18 @@ func (b *messageBuffer) Complete() bool {
 	return true
 }
 
+func (b *messageBuffer) snapshot() Message {
+	return Message{
+		ID:           b.ID,
+		TurnID:       b.TurnID,
+		Text:         b.Text(),
+		RecordedText: b.recordedText,
+		Final:        b.Final,
+		Complete:     b.Complete(),
+		LastAt:       b.LastAt,
+	}
+}
+
 type messageStreams struct {
 	mu     sync.Mutex
 	byChat map[string]map[string]*messageBuffer
@@ -65,31 +77,21 @@ func newMessageStreams() *messageStreams {
 }
 
 func (s *messageStreams) observe(
-	chatID, turnID, messageID string,
+	chatID string,
+	turnID string,
+	messageID string,
 	index int,
 	final bool,
 	text string,
 	now time.Time,
-) (*messageBuffer, bool) {
+) (Message, bool) {
 	if chatID == "" || messageID == "" {
-		return nil, false
+		return Message{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	messages, ok := s.byChat[chatID]
-	if !ok {
-		messages = make(map[string]*messageBuffer)
-		s.byChat[chatID] = messages
-	}
-	buffer, ok := messages[messageID]
-	if !ok {
-		buffer = &messageBuffer{ID: messageID, TurnID: turnID, chunks: make(map[int]string)}
-		messages[messageID] = buffer
-		s.order[chatID] = append(s.order[chatID], messageID)
-		s.evictLocked(chatID)
-	}
-
+	buffer := s.bufferLocked(chatID, turnID, messageID)
 	buffer.chunks[index] = text
 	if index > buffer.highest {
 		buffer.highest = index
@@ -98,30 +100,72 @@ func (s *messageStreams) observe(
 		buffer.Final = true
 	}
 	buffer.LastAt = now
-	return buffer, true
+	return buffer.snapshot(), true
 }
 
-func (s *messageStreams) openMessages(chatID string) []*messageBuffer {
+func (s *messageStreams) bufferLocked(
+	chatID string,
+	turnID string,
+	messageID string,
+) *messageBuffer {
+	messages, ok := s.byChat[chatID]
+	if !ok {
+		messages = make(map[string]*messageBuffer)
+		s.byChat[chatID] = messages
+	}
+	if buffer, ok := messages[messageID]; ok {
+		return buffer
+	}
+	buffer := &messageBuffer{ID: messageID, TurnID: turnID, chunks: make(map[int]string)}
+	messages[messageID] = buffer
+	s.order[chatID] = append(s.order[chatID], messageID)
+	s.evictLocked(chatID)
+	return buffer
+}
+
+func (s *messageStreams) openMessages(
+	chatID string,
+) []Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids := s.order[chatID]
-	out := make([]*messageBuffer, 0, len(ids))
+	out := make([]Message, 0, len(ids))
 	for _, id := range ids {
-		if buffer, ok := s.byChat[chatID][id]; ok {
-			out = append(out, buffer)
-		}
+		out = s.appendSnapshotLocked(out, chatID, id)
 	}
 	return out
 }
 
-func (s *messageStreams) unfinished(chatID string) []*messageBuffer {
-	out := make([]*messageBuffer, 0, 2)
-	for _, buffer := range s.openMessages(chatID) {
-		if !buffer.Final {
-			out = append(out, buffer)
-		}
+func (s *messageStreams) appendSnapshotLocked(
+	out []Message,
+	chatID string,
+	messageID string,
+) []Message {
+	buffer, ok := s.byChat[chatID][messageID]
+	if !ok {
+		return out
+	}
+	return append(out, buffer.snapshot())
+}
+
+func (s *messageStreams) unfinished(
+	chatID string,
+) []Message {
+	out := make([]Message, 0, 2)
+	for _, message := range s.openMessages(chatID) {
+		out = appendUnfinished(out, message)
 	}
 	return out
+}
+
+func appendUnfinished(
+	out []Message,
+	message Message,
+) []Message {
+	if message.Final {
+		return out
+	}
+	return append(out, message)
 }
 
 func (s *messageStreams) markRecorded(chatID, messageID, text string) {

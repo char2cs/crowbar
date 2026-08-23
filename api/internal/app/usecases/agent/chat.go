@@ -39,6 +39,7 @@ func (u *Usecase) RenameChat(
 	}
 	return nil
 }
+
 func (u *Usecase) RenameByRunner(
 	ctx context.Context,
 	runnerID, title, source string,
@@ -52,6 +53,7 @@ func (u *Usecase) RenameByRunner(
 	}
 	return u.RenameChat(ctx, runner.CurrentChatID, title, source)
 }
+
 func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
@@ -64,6 +66,7 @@ func (u *Usecase) PurgeChat(
 
 	return u.purgeChatLocked(ctx, chatID)
 }
+
 func (u *Usecase) purgeChatLocked(
 	ctx context.Context,
 	chatID string,
@@ -123,6 +126,7 @@ func (u *Usecase) purgeChatLocked(
 	RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 	return nil
 }
+
 func (u *Usecase) ResumeChat(
 	ctx context.Context,
 	chatID string,
@@ -143,6 +147,7 @@ func (u *Usecase) ResumeChat(
 	// The gate is already held: call the inner body, never SwitchProvider itself.
 	return u.switchProviderLocked(ctx, chatID, last.ProviderID)
 }
+
 func (u *Usecase) StopChat(
 	ctx context.Context,
 	chatID string,
@@ -163,11 +168,13 @@ func (u *Usecase) StopChat(
 	u.retire(ctx, live)
 	return nil
 }
+
 func (u *Usecase) ListChats(
 	ctx context.Context,
 ) ([]domain.AgentChat, error) {
 	return u.chats.ListChats(ctx)
 }
+
 func (u *Usecase) GetChat(
 	ctx context.Context,
 	id string,

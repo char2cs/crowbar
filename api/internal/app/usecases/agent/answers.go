@@ -280,7 +280,6 @@ func answerWait(declared time.Duration) time.Duration {
 func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswer, error) {
 	slot, held := u.answers.byDeliveryID(deliveryID)
 	if !held {
-
 		return HookAnswer{}, nil
 	}
 	if stdout, claimed := u.answers.claim(slot); claimed {
@@ -332,7 +331,6 @@ func (u *Usecase) AnswerChoice(
 	}
 	slot, held := u.answers.byChoiceID(choiceID)
 	if !held || slot.chatID != chatID {
-
 		return fmt.Errorf("%w: this prompt can no longer be answered from Crowbar",
 			apperr.ErrConflict)
 	}
@@ -384,7 +382,6 @@ func decide(
 		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", apperr.ErrInvalidArgument, err)
 	}
 	if len(answers) == 0 {
-
 		decision.Key = optionIDs[0]
 		return decision, nil
 	}
@@ -419,7 +416,6 @@ func answersByQuestion(answers []domain.ChoiceAnswer) map[string]any {
 	for _, answer := range answers {
 		key := answer.Question.AnswerKey()
 		if key == "" {
-
 			continue
 		}
 		labels := make([]any, 0, len(answer.Picked))

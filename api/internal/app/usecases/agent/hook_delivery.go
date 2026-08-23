@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +20,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 )
 
-const hookDeliveryDirName = ".hook-deliveries"
+const (
+	hookDeliveryDirName = ".hook-deliveries"
+
+	hookDeliveryStatePending   = "pending"
+	hookDeliveryStateCompleted = "completed"
+
+	hookDeliveryCompletedMax  = 32
+	hookDeliveryJournalMax    = 128
+	hookDeliveryJournalMaxAge = 30 * 24 * time.Hour
+	hookDeliveryPruneEvery    = 16
+	hookDeliveryScanMax       = 1024
+)
 
 type hookDeliveryContextKey struct{}
 
@@ -36,14 +49,18 @@ type hookDeliveryRecord struct {
 }
 
 type hookDeliveryJournal struct {
-	mu        sync.Mutex
-	gates     *chatGate
-	completed map[string]string
+	mu          sync.Mutex
+	gates       *chatGate
+	syncDir     func(string) error
+	completed   map[string]string
+	order       []string
+	completions int
 }
 
 func newHookDeliveryJournal() *hookDeliveryJournal {
 	return &hookDeliveryJournal{
 		gates:     newChatGate(),
+		syncDir:   syncPromptJournalDir,
 		completed: map[string]string{},
 	}
 }
@@ -84,16 +101,16 @@ func (j *hookDeliveryJournal) begin(
 		if record.Hash != hash {
 			return false, fmt.Errorf("agent: hook delivery id reused with different payload")
 		}
-		return record.State == "completed", nil
+		return record.State == hookDeliveryStateCompleted, nil
 	}
 	record = hookDeliveryRecord{
 		DeliveryID: deliveryID,
 		Hash:       hash,
-		State:      "pending",
+		State:      hookDeliveryStatePending,
 		CreatedAt:  now.UTC(),
 		UpdatedAt:  now.UTC(),
 	}
-	return false, writeHookDelivery(dir, record)
+	return false, writeHookDelivery(dir, record, j.syncDir)
 }
 
 func (j *hookDeliveryJournal) complete(
@@ -103,7 +120,6 @@ func (j *hookDeliveryJournal) complete(
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	j.completed[deliveryID] = hash
 	record, found, err := readHookDelivery(dir, deliveryID)
 	if err != nil {
 		return err
@@ -111,9 +127,122 @@ func (j *hookDeliveryJournal) complete(
 	if !found {
 		return fmt.Errorf("agent: hook delivery journal: pending record disappeared")
 	}
-	record.State = "completed"
+	record.State = hookDeliveryStateCompleted
 	record.UpdatedAt = now.UTC()
-	return writeHookDelivery(dir, record)
+	if err := writeHookDelivery(dir, record, j.syncDir); err != nil {
+		return err
+	}
+	j.markLocked(deliveryID, hash)
+	j.maintainLocked(dir, now)
+	return nil
+}
+
+func (j *hookDeliveryJournal) markLocked(deliveryID, hash string) {
+	if _, ok := j.completed[deliveryID]; ok {
+		return
+	}
+	j.completed[deliveryID] = hash
+	j.order = append(j.order, deliveryID)
+	j.evictLocked()
+}
+
+func (j *hookDeliveryJournal) evictLocked() {
+	ids := j.order
+	for len(ids) > hookDeliveryCompletedMax {
+		delete(j.completed, ids[0])
+		ids = ids[1:]
+	}
+	j.order = ids
+}
+
+func (j *hookDeliveryJournal) maintainLocked(dir string, now time.Time) {
+	j.completions++
+	if j.completions%hookDeliveryPruneEvery != 0 {
+		return
+	}
+	pruneHookDeliveries(dir)
+	reapHookDeliveryRunners(filepath.Dir(dir), now)
+}
+
+func pruneHookDeliveries(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) <= hookDeliveryJournalMax {
+		return
+	}
+	removeHookDeliveries(
+		dir,
+		completedHookDeliveries(dir, entries),
+		len(entries)-hookDeliveryJournalMax,
+	)
+}
+
+func completedHookDeliveries(
+	dir string,
+	entries []os.DirEntry,
+) []hookDeliveryRecord {
+	records := make([]hookDeliveryRecord, 0, min(len(entries), hookDeliveryScanMax))
+	for _, entry := range entries[:min(len(entries), hookDeliveryScanMax)] {
+		records = appendCompletedHookDelivery(records, dir, entry.Name())
+	}
+	sort.Slice(records, func(i, k int) bool {
+		return records[i].UpdatedAt.Before(records[k].UpdatedAt)
+	})
+	return records
+}
+
+func appendCompletedHookDelivery(
+	records []hookDeliveryRecord,
+	dir string,
+	name string,
+) []hookDeliveryRecord {
+	if !strings.HasSuffix(name, ".json") {
+		return records
+	}
+	record, found, err := readHookDelivery(dir, strings.TrimSuffix(name, ".json"))
+	if err != nil || !found || record.State != hookDeliveryStateCompleted {
+		return records
+	}
+	return append(records, record)
+}
+
+func removeHookDeliveries(
+	dir string,
+	records []hookDeliveryRecord,
+	excess int,
+) {
+	for _, record := range records {
+		if excess <= 0 {
+			return
+		}
+		if os.Remove(filepath.Join(dir, record.DeliveryID+".json")) == nil {
+			excess--
+		}
+	}
+}
+
+func reapHookDeliveryRunners(root string, now time.Time) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries[:min(len(entries), hookDeliveryScanMax)] {
+		reapHookDeliveryRunner(root, entry, now)
+	}
+}
+
+func reapHookDeliveryRunner(
+	root string,
+	entry os.DirEntry,
+	now time.Time,
+) {
+	if !entry.IsDir() {
+		return
+	}
+	info, err := entry.Info()
+	if err != nil || now.Sub(info.ModTime()) <= hookDeliveryJournalMaxAge {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(root, entry.Name()))
 }
 
 func readHookDelivery(dir, deliveryID string) (hookDeliveryRecord, bool, error) {
@@ -131,7 +260,11 @@ func readHookDelivery(dir, deliveryID string) (hookDeliveryRecord, bool, error) 
 	return record, true, nil
 }
 
-func writeHookDelivery(dir string, record hookDeliveryRecord) error {
+func writeHookDelivery(
+	dir string,
+	record hookDeliveryRecord,
+	syncDir func(string) error,
+) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("agent: hook delivery journal: encode: %w", err)
@@ -160,7 +293,7 @@ func writeHookDelivery(dir string, record hookDeliveryRecord) error {
 	if err := os.Rename(tmpName, filepath.Join(dir, record.DeliveryID+".json")); err != nil {
 		return fmt.Errorf("agent: hook delivery journal: commit: %w", err)
 	}
-	if err := syncPromptJournalDir(dir); err != nil {
+	if err := syncDir(dir); err != nil {
 		return fmt.Errorf("agent: hook delivery journal: %w", err)
 	}
 	return nil
@@ -209,7 +342,6 @@ func (u *Usecase) IngestHookDelivery(
 		return err
 	}
 	if err := u.hookDeliveries.complete(dir, deliveryID, hash, time.Now()); err != nil {
-
 		slog.ErrorContext(ctx, "agent: persist completed hook delivery (effects already committed)",
 			"runner_id", runnerID, "delivery_id", deliveryID, "err", err)
 	}

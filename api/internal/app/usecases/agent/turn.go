@@ -28,9 +28,11 @@ func (u *Usecase) openAssistantTurn(
 			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
 	}
 }
+
 func openTurnID(chatID, runnerID string) string {
 	return "open-" + chatID + "-" + runnerID
 }
+
 func (u *Usecase) handleTurn(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -52,6 +54,7 @@ func (u *Usecase) handleTurn(
 	}
 	return nil
 }
+
 func (u *Usecase) openTurnFromPrompt(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -152,6 +155,7 @@ func (u *Usecase) openTurnFromPrompt(
 	}
 	return nil
 }
+
 func (u *Usecase) closeTurnFromStop(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -196,6 +200,7 @@ func (u *Usecase) closeTurnFromStop(
 	}
 	return appendErr
 }
+
 func (u *Usecase) awaitTurnComplete(
 	ctx context.Context,
 	chatID string,
@@ -229,6 +234,7 @@ func (u *Usecase) awaitTurnComplete(
 		}
 	}
 }
+
 func (u *Usecase) chatWorking(ctx context.Context, chatID string) (bool, error) {
 	if working, known, _ := u.work.observe(chatID); known {
 		return working, nil

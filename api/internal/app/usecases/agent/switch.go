@@ -21,6 +21,7 @@ func (u *Usecase) SwitchProvider(
 	defer u.spawns.lock(chatID)()
 	return u.switchProviderLocked(ctx, chatID, targetProviderID)
 }
+
 func (u *Usecase) switchProviderLocked(
 	ctx context.Context,
 	chatID string,
@@ -128,6 +129,7 @@ func (u *Usecase) switchProviderLocked(
 		)
 	}
 }
+
 func (u *Usecase) displaceForSwitch(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -158,6 +160,7 @@ func (u *Usecase) displaceForSwitch(
 	}
 	return false, nil
 }
+
 func (u *Usecase) quitOutgoingCLI(
 	ctx context.Context,
 	chatID string,
@@ -189,6 +192,7 @@ func (u *Usecase) quitOutgoingCLI(
 	}
 	return nil
 }
+
 func (u *Usecase) resumableConversation(
 	ctx context.Context,
 	chat domain.AgentChat,

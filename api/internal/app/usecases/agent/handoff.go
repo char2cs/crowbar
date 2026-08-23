@@ -27,6 +27,7 @@ func (u *Usecase) ReadChatLog(
 	}
 	return out, nil
 }
+
 func (u *Usecase) assembleConversation(
 	ctx context.Context,
 	chatID string,
@@ -53,6 +54,7 @@ func (u *Usecase) assembleConversation(
 	}
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
+
 func composeContext(sections ...string) string {
 	parts := make([]string, 0, len(sections))
 	for _, section := range sections {

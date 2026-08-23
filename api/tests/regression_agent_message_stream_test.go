@@ -206,6 +206,72 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 		"a completed message must be readable while its turn is still running")
 }
 
+// TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds is the
+// half TestRegression_AMessageIsVisibleBEFOREItsTurnEnds cannot cover: that one
+// reads the REST ledger, and the ledger is written by the ingest path whether or
+// not anything is wired to the LIVE feed. Live streaming runs through a plain
+// callback field on the agent usecase, assigned by the composition root
+// (app.New → startTerminalWaitSweep → BroadcastAgentChatMessageDelta). Drop that
+// wiring and the pane goes silent until the turn ends while every ledger
+// assertion in this file stays green — so this test watches the socket.
+//
+// BEFORE is proven positively, on the socket's own ordering rather than on an
+// absence: readUntil only ever moves FORWARD through the stream, so reaching
+// `turn_stopped` having already consumed both partials means those partials were
+// earlier on the wire than the end of the turn.
+//
+// Both partials are NON-FINAL, and the ledger is checked while they are in
+// flight: neither "STILL " nor "STILL GROWING" exists anywhere durable at that
+// point, so the socket is the only channel that could have carried them.
+func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h)
+
+	// Subscribe BEFORE the chat exists, then take its own `created` frame as the
+	// barrier proving this connection is registered — a frame broadcast before the
+	// subscriber attached is a frame no amount of waiting recovers.
+	conn := h.dial(wsBase(imported) + "/agent/ws/chats")
+	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
+	chatFrame := func(kind string) func(map[string]any) bool {
+		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }
+	}
+	readUntil(t, conn, chatFrame("created"))
+
+	post := func(event, payload string) {
+		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+	}
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"narrate while you work"}`)
+	readUntil(t, conn, chatFrame("turn_started"))
+
+	post("message_delta", delta("msg-one", 0, false, "STILL "))
+	post("message_delta", delta("msg-one", 1, false, "GROWING"))
+
+	growing := func(text string) func(map[string]any) bool {
+		return func(m map[string]any) bool {
+			if !chatFrame("message_delta")(m) {
+				return false
+			}
+			message, ok := m["message"].(map[string]any)
+			return ok && message["id"] == "msg-one" && message["text"] == text
+		}
+	}
+	readUntil(t, conn, growing("STILL "))
+	readUntil(t, conn, growing("STILL GROWING"))
+
+	assert.Empty(t, assistantTexts(readRecordedMessages(t, h, imported, chatID)),
+		"an unfinished message is a view, not a record — the socket is the only place it exists")
+
+	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"STILL GROWING"}`)
+	readUntil(t, conn, chatFrame("turn_stopped"))
+	h.Quiesce()
+
+	assert.Equal(t, []string{"STILL GROWING"},
+		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
+		"the finished message lands in the ledger once, after the partials the socket already carried")
+}
+
 func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)

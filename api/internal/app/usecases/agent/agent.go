@@ -61,6 +61,7 @@ func (u *Usecase) SpawnChat(
 	}
 	return chatID, runnerID, nil
 }
+
 func (u *Usecase) MintChat(
 	ctx context.Context,
 	workspaceID string,
@@ -77,6 +78,7 @@ func (u *Usecase) MintChat(
 	u.work.set(chatID, created.Working)
 	return chatID, nil
 }
+
 func (u *Usecase) StartRunner(
 	ctx context.Context,
 	chatID string,
@@ -90,6 +92,7 @@ func (u *Usecase) StartRunner(
 	}
 	return u.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
 }
+
 func (u *Usecase) discardSpawnedChat(
 	ctx context.Context,
 	chatID string,
@@ -101,6 +104,7 @@ func (u *Usecase) discardSpawnedChat(
 	}
 	return cause
 }
+
 func (u *Usecase) retireChatRunners(
 	ctx context.Context,
 	chatID string,
@@ -115,6 +119,7 @@ func (u *Usecase) retireChatRunners(
 		u.retire(ctx, r)
 	}
 }
+
 func (u *Usecase) retire(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -131,6 +136,7 @@ func (u *Usecase) retire(
 			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
 	}
 }
+
 func (u *Usecase) reapCrashOrphanRunnerTmp(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -149,6 +155,7 @@ func (u *Usecase) reapCrashOrphanRunnerTmp(
 	}
 	RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
 }
+
 func deriveTitle(prompt string) string {
 	for _, line := range strings.Split(prompt, "\n") {
 		line = strings.TrimSpace(line)
@@ -163,12 +170,14 @@ func deriveTitle(prompt string) string {
 	}
 	return ""
 }
+
 func (u *Usecase) mintRunnerToken(runnerID string) string {
 	if u.minter == nil {
 		return ""
 	}
 	return u.minter.Mint(runnerID)
 }
+
 func (u *Usecase) replayStartupHook(
 	runnerID string,
 	hook pendingRunnerHook,
@@ -194,6 +203,7 @@ func (u *Usecase) replayStartupHook(
 			"runner_id", runnerID, "delivery_id", hook.deliveryID, "err", err)
 	}
 }
+
 func newRunnerID(
 	preallocated string,
 ) string {
@@ -281,6 +291,7 @@ func (u *Usecase) retireOthersOn(
 	}
 	u.retireOlderThan(ctx, placed, keepID, "chat", chatID)
 }
+
 func (u *Usecase) evictHolderOf(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -294,6 +305,7 @@ func (u *Usecase) evictHolderOf(
 	}
 	u.retireOlderThan(ctx, holders, runner.ID, "conversation", sessionID)
 }
+
 func (u *Usecase) retireOlderThan(
 	ctx context.Context,
 	present []domain.AgentRunner,
@@ -317,6 +329,7 @@ func (u *Usecase) retireOlderThan(
 		u.retire(ctx, older)
 	}
 }
+
 func (u *Usecase) teardownAfterPersistFailure(
 	ctx context.Context,
 	chatID, runnerID, termSessID string,
@@ -329,6 +342,7 @@ func (u *Usecase) teardownAfterPersistFailure(
 	}
 	return cause
 }
+
 func RemoveUnderHome(
 	ctx context.Context,
 	home string,
@@ -343,6 +357,7 @@ func RemoveUnderHome(
 		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
 	}
 }
+
 func (u *Usecase) onRunnerExit(home, runnerID, tmpDir string) func() {
 	return func() {
 		RemoveUnderHome(context.Background(), home, tmpDir)
@@ -356,12 +371,14 @@ func (u *Usecase) onRunnerExit(home, runnerID, tmpDir string) func() {
 		u.reconcileRunnerExit(context.Background(), runnerID)
 	}
 }
+
 func (u *Usecase) crowbarHookPath(home string) string {
 	if v := os.Getenv("CROWBAR_HOOK_BIN"); v != "" {
 		return v
 	}
 	return filepath.Join(home, "bin", "crowbar")
 }
+
 func (u *Usecase) ingestHookNow(
 	ctx context.Context,
 	runnerID string,
@@ -383,6 +400,7 @@ func (u *Usecase) ingestHookNow(
 	}
 	return u.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
 }
+
 func (u *Usecase) requirePlacement(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -405,6 +423,7 @@ func (u *Usecase) requirePlacement(
 	u.retire(ctx, runner)
 	return false, nil
 }
+
 func (u *Usecase) appendTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -413,6 +432,7 @@ func (u *Usecase) appendTurn(
 ) error {
 	return u.appendRunnerTurn(ctx, chat, providerID, "", "", role, text)
 }
+
 func (u *Usecase) appendRunnerTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -424,6 +444,7 @@ func (u *Usecase) appendRunnerTurn(
 	}
 	return nil
 }
+
 func (u *Usecase) NoteThreadLineage(
 	ctx context.Context,
 	chatID string,
@@ -454,12 +475,14 @@ func lineageNoteText(
 		"without any of that context: the move changes what this chat reads from now on and " +
 		"rewrites nothing it has already read."
 }
+
 func (u *Usecase) AssembleHandoff(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
 	return u.assembleConversation(ctx, chatID, false, time.Time{})
 }
+
 func (u *Usecase) seedWorkFromProjection(
 	ctx context.Context,
 	chatID string,
@@ -474,6 +497,7 @@ func (u *Usecase) seedWorkFromProjection(
 	}
 	return chat.Working, changed, nil
 }
+
 func (u *Usecase) threadContext(
 	ctx context.Context,
 	chatID string,
@@ -491,6 +515,7 @@ func (u *Usecase) threadContext(
 	}
 	return strings.ReplaceAll(config.GetPrompts().ThreadLineage, "{lineage}", renderLineage(ancestors)), nil
 }
+
 func renderLineage(
 	ancestors []string,
 ) string {
@@ -500,6 +525,7 @@ func renderLineage(
 	}
 	return strings.Join(lines, "\n")
 }
+
 func (u *Usecase) providerMCPEnabled(
 	ctx context.Context,
 	providerID string,
@@ -510,32 +536,21 @@ func (u *Usecase) providerMCPEnabled(
 	}
 	return pref == nil || !pref.MCPDisabled, nil
 }
-func (u *Usecase) ListProviders(
-	ctx context.Context,
-	workspaceID string,
-) ([]engineagents.Agent, error) {
-	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: list providers: worktree dir: %w", err)
-	}
-	list, err := u.agents.List(ctx, crowbarHome)
-	if err != nil {
-		return nil, fmt.Errorf("agent: list providers: %w", err)
-	}
-	return list, nil
-}
+
 func (u *Usecase) ListChatsByWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) ([]domain.AgentChat, error) {
 	return u.chats.ListByWorkspace(ctx, workspaceID)
 }
+
 func (u *Usecase) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
 ) (domain.AgentRunner, error) {
 	return u.runners.LiveRunnerForChat(ctx, chatID)
 }
+
 func (u *Usecase) ConversationsForChat(
 	ctx context.Context,
 	chatID string,

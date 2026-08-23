@@ -15,21 +15,21 @@ func TestMessageStreams_AssemblesIncrementsInIndexOrder(t *testing.T) {
 
 	s.observe("c", "t", "m", 1, false, "world", mnow)
 	s.observe("c", "t", "m", 0, false, "hello ", mnow)
-	buffer, ok := s.observe("c", "t", "m", 2, true, "!", mnow)
+	message, ok := s.observe("c", "t", "m", 2, true, "!", mnow)
 
 	require.True(t, ok)
-	assert.Equal(t, "hello world!", buffer.Text())
-	assert.True(t, buffer.Final)
-	assert.True(t, buffer.Complete())
+	assert.Equal(t, "hello world!", message.Text)
+	assert.True(t, message.Final)
+	assert.True(t, message.Complete)
 }
 
 func TestMessageStreams_IncrementsAreConcatenatedNotReplaced(t *testing.T) {
 	s := newMessageStreams()
 
 	s.observe("c", "t", "m", 0, false, "ALPHA", mnow)
-	buffer, _ := s.observe("c", "t", "m", 1, true, "BETA", mnow)
+	message, _ := s.observe("c", "t", "m", 1, true, "BETA", mnow)
 
-	assert.Equal(t, "ALPHABETA", buffer.Text())
+	assert.Equal(t, "ALPHABETA", message.Text)
 }
 
 func TestMessageStreams_TwoMessagesOfOneTurnStaySeparate(t *testing.T) {
@@ -40,8 +40,8 @@ func TestMessageStreams_TwoMessagesOfOneTurnStaySeparate(t *testing.T) {
 
 	open := s.openMessages("c")
 	require.Len(t, open, 2)
-	assert.Equal(t, "ALPHA", open[0].Text())
-	assert.Equal(t, "OMEGA", open[1].Text())
+	assert.Equal(t, "ALPHA", open[0].Text)
+	assert.Equal(t, "OMEGA", open[1].Text)
 	assert.Equal(t, "turn-1", open[0].TurnID)
 }
 
@@ -49,19 +49,19 @@ func TestMessageStreams_ARedeliveredIncrementIsNotAppendedTwice(t *testing.T) {
 	s := newMessageStreams()
 
 	s.observe("c", "t", "m", 0, false, "once", mnow)
-	buffer, _ := s.observe("c", "t", "m", 0, false, "once", mnow)
+	message, _ := s.observe("c", "t", "m", 0, false, "once", mnow)
 
-	assert.Equal(t, "once", buffer.Text())
+	assert.Equal(t, "once", message.Text)
 }
 
 func TestMessageStreams_AMissingIncrementIsDetected(t *testing.T) {
 	s := newMessageStreams()
 
 	s.observe("c", "t", "m", 0, false, "start ", mnow)
-	buffer, _ := s.observe("c", "t", "m", 2, true, "end", mnow)
+	message, _ := s.observe("c", "t", "m", 2, true, "end", mnow)
 
-	assert.False(t, buffer.Complete(), "index 1 never arrived and that must be visible")
-	assert.Equal(t, "start end", buffer.Text(), "what did arrive is still recorded")
+	assert.False(t, message.Complete, "index 1 never arrived and that must be visible")
+	assert.Equal(t, "start end", message.Text, "what did arrive is still recorded")
 }
 
 func TestMessageStreams_AnIncrementWithNoMessageIDIsDropped(t *testing.T) {
@@ -90,9 +90,9 @@ func TestMessageStreams_TheClockFollowsTheLatestIncrement(t *testing.T) {
 	later := mnow.Add(9 * time.Second)
 
 	s.observe("c", "t", "m", 0, false, "one ", mnow)
-	buffer, _ := s.observe("c", "t", "m", 1, false, "two", later)
+	message, _ := s.observe("c", "t", "m", 1, false, "two", later)
 
-	assert.Equal(t, later, buffer.LastAt)
+	assert.Equal(t, later, message.LastAt)
 }
 
 func TestMessageStreams_ForgetDropsTheChat(t *testing.T) {

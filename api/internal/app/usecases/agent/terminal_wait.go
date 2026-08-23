@@ -48,7 +48,6 @@ func (u *Usecase) MatchTerminalPrompt(
 func newTerminalWaitDetector(u *Usecase) termwait.Detector {
 	screens, ok := u.term.(termwait.Screens)
 	if !ok {
-
 		return nil
 	}
 	return termwait.New(termwait.Deps{

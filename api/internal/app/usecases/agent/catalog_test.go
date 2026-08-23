@@ -113,19 +113,16 @@ func TestSlashCatalog_MapsEveryEngineFailureToItsOwnAppError(t *testing.T) {
 		want    error
 	}{
 		{
-
 			name:    "provider command unavailable",
 			command: `"/nonexistent/crowbar-not-a-real-cli"`,
 			want:    agentusecase.ErrSlashCatalogUnavailable,
 		},
 		{
-
 			name:    "malformed output",
 			command: `"/usr/bin/true"`,
 			want:    agentusecase.ErrSlashCatalogMalformed,
 		},
 		{
-
 			name:    "command failed",
 			command: `"/usr/bin/false"`,
 			want:    agentusecase.ErrSlashCatalogCommand,

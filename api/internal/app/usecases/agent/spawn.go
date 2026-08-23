@@ -223,6 +223,7 @@ func (u *Usecase) spawnPaths(
 		tmpDir:      tmpDir,
 	}, nil
 }
+
 func (u *Usecase) renderSpawnContext(
 	in spawnContext,
 ) (engineagents.TemplateCtx, bool) {
@@ -285,6 +286,7 @@ func (u *Usecase) renderSpawnContext(
 	inject := in.conversation != "" || !in.resuming
 	return tctx, inject
 }
+
 func (u *Usecase) forkCLI(
 	ctx context.Context,
 	req forkRequest,
@@ -312,6 +314,7 @@ func (u *Usecase) forkCLI(
 	}
 	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 }
+
 func (u *Usecase) recordRunner(
 	ctx context.Context,
 	chatID string,

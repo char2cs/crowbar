@@ -102,7 +102,6 @@ func (u *Usecase) SubmitPrompt(
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
 	}
 	if existingAttempt {
-
 		result, done, classifyErr := u.classifyPriorAttempt(
 			ctx, chat, journalDir, clientRequestID, prior,
 		)
@@ -121,9 +120,7 @@ func (u *Usecase) SubmitPrompt(
 		delivery.resuming, delivery.launchSessionID, false, text,
 	)
 	if err != nil {
-
 		if errors.Is(err, engineterminal.ErrCommandNotFound) {
-
 			_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
 			return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
 		}
@@ -212,7 +209,6 @@ func (u *Usecase) displaceForPrompt(
 	}
 
 	if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
-
 		_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
@@ -542,7 +538,6 @@ func (u *Usecase) resumeTarget(
 	chatID string,
 	live domain.AgentRunner,
 ) (bool, string, error) {
-
 	if live.LaunchSessionID != "" &&
 		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
 		return true, live.LaunchSessionID, nil

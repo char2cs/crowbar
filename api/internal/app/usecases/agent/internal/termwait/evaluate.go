@@ -11,7 +11,6 @@ func (d *detector) evaluate(
 	runner domain.AgentRunner,
 	prev screenCache,
 ) (domain.AgentTerminalWait, screenCache, bool) {
-
 	if runner.TerminalSession == "" {
 		return domain.AgentTerminalWait{}, screenCache{}, false
 	}
@@ -22,7 +21,6 @@ func (d *detector) evaluate(
 	}
 
 	if chat.Working {
-
 		if d.abandonedMessage(ctx, runner) {
 			return domain.AgentTerminalWait{}, prev, false
 		}
@@ -78,7 +76,6 @@ func (d *detector) readScreen(
 	runner domain.AgentRunner,
 	prev screenCache,
 ) screenCache {
-
 	fresh := prev.session != runner.TerminalSession
 	since := prev.gen
 	if fresh {
@@ -88,7 +85,6 @@ func (d *detector) readScreen(
 	text, gen, changed := d.deps.Screens.Screen(runner.TerminalSession, since)
 	if !changed {
 		if gen == 0 || fresh {
-
 			return screenCache{session: runner.TerminalSession}
 		}
 

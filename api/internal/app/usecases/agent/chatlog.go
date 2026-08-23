@@ -85,7 +85,6 @@ func (u *Usecase) chatPage(
 	}
 
 	if after > 0 {
-
 		rows, err := u.activity.Turns(ctx, chatID, int64(after), 0, limit+1)
 		if err != nil {
 			return chatlog.Page{}, fmt.Errorf("agent: chat page: %w", err)

@@ -9,7 +9,6 @@ import (
 func (d *detector) Sweep(ctx context.Context, publish Publish) {
 	runners, err := d.deps.Runners.AllLive(ctx)
 	if err != nil {
-
 		return
 	}
 
@@ -38,7 +37,6 @@ func (d *detector) fold(
 	ctx context.Context,
 	runners []domain.AgentRunner,
 ) ([]change, []Stall) {
-
 	d.mu.RLock()
 	prev := make(map[string]chatState, len(d.state))
 	for k, v := range d.state {

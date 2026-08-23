@@ -41,6 +41,7 @@ func (u *Usecase) displace(
 	u.closeAbandonedTurn(ctx, vacated)
 	return nil
 }
+
 func (u *Usecase) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
@@ -82,6 +83,7 @@ func (u *Usecase) closeAbandonedTurn(
 	}
 	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
 }
+
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
@@ -136,6 +138,7 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 	}
 	return nil
 }
+
 func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// The echo guard is per-spawn and means nothing once the process is gone.
 	u.agents.ForgetRunner(runnerID)

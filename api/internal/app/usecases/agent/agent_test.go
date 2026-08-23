@@ -879,54 +879,6 @@ func TestListChats_GetChat_ConversationsForChat(t *testing.T) {
 	assert.Equal(t, runnerID, live.ID)
 }
 
-func TestListProviders_ReturnsEveryDescriptorForTheWorkspaceHome(t *testing.T) {
-	f := newFixture(t)
-
-	descs, err := f.usecase.ListProviders(f.ctx, "ws1")
-	require.NoError(t, err)
-	require.NotEmpty(t, descs)
-
-	ids := make([]string, len(descs))
-	for i, d := range descs {
-		ids[i] = d.ID()
-	}
-	assert.Contains(t, ids, "claude")
-	assert.Contains(t, ids, "codex")
-}
-
-func TestListProviders_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
-	f := newFixture(t)
-	f.ws.err = fmt.Errorf("boom: worktree lookup")
-
-	descs, err := f.usecase.ListProviders(f.ctx, "ws1")
-	require.Error(t, err)
-	assert.Nil(t, descs)
-	assert.Contains(t, err.Error(), "list providers")
-	assert.Contains(t, err.Error(), "worktree dir")
-}
-
-// A broken on-disk override costs THAT provider its row, not the whole list. This
-// backs the provider picker: one bad user-authored descriptor must not blank the
-// UI, which is indistinguishable from "no providers are installed".
-func TestListProviders_BrokenOverrideOmitsOneProviderNotTheList(t *testing.T) {
-	f := newFixture(t)
-
-	dir := filepath.Join(f.ws.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("id: \"\"\n"), 0o600))
-
-	descs, err := f.usecase.ListProviders(f.ctx, "ws1")
-	require.NoError(t, err)
-
-	ids := make([]string, len(descs))
-	for i, d := range descs {
-		ids[i] = d.ID()
-	}
-	assert.Contains(t, ids, "claude")
-	assert.Contains(t, ids, "codex")
-	assert.NotContains(t, ids, "broken")
-}
-
 // argAfter returns the argv token following flag.
 func argAfter(t *testing.T, argv []string, flag string) string {
 	t.Helper()

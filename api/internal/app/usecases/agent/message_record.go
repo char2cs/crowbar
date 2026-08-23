@@ -23,7 +23,7 @@ func (u *Usecase) recordMessageDelta(
 	if ev.Delta == nil {
 		return
 	}
-	buffer, ok := u.messages.observe(
+	message, ok := u.messages.observe(
 		chat.ID, ev.Delta.TurnID, ev.Delta.MessageID,
 		ev.Delta.Index, ev.Delta.Final, ev.Delta.Text, time.Now(),
 	)
@@ -32,19 +32,18 @@ func (u *Usecase) recordMessageDelta(
 	}
 
 	if u.messageDelta != nil {
-		u.messageDelta(chat.ID, chat.WorkspaceID, buffer.ID, buffer.Text())
+		u.messageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text)
 	}
-	if !buffer.Final {
+	if !message.Final {
 		return
 	}
-	if !buffer.Complete() {
-
+	if !message.Complete {
 		slog.WarnContext(ctx, "agent: assistant message is missing an increment",
-			"chat_id", chat.ID, "message_id", buffer.ID)
+			"chat_id", chat.ID, "message_id", message.ID)
 	}
 	u.note(ctx, "record streamed message",
-		u.recordAssistantMessage(ctx, chat, runner, buffer.ID, buffer.Text(), "", true))
-	u.messages.markRecorded(chat.ID, buffer.ID, buffer.Text())
+		u.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true))
+	u.messages.markRecorded(chat.ID, message.ID, message.Text)
 }
 
 func (u *Usecase) recordAssistantMessage(
@@ -70,7 +69,6 @@ func (u *Usecase) recordAssistantMessage(
 		return fmt.Errorf("agent: record assistant message: %w", err)
 	}
 	if reopen {
-
 		u.openAssistantTurn(ctx, chat, runner)
 	}
 	return nil
@@ -88,26 +86,25 @@ func (u *Usecase) closeAssistantTurn(
 	defer u.messages.forget(chat.ID)
 
 	var lastRecorded string
-	for i, buffer := range streamed {
-		text := buffer.Text()
+	for i, message := range streamed {
+		text := message.Text
 		last := i == len(streamed)-1
 		if last && ev.Message != "" && text != ev.Message {
-
 			if text != "" {
 				slog.WarnContext(ctx, "agent: streamed message differs from the terminating hook",
-					"chat_id", chat.ID, "message_id", buffer.ID,
+					"chat_id", chat.ID, "message_id", message.ID,
 					"streamed_bytes", len(text), "hook_bytes", len(ev.Message))
 			}
 			text = ev.Message
 		}
-		if text == "" || text == buffer.recordedText && !last {
+		if text == "" || text == message.RecordedText && !last {
 			continue
 		}
 		effort := ""
 		if last {
 			effort = ev.Effort
 		}
-		if err := u.recordAssistantMessage(ctx, chat, runner, buffer.ID, text, effort, !last); err != nil {
+		if err := u.recordAssistantMessage(ctx, chat, runner, message.ID, text, effort, !last); err != nil {
 			return fmt.Errorf("agent: ingest hook: close turn: %w", err)
 		}
 		lastRecorded = text
@@ -134,7 +131,6 @@ func (u *Usecase) closeTurnFromFailure(
 	runner domain.AgentRunner,
 	ev engineagents.CanonicalEvent,
 ) error {
-
 	appendErr := u.closeAssistantTurn(ctx, chat, runner, ev)
 	defer u.turns.complete(runner.ID)
 
@@ -163,18 +159,22 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 	return ev.Failure.Reason
 }
 
+// UnfinishedSince reports when the chat's assistant stream last grew, and whether any
+// message is still unterminated. It answers with the NEWEST increment across every
+// unfinished message, not the oldest: one message still advancing means the CLI is
+// alive, so the quiet period the sweep measures must restart on any of them.
 func (u *Usecase) UnfinishedSince(chatID string) (time.Time, bool) {
 	unfinished := u.messages.unfinished(chatID)
 	if len(unfinished) == 0 {
 		return time.Time{}, false
 	}
-	oldest := unfinished[0].LastAt
-	for _, buffer := range unfinished[1:] {
-		if buffer.LastAt.After(oldest) {
-			oldest = buffer.LastAt
+	newest := unfinished[0].LastAt
+	for _, message := range unfinished[1:] {
+		if message.LastAt.After(newest) {
+			newest = message.LastAt
 		}
 	}
-	return oldest, true
+	return newest, true
 }
 
 func (u *Usecase) AbandonMessage(ctx context.Context, chatID string) (bool, error) {
@@ -184,19 +184,18 @@ func (u *Usecase) AbandonMessage(ctx context.Context, chatID string) (bool, erro
 	}
 	runner, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if err != nil {
-
 		return false, nil //nolint:nilerr // absence is an answer, not a failure
 	}
 	recorded := false
-	for _, buffer := range u.messages.unfinished(chatID) {
-		text := buffer.Text()
-		if text == "" || text == buffer.recordedText {
+	for _, message := range u.messages.unfinished(chatID) {
+		text := message.Text
+		if text == "" || text == message.RecordedText {
 			continue
 		}
-		if err := u.recordAssistantMessage(ctx, chat, runner, buffer.ID, text, "", false); err != nil {
+		if err := u.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false); err != nil {
 			return false, err
 		}
-		u.messages.markRecorded(chatID, buffer.ID, text)
+		u.messages.markRecorded(chatID, message.ID, text)
 		recorded = true
 	}
 	u.messages.forget(chatID)
@@ -204,7 +203,6 @@ func (u *Usecase) AbandonMessage(ctx context.Context, chatID string) (bool, erro
 	abandoned, err := u.chats.AbandonTurn(ctx, chatID, time.Now())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
-
 			u.work.set(chatID, false)
 			return recorded, nil
 		}

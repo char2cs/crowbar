@@ -27,6 +27,7 @@ func (u *Usecase) IngestHook(
 	}
 	return u.ingestHookNow(ctx, runnerID, provider, canonicalEvent, rawPayload)
 }
+
 func (u *Usecase) ingestUserPromptInterlocked(
 	ctx context.Context,
 	runnerID, provider, canonicalEvent string,
@@ -64,6 +65,7 @@ func (u *Usecase) ingestUserPromptInterlocked(
 		return err
 	}
 }
+
 func (u *Usecase) ingestResolvedHook(
 	ctx context.Context,
 	runner domain.AgentRunner,

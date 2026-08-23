@@ -37,6 +37,7 @@ func (u *Usecase) chatForRunner(
 	}
 	return chat, true, nil
 }
+
 func (u *Usecase) handleSessionStart(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -108,6 +109,7 @@ func (u *Usecase) handleSessionStart(
 	}
 	return nil
 }
+
 func (u *Usecase) moveToNewChat(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -147,6 +149,7 @@ func (u *Usecase) moveToNewChat(
 	u.closeAbandonedTurn(ctx, runner.CurrentChatID)
 	return nil
 }
+
 func (u *Usecase) moveToKnownChat(
 	ctx context.Context,
 	runner domain.AgentRunner,
