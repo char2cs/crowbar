@@ -295,6 +295,12 @@ type fakeRunnerBroadcaster struct {
 	frames []runnerFrame
 }
 
+// watchAgentRunner adapts the repository's announcement seam onto this fake's
+// existing frame recorder, so every assertion here keeps its current shape.
+func (f *fakeRunnerBroadcaster) watchAgentRunner(e agentrunner.RunnerEvent) {
+	f.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+}
+
 func (f *fakeRunnerBroadcaster) BroadcastAgentRunner(runnerID, workspaceID, chatID, kind string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -925,7 +931,7 @@ func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
 // the real live-runner + conversation-history projections, the real hub projection.
 func newRunnerStore(
 	t *testing.T,
-	broadcast agentrunner.BroadcastFunc,
+	watch agentrunner.WatchFunc,
 ) (agentrunner.EventStore, func()) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -941,7 +947,7 @@ func newRunnerStore(
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	repo, err := agentrunner.NewEventSourced(ax, es, db, broadcast)
+	repo, err := agentrunner.NewEventSourced(ax, es, db, watch)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }
@@ -979,7 +985,7 @@ func newFixtureUsing(
 	bc := &fakeBroadcaster{}
 	rbc := &fakeRunnerBroadcaster{}
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
-	realRunners, waitRunners := newRunnerStore(t, rbc.BroadcastAgentRunner)
+	realRunners, waitRunners := newRunnerStore(t, rbc.watchAgentRunner)
 	realActivity, waitActivity := newActivityStore(t)
 
 	usedChats := realChats

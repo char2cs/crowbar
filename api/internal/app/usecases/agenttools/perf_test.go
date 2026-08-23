@@ -372,7 +372,7 @@ func newPerfRunnerStore(
 		ax,
 		adapters.AgentRunnerES(),
 		adapters.AgentRunnerReadDB(),
-		func(string, string, string, string) {},
+		func(agentrunner.RunnerEvent) {},
 	)
 	require.NoError(b, err)
 	return store

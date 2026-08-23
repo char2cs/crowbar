@@ -16,8 +16,9 @@ import (
 // eventKind strips it to isolate <kind>.
 const eventNamePrefix = "agentrunner."
 
-// BroadcastFunc receives every projected AgentRunner event as a bare
-// (runnerID, workspaceID, chatID, kind) lifecycle frame for hub fan-out.
+// RunnerEvent is one projected agentrunner lifecycle event, in repo-owned terms:
+// the bare (runnerID, workspaceID, chatID, kind) facts a lifecycle frame is built
+// from.
 // chatID is the chat the runner is pointed at AS OF this event, so a `moved`
 // frame names the chat it entered — the frame carries placement, never liveness.
 //
@@ -34,12 +35,20 @@ const eventNamePrefix = "agentrunner."
 //	                that runner should stop showing it as the chat's agent WITHOUT waiting
 //	                for the exit, which may be a second away or (if the kill failed) never.
 //	exited        — the PTY died; the live row is gone and the chat is now dormant
-type BroadcastFunc func(
-	runnerID string,
-	workspaceID string,
-	chatID string,
-	kind string,
-)
+type RunnerEvent struct {
+	RunnerID    string
+	WorkspaceID string
+	ChatID      string
+	Kind        string
+}
+
+// WatchFunc receives every projected agentrunner event. It replaces the former
+// BroadcastFunc: the repository announces WHAT HAPPENED, and the usecase decides what
+// the frontend is told (usecases/agent/internal/fanout).
+//
+// Unlike agentchat this projector registers no OnForget handler, so there is no
+// Forgotten flag to carry: a runner is never hard-deleted, it exits.
+type WatchFunc func(RunnerEvent)
 
 // registerHubProjection subscribes the WS fan-out projection to every agentrunner
 // event: it derives the lifecycle kind from evt.EventName and hands the frame to
@@ -48,9 +57,9 @@ type BroadcastFunc func(
 // Designed to register ONCE, on the singleton ax.
 func registerHubProjection(
 	ax asynx.Asynx[domain.AgentRunner],
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) error {
-	p := &hubProjector{broadcast: broadcast}
+	p := &hubProjector{watch: watch}
 	if _, err := ax.Subscribe(asynx.Topic("agentrunner.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentrunner hub projection: subscribe: %w", err)
 	}
@@ -58,7 +67,16 @@ func registerHubProjection(
 }
 
 type hubProjector struct {
-	broadcast BroadcastFunc
+	watch WatchFunc
+}
+
+// emit is the single exit. A nil watch degrades to a no-op so a store built without
+// one (every unit test) never panics.
+func (p *hubProjector) emit(e RunnerEvent) {
+	if p.watch == nil {
+		return
+	}
+	p.watch(e)
 }
 
 func (p *hubProjector) onEvent(
@@ -66,7 +84,12 @@ func (p *hubProjector) onEvent(
 	evt asynxModels.Event[domain.AgentRunner],
 ) {
 	r := evt.Aggregate
-	p.broadcast(evt.AggregateID, r.WorkspaceID, r.CurrentChatID, eventKind(evt.EventName))
+	p.emit(RunnerEvent{
+		RunnerID:    evt.AggregateID,
+		WorkspaceID: r.WorkspaceID,
+		ChatID:      r.CurrentChatID,
+		Kind:        eventKind(evt.EventName),
+	})
 }
 
 // eventKind extracts the <kind> segment from an agentrunner EventName

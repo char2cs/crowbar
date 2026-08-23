@@ -37,6 +37,12 @@ type frameSink struct {
 	frames []frame
 }
 
+// watch adapts the repository's announcement seam onto this sink's existing frame
+// recorder, so the change is proven against the assertions already here.
+func (s *frameSink) watch(e store.RunnerEvent) {
+	s.record(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+}
+
 func (s *frameSink) record(
 	runnerID string,
 	workspaceID string,
@@ -106,7 +112,7 @@ func newHarnessWithEventStore(
 		readES = es
 	}
 	h := &harness{t: t, ctx: context.Background(), ax: ax, db: db, es: es, sink: &frameSink{}}
-	st, err := store.New(db, readES, ax, h.sink.record)
+	st, err := store.New(db, readES, ax, h.sink.watch)
 	require.NoError(t, err)
 	h.st = st
 	return h
@@ -135,7 +141,7 @@ func (h *harness) restart(
 	sink *frameSink,
 ) *store.Store {
 	h.t.Helper()
-	st, err := store.New(h.db, h.es, newAx(h.t, h.es), sink.record)
+	st, err := store.New(h.db, h.es, newAx(h.t, h.es), sink.watch)
 	require.NoError(h.t, err)
 	return st
 }
@@ -149,7 +155,7 @@ func (h *harness) restartLosingReadDB(
 	h.t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(h.t, err)
-	st, err := store.New(db, h.es, newAx(h.t, h.es), sink.record)
+	st, err := store.New(db, h.es, newAx(h.t, h.es), sink.watch)
 	require.NoError(h.t, err)
 	return st
 }
@@ -914,7 +920,7 @@ func TestNew_DoesNotHealWhenTheMarkerIsPresent(t *testing.T) {
 	h.bindSession("r1", "s1", clock(11))
 	h.drain()
 
-	_, err := store.New(h.db, &listerErrES{err: errors.New("boom")}, newAx(t, h.es), h.sink.record)
+	_, err := store.New(h.db, &listerErrES{err: errors.New("boom")}, newAx(t, h.es), h.sink.watch)
 	require.NoError(t, err, "the event log was never enumerated: the history was already there")
 }
 
@@ -1036,7 +1042,10 @@ func TestNew_MigrationError(t *testing.T) {
 // A nil broadcast must be refused at construction: the hub projection calls it on
 // every event, so accepting one defers the panic into a projection goroutine,
 // long after — and far from — whoever built the Store.
-func TestNew_RejectsNilBroadcast(t *testing.T) {
+// A runner store with no watch seam silently loses every lifecycle frame, so a nil
+// one is refused at construction rather than degraded to a no-op. agentchat differs
+// deliberately: most of its callers are tests with no hub.
+func TestNew_RejectsNilWatch(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -1044,13 +1053,7 @@ func TestNew_RejectsNilBroadcast(t *testing.T) {
 
 	_, err = store.New(db, es, newAx(t, es), nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nil broadcast")
+	assert.Contains(t, err.Error(), "nil watch")
 }
 
-func noopBroadcast(
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-) {
-}
+func noopBroadcast(_ store.RunnerEvent) {}

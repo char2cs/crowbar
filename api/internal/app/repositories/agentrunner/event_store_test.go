@@ -30,6 +30,11 @@ type captureBroadcast struct {
 	rows []string
 }
 
+// watch adapts the announcement seam onto the frame this fixture already asserts on.
+func (c *captureBroadcast) watch(e agentrunner.RunnerEvent) {
+	c.push(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+}
+
 func (c *captureBroadcast) push(runnerID, workspaceID, chatID, kind string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -67,7 +72,7 @@ func newRepoWithDeps(
 	require.NoError(t, err)
 
 	cap := &captureBroadcast{}
-	repo, err := agentrunner.NewEventSourced(ax, es, db, cap.push)
+	repo, err := agentrunner.NewEventSourced(ax, es, db, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, cap
 }
@@ -443,7 +448,7 @@ func TestAgentRunner_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = agentrunner.NewEventSourced(ax, es, db, func(string, string, string, string) {})
+	_, err = agentrunner.NewEventSourced(ax, es, db, func(agentrunner.RunnerEvent) {})
 	require.Error(t, err)
 }
 

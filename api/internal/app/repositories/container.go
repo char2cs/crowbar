@@ -228,7 +228,11 @@ func New(
 	// usecase sends every runner command through this store, and the workspace-delete
 	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), h.BroadcastAgentRunner)
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(),
+		// Bridged inline until the fanout lands (plan task 4).
+		func(e agentrunner.RunnerEvent) {
+			h.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
 	}

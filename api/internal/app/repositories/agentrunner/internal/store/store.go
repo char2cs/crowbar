@@ -79,10 +79,10 @@ func New(
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentRunner],
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) (*Store, error) {
-	if broadcast == nil {
-		return nil, fmt.Errorf("agentrunner store: nil broadcast")
+	if watch == nil {
+		return nil, fmt.Errorf("agentrunner store: nil watch")
 	}
 	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}, &healMarkerRow{}); err != nil {
 		return nil, fmt.Errorf("agentrunner store: migrate: %w", err)
@@ -93,7 +93,7 @@ func New(
 	if err := registerStoreProjection(db, ax); err != nil {
 		return nil, fmt.Errorf("agentrunner store: projections: %w", err)
 	}
-	if err := registerHubProjection(ax, broadcast); err != nil {
+	if err := registerHubProjection(ax, watch); err != nil {
 		return nil, fmt.Errorf("agentrunner store: projections: %w", err)
 	}
 	return &Store{db: db}, nil

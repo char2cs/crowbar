@@ -29,12 +29,17 @@ import (
 // contract.
 const maxOCCAttempts = 8
 
-// BroadcastFunc is an alias for the store-layer broadcast type, exposed so
-// callers can wire the hub fan-out (hub.BroadcastAgentRunner) without importing
-// the internal store package directly. It carries the CHAT id alongside the
-// runner and workspace, because a `moved` frame's whole point is telling the
-// frontend which chat the runner moved INTO.
-type BroadcastFunc = store.BroadcastFunc
+// WatchFunc and RunnerEvent are aliases for the store-layer watch seam, exposed so
+// callers wire it without importing the internal store package directly. The event
+// carries the CHAT id alongside the runner and workspace, because a `moved` frame's
+// whole point is telling the frontend which chat the runner moved INTO.
+//
+// The repository ANNOUNCES what happened; it does not decide what the frontend is
+// told. That decision lives in usecases/agent/internal/fanout.
+type (
+	WatchFunc   = store.WatchFunc
+	RunnerEvent = store.RunnerEvent
+)
 
 // StartInput seeds a freshly-spawned CLI. No conversation is bound yet — the
 // provider announces one later, which lands as BindSession (or, if it announces
@@ -226,9 +231,9 @@ func NewEventSourced(
 	ax asynx.Asynx[domain.AgentRunner],
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, broadcast)
+	st, err := store.New(storeDB, es, ax, watch)
 	if err != nil {
 		return nil, fmt.Errorf("agentrunner: store: %w", err)
 	}
