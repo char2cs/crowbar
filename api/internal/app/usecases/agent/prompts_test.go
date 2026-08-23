@@ -474,11 +474,19 @@ id: codex
 spawn:
   cmd: /usr/bin/true
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop: { message: message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `), 0o600))
 	chatID, _ := f.spawn(t, "codex")
 

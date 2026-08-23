@@ -23,15 +23,3 @@ const (
 
 	HookTurnFailed = "turn_failed"
 )
-
-type HookSpec struct {
-	Format string                       `yaml:"format"`
-	Events map[string]map[string]string `yaml:"events"`
-
-	RequirePayloadFields []string `yaml:"require_payload_fields"`
-}
-
-func (h HookSpec) Event(canonical string) (map[string]string, bool) {
-	fields, ok := h.Events[canonical]
-	return fields, ok
-}

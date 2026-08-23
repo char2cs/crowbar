@@ -51,7 +51,7 @@ func TestRegression_SpawnChatUnderLaunchdMinimalPath(t *testing.T) {
 			require.NotContains(t, os.Getenv("PATH"), ".local/bin",
 				"the repro requires a PATH that does NOT contain the CLI's install dir")
 
-			chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(context.Background(), wsID, provider)
+			chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(context.Background(), wsID, provider)
 			require.NoError(t, err,
 				"the vendor CLI must still spawn under launchd's minimal PATH; a bare argv[0] fails here with "+
 					`"executable file not found in $PATH" — the error that surfaced as POST /agent/chats 500`)

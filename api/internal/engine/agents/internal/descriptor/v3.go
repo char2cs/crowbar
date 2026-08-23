@@ -24,7 +24,10 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 		return nil, fmt.Errorf("descriptor: parse: %w", err)
 	}
 	if d.ID == "" {
-		return nil, fmt.Errorf("descriptor: missing id")
+		// Wraps ErrInvalid: callers switch on that sentinel to tell "this provider is
+		// unusable" from "something went wrong reading it", and a descriptor with no
+		// id is the former.
+		return nil, fmt.Errorf("%w: missing id", ErrInvalid)
 	}
 
 	vocab, err := schema.Load()

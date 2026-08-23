@@ -20,25 +20,37 @@ const answerStubProviderDescriptorYAML = `id: answerstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
-    permission:
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+  permission:
+    ask: permission
+    timeout_seconds: 5
+    map:
       session_id: session_id
       prompt_id:  prompt_id
       message:    tool_name
       tool_name:  tool_name
       tool_target: tool_input.command
       tool_input: tool_input
-answer:
-  permission:
-    timeout_seconds: 5
-    responses:
+    reply:
       allow: '{"decision":{"behavior":"allow"}}'
       deny: '{"decision":{"behavior":"deny","message":{reason_json}}}'
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func writeAnswerStubProviderDescriptor(

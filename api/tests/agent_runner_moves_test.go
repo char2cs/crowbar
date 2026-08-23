@@ -509,11 +509,11 @@ func TestRegression_HookAfterMove_DoesNotPolluteTheChatItLeft(t *testing.T) {
 	// And live turn state agrees: chat A must not be left spinning on somebody else's
 	// turn. (A workspace's whole working overlay is the OR of its chats', so a chat
 	// spinning on a turn it never took spins the workspace icon too.)
-	workingC, err := h.app.Usecases.Agent.GetChat(ctx, chatC)
+	workingC, err := h.app.Usecases.AgentChat.GetChat(ctx, chatC)
 	require.NoError(t, err)
 	assert.True(t, workingC.Working, "the chat the runner is on is mid-turn")
 
-	workingA, err := h.app.Usecases.Agent.GetChat(ctx, chatA)
+	workingA, err := h.app.Usecases.AgentChat.GetChat(ctx, chatA)
 	require.NoError(t, err)
 	assert.False(t, workingA.Working, "the chat the CLI left must not be working: the turn is not its turn")
 
@@ -673,7 +673,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	//
 	// The record IS the footprint now: the per-chat plaintext ledger directory this
 	// once asserted on is gone, and the conversation lives in the activity record
-	// PurgeChat forgets (agent.Usecase.PurgeChat — "the conversation itself no longer
+	// PurgeChat forgets (agent.ChatUsecase.PurgeChat — "the conversation itself no longer
 	// lives here, it is in the record dropped above").
 	requireChatHoldsText(t, h, doomed, privateText,
 		"precondition: Crowbar keeps its own plaintext copy of what was said")
@@ -766,7 +766,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	// The agent titles itself. This is exactly what set_chat_title passes: the
 	// RUNNER's id, and a title. No chat id — it does not have one.
 	const title = "Titled after the clear"
-	require.NoError(t, h.app.Usecases.Agent.RenameByRunner(
+	require.NoError(t, h.app.Usecases.AgentChat.RenameByRunner(
 		context.Background(), runner, title, "agent"))
 
 	frames.awaitChat(chatC, "title_set")

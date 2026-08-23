@@ -18,11 +18,19 @@ id: probe
 spawn:
   cmd: probe-cli
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func TestLoad_AcceptsAMinimalDescriptor(t *testing.T) {
@@ -37,7 +45,7 @@ func TestLoad_RejectsMalformedYAML(t *testing.T) {
 	_, err := descriptor.Load([]byte("id: [unclosed"))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unmarshal")
+	assert.Contains(t, err.Error(), "parse")
 }
 
 func TestLoad_RejectsADescriptorThatFailsARule(t *testing.T) {
@@ -176,11 +184,19 @@ id: ` + id + `
 spawn:
   cmd: ` + cmd + `
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 }
 

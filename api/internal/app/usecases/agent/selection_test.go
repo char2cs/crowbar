@@ -49,12 +49,23 @@ effort:
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt:   { message: prompt }
-    turn_stop:     { message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 const silentDescriptorBody = `
@@ -71,12 +82,23 @@ presentation:
       - pass_arg: { positional: "{message}" }
     resume:
       - pass_arg: { positional: "{message}" }
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt:   { message: prompt }
-    turn_stop:     { message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
@@ -165,11 +187,19 @@ effort:
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `)
 	chatID, _ := f.spawn(t, "claude")
 
@@ -407,11 +437,19 @@ spawn:
   interactive_required: true
 session:
   resume: { arg: "--resume {id}" }
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `)
 	chatID, _ := f.spawn(t, "claude")
 

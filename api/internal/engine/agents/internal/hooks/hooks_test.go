@@ -12,10 +12,12 @@ import (
 )
 
 func descriptor(events map[string]map[string]string, require_ ...string) *spec.Descriptor {
-	d := &spec.Descriptor{ID: "probe"}
-	d.Hooks.Format = "json"
-	d.Hooks.Events = events
-	d.Hooks.RequirePayloadFields = require_
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{}}
+	d.Runtime.Hooks.Format = "json"
+	d.Runtime.Hooks.RequirePayloadFields = require_
+	for canonical, fields := range events {
+		d.Events[canonical] = spec.EventSpec{In: canonical, Map: fields}
+	}
 	return d
 }
 
@@ -61,7 +63,7 @@ func TestParse_MalformedPayloadIsAnError(t *testing.T) {
 
 func TestParse_UnsupportedFormatIsAnError(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
-	d.Hooks.Format = "toml"
+	d.Runtime.Hooks.Format = "toml"
 
 	_, err := hooks.Parse(d, spec.HookTurnStop, []byte(`{}`))
 

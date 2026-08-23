@@ -21,7 +21,6 @@ func All() []Rule {
 	return []Rule{
 		identity{},
 		spawnCommand{},
-		hookVocabulary{},
 		promptSubmit{},
 		catalogBounds{},
 		catalogCommand{},

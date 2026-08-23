@@ -18,12 +18,24 @@ const liveStubProviderDescriptorYAML = `id: livestub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {

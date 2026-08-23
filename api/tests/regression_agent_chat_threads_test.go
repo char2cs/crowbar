@@ -51,12 +51,24 @@ const threadStubProviderDescriptorYAML = `id: threadstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 mcp_injection:
   - write_file: { path: "{tmp}/runner-token", content: "{runner_token}" }
 context_inject:

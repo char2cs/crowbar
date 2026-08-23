@@ -18,54 +18,90 @@ const streamStubProviderDescriptorYAML = `id: streamstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
-    message_delta:
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+  message_delta:
+    in: message_delta
+    map:
       session_id: session_id
       turn_id:    turn_id
       message_id: message_id
       index:      index
       final:      final
       text:       delta
-    turn_failed:
+  turn_failed:
+    in: turn_failed
+    map:
       session_id: session_id
       reason:     error
       detail:     error_details
       message:    last_assistant_message
-    tool_pre:
+  tool_pre:
+    in: tool_pre
+    map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_target: tool_input.command
-    tool_post:
+  tool_post:
+    in: tool_post
+    map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 const quietStubProviderDescriptorYAML = `id: quietstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
-    tool_pre:
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+  tool_pre:
+    in: tool_pre
+    map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_target: tool_input.command
-    tool_post:
+  tool_post:
+    in: tool_post
+    map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
@@ -336,13 +372,18 @@ func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	descriptors := filepath.Join(filepath.Dir(filepath.Dir(thisFile)),
-		"internal", "engine", "agents", "internal", "descriptor", "descriptors")
+		"internal", "engine", "agents", "internal", "descriptor", "descriptors-v3")
 
 	entries, err := os.ReadDir(descriptors)
 	require.NoError(t, err)
 	require.NotEmpty(t, entries)
 
 	for _, entry := range entries {
+		// descriptors-v3 holds an experimental/ subdirectory alongside the shipped
+		// files; the rule applies to the YAML, not the tree.
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
 		body, err := os.ReadFile(filepath.Join(descriptors, entry.Name()))
 		require.NoError(t, err)
 		assert.NotContainsf(t, string(body), "\ntranscript:",

@@ -23,13 +23,25 @@ const memStubProviderDescriptorYAML = `id: memstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  require_payload_fields: [transcript_path]
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+    require_payload_fields: [transcript_path]
 `
 
 func writeMemStubProviderDescriptor(t *testing.T, h *harness) {

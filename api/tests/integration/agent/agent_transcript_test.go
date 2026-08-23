@@ -76,7 +76,7 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 	assert.Equal(t, 1, countContaining(replies, first),
 		"the mid-turn message must appear exactly once")
 
-	activity, err := h.app.Usecases.Agent.ReadActivity(context.Background(), chatID, 0, 0)
+	activity, err := h.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
 	require.NoError(t, err)
 	turnIDs := map[string]bool{}
 	for _, m := range readMessageTurnIDs(t, h, chatID) {
@@ -104,7 +104,7 @@ func countContaining(replies []string, needle string) int {
 
 func readMessageTurnIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
-	page, err := h.app.Usecases.Agent.ReadMessages(context.Background(), chatID, 0, 0, 200)
+	page, err := h.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, 0, 0, 200)
 	require.NoError(t, err)
 	var out []string
 	for _, m := range page.Items {

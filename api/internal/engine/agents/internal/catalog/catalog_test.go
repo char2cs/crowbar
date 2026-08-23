@@ -52,7 +52,7 @@ func inventoryDescriptor(t *testing.T) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "claude"}
 	d.Spawn.Cmd = "claude"
 	d.Spawn.InteractiveRequired = true
-	d.Hooks.Format = "json"
+	d.Runtime.Hooks.Format = "json"
 	d.Presentation.SlashCatalog = &spec.SlashCatalogSpec{
 		Completeness: spec.CatalogCompletenessPluginOnly,
 		Pipeline: spec.CatalogPipelineSpec{
@@ -80,7 +80,7 @@ func textSectionDescriptor(t *testing.T) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "codex"}
 	d.Spawn.Cmd = "codex"
 	d.Spawn.InteractiveRequired = true
-	d.Hooks.Format = "json"
+	d.Runtime.Hooks.Format = "json"
 	d.Presentation.SlashCatalog = &spec.SlashCatalogSpec{
 		Completeness: spec.CatalogCompletenessModelVisible,
 		Pipeline: spec.CatalogPipelineSpec{

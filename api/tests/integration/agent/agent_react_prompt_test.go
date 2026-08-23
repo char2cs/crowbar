@@ -34,7 +34,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			firstWant := fmt.Sprintf("CROWBAR-%s-FIRST", provider)
 			firstText := "--crowbar-leading-dash=Reply with only the exact text " + firstWant
-			first, err := h.app.Usecases.Agent.SubmitPrompt(ctx, chatID, firstText, uuid.NewString())
+			first, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, firstText, uuid.NewString())
 			require.NoError(t, err)
 			require.NotEqual(t, idleRunnerID, first.RunnerID)
 			require.NotEqual(t, idleTermID, first.TerminalSessionID)
@@ -57,7 +57,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			secondWant := fmt.Sprintf("CROWBAR-%s-SECOND", provider)
 			secondText := "-p=Reply with only the exact text " + secondWant
-			second, err := h.app.Usecases.Agent.SubmitPrompt(ctx, chatID, secondText, uuid.NewString())
+			second, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, secondText, uuid.NewString())
 			require.NoError(t, err)
 			require.NotEqual(t, first.RunnerID, second.RunnerID)
 			require.NotEqual(t, first.TerminalSessionID, second.TerminalSessionID)
@@ -95,7 +95,7 @@ func awaitPositionalPromptTurn(
 		assistant chatlog.Message
 	}
 	found := awaitHook(t, h, provider+" positional prompt turn", func() (result, bool) {
-		page, err := h.app.Usecases.Agent.ReadMessages(context.Background(), chatID, after, 0, 200)
+		page, err := h.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, after, 0, 200)
 		if err != nil {
 			return result{}, false
 		}

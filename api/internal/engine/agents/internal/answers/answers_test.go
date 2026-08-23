@@ -15,19 +15,15 @@ import (
 )
 
 func answering() *spec.Descriptor {
-	return &spec.Descriptor{
+	d := &spec.Descriptor{
 		ID: "vendor",
-		Hooks: spec.HookSpec{
-			Format: "json",
-			Events: map[string]map[string]string{
-				"permission": {"tool_name": "tool_name", "tool_input": "tool_input"},
-			},
-		},
-		Answer: spec.AnswerSpec{
+		Events: map[string]spec.EventSpec{
 			"permission": {
+				Ask:            "PermissionRequest",
 				TimeoutSeconds: 270,
 				AnswersInto:    "answers",
-				Responses: map[string]string{
+				Map:            map[string]string{"tool_name": "tool_name", "tool_input": "tool_input"},
+				Reply: map[string]string{
 					"allow": `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
 						`"decision":{"behavior":"allow"}}}`,
 					"deny": `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
@@ -37,14 +33,33 @@ func answering() *spec.Descriptor {
 				},
 			},
 			"elicitation": {
+				Ask:            "Elicitation",
 				TimeoutSeconds: 270,
-				Responses: map[string]string{
+				Reply: map[string]string{
 					"accept": `{"hookSpecificOutput":{"hookEventName":"Elicitation",` +
 						`"action":"accept","content":{content_json}}}`,
 				},
 			},
 		},
 	}
+	d.Runtime.Hooks.Format = "json"
+	return d
+}
+
+// setEventReply replaces one ask event's reply templates and budget.
+func setEventReply(d *spec.Descriptor, canonical string, timeout int, reply map[string]string) {
+	e := d.Events[canonical]
+	e.TimeoutSeconds = timeout
+	e.Reply = reply
+	d.Events[canonical] = e
+}
+
+// setEventMap replaces one event's canonical field map, for the tests that probe what
+// happens when a path is not declared.
+func setEventMap(d *spec.Descriptor, canonical string, fields map[string]string) {
+	e := d.Events[canonical]
+	e.Map = fields
+	d.Events[canonical] = e
 }
 
 func askUserQuestionPayload() []byte {
@@ -81,17 +96,14 @@ func TestCapability_ReportsSortedKeysAndTheDeclaredBudget(t *testing.T) {
 
 func TestCapability_BlankTemplatesAreNotKeys(t *testing.T) {
 	d := answering()
-	d.Answer["permission"] = spec.AnswerEventSpec{
-		TimeoutSeconds: 5,
-		Responses:      map[string]string{"allow": "   ", "deny": ""},
-	}
+	setEventReply(d, "permission", 5, map[string]string{"allow": "   ", "deny": ""})
 	_, ok := answers.Capability(d, "permission")
 	assert.False(t, ok, "a block whose every template is blank declares nothing")
 }
 
 func TestCapability_EmptyResponseMapIsNotAnswerable(t *testing.T) {
 	d := answering()
-	d.Answer["permission"] = spec.AnswerEventSpec{TimeoutSeconds: 5}
+	setEventReply(d, "permission", 5, nil)
 	_, ok := answers.Capability(d, "permission")
 	assert.False(t, ok)
 }
@@ -188,10 +200,7 @@ func TestRender_RefusesAnEventWithNoAnswerChannel(t *testing.T) {
 
 func TestRender_RefusesToEmitInvalidJSON(t *testing.T) {
 	d := answering()
-	d.Answer["permission"] = spec.AnswerEventSpec{
-		TimeoutSeconds: 5,
-		Responses:      map[string]string{"allow": `{"decision":`},
-	}
+	setEventReply(d, "permission", 5, map[string]string{"allow": `{"decision":`})
 	_, err := answers.Render(d, "permission", nil, models.AnswerDecision{Key: "allow"})
 	require.ErrorIs(t, err, answers.ErrMalformedAnswer)
 }
@@ -214,13 +223,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 	require.NoError(t, err)
 
 	d := answering()
-	d.Answer["permission"] = spec.AnswerEventSpec{
-		TimeoutSeconds: 5,
-		AnswersInto:    "answers",
-		Responses: map[string]string{
-			"answer": `{"input":{tool_input_json},"reason":{reason_json}}`,
-		},
-	}
+	setEventReply(d, "permission", 5, map[string]string{"answer": `{"input":{tool_input_json},"reason":{reason_json}}`})
 	out, err := answers.Render(d, "permission", payload, models.AnswerDecision{
 		Key: "answer", Reason: "SMUGGLED", Answers: map[string]any{"q": "a"},
 	})
@@ -240,7 +243,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
-	d.Hooks.Events["permission"] = map[string]string{"tool_name": "tool_name"}
+	setEventMap(d, "permission", map[string]string{"tool_name": "tool_name"})
 	out, err := answers.Render(d, "permission", askUserQuestionPayload(),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)
@@ -249,13 +252,7 @@ func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.
 
 func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	d := answering()
-	d.Answer["permission"] = spec.AnswerEventSpec{
-		TimeoutSeconds: 5,
-		AnswersInto:    "answers",
-		Responses: map[string]string{
-			"answer": `{"picks":{answers_json},"input":{tool_input_json}}`,
-		},
-	}
+	setEventReply(d, "permission", 5, map[string]string{"answer": `{"picks":{answers_json},"input":{tool_input_json}}`})
 	out, err := answers.Render(d, "permission", nil, models.AnswerDecision{
 		Key: "answer", Answers: map[string]any{"q": make(chan int)},
 	})

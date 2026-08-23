@@ -20,8 +20,6 @@ type Descriptor struct {
 
 	MCPInject []InjectStep `yaml:"mcp_injection"`
 
-	Hooks HookSpec `yaml:"hooks"`
-
 	ContextInject []InjectStep `yaml:"context_inject"`
 
 	ResumeContextInject []InjectStep `yaml:"resume_context_inject"`
@@ -32,8 +30,6 @@ type Descriptor struct {
 	Effort *EffortSpec `yaml:"effort"`
 
 	Telemetry *TelemetrySpec `yaml:"telemetry"`
-
-	Answer AnswerSpec `yaml:"answer"`
 
 	TerminalPrompts []TerminalPromptSpec `yaml:"terminal_prompts"`
 

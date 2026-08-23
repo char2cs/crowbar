@@ -58,7 +58,7 @@ func bootReconcileFixture(
 	waitForChatFrame(t, frames, created.ID, "turn_started")
 	h.Quiesce()
 
-	working, err := h.app.Usecases.Agent.GetChat(context.Background(), created.ID)
+	working, err := h.app.Usecases.AgentChat.GetChat(context.Background(), created.ID)
 	require.NoError(t, err)
 	require.True(t, working.Working, "precondition: the chat is mid-turn before the restart")
 
@@ -126,7 +126,7 @@ func TestRegression_AgentBootReconcile_DeadCLIProcess_EndsSegment(t *testing.T) 
 	assert.Equal(t, []string{"sess-before-restart"}, post.sessionIDs(),
 		"boot reconcile reaps the RUNNER, never the chat's conversation history")
 
-	reconciled, err := h2.app.Usecases.Agent.GetChat(context.Background(), chatID)
+	reconciled, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
 	require.NoError(t, err)
 	assert.False(t, reconciled.Working,
 		"boot reconcile must close the turn interrupted by the restart: the CLI that would have sent the "+

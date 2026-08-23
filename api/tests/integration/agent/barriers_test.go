@@ -378,7 +378,7 @@ func spawnReady(
 	t.Helper()
 	ctx := context.Background()
 
-	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
 	if err != nil {
 		t.Fatalf("spawnReady: SpawnChat(%s): %v", provider, err)
 	}
@@ -545,7 +545,7 @@ func awaitHandoffContains(
 ) string {
 	t.Helper()
 	return awaitHook(t, h, "the ledger to carry "+want, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(context.Background(), chatID)
+		blob, err := h.app.Usecases.AgentChat.AssembleHandoff(context.Background(), chatID)
 		if err != nil {
 			return "", false
 		}
@@ -587,7 +587,7 @@ func awaitTurnComplete(
 			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) == 0 {
 				return false, false
 			}
-			chat, err := h.app.Usecases.Agent.GetChat(context.Background(), chatID)
+			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
 			if err != nil {
 				return false, false
 			}

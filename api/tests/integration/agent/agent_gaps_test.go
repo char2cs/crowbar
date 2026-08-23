@@ -94,7 +94,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> AppendTurn never "+
 			"ran; turns observed: %+v", turns)
 
-	handoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+	handoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
@@ -153,7 +153,7 @@ func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn
 
 	// after=0/before=0 is the newest window; maxMessagePageLimit is 200, and no
 	// fixture in this package drives anything near that many turns.
-	page, err := h.app.Usecases.Agent.ReadMessages(ctx, chatID, 0, 0, 200)
+	page, err := h.app.Usecases.AgentChat.ReadMessages(ctx, chatID, 0, 0, 200)
 	require.NoError(t, err, "read chat %s's conversation record", chatID)
 
 	var turns []ledgerTurn
@@ -254,7 +254,7 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	require.NotEmpty(t, newChatID, "a moved runner is placed on a real chat, never nowhere")
 
 	// The chat really exists, and the SAME process is on it.
-	newChat, err := h.app.Usecases.Agent.GetChat(ctx, newChatID)
+	newChat, err := h.app.Usecases.AgentChat.GetChat(ctx, newChatID)
 	require.NoError(t, err)
 	require.Equal(t, newChatID, newChat.ID, "the chat /clear minted must be readable by id")
 
@@ -317,7 +317,7 @@ func seedClaudeThenSwitchToCodex(
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	codexRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	codexTermSessID = runnerTerminalSession(t, h, codexRunnerID)
@@ -457,7 +457,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	require.Contains(t, chatSessionIDs(t, h, chatID), origClaudeSessionID,
 		"the chat's conversation history must still carry claude's conversation after it was switched away from")
 
-	newClaudeRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	newClaudeRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
 	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeRunnerID)
@@ -573,7 +573,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// Switch away — the exact call under test: SwitchProvider now uses
 	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
 	// still alive) instead of the old hard Kill for the outgoing claude CLI.
-	codexSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	codexTermSessID := runnerTerminalSession(t, h, codexSegID)
@@ -585,7 +585,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// second time (against codex, which the design doc already established
 	// tolerates a hard kill, so this leg is not the interesting one) and then
 	// the native --resume path back into claude's original session.
-	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	newClaudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
 	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeSegID)
@@ -680,7 +680,7 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 
 	// Leave codex. This ends its segment and reaps that segment's tmp dir — the very
 	// thing that used to take codex's session with it.
-	claudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	claudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 	claudeTermSessID := runnerTerminalSession(t, h, claudeSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
@@ -689,7 +689,7 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
 
 	// ...and come back.
-	backSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	backSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	backTermSessID := runnerTerminalSession(t, h, backSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), backTermSessID) })

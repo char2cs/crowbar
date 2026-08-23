@@ -417,7 +417,7 @@ func chatTitle(
 	chatID string,
 ) string {
 	t.Helper()
-	chat, err := h.app.Usecases.Agent.GetChat(context.Background(), chatID)
+	chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
 	require.NoError(t, err, "read chat %s back", chatID)
 	return chat.Title
 }
@@ -515,7 +515,7 @@ func TestMCP_ForgedTokenIsRejected(t *testing.T) {
 	_, _, _, chatID, runnerID := mustSpawnChat(t, h, "claude")
 	before := chatTitle(t, h, chatID)
 
-	out, send, err := h.app.Usecases.Agent.DispatchMCP(ctx, runnerID, "forged",
+	out, send, err := h.app.Usecases.AgentProvider.DispatchMCP(ctx, runnerID, "forged",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+
 			`{"name":"set_chat_title","arguments":{"title":"Nope"}}}`))
 	require.NoError(t, err)

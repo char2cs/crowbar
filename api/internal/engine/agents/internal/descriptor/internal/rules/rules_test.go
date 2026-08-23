@@ -14,10 +14,10 @@ func valid() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe"}
 	d.Spawn.Cmd = "probe-cli"
 	d.Spawn.InteractiveRequired = true
-	d.Hooks.Format = "json"
-	d.Hooks.Events = map[string]map[string]string{
-		spec.HookSessionStart: {"session_id": "session_id"},
-		spec.HookTurnStop:     {"message": "last"},
+	d.Runtime.Hooks.Format = "json"
+	d.Events = map[string]spec.EventSpec{
+		spec.HookSessionStart: {In: "SessionStart", Map: map[string]string{"session_id": "session_id"}},
+		spec.HookTurnStop:     {In: "Stop", Map: map[string]string{"message": "last"}},
 	}
 	return d
 }
@@ -83,17 +83,6 @@ func TestIdentityAndSpawn_RejectTheUnusableCases(t *testing.T) {
 			"interactive not asserted",
 			func(d *spec.Descriptor) { d.Spawn.InteractiveRequired = false },
 			"interactive_required",
-		},
-		{"missing hooks.format", func(d *spec.Descriptor) { d.Hooks.Format = "" }, "hooks.format"},
-		{
-			"session_start does not map session_id",
-			func(d *spec.Descriptor) { d.Hooks.Events[spec.HookSessionStart] = map[string]string{} },
-			"session_start must map session_id",
-		},
-		{
-			"turn_stop does not map message",
-			func(d *spec.Descriptor) { d.Hooks.Events[spec.HookTurnStop] = map[string]string{} },
-			"turn_stop must map message",
 		},
 	}
 	for _, tc := range testCases {
@@ -674,44 +663,8 @@ func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
 	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
 }
 
-func TestHookVocabulary_RefusesAHalfMappedMessageDelta(t *testing.T) {
-	for _, missing := range []string{"message_id", "index", "text"} {
-		t.Run("missing "+missing, func(t *testing.T) {
-			d := valid()
-			delta := map[string]string{
-				"message_id": "message_id", "index": "index", "text": "delta", "final": "final",
-			}
-			delete(delta, missing)
-			d.Hooks.Events[spec.HookMessageDelta] = delta
-
-			err := rules.Apply(d)
-
-			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-			assert.Contains(t, err.Error(), "message_delta must map "+missing)
-		})
-	}
-}
-
-func TestHookVocabulary_AcceptsAFullyMappedMessageDelta(t *testing.T) {
-	d := valid()
-	d.Hooks.Events[spec.HookMessageDelta] = map[string]string{
-		"session_id": "session_id", "turn_id": "turn_id", "message_id": "message_id",
-		"index": "index", "final": "final", "text": "delta",
-	}
-
-	require.NoError(t, rules.Apply(d))
-}
-
-func TestHookVocabulary_RefusesATurnFailedWithNoReason(t *testing.T) {
-	d := valid()
-	d.Hooks.Events[spec.HookTurnFailed] = map[string]string{"session_id": "session_id"}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "turn_failed must map reason")
-}
-
-func TestHookVocabulary_BothNewKindsAreOptional(t *testing.T) {
+// A descriptor that declares only the two required events still passes every rule:
+// message_delta and turn_failed are optional capabilities, not obligations.
+func TestApply_ADescriptorWithOnlyTheRequiredEventsIsValid(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
 }

@@ -29,40 +29,14 @@ func v3() *spec.Descriptor {
 	}
 }
 
-func v2() *spec.Descriptor {
-	return &spec.Descriptor{
-		ID: "legacy",
-		Hooks: spec.HookSpec{
-			Format:               "json",
-			RequirePayloadFields: []string{"transcript_path"},
-			Events: map[string]map[string]string{
-				"session_start": {"session_id": "session_id"},
-			},
-		},
-		Answer: spec.AnswerSpec{
-			"permission": {TimeoutSeconds: 90, Responses: map[string]string{"allow": "{}"}},
-		},
+func TestEventFields_ReadsTheEventTable(t *testing.T) {
+	d := v3()
+	f, ok := d.EventFields("session_start")
+	if !ok || f["session_id"] != "session_id" {
+		t.Errorf("EventFields = (%v,%v)", f, ok)
 	}
-}
-
-func TestIsV3_DistinguishesTheShapes(t *testing.T) {
-	if !v3().IsV3() {
-		t.Error("a descriptor with events is v3")
-	}
-	if v2().IsV3() {
-		t.Error("a descriptor with no events is v2")
-	}
-}
-
-func TestEventFields_ReadsEitherShape(t *testing.T) {
-	for name, d := range map[string]*spec.Descriptor{"v3": v3(), "v2": v2()} {
-		f, ok := d.EventFields("session_start")
-		if !ok || f["session_id"] != "session_id" {
-			t.Errorf("%s: EventFields = (%v,%v)", name, f, ok)
-		}
-		if _, ok := d.EventFields("never_declared"); ok {
-			t.Errorf("%s: an undeclared event must report false — key-presence IS the capability check", name)
-		}
+	if _, ok := d.EventFields("never_declared"); ok {
+		t.Error("an undeclared event must report false — key-presence IS the capability check")
 	}
 }
 
@@ -79,18 +53,12 @@ func TestDeclaredEvents_ExcludesOutboundAndIsSorted(t *testing.T) {
 			t.Fatalf("got %v, want %v (sorted, no outbound)", got, want)
 		}
 	}
-	if legacy := v2().DeclaredEvents(); len(legacy) != 1 || legacy[0] != "session_start" {
-		t.Fatalf("v2 declared events = %v", legacy)
-	}
 }
 
-func TestAnswerFor_BothShapes(t *testing.T) {
+func TestAnswerFor_ReturnsTheDecisionChannel(t *testing.T) {
 	a, ok := v3().AnswerFor("permission")
 	if !ok || a.TimeoutSeconds != 270 || a.AnswersInto != "answers" || a.Responses["allow"] == "" {
 		t.Fatalf("v3 AnswerFor = (%+v,%v)", a, ok)
-	}
-	if l, ok := v2().AnswerFor("permission"); !ok || l.TimeoutSeconds != 90 {
-		t.Fatalf("v2 AnswerFor = (%+v,%v)", l, ok)
 	}
 }
 
@@ -120,21 +88,16 @@ func TestWireName_ReturnsTheProvidersOwnName(t *testing.T) {
 			t.Errorf("WireName(%q) = %q, want %q", canonical, got, want)
 		}
 	}
-	// A v2 descriptor keeps its wire names in config injection, not the event table.
-	if got := v2().WireName("session_start"); got != "" {
-		t.Errorf("v2 WireName = %q, want empty", got)
-	}
 }
 
-func TestHookFormatAndRequiredFields_ReadEitherShape(t *testing.T) {
-	for name, d := range map[string]*spec.Descriptor{"v3": v3(), "v2": v2()} {
-		if got := d.HookFormat(); got != "json" {
-			t.Errorf("%s: HookFormat = %q", name, got)
-		}
-		got := d.RequiredPayloadFields()
-		if len(got) != 1 || got[0] != "transcript_path" {
-			t.Errorf("%s: RequiredPayloadFields = %v", name, got)
-		}
+func TestHookFormatAndRequiredFields(t *testing.T) {
+	d := v3()
+	if got := d.HookFormat(); got != "json" {
+		t.Errorf("HookFormat = %q", got)
+	}
+	got := d.RequiredPayloadFields()
+	if len(got) != 1 || got[0] != "transcript_path" {
+		t.Errorf("RequiredPayloadFields = %v", got)
 	}
 }
 

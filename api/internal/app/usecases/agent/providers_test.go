@@ -22,13 +22,19 @@ icon: '<svg/>'
 spawn:
   cmd: gemini
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start:
+events:
+  session_start:
+    in: session_start
+    map:
       session_id: session_id
-    turn_stop:
+  turn_stop:
+    in: turn_stop
+    map:
       message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `
 
 func writeGeminiDescriptor(

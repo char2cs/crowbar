@@ -330,7 +330,7 @@ func seedSiblingChat(
 	})
 	require.NoError(t, err, "create the sibling chat")
 	require.NoError(t,
-		h.app.Usecases.Agent.RenameChat(ctx, chatID, siblingChatTitle, "user"),
+		h.app.Usecases.AgentChat.RenameChat(ctx, chatID, siblingChatTitle, "user"),
 		"title the sibling chat")
 
 	at := time.Now().UTC().Add(-time.Hour)
@@ -348,7 +348,7 @@ func seedSiblingChat(
 	// the read-back below waits on a real signal rather than on a clock.
 	h.app.Repositories.WaitQuiescent()
 
-	turns, err := h.app.Usecases.Agent.ReadChatLog(ctx, chatID)
+	turns, err := h.app.Usecases.AgentChat.ReadChatLog(ctx, chatID)
 	require.NoError(t, err, "read the seeded log back through the tool's own reader")
 	require.Len(t, turns, len(siblingLogTurns),
 		"the seeded record must be readable through the path get_chat_log serves from")

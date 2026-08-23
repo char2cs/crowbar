@@ -353,11 +353,19 @@ id: polled
 spawn:
   cmd: sh
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 telemetry:
   probe:
     format: json
@@ -386,11 +394,19 @@ id: polled
 spawn:
   cmd: sh
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 telemetry:
   probe:
     format: json
@@ -414,11 +430,19 @@ id: stub
 spawn:
   cmd: `+cmd+`
   interactive_required: true
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `)
 	a, err := agents.New().Get(context.Background(), home, "stub")
 	require.NoError(t, err)
@@ -454,11 +478,19 @@ effort:
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    turn_stop:     { message: last }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
 `)
 	a, err := agents.New().Get(context.Background(), home, "picker")
 	require.NoError(t, err)

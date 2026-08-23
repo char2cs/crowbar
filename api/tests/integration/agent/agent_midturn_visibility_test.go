@@ -58,7 +58,7 @@ func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) 
 					break
 				}
 			}
-			chat, err := h.app.Usecases.Agent.GetChat(context.Background(), chatID)
+			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
 			if err != nil {
 				continue
 			}

@@ -2208,6 +2208,24 @@ git add internal/engine/agents/internal/descriptor/descriptors/
 git commit -m "feat(descriptor): migrate claude and codex to the v3 event-centric schema"
 ```
 
+## Stage 2a — delete v2 (done)
+
+Once v3 shipped and was daemon-verified, the v2 shape came out entirely rather than
+being left as an inert second path:
+
+- `descriptors/*.yaml`, `migration_test.go`, `rules/hook_vocabulary.go` and
+  `schema/real_descriptors_test.go` deleted
+- `spec.HookSpec` and `spec.AnswerSpec` deleted; the unified accessors lost their v2
+  branches and `IsV3` with them
+- 14 test files' YAML fixtures rewritten to the event table by a scripted transform
+  (`/tmp/v2to3.py`), not by hand
+- `ParseV3`'s missing-id error now wraps `ErrInvalid`, preserving the sentinel contract
+  that `Resolve` callers switch on — caught by an existing test, not by review
+
+No v2 compatibility shim was added on purpose. Accepting v2 YAML would mean a new
+descriptor could skip vocabulary validation entirely, which is the one thing the
+validation exists to prevent.
+
 ## Stage 2 done criteria
 
 - [ ] `vocabulary.yaml` is the only place canonical event names are declared.

@@ -66,19 +66,6 @@ func TestArgString_RendersScalarsWithoutForcingTheCallerToTypeSwitch(t *testing.
 	}
 }
 
-func TestHookSpec_EventReportsWhetherAKindIsDeclared(t *testing.T) {
-	h := spec.HookSpec{Events: map[string]map[string]string{
-		spec.HookTurnStop: {"message": "last"},
-	}}
-
-	fields, ok := h.Event(spec.HookTurnStop)
-	assert.True(t, ok)
-	assert.Equal(t, "last", fields["message"])
-
-	_, ok = h.Event(spec.HookNotification)
-	assert.False(t, ok)
-}
-
 func TestSlashCatalogSpec_UnsetBoundsFallBackToTheDefaults(t *testing.T) {
 	var s spec.SlashCatalogSpec
 
