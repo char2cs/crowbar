@@ -12,7 +12,6 @@ func (injectedPrompts) Name() string { return "injected_prompts" }
 
 func (injectedPrompts) Check(d *spec.Descriptor) error {
 	for i, p := range d.InjectedPrompts {
-
 		if strings.TrimSpace(p.Needle) == "" {
 			return invalid(d.ID, "injected_prompts[%d]: needle must not be empty or whitespace", i)
 		}

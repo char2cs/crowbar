@@ -75,7 +75,6 @@ func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 	}
 	ids := idSet(entries)
 	if homeDir != "" {
-
 		diskEntries, _ := os.ReadDir(filepath.Join(homeDir, overrideDir))
 		for id := range idSet(diskEntries) {
 			ids[id] = struct{}{}
