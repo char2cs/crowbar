@@ -13,16 +13,12 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// hook drives one canonical event through the real ingest path, exactly as the
-// in-PTY relay does.
 func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload)))
 	f.wait()
 }
 
-// The three legibility failures observed in live testing were all missing
-// observation, not missing delivery: minutes of tool work rendered as "working…".
 func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -47,7 +43,6 @@ func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusOK, calls[0].Status)
 	assert.Equal(t, 37, calls[0].DurationMS)
 
-	// Payloads are addressed, never inlined into the event log.
 	require.NotEmpty(t, calls[0].RequestRef)
 	request, err := f.activity.Payload(f.ctx, calls[0].RequestRef)
 	require.NoError(t, err)
@@ -57,8 +52,6 @@ func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
-// A tool call belongs to the assistant turn the user's prompt opened, so the UI
-// can group activity under the reply it produced.
 func TestObservation_ToolCallsAttachToTheTurnThePromptOpened(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -104,9 +97,6 @@ func TestObservation_SubagentsAreRecorded(t *testing.T) {
 	assert.NotNil(t, subs[0].EndedAt)
 }
 
-// Starts and stops observe DIFFERENT populations on both providers: a stop also
-// fires for anonymous internal subagents. An anonymous one must get its own
-// record rather than be folded onto a sibling's.
 func TestObservation_AnonymousSubagentStopsDoNotCollide(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -119,7 +109,6 @@ func TestObservation_AnonymousSubagentStopsDoNotCollide(t *testing.T) {
 	assert.Len(t, subs, 2)
 }
 
-// A provider blocked on a trust prompt used to render as silence.
 func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -137,8 +126,6 @@ func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
 	assert.Contains(t, kinds, engineagents.InterruptPermission)
 }
 
-// A compaction beginning and ending is ONE record, not two: providers give these
-// events no ids, and a compaction cannot overlap another in one session.
 func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -153,8 +140,6 @@ func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
-// A session ending is already observed authoritatively by the PTY exit reconcile,
-// which runs whether or not the CLI got to fire a hook.
 func TestObservation_SessionEndRecordsNothingOfItsOwn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -170,8 +155,6 @@ func TestObservation_SessionEndRecordsNothingOfItsOwn(t *testing.T) {
 	assert.Len(t, after, len(before))
 }
 
-// codex declares no Notification event. An undeclared kind is dropped, never
-// failed: a hook must not break the vendor CLI's turn.
 func TestObservation_AnUndeclaredEventIsDroppedNotFailed(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -186,8 +169,6 @@ func TestObservation_AnUndeclaredEventIsDroppedNotFailed(t *testing.T) {
 	assert.Empty(t, ints)
 }
 
-// Telemetry describes a LIVE provider process; it never enters the event log
-// because thousands of "19% used" observations exist only to be superseded.
 func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -215,8 +196,6 @@ func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	assert.InDelta(t, 42, *got.Context.UsedPercent, 0.001)
 }
 
-// Usage is null until the first turn completes, so an early report is genuinely
-// empty rather than a reset — and must not blank a gauge that was just filled.
 func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -234,7 +213,6 @@ func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {
 	assert.InDelta(t, 19, *got.Context.UsedPercent, 0.001)
 }
 
-// Telemetry never enters the conversation: it is state, not history.
 func TestTelemetry_IsNotRecordedAsATurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -328,8 +306,6 @@ func textsOfPage(items []chatlog.Message) []string {
 	return out
 }
 
-// Without a stable id a completion cannot be matched to its invocation, and the
-// call would render as two unrelated rows. An anonymous call gets its own id.
 func TestObservation_AnonymousToolCallsDoNotCollide(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -342,8 +318,6 @@ func TestObservation_AnonymousToolCallsDoNotCollide(t *testing.T) {
 	assert.Len(t, calls, 2)
 }
 
-// A provider that reports no status has still SUCCEEDED as far as anyone knows:
-// inventing a failure would be worse than assuming the ordinary case.
 func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -359,8 +333,6 @@ func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusOK, calls[0].Status)
 }
 
-// Losing a tool record is a gap in a timeline; failing the hook would break the
-// vendor CLI's turn. The observation path must never do the second.
 func TestObservation_ARecordFailureNeverBreaksTheHook(t *testing.T) {
 	f, activity := newActivityWriteFaultFixture(t)
 	_, runnerID := f.spawn(t, "claude")
@@ -384,8 +356,6 @@ func TestObservation_ARecordFailureNeverBreaksTheHook(t *testing.T) {
 	}
 }
 
-// A hook that belongs nowhere — a CLI Crowbar has already taken off its chat — is
-// dropped rather than filed.
 func TestObservation_AHookFromARunnerPlacedNowhereIsDropped(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -397,11 +367,6 @@ func TestObservation_AHookFromARunnerPlacedNowhereIsDropped(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A CLI killed mid-turn sends no final hook: measured against claude 2.1.212, a
-// SIGKILL mid-work produces no SessionEnd and no Stop. Whatever it left open in
-// the conversation record therefore stays open unless the exit reconcile closes
-// it — and a tool call reading "running" three days later is a lie the UI has no
-// way to correct.
 func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -415,7 +380,6 @@ func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
 	require.Len(t, running, 1)
 	require.Equal(t, domain.ToolStatusRunning, running[0].Status)
 
-	// The PTY dies with no further hooks.
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
@@ -426,8 +390,6 @@ func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
 	assert.NotNil(t, after[0].EndedAt)
 }
 
-// And the next prompt starts a turn of its own rather than inheriting the dead
-// one's.
 func TestRegression_AfterADeadCLIANewTurnOwnsItsOwnActivity(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -516,9 +478,6 @@ func TestReadToolPayload_ResolvesBothSides(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
-// A content ref is a GLOBAL address. Looking it up from the chat's own tool calls
-// — rather than accepting one from a caller — is what stops any chat reading any
-// other chat's payloads.
 func TestReadToolPayload_IsScopedToTheChatThatOwnsTheToolCall(t *testing.T) {
 	f := newFixture(t)
 	ownerChat, ownerRunner := f.spawn(t, "claude")
@@ -544,7 +503,6 @@ func TestReadToolPayload_MissingToolOrSideIsNotFound(t *testing.T) {
 	_, err := f.usecase.ReadToolPayload(f.ctx, chatID, "no-such-tool", "request")
 	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
 
-	// The call exists but reported no arguments.
 	_, err = f.usecase.ReadToolPayload(f.ctx, chatID, "t1", "request")
 	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
 }

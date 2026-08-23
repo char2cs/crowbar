@@ -47,9 +47,6 @@ func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 	assert.NotEmpty(t, a.Display().Icon)
 }
 
-// An absent capability renders as absent UI, never as a disabled control
-// implying breakage — so the capability report must be a fact about the
-// descriptor rather than a guess.
 func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 	claude := get(t, "claude").Capabilities()
 	assert.True(t, claude.PromptSubmit)
@@ -61,10 +58,7 @@ func TestAgent_CapabilitiesReportWhatTheDescriptorDeclares(t *testing.T) {
 
 	codex := get(t, "codex").Capabilities()
 	assert.True(t, codex.PromptSubmit)
-	// Both shipped descriptors declare the same delivery, and both are pinned
-	// because restart_tui is now the ONLY strategy this daemon implements: a
-	// descriptor drifting off it would be refused at load, and pinning only one
-	// provider would let the other drift there unnoticed.
+
 	assert.Equal(t, agents.DeliveryRestartTUI, codex.Delivery)
 	assert.False(t, codex.Telemetry, "codex exposes no telemetry channel today")
 	assert.False(t, codex.Declares(agents.HookNotification), "codex has no Notification event")
@@ -91,9 +85,6 @@ func TestAgent_SpawnPlanRendersAnExecutableLaunch(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-// The tool surface is a per-provider preference. Turning it off must not mutate a
-// descriptor other spawns may share, or one chat's choice becomes every later
-// chat's.
 func TestAgent_WithToolsCopiesRatherThanMutating(t *testing.T) {
 	a := get(t, "claude")
 	ctx := func() agents.TemplateCtx {
@@ -146,7 +137,7 @@ func TestAgent_ContextStepsDifferBetweenFreshAndResume(t *testing.T) {
 
 	require.NotEmpty(t, fresh)
 	require.NotEmpty(t, resumed)
-	// A resumed codex ignores every config channel; only a user message reaches it.
+
 	assert.Contains(t, fresh[0].Args, "arg")
 	assert.Contains(t, resumed[0].Args, "positional")
 }
@@ -181,7 +172,6 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	assert.Equal(t, 1, ev.AsyncWork)
 }
 
-// The ownership guard is fused into ParseHook so a caller cannot skip it.
 func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
@@ -255,9 +245,6 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 	assert.False(t, e.WasInjected("runner-2", "other"))
 }
 
-// Every shipped descriptor must render MCP registration that a provider can
-// actually parse, and claude's variadic --mcp-config must never be followed by a
-// bare positional.
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
@@ -280,8 +267,6 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	assert.Contains(t, strings.Join(codex.Argv, " "), "mcp_servers.crowbar.command")
 }
 
-// A project-home workspace has NO repo id, and the rendered hook command is a
-// flat shell string with no quoting.
 func TestShippedAgents_RenderHookCommandsThatSurviveAnEmptyRepoID(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		t.Run(id, func(t *testing.T) {
@@ -329,8 +314,7 @@ func indexOf(ss []string, target string) int {
 }
 
 func TestAgent_InstalledReportsWhetherTheCLIIsPresent(t *testing.T) {
-	// Whatever the host has, the answer must be a definite boolean rather than a
-	// panic or a guess — that is the whole contract.
+
 	assert.NotPanics(t, func() { _ = get(t, "claude").Installed() })
 
 	sh := stubAgent(t, "sh")
@@ -385,7 +369,6 @@ telemetry:
 	a, err := agents.New().Get(context.Background(), home, "polled")
 	require.NoError(t, err)
 
-	// The probe runs in the chat's worktree, so the fixture is read relative to it.
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	got, err := a.ProbeTelemetry(context.Background(),
@@ -424,8 +407,6 @@ telemetry:
 	assert.ErrorIs(t, err, agents.ErrTelemetryInvalidWorkdir)
 }
 
-// stubAgent resolves a minimal on-disk descriptor: enough to exist, and nothing
-// else declared, so absent capabilities can be asserted as absent.
 func stubAgent(t *testing.T, cmd string) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
@@ -452,11 +433,6 @@ func writeDescriptor(t *testing.T, home, id, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o600))
 }
 
-// selectingAgent resolves an on-disk descriptor that declares both selection
-// blocks and NO prompt delivery at all — the shape no shipped descriptor has,
-// and the one that proves the selection block's own strategy is what forces a
-// restart. Nothing about delivering a message to this provider could respawn it,
-// because it declares no delivery to respawn for.
 func selectingAgent(t *testing.T) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
@@ -490,10 +466,6 @@ hooks:
 	return a
 }
 
-// TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor pins the two shipped
-// answers. claude declares both catalogues; codex declares neither, because its
-// real catalogue is per-model and lives behind a command — a hand-written list
-// would be wrong, so it degrades to no picker at all.
 func TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor(t *testing.T) {
 	claude := get(t, "claude")
 	assert.True(t, claude.Capabilities().ModelSelect)
@@ -511,14 +483,6 @@ func TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor(t *testing.T) {
 	}, codex.Models(), "codex's own priority order, as `codex debug models` reports it")
 }
 
-// TestAgent_CodexEffortsVaryByModel is the case the per-model catalogue shape
-// exists for, and it is not hypothetical: measured 2026-08-17 against codex-cli
-// 0.146.0, sol and terra reach ultra, luna stops at max, and the 5.4/5.5 family
-// stops at xhigh.
-//
-// The last assertion is the important one. codex declares NO "*" fallback, so an
-// id outside its catalogue must answer with NO levels — offering another model's
-// levels would be a picker that produces spawn arguments the CLI rejects.
 func TestAgent_CodexEffortsVaryByModel(t *testing.T) {
 	codex := get(t, "codex")
 
@@ -532,9 +496,6 @@ func TestAgent_CodexEffortsVaryByModel(t *testing.T) {
 	assert.Empty(t, codex.Efforts(""), "no fallback key means the default model has no declared levels")
 }
 
-// TestAgent_CodexSelectionUsesItsOwnConfigChannel: codex has no --effort flag, so
-// the level travels through its `-c key=value` config-override channel — the same
-// shape every other codex config step uses.
 func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
 	codex := get(t, "codex")
 	ctx := agents.TemplateCtx{
@@ -552,8 +513,6 @@ func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
 	assert.Contains(t, plan.Argv, `model_reasoning_effort="ultra"`)
 }
 
-// TestAgent_SelectionStepsCarryTheChoiceIntoTheArgv walks the whole path a
-// selection takes: declared block → steps → rendered argv.
 func TestAgent_SelectionStepsCarryTheChoiceIntoTheArgv(t *testing.T) {
 	a := selectingAgent(t)
 	ctx := agents.TemplateCtx{
@@ -568,18 +527,9 @@ func TestAgent_SelectionStepsCarryTheChoiceIntoTheArgv(t *testing.T) {
 	assert.Equal(t, []string{"--model", "opus", "--effort", "max"}, plan.Argv)
 }
 
-// TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport is the
-// inert-path guarantee, and it is the property the whole feature is allowed to
-// rest on: a chat that has chosen nothing must launch the exact command line it
-// launched before any of this existed.
-//
-// It is asserted against a REAL shipped descriptor (claude, which declares both
-// blocks) rather than a stub, because a stub declaring nothing could not tell
-// "contributes nothing" from "has nothing to contribute".
 func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *testing.T) {
 	a := get(t, "claude")
-	// One tmp dir for both renders: it lands in the argv (--settings) and a fresh
-	// one per call would differ for a reason that has nothing to do with selection.
+
 	base := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
 		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
@@ -598,10 +548,6 @@ func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *test
 	}
 }
 
-// TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy is the forced
-// restart, proved on a provider that would NOT otherwise restart: this descriptor
-// declares no prompt delivery at all, so nothing about a message respawns the CLI
-// — and a changed model still must.
 func TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy(t *testing.T) {
 	a := selectingAgent(t)
 	require.NotEqual(t, agents.DeliveryRestartTUI, a.Capabilities().Delivery,
@@ -615,9 +561,6 @@ func TestAgent_SelectionRestartIsAuthorisedByTheBlocksOwnStrategy(t *testing.T) 
 		agents.Selection{Effort: "high"}, agents.Selection{}))
 }
 
-// TestAgent_SelectionIsAbsentWhereNothingIsDeclared keeps a provider with no
-// catalogue out of every branch: nothing to offer, nothing to render, nothing to
-// restart for.
 func TestAgent_SelectionIsAbsentWhereNothingIsDeclared(t *testing.T) {
 	a := stubAgent(t, "true")
 
@@ -627,15 +570,6 @@ func TestAgent_SelectionIsAbsentWhereNothingIsDeclared(t *testing.T) {
 	assert.False(t, a.SelectionRestart(agents.Selection{}, agents.Selection{Model: "opus"}))
 }
 
-// The SHIPPED descriptor's answer shapes, pinned against what was MEASURED
-// against claude 2.1.234 on 2026-08-18.
-//
-// The hookSpecificOutput wrapper is the load-bearing part and the reason this is
-// a test rather than a comment: a bare {"decision":{"behavior":…}} was measured
-// failing claude's own hook-output validator — `Hook JSON output validation
-// failed — (root): Invalid input` — after which the TUI dialog was drawn and the
-// human's decision was thrown away. A descriptor edit that loses the wrapper
-// would produce a channel that looks wired up and silently answers nothing.
 func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T) {
 	a := get(t, "claude")
 
@@ -663,9 +597,6 @@ func TestAgent_ClaudeAnswersItsPermissionInTheMeasuredWrappedShape(t *testing.T)
 		string(deny))
 }
 
-// AskUserQuestion is answered THROUGH the permission hook — the one open question
-// the answer channel had, settled by measurement — by handing the tool its own
-// input back with the picks merged in.
 func TestAgent_ClaudeAnswersAQuestionByEchoingTheToolInput(t *testing.T) {
 	raw := []byte(`{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"A or B?"}]}}`)
 
@@ -693,8 +624,6 @@ func TestAgent_ClaudeAnswersAnElicitationWithTheMCPVerbs(t *testing.T) {
 		string(got))
 }
 
-// A provider that declares no answer channel is completely unaffected: nothing it
-// opens is answerable, so no relay of its is ever held open.
 func TestAgent_CodexDeclaresNoAnswerChannel(t *testing.T) {
 	a := get(t, "codex")
 
@@ -705,10 +634,6 @@ func TestAgent_CodexDeclaresNoAnswerChannel(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrNotAnswerable)
 }
 
-// A decision claude has no template for is refused rather than approximated: its
-// permission_suggestions ride a channel that was never measured, and a broader
-// grant that silently narrowed to a plain allow would grant less than the user
-// chose while reporting success.
 func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
 	_, err := get(t, "claude").RenderAnswer(agents.HookPermission, nil,
 		agents.AnswerDecision{Key: agents.ChoiceOptionSuggestion})
@@ -716,9 +641,6 @@ func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrUnsupportedDecision)
 }
 
-// Every hook Crowbar HOLDS OPEN must carry an explicit timeout in the injected
-// settings: the default is the provider's, and a budget Crowbar does not own is
-// one it cannot stay inside.
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
 	tmp := t.TempDir()
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
@@ -749,13 +671,6 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 	}
 }
 
-// --- Terminal prompts: the modals no hook reports ---
-
-// TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog drives the SHIPPED
-// descriptor against the trust screen captured from claude 2.1.207 and recorded in
-// tests/integration/agent/barriers_test.go. It is the end-to-end proof that the
-// needles in claude.yaml still match the screen they were taken from — the check
-// that would fail first if a claude release repainted that dialog.
 func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
 	screen := strings.Join([]string{
 		"╭──────────────────────────────────────╮",
@@ -772,10 +687,6 @@ func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
 	assert.Equal(t, agents.TerminalPromptTrust, prompt.Kind)
 }
 
-// TestMatchTerminalPrompt_CodexReportsAGenericBlock pins the deliberate asymmetry
-// between the two shipped descriptors. Nothing on codex's dialog says anything
-// about trust, so all it can truthfully report is THAT the CLI is blocked — and a
-// client renders that as "waiting for input in the terminal" rather than guessing.
 func TestMatchTerminalPrompt_CodexReportsAGenericBlock(t *testing.T) {
 	screen := "› 1. Yes, continue\n  2. No, exit\n  Press enter to continue"
 
@@ -785,8 +696,6 @@ func TestMatchTerminalPrompt_CodexReportsAGenericBlock(t *testing.T) {
 	assert.Empty(t, prompt.Kind, "codex declares no kinded needle; naming one would be a guess")
 }
 
-// TestMatchTerminalPrompt_AnOrdinaryScreenIsNotABlock is the false-positive guard.
-// A working agent's screen must never report a block, or the banner means nothing.
 func TestMatchTerminalPrompt_AnOrdinaryScreenIsNotABlock(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		_, ok := get(t, id).MatchTerminalPrompt("> Ready.\n  shift+tab to cycle · ? for shortcuts")
@@ -794,18 +703,11 @@ func TestMatchTerminalPrompt_AnOrdinaryScreenIsNotABlock(t *testing.T) {
 	}
 }
 
-// TestCapabilities_TerminalPromptsIsDeclaredByBothShippedAgents backs the read a
-// caller makes to skip a screen render entirely for a provider that could never
-// match.
 func TestCapabilities_TerminalPromptsIsDeclaredByBothShippedAgents(t *testing.T) {
 	assert.True(t, get(t, "claude").Capabilities().TerminalPrompts)
 	assert.True(t, get(t, "codex").Capabilities().TerminalPrompts)
 }
 
-// TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches is the degradation
-// story stated against a real override: a descriptor with no terminal_prompts
-// block answers false on every screen, so its chats behave exactly as they did
-// before this existed.
 func TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))

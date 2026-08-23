@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// openTurnState is a chat mid-reply — the only state in which anything can be
-// waiting on a human.
 func openTurnState(t *testing.T) domain.AgentActivity {
 	t.Helper()
 	return commands.OpenTurn{ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: now}.
@@ -47,9 +45,6 @@ func TestOpenChoice_HoldsThePromptOpenDuringATurn(t *testing.T) {
 	assert.Len(t, got.Choices, 1, "a prompt waiting on a human is open state")
 }
 
-// The already-shipped rule for an interruption with no turn open, applied to the
-// prompt that accompanies it: an agent that is not running is not waiting on
-// anybody, and a pending prompt over an idle agent is a banner nothing clears.
 func TestOpenChoice_WithNoTurnOpenIsRecordedAlreadyResolved(t *testing.T) {
 	got := permissionCmd().EmitEvent(nil)
 
@@ -62,8 +57,6 @@ func TestOpenChoice_WithNoTurnOpenIsRecordedAlreadyResolved(t *testing.T) {
 	assert.Nil(t, got.Turn, "and no turn is conjured to hold it")
 }
 
-// A claude permission carries no tool_use_id, so the in-flight PreToolUse of the
-// same name is the only thing that says which call is being gated.
 func TestOpenChoice_AdoptsTheInFlightCallOfTheSameName(t *testing.T) {
 	state := openTurnState(t)
 	state = commands.InvokeTool{ChatID: chat, ToolID: "old", Name: "Bash", Now: now}.
@@ -105,8 +98,6 @@ func TestOpenChoice_RejectsTheUnusableCases(t *testing.T) {
 	}
 }
 
-// The path that actually fires: the human answered at the PTY, nothing reported
-// it, and the gated work proceeding is the only evidence there is.
 func TestCompleteTool_ClosesThePromptThatWasGatingIt(t *testing.T) {
 	state := openTurnState(t)
 	state = commands.InvokeTool{ChatID: chat, ToolID: "t-1", Name: "Bash", Now: now}.
@@ -122,8 +113,6 @@ func TestCompleteTool_ClosesThePromptThatWasGatingIt(t *testing.T) {
 		"the delta stays the tool's; the prompt's row is swept by the projection")
 }
 
-// A prompt that never learned a call id must still clear, or a lost PreToolUse
-// would strand the UI on a question nobody is asking.
 func TestCompleteTool_ClosesAPromptThatOnlyKnowsTheToolName(t *testing.T) {
 	state := openTurnState(t)
 	state = permissionCmd().EmitEvent(&state)
@@ -145,8 +134,6 @@ func TestCompleteTool_LeavesAPromptAboutAnotherToolAlone(t *testing.T) {
 	assert.Len(t, got.Choices, 1)
 }
 
-// An anonymous completion identifies no prompt, and sweeping on it would clear
-// every question in the chat.
 func TestCompleteTool_AnAnonymousCompletionClosesNoPrompt(t *testing.T) {
 	state := openTurnState(t)
 	state = permissionCmd().EmitEvent(&state)
@@ -201,8 +188,6 @@ func TestResolveChoice_DefaultsToAnsweredWhenNoReasonIsGiven(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAnswered, got.Last.Choice.Resolution)
 }
 
-// A fabricated record here would be projected over a real row and blank the
-// question it was asking.
 func TestResolveChoice_ForAnUnknownPromptPublishesNothing(t *testing.T) {
 	state := openTurnState(t)
 
@@ -227,8 +212,6 @@ func TestResolveChoice_RejectsTheUnusableCases(t *testing.T) {
 	}
 }
 
-// A turn boundary owns everything the turn left open. A prompt is no exception:
-// the agent has stopped asking.
 func TestTurnBoundaries_ClearEveryPendingPrompt(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -255,8 +238,6 @@ func TestTurnBoundaries_ClearEveryPendingPrompt(t *testing.T) {
 	}
 }
 
-// The whole point of this aggregate's shape: state stays flat however long a chat
-// runs, and a provider that opens prompts and never closes them cannot change that.
 func TestOpenChoice_CannotGrowTheAggregatePastItsCeiling(t *testing.T) {
 	state := openTurnState(t)
 	for i := range domain.MaxOpenPerTurn + 20 {

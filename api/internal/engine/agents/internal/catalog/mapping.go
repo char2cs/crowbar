@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// mapItems renders each candidate through the descriptor's item mapping and makes
-// the result safe to show, deduplicating on the pair a user can actually act on:
-// the source and the text that would be inserted.
 func mapItems(
 	candidates []adapters.Candidate,
 	mapping spec.CatalogItemMapping,
@@ -33,8 +30,7 @@ func mapItems(
 			continue
 		}
 		seen[key] = struct{}{}
-		// Count past the cap rather than stopping, so the warning reflects that
-		// there WERE more distinct items and not merely more duplicates.
+
 		if len(items) == maxItems {
 			truncated = true
 			continue
@@ -69,8 +65,6 @@ func renderItem(c adapters.Candidate, mapping spec.CatalogItemMapping) (models.S
 		normalize.Source(expand(mapping.Source, vars)), normalize.MaxSourceRunes,
 	)
 
-	// An item with no label cannot be shown, and one with no insert text cannot be
-	// chosen. Either way it is not an item.
 	if label == "" || insertText == "" {
 		return models.SlashCatalogItem{}, false
 	}

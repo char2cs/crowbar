@@ -1,25 +1,11 @@
-// Package storage is the AgentActivity read model's durable shape.
-//
-// It holds ROWS, not one blob per chat. That is the whole reason this read model
-// exists separately from the aggregate: the questions asked of it — which tools
-// ran, which files were touched, what happened in the last hour, what is another
-// agent in this workspace doing — are queries, and a JSON column cannot answer a
-// query.
 package storage
 
 import "time"
 
-// rowKey namespaces a provider-supplied id by its chat.
-//
-// Providers guarantee their ids are unique within a session, not across every
-// chat this daemon has ever hosted. Two chats can therefore legitimately produce
-// the same tool id, and a bare primary key would let the later one overwrite the
-// earlier.
 func rowKey(chatID, id string) string {
 	return chatID + "\x00" + id
 }
 
-// TurnRow is one side of the conversation.
 type TurnRow struct {
 	Key        string     `gorm:"primaryKey;column:key"`
 	ID         string     `gorm:"column:id"`
@@ -37,8 +23,6 @@ type TurnRow struct {
 
 func (TurnRow) TableName() string { return "agent_turns" }
 
-// ToolCallRow is one tool invocation. The payloads live in the content store;
-// only their refs are here, so this table stays small enough to index.
 type ToolCallRow struct {
 	Key        string     `gorm:"primaryKey;column:key"`
 	ID         string     `gorm:"column:id"`
@@ -85,13 +69,6 @@ type InterruptionRow struct {
 
 func (InterruptionRow) TableName() string { return "agent_interruptions" }
 
-// ChoiceRow is one prompt the agent put to a human.
-//
-// Options and Questions are JSON arrays rather than child tables on purpose:
-// nothing queries an option or a question — they are read only as part of the
-// prompt that offered them — and a join per pending prompt would buy nothing. The
-// prompt itself IS queried, by chat and by whether it is still pending, and those
-// are columns.
 type ChoiceRow struct {
 	Key    string `gorm:"primaryKey;column:key"`
 	ID     string `gorm:"column:id"`
@@ -101,9 +78,7 @@ type ChoiceRow struct {
 
 	Kind     string `gorm:"column:kind;index"`
 	PromptID string `gorm:"column:prompt_id"`
-	// ToolID and ToolName are how a completion finds the prompt it answered. Both
-	// are indexed because the resolution sweep runs on every tool completion, which
-	// is the highest-frequency event in the system.
+
 	ToolID   string `gorm:"column:tool_id;index"`
 	ToolName string `gorm:"column:tool_name;index"`
 
@@ -112,10 +87,7 @@ type ChoiceRow struct {
 	Mode     string `gorm:"column:mode"`
 	Multi    bool   `gorm:"column:multi"`
 	Options  string `gorm:"column:options"`
-	// Questions is the JSON list a question-kind prompt asks. A row written before
-	// this column existed simply has none, which is a graceful fallback and not a
-	// migration: such a prompt still carries its Question and Options and still
-	// renders and answers exactly as it did.
+
 	Questions string `gorm:"column:questions"`
 	Schema    string `gorm:"column:schema"`
 

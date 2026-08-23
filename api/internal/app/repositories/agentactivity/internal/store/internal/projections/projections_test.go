@@ -25,8 +25,6 @@ func newProjector(t *testing.T) (*projections.Projector, *storage.Store) {
 	return projections.New(st), st
 }
 
-// An event with no delta is ordinary: the reconcile emits one when there was
-// nothing open, and recording that it ran is the point.
 func TestApply_AnEventWithNoDeltaIsANoOp(t *testing.T) {
 	p, st := newProjector(t)
 
@@ -37,8 +35,6 @@ func TestApply_AnEventWithNoDeltaIsANoOp(t *testing.T) {
 	assert.True(t, empty)
 }
 
-// A delta whose payload is missing, or whose kind nothing handles, must not
-// panic: the projection runs on every event and cannot be the thing that breaks.
 func TestApply_TolerossMalformedDeltas(t *testing.T) {
 	p, _ := newProjector(t)
 	ctx := context.Background()
@@ -56,8 +52,6 @@ func TestApply_TolerossMalformedDeltas(t *testing.T) {
 	}
 }
 
-// A reply is written when it CLOSES. An open turn has no text, and a blank row in
-// the conversation reads as the agent having said nothing.
 func TestApply_AnOpenTurnIsNotYetARow(t *testing.T) {
 	p, st := newProjector(t)
 	ctx := context.Background()
@@ -146,8 +140,6 @@ func TestForget_RemovesEverythingBelongingToAChat(t *testing.T) {
 	assert.Len(t, kept, 1)
 }
 
-// A closed database is what a projection meets during shutdown, and every write
-// path must report rather than panic.
 func TestApply_ReportsAStorageFailureRatherThanPanicking(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -231,8 +223,6 @@ func TestStorage_QueriesReportFailureOnAClosedDatabase(t *testing.T) {
 	assert.Error(t, st.AbandonRunningTools(ctx, "c1", nil))
 }
 
-// A provider that never spoke has nothing to resume, and that absence is an
-// answer rather than a failure.
 func TestStorage_ResumeQueriesTreatAbsenceAsAnAnswer(t *testing.T) {
 	_, st := newProjector(t)
 	ctx := context.Background()

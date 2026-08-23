@@ -10,13 +10,6 @@ type catalogCommand struct{}
 
 func (catalogCommand) Name() string { return "catalog_command" }
 
-// Check requires the inventory command to be FIXED argv: non-empty, no empty
-// entries, no templates at all.
-//
-// The command is run as a real subprocess with no shell, so a template here would
-// be the one place a descriptor could smuggle caller-controlled data into argv.
-// Detail commands are allowed exactly one {id}, checked by the adapter rule,
-// because that value comes from the provider's own inventory output.
 func (catalogCommand) Check(d *spec.Descriptor) error {
 	sc := d.Presentation.SlashCatalog
 	if sc == nil {

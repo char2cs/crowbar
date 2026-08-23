@@ -9,11 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Turns returns a chat's turns in sequence order.
-//
-// after and before are exclusive sequence bounds; limit caps the page. A limit of
-// zero means "no cap", which only the handoff assembler asks for — every other
-// caller pages.
 func (s *Store) Turns(
 	ctx context.Context,
 	chatID string,
@@ -42,11 +37,6 @@ func (s *Store) Turns(
 	return out, nil
 }
 
-// TurnsBefore returns the NEWEST turns below a sequence, in ascending order.
-//
-// It reads descending with a limit and reverses, rather than reading ascending
-// and discarding: a chat with ten thousand turns must not load ten thousand rows
-// to show the last twenty.
 func (s *Store) TurnsBefore(
 	ctx context.Context,
 	chatID string,
@@ -68,8 +58,6 @@ func (s *Store) TurnsBefore(
 	return out, nil
 }
 
-// TurnsSince returns the turns recorded strictly after a wall-clock instant. It
-// backs the handoff gap: what happened while a provider was away.
 func (s *Store) TurnsSince(
 	ctx context.Context,
 	chatID string,
@@ -89,7 +77,6 @@ func (s *Store) TurnsSince(
 	return out, nil
 }
 
-// CountTurns reports how many turns a chat holds.
 func (s *Store) CountTurns(ctx context.Context, chatID string) (int64, error) {
 	var count int64
 	err := s.db.WithContext(ctx).Model(&TurnRow{}).
@@ -100,8 +87,6 @@ func (s *Store) CountTurns(ctx context.Context, chatID string) (int64, error) {
 	return count, nil
 }
 
-// LastTurnAt returns when a provider last spoke in a chat, and whether it ever
-// did. It selects which native session a resume should target.
 func (s *Store) LastTurnAt(
 	ctx context.Context,
 	chatID, providerID string,
@@ -116,7 +101,6 @@ func (s *Store) LastTurnAt(
 	return row.StartedAt, true, nil
 }
 
-// LastTurnForSession returns when a specific native session last recorded a turn.
 func (s *Store) LastTurnForSession(
 	ctx context.Context,
 	chatID, providerID, sessionID string,
@@ -131,8 +115,6 @@ func (s *Store) LastTurnForSession(
 	return row.StartedAt, true, nil
 }
 
-// HasTurnAtOrAfter reports whether a provider recorded anything at or after an
-// instant — the "did this CLI actually say something in its own session" check.
 func (s *Store) HasTurnAtOrAfter(
 	ctx context.Context,
 	chatID, providerID string,
@@ -148,7 +130,6 @@ func (s *Store) HasTurnAtOrAfter(
 	return count > 0, nil
 }
 
-// ToolCalls returns a chat's tool calls in sequence order, newest last.
 func (s *Store) ToolCalls(
 	ctx context.Context,
 	chatID string,
@@ -174,7 +155,6 @@ func (s *Store) ToolCalls(
 	return out, nil
 }
 
-// Subagents returns a chat's subagent records in sequence order.
 func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error) {
 	var rows []SubagentRow
 	err := s.db.WithContext(ctx).Model(&SubagentRow{}).
@@ -189,7 +169,6 @@ func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.Activity
 	return out, nil
 }
 
-// Interruptions returns a chat's interruption records in sequence order.
 func (s *Store) Interruptions(
 	ctx context.Context,
 	chatID string,
@@ -207,7 +186,6 @@ func (s *Store) Interruptions(
 	return out, nil
 }
 
-// Choices returns a chat's prompts in sequence order, pending and resolved alike.
 func (s *Store) Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
 	var rows []ChoiceRow
 	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
@@ -218,11 +196,6 @@ func (s *Store) Choices(ctx context.Context, chatID string) ([]domain.ActivityCh
 	return choiceDomains(rows), nil
 }
 
-// PendingChoices returns only the prompts a chat is still waiting on.
-//
-// It is a query of its own rather than a filter over Choices because it answers
-// the one question a chat surface asks on every frame — is this agent blocked on
-// me — and answering it must not read a turn's worth of resolved history.
 func (s *Store) PendingChoices(
 	ctx context.Context,
 	chatID string,
@@ -245,9 +218,6 @@ func choiceDomains(rows []ChoiceRow) []domain.ActivityChoice {
 	return out
 }
 
-// RecentToolCalls returns the most recent tool calls across a set of chats. It
-// backs the cross-agent MCP surface: what are the other agents in this workspace
-// touching right now.
 func (s *Store) RecentToolCalls(
 	ctx context.Context,
 	chatIDs []string,
@@ -317,14 +287,6 @@ func (r ChoiceRow) domain() domain.ActivityChoice {
 	}
 }
 
-// decodeList reads a stored JSON list, answering "nothing" for anything it cannot
-// parse.
-//
-// A prompt whose options or questions were written by a future shape of this code
-// must still render as the question it is: losing the buttons is a degraded
-// prompt, while failing the read would lose the whole timeline that holds it. The
-// empty string a pre-existing row carries in a column added later takes the same
-// path, which is why this needs no migration.
 func decodeList[T any](raw string) []T {
 	if raw == "" {
 		return nil

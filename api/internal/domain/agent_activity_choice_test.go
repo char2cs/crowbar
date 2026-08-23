@@ -9,12 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ResolvePicks is the ONE rule two layers enforce — the usecase that renders an
-// answer into a provider's JSON, and the aggregate that records the decision.
-// They used to write it twice and disagree, and neither of them noticed a partial
-// answer to a multi-question prompt. It is unit-tested here, once, because that is
-// where it now lives.
-
 func threeQuestions() domain.ActivityChoice {
 	return domain.ActivityChoice{
 		ID: "c1", Kind: domain.ChoiceKindQuestion,
@@ -61,9 +55,6 @@ func TestResolvePicks_GroupsAFlatPickListBackOntoItsQuestions(t *testing.T) {
 	assert.Equal(t, []string{"Local"}, labelsOf(answers[2].Picked))
 }
 
-// THE rule. A partial answer is what stranded a live agent: claude was handed
-// picks for one of three questions and went on asking for the other two, which
-// nothing could send.
 func TestResolvePicks_RefusesAnAnswerThatLeavesAnyQuestionUnanswered(t *testing.T) {
 	_, err := threeQuestions().ResolvePicks([]string{"q0-answer-0", "q1-answer-0"})
 
@@ -89,9 +80,6 @@ func TestResolvePicks_RefusesAnIdNoQuestionOffers(t *testing.T) {
 	assert.Contains(t, err.Error(), "not an option on this prompt")
 }
 
-// A repeat is not a second answer, it is the same one twice — and on a
-// multi-select question it would duplicate a label in the document the provider
-// reads.
 func TestResolvePicks_RefusesTheSameOptionTwice(t *testing.T) {
 	_, err := threeQuestions().ResolvePicks([]string{
 		"q0-answer-0", "q1-answer-0", "q1-answer-0", "q2-answer-0",
@@ -101,9 +89,6 @@ func TestResolvePicks_RefusesTheSameOptionTwice(t *testing.T) {
 	assert.Contains(t, err.Error(), "picked more than once")
 }
 
-// A permission is one question with one answer, so the same rule covers it — and
-// "allow AND deny" is refused by the very same clause that refuses two answers to
-// a question.
 func TestResolvePicks_TreatsAPermissionAsOneQuestion(t *testing.T) {
 	answers, err := permission().ResolvePicks([]string{"allow"})
 	require.NoError(t, err)
@@ -116,9 +101,6 @@ func TestResolvePicks_TreatsAPermissionAsOneQuestion(t *testing.T) {
 		"a permission's Title is the TOOL's name, and must not be quoted as a question")
 }
 
-// A prompt recorded before questions were modelled is a single question described
-// by the prompt's own text and options. That is a graceful fallback, not a
-// migration: such a row answers exactly as it always did.
 func TestResolvePicks_ReadsAPromptRecordedBeforeQuestionsExisted(t *testing.T) {
 	legacy := domain.ActivityChoice{
 		Kind: domain.ChoiceKindQuestion, Question: "Which do you want?", Multi: true,
@@ -136,8 +118,6 @@ func TestResolvePicks_ReadsAPromptRecordedBeforeQuestionsExisted(t *testing.T) {
 	assert.Equal(t, []string{"A", "B"}, labelsOf(answers[0].Picked))
 }
 
-// An elicitation's answer is a FORM and its ids are the MCP verbs, so there is
-// nothing to check them against — and saying so is not the same as refusing.
 func TestResolvePicks_HasNothingToSayAboutAPromptWithNoOptions(t *testing.T) {
 	elicitation := domain.ActivityChoice{Kind: domain.ChoiceKindElicitation, Question: "details?"}
 
@@ -148,8 +128,6 @@ func TestResolvePicks_HasNothingToSayAboutAPromptWithNoOptions(t *testing.T) {
 	assert.Empty(t, elicitation.AskedQuestions())
 }
 
-// A question the provider sent neither text nor header for cannot be keyed at
-// all, and a refusal about it has nothing to quote.
 func TestResolvePicks_NamesAnUntitledQuestionAsThePromptItself(t *testing.T) {
 	nameless := domain.ActivityChoice{
 		Kind: domain.ChoiceKindQuestion,

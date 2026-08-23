@@ -15,12 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestAgent_ReactPromptRestartsInteractiveTUI proves the production Chat-view
-// transport against both real provider CLIs. A prompt is delivered only as the
-// final positional argument of a replacement interactive TUI: this test never
-// writes a byte into either replacement PTY. Provider hooks must record the
-// exact user text and a complete assistant response, and the TUI must remain
-// alive after each turn so Terminal view can attach to the same process.
 func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		provider := provider
@@ -34,9 +28,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			chatID, idleRunnerID, idleTermID, idleTap := spawnReady(t, h, wsID, provider)
 			if provider == "claude" {
-				// Claude announces an otherwise-empty native session at boot. Let
-				// that hook settle before replacing the idle TUI so a late hook from
-				// the outgoing runner cannot be mistaken for replacement activity.
+
 				_, _ = awaitSessionBound(t, h, idleRunnerID, idleTermID, idleTap)
 			}
 
@@ -90,10 +82,6 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 	}
 }
 
-// awaitPositionalPromptTurn waits only on completed hook requests. It returns
-// the exact user entry plus the first later assistant entry from the same
-// provider. No PTY readiness marker or input is involved: seeing these entries
-// is proof that the CLI accepted its argv prompt autonomously.
 func awaitPositionalPromptTurn(
 	t *testing.T,
 	h *harness,

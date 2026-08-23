@@ -58,9 +58,6 @@ func TestNew_ReportsAnUnusableContentRoot(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The projection runs on EVERY event and is registered on the singleton, so a
-// storage failure must be reported and swallowed rather than propagated into the
-// event bus.
 func TestOnEvent_SwallowsAStorageFailure(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -101,9 +98,6 @@ func TestOnForget_SwallowsAStorageFailure(t *testing.T) {
 	assert.NoError(t, ax.Forget(context.Background(), chat))
 }
 
-// A chat with no turns is an ordinary NEW chat. Replaying the whole event log on
-// every read of one would be a permanent tax, so the heal is guarded on the model
-// being empty rather than on this chat being absent.
 func TestHeal_RunsAtMostOnceAndOnlyForAnEmptyModel(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -122,7 +116,6 @@ func TestHeal_RunsAtMostOnceAndOnlyForAnEmptyModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, turns, 1)
 
-	// A model that is EMPTY heals from the log.
 	fresh, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	healed, err := store.New(fresh, t.TempDir(), ax, es)
@@ -133,14 +126,11 @@ func TestHeal_RunsAtMostOnceAndOnlyForAnEmptyModel(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "recorded", got[0].Text)
 
-	// A second read must not replay again.
 	again, err := healed.Turns(context.Background(), "chat-with-nothing", 0, 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, again)
 }
 
-// An event store that cannot enumerate its aggregates simply cannot be replayed;
-// that is a degraded capability, not a failure to read.
 func TestHeal_IsSkippedWhenTheEventStoreCannotEnumerate(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -156,8 +146,6 @@ func TestHeal_IsSkippedWhenTheEventStoreCannotEnumerate(t *testing.T) {
 	assert.Empty(t, turns)
 }
 
-// noLister hides the aggregate-listing capability the rebuild needs, without
-// changing anything else about the store.
 type noLister struct{ inner asynxModels.Store }
 
 func (n noLister) Append(ctx context.Context, id string, version int64, data []byte) error {

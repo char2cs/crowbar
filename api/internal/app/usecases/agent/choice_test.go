@@ -11,10 +11,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// permissionPayload is the PermissionRequest captured live from claude 2.1.234 on
-// 2026-08-17. Everything but tool_name used to be discarded on the way in, so a
-// blocked agent rendered as "waiting on Bash" with no way to see what Bash was
-// about to do.
 func permissionPayload() map[string]any {
 	return map[string]any{
 		"session_id": "s1", "prompt_id": "81899da5", "permission_mode": "default",
@@ -60,10 +56,6 @@ func TestObservation_APermissionIsRecordedAsAPendingChoice(t *testing.T) {
 	assert.NotEmpty(t, got[0].ID, "a future answer has to be able to name this record")
 }
 
-// DEFECT 5, end to end through the shipped descriptor. `addRules` is claude's own
-// machine name for a broader grant, and reading it onto an option put that string
-// in the chat as something a person could press — spelled in a vocabulary only the
-// CLI's source uses, on the one path the backend refuses with a 400.
 func TestRegression_NoPromptEverCarriesARawProviderTypeNameAsALabel(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -88,8 +80,6 @@ func TestRegression_NoPromptEverCarriesARawProviderTypeNameAsALabel(t *testing.T
 	assert.Equal(t, "A broader permission than this one", got[0].Options[3].Label)
 }
 
-// The permission carries no tool_use_id, so the in-flight PreToolUse of the same
-// name is what says which call is being gated.
 func TestObservation_APermissionAdoptsTheInFlightCallItGates(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -106,10 +96,6 @@ func TestObservation_APermissionAdoptsTheInFlightCallItGates(t *testing.T) {
 	assert.Equal(t, "tool-1", got[0].ToolID)
 }
 
-// THE defensive case. A permission is almost always answered at the PTY, by a
-// human typing into the vendor CLI, and nothing reports that happening — so the
-// gated work proceeding has to clear the prompt, or the UI is stranded on a
-// question nobody is asking any more.
 func TestObservation_APendingChoiceClearsWhenTheGatedToolProceeds(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -132,8 +118,6 @@ func TestObservation_APendingChoiceClearsWhenTheGatedToolProceeds(t *testing.T) 
 	assert.Equal(t, domain.ChoiceResolutionProceeded, all.Choices[0].Resolution)
 }
 
-// A tool that FAILS answered its permission too — the question was answered, the
-// work simply went badly afterwards.
 func TestObservation_APendingChoiceClearsWhenTheGatedToolFails(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -151,7 +135,6 @@ func TestObservation_APendingChoiceClearsWhenTheGatedToolFails(t *testing.T) {
 	assert.Empty(t, pendingChoices(t, f, chatID))
 }
 
-// The turn boundary is the backstop, for the prompts nothing else can clear.
 func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -169,9 +152,6 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAbandoned, all.Choices[0].Resolution)
 }
 
-// The shipped precedent, which this must not regress: claude fires a permission
-// notification about a minute AFTER a turn ends. An agent that is not running is
-// not blocked, and a pending prompt over an idle agent is a banner nothing clears.
 func TestObservation_APermissionWithNoTurnOpenIsNotPending(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -185,8 +165,6 @@ func TestObservation_APermissionWithNoTurnOpenIsNotPending(t *testing.T) {
 	assert.False(t, all.Choices[0].Pending())
 }
 
-// AskUserQuestion is a TOOL on claude, so its question arrives inside the
-// permission's own tool input rather than as an event of its own.
 func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -211,8 +189,6 @@ func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.
 	assert.Equal(t, "Pick", got[0].Title)
 	assert.Equal(t, "Do you prefer option A or option B?", got[0].Question)
 
-	// One question is a LIST OF ONE. There is no second shape for the one-question
-	// case, so nothing downstream branches on how many were asked.
 	require.Len(t, got[0].Questions, 1)
 	question := got[0].Questions[0]
 	assert.Equal(t, "Pick", question.Title)
@@ -224,8 +200,6 @@ func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.
 	assert.Equal(t, "B", question.Options[1].Label)
 }
 
-// The record has to survive the round trip through the event log and the
-// projection, or a prompt would be answerable only in the instant it arrived.
 func TestObservation_AMultiQuestionAskIsRecordedWithEveryQuestion(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -242,9 +216,6 @@ func TestObservation_AMultiQuestionAskIsRecordedWithEveryQuestion(t *testing.T) 
 	assert.Empty(t, got[0].Options, "a question's options live on the question")
 }
 
-// Elicitation is a hook event of its own — an MCP server asking through the CLI.
-// It is also the only thing that produces the elicitation interruption kind,
-// which was a declared constant nothing wrote until now.
 func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -276,9 +247,6 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	assert.Contains(t, got[0].Schema, `"enum":["A","B"]`)
 }
 
-// codex declares neither Elicitation nor PostToolUseFailure. An unmapped kind
-// must degrade to never being reported — never to a wrong value — and must not
-// fail the hook, because a hook must never break the vendor CLI's turn.
 func TestObservation_ACodexChatObservesNeitherElicitationNorToolFailure(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -313,9 +281,6 @@ func TestObservation_ACodexChatObservesNeitherElicitationNorToolFailure(t *testi
 	}
 }
 
-// codex DOES declare PermissionRequest, and its descriptor maps the tool
-// vocabulary its own binary declares — so a codex chat reports a real prompt with
-// allow and deny, and none of claude's suggestion machinery.
 func TestObservation_ACodexPermissionReportsAllowAndDenyAndNothingInvented(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -336,10 +301,6 @@ func TestObservation_ACodexPermissionReportsAllowAndDenyAndNothingInvented(t *te
 	assert.Equal(t, domain.ChoiceOptionDeny, got[0].Options[1].Kind)
 }
 
-// PostToolUseFailure fires INSTEAD OF PostToolUse (measured against claude 2.1.234
-// on 2026-08-17), so a failing tool was never completed in the record: it stayed
-// in flight until the turn-close sweep abandoned it, and "the Bash call failed"
-// rendered as "the Bash call is still running" for the rest of the turn.
 func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -355,7 +316,6 @@ func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 	require.Len(t, running, 1)
 	require.Equal(t, domain.ToolStatusRunning, running[0].Status)
 
-	// The failure arrives, and NO PostToolUse ever does.
 	hook(t, f, runnerID, "claude", engineagents.HookToolFail, map[string]any{
 		"tool_use_id": "tool-1", "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "false"},
@@ -371,14 +331,11 @@ func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 	assert.Equal(t, "exit status 1", after[0].Error)
 	assert.Equal(t, 42, after[0].DurationMS)
 
-	// And the failure text is addressable, so a UI can show the whole of it.
 	payload, err := f.usecase.ReadToolPayload(f.ctx, chatID, "tool-1", "result")
 	require.NoError(t, err)
 	assert.Equal(t, "exit status 1", string(payload))
 }
 
-// A tool that is INTERRUPTED reports the same way, and must not be conflated with
-// one Crowbar swept because a CLI died.
 func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -400,8 +357,6 @@ func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 		"the turn-close sweep must find nothing left to abandon")
 }
 
-// A write that fails must not break the vendor CLI's turn: the prompt is a gap in
-// a timeline, and failing the hook would be a broken agent.
 func TestObservation_AFailedChoiceWriteDoesNotFailTheHook(t *testing.T) {
 	f, faults := newActivityWriteFaultFixture(t)
 	_, runnerID := f.spawn(t, "claude")
@@ -415,9 +370,6 @@ func TestObservation_AFailedChoiceWriteDoesNotFailTheHook(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A chat that does not exist is a bad request, not an empty prompt list: a client
-// polling a deleted chat has to learn that rather than see "waiting on nothing"
-// forever.
 func TestReadPendingChoices_RefusesAChatThatDoesNotExist(t *testing.T) {
 	f := newFixture(t)
 
@@ -436,9 +388,6 @@ func TestReadPendingChoices_PropagatesAReadModelFailure(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The timeline carries the prompts beside the tool calls, so a prompt read that
-// fails must fail the whole read rather than silently drop the one section a
-// blocked user is looking for.
 func TestReadActivity_PropagatesAPromptReadFailure(t *testing.T) {
 	f, activity := newActivityFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")

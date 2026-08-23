@@ -14,13 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// recordTurn writes one conversation turn into the activity record.
-//
-// The turn id is the hook's DELIVERY id when there is one. That is not a
-// convenience: the delivery id is the relay's durable idempotency key, and the
-// projection upserts by id, so a hook redelivered after a lost response rewrites
-// the same row instead of duplicating the turn. Without it, "the daemon did not
-// answer in time" and "the user said it twice" would be indistinguishable.
 func (u *Usecase) recordTurn(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -50,7 +43,6 @@ func turnID(ctx context.Context) string {
 	return uuid.NewString()
 }
 
-// chatTurns returns a chat's whole conversation in order.
 func (u *Usecase) chatTurns(ctx context.Context, chatID string) ([]chatlog.Turn, error) {
 	rows, err := u.activity.Turns(ctx, chatID, 0, 0, 0)
 	if err != nil {
@@ -76,18 +68,6 @@ func toChatTurns(rows []domain.ActivityTurn) []chatlog.Turn {
 	return out
 }
 
-// chatPage reads a bounded window of a chat's messages.
-//
-//   - after > 0 returns the first limit messages after that sequence
-//     (incremental refresh); HasMore reports further NEWER rows.
-//   - before > 0 returns the newest limit messages below that sequence (paging
-//     upward); HasMore reports further OLDER rows.
-//   - with neither, it returns the newest limit messages and HasMore reports
-//     whether older rows exist.
-//
-// The two cursors are mutually exclusive. The caller owns request validation, but
-// an ambiguous request is still refused here so a non-HTTP consumer cannot
-// silently receive a misleading page.
 func (u *Usecase) chatPage(
 	ctx context.Context,
 	chatID string,
@@ -105,7 +85,7 @@ func (u *Usecase) chatPage(
 	}
 
 	if after > 0 {
-		// One extra row answers HasMore without a second query.
+
 		rows, err := u.activity.Turns(ctx, chatID, int64(after), 0, limit+1)
 		if err != nil {
 			return chatlog.Page{}, fmt.Errorf("agent: chat page: %w", err)
@@ -117,7 +97,6 @@ func (u *Usecase) chatPage(
 		return page(rows, hasMore), nil
 	}
 
-	// One extra row again answers HasMore — here, whether OLDER rows remain.
 	rows, err := u.activity.TurnsBefore(ctx, chatID, int64(before), limit+1)
 	if err != nil {
 		return chatlog.Page{}, fmt.Errorf("agent: chat page: %w", err)
@@ -142,12 +121,6 @@ func page(rows []domain.ActivityTurn, hasMore bool) chatlog.Page {
 	return out
 }
 
-// renderConversation builds the handoff document: every turn, or only those after
-// cut, one per line under its speaker.
-//
-// It is byte-compatible with the flat-file record it replaced. That matters more
-// than it looks: this text is what a provider joining a chat is handed as context,
-// and a change in its shape is a change in what every future handoff reads.
 func (u *Usecase) renderConversation(
 	ctx context.Context,
 	chatID string,

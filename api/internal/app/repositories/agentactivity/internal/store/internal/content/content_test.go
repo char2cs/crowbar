@@ -39,7 +39,6 @@ func TestPut_RoundTripsAPayload(t *testing.T) {
 	assert.Equal(t, "tool output", string(got))
 }
 
-// Agents re-read the same files constantly, so the same payload must store once.
 func TestPut_IsContentAddressedSoIdenticalPayloadsStoreOnce(t *testing.T) {
 	s := newStore(t)
 
@@ -65,8 +64,6 @@ func TestPut_DifferentPayloadsGetDifferentRefs(t *testing.T) {
 	assert.NotEqual(t, a, b)
 }
 
-// There is nothing to address, and a ref that resolves to nothing is worse than
-// no ref at all.
 func TestPut_EmptyPayloadHasNoRef(t *testing.T) {
 	s := newStore(t)
 
@@ -76,8 +73,6 @@ func TestPut_EmptyPayloadHasNoRef(t *testing.T) {
 	assert.Empty(t, ref)
 }
 
-// A provider is not adversarial but it is not bounded either. Truncation is
-// MARKED so a reader is never shown a partial payload that looks whole.
 func TestPut_TruncatesBeyondTheCeilingAndSaysSo(t *testing.T) {
 	s := newStore(t)
 	huge := []byte(strings.Repeat("x", content.MaxPayloadBytes+4096))
@@ -91,8 +86,6 @@ func TestPut_TruncatesBeyondTheCeilingAndSaysSo(t *testing.T) {
 	assert.Contains(t, string(got), "truncated")
 }
 
-// Retention may legitimately have swept a payload, so absence is an ordinary
-// outcome a reader renders rather than a failure.
 func TestGet_MissingOrMalformedRefIsNotFound(t *testing.T) {
 	s := newStore(t)
 
@@ -100,15 +93,14 @@ func TestGet_MissingOrMalformedRefIsNotFound(t *testing.T) {
 		"",
 		"not-a-ref",
 		content.RefPrefix + "tooshort",
-		content.RefPrefix + strings.Repeat("z", 64), // right length, not hex
-		content.RefPrefix + strings.Repeat("a", 64), // well-formed, never stored
+		content.RefPrefix + strings.Repeat("z", 64),
+		content.RefPrefix + strings.Repeat("a", 64),
 	} {
 		_, err := s.Get(ref)
 		assert.ErrorIs(t, err, content.ErrNotFound, "ref %q", ref)
 	}
 }
 
-// A stored value must never be readable as a path.
 func TestGet_RefusesATraversalDisguisedAsARef(t *testing.T) {
 	s := newStore(t)
 
@@ -163,8 +155,6 @@ func TestPut_StoresPayloadsReadableOnlyByTheDaemon(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
-// A daemon whose content root is not writable must report rather than silently
-// drop a payload.
 func TestPut_ReportsAFailureToWrite(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "content")
 	s, err := content.New(root)

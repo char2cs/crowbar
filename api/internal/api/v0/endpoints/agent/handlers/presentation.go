@@ -11,8 +11,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 )
 
-// Messages serves Crowbar's bounded, hook-derived conversation record. Provider
-// transcripts and raw hook payloads are not exposed.
 func (h *Handlers) Messages(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -57,9 +55,6 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 	})
 }
 
-// SubmitPrompt synchronously returns once the replacement interactive TUI is
-// live. Its hooks, not this handler, eventually append the user and assistant
-// messages.
 func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -83,9 +78,6 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, result)
 }
 
-// SlashCatalog executes the live provider's deterministic, descriptor-mapped
-// probe for this one request. The response contains no raw command output and is
-// not cached or persisted by the backend.
 func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -129,10 +121,6 @@ func intQuery(ctx *gin.Context, name string) (int, bool) {
 	return value, true
 }
 
-// writeCodedErr maps a usecase failure onto the response, preferring the stable
-// machine-readable code the usecase supplies for outcomes a client must branch
-// on (a busy chat, an unsupported provider, an uncertain delivery). Without a
-// code the client would be left matching message text.
 func writeCodedErr(
 	ctx *gin.Context,
 	err error,

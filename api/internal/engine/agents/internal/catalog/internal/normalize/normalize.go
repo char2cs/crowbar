@@ -1,9 +1,3 @@
-// Package normalize makes provider output safe to show and safe to insert.
-//
-// Everything here treats provider output as hostile-by-accident rather than
-// hostile-by-design: a CLI that prints an absolute path, an API key in an error
-// message, or a terminal control sequence is not attacking anyone, but rendering
-// any of those verbatim in a chat composer would still be a defect.
 package normalize
 
 import (
@@ -13,9 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// Field ceilings. Provider output is bounded before it reaches a UI so a
-// malformed inventory cannot produce an unbounded label or an enormous command
-// line.
 const (
 	MaxLabelRunes      = 256
 	MaxDescriptionByte = 2 << 10
@@ -35,10 +26,6 @@ var (
 	openAIKeyPattern   = regexp.MustCompile(`\bsk-[a-zA-Z0-9_-]{8,}`)
 )
 
-// Redact removes filesystem locations and credential-shaped text. Paths go
-// because a catalog is published to a client and a home directory leaks the
-// user's name; credentials go because a provider that prints one in a diagnostic
-// should not have it mirrored into a chat.
 func Redact(value string) string {
 	value = unixPathPattern.ReplaceAllString(value, `${1}[path]`)
 	value = homePathPattern.ReplaceAllString(value, `${1}[path]`)
@@ -48,9 +35,6 @@ func Redact(value string) string {
 	return openAIKeyPattern.ReplaceAllString(value, `[redacted]`)
 }
 
-// Source normalises a catalog source label. Anything path-shaped is dropped
-// entirely rather than redacted: a source is a short name, so a value containing
-// a separator is not a name that lost its path — it IS a path.
 func Source(value string) string {
 	value = strings.TrimSpace(StripComposerControls(value))
 	if value == "" || strings.ContainsAny(value, `/\`) || strings.HasPrefix(value, "~") {
@@ -62,8 +46,6 @@ func Source(value string) string {
 	return Redact(value)
 }
 
-// StripControls removes control characters that would corrupt a rendered line,
-// keeping newline and tab, which are legitimate in a description.
 func StripControls(value string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
@@ -73,8 +55,6 @@ func StripControls(value string) string {
 	}, value)
 }
 
-// StripComposerControls removes every control character. Text destined for a
-// composer must carry none at all: a newline there would submit the message.
 func StripComposerControls(value string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -84,7 +64,6 @@ func StripComposerControls(value string) string {
 	}, value)
 }
 
-// TruncateRunes bounds a value by visible characters.
 func TruncateRunes(value string, max int) string {
 	runes := []rune(value)
 	if len(runes) <= max {
@@ -93,8 +72,6 @@ func TruncateRunes(value string, max int) string {
 	return string(runes[:max])
 }
 
-// TruncateBytes bounds a value by bytes without splitting a rune, so a truncated
-// description never ends in a replacement character.
 func TruncateBytes(value string, max int) string {
 	if len(value) <= max {
 		return value
@@ -106,7 +83,6 @@ func TruncateBytes(value string, max int) string {
 	return value
 }
 
-// Warnings appends additions to existing, redacted, bounded and deduplicated.
 func Warnings(existing []string, additions ...string) []string {
 	seen := make(map[string]struct{}, len(existing)+len(additions))
 	for _, w := range existing {

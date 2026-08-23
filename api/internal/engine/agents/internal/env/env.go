@@ -1,14 +1,7 @@
-// Package env manipulates process environment slices.
-//
-// It is pure and dependency-free so both the spawn planner and the probe runner
-// can share it without either importing the other.
 package env
 
 import "strings"
 
-// Clear returns env with every named variable removed. A descriptor names these
-// so a hosted CLI does not inherit markers from the Crowbar process that spawned
-// it — a nested-session flag inherited by a child changes how that CLI behaves.
 func Clear(environ, names []string) []string {
 	if len(names) == 0 {
 		return append([]string{}, environ...)
@@ -31,8 +24,6 @@ func Clear(environ, names []string) []string {
 	return out
 }
 
-// Replace sets name to value, removing any prior entries so the child sees one
-// unambiguous value rather than relying on last-wins.
 func Replace(environ []string, name, value string) []string {
 	prefix := name + "="
 	out := make([]string, 0, len(environ)+1)
@@ -44,8 +35,6 @@ func Replace(environ []string, name, value string) []string {
 	return append(out, prefix+value)
 }
 
-// Lookup returns the value of name in environ, searching from the end so a later
-// entry wins — matching how exec resolves duplicates.
 func Lookup(environ []string, name string) (string, bool) {
 	prefix := name + "="
 	for i := len(environ) - 1; i >= 0; i-- {

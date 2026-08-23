@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// The engine's public value types. They are defined in internal packages and
-// re-exported here so this file is the whole of what a caller may depend on: the
-// YAML shape behind them can change without touching a single call site.
 type (
 	TemplateCtx    = models.TemplateCtx
 	SpawnPlan      = models.SpawnPlan
@@ -24,12 +21,8 @@ type (
 	PromptQuestion = models.PromptQuestion
 	ChoiceOption   = models.ChoiceOption
 
-	// TerminalPrompt is a CLI caught blocking on a modal that reaches Crowbar
-	// through no hook, and which Crowbar therefore cannot answer.
 	TerminalPrompt = models.TerminalPrompt
 
-	// AnswerCapability and AnswerDecision are the write side of a prompt: what a
-	// provider can be told, and what a human decided.
 	AnswerCapability = models.AnswerCapability
 	AnswerDecision   = models.AnswerDecision
 	Decision         = models.Decision
@@ -48,12 +41,9 @@ type (
 	SessionCost     = models.SessionCost
 	ModelIdentity   = models.ModelIdentity
 
-	// Acquire is the caller-owned concurrency permit every provider command is
-	// taken under, so all concurrent probes share one daemon-wide budget.
 	Acquire = exec.Acquire
 )
 
-// Move outcomes.
 const (
 	MoveNoop    = models.MoveNoop
 	MoveBind    = models.MoveBind
@@ -61,8 +51,6 @@ const (
 	MoveToKnown = models.MoveToKnown
 )
 
-// Canonical hook kinds. A caller switches on these; it never learns a provider's
-// own event names.
 const (
 	HookSessionStart = spec.HookSessionStart
 	HookUserPrompt   = spec.HookUserPrompt
@@ -83,7 +71,6 @@ const (
 	HookTurnFailed   = spec.HookTurnFailed
 )
 
-// Interruption kinds.
 const (
 	InterruptPermission   = models.InterruptPermission
 	InterruptNotification = models.InterruptNotification
@@ -91,15 +78,12 @@ const (
 	InterruptCompaction   = models.InterruptCompaction
 )
 
-// Choice kinds — what kind of answer an agent is blocked waiting for.
 const (
 	ChoiceToolPermission = models.ChoiceToolPermission
 	ChoiceQuestion       = models.ChoiceQuestion
 	ChoiceElicitation    = models.ChoiceElicitation
 )
 
-// Choice option kinds. A client renders by kind, because the labels of the two
-// synthetic ones are Crowbar's words rather than a provider's.
 const (
 	ChoiceOptionAnswer     = models.ChoiceOptionAnswer
 	ChoiceOptionAllow      = models.ChoiceOptionAllow
@@ -107,19 +91,14 @@ const (
 	ChoiceOptionSuggestion = models.ChoiceOptionSuggestion
 )
 
-// Terminal-prompt kinds — Crowbar's own name for a blocking modal it recognises
-// specifically. A match carrying none is reported generically; see TerminalPrompt.
 const (
 	TerminalPromptTrust = spec.TerminalPromptTrust
 )
 
-// Prompt-delivery strategies.
 const (
 	DeliveryRestartTUI = spec.DeliveryRestartTUI
 )
 
-// Catalogue completeness labels. They say exactly which provider-owned surface a
-// probe can account for, so a partial inventory is never presented as complete.
 const (
 	CatalogCompletenessComplete     = string(spec.CatalogCompletenessComplete)
 	CatalogCompletenessModelVisible = string(spec.CatalogCompletenessModelVisible)
@@ -128,7 +107,6 @@ const (
 	CatalogItemKindSkill = models.CatalogItemKindSkill
 )
 
-// Telemetry ingress sources.
 const (
 	TelemetrySourceCallback = models.TelemetrySourceCallback
 	TelemetrySourceProbe    = models.TelemetrySourceProbe

@@ -1,9 +1,3 @@
-// Package catalog runs a provider's deterministic capability inventory.
-//
-// It starts no shell, reads no provider-owned files, retains no cache, and
-// discards stdout and stderr once the normalised result is built. What comes back
-// is provider-neutral and safe to publish: labels, insert text and a source name,
-// with every path and credential-shaped string already removed.
 package catalog
 
 import (
@@ -22,18 +16,15 @@ import (
 )
 
 var (
-	// ErrUnsupported reports a provider that declares no catalogue.
 	ErrUnsupported = errors.New("agents: provider declares no slash catalog")
-	// ErrInvalidWorkdir reports a working directory that is missing or relative. A
-	// probe runs a provider CLI, and where it runs changes what it reports.
+
 	ErrInvalidWorkdir = errors.New("agents: catalog worktree is invalid")
-	// ErrTimeout reports the probe exceeding its declared budget.
+
 	ErrTimeout = errors.New("agents: catalog probe timed out")
-	// ErrMalformedOutput is re-exported so callers match one sentinel.
+
 	ErrMalformedOutput = adapters.ErrMalformedOutput
 )
 
-// Probe executes the descriptor-declared pipeline in the given worktree.
 func Probe(
 	ctx context.Context,
 	d *spec.Descriptor,
@@ -61,11 +52,6 @@ func Probe(
 	return assemble(ctx, probeCtx, d, sc, adapter, newRunner(d, sc, cwd, opts, acquire))
 }
 
-// ProbeWith runs the declared pipeline against a caller-supplied runner.
-//
-// It is the seam a test drives: the adapters, the item mapping and the
-// normalisation are exactly the production ones, and only the subprocess is
-// replaced. Probe is ProbeWith plus workdir validation and the bounded runner.
 func ProbeWith(
 	ctx context.Context,
 	d *spec.Descriptor,
@@ -144,9 +130,6 @@ func validWorkdir(dir string) (string, error) {
 	return clean, nil
 }
 
-// classify separates "the probe ran out of its own budget" from "the caller went
-// away". They look identical at the error site and mean opposite things to the
-// user: one is a slow provider, the other is a menu they already closed.
 func classify(parent, probe context.Context, err error) error {
 	if errors.Is(probe.Err(), context.DeadlineExceeded) && parent.Err() == nil {
 		return ErrTimeout
@@ -168,8 +151,7 @@ func completenessWarnings(c spec.CatalogCompleteness) []string {
 			"This catalog contains enabled plugin skills only; standalone skills may be available in the native terminal.",
 		}
 	case spec.CatalogCompletenessComplete:
-		// A complete inventory needs no caveat, which is the entire meaning of the
-		// label: it is the one value that promises the menu is the whole menu.
+
 		return []string{}
 	default:
 		return []string{}

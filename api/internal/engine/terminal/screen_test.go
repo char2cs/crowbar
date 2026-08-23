@@ -10,11 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-// TestTerminalEngine_Screen_UnknownSessionReturnsUnchanged proves Screen treats an
-// unknown session id the same way ScreenText treats a model-less placeholder: sessions
-// die under their observers (Kill, natural exit) between a caller learning an id and
-// polling it, so an unknown id must read as "nothing to see", not as an error a poller
-// has to special-case.
 func TestTerminalEngine_Screen_UnknownSessionReturnsUnchanged(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -25,17 +20,6 @@ func TestTerminalEngine_Screen_UnknownSessionReturnsUnchanged(t *testing.T) {
 	assert.False(t, changed)
 }
 
-// TestTerminalEngine_Screen_LiveSessionReturnsVisibleText proves Screen is wired end to
-// end through the real engine: a real PTY session, real shell output, and the pull-style
-// registry lookup + session read Screen documents in its doc comment (no Attach, no
-// subscription side effects — nothing here ever calls eng.Attach).
-//
-// It is built on the package's existing shellsync harness (newReadyShell/runShell,
-// shellsync_export_test.go) rather than a bespoke poll: runShell blocks on the session's
-// real pump-progress signal until the echoed marker AND the prompt that follows it are on
-// screen, which is ordered strictly after pumpStep has finished writing that PTY chunk
-// into the model under s.mu. So by the time runShell returns, eng.Screen is reading
-// already-settled state — no timing gap, and therefore no poll needed on this side either.
 func TestTerminalEngine_Screen_LiveSessionReturnsVisibleText(t *testing.T) {
 	pinShell(t)
 

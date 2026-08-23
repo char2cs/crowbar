@@ -79,8 +79,6 @@ func TestHookSpec_EventReportsWhetherAKindIsDeclared(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A descriptor may ask for LESS exposure to a provider command and never for
-// more, so an unset bound falls back to the engine's own default.
 func TestSlashCatalogSpec_UnsetBoundsFallBackToTheDefaults(t *testing.T) {
 	var s spec.SlashCatalogSpec
 
@@ -117,11 +115,6 @@ func TestTelemetryProbeSpec_UnsetBoundsFallBackToTheDefaults(t *testing.T) {
 	assert.Equal(t, 7, declared.EffectiveMaxStderrBytes())
 }
 
-// TestTerminalNoticeSpec_DecodesTheDeclaredShape pins the three YAML keys a
-// descriptor author writes. They are the contract between a file on disk and the
-// daemon, and a rename here would silently zero `ends_turn` — which reads as "this
-// notice is informational" and quietly stops the mechanism working, with every
-// test that builds the struct in Go still passing.
 func TestTerminalNoticeSpec_DecodesTheDeclaredShape(t *testing.T) {
 	var d spec.Descriptor
 	require.NoError(t, yaml.Unmarshal([]byte(`
@@ -137,7 +130,6 @@ terminal_notices:
 	assert.Equal(t, spec.TerminalNoticeUsageLimit, d.TerminalNotices[0].Kind)
 	assert.Equal(t, "You've hit your usage limit", d.TerminalNotices[0].Needle)
 	assert.True(t, d.TerminalNotices[0].EndsTurn)
-	// Omitted means false: a notice acquires the power to close a turn only by
-	// saying so.
+
 	assert.False(t, d.TerminalNotices[1].EndsTurn)
 }

@@ -57,8 +57,6 @@ func TestApply_APromptIsProjectedWithItsOptions(t *testing.T) {
 	assert.True(t, got[0].Pending())
 }
 
-// The path that actually fires: a human answered at the PTY, nothing reported it,
-// and the gated work proceeding is the only evidence there is.
 func TestApply_AToolCompletingClosesThePromptThatGatedIt(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -83,8 +81,6 @@ func TestApply_AToolCompletingClosesThePromptThatGatedIt(t *testing.T) {
 	assert.NotNil(t, all[0].ResolvedAt)
 }
 
-// A FAILED tool answers its prompt exactly as a successful one does — the
-// question was answered, the work simply went badly afterwards.
 func TestApply_AFailedToolAlsoClosesThePromptThatGatedIt(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -108,8 +104,6 @@ func TestApply_AFailedToolAlsoClosesThePromptThatGatedIt(t *testing.T) {
 	assert.Equal(t, "exit status 1", calls[0].Error)
 }
 
-// A prompt that never learned a call id — a lost PreToolUse, or a permission that
-// beat it — must still clear on the name alone.
 func TestApply_AToolCompletingClosesANamedPromptWithNoCallID(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -147,7 +141,6 @@ func TestApply_AToolCompletingLeavesAnUnrelatedPromptPending(t *testing.T) {
 	assert.Len(t, pending(t, st, "c1"), 1)
 }
 
-// An INVOCATION is not an answer. Only a completion says the work proceeded.
 func TestApply_AToolStartingDoesNotClosePrompts(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -166,15 +159,12 @@ func TestApply_AToolStartingDoesNotClosePrompts(t *testing.T) {
 	assert.Len(t, pending(t, st, "c1"), 1)
 }
 
-// The backstop. An elicitation has no resolving event on any provider, so without
-// the turn-boundary sweep a question the agent stopped asking would stay pinned
-// over the chat for the rest of its life.
 func TestApply_ATurnEndingClosesEveryPromptItLeftOpen(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
 	item.ToolID, item.ToolName = "", ""
 	item.Kind = domain.ChoiceKindElicitation
-	// An elicitation offers a schema, not buttons, so it stores no options at all.
+
 	item.Options = nil
 	project(t, p, "c1", domain.ActivityDelta{
 		Phase: domain.DeltaOpen, Kind: domain.DeltaChoice, Choice: &item,
@@ -196,8 +186,6 @@ func TestApply_ATurnEndingClosesEveryPromptItLeftOpen(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAbandoned, all[0].Resolution)
 }
 
-// The turn sweep must not overwrite a resolution the tool already recorded, or a
-// prompt that was genuinely answered would read as abandoned.
 func TestApply_ATurnEndingDoesNotRewriteAnAlreadyResolvedPrompt(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -226,9 +214,6 @@ func TestApply_ATurnEndingDoesNotRewriteAnAlreadyResolvedPrompt(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionProceeded, all[0].Resolution)
 }
 
-// A prompt attaches to the placeholder identity the open turn was minted under;
-// the reply lands under the delivery id. Without re-pointing, the UI cannot say
-// which answer a question belonged to.
 func TestApply_PromptsFollowTheTurnTheyWereRepointedOnto(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -260,8 +245,6 @@ func TestApply_AChoiceDeltaWithNoPayloadIsANoOp(t *testing.T) {
 	assert.Empty(t, pending(t, st, "c1"))
 }
 
-// Forgetting a chat must take its prompts with it: a purged conversation that
-// still shows a pending question is a conversation that was not purged.
 func TestForget_RemovesAChatsPrompts(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -276,9 +259,6 @@ func TestForget_RemovesAChatsPrompts(t *testing.T) {
 	assert.Empty(t, all)
 }
 
-// A completion that names neither a call nor a tool identifies no prompt, and
-// sweeping on it would clear every question in the chat — including ones about
-// entirely different tools.
 func TestApply_AnUnidentifiableCompletionClosesNoPrompt(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")
@@ -295,8 +275,6 @@ func TestApply_AnUnidentifiableCompletionClosesNoPrompt(t *testing.T) {
 	assert.Len(t, pending(t, st, "c1"), 1)
 }
 
-// A provider that stops reporting tool names must still close the prompts its
-// calls were gating, on the call id alone.
 func TestApply_AnUnnamedCompletionStillClosesItsOwnPrompt(t *testing.T) {
 	p, st := newProjector(t)
 	item := openPrompt("c1")

@@ -6,11 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// InvokeTool records a tool call starting.
-//
-// RequestRef addresses the full arguments in the content store. The payload
-// itself never enters the aggregate: a snapshot writes the whole state, so a tool
-// input held here would be rewritten on every later snapshot of the same chat.
 type InvokeTool struct {
 	ChatID     string
 	ToolID     string
@@ -33,9 +28,7 @@ func (c InvokeTool) Validate(*domain.AgentActivity) error {
 
 func (c InvokeTool) EmitEvent(current *domain.AgentActivity) domain.AgentActivity {
 	next := advance(current, c.ChatID)
-	// A tool call with no open turn still belongs to the conversation. Opening one
-	// implicitly is what keeps a racing hook from being dropped; refusing it would
-	// silently lose the very activity this exists to show.
+
 	turnID := ensureTurn(&next, c.Now)
 
 	call := domain.ActivityToolCall{
@@ -61,15 +54,6 @@ func (c InvokeTool) EmitEvent(current *domain.AgentActivity) domain.AgentActivit
 	return next
 }
 
-// ensureTurn returns the open turn's id, opening one if a provider reported work
-// STARTING before — or without — a turn boundary.
-//
-// Only open-side commands may call it. A close-side one must use currentTurn
-// instead: measured against claude 2.1.233 on 2026-08-17, an anonymous
-// SubagentStop fires SECONDS AFTER the reply is complete, and letting it conjure
-// a turn left one standing — so the idle "Claude is waiting for your input"
-// notification that arrived a minute later read as the agent being BLOCKED
-// mid-turn, and rendered a permanent alarm over an agent that was fine.
 func ensureTurn(a *domain.AgentActivity, now time.Time) string {
 	if a.Turn != nil {
 		return a.Turn.ID
@@ -84,8 +68,6 @@ func ensureTurn(a *domain.AgentActivity, now time.Time) string {
 	return a.Turn.ID
 }
 
-// currentTurn names the open turn, or nothing. Closing something that was never
-// opened does not mean a turn began.
 func currentTurn(a *domain.AgentActivity) string {
 	if a.Turn == nil {
 		return ""

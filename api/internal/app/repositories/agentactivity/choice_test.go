@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// openReply starts the assistant turn a prompt can be waiting inside. A prompt
-// with no turn open is recorded already resolved, which is the shipped rule for
-// the interruption that accompanies it.
 func (f fixture) openReply(t *testing.T) {
 	t.Helper()
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -53,8 +50,6 @@ func TestOpenChoice_IsReadableAsAPendingPrompt(t *testing.T) {
 	assert.True(t, got[0].Pending())
 }
 
-// A permission answered at the PTY reports nothing at all, so the gated work
-// proceeding is what has to clear it.
 func TestCompleteTool_ClearsThePendingPromptThatGatedIt(t *testing.T) {
 	f := newFixture(t)
 	f.openReply(t)
@@ -96,8 +91,6 @@ func TestResolveChoice_ClearsThePromptExplicitly(t *testing.T) {
 		"resolving must not blank the question the prompt was asking")
 }
 
-// A failure is a COMPLETION. The call stops running, keeps its reason, and the
-// prompt it was gating clears with it.
 func TestCompleteTool_AFailureEndsTheCallAndCarriesItsError(t *testing.T) {
 	f := newFixture(t)
 	f.openReply(t)
@@ -121,8 +114,6 @@ func TestCompleteTool_AFailureEndsTheCallAndCarriesItsError(t *testing.T) {
 	require.NotEmpty(t, calls[0].ResultRef, "the full failure text is still addressable")
 }
 
-// The inline caption is a caption. A tool that fails on a hundred kilobytes of
-// compiler output must not put a hundred kilobytes into every later snapshot.
 func TestCompleteTool_TruncatesAnEnormousErrorToACaption(t *testing.T) {
 	f := newFixture(t)
 	f.openReply(t)

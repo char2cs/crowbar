@@ -14,23 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestAgent_LiveClaudeRecordsEveryMessageOfATurn is the user's own reproduction,
-// driven against a REAL claude CLI through the real hook socket.
-//
-// They asked claude to "send me a message, wait 30 seconds, then send another".
-// claude did exactly that, and Crowbar recorded ONE assistant turn: the second
-// message. The first was never ingested, because the only thing any hook carries
-// is `last_assistant_message` — literally the last one.
-//
-// A fixture test cannot stand in for this, and that is the whole reason this file
-// exists: the defect was that the SHAPE OF REAL TRAFFIC differs from what the
-// hook payloads implied. What has to be proven live is that claude really does
-// write a mid-turn message into its transcript before it fires the tool hook that
-// lets Crowbar look — a timing nobody can assert from a hand-written fixture.
-//
-// The prompt is deliberately mechanical. It asks for two marked lines with a slow
-// tool call between them, so the assertion is on two exact strings rather than on
-// anything a model had to be persuaded to say.
 func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 	requireCLI(t, "claude")
 	h := newHarness(t)
@@ -42,11 +25,6 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID, "claude never bound a session: %+v", runner)
 
-	// The script is deliberately impossible to satisfy WITHOUT the tool call: the
-	// closing message has to quote a word only the command can produce. An earlier
-	// version merely asked for a sleep in between, and a model that decided the
-	// sleep was pointless answered with the first marker alone and ended the turn
-	// in four seconds — a flaky PROMPT, which reads exactly like a flaky fix.
 	const (
 		first  = "MARKER-ONE-6F2A"
 		second = "MARKER-TWO-"
@@ -62,11 +40,6 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 
 	awaitTurnComplete(t, h, wsID, chatID, "claude")
 
-	// DUMP_SCREEN=1 prints the CLI's own screen and the whole recorded conversation.
-	// It is here because this is a LIVE test driven by a model: when it fails, the
-	// only question worth asking first is whether the model followed the script at
-	// all, and that is answerable from the screen and unanswerable from the
-	// assertion. Off by default; it costs a getenv.
 	if os.Getenv("DUMP_SCREEN") != "" {
 		t.Logf("PTY SCREEN:\n%s", tap.Screen())
 		for i, tn := range readLedgerTurns(t, h, wsID, chatID) {
@@ -79,8 +52,6 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 		t.Logf("  [%d] %q", i, r)
 	}
 
-	// The defect, stated as the assertion that used to fail: the FIRST message the
-	// agent said has to be in the record at all.
 	require.GreaterOrEqual(t, len(replies), 2,
 		"a turn that produced two messages must be recorded as two: before the fix this was 1, "+
 			"holding only the last message the Stop hook carried")
@@ -100,18 +71,11 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 	assert.Less(t, firstAt, secondAt,
 		"the two messages must be recorded in the order the agent said them")
 
-	// Nothing was said twice. The two sources — the transcript and the terminating
-	// hook — describe one final message between them, and recording it from both
-	// would be the opposite failure.
 	assert.Equal(t, 1, countContaining(replies, second+secret),
 		"the final message must appear exactly once, from whichever source got there first")
 	assert.Equal(t, 1, countContaining(replies, first),
 		"the mid-turn message must appear exactly once")
 
-	// And every tool call is still attached to a turn that EXISTS in the record.
-	// Splitting a turn at each message must not orphan the activity that hung off
-	// it — that association is what lets the chat say which work produced which
-	// reply.
 	activity, err := h.app.Usecases.Agent.ReadActivity(context.Background(), chatID, 0, 0)
 	require.NoError(t, err)
 	turnIDs := map[string]bool{}
@@ -138,8 +102,6 @@ func countContaining(replies []string, needle string) int {
 	return n
 }
 
-// readMessageTurnIDs returns the turn id of every ASSISTANT message in the
-// record, which is the set a tool call is allowed to be attached to.
 func readMessageTurnIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
 	page, err := h.app.Usecases.Agent.ReadMessages(context.Background(), chatID, 0, 0, 200)

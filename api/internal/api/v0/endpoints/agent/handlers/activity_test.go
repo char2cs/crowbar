@@ -19,8 +19,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// scoped builds a gin context already carrying the route scope the handlers
-// require, matching how the rest of this package drives them.
 func scoped(t *testing.T, target string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	ctx, rec := newTestContext(t, http.MethodGet, target, nil)
@@ -69,8 +67,6 @@ func TestActivity_ReturnsWhatTheAgentDid(t *testing.T) {
 	assert.Equal(t, "permission", body.Data.Interruptions[0].Kind)
 }
 
-// A content ref is a global address. Publishing it would let a client ask for any
-// chat's payload, so the wire carries only whether one exists.
 func TestActivity_NeverPublishesAContentRef(t *testing.T) {
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
 		ToolCalls: []domain.ActivityToolCall{{
@@ -128,8 +124,6 @@ func TestToolPayload_RefusesAnUnknownSide(t *testing.T) {
 	}
 }
 
-// Retention may legitimately have swept a payload: that is a fact about the
-// payload, not a failure of the request.
 func TestToolPayload_ASweptPayloadIsNotFound(t *testing.T) {
 	uc := &fakeAgentUsecase{payloadErr: agentactivity.ErrNotFound}
 	ctx, rec := scoped(t, "/activity/tool-1/payload?side=request")
@@ -172,14 +166,10 @@ func TestTelemetry_ReturnsTheProvidersReport(t *testing.T) {
 	assert.Nil(t, body.Data.Cost)
 }
 
-// A provider that has not reported is different from one reporting zero. The
-// client draws no gauge rather than an empty one.
 func TestTelemetry_NoReportIsNoContent(t *testing.T) {
 	ctx, rec := scoped(t, "/telemetry")
 	newChatHandlers(inWorkspace(&fakeAgentUsecase{})).Telemetry(ctx)
 
-	// Read the status off the writer, not the recorder: a bodyless response is
-	// flushed by the router on return, which a context-driven test never reaches.
 	assert.Equal(t, http.StatusNoContent, ctx.Writer.Status())
 	assert.Empty(t, rec.Body.String())
 }
@@ -275,8 +265,7 @@ func pendingChoice() domain.ActivityChoice {
 		ToolID: "tool-1", ToolName: "Bash", Title: "Bash",
 		Options: []domain.ActivityChoiceOption{
 			{ID: "allow", Kind: domain.ChoiceOptionAllow, Label: "Allow"},
-			// Human words, never claude's own `type` value: a machine name on a control
-			// reads as a real choice spelled in a language nobody outside the CLI uses.
+
 			{
 				ID:    "suggestion-0",
 				Kind:  domain.ChoiceOptionSuggestion,
@@ -287,8 +276,6 @@ func pendingChoice() domain.ActivityChoice {
 	}
 }
 
-// The prompt is the one piece of agent state a user can act on, so the timeline
-// has to carry it beside what the agent did on its own.
 func TestActivity_CarriesThePromptsTheAgentPutToAHuman(t *testing.T) {
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
 		Choices: []domain.ActivityChoice{pendingChoice()},
@@ -308,8 +295,6 @@ func TestActivity_CarriesThePromptsTheAgentPutToAHuman(t *testing.T) {
 	assert.Equal(t, "allow", body.Data.Choices[0].Options[0].ID)
 }
 
-// A failed tool says WHY inline, so a timeline row does not need a payload fetch
-// to explain itself.
 func TestActivity_AFailedCallCarriesItsErrorInline(t *testing.T) {
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
 		ToolCalls: []domain.ActivityToolCall{{
@@ -345,9 +330,6 @@ func TestChoices_ReturnsWhatTheAgentIsWaitingOn(t *testing.T) {
 	assert.Equal(t, []string{"chat-1"}, uc.pendingCalls)
 }
 
-// A three-question prompt is ONE record carrying three questions, and the whole
-// of it has to reach the client: shipping the first is what left a live agent
-// saying "still waiting on your answers to questions 2 & 3".
 func TestChoices_CarriesEveryQuestionOfAMultiQuestionPrompt(t *testing.T) {
 	asked := domain.ActivityChoice{
 		ID: "choice-2", TurnID: "turn-1", Seq: 7,
@@ -380,9 +362,6 @@ func TestChoices_CarriesEveryQuestionOfAMultiQuestionPrompt(t *testing.T) {
 	assert.True(t, body.Data[0].Questions[1].Multi, "multiSelect is per question")
 }
 
-// ABSENT is meaningful and is not the same as empty: it tells a client the record
-// predates questions being modelled, so it falls back to the prompt-level
-// question rather than drawing a card with nothing in it.
 func TestChoices_OmitsTheQuestionListForAPromptThatAsksNone(t *testing.T) {
 	uc := &fakeAgentUsecase{pending: []domain.ActivityChoice{pendingChoice()}}
 	ctx, rec := scoped(t, "/choices")
@@ -392,8 +371,6 @@ func TestChoices_OmitsTheQuestionListForAPromptThatAsksNone(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), `"questions"`)
 }
 
-// "Nothing pending" is an ANSWER, not a missing resource: a client that renders
-// nothing for it is correct, and a 404 would read as breakage.
 func TestChoices_AnAgentWaitingOnNothingReturnsAnEmptyList(t *testing.T) {
 	ctx, rec := scoped(t, "/choices")
 	newChatHandlers(inWorkspace(&fakeAgentUsecase{})).Choices(ctx)
@@ -410,7 +387,6 @@ func TestChoices_PropagatesAReadFailure(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// A chat in another workspace is not this workspace's to read.
 func TestChoices_RefusesAChatOutsideTheScopedWorkspace(t *testing.T) {
 	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "other"}}
 	ctx, rec := scoped(t, "/choices")

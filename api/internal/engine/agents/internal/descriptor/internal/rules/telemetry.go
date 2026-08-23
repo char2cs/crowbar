@@ -10,10 +10,6 @@ type telemetry struct{}
 
 func (telemetry) Name() string { return "telemetry" }
 
-// knownFacts is the closed vocabulary a descriptor may map onto. Closing it is
-// what stops a descriptor inventing a fact no reader knows how to render — a
-// typo'd key would otherwise be silently ignored, and the gauge it was meant to
-// fill would stay blank with nothing to explain why.
 var knownFacts = map[string]struct{}{
 	spec.FactContextCapacityTokens: {},
 	spec.FactContextUsedTokens:     {},

@@ -15,22 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeDaemon is a unix-socket stand-in for the daemon, recording which of the
-// three relay endpoints were reached. Which ones were NOT reached is the point of
-// most of these tests: the safety properties here are negatives.
 type fakeDaemon struct {
 	mu    sync.Mutex
 	paths []string
 
-	// ack is the body returned from POST .../agent/hooks.
 	ack string
-	// held, when non-nil, blocks the await handler until it is closed — the state a
-	// relay is in while a human is deciding.
+
 	held chan struct{}
-	// answer is the body returned from POST .../agent/hooks/await.
+
 	answer string
-	// awaiting is closed the first time the await endpoint is reached, so a test can
-	// act on the relay ACTUALLY being blocked rather than on a guess that it is.
+
 	awaiting chan struct{}
 
 	awaitOnce sync.Once
@@ -109,10 +103,6 @@ func relay(host string, out *bytes.Buffer) hookRun {
 	}
 }
 
-// THE degradation route. A relay that cannot reach the daemon must not wait: the
-// CLI's own dialog then reaches the human in milliseconds, and the worst case is
-// exactly the behaviour of a machine with no Crowbar on it. Blocking here and
-// timing out would be strictly worse.
 func TestRegression_HookWithNoDaemonPrintsNothingAndNeverWaits(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	dead := "unix://" + filepath.Join(shortSocketDir(t), "nobody.sock")
@@ -124,9 +114,6 @@ func TestRegression_HookWithNoDaemonPrintsNothingAndNeverWaits(t *testing.T) {
 	assert.Empty(t, out.String(), "a hook that could not deliver must print NOTHING")
 }
 
-// A hook whose prompt nobody can answer — every hook of a provider with no answer
-// channel, and most hooks of one that has — exits immediately, having asked for
-// nothing.
 func TestRegression_AnAcknowledgementWithNoDirectiveNeverReachesTheWaitEndpoint(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	daemon, host := newFakeDaemon(t)
@@ -152,8 +139,6 @@ func TestRunHook_PrintsTheDaemonsVerdictVerbatim(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runHook(relay(host, &out)))
 
-	// Exactly one complete document, newline-terminated. A provider reading a
-	// truncated one logs a parse failure and falls back to its dialog.
 	assert.Equal(t, verdict+"\n", out.String())
 	assert.True(t, daemon.reached("/hooks/await"))
 }
@@ -172,25 +157,12 @@ func TestRunHook_APromptResolvedElsewherePrintsNothing(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
-// An EMPTY body on a 2xx is "no decision", not a malformed one, and it must not
-// surface as an error.
-//
-// A handler that returns without writing produces exactly this: gin sends 200
-// with zero bytes. AwaitHookAnswer had such a bare return on its cancellation
-// branch, so under parallel load the relay intermittently failed with
-// `unexpected end of JSON input` instead of falling through cleanly. The outcome
-// for the human was the same either way — print nothing, let the CLI's own dialog
-// through — which is precisely why it went unnoticed as a flake rather than being
-// read as the defect it was.
-//
-// Distinct from TestRunHook_APromptResolvedElsewherePrintsNothing above, which
-// sends WELL-FORMED JSON carrying an empty stdout. This one sends no bytes at all.
 func TestRegression_AnEmptyAwaitBodyIsNoDecisionRatherThanAnError(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	daemon, host := newFakeDaemon(t)
 	daemon.mu.Lock()
 	daemon.ack = awaitAck(30_000)
-	daemon.answer = "" // 200 OK, zero bytes
+	daemon.answer = ""
 	daemon.mu.Unlock()
 
 	var out bytes.Buffer
@@ -199,14 +171,11 @@ func TestRegression_AnEmptyAwaitBodyIsNoDecisionRatherThanAnError(t *testing.T) 
 	assert.Empty(t, out.String(), "no decision means nothing is printed")
 }
 
-// SIGTERM is the ONLY notice a terminal-side DECLINE gives (measured against
-// claude 2.1.234: saying no at the PTY fires no hook at all). The relay must
-// report it and exit — bounded, printing nothing, never hanging.
 func TestRegression_ASignalledRelayReportsAndExitsWithoutPrinting(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	daemon, host := newFakeDaemon(t)
 	daemon.mu.Lock()
-	daemon.held = make(chan struct{}) // the human has not decided yet
+	daemon.held = make(chan struct{})
 	daemon.answer = `{"success":true,"data":{"stdout":"NEVER"}}`
 	daemon.mu.Unlock()
 
@@ -218,7 +187,7 @@ func TestRegression_ASignalledRelayReportsAndExitsWithoutPrinting(t *testing.T) 
 	done := make(chan error, 1)
 	go func() { done <- awaitHookAnswerOn(envelope, host, 30_000, &out, signals) }()
 
-	<-daemon.awaiting // the relay is genuinely blocked, not merely about to be
+	<-daemon.awaiting
 	signals <- syscall.SIGTERM
 
 	require.NoError(t, <-done, "being killed is not a failure the CLI should see")
@@ -227,8 +196,6 @@ func TestRegression_ASignalledRelayReportsAndExitsWithoutPrinting(t *testing.T) 
 		"the chat must be told this prompt was decided elsewhere")
 }
 
-// A daemon that vanishes mid-wait is the same outcome as one that was never
-// there: nothing is printed and the CLI's dialog stands.
 func TestAwaitHookAnswer_ADaemonThatVanishesMidWaitPrintsNothing(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	dead := "unix://" + filepath.Join(shortSocketDir(t), "gone.sock")
@@ -244,9 +211,6 @@ func TestAwaitHookAnswer_ARefusedWaitIsNotADecision(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	daemon, host := newFakeDaemon(t)
 
-	// A daemon that answers the wait with an error, or with a body that cannot be
-	// read, has told us nothing. Printing a guess is the one thing that must not
-	// happen.
 	for _, body := range []string{"not json", `{"success":true,"data":{}}`} {
 		daemon.mu.Lock()
 		daemon.answer = body
@@ -258,8 +222,6 @@ func TestAwaitHookAnswer_ARefusedWaitIsNotADecision(t *testing.T) {
 	}
 }
 
-// A zero or absent budget is a daemon that changed its mind. Waiting forever on
-// it would be the one unrecoverable state this path has.
 func TestAwaitDirective_OnlyAPositiveBudgetHoldsTheRelay(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -293,8 +255,6 @@ func TestAwaitHookAnswer_AZeroBudgetReturnsWithoutCallingTheDaemon(t *testing.T)
 	assert.Empty(t, out.String())
 }
 
-// The real trap, through the real process signal, so the deterministic tests
-// above are not testing a channel nobody wires up.
 func TestAwaitHookAnswer_TrapsTheProcessSignal(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	daemon, host := newFakeDaemon(t)
@@ -307,9 +267,6 @@ func TestAwaitHookAnswer_TrapsTheProcessSignal(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- awaitHookAnswer(envelope, host, 30_000, &out) }()
 
-	// Signal only once the relay is demonstrably blocked, which is also once
-	// signal.Notify is demonstrably installed — otherwise a SIGTERM would take the
-	// default action and kill this test binary.
 	<-daemon.awaiting
 	require.NoError(t, syscall.Kill(syscall.Getpid(), syscall.SIGTERM))
 

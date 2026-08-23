@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog/internal/normalize"
 )
 
-// A catalogue is published to a client, so a home directory in it leaks the
-// user's name and a credential in it is mirrored into a chat.
 func TestRedact_RemovesLocationsAndCredentials(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -32,8 +30,6 @@ func TestRedact_RemovesLocationsAndCredentials(t *testing.T) {
 	}
 }
 
-// A source is a short NAME. A value containing a separator is not a name that
-// lost its path — it IS a path, so it is dropped rather than redacted.
 func TestSource_DropsAnythingPathShaped(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -60,8 +56,6 @@ func TestStripControls_KeepsNewlineAndTab(t *testing.T) {
 	assert.Equal(t, "a\nb\tc", normalize.StripControls("a\nb\tc\x00\x07"))
 }
 
-// Text destined for a composer must carry no control characters at all: a
-// newline there would submit the message.
 func TestStripComposerControls_RemovesEveryControlCharacter(t *testing.T) {
 	assert.Equal(t, "abc", normalize.StripComposerControls("a\nb\tc"))
 }
@@ -72,7 +66,7 @@ func TestTruncateRunes_BoundsByVisibleCharacters(t *testing.T) {
 }
 
 func TestTruncateBytes_NeverSplitsARune(t *testing.T) {
-	// "é" is two bytes; cutting at 2 must not leave half of it.
+
 	got := normalize.TruncateBytes("aé", 2)
 
 	assert.Equal(t, "a", got)

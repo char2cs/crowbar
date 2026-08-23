@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The assembler is reached directly here because it IS a state machine over
-// out-of-order, at-least-once, possibly-incomplete input, and the states that
-// matter most are the ones a healthy provider never produces.
-
 var mnow = time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 
 func TestMessageStreams_AssemblesIncrementsInIndexOrder(t *testing.T) {
@@ -27,8 +23,6 @@ func TestMessageStreams_AssemblesIncrementsInIndexOrder(t *testing.T) {
 	assert.True(t, buffer.Complete())
 }
 
-// Increments are ADDITIONS, not cumulative snapshots. Treating them as snapshots
-// would record only the last chunk of every message.
 func TestMessageStreams_IncrementsAreConcatenatedNotReplaced(t *testing.T) {
 	s := newMessageStreams()
 
@@ -38,9 +32,6 @@ func TestMessageStreams_IncrementsAreConcatenatedNotReplaced(t *testing.T) {
 	assert.Equal(t, "ALPHABETA", buffer.Text())
 }
 
-// TestMessageStreams_TwoMessagesOfOneTurnStaySeparate is the defect the whole
-// mechanism exists for. Grouping by turn alone would concatenate two things the
-// agent said into one thing it never said.
 func TestMessageStreams_TwoMessagesOfOneTurnStaySeparate(t *testing.T) {
 	s := newMessageStreams()
 
@@ -54,9 +45,6 @@ func TestMessageStreams_TwoMessagesOfOneTurnStaySeparate(t *testing.T) {
 	assert.Equal(t, "turn-1", open[0].TurnID)
 }
 
-// Hook delivery is at-least-once — the relay retries — so the same increment can
-// arrive twice. The index is what makes a repeat identifiable as one; appending
-// blindly would duplicate text inside a message.
 func TestMessageStreams_ARedeliveredIncrementIsNotAppendedTwice(t *testing.T) {
 	s := newMessageStreams()
 
@@ -66,11 +54,6 @@ func TestMessageStreams_ARedeliveredIncrementIsNotAppendedTwice(t *testing.T) {
 	assert.Equal(t, "once", buffer.Text())
 }
 
-// TestMessageStreams_AMissingIncrementIsDetected.
-//
-// Hook delivery has no acknowledgement, so a chunk that never arrives is
-// otherwise a message quietly recorded short — the one failure mode with no
-// symptom. A gap in the index is the only signal there is.
 func TestMessageStreams_AMissingIncrementIsDetected(t *testing.T) {
 	s := newMessageStreams()
 
@@ -81,8 +64,6 @@ func TestMessageStreams_AMissingIncrementIsDetected(t *testing.T) {
 	assert.Equal(t, "start end", buffer.Text(), "what did arrive is still recorded")
 }
 
-// An increment with no message id cannot be grouped, and appending it to whatever
-// came last would attribute text to a message that did not contain it.
 func TestMessageStreams_AnIncrementWithNoMessageIDIsDropped(t *testing.T) {
 	s := newMessageStreams()
 
@@ -92,9 +73,6 @@ func TestMessageStreams_AnIncrementWithNoMessageIDIsDropped(t *testing.T) {
 	assert.Empty(t, s.openMessages("c"))
 }
 
-// TestMessageStreams_UnfinishedIsTheInterruptSignal. A finished message ended the
-// way it should; an unfinished one is the only evidence a human interrupt leaves,
-// because the provider fires no hook for one.
 func TestMessageStreams_UnfinishedIsTheInterruptSignal(t *testing.T) {
 	s := newMessageStreams()
 	s.observe("c", "t", "done", 0, true, "complete", mnow)
@@ -107,8 +85,6 @@ func TestMessageStreams_UnfinishedIsTheInterruptSignal(t *testing.T) {
 	assert.Equal(t, mnow, unfinished[0].LastAt)
 }
 
-// The clock a detector reads must track the LAST increment, not the first: a
-// message still growing has not been abandoned however long ago it started.
 func TestMessageStreams_TheClockFollowsTheLatestIncrement(t *testing.T) {
 	s := newMessageStreams()
 	later := mnow.Add(9 * time.Second)
@@ -129,8 +105,6 @@ func TestMessageStreams_ForgetDropsTheChat(t *testing.T) {
 	assert.Empty(t, s.unfinished("c"))
 }
 
-// A provider that never sends a terminating increment must not be able to grow
-// this without limit.
 func TestMessageStreams_OpenMessagesAreBounded(t *testing.T) {
 	s := newMessageStreams()
 

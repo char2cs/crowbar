@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// minimal is the smallest descriptor the rules accept. Tests build on it so a
-// case says only what it is about.
 const minimal = `
 id: probe
 spawn:
@@ -72,9 +70,6 @@ func TestResolve_UnknownIDIsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, descriptor.ErrUnknown)
 }
 
-// A provider id reaches this package from persisted runner records and from
-// HTTP, and it is joined into a filesystem path. Anything that is not a bare file
-// stem must be refused before that join happens.
 func TestResolve_RefusesAnIDThatIsNotABareStem(t *testing.T) {
 	testCases := []string{
 		"../../etc/passwd",
@@ -128,9 +123,6 @@ func TestAll_UnionsOnDiskIDsWithTheEmbeddedSet(t *testing.T) {
 	assert.Equal(t, []string{"claude", "codex", "zeta"}, idsOf(list))
 }
 
-// A broken override costs THAT provider its row and nothing else. Failing the
-// whole enumeration would blank the provider picker, which reads to a user as
-// "nothing is installed".
 func TestAll_ABrokenOverrideOmitsOneEntryNotTheList(t *testing.T) {
 	home := t.TempDir()
 	writeOverride(t, home, "broken", "id: \"\"\n")
@@ -200,14 +192,6 @@ func idsOf(list []*spec.Descriptor) []string {
 	return out
 }
 
-// TestResolve_ShippedCodexDeclaresItsMeasuredNotice pins the descriptor content
-// this feature is actually driven by, against the EMBEDDED file rather than
-// against a fixture — so an edit that drops or renames the block fails here
-// instead of silently un-fixing the wedge in production.
-//
-// The needle is the one captured off codex-cli 0.146.0 out of quota. ends_turn is
-// the claim that the banner is painted BECAUSE the attempt ended, which is what
-// makes it admissible as evidence that the CLI is not working.
 func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
 	require.NoError(t, err)
@@ -218,10 +202,6 @@ func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
 	assert.True(t, d.TerminalNotices[0].EndsTurn)
 }
 
-// TestResolve_ShippedCodexDeclaresBothBlockingModals covers the second modal from
-// the same repro. codex 0.146.0 put up "Press enter to confirm or esc to go back",
-// which the older needle does NOT match: the two share a prefix and then diverge,
-// so a substring search over the reduced text finds nothing.
 func TestResolve_ShippedCodexDeclaresBothBlockingModals(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
 	require.NoError(t, err)
@@ -234,14 +214,6 @@ func TestResolve_ShippedCodexDeclaresBothBlockingModals(t *testing.T) {
 	assert.Contains(t, needles, "Press enter to confirm or esc to go back")
 }
 
-// TestResolve_ShippedClaudeDeclaresNoNotices is the degradation guarantee written
-// where it is enforced. claude's Stop hook is reliable and no message of this
-// shape has been measured from it, so it declares none — and a provider declaring
-// none can never have a turn closed under it by this mechanism.
-//
-// Its footer hint is emphatically NOT an idle needle: measured against claude
-// 2.1.234, `⏵⏵ auto mode on (shift+tab to cycle)` is on screen WHILE claude is
-// generating. See the trailing comment in claude.yaml.
 func TestResolve_ShippedClaudeDeclaresNoNotices(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
 	require.NoError(t, err)

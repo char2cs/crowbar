@@ -14,15 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// answering is a descriptor shaped exactly like claude's: the permission event
-// maps a tool_input path on the read side, and the answer block renders three
-// decisions back out through it.
-//
-// The response templates are the shapes MEASURED against claude 2.1.234 on
-// 2026-08-18. The hookSpecificOutput wrapper is not decoration — a bare
-// {"decision":{...}} was measured failing the CLI's own output validator with
-// `Hook JSON output validation failed — (root): Invalid input`, after which the
-// TUI dialog was drawn and the hook's decision was discarded.
 func answering() *spec.Descriptor {
 	return &spec.Descriptor{
 		ID: "vendor",
@@ -56,8 +47,6 @@ func answering() *spec.Descriptor {
 	}
 }
 
-// askUserQuestionPayload is the PermissionRequest captured live from claude
-// 2.1.234 on 2026-08-18 for an AskUserQuestion call.
 func askUserQuestionPayload() []byte {
 	return []byte(`{
 	  "session_id":"s1","prompt_id":"2819fe04","hook_event_name":"PermissionRequest",
@@ -68,8 +57,7 @@ func askUserQuestionPayload() []byte {
 }
 
 func TestCapability_AbsentBlockIsNotAnswerable(t *testing.T) {
-	// A descriptor that declares nothing is the whole degradation story: no relay is
-	// ever held, and every hook behaves as it did before an answer channel existed.
+
 	_, ok := answers.Capability(&spec.Descriptor{ID: "silent"}, "permission")
 	assert.False(t, ok)
 
@@ -92,8 +80,6 @@ func TestCapability_ReportsSortedKeysAndTheDeclaredBudget(t *testing.T) {
 		"a decision with no template must not be reported as expressible")
 }
 
-// A key declared and left blank renders nothing, so counting it would hold a
-// relay open for an answer that could never be printed.
 func TestCapability_BlankTemplatesAreNotKeys(t *testing.T) {
 	d := answering()
 	d.Answer["permission"] = spec.AnswerEventSpec{
@@ -126,8 +112,7 @@ func TestRender_DenyCarriesTheHumansWordsAsAJSONString(t *testing.T) {
 		Key: "deny", Reason: `no "rm -rf" here` + "\n",
 	})
 	require.NoError(t, err)
-	// The reason is a QUOTED value, not a spliced fragment: a decision carrying a
-	// quote or a newline must not be able to break the document it travels in.
+
 	var decoded struct {
 		HookSpecificOutput struct {
 			Decision struct {
@@ -139,9 +124,6 @@ func TestRender_DenyCarriesTheHumansWordsAsAJSONString(t *testing.T) {
 	assert.Equal(t, `no "rm -rf" here`+"\n", decoded.HookSpecificOutput.Decision.Message)
 }
 
-// The measured way to answer AskUserQuestion: hand the tool its own input back
-// with an `answers` object keyed by the question TEXT and valued with the chosen
-// option's LABEL.
 func TestRender_AnswerEchoesTheToolInputWithThePicksMergedIn(t *testing.T) {
 	out, err := answers.Render(answering(), "permission", askUserQuestionPayload(),
 		models.AnswerDecision{
@@ -169,8 +151,7 @@ func TestRender_AnswerEchoesTheToolInputWithThePicksMergedIn(t *testing.T) {
 }
 
 func TestRender_AnswerWithNoReadablePayloadStillCarriesThePicks(t *testing.T) {
-	// A payload that cannot be decoded loses the echo, not the decision. Emitting a
-	// fragment, or dropping the answer silently, would both be worse.
+
 	out, err := answers.Render(answering(), "permission", []byte("not json"),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)
@@ -207,9 +188,6 @@ func TestRender_RefusesAnEventWithNoAnswerChannel(t *testing.T) {
 	require.ErrorIs(t, err, answers.ErrNotAnswerable)
 }
 
-// A mis-authored template must fail HERE. Printing invalid JSON on a hook makes
-// the CLI log a parse failure and fall back to its dialog, which loses the
-// human's decision with no trace of why.
 func TestRender_RefusesToEmitInvalidJSON(t *testing.T) {
 	d := answering()
 	d.Answer["permission"] = spec.AnswerEventSpec{
@@ -230,9 +208,6 @@ func TestRender_RefusesAnOversizedAnswer(t *testing.T) {
 	require.ErrorIs(t, err, answers.ErrMalformedAnswer)
 }
 
-// Placeholders are expanded in ONE left-to-right pass. A payload that happens to
-// contain a placeholder's own text is data, and a second pass would expand it —
-// with map iteration order deciding whether it did.
 func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 	payload, err := json.Marshal(map[string]any{
 		"tool_name":  "Bash",
@@ -265,7 +240,6 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 	assert.Equal(t, "SMUGGLED", decoded.Reason)
 }
 
-// A descriptor that maps no tool_input path still answers — with the picks alone.
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
 	d.Hooks.Events["permission"] = map[string]string{"tool_name": "tool_name"}
@@ -275,11 +249,6 @@ func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.
 	assert.Contains(t, string(out), `"updatedInput":{"answers":{"q":"a"}}`)
 }
 
-// A decision carrying something that cannot be encoded still yields a PARSEABLE
-// document. Every expansion here is one fragment of a JSON document that a
-// provider is about to read, so the fallback has to be a value of the right
-// shape — an error at this point would lose the decision with nothing to show
-// for it, and a bare fragment would corrupt the whole answer.
 func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	d := answering()
 	d.Answer["permission"] = spec.AnswerEventSpec{

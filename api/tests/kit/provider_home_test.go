@@ -17,19 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome is the live proof
-// that the codex half of the isolation works, and it drives a REAL codex to get it.
-//
-// Two things have to be true at once, and only one of them is obvious. The obvious one
-// is that CODEX_HOME moves codex's home. The other is that codex is still LOGGED IN
-// there — a relocated home is worthless if every test then fails on authentication,
-// and a fresh home has no credentials of its own. IsolateProviderHomes links codex's
-// auth.json in rather than copying it, and this asserts that link is enough.
-//
-// `codex login status` is the probe because it reads the credential and nothing else:
-// no model turn, so it costs no quota and cannot fail for a rate limit. (`codex debug
-// models` was tried first and is useless here — it answers identically with no
-// credentials at all.)
 func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.T) {
 	codex := lookupCLI(t, "codex")
 	requireRealCodexLogin(t)
@@ -54,21 +41,6 @@ func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.
 		"running codex under an isolated CODEX_HOME still wrote a place into the user's real home")
 }
 
-// TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential pins the one
-// subtlety that makes claude's isolation possible at all, and it pins it by checking
-// the thing that actually breaks.
-//
-// claude names its keychain item after its config dir: "Claude Code-credentials" with
-// no CLAUDE_CONFIG_DIR, and "Claude Code-credentials-<sha256(dir)[:8]>" with one. That
-// suffix is the entire reason "CLAUDE_CONFIG_DIR breaks claude's auth" has been true
-// every time anyone tried it — the credential is still in the keychain, under a name
-// claude has stopped asking for. CLAUDE_SECURESTORAGE_CONFIG_DIR is consulted first
-// for that name and an EMPTY value selects the unsuffixed one.
-//
-// So this asserts both sides: the name claude WILL look up resolves to a real item,
-// and the name it would have looked up WITHOUT the override resolves to nothing. The
-// second assertion is the one with teeth — it is the failure this override exists to
-// prevent, demonstrated rather than described.
 func TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("claude stores credentials in the macOS keychain only")
@@ -91,10 +63,6 @@ func TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential(t *te
 		"the SUFFIXED name has an item, so this test can no longer tell the two lookups apart")
 }
 
-// TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces pins the shape of the
-// seeded config: it must carry the real config's one-time-modal flags (or the CLI
-// paints a dialog the harness has no barrier for and hangs), and it must carry NO
-// projects (or the isolation has imported the very litter it exists to stop).
 func TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces(t *testing.T) {
 	IsolateProviderHomes(t)
 
@@ -126,16 +94,6 @@ func TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces(t *testing.T) {
 	}
 }
 
-// TestProviderHomeRecord_AddedNamesEveryNewPlace is the guard's own test: it feeds the
-// scrapers a before/after pair and requires the added places — and only those — to come
-// back named.
-//
-// It runs against files rather than the real homes for the obvious reason: the only way
-// to test this end to end would be to pollute the very file the whole change exists to
-// protect. The CONTENT is not invented though — codexTrustStanzas is the shape a real
-// codex-cli 0.146.0 wrote when it was pointed at a throwaway home and answered its own
-// trust dialog, blank line between stanzas and all, because a scraper tuned to a
-// plausible-looking fixture is a scraper that has never met the file it must read.
 func TestProviderHomeRecord_AddedNamesEveryNewPlace(t *testing.T) {
 	dir := t.TempDir()
 	codex := filepath.Join(dir, "config.toml")
@@ -161,9 +119,6 @@ func TestProviderHomeRecord_AddedNamesEveryNewPlace(t *testing.T) {
 		"the guard counts PLACES; a provider rewriting its own counters is not pollution")
 }
 
-// TestSnapshotProviderHomes_SurvivesAbsentHomes keeps the guard from becoming the
-// thing that breaks CI: a machine with no codex and no claude installed must snapshot
-// clean and compare clean rather than error.
 func TestSnapshotProviderHomes_SurvivesAbsentHomes(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
 	assert.Empty(t, codexProjectKeys(missing))
@@ -173,19 +128,12 @@ func TestSnapshotProviderHomes_SurvivesAbsentHomes(t *testing.T) {
 	assert.Empty(t, snap.Added(snap))
 }
 
-// oneTimeModalFlags are the ~/.claude.json keys that record a one-time dialog as
-// already answered. They are listed so the seed's job is legible; the seed itself
-// copies every top-level key, so this is an assertion, not the mechanism.
 var oneTimeModalFlags = []string{
 	"hasCompletedOnboarding",
 	"hasCompletedClaudeInChromeOnboarding",
 	"theme",
 }
 
-// codexTrustStanzas renders the projects table exactly as codex-cli writes it: one
-// bracketed stanza per place, a trust_level line, and a BLANK LINE between stanzas.
-// That blank line is the reason this is a helper and not a literal — a scraper that
-// only ever saw stanzas packed back to back would not be tested against the real file.
 func codexTrustStanzas(
 	places ...string,
 ) string {
@@ -224,8 +172,6 @@ func requireRealCodexLogin(
 	}
 }
 
-// suffixedKeychainService rebuilds the service name claude would look up if
-// CLAUDE_CONFIG_DIR were set and the securestorage override were not.
 func suffixedKeychainService(
 	configDir string,
 ) string {
@@ -233,8 +179,6 @@ func suffixedKeychainService(
 	return "Claude Code-credentials-" + hex.EncodeToString(sum[:])[:8]
 }
 
-// keychainHasItem reports whether a generic-password item exists under service. It
-// never passes -w, so no secret is ever read, let alone printed.
 func keychainHasItem(
 	t *testing.T,
 	service string,

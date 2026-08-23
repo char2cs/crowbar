@@ -18,14 +18,6 @@ type catalogRun struct {
 
 const maxCatalogProcesses = 4
 
-// catalogRuns enforces one deterministic provider probe per chat. Opening a new
-// menu supersedes and cancels an older abandoned request; no result is cached.
-//
-// processSlots is the daemon-wide process budget, not a per-chat limit. A Claude
-// inventory can fan out several descriptor-declared detail commands, and without
-// one shared gate N windows opening `/` at once can fork N times that fanout. The
-// engine acquires one slot around every provider command, so inventory, detail,
-// and single-command adapters all consume the same bounded resource.
 type catalogRuns struct {
 	mu           sync.Mutex
 	nextID       uint64
@@ -60,9 +52,6 @@ func (r *catalogRuns) start(parent context.Context, chatID string) (context.Cont
 	}
 }
 
-// acquireProcess waits for one daemon-wide provider-process slot. Waiting is
-// cancellation-aware and is included in the probe's descriptor timeout, so an
-// abandoned menu cannot remain queued after its request or chat probe is gone.
 func (r *catalogRuns) acquireProcess(ctx context.Context) (func(), error) {
 	select {
 	case r.processSlots <- struct{}{}:
@@ -73,9 +62,6 @@ func (r *catalogRuns) acquireProcess(ctx context.Context) (func(), error) {
 	}
 }
 
-// SlashCatalog runs the current live provider's descriptor-declared,
-// deterministic capability probe in the chat worktree. It reads no provider
-// files and retains no backend cache.
 func (u *Usecase) SlashCatalog(
 	ctx context.Context,
 	chatID string,
@@ -106,12 +92,7 @@ func (u *Usecase) SlashCatalog(
 		Cwd: worktree,
 		Env: os.Environ(),
 	}, u.catalogs.acquireProcess)
-	// A catalog describes the exact TUI that was live when this request began.
-	// Provider switching and native conversation movement deliberately do not take
-	// the catalog request lock, so the process may finish after that runner has
-	// left. Re-read placement before returning either data or a provider-command
-	// error: stale data (or an error from a provider no longer selected) must never
-	// be published as the current chat's menu.
+
 	current, placementErr := u.runners.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(placementErr, agentrunner.ErrNotFound) ||
 		(placementErr == nil && (current.ID != runner.ID || current.ProviderID != runner.ProviderID)) {

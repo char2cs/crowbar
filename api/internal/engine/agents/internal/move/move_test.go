@@ -58,8 +58,7 @@ func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 }
 
 func TestDecide_HasNoRejectOutcome(t *testing.T) {
-	// By the time a hook fires the CLI has already switched conversation, so
-	// every input must produce a reconciling decision rather than a refusal.
+
 	for _, d := range []models.Decision{
 		move.Decide("", "", "", false),
 		move.Decide("a", "a", "", false),

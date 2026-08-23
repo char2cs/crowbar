@@ -15,8 +15,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// writeDescriptor drops an on-disk descriptor override into the fixture's crowbar
-// home, which is exactly the channel a user overrides a provider through.
 func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	t.Helper()
 	dir := filepath.Join(f.ws.home, "descriptors")
@@ -24,9 +22,6 @@ func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o600))
 }
 
-// selectingDescriptorBody is a claude override that declares both selection
-// catalogues, so a test can move a chat's model or effort and read the result off
-// the argv the replacement CLI is started with.
 const selectingDescriptorBody = `
 id: claude
 display_name: Selecting
@@ -62,9 +57,6 @@ hooks:
     turn_stop:     { message: last_assistant_message }
 `
 
-// silentDescriptorBody declares no model and no effort block at all: the shape a
-// provider Crowbar knows nothing about takes, and the one that must cost a spawn
-// nothing.
 const silentDescriptorBody = `
 id: claude
 spawn:
@@ -98,9 +90,6 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 	assert.Equal(t, "high", chat.Effort)
 }
 
-// TestSetChatSelection_ClearsBackToTheProviderDefault: empty is a legitimate
-// selection — "whatever this provider defaults to" — and must be writable, or a
-// user who picks a model can never un-pick it.
 func TestSetChatSelection_ClearsBackToTheProviderDefault(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -137,10 +126,6 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 	}
 }
 
-// TestSetChatSelection_RefusesWhereTheProviderDeclaresNoCatalogue: a provider
-// that declares no models offers no picker, so every value is outside its
-// catalogue. It is driven against a synthetic descriptor because both shipped
-// providers now declare one.
 func TestSetChatSelection_RefusesWhereTheProviderDeclaresNoCatalogue(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", silentDescriptorBody)
@@ -159,9 +144,6 @@ func TestSetChatSelection_UnknownChatIsNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSetChatSelection_ValidatesTheEffortAgainstTheIncomingModel: both halves
-// move in one call, so an effort that is only valid under the model being SET
-// must be judged against that model rather than the stored one.
 func TestSetChatSelection_ValidatesTheEffortAgainstTheIncomingModel(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", `
@@ -197,9 +179,6 @@ hooks:
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 }
 
-// TestSpawn_UnselectedChatSpawnsIdenticalArgv is the inert-path guarantee at the
-// usecase level: the whole feature must cost a chat that uses none of it exactly
-// nothing, argv for argv.
 func TestSpawn_UnselectedChatSpawnsIdenticalArgv(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -214,16 +193,11 @@ func TestSpawn_UnselectedChatSpawnsIdenticalArgv(t *testing.T) {
 		assert.NotEqual(t, "--model", arg)
 		assert.NotEqual(t, "--effort", arg)
 	}
-	// Everything the baseline spawn carried is still carried, in order, ahead of
-	// the prompt-delivery steps the replacement adds.
+
 	require.GreaterOrEqual(t, len(replacement), len(baseline))
 	assert.Equal(t, baseline[:2], replacement[:2])
 }
 
-// TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner walks the whole
-// path: a stored choice reaches the process, and what the process was launched
-// with is recorded — the record being the only thing that can ever answer "what
-// is this CLI running", since no CLI will tell us.
 func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -246,15 +220,6 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	assert.Equal(t, "high", live.LaunchEffort)
 }
 
-// undeliverableAgent is a descriptor whose declared delivery names a channel this
-// daemon does not drive. It is built in Go because no YAML can produce one: the
-// descriptor rules refuse an unsupported strategy at load, which is the FIRST lock
-// on that door and the one a test can reach through a file.
-//
-// Everything except that single fact is the real claude override underneath —
-// SelectionRestart in particular, so the second half of the test below is the
-// descriptor's own answer about its model block and not a stub agreeing with the
-// assertion.
 type undeliverableAgent struct {
 	engineagents.Agent
 }
@@ -263,15 +228,6 @@ func (undeliverableAgent) Capabilities() engineagents.Capabilities {
 	return engineagents.Capabilities{PromptSubmit: true, Delivery: "telepathy"}
 }
 
-// TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone is
-// the point of the model/effort block having a strategy of its OWN.
-//
-// Two authorities can oblige a restart, and this proves the second one holds
-// without the first. The provider here declares a delivery Crowbar implements no
-// channel for, so the message is refused outright — until the chat's model moves,
-// at which point the selection block obliges the restart on its own and the same
-// message has a way through. A running CLI cannot be told to change model, so
-// that authority may never be conditional on how prompts happen to be delivered.
 func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -294,9 +250,6 @@ func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDon
 		"a pending selection switch obliges a restart on its own")
 }
 
-// TestSubmitPrompt_TheRestartResumesTheNativeConversation: a forced restart must
-// not cost the user their conversation. The replacement carries the native
-// session id it was resuming, exactly as an ordinary prompt restart does.
 func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -314,9 +267,6 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	assert.Equal(t, "native-session", call.argv[resumeAt+1])
 }
 
-// TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart pins the
-// direction that is easy to forget: the provider default is not any declared
-// value, so returning to it needs a process launched without the flag.
 func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -324,8 +274,7 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString())
 	require.NoError(t, err)
-	// The CLI acknowledging the delivered prompt is what releases the durable
-	// dispatch barrier; without it the chat is legitimately busy for the next one.
+
 	require.NoError(t, f.usecase.IngestHook(f.ctx, first.RunnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "under opus"})))
 	turn(t, f, first.RunnerID, "claude", "answered")
@@ -338,10 +287,6 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	assert.Less(t, indexOf(call.argv, "--model"), 0, "the default carries no model flag")
 }
 
-// TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged keeps the shipped
-// providers on exactly their old path: claude's delivery restarts for every
-// message, so the selection machinery never has to be consulted for a chat that
-// selected nothing.
 func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -352,9 +297,6 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
 }
 
-// TestResolveProviders_PublishesTheCatalogueAndItsAbsence is what lets a client
-// render a picker with no hardcoded provider knowledge: the levels are resolved
-// per model server-side, so a client reads efforts[model] and is done.
 func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 	f := newFixture(t)
 
@@ -374,9 +316,6 @@ func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 		assert.NotEmpty(t, claude.Efforts[model], "every selectable model must answer its levels")
 	}
 
-	// codex's catalogue is per-model with NO fallback key, so its levels differ by
-	// model and its default model — the "" key — has none at all. The absent key is
-	// the point: a null entry would invite a client to render an empty picker.
 	codex := list[byID["codex"]]
 	assert.True(t, codex.ModelSelect)
 	assert.True(t, codex.EffortSelect)
@@ -386,9 +325,6 @@ func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 	assert.NotContains(t, codex.Efforts, "")
 }
 
-// TestResolveProviders_AProviderDeclaringNothingReportsNoCatalogue is the absent
-// case, driven against a synthetic descriptor now that both shipped providers
-// declare one.
 func TestResolveProviders_AProviderDeclaringNothingReportsNoCatalogue(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", silentDescriptorBody)
@@ -409,10 +345,6 @@ func TestResolveProviders_AProviderDeclaringNothingReportsNoCatalogue(t *testing
 	t.Fatal("the overridden provider must still be listed")
 }
 
-// TestSetChatSelection_ADormantChatIsJudgedByItsLastProvider: liveness is a
-// query, and a chat whose CLI has exited still has a provider — the one its last
-// conversation was with. The picker on a dormant chat must therefore still
-// validate, or reopening a chat would be the only way to change its model.
 func TestSetChatSelection_ADormantChatIsJudgedByItsLastProvider(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -427,9 +359,6 @@ func TestSetChatSelection_ADormantChatIsJudgedByItsLastProvider(t *testing.T) {
 	assert.Equal(t, "opus", f.chat(t, chatID).Model)
 }
 
-// TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable: a minted chat
-// with no runner has no catalogue to judge against. Storing a value nothing can
-// validate is worse than refusing one no picker could have produced.
 func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.T) {
 	f := newFixture(t)
 	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
@@ -439,13 +368,10 @@ func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.
 	err = f.usecase.SetChatSelection(f.ctx, chatID, "opus", "")
 
 	require.ErrorIs(t, err, apperr.ErrUnprocessable)
-	// Clearing is still accepted: it asks for the default, which needs no
-	// catalogue to be meaningful.
+
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
 }
 
-// TestSetChatSelection_SaveFailureSurfaces keeps a failed write from reading as a
-// successful one: the picker must not show a value the aggregate never took.
 func TestSetChatSelection_SaveFailureSurfaces(t *testing.T) {
 	f, cs, _ := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -457,15 +383,11 @@ func TestSetChatSelection_SaveFailureSurfaces(t *testing.T) {
 	assert.Contains(t, err.Error(), "save")
 }
 
-// TestSpawn_AnUnreadableSelectionFailsBeforeTheFork: the selection is resolved
-// beside the lineage read and ahead of every side effect, so a spawn that cannot
-// learn what to run as never creates a tmp dir or a process to unwind.
 func TestSpawn_AnUnreadableSelectionFailsBeforeTheFork(t *testing.T) {
 	f, cs, _ := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 	spawnsBefore := f.term.callCount()
-	// The lineage read folds the chat first; the selection read is the one after
-	// it, and it is the one under test.
+
 	cs.failLoadChat = errors.New("boom: load chat")
 	cs.failLoadChatAfter = 1
 
@@ -476,10 +398,6 @@ func TestSpawn_AnUnreadableSelectionFailsBeforeTheFork(t *testing.T) {
 	assert.Equal(t, spawnsBefore, f.term.callCount(), "no process may exist after this failure")
 }
 
-// TestSubmitPrompt_ATerminalOnlyProviderIsUnsupported: a provider declaring no
-// chat-side prompt delivery is refused for THAT reason, ahead of anything the
-// chat's selection has to say — the two refusals share a sentinel and must not
-// share a cause.
 func TestSubmitPrompt_ATerminalOnlyProviderIsUnsupported(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", `
@@ -502,14 +420,6 @@ hooks:
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }
 
-// TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery: the restart decision
-// cannot be taken without knowing what the chat wants, and guessing would deliver
-// the message under the wrong model.
-//
-// It is asked of the guard directly, for the reason undeliverableAgent exists: a
-// provider that already restarts for delivery — which every shipped descriptor
-// does — never has to ask the chat what it wants, so it is only the second
-// authority that can be refused for not knowing.
 func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	f, cs, _ := newFaultFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)

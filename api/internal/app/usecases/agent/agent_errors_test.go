@@ -10,10 +10,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 )
 
-// The code is the API contract; the human message is not. A client branches on
-// this and on nothing else, so every failure a caller can see must have one — an
-// unmapped error would reach the UI as a generic failure with no way to explain
-// itself.
 func TestPromptErrorCode_NamesEveryPromptFailure(t *testing.T) {
 	testCases := []struct {
 		err  error
@@ -30,7 +26,7 @@ func TestPromptErrorCode_NamesEveryPromptFailure(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.want, func(t *testing.T) {
 			assert.Equal(t, tc.want, agentusecase.PromptErrorCode(tc.err))
-			// And through a wrapper, which is how it always arrives.
+
 			assert.Equal(t, tc.want,
 				agentusecase.PromptErrorCode(fmt.Errorf("agent: submit prompt: %w", tc.err)))
 		})

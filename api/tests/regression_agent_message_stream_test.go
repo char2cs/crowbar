@@ -14,35 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// EVERY MESSAGE OF A TURN, NOT JUST THE LAST ONE.
-//
-// The defect this file pins was reproduced by a user in one sentence: they asked
-// claude to "send me a message, wait 30 seconds, then send another". claude did
-// exactly that, and Crowbar's record held ONE assistant turn — the second
-// message. The first was gone.
-//
-// The cause is that a turn's terminating hook reports a single message. claude's
-// Stop carries `last_assistant_message`, which is literally the last one, so
-// anything said earlier in the turn was never ingested by anything. That record is
-// what get_chat_log serves to sibling agents, so the loss was not cosmetic:
-// another agent read this conversation with the middle of every turn missing.
-//
-// It was FIRST fixed by reading the provider's own JSONL transcript, and that fix
-// has been removed. A provider's private file format is not a contract, it changes
-// without notice, and reaching into it is not something to ship. The source is now
-// the provider's own STREAMING HOOK — declared, outside-facing, and measured
-// byte-identical to what the terminating hook reports for the message they share.
-//
-// These tests drive the WHOLE stack over HTTP: the same /agent/hooks route a
-// vendor CLI's relay posts to, and the same /agent/chats/:id/messages route the
-// chat pane reads from.
-
-// streamStubProviderDescriptorYAML is livestub plus a message_delta declaration,
-// shaped exactly like claude's MessageDisplay: an increment, a message identity to
-// group it by, and a contiguous index to order it by.
-//
-// It spawns `cat`, which holds its PTY open so the runner stays live across the
-// whole turn.
 const streamStubProviderDescriptorYAML = `id: streamstub
 spawn:
   cmd: "cat"
@@ -76,10 +47,6 @@ hooks:
       tool_name:   tool_name
 `
 
-// quietStubProviderDescriptorYAML is the SAME descriptor with the streaming block
-// removed, and it exists for one assertion: a provider that declares nothing must
-// behave exactly as it did before any of this was written. codex is that provider
-// in production — it declares eleven hook events and none of them streams.
 const quietStubProviderDescriptorYAML = `id: quietstub
 spawn:
   cmd: "cat"
@@ -122,8 +89,6 @@ func createStubChat(t *testing.T, h *harness, imported importedRepo, provider st
 	return created.ID, detail.LiveRunnerID
 }
 
-// postProviderHook is postAgentHook with the provider named, because these tests
-// run two stub providers side by side to contrast their behaviour.
 func postProviderHook(
 	t *testing.T,
 	h *harness,
@@ -143,8 +108,6 @@ type recordedMessage struct {
 	Text     string `json:"text"`
 }
 
-// readRecordedMessages reads a chat's conversation through the SAME route the
-// chat pane reads, so what these tests assert on is what a user is shown.
 func readRecordedMessages(t *testing.T, h *harness, imported importedRepo, chatID string) []recordedMessage {
 	t.Helper()
 	var page struct {
@@ -164,7 +127,6 @@ func assistantTexts(messages []recordedMessage) []string {
 	return out
 }
 
-// delta renders one increment the way claude's MessageDisplay does.
 func delta(messageID string, index int, final bool, text string) string {
 	payload, err := json.Marshal(map[string]any{
 		"session_id": "sess-1", "turn_id": "turn-1", "message_id": messageID,
@@ -176,14 +138,6 @@ func delta(messageID string, index int, final bool, text string) string {
 	return string(payload)
 }
 
-// TestRegression_EveryAssistantMessageOfATurnIsRecorded is the user's own
-// reproduction, driven through the hook route: a turn that speaks, works, and
-// speaks again must land BOTH messages, in the order they were said, with the tool
-// call attached to the message it followed.
-//
-// Before the fix the assertion below read one message where two were said. The
-// second one — `last_assistant_message` — was the only thing any hook ever
-// carried.
 func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -197,19 +151,15 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	post("user_prompt", `{"session_id":"sess-1","prompt":"say one, work, say two"}`)
 	h.Quiesce()
 
-	// The agent speaks for the first time, in two increments, and finishes.
 	post("message_delta", delta("msg-one", 0, false, "MESSAGE "))
 	post("message_delta", delta("msg-one", 1, true, "ONE"))
 	h.Quiesce()
 
-	// …and then reaches for a tool.
 	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-1","tool_name":"Bash",`+
 		`"tool_input":{"command":"sleep 30"}}`)
 	post("tool_post", `{"session_id":"sess-1","tool_use_id":"tool-1","tool_name":"Bash"}`)
 	h.Quiesce()
 
-	// The agent speaks again and ends the turn. THIS is the message the old code
-	// recorded, and the only one.
 	post("message_delta", delta("msg-two", 0, true, "MESSAGE TWO"))
 	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"MESSAGE TWO"}`)
 	h.Quiesce()
@@ -237,10 +187,6 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 		"the tool call ran in the segment that ended with the second message, and must attach to it")
 }
 
-// TestRegression_AMessageIsVisibleBEFOREItsTurnEnds is the half the old fix never
-// had, and the reason recording happens at message completion rather than at turn
-// end. The agent has said something and is still working; the chat must already
-// show it.
 func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -255,17 +201,11 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 	post("message_delta", delta("msg-one", 0, true, "SAID EARLY"))
 	h.Quiesce()
 
-	// No turn_stop has been posted. The turn is still open and the agent is still
-	// working — and the message must be readable anyway.
 	assert.Equal(t, []string{"SAID EARLY"},
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
 		"a completed message must be readable while its turn is still running")
 }
 
-// TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid is the
-// degradation contract, stated as an equality rather than a hope: the same hooks
-// against a descriptor with no message_delta block produce exactly the record the
-// old code produced — one assistant message, the terminating hook's own.
 func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
@@ -284,12 +224,6 @@ func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
-// TestRegression_TheTerminatingHookSupersedesALossyStream.
-//
-// Hook delivery is unacknowledged, so an increment can simply never arrive. The
-// terminating hook carries the last message IN FULL, which makes it a free
-// reconciliation pass over exactly the message most at risk — and the provider's
-// own copy must win over what Crowbar managed to assemble.
 func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -301,7 +235,7 @@ func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	// Index 1 never arrives — the middle of the message is simply lost.
+
 	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING "))
 	post("message_delta", delta("msg-one", 2, true, "AND THE END"))
 	post("turn_stop",
@@ -313,9 +247,6 @@ func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
 		"the provider's own complete copy must replace what the stream lost")
 }
 
-// A message recorded when it completed must not be recorded a SECOND time when
-// the turn ends. The terminating hook restates it, and appending it again would
-// double every final reply.
 func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -335,14 +266,6 @@ func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
-// TestRegression_CrowbarDeclaresNoProviderTranscript is the rule itself, pinned
-// where it can be broken.
-//
-// Crowbar may consume a provider's OUTSIDE surface only: declared hooks, documented
-// flags, config passed at spawn. It may not read the provider's own files — not
-// even read-only, and not even when the provider hands over the path. A private
-// file format is not a contract, and shipping a read of one is not an option. This
-// fails the moment a descriptor grows a transcript declaration back.
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)

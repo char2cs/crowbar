@@ -37,9 +37,6 @@ func TestSetSelection_WritesBothHalves(t *testing.T) {
 	}
 }
 
-// TestSetSelection_EmptyClearsRatherThanSkips: empty is the user asking for the
-// provider's default back, so a command that treated it as "no change" would
-// make a choice permanent once made.
 func TestSetSelection_EmptyClearsRatherThanSkips(t *testing.T) {
 	out := commands.SetSelection{ChatID: "c1"}.
 		EmitEvent(&domain.AgentChat{ID: "c1", Model: "opus", Effort: "high"})

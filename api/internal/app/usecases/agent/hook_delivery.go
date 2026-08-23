@@ -35,14 +35,10 @@ type hookDeliveryRecord struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
-// hookDeliveryJournal is Crowbar's daemon-side half of hook at-least-once
-// delivery. The CLI relay generates one UUID, writes the complete envelope to
-// its Crowbar-owned spool, and reuses that UUID on every POST. This journal is
-// persisted before ingestion and turns those retries into one semantic hook.
 type hookDeliveryJournal struct {
 	mu        sync.Mutex
 	gates     *chatGate
-	completed map[string]string // delivery id -> payload hash, for post-effect fsync failures
+	completed map[string]string
 }
 
 func newHookDeliveryJournal() *hookDeliveryJournal {
@@ -106,10 +102,7 @@ func (j *hookDeliveryJournal) complete(
 ) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	// Remember completion before filesystem IO. If the final journal sync fails,
-	// this live daemon still must not replay effects after returning a transport
-	// error. On daemon restart the old runner is dead and its stale spool is safely
-	// acknowledged as a hook from an unknown runner.
+
 	j.completed[deliveryID] = hash
 	record, found, err := readHookDelivery(dir, deliveryID)
 	if err != nil {
@@ -173,9 +166,6 @@ func writeHookDelivery(dir string, record hookDeliveryRecord) error {
 	return nil
 }
 
-// IngestHookDelivery is the production relay ingress. workspaceID comes from
-// the already-authorized route scope so even a SessionStart fired before runner
-// persistence can durably journal its delivery.
 func (u *Usecase) IngestHookDelivery(
 	ctx context.Context,
 	workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
@@ -208,8 +198,6 @@ func (u *Usecase) IngestHookDelivery(
 		return err
 	}
 
-	// Startup hooks are held until the runner row exists. Their journal remains
-	// pending here and is completed by the ordered replay in spawnRunner.
 	if handled, enqueueErr := u.pendingHooks.enqueueDelivery(
 		runnerID, provider, canonicalEvent, rawPayload, deliveryID, dir, hash,
 	); handled {
@@ -221,8 +209,7 @@ func (u *Usecase) IngestHookDelivery(
 		return err
 	}
 	if err := u.hookDeliveries.complete(dir, deliveryID, hash, time.Now()); err != nil {
-		// Effects are committed and remembered in-process. Do not make the relay
-		// retry them merely because completion metadata could not be re-fsynced.
+
 		slog.ErrorContext(ctx, "agent: persist completed hook delivery (effects already committed)",
 			"runner_id", runnerID, "delivery_id", deliveryID, "err", err)
 	}

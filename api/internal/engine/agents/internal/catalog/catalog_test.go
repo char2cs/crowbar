@@ -19,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// fixture reads a captured provider output. Fixtures are CAPTURED, never
-// hand-written: a synthetic one asserts what the author believed the CLI prints,
-// which is exactly how a newline-crossing regex once invented phantom skills.
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -29,13 +26,6 @@ func fixture(t *testing.T, name string) []byte {
 	return data
 }
 
-// scriptRunner answers a fixed script keyed by the joined argv, so an adapter is
-// driven without spawning a process.
-//
-// It is mutex-guarded because the contract it stands in for is concurrent: the
-// inventory adapter fans detail commands out across goroutines, so a Runner that
-// was not safe for concurrent use would be testing a contract production does not
-// have.
 type scriptRunner struct {
 	mu      sync.Mutex
 	replies map[string][]byte
@@ -135,9 +125,6 @@ func TestProbe_InventoryFanOutProducesNormalisedItems(t *testing.T) {
 		"a disabled plugin must not be inspected")
 }
 
-// A plugin that legitimately ships zero skills is an empty entry, not a broken
-// one. Without the empty pattern the "Agents (1) code-simplifier" line that
-// follows "Skills (0)" was captured as a phantom skill.
 func TestProbe_APluginWithNoSkillsContributesNothingAndNoWarning(t *testing.T) {
 	d := inventoryDescriptor(t)
 	runner := &scriptRunner{replies: map[string][]byte{
@@ -171,8 +158,6 @@ func TestProbe_TextSectionReadsAMarkedBlock(t *testing.T) {
 	}
 }
 
-// Output that never contained the declared section is a broken parse, not an
-// empty menu — and the two are indistinguishable to a user unless we say so.
 func TestProbe_TextSectionWithNoSectionIsMalformed(t *testing.T) {
 	d := textSectionDescriptor(t)
 	runner := &scriptRunner{replies: map[string][]byte{
@@ -237,7 +222,6 @@ func TestProbe_MalformedRowsAreOmittedWithAWarning(t *testing.T) {
 	assert.Contains(t, strings.Join(got.Warnings, "|"), "malformed provider inventory rows")
 }
 
-// One uninspectable plugin costs that plugin's entries, not the menu.
 func TestProbe_ADetailFailureDegradesToAWarning(t *testing.T) {
 	d := inventoryDescriptor(t)
 	runner := &scriptRunner{
@@ -255,8 +239,6 @@ func TestProbe_ADetailFailureDegradesToAWarning(t *testing.T) {
 	assert.Contains(t, strings.Join(got.Warnings, "|"), "could not be inspected")
 }
 
-// Failures that compromise the WHOLE probe do propagate: continuing past them
-// would publish a silently partial answer as a complete one.
 func TestProbe_AWholeProbeFailurePropagates(t *testing.T) {
 	for _, sentinel := range []error{exec.ErrOutputLimit, exec.ErrCommandUnavailable} {
 		d := inventoryDescriptor(t)
@@ -357,8 +339,6 @@ func TestProbe_MalformedWhenTheAdapterIsUnknown(t *testing.T) {
 	assert.ErrorIs(t, err, catalog.ErrMalformedOutput)
 }
 
-// Where a probe RUNS changes what it reports, so a relative or missing directory
-// is refused rather than silently resolved against the daemon's cwd.
 func TestProbe_RefusesAWorkdirThatIsNotAnAbsoluteExistingDirectory(t *testing.T) {
 	d := inventoryDescriptor(t)
 	file := filepath.Join(t.TempDir(), "not-a-dir")
@@ -370,8 +350,6 @@ func TestProbe_RefusesAWorkdirThatIsNotAnAbsoluteExistingDirectory(t *testing.T)
 	}
 }
 
-// A probe running out of its own budget and a caller who closed the menu look
-// identical at the error site and mean opposite things to a user.
 func TestProbe_SeparatesItsOwnDeadlineFromCallerCancellation(t *testing.T) {
 	d := inventoryDescriptor(t)
 	d.Presentation.SlashCatalog.TimeoutMS = 20
@@ -391,14 +369,12 @@ func TestProbe_SeparatesItsOwnDeadlineFromCallerCancellation(t *testing.T) {
 
 func TestProbe_RealRunnerReachesTheProviderCommand(t *testing.T) {
 	d := inventoryDescriptor(t)
-	d.Spawn.Cmd = "true" // present on every supported platform, exits 0 with no output
+	d.Spawn.Cmd = "true"
 	dir := t.TempDir()
 
 	_, err := catalog.Probe(context.Background(), d,
 		models.ProbeOptions{Cwd: dir, Env: []string{"PATH=" + os.Getenv("PATH")}}, nil)
 
-	// `true` prints nothing, so the JSON parse fails — which proves the command
-	// actually ran rather than the plan being short-circuited.
 	assert.ErrorIs(t, err, catalog.ErrMalformedOutput)
 }
 

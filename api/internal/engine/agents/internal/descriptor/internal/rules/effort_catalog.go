@@ -10,13 +10,6 @@ type effortCatalog struct{}
 
 func (effortCatalog) Name() string { return "effort_catalog" }
 
-// Check holds the per-model effort catalogue to being answerable.
-//
-// A declared block with no keys can answer no model at all, and a key with no
-// levels answers its model with an empty picker — both of which advertise a
-// capability that cannot be exercised. The keys are checked in sorted order so a
-// descriptor with two bad entries always reports the same one; Go's map
-// iteration would otherwise make the message vary between runs.
 func (effortCatalog) Check(d *spec.Descriptor) error {
 	if d.Effort == nil {
 		return nil

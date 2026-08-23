@@ -11,9 +11,6 @@ type catalogAdapter struct{}
 
 func (catalogAdapter) Name() string { return "catalog_adapter" }
 
-// Check dispatches to the adapter the pipeline selected. Adapters are named for
-// the SHAPE of output they read, not for the provider that happens to produce it,
-// so the checks below are about structure and never about a vendor.
 func (r catalogAdapter) Check(d *spec.Descriptor) error {
 	sc := d.Presentation.SlashCatalog
 	if sc == nil {
@@ -57,10 +54,6 @@ func (r catalogAdapter) checkInventoryDetails(d *spec.Descriptor) error {
 	return r.checkDetailPatterns(d, p)
 }
 
-// checkDetailCommand allows exactly one {id} and nothing else templated. The id
-// comes from the provider's OWN inventory output, so it is the one value that may
-// reach argv; anything else would be a hole a descriptor could smuggle data
-// through.
 func (catalogAdapter) checkDetailCommand(d *spec.Descriptor, p spec.CatalogPipelineSpec) error {
 	if countTemplate(p.DetailCommand, "{id}") != 1 {
 		return invalid(d.ID, "catalog detail_command must place {id} exactly once")

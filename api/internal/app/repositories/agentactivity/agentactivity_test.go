@@ -36,8 +36,6 @@ type fixture struct {
 	ctx  context.Context
 }
 
-// newFixture builds the REAL repository over an in-memory event log, read model
-// and content directory: the real commands, the real projection, the real store.
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -79,15 +77,9 @@ func TestAppendTurn_IsReadableImmediately(t *testing.T) {
 	assert.Equal(t, "claude", turns[0].ProviderID)
 }
 
-// The turn commands take the barrier path precisely so a caller reading straight
-// back — the chat surface, the handoff assembler, the delivery recovery — cannot
-// see a lagging model.
 func TestTurns_AreOrderedBySequenceNotByClock(t *testing.T) {
 	f := newFixture(t)
 
-	// Same wall-clock instant for all three: two hooks can land in the same
-	// millisecond, and a conversation that renders out of order is worse than one
-	// that renders late.
 	f.turn(t, "t1", domain.TurnRoleUser, "first", t0)
 	f.turn(t, "t2", domain.TurnRoleAssistant, "second", t0)
 	f.turn(t, "t3", domain.TurnRoleUser, "third", t0)
@@ -98,9 +90,6 @@ func TestTurns_AreOrderedBySequenceNotByClock(t *testing.T) {
 	assert.Less(t, turns[0].Seq, turns[1].Seq)
 }
 
-// The projection upserts by the item's own id, so a redelivered hook rewrites the
-// same row instead of duplicating the turn. Without it, "the daemon did not answer
-// in time" and "the user said it twice" would be indistinguishable.
 func TestAppendTurn_IsIdempotentOnItsTurnID(t *testing.T) {
 	f := newFixture(t)
 
@@ -112,8 +101,6 @@ func TestAppendTurn_IsIdempotentOnItsTurnID(t *testing.T) {
 	assert.Len(t, turns, 1)
 }
 
-// Providers guarantee ids unique within a session, not across every chat this
-// daemon has ever hosted.
 func TestTurns_AreScopedToTheirChat(t *testing.T) {
 	f := newFixture(t)
 	f.turn(t, "shared-id", domain.TurnRoleUser, "chat one", t0)
@@ -155,7 +142,6 @@ func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	assert.Equal(t, 12, calls[0].DurationMS)
 	assert.Equal(t, "t1", calls[0].TurnID)
 
-	// The payloads are addressed, never inlined.
 	request, err := f.repo.Payload(f.ctx, calls[0].RequestRef)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"file_path":"a.go"}`, string(request))
@@ -164,7 +150,6 @@ func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
-// A running call is visible while it runs, or the UI cannot say "Bash, 12s".
 func TestInvokeTool_IsVisibleBeforeItCompletes(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, agentactivity.ToolInput{
@@ -178,8 +163,6 @@ func TestInvokeTool_IsVisibleBeforeItCompletes(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusRunning, calls[0].Status)
 }
 
-// Providers do not guarantee a completion for every invocation. "Running for
-// three days" is a worse lie than "abandoned".
 func TestCloseTurn_AbandonsToolsWhoseCompletionNeverArrived(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -223,9 +206,6 @@ func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
-// A turn that ended with nothing said is not a message. It happens on every
-// prompt submission — the outgoing CLI is replaced mid-turn — and a blank
-// assistant row would read as the agent having answered with silence.
 func TestAbandon_ClosesAnOpenTurnWithoutRecordingABlankReply(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -242,17 +222,12 @@ func TestAbandon_ClosesAnOpenTurnWithoutRecordingABlankReply(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, turns, "an abandoned turn said nothing, so it is not a message")
 
-	// What it DID is still closed out, so nothing renders as running forever.
 	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	assert.Equal(t, domain.ToolStatusAbandoned, calls[0].Status)
 }
 
-// Verified live against claude 2.1.233 on 2026-08-17: a Notification fired
-// during a turn and stayed OPEN for the rest of the chat, because neither
-// provider has an event that resolves one. Rendered, that is a permanent "the
-// agent needs your attention" banner over an agent that is perfectly fine.
 func TestRegression_AnInterruptionDoesNotOutliveItsTurn(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -277,8 +252,6 @@ func TestRegression_AnInterruptionDoesNotOutliveItsTurn(t *testing.T) {
 		"a notification has no resolving event of its own; the turn boundary is what ends it")
 }
 
-// The same holds when the turn is abandoned rather than answered — which is what
-// a prompt submission does to the outgoing CLI.
 func TestRegression_AnInterruptionIsResolvedByAnAbandonedTurnToo(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -308,8 +281,6 @@ func TestPaging_WalksForwardAndBackwardWithoutOverlap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m03", "m04", "m05"}, textsOf(forward))
 
-	// Backward reads the NEWEST rows below a cursor, which is why it must not read
-	// the whole history to discard most of it.
 	backward, err := f.repo.TurnsBefore(f.ctx, chat, all[5].Seq, 3)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m02", "m03", "m04"}, textsOf(backward))
@@ -375,7 +346,6 @@ func TestCountTurns_ReportsTheWholeConversation(t *testing.T) {
 	assert.Equal(t, int64(2), n)
 }
 
-// The cross-agent surface: what are the other agents in this workspace touching.
 func TestRecentToolCalls_SpansChatsNewestFirst(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, agentactivity.ToolInput{
@@ -408,7 +378,6 @@ func TestPayload_MissingRefIsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
 }
 
-// A hard delete must not leave the conversation readable.
 func TestForget_DropsTheRecordAndItsRows(t *testing.T) {
 	f := newFixture(t)
 	f.turn(t, "t1", domain.TurnRoleUser, "secret", t0)
@@ -445,9 +414,6 @@ func TestValidation_IsSurfacedAndNeverRetried(t *testing.T) {
 	assert.Contains(t, err.Error(), "role")
 }
 
-// G5. The aggregate holds OPEN state only, so its size is independent of how long
-// a chat runs — which is what keeps snapshot writes and cold loads flat over a
-// conversation's whole life.
 func TestAggregateState_StaysBoundedOverALongConversation(t *testing.T) {
 	f := newFixture(t)
 
@@ -484,7 +450,6 @@ func TestAggregateState_StaysBoundedOverALongConversation(t *testing.T) {
 	assert.Zero(t, state.OpenCount())
 	assert.Nil(t, state.Turn)
 
-	// And the record itself is complete.
 	count, err := f.repo.CountTurns(f.ctx, chat)
 	require.NoError(t, err)
 	assert.Equal(t, int64(turns), count)
@@ -493,9 +458,6 @@ func TestAggregateState_StaysBoundedOverALongConversation(t *testing.T) {
 	assert.Len(t, calls, turns*6)
 }
 
-// G6/G7. The event log is the durable record, so a lost read model is rebuilt by
-// replaying it — and because every write is an upsert keyed by the item's own id,
-// replaying an already-projected event rewrites identical values.
 func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -527,8 +489,6 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 	require.NotEmpty(t, before.calls)
 	require.NotEmpty(t, before.choices)
 
-	// A fresh read model over the SAME event log: what a lost state directory
-	// looks like from the repository's point of view.
 	rebuiltDB, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	rebuilt, err := agentactivity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
@@ -537,7 +497,6 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 	after := snapshot(t, fixture{repo: rebuilt, ctx: f.ctx})
 	assert.Equal(t, before, after, "a replayed model must reproduce the live one row for row")
 
-	// Replaying a second time must change nothing.
 	again, err := agentactivity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
 	require.NoError(t, err)
 	assert.Equal(t, before, snapshot(t, fixture{repo: again, ctx: f.ctx}),
@@ -599,8 +558,6 @@ func TestNewEventSourced_ReportsAnUnusableReadModelOrContentRoot(t *testing.T) {
 	assert.Error(t, err, "an empty content root is not a root")
 }
 
-// A payload that cannot be stored must not cost the record of the call itself:
-// the tool DID run, and showing it with no arguments beats not showing it.
 func TestInvokeTool_SurvivesAnUnwritableContentStore(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.Chmod(f.dir, 0o500))
@@ -623,8 +580,6 @@ func TestInvokeTool_SurvivesAnUnwritableContentStore(t *testing.T) {
 	assert.Empty(t, calls[0].ResultRef)
 }
 
-// A lost read model is repaired lazily on first READ, not eagerly at boot: a
-// normal boot must cost no replay at all.
 func TestReadModel_HealsOnFirstReadWhenTheStateDirectoryWasLost(t *testing.T) {
 	f := newFixture(t)
 	f.turn(t, "t1", domain.TurnRoleUser, "recorded", t0)
@@ -641,14 +596,9 @@ func TestReadModel_HealsOnFirstReadWhenTheStateDirectoryWasLost(t *testing.T) {
 	assert.Equal(t, "recorded", turns[0].Text)
 }
 
-// Verified live against claude 2.1.233 on 2026-08-17: a Notification saying
-// "Claude is waiting for your input" arrives a MINUTE after the turn ended. Held
-// open it renders a permanent "the agent needs your attention" banner over an
-// agent that is idle and fine — and nothing ever resolves it, because neither
-// provider has an event that ends a notification.
 func TestRegression_AnInterruptionOutsideATurnIsAMomentNotABlockingState(t *testing.T) {
 	f := newFixture(t)
-	// A completed turn, then an interruption a minute later.
+
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
 		ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: t0,
 	}))
@@ -666,8 +616,6 @@ func TestRegression_AnInterruptionOutsideATurnIsAMomentNotABlockingState(t *test
 	assert.NotNil(t, got[0].ResolvedAt, "but it never reads as the agent being blocked")
 }
 
-// The distinguishing fact is that the agent stopped MID-TURN, with a turn still
-// open to be blocked in.
 func TestInterrupt_MidTurnIsABlockingStateUntilTheTurnEnds(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, agentactivity.TurnInput{
@@ -684,8 +632,6 @@ func TestInterrupt_MidTurnIsABlockingStateUntilTheTurnEnds(t *testing.T) {
 	assert.Equal(t, "t1", blocked[0].TurnID, "and it belongs to the turn it blocked")
 }
 
-// An interruption outside a turn must not conjure a turn either: a notification
-// about an idle agent is not the start of a reply.
 func TestInterrupt_OutsideATurnDoesNotOpenOne(t *testing.T) {
 	f := newFixture(t)
 

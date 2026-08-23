@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// permissionMap mirrors the shipped claude descriptor's permission block. It is
-// spelled out rather than loaded so this package keeps testing the MAPPING
-// machinery; that the descriptor on disk actually carries these paths is proved
-// end-to-end where a real claude chat is driven.
 func permissionMap() map[string]string {
 	return map[string]string{
 		"session_id":             "session_id",
@@ -27,8 +23,7 @@ func permissionMap() map[string]string {
 		"suggestions":            "permission_suggestions",
 		"suggestion_type":        "type",
 		"suggestion_description": "mode,destination",
-		// The human words for each captured type, exactly as the shipped descriptor
-		// declares them. A provider's own machine name is never a label.
+
 		"suggestion_label.addRules":       "Add a permanent rule for this",
 		"suggestion_label.addDirectories": "Allow this directory from now on",
 		"suggestion_label.setMode":        "Switch to a more permissive mode",
@@ -43,8 +38,6 @@ func permissionMap() map[string]string {
 	}
 }
 
-// The payload captured live from claude 2.1.234 on 2026-08-17. Everything but the
-// tool name used to be discarded.
 const permissionPayload = `{
   "session_id":"s1","prompt_id":"81899da5","permission_mode":"default",
   "hook_event_name":"PermissionRequest","tool_name":"Bash",
@@ -53,10 +46,6 @@ const permissionPayload = `{
     {"type":"addDirectories","directories":["/proof"],"destination":"session"},
     {"type":"setMode","mode":"acceptEdits","destination":"session"}]}`
 
-// threeQuestionPayload is the shape a user gets by asking claude to "ask me 3
-// questions at the same time": ONE AskUserQuestion call whose tool input carries
-// three entries, one of them multi-select. This is the payload that stranded the
-// agent.
 const threeQuestionPayload = `{
   "session_id":"s1","prompt_id":"p3","hook_event_name":"PermissionRequest",
   "tool_name":"AskUserQuestion",
@@ -95,15 +84,9 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	assert.Empty(t, ev.Choice.Questions, "a permission asks nothing beyond may-I")
 }
 
-// DEFECT 5. claude's permission_suggestions are named in claude's OWN vocabulary
-// — `type: "addRules"` — and reading that straight onto an option put the string
-// "addRules" in the chat as a control a person could press. It read like a real
-// choice, it was spelled in a language only the CLI's source uses, and it sat on
-// the one path the backend refuses with a 400.
 func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
-	// The type value measured against claude 2.1.234 on 2026-08-18, alongside the
-	// two captured on 2026-08-17 and one nobody has ever captured.
+
 	raw := []byte(`{"tool_name":"Bash","permission_suggestions":[
 	  {"type":"addRules","destination":"session"},
 	  {"type":"addDirectories","destination":"session"},
@@ -129,8 +112,6 @@ func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testin
 		"a type nobody has captured takes the declared generic text, not its own name")
 }
 
-// The label text is PROVIDER VOCABULARY and lives in the descriptor. A descriptor
-// that declares none says nothing rather than falling back to the machine name.
 func TestParse_ASuggestionWithNoDeclaredWordsIsSkipped(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookPermission: {
@@ -147,9 +128,6 @@ func TestParse_ASuggestionWithNoDeclaredWordsIsSkipped(t *testing.T) {
 	assert.Len(t, ev.Choice.Options, 2, "allow and deny, and nothing nameless beside them")
 }
 
-// The permission carries no tool_use_id — claude's own documentation claims one
-// and the payload does not have it — so nothing downstream may expect the engine
-// to supply the identity of the call being gated.
 func TestParse_PermissionOffersNoToolCallID(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookPermission: mergeMap(permissionMap(), map[string]string{"tool_id": "tool_use_id"}),
@@ -162,8 +140,6 @@ func TestParse_PermissionOffersNoToolCallID(t *testing.T) {
 	assert.Nil(t, ev.Tool, "a permission is not a tool invocation")
 }
 
-// AskUserQuestion is a TOOL, so its question arrives inside the permission's own
-// tool input rather than as an event of its own.
 func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	raw := []byte(`{"session_id":"s1","prompt_id":"p9","tool_name":"AskUserQuestion",
@@ -181,8 +157,6 @@ func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 	assert.Empty(t, ev.Choice.Options,
 		"a question's options live on the question, so there is exactly one place to read them")
 
-	// A one-question payload is a list of ONE. Nothing anywhere branches on how
-	// many questions there are.
 	require.Len(t, ev.Choice.Questions, 1)
 	question := ev.Choice.Questions[0]
 	assert.Equal(t, "Pick", question.Title)
@@ -196,11 +170,6 @@ func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 		"an answer must be able to name one option without echoing its label")
 }
 
-// DEFECT 4. A user asked claude to "ask me 3 questions at the same time", claude
-// issued ONE AskUserQuestion carrying three, and Crowbar modelled the first.
-// Answering it handed the CLI an `updatedInput` covering one of three; claude said
-// "still waiting on your answers to questions 2 & 3" and nothing could ever send
-// them.
 func TestRegression_EveryQuestionOfAMultiQuestionPayloadIsModelled(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 
@@ -218,13 +187,9 @@ func TestRegression_EveryQuestionOfAMultiQuestionPayloadIsModelled(t *testing.T)
 		"multiSelect rides each question, so one prompt can mix the two shapes")
 	assert.Equal(t, "Deploy where?", ev.Choice.Questions[2].Text)
 
-	// No headline claims to be "the question": with three of them, naming one would
-	// be a lie a reader could act on.
 	assert.Empty(t, ev.Choice.Question)
 	assert.Empty(t, ev.Choice.Title)
 
-	// Option ids are unique across the WHOLE prompt, because an answer names its
-	// picks in one flat list with nothing in it saying which question each answers.
 	seen := map[string]bool{}
 	for _, q := range ev.Choice.Questions {
 		require.NotEmpty(t, q.Options)
@@ -249,9 +214,6 @@ func TestParse_AMultiSelectQuestionSaysSo(t *testing.T) {
 	assert.True(t, ev.Choice.Questions[0].Multi)
 }
 
-// Dropping a question past the bound would REINTRODUCE the defect: an answer
-// covering 32 of 33 is the same partial `updatedInput` that stranded the agent. So
-// an absurd payload is modelled with none, which draws a read-only prompt.
 func TestParse_AnAbsurdQuestionListIsModelledWithNoQuestionsAtAll(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	questions := make([]string, 0, 40)
@@ -272,9 +234,6 @@ func TestParse_AnAbsurdQuestionListIsModelledWithNoQuestionsAtAll(t *testing.T) 
 	assert.Empty(t, ev.Choice.Options)
 }
 
-// A suggestion that names no type at all still gets the descriptor's declared
-// generic words. Saying nothing would hide that the provider offered something,
-// and the words are the descriptor's rather than the payload's either way.
 func TestParse_AnUntypedSuggestionTakesTheDeclaredGenericWords(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	raw := []byte(`{"tool_name":"Bash","permission_suggestions":[{"destination":"session"}]}`)
@@ -315,7 +274,6 @@ func TestParse_ElicitationCarriesTheServerModeAndSchema(t *testing.T) {
 		"an elicitation offers a schema, and inventing buttons from it would be a guess")
 }
 
-// Half a JSON document is not a smaller schema, it is an unparseable one.
 func TestParse_AnOversizedSchemaIsDroppedNotTruncated(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookElicitation: {"message": "message", "schema": "requested_schema"},
@@ -366,10 +324,8 @@ func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {
 	assert.Equal(t, "partial output", string(ev.Tool.Result))
 }
 
-// The degradation guarantee, stated as a test: a descriptor that maps none of the
-// new vocabulary reports nothing new and behaves exactly as it did.
 func TestParse_ADescriptorMappingNoChoiceVocabularyReportsNoPrompt(t *testing.T) {
-	// This IS the mapping both descriptors shipped before prompts existed.
+
 	d := descriptor(map[string]map[string]string{
 		spec.HookPermission: {"session_id": "session_id", "message": "tool_name"},
 	})
@@ -391,7 +347,7 @@ func TestParse_AnUndeclaredNewKindNeverFires(t *testing.T) {
 		{name: "elicitation", canonical: spec.HookElicitation},
 		{name: "tool failure", canonical: spec.HookToolFail},
 	}
-	// A descriptor for a provider that has neither concept — which is codex today.
+
 	d := descriptor(map[string]map[string]string{
 		spec.HookPermission: {"session_id": "session_id", "message": "tool_name"},
 	})
@@ -406,8 +362,6 @@ func TestParse_AnUndeclaredNewKindNeverFires(t *testing.T) {
 	}
 }
 
-// Declared is what a client reads to know what an agent can and cannot observe, so
-// the new kinds have to appear in it or a UI would hide a capability that exists.
 func TestDeclared_IncludesTheNewKinds(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookElicitation: {"message": "message"},
@@ -428,8 +382,6 @@ func mergeMap(base, extra map[string]string) map[string]string {
 	return out
 }
 
-// A prompt is OPEN STATE — it lives in the aggregate until it is answered — so an
-// unbounded option list would be an unbounded aggregate.
 func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	options := make([]string, 0, 100)

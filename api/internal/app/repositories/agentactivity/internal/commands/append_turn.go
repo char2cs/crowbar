@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AppendTurn records a turn that is complete on arrival — a user prompt, or an
-// assistant reply that arrived with no open turn to close.
 type AppendTurn struct {
 	ChatID     string
 	TurnID     string

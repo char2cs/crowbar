@@ -12,17 +12,12 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Hand-written mocks, one per port. They record what was asked as well as what
-// they answered, because half of what this package promises is about what it does
-// NOT do: a gate that short-circuits has to be observable as a call that never
-// happened.
-
 var errBoom = errors.New("read failed")
 
 type fakeRunners struct {
 	live []domain.AgentRunner
 	err  error
-	// calls counts sweeps, so a test can prove the loop actually ran.
+
 	calls int
 }
 
@@ -63,18 +58,14 @@ func (f *fakeChoices) PendingChoices(
 	return f.pending[chatID], nil
 }
 
-// fakeScreens models the engine's (text, gen, changed) contract faithfully,
-// including the "unchanged screens return no text" half — which is the whole
-// reason the detector can poll without cost, so a mock that always returned text
-// would hide the bug this design exists to prevent.
 type fakeScreens struct {
 	mu sync.Mutex
-	// text and gen are the current screen and its generation, per session id.
+
 	text map[string]string
 	gen  map[string]uint64
-	// renders counts reads that actually produced text — the expensive half.
+
 	renders int
-	// absent names sessions the engine cannot answer for at all.
+
 	absent map[string]bool
 }
 
@@ -93,10 +84,6 @@ func (f *fakeScreens) set(sessionID, text string) {
 	f.gen[sessionID]++
 }
 
-// repaint models the case the generation counter cannot distinguish from a real
-// change: the CLI consumed a chunk and redrew BYTE-IDENTICAL cells. The
-// generation advances, so the detector must render — and the rendered text is
-// the same string it already had.
 func (f *fakeScreens) repaint(sessionID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -123,9 +110,6 @@ func (f *fakeScreens) renderCount() int {
 	return f.renders
 }
 
-// fakePrompts stands in for the descriptor lookup: a provider's declared needles,
-// matched against a screen. Keyed by provider so "a provider that declares
-// nothing" is expressible as an absent key.
 type fakePrompts struct {
 	needles map[string][]engineagents.TerminalPrompt
 	asked   int
@@ -145,7 +129,6 @@ func (f *fakePrompts) MatchTerminalPrompt(
 	return engineagents.TerminalPrompt{}, false
 }
 
-// recorder collects published verdicts in order.
 type recorder struct {
 	mu   sync.Mutex
 	sent []published
@@ -169,15 +152,6 @@ func (r *recorder) all() []published {
 	return append([]published(nil), r.sent...)
 }
 
-// fakeNotices is the second provider seam: the messages a CLI paints INSTEAD of
-// finishing a turn. Keyed by provider, so "a provider that declares nothing" is
-// an absent key — the degradation case this feature's safety rests on.
-//
-// It matches on a plain substring rather than reproducing the engine's
-// whitespace-insensitive reduction, because what is under test here is the
-// DETECTOR's gate ordering and clock. The reduction, the wrap-tolerant match and
-// the sentence capture are tested against the real descriptors in the termprompt
-// package and in the usecase's own seam test.
 type fakeNotices struct {
 	needles map[string][]engineagents.TerminalNotice
 	asked   int
@@ -197,9 +171,6 @@ func (f *fakeNotices) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-// fakeWork is the hook-evidence gate: what the conversation record still shows
-// running. It counts reads because half of what the gate ordering promises is
-// that this one is not reached on an ordinary tick.
 type fakeWork struct {
 	open  bool
 	err   error
@@ -214,7 +185,6 @@ func (f *fakeWork) OpenWork(context.Context, string) (bool, error) {
 	return f.open, nil
 }
 
-// stalls collects the turns the detector asked to have closed.
 type stalls struct {
 	mu   sync.Mutex
 	seen []termwait.Stall
@@ -232,12 +202,6 @@ func (s *stalls) all() []termwait.Stall {
 	return append([]termwait.Stall(nil), s.seen...)
 }
 
-// clock is the injectable time the quiet period is measured on.
-//
-// Every timing assertion in this package is made by ADVANCING THIS and calling
-// Sweep again. Nothing sleeps and nothing waits on a real duration, so a test
-// that proves a 120-second rule runs in microseconds and cannot be flaky — which
-// is the only way a rule that long can be tested at all.
 type clock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -259,9 +223,6 @@ func (c *clock) advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-// fakeDeliveries is the prompt journal as the third question sees it. It records
-// what was settled AND how often it was asked, because most of what that gate
-// promises is about the ticks on which it does nothing.
 type fakeDeliveries struct {
 	mu        sync.Mutex
 	pending   map[string]termwait.Delivery
@@ -269,8 +230,7 @@ type fakeDeliveries struct {
 	asked     int
 	settled   []string
 	settleErr error
-	// declineSettle models the journal answering "nothing to retire" — a record
-	// that never reached a process, or one a hook already accounted for.
+
 	declineSettle bool
 }
 
@@ -308,8 +268,6 @@ func (f *fakeDeliveries) allSettled() []string {
 	return append([]string(nil), f.settled...)
 }
 
-// fakeMessages is the assistant-message stream as the abandoned-message question
-// sees it: is there an unfinished message, and when did it last grow?
 type fakeMessages struct {
 	mu         sync.Mutex
 	since      time.Time

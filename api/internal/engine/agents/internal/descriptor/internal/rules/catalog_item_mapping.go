@@ -10,8 +10,6 @@ type catalogItemMapping struct{}
 
 func (catalogItemMapping) Name() string { return "catalog_item_mapping" }
 
-// knownItemPlaceholders are the only substitutions the item mapper performs. An
-// unrecognised one would survive expansion and be shown to the user verbatim.
 var knownItemPlaceholders = strings.NewReplacer(
 	"{name}", "", "{description}", "", "{source}", "", "{id}", "",
 )

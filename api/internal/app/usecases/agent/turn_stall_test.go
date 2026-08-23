@@ -19,14 +19,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// codexUsageLimitScreen is the REAL codex-cli 0.146.0 screen from the capture that
-// found this defect: the usage-limit banner as it actually wrapped, across three
-// rows at 100 columns, with the composer and its footer underneath.
-//
-// It is a capture and not an invention. A synthetic banner here would be the exact
-// mistake this repo has made before — it would have been written unwrapped, and
-// the wrapped continuation is the half of the sentence carrying the URL and the
-// reset time, which is the whole reason a user wants to read it.
 const codexUsageLimitScreen = "" +
 	"■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit\n" +
 	"https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026\n" +
@@ -35,26 +27,11 @@ const codexUsageLimitScreen = "" +
 	"› Implement {feature}\n" +
 	"  ⏎ send   ⌃J newline   ⌃T transcript   ⌃C quit"
 
-// codexUsageLimitSentence is that banner with the TERMINAL'S row breaks taken back
-// out: what codex wrote, which is what the chat has to show.
 const codexUsageLimitSentence = "" +
 	"■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit " +
 	"https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026 " +
 	"12:30 PM."
 
-// TestRegression_StalledTurnIsClosedAndTheChatSaysWhy is defect 2, and the second
-// half of defect 1.
-//
-// The measured failure: codex accepted a prompt, fired user_prompt, opened a turn,
-// hit its usage limit, painted the reason on its own screen and stayed alive. The
-// chat spun for 44 minutes — and the whole time, the explanation was on screen and
-// the chat showed NOTHING.
-//
-// This drives the real thing end to end over the real event stores: a real spawn,
-// a real user_prompt hook opening a real turn, the real descriptor matching the
-// real captured screen, and the closer. Afterwards the chat is not working and its
-// conversation carries codex's own sentence — including the wrapped continuation
-// and the reset date, which is the part that tells the user when to come back.
 func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -62,8 +39,6 @@ func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	prompt(t, f, runnerID, "codex", "please do the thing")
 	require.True(t, f.chat(t, chatID).Working, "the user's prompt must have opened a turn")
 
-	// The notice comes from the SHIPPED descriptor matched against the CAPTURED
-	// screen. Nothing here hand-builds the text the assertion then checks for.
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok, "the shipped codex descriptor must recognise its own usage-limit banner")
 
@@ -96,11 +71,6 @@ func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	assert.Equal(t, "sess-1", notices[0].SessionID)
 }
 
-// TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose is the
-// idempotence contract, and it matters because the detector decides from a
-// projection that lags. A turn its own hook closed a moment ago can still read
-// open to the sweep — and a notice written then would put "your provider gave up"
-// underneath a turn that finished perfectly well.
 func TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -122,10 +92,6 @@ func TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose(t *tes
 	}
 }
 
-// TestUsecase_MatchTerminalNotice_ResolvesTheShippedDescriptor drives the seam the
-// detector reaches provider vocabulary through — home resolution, descriptor
-// lookup, capability assertion, wrap-tolerant match, sentence capture — against
-// the real embedded catalogue and the real captured screen.
 func TestUsecase_MatchTerminalNotice_ResolvesTheShippedDescriptor(t *testing.T) {
 	f := newFixture(t)
 
@@ -135,19 +101,11 @@ func TestUsecase_MatchTerminalNotice_ResolvesTheShippedDescriptor(t *testing.T) 
 	assert.Equal(t, engineagents.TerminalNoticeUsageLimit, notice.Kind)
 	assert.True(t, notice.EndsTurn, "the banner is painted because the attempt ended")
 	assert.Equal(t, codexUsageLimitSentence, notice.Text)
-	// The composer and the footer sit under a BLANK row, so the capture stops
-	// where codex's sentence stops.
+
 	assert.NotContains(t, notice.Text, "Implement {feature}")
 	assert.NotContains(t, notice.Text, "transcript")
 }
 
-// TestUsecase_MatchTerminalNotice_ClaudeDeclaresNone is the degradation guarantee
-// stated where it is relied on. claude's Stop hook is reliable and no notice of
-// this shape has been measured from it, so claude declares none — and a provider
-// declaring none never matches, even shown another provider's exact banner.
-//
-// This is what makes the whole mechanism safe to ship: a provider nobody has
-// captured a screen from behaves byte-for-byte as it did before it existed.
 func TestUsecase_MatchTerminalNotice_ClaudeDeclaresNone(t *testing.T) {
 	f := newFixture(t)
 
@@ -164,10 +122,6 @@ func TestUsecase_MatchTerminalNotice_UnknownProviderIsSilent(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestUsecase_MatchTerminalNotice_OrdinaryScreenIsNotANotice: the needle is a
-// sentence codex only writes when it has given up, so an ordinary working screen
-// matches nothing. Without this the mechanism would be an unconditional
-// turn-closer with extra steps.
 func TestUsecase_MatchTerminalNotice_OrdinaryScreenIsNotANotice(t *testing.T) {
 	f := newFixture(t)
 
@@ -177,13 +131,6 @@ func TestUsecase_MatchTerminalNotice_OrdinaryScreenIsNotANotice(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed is the gate that
-// answers "is it working?" from hook evidence instead of from pixels — the one
-// that covers codex, whose painting behaviour while working could not be measured
-// (its account was rate-limited throughout).
-//
-// Driven through the real hook path, because that is the only thing that ever
-// opens a tool call in production.
 func TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -217,8 +164,6 @@ func TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed(t *testing.T) {
 	assert.False(t, open)
 }
 
-// TestUsecase_OpenWork_ReportsASubagentTheProviderNeverStopped is the same gate's
-// other half: a subagent started and not stopped is work in flight too.
 func TestUsecase_OpenWork_ReportsASubagentTheProviderNeverStopped(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -246,14 +191,6 @@ func TestUsecase_OpenWork_ReportsASubagentTheProviderNeverStopped(t *testing.T) 
 	assert.False(t, open)
 }
 
-// TestUsecase_MatchTerminalNotice_SurvivesANarrowPane is the property the
-// whole-screen match exists for, tested at the width the capture bound was sized
-// against.
-//
-// At 24 columns codex's sentence wraps onto EIGHT rows — the cap exactly — and
-// the needle itself is SPLIT across two of them, which a per-row substring search
-// finds nowhere. The match still lands, and the captured text still reads back as
-// the one sentence codex wrote.
 func TestUsecase_MatchTerminalNotice_SurvivesANarrowPane(t *testing.T) {
 	f := newFixture(t)
 	rows := wrapAt(codexUsageLimitSentence, 24)
@@ -269,12 +206,6 @@ func TestUsecase_MatchTerminalNotice_SurvivesANarrowPane(t *testing.T) {
 	assert.Equal(t, codexUsageLimitSentence, notice.Text)
 }
 
-// wrapAt breaks text onto rows of at most width COLUMNS on word boundaries — what
-// a TUI does to a long sentence in a narrow pane.
-//
-// Columns are runes, not bytes. codex's banner opens with a three-byte bullet
-// glyph, and measuring it in bytes would wrap the fixture a row earlier than the
-// terminal being simulated ever would.
 func wrapAt(text string, width int) []string {
 	var rows []string
 	line := ""
@@ -295,8 +226,6 @@ func wrapAt(text string, width int) []string {
 	return rows
 }
 
-// orderLog records the sequence of the writes closeStalledTurn makes, so a test
-// can assert on their ORDER rather than merely on their presence.
 type orderLog struct {
 	mu   sync.Mutex
 	seen []string
@@ -314,7 +243,6 @@ func (l *orderLog) all() []string {
 	return append([]string(nil), l.seen...)
 }
 
-// orderedChats notes the command whose projection publishes Working=false.
 type orderedChats struct {
 	agentchat.EventStore
 	log *orderLog
@@ -327,7 +255,6 @@ func (o orderedChats) AbandonTurn(
 	return o.EventStore.AbandonTurn(ctx, chatID, now)
 }
 
-// orderedActivity notes the ledger append that carries the explanation.
 type orderedActivity struct {
 	agentactivity.EventStore
 	log *orderLog
@@ -340,19 +267,6 @@ func (o orderedActivity) AppendTurn(ctx context.Context, in agentactivity.TurnIn
 	return o.EventStore.AppendTurn(ctx, in)
 }
 
-// TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished pins the ORDER,
-// not just the presence of both effects.
-//
-// AbandonTurn's projection broadcasts Working=false, and the chat treats that edge
-// as its cue to do ONE ledger read and then stop. A ledger append emits no frame
-// of its own — so a notice appended AFTER that edge triggers nothing at all and
-// sits invisible until an unrelated refresh happens to fire. The spinner would
-// stop correctly and the chat would still never say why: defect 2 surviving the
-// fix for defect 1.
-//
-// It is the same race handleTurn's turn_stop arm documents, observed live on
-// 2026-08-16, and this is what stops it being reintroduced by a reordering that
-// looks harmless.
 func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.T) {
 	log := &orderLog{}
 	f, _, _ := newFixtureUsing(t,

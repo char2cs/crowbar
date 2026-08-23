@@ -36,8 +36,6 @@ func TestDispatch_SucceedsOnTheFirstAttempt(t *testing.T) {
 	assert.Equal(t, 1, *calls)
 }
 
-// A validation failure means the command is WRONG, not late. Retrying it would
-// burn the whole budget on something that can never succeed.
 func TestDispatch_NeverRetriesValidation(t *testing.T) {
 	send, calls := sender(asynxModels.ErrValidation)
 
@@ -47,8 +45,6 @@ func TestDispatch_NeverRetriesValidation(t *testing.T) {
 	assert.Equal(t, 1, *calls)
 }
 
-// A full shard queue is BACKPRESSURE, not a version race: retrying makes it
-// worse. It is surfaced as unavailable so the caller can back off.
 func TestDispatch_TreatsAFullQueueAsBackpressure(t *testing.T) {
 	send, calls := sender(asynxModels.ErrQueueFull)
 
@@ -58,8 +54,6 @@ func TestDispatch_TreatsAFullQueueAsBackpressure(t *testing.T) {
 	assert.Equal(t, 1, *calls)
 }
 
-// Concurrent hooks for one chat version-collide, and the loser converges because
-// each attempt re-reads the current version.
 func TestDispatch_RetriesAVersionCollisionUntilItConverges(t *testing.T) {
 	send, calls := sender(asynxModels.ErrPipelineFailed, asynxModels.ErrPipelineFailed)
 

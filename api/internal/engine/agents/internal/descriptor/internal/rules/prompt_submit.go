@@ -15,16 +15,12 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	if ps == nil {
 		return nil
 	}
-	// restart_tui is the only strategy this daemon implements, and the field is
-	// checked rather than assumed because a descriptor is an ON-DISK OVERRIDE: a
-	// strategy naming a channel nothing here can drive is refused at load, not
-	// silently delivered by the one channel that does exist.
+
 	if ps.Strategy != spec.DeliveryRestartTUI {
 		return invalid(d.ID,
 			"presentation.prompt_submit has unsupported strategy %q", ps.Strategy)
 	}
-	// The first message of a session always restarts, so the argv steps that carry
-	// it are required.
+
 	if d.Session.Resume == nil {
 		return invalid(d.ID, "presentation.prompt_submit requires session.resume")
 	}
@@ -34,9 +30,6 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	return r.checkSteps(d.ID, "resume", ps.Resume)
 }
 
-// checkSteps enforces that a prompt reaches the CLI as argv and nothing else, and
-// that the message appears exactly once. Twice would deliver the prompt twice;
-// never would spawn a CLI that silently drops what the user typed.
 func (promptSubmit) checkSteps(id, name string, steps []spec.InjectStep) error {
 	if len(steps) == 0 {
 		return invalid(id, "presentation.prompt_submit.%s is empty", name)

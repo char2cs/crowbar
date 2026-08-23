@@ -10,22 +10,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// SetChatSelection writes a chat's sticky choice of model and reasoning effort.
-//
-// Both values are written together, and BOTH may be empty: empty is the
-// provider's own default, so clearing is a legitimate selection rather than a
-// missing one. Nothing is substituted — a cleared chat spawns the argv it would
-// have spawned before any of this existed.
-//
-// A non-empty value is checked against the DECLARED catalogue of the provider
-// currently on the chat, and an unknown one is refused outright
-// (apperr.ErrInvalidArgument → 400). The alternative — accepting it and letting
-// the CLI reject it at spawn — turns a typo into a chat whose next message kills
-// its own process, which is a far worse place to learn about it.
-//
-// The effort catalogue is read for the model being SET, not the one currently
-// stored, because both fields move in one call: an effort level that is only
-// valid for the incoming model must validate against that model.
 func (u *Usecase) SetChatSelection(
 	ctx context.Context,
 	chatID string,
@@ -67,18 +51,6 @@ func (u *Usecase) validateSelection(
 	return nil
 }
 
-// chatAgent resolves the agent whose catalogue a selection is judged against:
-// the provider of the runner live on the chat, falling back to the provider of
-// its last conversation.
-//
-// That is the same "which provider is this chat's" answer the chat DTO reports
-// (dto.activeProviderID), and it must be, or a picker filled from one catalogue
-// would be validated against another.
-//
-// A chat that has never had a runner has no provider and therefore no catalogue
-// to check against. It is refused rather than waved through: there is no picker
-// on such a chat, so a selection arriving for one is a client bug, and accepting
-// it would store a value nothing can ever validate.
 func (u *Usecase) chatAgent(
 	ctx context.Context,
 	chatID string,
@@ -120,16 +92,6 @@ func (u *Usecase) chatProviderID(
 	return last.ProviderID, nil
 }
 
-// chatSelection reads the choice a spawn or a prompt must honour.
-//
-// It folds the EVENT LOG (LoadChat) rather than reading the projection, for the
-// same reason a spawn resolving a thread's parent does: the projection is
-// asynchronous, and a user who picks a model and immediately sends a message
-// would otherwise have the message delivered under the model they just changed
-// away from.
-//
-// minting is the chat-does-not-exist-yet case — SpawnChat writes the aggregate
-// AFTER the CLI is live — and a chat that does not exist has chosen nothing.
 func (u *Usecase) chatSelection(
 	ctx context.Context,
 	chatID string,
@@ -154,17 +116,6 @@ func contains(values []string, want string) bool {
 	return false
 }
 
-// resolveEfforts flattens an agent's effort catalogue into one entry per
-// selectable model, plus "" for the provider's own default.
-//
-// The descriptor's model-independent fallback is applied HERE rather than left on
-// the wire, so a client reads efforts[model] and is done: the one place that
-// knows the fallback rule is the engine, and it stays there.
-//
-// A model with no levels is OMITTED rather than mapped to an empty list. codex is
-// exactly that case for the "" key: its catalogue is per-model with no fallback,
-// so its default model has no declared levels and a null entry would only invite
-// a client to render an empty picker for it.
 func resolveEfforts(
 	agent engineagents.Agent,
 ) map[string][]string {

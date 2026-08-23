@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// inventoryDetails reads a JSON inventory and then asks the provider about each
-// enabled row, in parallel and under a declared concurrency cap.
 type inventoryDetails struct{}
 
 type row struct {
@@ -49,8 +47,7 @@ func (a inventoryDetails) Probe(
 	if err != nil {
 		return Result{}, err
 	}
-	// A valid inventory may legitimately contain no enabled rows. That is an empty
-	// menu, not a broken one.
+
 	if len(rows) == 0 {
 		return Result{Candidates: []Candidate{}, Warnings: warnings}, nil
 	}
@@ -77,11 +74,6 @@ func (a inventoryDetails) Probe(
 	return Result{Candidates: candidates, Warnings: warnings}, nil
 }
 
-// parseRows keeps only enabled rows with a usable id.
-//
-// An id becomes one argv element of the detail command, so it is bounded and
-// screened: control characters would corrupt the command line, and a leading dash
-// would turn the value into a flag.
 func parseRows(values []any, p *spec.CatalogPipelineSpec) ([]row, []string, error) {
 	rows := make([]row, 0, len(values))
 	objectRows, invalidRows := 0, 0
@@ -104,8 +96,7 @@ func parseRows(values []any, p *spec.CatalogPipelineSpec) ([]row, []string, erro
 		id = normalize.TruncateBytes(normalize.StripControls(id), normalize.MaxIDBytes)
 		rows = append(rows, row{id: id, source: sourceOf(id, p.SourcePattern)})
 	}
-	// Output that had rows but none of them objects is not an empty inventory —
-	// it is output the descriptor cannot read.
+
 	if len(values) > 0 && objectRows == 0 {
 		return nil, nil, ErrMalformedOutput
 	}
@@ -143,13 +134,6 @@ func (inventoryDetails) fanOut(
 	return results
 }
 
-// detail asks the provider about one inventory row.
-//
-// A row that simply fails degrades to a warning rather than failing the whole
-// catalogue: one uninspectable plugin should cost that plugin's entries, not the
-// menu. Failures that indicate the WHOLE probe is compromised — the output
-// ceiling, a missing executable, cancellation — do propagate, because continuing
-// past them would publish a silently partial answer as a complete one.
 func detail(
 	ctx context.Context,
 	p *spec.CatalogPipelineSpec,
@@ -188,9 +172,6 @@ func fatal(err error) bool {
 		errors.Is(err, context.DeadlineExceeded)
 }
 
-// emptyInventory distinguishes "this source has no components" from "this output
-// is unreadable". Without it the empty case is reported as a parse failure, and a
-// plugin that legitimately ships zero skills looks broken.
 func emptyInventory(pattern string, raw []byte) bool {
 	if pattern == "" {
 		return false

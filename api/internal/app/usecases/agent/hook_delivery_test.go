@@ -54,9 +54,6 @@ func TestIngestHookDelivery_RejectsUUIDReuseWithDifferentPayload(t *testing.T) {
 	require.Contains(t, err.Error(), "different payload")
 }
 
-// The relay retries with the SAME delivery id after a lost response. Replaying
-// the effects would append the same turn twice, so the journal answers "already
-// done" instead of re-running it.
 func TestRegression_IngestHookDelivery_ARetriedDeliveryIDRunsItsEffectsOnce(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -75,8 +72,6 @@ func TestRegression_IngestHookDelivery_ARetriedDeliveryIDRunsItsEffectsOnce(t *t
 	assert.Equal(t, "the reply", turns[0].Text)
 }
 
-// Two different deliveries are two different facts, even with identical content:
-// a user really can say the same thing twice.
 func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -93,8 +88,6 @@ func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
 	assert.Len(t, turns, 2)
 }
 
-// The delivery id is Crowbar's own idempotency key, generated before the POST. A
-// value that is not one cannot be trusted to dedupe anything.
 func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing.T) {
 	f := newFixture(t)
 	_, runnerID := f.spawn(t, "claude")
@@ -106,8 +99,6 @@ func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing
 	}
 }
 
-// A hook from a runner nobody has heard of is dropped, not failed: by the time it
-// arrives the CLI has already acted, and failing it would break its turn.
 func TestIngestHookDelivery_AnUnknownRunnerIsDropped(t *testing.T) {
 	f := newFixture(t)
 
@@ -117,8 +108,6 @@ func TestIngestHookDelivery_AnUnknownRunnerIsDropped(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// The route scope already authorised the workspace, so a hook that fires BEFORE
-// its runner row exists can still be journalled durably.
 func TestIngestHookDelivery_UsesTheRouteScopeWhenTheRunnerIsNotYetPersisted(t *testing.T) {
 	f := newFixture(t)
 

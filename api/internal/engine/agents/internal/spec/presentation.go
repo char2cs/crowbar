@@ -1,23 +1,14 @@
 package spec
 
-// Prompt-delivery strategies. RestartTUI is the portable floor and the only
-// strategy this daemon implements; the field stays declared so a descriptor
-// asking for anything else is refused at load rather than delivered by a
-// mechanism it never asked for.
 const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
-// Catalogue adapters, named for the SHAPE of the output they read rather than
-// for the provider that happens to produce it.
 const (
 	CatalogAdapterJSONTextSection      = "json_text_section"
 	CatalogAdapterJSONInventoryDetails = "json_inventory_text_detail"
 )
 
-// CatalogCompleteness says exactly which provider-owned surface a deterministic
-// probe can account for. A partial inventory must never be presented as
-// complete.
 type CatalogCompleteness string
 
 const (
@@ -26,9 +17,6 @@ const (
 	CatalogCompletenessPluginOnly   = CatalogCompleteness("plugin_only")
 )
 
-// Bounds every catalogue probe is held to. They are ceilings, not defaults: a
-// descriptor may ask for less and never for more, so a descriptor edit cannot
-// widen the engine's exposure to a provider command.
 const (
 	DefaultCatalogTimeoutMS         = 10_000
 	DefaultCatalogMaxStdoutBytes    = 4 << 20
@@ -43,8 +31,6 @@ const (
 	MaxCatalogDetailConcurrency = 4
 )
 
-// PresentationSpec is an optional provider-boundary adapter. Domain, usecase and
-// UI code consume the normalised capabilities and never branch on provider id.
 type PresentationSpec struct {
 	PromptSubmit *PromptSubmitSpec `yaml:"prompt_submit"`
 	SlashCatalog *SlashCatalogSpec `yaml:"slash_catalog"`
@@ -56,10 +42,6 @@ type PromptSubmitSpec struct {
 	Resume   []InjectStep `yaml:"resume"`
 }
 
-// SlashCatalogSpec describes a bounded command pipeline. Command arrays omit the
-// executable: a probe always uses Descriptor.Spawn.Cmd and never a shell. Detail
-// templates may interpolate only a parsed inventory {id}, which remains one argv
-// element.
 type SlashCatalogSpec struct {
 	Completeness   CatalogCompleteness `yaml:"completeness"`
 	TimeoutMS      int                 `yaml:"timeout_ms"`
@@ -69,19 +51,15 @@ type SlashCatalogSpec struct {
 	Pipeline       CatalogPipelineSpec `yaml:"pipeline"`
 }
 
-// CatalogPipelineSpec is deliberately output-shape based rather than provider
-// based. Fields unused by the selected adapter must remain empty.
 type CatalogPipelineSpec struct {
 	Adapter string   `yaml:"adapter"`
 	Command []string `yaml:"command"`
 
-	// json_text_section fields.
 	TextPath    string `yaml:"text_path"`
 	StartMarker string `yaml:"start_marker"`
 	EndMarker   string `yaml:"end_marker"`
 	ItemPattern string `yaml:"item_pattern"`
 
-	// json_inventory_text_detail fields.
 	RowsPath           string   `yaml:"rows_path"`
 	EnabledField       string   `yaml:"enabled_field"`
 	IDField            string   `yaml:"id_field"`
@@ -96,9 +74,6 @@ type CatalogPipelineSpec struct {
 	Item CatalogItemMapping `yaml:"item"`
 }
 
-// CatalogItemMapping maps named regex captures and inventory values to the
-// provider-neutral result. Supported placeholders are {name}, {description},
-// {source} and {id}.
 type CatalogItemMapping struct {
 	Label       string `yaml:"label"`
 	Description string `yaml:"description"`

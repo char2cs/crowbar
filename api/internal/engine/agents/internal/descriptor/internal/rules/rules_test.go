@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// valid returns a descriptor every rule accepts. Each test mutates only what it
-// is about, so a failure names one property rather than a whole fixture.
 func valid() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe"}
 	d.Spawn.Cmd = "probe-cli"
@@ -82,8 +80,7 @@ func TestIdentityAndSpawn_RejectTheUnusableCases(t *testing.T) {
 		{"missing id", func(d *spec.Descriptor) { d.ID = "" }, "missing id"},
 		{"missing spawn.cmd", func(d *spec.Descriptor) { d.Spawn.Cmd = "" }, "missing spawn.cmd"},
 		{
-			// Crowbar hosts the ordinary interactive CLI in a real PTY and never a
-			// headless one. A descriptor that does not assert that is refused.
+
 			"interactive not asserted",
 			func(d *spec.Descriptor) { d.Spawn.InteractiveRequired = false },
 			"interactive_required",
@@ -111,10 +108,6 @@ func TestIdentityAndSpawn_RejectTheUnusableCases(t *testing.T) {
 	}
 }
 
-// TestPromptSubmit_AcceptsTheOneStrategyThisDaemonImplements pins both halves of
-// a field that would otherwise be decorative: restart_tui loads, and every other
-// spelling is refused HERE, before a chat can be pointed at a channel no Go code
-// drives. See the "unknown strategy" case below for the second half.
 func TestPromptSubmit_AcceptsTheOneStrategyThisDaemonImplements(t *testing.T) {
 	require.NoError(t, rules.Apply(withPromptSubmit(valid(), spec.DeliveryRestartTUI)))
 }
@@ -126,16 +119,13 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			// The strategy field is load-bearing rather than decorative, and this is
-			// where that is enforced. A descriptor is an on-disk override, so naming a
-			// channel this daemon cannot drive has to be refused at LOAD — never
-			// silently answered by the one channel that exists.
+
 			"unknown strategy",
 			func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Strategy = "telepathy" },
 			"unsupported strategy",
 		},
 		{
-			// The first message of a session always spawns fresh.
+
 			"no resume argument",
 			func(d *spec.Descriptor) { d.Session.Resume = nil },
 			"requires session.resume",
@@ -151,8 +141,7 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"resume is empty",
 		},
 		{
-			// A prompt reaches the CLI as argv and nothing else. A write_file here
-			// would put the user's message on disk.
+
 			"a verb other than pass_arg",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -162,7 +151,7 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"may only pass argv",
 		},
 		{
-			// Twice delivers the prompt twice.
+
 			"message placed twice",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -173,7 +162,7 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"exactly once",
 		},
 		{
-			// Never spawns a CLI that silently drops what the user typed.
+
 			"message never placed",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -242,8 +231,7 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"unsupported completeness",
 		},
 		{
-			// The ceilings are the point: a descriptor may ask for LESS exposure to
-			// a provider command and never for more.
+
 			"timeout above the ceiling",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.TimeoutMS = spec.MaxCatalogTimeoutMS + 1 },
 			"timeout_ms must be between",
@@ -271,8 +259,7 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"must be fixed non-empty argv",
 		},
 		{
-			// A template here is the one place a descriptor could smuggle
-			// caller-controlled data into a real subprocess argv.
+
 			"templated command",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Command = []string{"{message}"} },
 			"must be fixed argv",
@@ -296,7 +283,7 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"requires label and insert_text",
 		},
 		{
-			// An unrecognised placeholder survives expansion and is shown verbatim.
+
 			"item mapping with an unknown placeholder",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Item.Label = "{unknown}" },
 			"unsupported template",
@@ -441,8 +428,7 @@ func TestTelemetry_RejectsTheBrokenShapes(t *testing.T) {
 		},
 		{"callback maps nothing", func(s *spec.TelemetrySpec) { s.Callback.Fields = nil }, "maps no fields"},
 		{
-			// A closed vocabulary is what stops a typo'd key being silently ignored
-			// and the gauge it was meant to fill staying blank with no explanation.
+
 			"callback maps an unknown fact",
 			func(s *spec.TelemetrySpec) { s.Callback.Fields = map[string]string{"context.vibes": "x"} },
 			"unknown fact",
@@ -529,8 +515,6 @@ func TestTelemetry_ProbeCommandCarryingAForbiddenFlagIsRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "forbidden flag")
 }
 
-// withSelection gives a descriptor both selection blocks in the shape claude.yaml
-// declares them.
 func withSelection(d *spec.Descriptor) *spec.Descriptor {
 	d.Model = &spec.ModelSpec{
 		Available: []string{"sonnet", "opus"},
@@ -547,14 +531,10 @@ func withSelection(d *spec.Descriptor) *spec.Descriptor {
 
 func TestSelection_AcceptsBothBlocksAndTheirAbsence(t *testing.T) {
 	require.NoError(t, rules.Apply(withSelection(valid())))
-	// Absent is the codex shape and must stay valid: no picker is a capability
-	// statement, not a broken descriptor.
+
 	require.NoError(t, rules.Apply(valid()))
 }
 
-// TestSelection_AcceptsAnEmptyModelCatalogue keeps "declared but not yet
-// populated" legal. An empty LIST is a picker with nothing in it, which is
-// legible; an empty ENTRY is not (see the rejection table below).
 func TestSelection_AcceptsAnEmptyModelCatalogue(t *testing.T) {
 	d := withSelection(valid())
 	d.Model.Available = nil
@@ -569,9 +549,7 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			// The only strategy that exists. A live switch cannot be tested against
-			// either CLI, so a descriptor asking for one must fail rather than leave
-			// a picker that silently does nothing.
+
 			"model strategy is not restart_tui",
 			func(d *spec.Descriptor) { d.Model.Strategy = "live_switch" },
 			"model.strategy must be",
@@ -582,8 +560,7 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 			"effort.strategy must be",
 		},
 		{
-			// A block with no apply advertises a capability, accepts a choice and
-			// delivers it nowhere.
+
 			"model declares no apply",
 			func(d *spec.Descriptor) { d.Model.Apply = nil },
 			"model.apply is empty",
@@ -594,8 +571,7 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 			"effort.apply is empty",
 		},
 		{
-			// An empty id renders as a blank row and, if chosen, as an empty argv
-			// value behind the flag — where the next token becomes the flag's value.
+
 			"model catalogue holds an empty id",
 			func(d *spec.Descriptor) { d.Model.Available = []string{"sonnet", ""} },
 			"model.available[1] is empty",
@@ -627,9 +603,6 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 	}
 }
 
-// TestSelection_ReportsTheSameBadKeyEveryRun pins the sorted iteration. Go
-// randomises map order, so a descriptor with two bad keys would otherwise blame a
-// different one between runs and make the failure unreproducible.
 func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 	for range 20 {
 		d := withSelection(valid())
@@ -640,11 +613,6 @@ func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 	}
 }
 
-// --- terminal_prompts ---
-
-// TestApply_AcceptsDeclaredTerminalPrompts covers both shapes a descriptor may
-// declare: a needle that identifies a prompt specifically, and one that only
-// proves a modal is up.
 func TestApply_AcceptsDeclaredTerminalPrompts(t *testing.T) {
 	d := valid()
 	d.TerminalPrompts = []spec.TerminalPromptSpec{
@@ -655,10 +623,6 @@ func TestApply_AcceptsDeclaredTerminalPrompts(t *testing.T) {
 	assert.NoError(t, rules.Apply(d))
 }
 
-// TestApply_RejectsAnUnknownTerminalPromptKind is why a typo cannot ship. A kind
-// the daemon does not know would silently degrade to the generic case and look
-// like a working descriptor forever — and the one thing this feature exists to
-// prevent is a state that explains nothing.
 func TestApply_RejectsAnUnknownTerminalPromptKind(t *testing.T) {
 	d := valid()
 	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: "worksapce_trust", Needle: "x"}}
@@ -669,9 +633,6 @@ func TestApply_RejectsAnUnknownTerminalPromptKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown kind")
 }
 
-// TestApply_RejectsAContentFreeNeedle: a needle of pure punctuation reduces to the
-// empty string under the matcher's own comparison, which every screen contains —
-// so it would report every idle chat as blocked.
 func TestApply_RejectsAContentFreeNeedle(t *testing.T) {
 	d := valid()
 	d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "· ⏎ ›"}}
@@ -686,13 +647,9 @@ func TestApply_RejectsAnEmptyNeedle(t *testing.T) {
 	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
 }
 
-// TestApply_DeclaringNoTerminalPromptsIsValid pins the default. Most providers
-// will declare none, and that must never be a validation failure.
 func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
 	assert.NoError(t, rules.Apply(valid()))
 }
-
-// --- terminal_notices ---
 
 func TestApply_AcceptsADeclaredTerminalNotice(t *testing.T) {
 	d := valid()
@@ -703,14 +660,6 @@ func TestApply_AcceptsADeclaredTerminalNotice(t *testing.T) {
 	assert.NoError(t, rules.Apply(d))
 }
 
-// TestApply_RejectsAKindlessTerminalNotice is the one place this rule is STRICTER
-// than the prompt rule, and the strictness is the safety.
-//
-// An unkinded prompt needle only ever raises a banner saying "something is up". A
-// notice CLOSES A TURN — an assertion that a live process has stopped working —
-// and that assertion must not be reachable by writing a string into a YAML file.
-// Requiring a kind from the closed set obliges whoever adds one to add it in Go
-// too, where a reviewer has to look at what is being claimed.
 func TestApply_RejectsAKindlessTerminalNotice(t *testing.T) {
 	d := valid()
 	d.TerminalNotices = []spec.TerminalNoticeSpec{{Needle: "something went wrong", EndsTurn: true}}
@@ -731,9 +680,6 @@ func TestApply_RejectsAnUnknownTerminalNoticeKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown kind")
 }
 
-// TestApply_RejectsAContentFreeNoticeNeedle: such a needle reduces to the empty
-// string under the matcher's comparison, which every screen contains — so it
-// would close every working chat's turn the moment its quiet period elapsed.
 func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
 	d := valid()
 	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: spec.TerminalNoticeUsageLimit, Needle: "· ⏎ ›"}}
@@ -741,8 +687,6 @@ func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
 	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
 }
 
-// TestApply_DeclaringNoTerminalNoticesIsValid pins the default, and it is the one
-// claude ships with: declaring none must never be a validation failure.
 func TestHookVocabulary_RefusesAHalfMappedMessageDelta(t *testing.T) {
 	for _, missing := range []string{"message_id", "index", "text"} {
 		t.Run("missing "+missing, func(t *testing.T) {
@@ -771,8 +715,6 @@ func TestHookVocabulary_AcceptsAFullyMappedMessageDelta(t *testing.T) {
 	require.NoError(t, rules.Apply(d))
 }
 
-// A turn_failed that cannot say WHY is turn_stop with extra steps, and the reason
-// is the entire reason the kind exists.
 func TestHookVocabulary_RefusesATurnFailedWithNoReason(t *testing.T) {
 	d := valid()
 	d.Hooks.Events[spec.HookTurnFailed] = map[string]string{"session_id": "session_id"}
@@ -783,8 +725,6 @@ func TestHookVocabulary_RefusesATurnFailedWithNoReason(t *testing.T) {
 	assert.Contains(t, err.Error(), "turn_failed must map reason")
 }
 
-// Neither kind is required. codex declares no streaming hook at all, and a
-// descriptor omitting both must load exactly as it did before they existed.
 func TestHookVocabulary_BothNewKindsAreOptional(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
 }

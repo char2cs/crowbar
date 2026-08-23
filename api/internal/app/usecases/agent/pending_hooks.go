@@ -6,10 +6,6 @@ import (
 )
 
 const (
-	// A provider normally emits at most session_start, user_prompt and turn_stop
-	// during startup. These limits keep the pre-persistence race buffer bounded
-	// even if a local hook source is broken or hostile; the CLI relay itself caps
-	// each raw payload at 8 MiB.
 	maxPendingRunnerHooks     = 64
 	maxPendingRunnerHookBytes = 32 << 20
 )
@@ -29,17 +25,6 @@ type pendingRunnerHookEntry struct {
 	exited bool
 }
 
-// pendingRunnerHooks closes the unavoidable fork-before-persistence gap. A
-// provider can synchronously fire its startup and positional-prompt hooks as
-// soon as the PTY starts, while the runner aggregate cannot be recorded until
-// CreateCommand returns the terminal session id. Hooks for a pre-registered
-// runner are buffered in arrival order and replayed once its durable placement
-// exists.
-//
-// An entry remains installed while replay is happening. Hooks arriving during
-// replay therefore join the next batch instead of overtaking an earlier hook on
-// the normal ingestion path. The same entry records an early PTY exit so a
-// process that dies before persistence cannot leave a live runner row behind.
 type pendingRunnerHooks struct {
 	mu      sync.Mutex
 	entries map[string]*pendingRunnerHookEntry
@@ -59,8 +44,6 @@ func (p *pendingRunnerHooks) register(runnerID string) error {
 	return nil
 }
 
-// enqueue returns handled=true when runnerID is currently in its startup gap.
-// The payload is copied because the HTTP request buffer belongs to the caller.
 func (p *pendingRunnerHooks) enqueue(
 	runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
@@ -113,9 +96,6 @@ func (p *pendingRunnerHooks) enqueueHook(
 	return true, nil
 }
 
-// markExited returns true when the runner is still inside the startup barrier.
-// Its caller then defers aggregate reconciliation until finish has persisted and
-// replayed the buffered hooks.
 func (p *pendingRunnerHooks) markExited(runnerID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -133,9 +113,6 @@ func (p *pendingRunnerHooks) discard(runnerID string) {
 	delete(p.entries, runnerID)
 }
 
-// finish drains every batch in arrival order. The entry is deleted atomically
-// with observing an empty queue, so a hook either joins a replay batch or sees
-// no barrier and takes the now-persisted normal path; there is no drop window.
 func (p *pendingRunnerHooks) finish(
 	runnerID string,
 	handle func(pendingRunnerHook),

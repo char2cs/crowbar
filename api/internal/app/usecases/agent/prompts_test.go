@@ -195,11 +195,9 @@ func TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe(t *testing.T
 		require.NoError(t, err)
 		require.NoError(t, f.usecase.IngestHook(f.ctx, replacement.ID, "codex", "user_prompt",
 			mustJSON(t, map[string]any{"prompt": message})))
-		// Fail only the post-spawn lookup. The hook above has already correlated
-		// the request as accepted, but markSpawned has not stored the PTY id yet.
+
 		runners.failGet = errors.New("post-spawn runner lookup failed")
-		// Startup replay resolves the runner once before and once after acquiring
-		// the turn-start interlock. Fail only SubmitPrompt's following result read.
+
 		runners.failGetAfter = 2
 	}
 
@@ -226,8 +224,6 @@ func TestSubmitPrompt_JournalResultCommitFailureIsOutcomeUnknownAndDoesNotWedgeN
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	require.NoError(t, os.Rename(blockedDir, journalDir))
 
-	// The previous request's blank dispatch is normalized to uncertain under the
-	// chat gate, so a deliberate new request id is not blocked forever.
 	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "deliberate follow-up", uuid.NewString())
 	require.NoError(t, retryErr)
 }
@@ -288,8 +284,6 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	f.announce(t, runnerID, "known-session")
 	turn(t, f, runnerID, "codex", "completed in the known conversation")
 
-	// The native TUI opens a new conversation, then /resume selects the older
-	// known one. The second announcement moves this same process back to chatID.
 	f.announce(t, runnerID, "temporary-new-session")
 	f.announce(t, runnerID, "known-session")
 	current := f.runner(t, runnerID)
@@ -359,8 +353,7 @@ func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *t
 	requestID := uuid.NewString()
 	runners.afterGet = func(replacement domain.AgentRunner) {
 		runners.afterGet = nil
-		// SubmitPrompt has returned from spawnRunner (the startup barrier is
-		// removed) and has read the replacement, but markSpawned has not run.
+
 		f.term.exit(t, replacement.TerminalSession)
 		f.wait()
 	}
@@ -389,15 +382,6 @@ func TestSubmitPrompt_IdempotentRetryReturnsOriginalSpawnWhilePending(t *testing
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
 }
 
-// TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce is the at-most-once
-// property stated as a race rather than as a sequential retry: whatever the
-// interleaving of two submissions of one client request id, the prompt is
-// delivered once and both callers learn the same outcome.
-//
-// Delivery is serialised by the chat gate, so in practice the second submission
-// meets a completed journal record and returns it. This test does not reach the
-// journal's own duplicate report — that branch is unreachable while the gate
-// holds — it asserts the property the gate and the journal deliver together.
 func TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -423,23 +407,16 @@ func TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce(t *testing.T) {
 	first, second := <-results, <-results
 	f.wait()
 
-	// At most one replacement CLI: the outgoing one is replaced once, or not at all.
 	spawned := f.term.callCount() - spawnsBefore
 	assert.LessOrEqual(t, spawned, 1,
 		"one request id must never start two replacement CLIs (spawned %d)", spawned)
 
-	// Two successes are legitimate — that is idempotency — but only if they name
-	// the SAME delivery. Two different runners would mean the prompt was sent
-	// twice under one request id, which is the bug.
 	if first.err == nil && second.err == nil {
 		assert.Equal(t, first.dto, second.dto,
 			"an idempotent retry must return the ORIGINAL delivery, not a second one")
 	}
 }
 
-// Every guard here runs BEFORE the durable intent and before the live CLI is
-// touched, so a rejected prompt leaves the chat exactly as it found it. That is
-// what makes these client errors rather than outcome-unknown dispatches.
 func TestSubmitPrompt_RejectsBadInputBeforeTouchingAnything(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -478,8 +455,6 @@ func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
 	require.Error(t, err)
 }
 
-// A dormant chat has no CLI to replace. Telling the client that specifically is
-// what lets the UI offer "resume" instead of a generic failure.
 func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -491,9 +466,6 @@ func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
 }
 
-// A provider with no declared prompt-submit capability is TERMINAL-ONLY for this
-// operation. That is a capability statement, not a failure, and the client is
-// told which so it can point the user at the terminal.
 func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
@@ -516,21 +488,6 @@ hooks:
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }
 
-// TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI pins the
-// ONE delivery channel Crowbar has, on both shipped providers, end to end.
-//
-// It exists because a second channel was built and then withdrawn. A prompt was
-// delivered into the LIVE session through a provider background hook — it worked,
-// the process id never changed across deliveries — and it was removed anyway,
-// because the wrapper the provider builds around such a payload is visible to the
-// model and measurably degraded the answers. The verdict is a product decision
-// about output quality, so what has to be defended now is not that the mechanism
-// is gone but that its absence costs nothing: a message still reaches the CLI, it
-// still reaches it as the FINAL argv element of a REPLACEMENT process, and it is
-// still recorded as the user's own words.
-//
-// codex was never on the withdrawn channel, and is here to say so: its path is the
-// path it always had.
 func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
@@ -551,9 +508,6 @@ func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *test
 			assert.Equal(t, message, call.argv[len(call.argv)-1],
 				"the prompt is the final argv element of the replacement")
 
-			// The CLI acknowledging it is what makes the delivery real, and it is the
-			// only thing that ever writes the ledger. Recorded as the USER's: no
-			// wrapper reaches this path any more, so nothing can reclassify it.
 			require.NoError(t, f.usecase.IngestHook(f.ctx, result.RunnerID, provider, "user_prompt",
 				mustJSON(t, map[string]any{"prompt": message})))
 			f.wait()

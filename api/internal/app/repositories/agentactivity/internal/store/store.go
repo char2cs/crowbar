@@ -1,11 +1,3 @@
-// Package store owns the AgentActivity read model: the durable, queryable
-// projection of the conversation record.
-//
-// It registers ONE projection on the aggregate's asynx instance and exposes the
-// queries every reader uses — the chat log, the handoff assembler, and the
-// cross-agent MCP surface. Repair is lazy: a read that finds an empty model
-// replays the event log, exactly as the chat read model does, so a deleted
-// state directory costs a rebuild rather than a lost conversation.
 package store
 
 import (
@@ -27,12 +19,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when storing
-// its events. The aggregate lister returns raw store keys, so a rebuild must keep
-// only the events keys and strip this to recover the real id.
 const eventKeyPrefix = "events:"
 
-// Store is the read model.
 type Store struct {
 	storage   *storage.Store
 	content   *content.Store
@@ -43,7 +31,6 @@ type Store struct {
 	healOnce sync.Once
 }
 
-// New builds the read model and registers its projection.
 func New(
 	db *gormdb.DB,
 	contentRoot string,
@@ -74,7 +61,6 @@ func New(
 	return s, nil
 }
 
-// Content exposes the payload store so a reader can resolve a ref.
 func (s *Store) Content() *content.Store { return s.content }
 
 func (s *Store) onEvent(ctx context.Context, evt asynxModels.Event[domain.AgentActivity]) {
@@ -94,12 +80,6 @@ func (s *Store) onForget(ctx context.Context, evt asynxModels.Event[domain.Agent
 	}
 }
 
-// heal replays the event log into an empty read model, at most once per process.
-//
-// The guard is deliberately "empty", not "missing this chat": a chat with no
-// turns is an ordinary new chat, and replaying the entire log on every read of one
-// would be a permanent tax. An empty model, by contrast, can only mean the state
-// directory was lost.
 func (s *Store) heal(ctx context.Context) {
 	s.healOnce.Do(func() {
 		empty, err := s.storage.Empty(ctx)
@@ -112,12 +92,6 @@ func (s *Store) heal(ctx context.Context) {
 	})
 }
 
-// rebuild replays every aggregate the event log holds.
-//
-// asynx.Replay delivers each event in version order with the state at that
-// version, so feeding it the same projector the live path uses reconstructs the
-// read model exactly — including the rows for items the aggregate has long since
-// dropped from its open state.
 func (s *Store) rebuild(ctx context.Context) error {
 	lister, ok := s.es.(serialize.AggregateLister)
 	if !ok {
@@ -146,7 +120,6 @@ func (s *Store) foldReplayed(ctx context.Context, evt asynxModels.Event[domain.A
 	}
 }
 
-// Turns returns a chat's turns in order.
 func (s *Store) Turns(
 	ctx context.Context,
 	chatID string,
@@ -226,13 +199,11 @@ func (s *Store) Interruptions(
 	return s.storage.Interruptions(ctx, chatID)
 }
 
-// Choices returns a chat's prompts, pending and resolved alike.
 func (s *Store) Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
 	s.heal(ctx)
 	return s.storage.Choices(ctx, chatID)
 }
 
-// PendingChoices returns only the prompts a chat is still waiting on.
 func (s *Store) PendingChoices(
 	ctx context.Context,
 	chatID string,
@@ -251,8 +222,6 @@ func (s *Store) RecentToolCalls(
 	return s.storage.RecentToolCalls(ctx, chatIDs, since, limit)
 }
 
-// DeleteChat removes a chat's rows directly. It is the purge path's companion to
-// asynx Forget, for the case where the aggregate is dropped without an event.
 func (s *Store) DeleteChat(ctx context.Context, chatID string) error {
 	return s.storage.DeleteChat(ctx, chatID)
 }

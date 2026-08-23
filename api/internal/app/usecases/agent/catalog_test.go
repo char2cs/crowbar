@@ -106,9 +106,6 @@ func TestSlashCatalogPlacementHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// The engine's failure vocabulary is mapped to the app's so the client can say
-// WHY a menu is missing. Each arm is a different thing to tell a user, and an
-// unmapped one would surface as a bare 500.
 func TestSlashCatalog_MapsEveryEngineFailureToItsOwnAppError(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -116,19 +113,19 @@ func TestSlashCatalog_MapsEveryEngineFailureToItsOwnAppError(t *testing.T) {
 		want    error
 	}{
 		{
-			// The CLI is not installed at all.
+
 			name:    "provider command unavailable",
 			command: `"/nonexistent/crowbar-not-a-real-cli"`,
 			want:    agentusecase.ErrSlashCatalogUnavailable,
 		},
 		{
-			// It ran and said nothing a declared adapter can read.
+
 			name:    "malformed output",
 			command: `"/usr/bin/true"`,
 			want:    agentusecase.ErrSlashCatalogMalformed,
 		},
 		{
-			// It ran and failed.
+
 			name:    "command failed",
 			command: `"/usr/bin/false"`,
 			want:    agentusecase.ErrSlashCatalogCommand,
@@ -174,8 +171,6 @@ hooks:
 	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported)
 }
 
-// A catalogue describes the exact CLI that was live when the request began. A
-// dormant chat has none, so there is nothing to describe.
 func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")

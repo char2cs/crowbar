@@ -38,9 +38,6 @@ func TestPlan_RendersStaticArgsFirst(t *testing.T) {
 	assert.NotEmpty(t, plan.Executable, "a plan the caller cannot exec is not a plan")
 }
 
-// Claude's --mcp-config is VARIADIC and swallows any bare positional after it.
-// What stops that is the config step sitting immediately behind it, which only
-// holds if MCP steps are rendered BEFORE config steps.
 func TestPlan_RendersMCPStepsBeforeConfigStepsBeforeExtras(t *testing.T) {
 	d, ctx := base(t)
 	d.MCPInject = []spec.InjectStep{passArg(map[string]any{"arg": "--mcp-config", "value": "{}"})}
@@ -107,8 +104,6 @@ func TestPlan_WriteFileMaterialisesConfigUnderTheSpawnDir(t *testing.T) {
 	assert.JSONEq(t, `{"seg":"SEG"}`, string(body))
 }
 
-// The source is optional config; refusing to start a CLI because an optional file
-// is absent trades a degraded session for none at all.
 func TestPlan_WriteFileWithAMissingSourceWritesAnEmptyDestination(t *testing.T) {
 	d, ctx := base(t)
 	dst := filepath.Join(ctx.Tmp, "copied.json")
@@ -156,8 +151,6 @@ func TestPlan_WriteFileFailureCleansUpAndReports(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "a failed plan must not leave its spawn dir behind")
 }
 
-// A silently ignored verb spawns a CLI missing the config its author believed it
-// had.
 func TestPlan_AnUnknownVerbIsRefused(t *testing.T) {
 	d, ctx := base(t)
 	d.ConfigInjection = []spec.InjectStep{{Verb: "telepathy", Args: map[string]any{}}}
@@ -167,8 +160,6 @@ func TestPlan_AnUnknownVerbIsRefused(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A flag whose value is legitimately empty still needs its own argv slot, or the
-// next token silently becomes its value.
 func TestPlan_PassArgEmitsAPresentButEmptyValueAsItsOwnToken(t *testing.T) {
 	d, ctx := base(t)
 	d.ConfigInjection = []spec.InjectStep{
@@ -192,7 +183,6 @@ func TestPlan_PassArgWithNoValueKeyEmitsOnlyTheFlag(t *testing.T) {
 	assert.Equal(t, []string{"--verbose"}, plan.Argv)
 }
 
-// The hard guard: the engine must never spawn a headless CLI.
 func TestPlan_RefusesAForbiddenFlag(t *testing.T) {
 	d, ctx := base(t)
 	d.Spawn.ForbidFlags = []string{"-p", "--print"}
@@ -205,8 +195,6 @@ func TestPlan_RefusesAForbiddenFlag(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-// After an end-of-options marker everything is DATA. A user whose prompt happens
-// to be the exact text "--print" must not have their message read as a flag.
 func TestPlan_AForbiddenStringAfterEndOfOptionsIsDataNotAFlag(t *testing.T) {
 	d, ctx := base(t)
 	d.Spawn.ForbidFlags = []string{"--print"}

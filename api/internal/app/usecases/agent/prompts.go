@@ -26,8 +26,6 @@ const (
 	maxReactPromptBytes     = 64 * 1024
 )
 
-// ReadMessages returns a bounded chronological page from Crowbar's hook-derived
-// ledger. It never reads a provider transcript or provider-owned file.
 func (u *Usecase) ReadMessages(
 	ctx context.Context,
 	chatID string,
@@ -52,9 +50,6 @@ func (u *Usecase) ReadMessages(
 	return page, nil
 }
 
-// SubmitPrompt restarts a chat's current provider as another normal interactive
-// TUI and supplies text through the descriptor's documented positional prompt
-// mapping. Hooks remain the only ledger writer.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
@@ -95,10 +90,6 @@ func (u *Usecase) SubmitPrompt(
 		return dto.PromptSubmissionDTO{}, err
 	}
 
-	// Preflight can perform descriptor and record IO. Re-read placement and busy
-	// state only after it, immediately before durable dispatch, so a native turn
-	// or conversation move that happened during preflight wins with 409 rather
-	// than being killed.
 	if err := u.requirePromptIdle(ctx, chatID, live.ID); err != nil {
 		return dto.PromptSubmissionDTO{}, err
 	}
@@ -111,15 +102,7 @@ func (u *Usecase) SubmitPrompt(
 		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
 	}
 	if existingAttempt {
-		// UNREACHABLE while this function holds the chat gate: two submissions of
-		// one request id are serialised, so the second always meets a completed
-		// record at the lookup above and returns there. begin can therefore only
-		// report an existing attempt if that serialisation is ever relaxed.
-		//
-		// It is handled rather than ignored anyway, and handled by the SAME
-		// classifier the lookup uses. An empty branch here would mean that the day
-		// the gate changes, this path silently spawns a second CLI and delivers the
-		// prompt twice — the one outcome the at-most-once journal exists to prevent.
+
 		result, done, classifyErr := u.classifyPriorAttempt(
 			ctx, chat, journalDir, clientRequestID, prior,
 		)
@@ -138,12 +121,9 @@ func (u *Usecase) SubmitPrompt(
 		delivery.resuming, delivery.launchSessionID, false, text,
 	)
 	if err != nil {
-		// Once spawnRunner is entered, a process may have existed even when its
-		// persistence failed. Leave dispatching durable: retry is outcome-unknown,
-		// never a silent duplicate.
+
 		if errors.Is(err, engineterminal.ErrCommandNotFound) {
-			// Command-not-found is classified before a process exists. Retrying
-			// after installation with the same id is therefore safe.
+
 			_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
 			return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
 		}
@@ -154,12 +134,6 @@ func (u *Usecase) SubmitPrompt(
 	return u.commitPromptSpawn(ctx, journalDir, clientRequestID, textHash, runnerID)
 }
 
-// normalisePromptRequest rejects a message that cannot become argv, and pins the
-// request id to its canonical form.
-//
-// Every check here runs BEFORE the durable intent and before the live TUI is
-// touched, so each one is a definitive client error rather than an
-// outcome-unknown dispatch against a process that has already been torn down.
 func normalisePromptRequest(
 	text, clientRequestID string,
 ) (string, error) {
@@ -170,7 +144,7 @@ func normalisePromptRequest(
 		return "", fmt.Errorf("agent: submit prompt: text exceeds %d bytes: %w",
 			maxReactPromptBytes, apperr.ErrInvalidArgument)
 	}
-	// POSIX argv strings cannot contain NUL.
+
 	if strings.IndexByte(text, 0) >= 0 {
 		return "", fmt.Errorf("agent: submit prompt: text contains an unsupported NUL byte: %w",
 			apperr.ErrInvalidArgument)
@@ -183,13 +157,6 @@ func normalisePromptRequest(
 	return requestUUID.String(), nil
 }
 
-// replayPriorAttempt answers what this request id has already done.
-//
-// Idempotency precedes every current-state check: a retry after a lost HTTP
-// response must receive the original successful spawn even though that spawn has
-// since made the chat busy. done=false means the id is free to proceed — either
-// it is unknown, or its record is a FAILURE proven to precede any replacement
-// process, which is the one state a same-id retry may safely fall through.
 func (u *Usecase) replayPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -210,8 +177,6 @@ func (u *Usecase) replayPriorAttempt(
 	return u.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
 }
 
-// promptTarget resolves the process this message is for and the descriptor that
-// knows how to reach it.
 func (u *Usecase) promptTarget(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -234,15 +199,6 @@ func (u *Usecase) promptTarget(
 	return live, descriptor, nil
 }
 
-// displaceForPrompt takes the outgoing CLI off the chat so the replacement can
-// be spawned onto it.
-//
-// begin has already fsynced the at-most-once intent by the time this runs, and
-// the turn-start interlock makes the final idle check and the displacement ONE
-// atomic section with respect to native user_prompt hooks: a native prompt either
-// starts its turn first and this aborts, or displacement happens first and the
-// stale outgoing hook is dropped. Either failure marks the dispatch FAILED — both
-// are proven to precede any replacement process, so a same-id retry is safe.
 func (u *Usecase) displaceForPrompt(
 	ctx context.Context,
 	chatID, journalDir, clientRequestID, liveRunnerID string,
@@ -254,23 +210,15 @@ func (u *Usecase) displaceForPrompt(
 		_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
-	// No handoff is assembled: this is the same provider continuing its own native
-	// conversation. Fresh gets normal initial context; resume gets its native id.
+
 	if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
-		// quitOutgoingCLI surfaces terminate failure before displacement, so no
-		// replacement was attempted.
+
 		_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
 	return nil
 }
 
-// commitPromptSpawn records the replacement process's identity, which is what
-// turns a durable dispatch intent into a completed one.
-//
-// Every failure past this point is outcome-UNCERTAIN rather than failed: the
-// replacement may already hold the prompt, so a retry must never be allowed to
-// deliver it twice.
 func (u *Usecase) commitPromptSpawn(
 	ctx context.Context,
 	journalDir, clientRequestID, textHash, runnerID string,
@@ -302,11 +250,6 @@ func (u *Usecase) commitPromptSpawn(
 	return result, nil
 }
 
-// uncertainPromptOutcome deliberately keeps the internal failure out of the
-// public error chain. Several repository sentinels map to 404/500 ahead of the
-// conflict category, but once the replacement CLI may have received the prompt
-// the only safe client contract is request_outcome_uncertain/409. The cause is
-// retained in structured daemon logs for diagnosis.
 func uncertainPromptOutcome(ctx context.Context, stage string, cause error) error {
 	attrs := []any{"stage", stage}
 	if cause != nil {
@@ -343,18 +286,13 @@ func (u *Usecase) requirePromptIdle(ctx context.Context, chatID, runnerID string
 	if err != nil {
 		return fmt.Errorf("agent: submit prompt: refresh chat: %w", err)
 	}
-	// Folded async work comes from the aggregate; turns.inflight closes the
-	// projection-lag window immediately after a user_prompt hook.
+
 	if chat.Working || len(u.turns.inflight(chatID)) > 0 {
 		return ErrPromptBusy
 	}
 	return nil
 }
 
-// requireNoPendingPromptDelivery protects the replacement TUI from destructive
-// actions issued by another browser window during the short spawn-to-user_prompt
-// acknowledgement window. Callers hold the same per-chat spawn gate as prompt
-// submission, so the check and any following teardown cannot race another begin.
 func (u *Usecase) requireNoPendingPromptDelivery(ctx context.Context, chat domain.AgentChat) error {
 	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: reconcile ledger evidence: %w", err)
@@ -373,9 +311,6 @@ func (u *Usecase) requireNoPendingPromptDelivery(ctx context.Context, chat domai
 	return nil
 }
 
-// reconcilePromptJournalsOnBoot releases durable dispatch intents whose process
-// identity was never committed before the daemon died. They remain visible as
-// uncertain to same-id retries, but cease acting like a live delivery barrier.
 func (u *Usecase) reconcilePromptJournalsOnBoot(ctx context.Context) error {
 	chats, err := u.chats.ListChats(ctx)
 	if err != nil {
@@ -417,13 +352,6 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return steps
 }
 
-// classifyPriorAttempt answers what a request id's existing journal record means
-// for a submission that is trying to use it again.
-//
-// done=false means only one thing: the record is a FAILURE proven to precede any
-// replacement process, which is the single state a same-id retry may safely fall
-// through. Every other state is terminal for this submission, because a prompt
-// whose outcome is unknown must never be delivered a second time on a guess.
 func (u *Usecase) classifyPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -445,13 +373,6 @@ func (u *Usecase) classifyPriorAttempt(
 	return dto.PromptSubmissionDTO{}, false, nil
 }
 
-// recoverPriorDelivery decides an attempt whose journal record stopped short of
-// a committed outcome, by asking the conversation record whether the prompt was
-// in fact delivered.
-//
-// The answer is never a re-delivery: the worst case is reporting an unknown
-// outcome for a prompt that did arrive, which the user can see in the chat. The
-// opposite mistake would send it twice.
 func (u *Usecase) recoverPriorDelivery(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -491,14 +412,6 @@ func (u *Usecase) promptRecordAccepted(
 	return false, nil
 }
 
-// deliveredThisRequest reports whether one recorded turn is evidence that THIS
-// request's prompt reached a CLI.
-//
-// When the replacement runner id was journaled, only that runner's turn counts.
-// When it was not — the process-commit crash gap — a turn from any runner EXCEPT
-// the outgoing one is positive evidence; a legacy row with no runner attribution
-// is deliberately insufficient, because "we cannot tell who delivered this" must
-// never resolve to "we did".
 func deliveredThisRequest(
 	turn chatlog.Turn,
 	record promptRequestRecord,
@@ -512,10 +425,6 @@ func deliveredThisRequest(
 	return turn.RunnerID != "" && turn.RunnerID != record.OutgoingRunnerID
 }
 
-// reconcilePendingPromptFromLedger repairs the crash/IO gap where the
-// authoritative attributed user turn was committed but the request journal did
-// not advance. It is safe to call repeatedly: ledger evidence is append-only and
-// markAcceptedByRequest is an idempotent state assignment.
 func (u *Usecase) reconcilePendingPromptFromLedger(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -555,10 +464,6 @@ func (u *Usecase) confirmPromptAccepted(
 	)
 }
 
-// reconcilePromptRunnerDeparture closes a pending dispatch when its replacement
-// runner can no longer emit a user_prompt hook. A matching ledger user turn wins
-// and confirms delivery; only a runner with no such hook is marked failed and
-// eligible for same-id retry.
 func (u *Usecase) reconcilePromptRunnerDeparture(
 	ctx context.Context,
 	runner domain.AgentRunner,
@@ -588,15 +493,10 @@ func (u *Usecase) reconcilePromptRunnerDeparture(
 		_, _ = u.prompts.markAcceptedByRequest(dir, record.RequestID, time.Now())
 		return
 	}
-	// A process exit can race an already-issued hook HTTP request. Without a
-	// matching attributed ledger turn the honest state is uncertain, not safely
-	// failed; same-id automatic retry must never duplicate that late acceptance.
+
 	_ = u.prompts.markUncertain(dir, record.RequestID, time.Now())
 }
 
-// promptDelivery is everything resolved before dispatch about HOW one message
-// reaches the CLI: the argv that carries it, whether the replacement process
-// continues the native conversation, and which conversation that is.
 type promptDelivery struct {
 	promptSteps     []engineagents.InjectStep
 	resumeSteps     []engineagents.InjectStep
@@ -604,12 +504,6 @@ type promptDelivery struct {
 	resuming        bool
 }
 
-// resolvePromptDelivery renders the delivery for one message, and refuses it
-// when the provider has no channel Crowbar can deliver through.
-//
-// It runs entirely before the durable dispatch intent is written, so every
-// refusal here is a definitive client error rather than an outcome-unknown
-// dispatch against a process that has already been torn down.
 func (u *Usecase) resolvePromptDelivery(
 	ctx context.Context,
 	chatID string,
@@ -620,10 +514,7 @@ func (u *Usecase) resolvePromptDelivery(
 	if err != nil {
 		return promptDelivery{}, err
 	}
-	// "Can this provider take a prompt at all" is asked BEFORE "must this one
-	// replace the process": a terminal-only provider is unsupported for the same
-	// reason whatever the chat has selected, and answering the second question
-	// first would report the same refusal under a reason that is not the real one.
+
 	promptSteps, err := descriptor.PromptSteps(resuming)
 	if err != nil {
 		if errors.Is(err, engineagents.ErrPromptSubmitUnsupported) {
@@ -646,17 +537,12 @@ func (u *Usecase) resolvePromptDelivery(
 	return out, nil
 }
 
-// resumeTarget answers whether the replacement process continues the native
-// conversation this runner is in, and which conversation that is.
 func (u *Usecase) resumeTarget(
 	ctx context.Context,
 	chatID string,
 	live domain.AgentRunner,
 ) (bool, string, error) {
-	// A TUI launched with an explicit native resume target is continuing that
-	// conversation even when its session_start is still in flight, or when every
-	// existing turn predates this runner's bind timestamp. The durable launch
-	// identity is the authoritative answer for that case.
+
 	if live.LaunchSessionID != "" &&
 		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
 		return true, live.LaunchSessionID, nil
@@ -664,10 +550,7 @@ func (u *Usecase) resumeTarget(
 	if live.CurrentSession == "" {
 		return false, live.CurrentSession, nil
 	}
-	// A native TUI /resume is learned from the same append-only session history as
-	// Crowbar's own ResumeChat. Its existing turns legitimately predate this
-	// binding, so the persisted known-session fact wins over the timestamp
-	// heuristic without any provider-specific hook vocabulary.
+
 	if live.CurrentSessionResumable || live.CurrentSessionSince.IsZero() {
 		return live.CurrentSessionResumable, live.CurrentSession, nil
 	}
@@ -678,27 +561,6 @@ func (u *Usecase) resumeTarget(
 	return resuming, live.CurrentSession, nil
 }
 
-// requirePromptRestart refuses a message Crowbar has no way to deliver.
-//
-// Replacing the TUI is the ONLY delivery channel that exists, and TWO
-// INDEPENDENT AUTHORITIES can call for one:
-//
-//   - the provider's declared delivery strategy. restart_tui — what both shipped
-//     descriptors declare — respawns the CLI for every message, so the answer is
-//     already yes before anything else is asked.
-//   - a PENDING SELECTION SWITCH: the chat's model or effort has moved since this
-//     process was launched, and the model/effort block declares that a change
-//     takes effect on the next process. This one must hold ON ITS OWN, because a
-//     running CLI's model cannot be changed in place. A provider delivering
-//     prompts WITHOUT a respawn would otherwise silently run the message under
-//     the model the user just changed away from.
-//
-// When neither says yes the descriptor has asked for a delivery this daemon does
-// not implement, and the prompt is refused rather than delivered by a mechanism
-// its descriptor did not ask for. Descriptor validation refuses such a strategy
-// at load, so this is the second of two locks on the same door rather than the
-// only one — and it is the lock that survives the day a new strategy is made
-// declarable before it is made deliverable.
 func (u *Usecase) requirePromptRestart(
 	ctx context.Context,
 	chatID string,

@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// selectPath walks a dotted path across a set of JSON values, expanding arrays
-// where a segment ends in `[]`. A bare `[]` expands the current value.
-//
-// It is deliberately not a general JSONPath: descriptors declare where their
-// output lives, and a small closed grammar is one a descriptor author can predict
-// and a reviewer can check.
 func selectPath(values []any, path string) []any {
 	current := values
 	for _, segment := range strings.Split(path, ".") {
@@ -50,7 +44,6 @@ func descend(value any, key string) (any, bool) {
 	return selected, present
 }
 
-// lookupField reads a dotted path inside one inventory row.
 func lookupField(row map[string]any, path string) any {
 	var current any = row
 	for _, part := range strings.Split(path, ".") {
@@ -66,9 +59,6 @@ func lookupField(row map[string]any, path string) any {
 	return current
 }
 
-// literalSections returns the text between each start/end marker pair. Markers
-// are literal, not patterns: a descriptor author reading a CLI's help output
-// should be able to paste the delimiter they see.
 func literalSections(text, start, end string) []string {
 	sections := []string{}
 	for {

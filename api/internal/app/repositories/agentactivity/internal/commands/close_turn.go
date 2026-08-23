@@ -6,17 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CloseTurn completes the assistant turn with its hook-confirmed text.
-//
-// The closed turn keeps the id the CALLER supplied — the hook's delivery id —
-// rather than the open turn's, so a redelivered reply rewrites one row instead of
-// appending a second copy of what the agent said. The open turn's id travels on
-// the delta as SupersededTurnID so the projection can re-point the tool calls that
-// attached to it.
-//
-// A close with no open turn is not an error. Hooks arrive from a process Crowbar
-// does not control, and a turn_stop that lands after a reconcile already closed
-// the turn must not fail the hook — it records the reply on its own terms.
 type CloseTurn struct {
 	ChatID     string
 	TurnID     string
@@ -39,9 +28,6 @@ func (c CloseTurn) Validate(*domain.AgentActivity) error {
 	return requireID("close turn", "turn id", c.TurnID)
 }
 
-// inheritOpenTurn carries the open turn's start time and attribution onto the
-// reply, and reports the placeholder id the reply supersedes. Each field is taken
-// only where the close did not report one of its own.
 func inheritOpenTurn(turn, open *domain.ActivityTurn) string {
 	if open == nil {
 		return ""
@@ -72,8 +58,7 @@ func (c CloseTurn) EmitEvent(current *domain.AgentActivity) domain.AgentActivity
 		SessionID:  c.SessionID,
 		StartedAt:  c.Now,
 	}
-	// Keep when the reply actually began, and its attribution, but not the
-	// placeholder identity the open turn was minted under.
+
 	superseded := inheritOpenTurn(&turn, next.Turn)
 	turn.Text = c.Text
 	if c.Effort != "" {

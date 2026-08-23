@@ -6,12 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Abandon closes whatever this chat left open, without inventing a reply.
-//
-// It is the reconcile path: a CLI that died mid-turn cannot still be working, and
-// a turn left open would keep its chat spinning across every future boot. Nothing
-// is fabricated — the turn is closed with the text it already had, which for an
-// interrupted turn is none.
 type Abandon struct {
 	ChatID string
 	Now    time.Time
@@ -28,8 +22,7 @@ func (c Abandon) Validate(*domain.AgentActivity) error {
 func (c Abandon) EmitEvent(current *domain.AgentActivity) domain.AgentActivity {
 	next := advance(current, c.ChatID)
 	if next.Turn == nil {
-		// Nothing was open. The command still emits an event so the reconcile is
-		// recorded, but it touches nothing.
+
 		return next
 	}
 	turn := *next.Turn

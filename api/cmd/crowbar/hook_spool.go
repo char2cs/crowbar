@@ -23,9 +23,6 @@ const (
 	hookDrainLockStale = 30 * time.Second
 )
 
-// hookEnvelope is entirely Crowbar-owned. Providers supply only payload_raw;
-// the relay mints delivery_id before its first POST and preserves the whole
-// envelope until the daemon acknowledges it with a 2xx response.
 type hookEnvelope struct {
 	DeliveryID string `json:"delivery_id"`
 	SegmentID  string `json:"segment_id"`
@@ -100,13 +97,6 @@ func syncHookSpoolDir(dir string) error {
 	return nil
 }
 
-// deliverHookEnvelope posts one spooled envelope and returns the daemon's body.
-//
-// The body is returned rather than discarded because ONE instruction can come
-// back on it: stay alive, a human is being asked. Only the caller knows whether
-// the envelope just delivered is its own — the spool is drained in FIFO order and
-// may carry another process's backlog — so the decision of what to do with it is
-// made there.
 func deliverHookEnvelope(
 	ctx context.Context,
 	host string,
@@ -134,9 +124,6 @@ func deliverHookEnvelope(
 	return body, nil
 }
 
-// acquireHookDrain uses an atomic directory as a cross-process lease. Hook
-// callbacks are separate short-lived processes, while the daemon also drains
-// periodically; exactly one of them may walk the ordered spool at a time.
 func acquireHookDrain(dir string) (release func(), acquired bool, err error) {
 	lock := filepath.Join(dir, hookDrainLockName)
 	if err := os.Mkdir(lock, 0o700); err == nil {
@@ -160,20 +147,11 @@ func acquireHookDrain(dir string) (release func(), acquired bool, err error) {
 	return acquireHookDrain(dir)
 }
 
-// drainHookSpool delivers the whole spool in order. It is the daemon-side loop's
-// entry point, and the relay's when it has nothing of its own to wait on.
 func drainHookSpool(ctx context.Context, host string) error {
 	_, err := drainHookSpoolFor(ctx, host, "")
 	return err
 }
 
-// drainHookSpoolFor drains the spool and returns the daemon's reply to ONE
-// delivery — the caller's own.
-//
-// Threading the id through rather than returning the last reply matters: the
-// spool is FIFO and can hold envelopes this process never wrote, so "the last
-// 202" is somebody else's answer. An empty id asks for no reply at all, which is
-// what the daemon's periodic drain wants.
 func drainHookSpoolFor(
 	ctx context.Context,
 	host string,
@@ -199,7 +177,7 @@ func drainHookSpoolFor(
 		}
 		envelope, body, err := deliverSpooled(ctx, host, dir, name)
 		if err != nil {
-			return mine, err // preserve FIFO: never overtake an undelivered older hook
+			return mine, err
 		}
 		if deliveryID != "" && envelope.DeliveryID == deliveryID {
 			mine = body
@@ -208,8 +186,6 @@ func drainHookSpoolFor(
 	return mine, nil
 }
 
-// spooledNames is the spool's delivery ORDER: envelope files, sorted, which their
-// nanosecond-prefixed names make chronological.
 func spooledNames(entries []os.DirEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -221,9 +197,6 @@ func spooledNames(entries []os.DirEntry) []string {
 	return names
 }
 
-// deliverSpooled posts one envelope and, once the daemon has acknowledged it,
-// removes it. The removal only happens after a 2xx, which is what makes the spool
-// at-least-once: a failed delivery leaves the fsynced envelope where it was.
 func deliverSpooled(
 	ctx context.Context,
 	host, dir, name string,
@@ -231,8 +204,7 @@ func deliverSpooled(
 	path := filepath.Join(dir, name)
 	data, err := os.ReadFile(path) //nolint:gosec // listed from Crowbar-owned spool
 	if errors.Is(err, os.ErrNotExist) {
-		// Another drainer took it between the listing and now. Nothing to deliver and
-		// nothing to report: its own drain will acknowledge it.
+
 		return hookEnvelope{}, nil, nil
 	}
 	if err != nil {
@@ -255,8 +227,7 @@ func deliverSpooled(
 }
 
 func drainHookSpoolLoop(ctx context.Context, host string) {
-	// The listener starts immediately after this goroutine. A first failed pass
-	// is ordinary; the ticker retries without discarding anything.
+
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {

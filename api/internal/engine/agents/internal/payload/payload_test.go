@@ -174,8 +174,6 @@ func TestObjects_ReadsAnArrayOfObjects(t *testing.T) {
 	assert.Equal(t, "b", got[1]["header"])
 }
 
-// A provider that starts mixing scalars into a list of objects must cost that
-// entry, not the whole list.
 func TestObjects_SkipsNonObjectElements(t *testing.T) {
 	p := decode(t, `{"items":[{"k":1},"not an object",null,{"k":2}]}`)
 
@@ -227,10 +225,6 @@ func TestObject_AbsentAndWrongShapesYieldNil(t *testing.T) {
 	}
 }
 
-// TestScalar_RendersEveryJSONShapeAsComparableText covers the one reader that
-// exists purely for comparison: a descriptor spells the value it expects in
-// YAML, where everything is text, while the payload may report the same fact as
-// a string, a bool or a number.
 func TestScalar_RendersEveryJSONShapeAsComparableText(t *testing.T) {
 	p := decode(t, `{"str":"assistant","yes":true,"no":false,"whole":7,"frac":19.5}`)
 
@@ -254,10 +248,6 @@ func TestScalar_RendersEveryJSONShapeAsComparableText(t *testing.T) {
 	}
 }
 
-// TestScalar_ANullLeafIsAbsentNotTheStringNull is why Scalar exists rather than
-// a generic stringifier: a Reject rule tests for absence, and a payload that
-// spells that absence as an explicit JSON null must answer exactly like one that
-// omits the key, not like a leaf holding the word "null".
 func TestScalar_ANullLeafIsAbsentNotTheStringNull(t *testing.T) {
 	p := decode(t, `{"isSidechain":null}`)
 
@@ -288,9 +278,6 @@ func TestScalar_AbsentAndWrongShapesReportNotOK(t *testing.T) {
 	}
 }
 
-// TestScalar_AcceptsJSONNumberAndGoNumerics mirrors TestFloat_AcceptsJSONNumberAndGoNumerics:
-// Scalar shares the same numeric-shape acceptance so a value read one way and
-// compared another never disagrees about what a number is.
 func TestScalar_AcceptsJSONNumberAndGoNumerics(t *testing.T) {
 	p := map[string]any{
 		"jsonNumber": json.Number("42.5"),

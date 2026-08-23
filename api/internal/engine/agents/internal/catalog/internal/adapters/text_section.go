@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// textSection reads a JSON document containing a block of human-readable text,
-// and pulls items out of a marked section of it.
 type textSection struct{}
 
 func (textSection) Probe(
@@ -29,8 +27,6 @@ func (textSection) Probe(
 		return Result{}, ErrMalformedOutput
 	}
 
-	// Validation already compiled this, so a failure here is impossible; ignoring
-	// the error keeps the happy path readable rather than pretending otherwise.
 	pattern, _ := regexp.Compile(p.ItemPattern)
 
 	limit := s.EffectiveMaxItems() + 1
@@ -50,9 +46,7 @@ func (textSection) Probe(
 			candidates = append(candidates, matchSection(pattern, section, remaining)...)
 		}
 	}
-	// A section that never appeared means the output does not have the shape the
-	// descriptor claims. Reporting zero items would present a broken parse as an
-	// empty menu, which is indistinguishable from a provider with no skills.
+
 	if !sectionFound {
 		return Result{}, ErrMalformedOutput
 	}

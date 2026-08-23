@@ -6,12 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Interrupt records the agent being blocked on, or interrupted by, something
-// outside the turn — a permission prompt, a notification, a compaction.
-//
-// These are the events whose absence produced every legibility failure observed
-// in live testing: a provider blocked on a trust prompt rendered as silence, and
-// a compaction rendered as nothing at all.
 type Interrupt struct {
 	ChatID string
 	ID     string
@@ -37,18 +31,6 @@ func (c Interrupt) Validate(*domain.AgentActivity) error {
 func (c Interrupt) EmitEvent(current *domain.AgentActivity) domain.AgentActivity {
 	next := advance(current, c.ChatID)
 
-	// An interruption that arrives with NO TURN OPEN is a moment, not a state, and
-	// is recorded already resolved.
-	//
-	// Measured against claude 2.1.233 on 2026-08-17: a Notification saying "Claude
-	// is waiting for your input" fires a MINUTE after the turn ended. That is the
-	// agent being idle, not blocked — and held open it would render a permanent
-	// "the agent needs your attention" banner over an agent that is perfectly
-	// fine. Nothing resolves it either, because neither provider has an event
-	// that ends a notification.
-	//
-	// Blocking is therefore defined by the thing that actually distinguishes it:
-	// the agent stopped MID-TURN, with a turn still open to be blocked in.
 	idle := next.Turn == nil
 	item := domain.ActivityInterruption{
 		ID:     c.ID,
@@ -79,7 +61,6 @@ func (c Interrupt) EmitEvent(current *domain.AgentActivity) domain.AgentActivity
 	return next
 }
 
-// ResolveInterruption records an interruption ending.
 type ResolveInterruption struct {
 	ChatID string
 	ID     string

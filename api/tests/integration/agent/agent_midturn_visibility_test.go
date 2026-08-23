@@ -15,27 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds is the half of the
-// mid-turn transcript defect that TestAgent_LiveClaudeRecordsEveryMessageOfATurn
-// cannot see, and the half the user kept reporting after that one went green.
-//
-// That test reads the ledger only after awaitTurnComplete. So it proves the
-// earlier message is EVENTUALLY RECORDED, in order and exactly once — and it
-// passes just as happily if BOTH messages are drained at turn_stop, which is
-// indistinguishable from the bug: "Claude might say something, then call a tool,
-// and then say something else, and the message appears ONLY when it finished
-// working."
-//
-// Recording and visibility are different claims. Crowbar reads the provider's own
-// transcript at tool_pre (recordSaidSoFar) precisely so a message said before slow
-// work lands in the ledger WHILE the work is still running. Whether claude has
-// actually flushed that line to its JSONL by then is a fact about claude's write
-// timing that no fixture can answer — the same reason its sibling is a live test.
-//
-// So this asserts the timing directly: the first marker must be readable from the
-// ledger while the chat is STILL working. The poller runs against the same
-// ReadMessages the chat pane polls, and records the working flag at the moment it
-// first sees the marker, so a failure says which of the two states it arrived in.
 func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) {
 	requireCLI(t, "claude")
 	h := newHarness(t)
@@ -53,10 +32,6 @@ func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) 
 		secret = "SECRET-4B7C"
 	)
 
-	// The poller is started BEFORE the prompt so it cannot miss an early flush, and
-	// it samples the two facts together: is the marker readable, and is the chat
-	// still working. Sampling them in one pass is what makes "visible while
-	// working" a single observation rather than two that could straddle the edge.
 	var (
 		mu          sync.Mutex
 		seenWorking bool
@@ -113,8 +88,6 @@ func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) 
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Precondition: the script was actually followed, so a failure below is about
-	// visibility rather than about a model that skipped a step.
 	replies := assistantReplies(readLedgerTurns(t, h, wsID, chatID), "claude")
 	require.Equal(t, 1, countContaining(replies, first),
 		"precondition: the mid-turn message must be recorded exactly once (got %d replies: %q)",

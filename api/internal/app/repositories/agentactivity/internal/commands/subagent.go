@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// StartSubagent records a subagent beginning.
 type StartSubagent struct {
 	ChatID     string
 	SubagentID string
@@ -47,12 +46,6 @@ func (c StartSubagent) EmitEvent(current *domain.AgentActivity) domain.AgentActi
 	return next
 }
 
-// StopSubagent records a subagent finishing.
-//
-// Starts and stops do NOT balance on either provider — they observe different
-// populations, and traced runs have produced 1 start against 3 stops and 4
-// against 9. So a stop for an unknown id is ordinary, not a fault: it is recorded
-// on its own terms rather than dropped.
 type StopSubagent struct {
 	ChatID     string
 	SubagentID string

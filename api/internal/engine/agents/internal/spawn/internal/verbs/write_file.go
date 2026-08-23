@@ -10,11 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 )
 
-// writeFile materialises a config file under the per-spawn tmp dir.
-//
-// A missing `from:` source is tolerated with an empty destination rather than
-// failing the spawn: the source is optional config, and refusing to start a CLI
-// because an optional file is absent trades a degraded session for none at all.
 func writeFile(args Args, _ *models.SpawnPlan) error {
 	path := args.String("path")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -59,8 +54,6 @@ func copyFile(src, dst string) (err error) {
 	return nil
 }
 
-// closeBoth keeps a close failure from being swallowed while never masking the
-// original error. A dropped close on the destination hides a full disk.
 func closeBoth(primary, closeErr error) error {
 	if primary != nil {
 		return primary

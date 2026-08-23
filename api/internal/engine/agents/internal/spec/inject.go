@@ -6,9 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// InjectStep is one declarative injection verb, e.g.
-// `- pass_arg: {arg: --settings, value: x}`. The YAML is a single-key map: the
-// key is the verb, the value is its arguments.
 type InjectStep struct {
 	Verb string
 	Args map[string]any
@@ -29,8 +26,6 @@ func (s *InjectStep) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-// CloneSteps returns a deep copy of steps, so a caller handed descriptor-owned
-// steps cannot mutate the descriptor by writing through them.
 func CloneSteps(steps []InjectStep) []InjectStep {
 	out := make([]InjectStep, len(steps))
 	for i, step := range steps {
@@ -42,9 +37,6 @@ func CloneSteps(steps []InjectStep) []InjectStep {
 	return out
 }
 
-// ArgString renders an inject-step argument as a string. A nil value is empty;
-// anything not already a string is formatted with %v, which keeps YAML scalars
-// (ints, bools) usable in templates without the caller type-switching.
 func ArgString(v any) string {
 	if v == nil {
 		return ""

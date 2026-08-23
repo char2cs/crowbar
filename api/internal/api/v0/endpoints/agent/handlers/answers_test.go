@@ -17,8 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// answerRequest builds the POST a chat client makes when a human presses one of a
-// prompt's buttons.
 func answerRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	ctx, rec := newTestContext(t, http.MethodPost,
@@ -49,8 +47,6 @@ func TestAnswerChoice_ForwardsThePicksVerbatim(t *testing.T) {
 		"an elicitation's form is passed through uninterpreted")
 }
 
-// No relay is holding the gate any more: the CLI is asking at its own terminal by
-// now, so reporting success would be a lie a client cannot recover from.
 func TestAnswerChoice_APromptNobodyIsWaitingOnIsAConflict(t *testing.T) {
 	uc := &fakeAgentUsecase{answerErr: apperr.ErrConflict}
 	ctx, rec := answerRequest(t, `{"optionIds":["allow"]}`)
@@ -86,8 +82,6 @@ func TestAnswerChoice_RejectsAnEmptyOrMalformedDecision(t *testing.T) {
 	}
 }
 
-// The one instruction that can come back on a hook acknowledgement: stay alive.
-// A relay that exited here would have let the CLI's own dialog through.
 func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 	uc := &fakeAgentUsecase{
 		pendingAwait:  true,
@@ -113,8 +107,6 @@ func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 	assert.Equal(t, int64(270_000), envelope.Data.Await.WaitMS)
 }
 
-// Every other hook keeps the bare 202 it always had, so a relay with nothing to
-// wait for exits immediately.
 func TestRegression_HooksKeepsTheBare202WhenNothingIsAnswerable(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks",
@@ -141,8 +133,6 @@ func TestAwaitHookAnswer_ServesTheRenderedVerdict(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "hookSpecificOutput")
 }
 
-// "Nobody decided" is an outcome, not a failure: the relay prints nothing, exits
-// 0, and the CLI's own dialog stands.
 func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/await",
@@ -209,9 +199,6 @@ func TestAwaitHookAnswer_SurfacesAFailure(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// A pending prompt whose relay has timed out is still worth drawing — the CLI is
-// asking it — but a button on it would reach nobody. A surface that cannot tell
-// the two apart offers controls that silently fail.
 func TestChoices_StampWhetherAPromptCanStillBeAnswered(t *testing.T) {
 	uc := &fakeAgentUsecase{
 		pending: []domain.ActivityChoice{

@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 )
 
-// PendingDelivery implements termwait.Deliveries. It reports the chat's one open
-// prompt delivery, and nothing at all when the journal cannot be read: a delivery
-// that cannot be seen is not one to conclude anything about.
 func (u *Usecase) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
 	dir, err := u.promptJournalDirFor(ctx, chatID)
 	if err != nil {
@@ -25,14 +22,6 @@ func (u *Usecase) PendingDelivery(ctx context.Context, chatID string) (termwait.
 	return termwait.Delivery{RequestID: record.RequestID, RunnerID: record.RunnerID}, true
 }
 
-// SettleDelivery implements termwait.Deliveries: the CLI this prompt was handed to
-// has come to rest without producing a turn, so the record stops being a barrier.
-//
-// The ledger is consulted FIRST, and it wins. A prompt hook that did arrive is
-// better evidence than a still screen about the same delivery, and the two can
-// legitimately race — the hook landing while this tick was deciding. Recording the
-// weaker conclusion over the stronger one would leave the journal saying Crowbar
-// guessed at something a provider had actually confirmed.
 func (u *Usecase) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {

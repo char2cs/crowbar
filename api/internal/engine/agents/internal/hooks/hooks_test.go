@@ -68,8 +68,6 @@ func TestParse_UnsupportedFormatIsAnError(t *testing.T) {
 	assert.ErrorIs(t, err, hooks.ErrUnsupportedFormat)
 }
 
-// A provider without a concept simply never reports it. That is an ordinary
-// outcome the caller drops, not a failure.
 func TestParse_AnUndeclaredEventIsReportedAsUndeclared(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
@@ -78,9 +76,6 @@ func TestParse_AnUndeclaredEventIsReportedAsUndeclared(t *testing.T) {
 	assert.ErrorIs(t, err, hooks.ErrUndeclaredEvent)
 }
 
-// A CLI's hooks are not only its user's. A provider's own internal work fires the
-// same injected commands with a session id nobody has seen; what separates it is
-// that it is not a conversation at all.
 func TestParse_DropsAPayloadThatIsNotThisCLIsOwnConversation(t *testing.T) {
 	d := descriptor(
 		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
@@ -97,8 +92,6 @@ func TestParse_DropsAPayloadThatIsNotThisCLIsOwnConversation(t *testing.T) {
 		"the drop must say which declared field gave it away")
 }
 
-// An explicit JSON null decodes to a map entry that IS there, so a presence-only
-// check would let the payload through and silently undo the guard.
 func TestParse_TreatsAnExplicitNullAsAbsentForTheOwnershipGuard(t *testing.T) {
 	d := descriptor(
 		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
@@ -121,8 +114,6 @@ func TestParse_ADescriptorDeclaringNoGuardIsUnaffected(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// AsyncWork is a LEVEL the provider re-states, read as the length of a declared
-// array. A provider that names nothing reports zero forever.
 func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -197,9 +188,6 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, 42, post.Tool.DurationMS)
 }
 
-// One Crowbar concept lives at different payload paths depending on which tool
-// fired: a file edit puts it in file_path, a shell call in command. Enumerating a
-// provider's tool catalogue in the descriptor would go stale on every release.
 func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPre: {"tool_target": "tool_input.file_path,tool_input.command,tool_input.url"},

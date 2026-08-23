@@ -23,7 +23,6 @@ func withCallback(fields map[string]string, windows ...spec.TelemetryRateLimitMa
 	}
 }
 
-// The shape claude actually sends, measured 2026-08-17.
 const claudeStatusLine = `{
   "context_window":{"context_window_size":200000,"used_percentage":19,
                     "remaining_percentage":81,"total_input_tokens":37117},
@@ -82,8 +81,6 @@ func TestParseCallback_MapsEveryReportedFact(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 8, 17, 15, 0, 0, 0, time.UTC), got.RateLimits[0].ResetsAt.UTC())
 }
 
-// Usage is null until the first turn completes, so an early report is genuinely
-// empty rather than a reset. It must not render as a gauge at zero.
 func TestParseCallback_AFreshSessionReportsNothingRatherThanZero(t *testing.T) {
 	got, err := telemetry.ParseCallback(claudeDescriptor(),
 		[]byte(`{"context_window":null,"cost":null,"model":null,"rate_limits":null}`), at)
@@ -108,8 +105,6 @@ func TestParseCallback_AGroupWithOneReportedFactIsPresent(t *testing.T) {
 	assert.Nil(t, got.Context)
 }
 
-// A percentage is computed only when BOTH operands were reported. Anything beyond
-// that would be an estimate wearing a gauge's clothes.
 func TestParseCallback_DerivesOnlyWhatFollowsArithmeticallyFromReportedFacts(t *testing.T) {
 	d := withCallback(map[string]string{
 		spec.FactContextCapacityTokens: "cap",
@@ -157,8 +152,6 @@ func TestParseCallback_AReportedPercentageIsNeverOverwritten(t *testing.T) {
 		"what the provider reported wins over what Crowbar could compute")
 }
 
-// A window the provider did not report this time is omitted rather than carried
-// as an empty row the UI renders as a gauge at zero.
 func TestParseCallback_OmitsAnUnreportedRateLimitWindow(t *testing.T) {
 	d := withCallback(
 		map[string]string{spec.FactModelID: "model.id"},

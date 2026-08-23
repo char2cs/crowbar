@@ -65,9 +65,6 @@ func TestOpenTurn_StartsTheTurnToolsAttachTo(t *testing.T) {
 	assert.Equal(t, domain.DeltaOpen, got.Last.Phase)
 }
 
-// A turn that was never closed cannot be waiting for anything: the CLI is
-// demonstrably talking again, and an interrupted turn is closed by nothing at all
-// because an ESC fires no hook on either provider.
 func TestOpenTurn_SupersedesWhateverTheLastTurnLeftInFlight(t *testing.T) {
 	prior := commands.InvokeTool{ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: now}.
 		EmitEvent(nil)
@@ -98,8 +95,6 @@ func TestCloseTurn_CompletesTheOpenTurnWithItsText(t *testing.T) {
 	require.NotNil(t, got.Last.Turn.EndedAt)
 }
 
-// Hooks arrive from a process Crowbar does not control. A close that lands after
-// a reconcile already closed the turn must record the reply, not fail the hook.
 func TestCloseTurn_WithNoOpenTurnStillRecordsTheReply(t *testing.T) {
 	c := commands.CloseTurn{ChatID: chat, TurnID: "t9", ProviderID: "codex", Text: "late", Now: now}
 
@@ -129,8 +124,6 @@ func TestInvokeTool_RecordsTheCallAndHoldsItOpen(t *testing.T) {
 	assert.Equal(t, domain.DeltaOpen, got.Last.Phase)
 }
 
-// A tool call with no open turn still belongs to the conversation. Refusing it
-// would silently lose the very activity this exists to show.
 func TestInvokeTool_WithNoOpenTurnOpensOneImplicitly(t *testing.T) {
 	got := commands.InvokeTool{ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: now}.EmitEvent(nil)
 
@@ -162,8 +155,6 @@ func TestCompleteTool_ClosesTheCallAndCarriesTheInvocationForward(t *testing.T) 
 	require.NotNil(t, got.Last.Tool.EndedAt)
 }
 
-// A post hook that omits the tool name must not erase the name the pre hook gave
-// us.
 func TestCompleteTool_DoesNotOverwriteWithWhatItDidNotReport(t *testing.T) {
 	invoked := commands.InvokeTool{ChatID: chat, ToolID: "t", Name: "Edit", Target: "a.go", Now: now}.
 		EmitEvent(nil)
@@ -187,7 +178,6 @@ func TestCompleteTool_FallsBackToObservedDurationOnlyWhenAStartWasSeen(t *testin
 		"a duration Crowbar never observed must not be invented")
 }
 
-// A dropped completion would show a tool as running forever.
 func TestCompleteTool_ForAnUnseenCallStillLeavesALegibleRecord(t *testing.T) {
 	got := commands.CompleteTool{
 		ChatID: chat, ToolID: "t", Name: "Read", Status: domain.ToolStatusError, Now: now,
@@ -198,8 +188,6 @@ func TestCompleteTool_ForAnUnseenCallStillLeavesALegibleRecord(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusError, got.Last.Tool.Status)
 }
 
-// Starts and stops do not balance on either provider — they observe different
-// populations — so a stop for an unknown id is ordinary, not a fault.
 func TestSubagent_StopWithoutAStartIsRecordedOnItsOwnTerms(t *testing.T) {
 	got := commands.StopSubagent{ChatID: chat, SubagentID: "a1", AgentType: "explore", Now: now}.
 		EmitEvent(nil)
@@ -223,7 +211,7 @@ func TestSubagent_StartThenStopClosesTheSameRecord(t *testing.T) {
 }
 
 func TestInterrupt_OpensAndResolvesTheSameRecord(t *testing.T) {
-	// Mid-turn, which is what makes it a BLOCKING state rather than a moment.
+
 	turn := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	opened := commands.Interrupt{
 		ChatID: chat, ID: "i1", Kind: "compaction", Detail: "auto", Now: now,
@@ -239,9 +227,6 @@ func TestInterrupt_OpensAndResolvesTheSameRecord(t *testing.T) {
 	assert.Equal(t, "auto", resolved.Last.Interruption.Detail)
 }
 
-// An interruption with no turn open is a MOMENT, not a state: claude's "waiting
-// for your input" notification fires a minute after a turn ends, and nothing
-// resolves it. Held open it renders a permanent alarm over an idle agent.
 func TestInterrupt_OutsideATurnIsRecordedAlreadyResolved(t *testing.T) {
 	got := commands.Interrupt{
 		ChatID: chat, ID: "i1", Kind: "notification",
@@ -271,8 +256,6 @@ func TestResolveInterruption_ForAnUnseenIDStillRecords(t *testing.T) {
 	require.NotNil(t, got.Last.Interruption.ResolvedAt)
 }
 
-// A CLI that died mid-turn cannot still be working, and a turn left open would
-// keep its chat spinning across every future boot. Nothing is fabricated.
 func TestAbandon_ClosesWhatWasOpenWithoutInventingAReply(t *testing.T) {
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: now}.
 		EmitEvent(nil)
@@ -294,9 +277,6 @@ func TestAbandon_WithNothingOpenTouchesNothing(t *testing.T) {
 	assert.Equal(t, int64(1), got.Seq)
 }
 
-// EmitEvent must be pure: asynx diffs the emitted value against the previous one,
-// so a map mutated in place is the same map on both sides and the patch comes out
-// empty — the change would simply vanish.
 func TestEmitEvent_NeverMutatesThePreviousAggregate(t *testing.T) {
 	prior := commands.InvokeTool{ChatID: chat, ToolID: "keep", Now: now}.EmitEvent(nil)
 	before := len(prior.Tools)
@@ -312,8 +292,6 @@ func TestEmitEvent_NeverMutatesThePreviousAggregate(t *testing.T) {
 	assert.Empty(t, prior.Interruptions)
 }
 
-// A provider that opens items and never closes them must not grow the aggregate
-// without bound — the property this whole shape exists to hold.
 func TestOpenState_IsCappedSoALeakyProviderCannotGrowTheAggregate(t *testing.T) {
 	state := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 
@@ -353,8 +331,6 @@ func TestEveryCommand_NamesItsAggregateAndEvent(t *testing.T) {
 	}
 }
 
-// Turn boundaries snapshot; the high-frequency events do not. A snapshot at each
-// boundary already bounds a cold load to one turn's worth of deltas.
 func TestSnapshotPolicy_FollowsEventFrequency(t *testing.T) {
 	boundaries := []asynxModels.Command[domain.AgentActivity]{
 		commands.AppendTurn{}, commands.OpenTurn{}, commands.CloseTurn{}, commands.Abandon{},
@@ -408,13 +384,8 @@ func itoa(v int) string {
 	return string(buf[i:])
 }
 
-// Measured against claude 2.1.233 on 2026-08-17: an anonymous SubagentStop fires
-// SECONDS AFTER the reply is complete. Letting a close-side event conjure a turn
-// left one standing, so the idle "Claude is waiting for your input" notification
-// that arrived a minute later read as the agent being BLOCKED mid-turn — a
-// permanent alarm over an agent that was perfectly fine.
 func TestRegression_ACloseSideEventNeverConjuresATurn(t *testing.T) {
-	// A completed turn: nothing is open.
+
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	closed := commands.CloseTurn{ChatID: chat, TurnID: "reply", Text: "done", Now: now}.
 		EmitEvent(&opened)
@@ -444,8 +415,6 @@ func TestRegression_ACloseSideEventNeverConjuresATurn(t *testing.T) {
 	}
 }
 
-// The consequence the regression exists for, end to end in the aggregate: a late
-// close does not make a subsequent idle notification look like a blocked agent.
 func TestRegression_ALateSubagentStopDoesNotMakeAnIdleNotificationLookBlocking(t *testing.T) {
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	closed := commands.CloseTurn{ChatID: chat, TurnID: "reply", Text: "done", Now: now}.

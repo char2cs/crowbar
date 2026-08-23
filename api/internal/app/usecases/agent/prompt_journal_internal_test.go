@@ -12,20 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// The prompt journal is the at-most-once record that stands between a user
-// pressing send and a destructive process replacement. It is reached directly
-// here because it IS a state machine over files: driving it through a spawn would
-// test the spawn, and the states that matter most are the ones a crash leaves
-// behind, which no successful spawn ever produces.
-
-// The clock is REAL, not a fixed instant: the journal's own recovery treats a
-// dispatch older than its grace period as orphaned, so a hard-coded past time
-// would silently recover every record before the test could assert on it.
 var jnow = time.Now()
 
-// requireSettled retires a record and asserts it actually was. `settle` reporting
-// false is not an error — it is how the journal declines a record that never
-// reached a process, or one a provider hook already accounted for.
 func requireSettled(t *testing.T, j *promptJournal, dir, requestID string) {
 	t.Helper()
 	retired, err := j.settle(dir, requestID, jnow)
@@ -52,8 +40,6 @@ func TestJournal_BeginRecordsADispatchingIntent(t *testing.T) {
 	assert.Equal(t, "runner-out", record.OutgoingRunnerID)
 }
 
-// The intent must be on disk BEFORE anything destructive happens, so a crash in
-// between is recoverable rather than ambiguous.
 func TestJournal_BeginIsDurableBeforeItReturns(t *testing.T) {
 	j, dir := journal(t)
 
@@ -66,8 +52,6 @@ func TestJournal_BeginIsDurableBeforeItReturns(t *testing.T) {
 	assert.Equal(t, promptStateDispatching, found.State)
 }
 
-// The same id with DIFFERENT text is a client bug, not a retry: answering it with
-// the first attempt's result would report success for a message never sent.
 func TestJournal_RejectsAReusedRequestIDWithDifferentText(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
@@ -78,8 +62,6 @@ func TestJournal_RejectsAReusedRequestIDWithDifferentText(t *testing.T) {
 	assert.ErrorIs(t, err, ErrPromptRequestIDConflict)
 }
 
-// Only a failure proven to precede the replacement process may retry: any other
-// state means a process may exist, and a second one would deliver twice.
 func TestJournal_OnlyAFailedRecordFallsThroughToARetry(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -119,8 +101,6 @@ func TestJournal_RejectsAnUnknownStoredState(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A request whose CLI is already up blocks the next one: the chat has one CLI,
-// and starting a second delivery would replace a process mid-answer.
 func TestJournal_RefusesASecondRequestWhileOneIsSpawned(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
@@ -133,11 +113,6 @@ func TestJournal_RefusesASecondRequestWhileOneIsSpawned(t *testing.T) {
 	assert.ErrorIs(t, err, ErrPromptBusy)
 }
 
-// A record still reading `dispatching` when anything else touches the journal is
-// by definition ORPHANED: begin and its outcome are written inside one call under
-// the chat gate, so nobody legitimately observes the intermediate state. It is
-// recovered to `uncertain` rather than retried, because a replacement process may
-// already exist and a blind retry would deliver the prompt twice.
 func TestJournal_ADispatchingRecordIsOrphanedByDefinition(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
@@ -280,8 +255,6 @@ func TestJournal_ActiveForRunnerFindsTheRequestARunnerIsDelivering(t *testing.T)
 	assert.False(t, ok)
 }
 
-// A dispatch left mid-flight by a crash cannot be retried blindly: the process
-// may have existed. Recovery moves it to a state that says exactly that.
 func TestJournal_RecoversOrphanedDispatchesToUncertain(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
@@ -305,10 +278,6 @@ func TestJournal_ReadsTolerateAMissingDirectory(t *testing.T) {
 	assert.False(t, pending)
 }
 
-// An unreadable record fails the whole scan rather than being skipped, and that
-// is deliberate: a journal it cannot fully read cannot answer "has this prompt
-// already been delivered", and guessing there means delivering twice. Records are
-// written temp-then-rename, so a partial one is not a state the writer produces.
 func TestJournal_RefusesToAnswerFromAJournalItCannotFullyRead(t *testing.T) {
 	j, dir := journal(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "corrupt.json"), []byte("{not json"), 0o600))
@@ -318,7 +287,6 @@ func TestJournal_RefusesToAnswerFromAJournalItCannotFullyRead(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The journal is unbounded otherwise: one file per prompt, for the life of a chat.
 func TestJournal_PrunesSettledRecordsAndKeepsUnsettledOnes(t *testing.T) {
 	j, dir := journal(t)
 	old := jnow.Add(-90 * 24 * time.Hour)
@@ -358,13 +326,6 @@ func mustRecord(t *testing.T, dir, id string) promptRequestRecord {
 	return record
 }
 
-// TestRegression_SettledDeliveryStopsBlockingTheChat.
-//
-// The measured wedge: a provider built-in produces no prompt hook, so the spawned
-// record was never acknowledged, and an active record refuses BOTH the next
-// submission (begin → ErrPromptBusy) and every destructive action on the chat
-// (requireNoPendingPromptDelivery → ErrPromptBusy). Nothing in the daemon retired
-// it, so the chat stayed wedged until its runner was replaced.
 func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
@@ -388,8 +349,6 @@ func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	assert.NoError(t, err, "the next prompt must be accepted once nothing is owed")
 }
 
-// Settling is not forgetting. The delivery DID reach a CLI, so the same id must
-// still be answered as already-delivered rather than sent a second time.
 func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
@@ -406,8 +365,6 @@ func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
 	assert.Equal(t, promptStateSettled, record.State)
 }
 
-// A real hook is better evidence about the same delivery than a screen that
-// stopped moving, so it wins even after Crowbar has concluded otherwise.
 func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
@@ -425,9 +382,6 @@ func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
 	assert.Equal(t, promptStateAccepted, found.State)
 }
 
-// Only a spawned record settles. Accepted is strictly better evidence and must
-// never be walked back to a conclusion Crowbar drew from pixels; dispatching never
-// reached a process at all.
 func TestJournal_SettleOnlyRetiresASpawnedRecord(t *testing.T) {
 	for _, tc := range []struct {
 		name string

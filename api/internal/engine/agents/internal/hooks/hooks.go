@@ -1,10 +1,3 @@
-// Package hooks turns a raw provider hook payload into a Crowbar event.
-//
-// Three things happen here, in this order, and they are deliberately not
-// separable by a caller: decode, ownership-check, map. The ownership check is the
-// guard that stops a provider's own internal work being filed as the user's
-// conversation, and a guard a caller can forget to call is a guard that will
-// eventually be forgotten.
 package hooks
 
 import (
@@ -19,20 +12,13 @@ import (
 )
 
 var (
-	// ErrUnsupportedFormat reports a descriptor declaring a payload encoding the
-	// engine cannot read.
 	ErrUnsupportedFormat = errors.New("agents: unsupported hook format")
-	// ErrUndeclaredEvent reports a canonical kind this descriptor does not map.
-	// Not every provider has every concept, so this is an ordinary outcome the
-	// caller drops rather than a failure.
+
 	ErrUndeclaredEvent = errors.New("agents: undeclared hook event")
-	// ErrForeignConversation reports a payload that is not the CLI's own
-	// user-facing conversation.
+
 	ErrForeignConversation = errors.New("agents: hook does not describe this CLI's own conversation")
 )
 
-// ForeignConversationError carries which declared field gave the payload away, so
-// the drop can be logged with a reason instead of a shrug.
 type ForeignConversationError struct {
 	Field string
 }
@@ -43,8 +29,6 @@ func (e *ForeignConversationError) Error() string {
 
 func (e *ForeignConversationError) Unwrap() error { return ErrForeignConversation }
 
-// Parse decodes raw, rejects payloads that are not this CLI's own conversation,
-// and maps the declared fields into a Crowbar event.
 func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEvent, error) {
 	decoded, err := decode(d, raw)
 	if err != nil {
@@ -74,17 +58,6 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 	return m, nil
 }
 
-// ownsConversation reports whether a payload describes the CLI's OWN user-facing
-// conversation — the only kind Crowbar hosts.
-//
-// The rule is entirely the descriptor's: the engine only checks that what the
-// provider declared as always-present actually is. Nothing here knows what a
-// transcript is, so no provider vocabulary is interpreted.
-//
-// "Present" means a NON-EMPTY STRING, and it has to: the payload this exists to
-// reject spells its absent transcript as an explicit JSON null, which decodes to
-// a map entry that IS there. A presence-only check would pass it and silently
-// undo the guard.
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.Hooks.RequirePayloadFields {
 		if payload.String(decoded, field) == "" {
@@ -94,10 +67,6 @@ func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool)
 	return "", true
 }
 
-// build assembles the event for one canonical kind. Every reader is total: a
-// field the descriptor did not map, or a provider that stopped sending one, lands
-// on the zero value rather than on an error, because a hook must never break the
-// vendor CLI's turn.
 func build(canonical string, fields map[string]string, decoded map[string]any) models.CanonicalEvent {
 	get := func(name string) string { return firstNonEmpty(decoded, fields[name]) }
 
@@ -141,12 +110,6 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 	return ev
 }
 
-// buildDelta reads one increment of an assistant message.
-//
-// Index defaults to zero and Final to false when a provider omits them, which is
-// the safe direction for both: a missing index reads as the start of a message
-// rather than as a gap, and a missing Final leaves the message open rather than
-// closing one the provider never said was done.
 func buildDelta(fields map[string]string, decoded map[string]any) *models.MessageDelta {
 	index, _ := payload.Int(decoded, fields["index"])
 	final, _ := payload.Bool(decoded, fields["final"])
@@ -166,10 +129,7 @@ func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEve
 		Name:   firstNonEmpty(decoded, fields["tool_name"]),
 		Target: firstNonEmpty(decoded, fields["tool_target"]),
 		Input:  payload.JSON(decoded, fields["tool_input"]),
-		// tool_result takes the SAME alternation the target does, and for the same
-		// reason: a failing tool reports what happened under a different key from a
-		// succeeding one (claude 2.1.234 puts it in `error`, measured 2026-08-17), and
-		// the full text belongs in the content store either way.
+
 		Result:     firstNonEmptyJSON(decoded, fields["tool_result"]),
 		Error:      firstNonEmpty(decoded, fields["tool_error"]),
 		Status:     firstNonEmpty(decoded, fields["tool_status"]),
@@ -177,8 +137,6 @@ func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEve
 	}
 }
 
-// firstNonEmptyJSON is firstNonEmpty over a SUBTREE rather than a string leaf: it
-// returns the first path in an alternation whose leaf encodes to anything.
 func firstNonEmptyJSON(decoded map[string]any, mapping string) []byte {
 	if mapping == "" {
 		return nil
@@ -194,18 +152,6 @@ func firstNonEmptyJSON(decoded map[string]any, mapping string) []byte {
 	return nil
 }
 
-// firstNonEmpty reads the first path in a comma-separated ALTERNATION that
-// yields a value.
-//
-// It exists for one honest reason: a single provider concept can live at
-// different payload paths depending on which tool fired. Claude's tool target is
-// `tool_input.file_path` for a file edit and `tool_input.command` for a shell
-// call, and there is no one path that answers both. The alternative — a per-tool
-// mapping table in the descriptor — would make the descriptor enumerate a
-// provider's tool catalogue, which goes stale on every provider release.
-//
-// Dotted paths contain no commas, so the separator is unambiguous. A mapping with
-// no comma behaves exactly as a plain path.
 func firstNonEmpty(decoded map[string]any, mapping string) string {
 	if mapping == "" {
 		return ""
@@ -221,9 +167,6 @@ func firstNonEmpty(decoded map[string]any, mapping string) string {
 	return ""
 }
 
-// Declared returns the canonical kinds this descriptor maps, sorted, so a caller
-// can report what an agent can and cannot observe rather than showing an empty
-// panel that looks broken.
 func Declared(d *spec.Descriptor) []string {
 	if d == nil {
 		return nil

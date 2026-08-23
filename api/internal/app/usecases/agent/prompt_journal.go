@@ -26,26 +26,9 @@ const (
 	promptStateFailed      = "failed"
 	promptStateUncertain   = "uncertain"
 
-	// promptStateSettled is a delivery that reached a CLI and is OVER, without any
-	// prompt hook ever acknowledging it.
-	//
-	// It exists because "every delivered prompt produces a turn" is false for every
-	// CLI's built-in commands. /compact is handled inside claude's own client: no
-	// UserPromptSubmit, no Stop, nothing. A record waiting on that acknowledgement
-	// is never retired, and since an active record refuses the next submission and
-	// every destructive action on the chat, one built-in wedged the chat until its
-	// runner was replaced.
-	//
-	// TERMINAL, so it stops being a barrier, and DISTINCT from accepted, because
-	// accepted means a provider hook said so and this means Crowbar concluded it
-	// from a screen that stopped moving. To a same-id retry the two are the same
-	// answer: already delivered, do not send it twice.
 	promptStateSettled = "settled"
 )
 
-// promptRequestRecord is Crowbar's durable at-most-once delivery journal. It
-// deliberately stores only a digest of the prompt; the hook-derived ledger is
-// the sole durable conversation transcript.
 type promptRequestRecord struct {
 	RequestID         string    `json:"requestId"`
 	TextHash          string    `json:"textHash"`
@@ -65,9 +48,6 @@ func (r promptRequestRecord) result() dto.PromptSubmissionDTO {
 	}
 }
 
-// promptJournal serializes request-record transitions against hook confirmation.
-// The chat spawn gate serializes submissions, but hooks intentionally never take
-// that gate and may confirm argv delivery the instant a replacement CLI starts.
 type promptJournal struct {
 	mu      sync.Mutex
 	syncDir func(string) error
@@ -102,11 +82,7 @@ func (j *promptJournal) lookup(
 	if record.TextHash != textHash {
 		return promptRequestRecord{}, false, ErrPromptRequestIDConflict
 	}
-	// SubmitPrompt serializes on the chat gate. If a later request observes a
-	// dispatching record, the attempt that wrote it is no longer in its
-	// synchronous spawn section; it crashed or returned uncertain before it
-	// could commit a result. Persist that truth lazily so it cannot block all
-	// future request ids until the next daemon restart.
+
 	if record.State == promptStateDispatching {
 		record.State = promptStateUncertain
 		record.UpdatedAt = time.Now().UTC()
@@ -117,10 +93,6 @@ func (j *promptJournal) lookup(
 	return record, true, nil
 }
 
-// begin returns an existing same-request record, or persists the dispatching
-// intent before the caller performs any destructive process mutation. A
-// different active request blocks the no-hook window between replacement spawn
-// and the provider accepting its argv prompt.
 func (j *promptJournal) begin(
 	dir, requestID, textHash, providerID, outgoingRunnerID, replacementRunnerID string,
 	now time.Time,
@@ -137,9 +109,7 @@ func (j *promptJournal) begin(
 		return promptRequestRecord{}, false, fmt.Errorf("agent: prompt journal: mkdir: %w", err)
 	}
 	if dirWasMissing {
-		// MkdirAll returning only says the directory is visible to this process.
-		// Persist the new prompt-requests entry in the chat directory before the
-		// first intent is allowed to precede destructive process mutation.
+
 		if err := j.syncDir(filepath.Dir(dir)); err != nil {
 			return promptRequestRecord{}, false, err
 		}
@@ -156,8 +126,7 @@ func (j *promptJournal) begin(
 		case promptStateSpawned, promptStateAccepted, promptStateSettled, promptStateDispatching:
 			return existing, true, nil
 		case promptStateFailed:
-			// Only failures proven to happen before the replacement process
-			// starts reach this state. The same id may safely retry that text.
+
 		case promptStateUncertain:
 			return existing, true, nil
 		default:
@@ -212,9 +181,7 @@ func (j *promptJournal) markSpawned(
 	}
 	record.RunnerID = result.RunnerID
 	record.TerminalSessionID = result.TerminalSessionID
-	// A fast user_prompt hook or PTY exit may already have confirmed or made
-	// this request uncertain while spawnRunner was returning. Only the original
-	// dispatching state advances to spawned; never overwrite either outcome.
+
 	if record.State == promptStateDispatching {
 		record.State = promptStateSpawned
 	}
@@ -226,8 +193,6 @@ func (j *promptJournal) markSpawned(
 	return record, nil
 }
 
-// confirmAccepted correlates the provider's real user_prompt hook with the one
-// active dispatch by runner, provider and text digest. It stores no plaintext.
 func (j *promptJournal) confirmAccepted(
 	dir, runnerID, providerID, textHash string,
 	now time.Time,
@@ -243,10 +208,7 @@ func (j *promptJournal) confirmAccepted(
 		return err
 	}
 	for _, record := range records {
-		// A settled record is upgraded rather than skipped. Crowbar concluded that
-		// delivery was over without an acknowledgement; a real hook arriving
-		// afterwards is better evidence about the same delivery, and the journal
-		// should record the better evidence.
+
 		if record.State != promptStateDispatching &&
 			record.State != promptStateSpawned &&
 			record.State != promptStateUncertain &&
@@ -324,12 +286,6 @@ func (j *promptJournal) markAcceptedByRequest(
 	return record, j.write(dir, record)
 }
 
-// settle retires a spawned record whose CLI came to rest without producing a turn.
-//
-// Only a SPAWNED record settles. A dispatching one has not reached a process at
-// all, and every other state is already terminal — including accepted, which is
-// strictly better evidence and must never be walked back to a conclusion Crowbar
-// drew from pixels.
 func (j *promptJournal) settle(
 	dir, requestID string,
 	now time.Time,
@@ -370,10 +326,7 @@ func (j *promptJournal) activeForRunner(
 		if record.ProviderID != providerID {
 			continue
 		}
-		// A dispatching record has no replacement runner id yet. It must not
-		// attach itself to the outgoing same-provider runner that SubmitPrompt is
-		// currently displacing; only mark a record failed for the exact runner
-		// durably written after spawn.
+
 		if record.RunnerID != "" && record.RunnerID == runnerID {
 			return record, true, nil
 		}
@@ -410,11 +363,6 @@ func (j *promptJournal) activeDelivery(dir string) (promptRequestRecord, bool, e
 	return record, record.RequestID != "", nil
 }
 
-// recoverOrphanedDispatches runs after a daemon restart and lazily under the
-// per-chat spawn gate. A dispatching record is an attempt whose synchronous
-// submit section did not reach a durable result. No in-memory callback survived
-// (or no prior submit still holds the gate) to resolve it, so it must become
-// explicitly uncertain; leaving it dispatching would block the chat forever.
 func (j *promptJournal) recoverOrphanedDispatches(dir string, now time.Time) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -542,10 +490,6 @@ func writePromptRecord(
 	return nil
 }
 
-// syncPromptJournalDir makes the rename durable. A successful rename with an
-// unsynced parent is not a durable intent: power loss may erase the directory
-// entry even though the process has already moved on to destructive TUI teardown.
-// Every open/sync/close error is therefore part of the journal write result.
 func syncPromptJournalDir(dir string) error {
 	dh, err := os.Open(dir) //nolint:gosec // daemon-owned journal directory
 	if err != nil {
@@ -559,9 +503,6 @@ func syncPromptJournalDir(dir string) error {
 	return nil
 }
 
-// prunePromptRecords bounds durable idempotency history without ever removing
-// an active request. It is best-effort: failure to clean old metadata must not
-// turn a successful provider spawn into an HTTP failure.
 func prunePromptRecords(dir string, now time.Time) {
 	records, err := readPromptRecords(dir)
 	if err != nil {
@@ -570,10 +511,7 @@ func prunePromptRecords(dir string, now time.Time) {
 	sort.Slice(records, func(i, k int) bool { return records[i].UpdatedAt.Before(records[k].UpdatedAt) })
 	removable := make([]promptRequestRecord, 0, len(records))
 	for _, record := range records {
-		// Uncertain is an unresolved at-most-once tombstone, not ordinary
-		// history. A frontend may retry its UUID indefinitely; deleting it would
-		// turn that retry into a fresh duplicate. It is therefore retained without
-		// age/count expiry until positive acceptance evidence changes its state.
+
 		if record.State != promptStateDispatching &&
 			record.State != promptStateSpawned &&
 			record.State != promptStateUncertain {

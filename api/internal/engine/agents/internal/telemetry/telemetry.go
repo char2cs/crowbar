@@ -1,15 +1,3 @@
-// Package telemetry maps a provider's cost and capacity report onto Crowbar
-// facts.
-//
-// It models the FACTS, not the transport. Claude bundles context, cost, rate
-// limits and model identity into one payload; another provider will split them
-// differently, and a third will report only one of them. Each fact is therefore
-// independently optional, and a descriptor's field map is the only thing that
-// knows a provider's shape.
-//
-// Nothing is derived that was not reported. A percentage is computed only when
-// capacity and usage are BOTH known, because a wrong gauge is worse than no
-// gauge.
 package telemetry
 
 import (
@@ -29,13 +17,11 @@ import (
 )
 
 var (
-	// ErrUnsupported reports a descriptor that declares no telemetry at all.
 	ErrUnsupported = errors.New("agents: provider declares no telemetry")
-	// ErrUnsupportedFormat reports a declared encoding the engine cannot read.
+
 	ErrUnsupportedFormat = errors.New("agents: unsupported telemetry format")
 )
 
-// ParseCallback maps a provider-pushed payload.
 func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry, error) {
 	if d == nil || d.Telemetry == nil || d.Telemetry.Callback == nil {
 		return models.Telemetry{}, ErrUnsupported
@@ -52,11 +38,6 @@ func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Teleme
 	return out, nil
 }
 
-// Probe runs the declared telemetry command and maps its output.
-//
-// It shares the catalogue's bounded runner — timeout, output ceiling,
-// process-group kill, shared concurrency permit — because it is the same class of
-// operation: a fixed subcommand of a provider CLI, run in the chat's worktree.
 func Probe(
 	ctx context.Context,
 	d *spec.Descriptor,
@@ -100,7 +81,6 @@ func Probe(
 	return ParseProbe(d, raw, now)
 }
 
-// ErrInvalidWorkdir reports a working directory that is missing or relative.
 var ErrInvalidWorkdir = errors.New("agents: telemetry probe worktree is invalid")
 
 func validWorkdir(dir string) (string, error) {
@@ -115,7 +95,6 @@ func validWorkdir(dir string) (string, error) {
 	return clean, nil
 }
 
-// ParseProbe maps the output of a Crowbar-invoked telemetry command.
 func ParseProbe(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry, error) {
 	if d == nil || d.Telemetry == nil || d.Telemetry.Probe == nil {
 		return models.Telemetry{}, ErrUnsupported
@@ -145,9 +124,6 @@ func decode(format string, raw []byte) (map[string]any, error) {
 	return m, nil
 }
 
-// mapFacts reads every declared fact. A fact whose path is unmapped, absent, or
-// the wrong shape stays nil, and a group with nothing in it is left nil entirely
-// rather than being an empty struct that renders as a zeroed gauge.
 func mapFacts(fields map[string]string, decoded map[string]any) models.Telemetry {
 	var out models.Telemetry
 
@@ -179,11 +155,6 @@ func mapFacts(fields map[string]string, decoded map[string]any) models.Telemetry
 	return out
 }
 
-// derive fills the two percentages that follow arithmetically from facts already
-// reported, and NOTHING else. Used-percent from capacity and usage is a division
-// both of whose operands the provider gave us; remaining-percent is its
-// complement. Anything beyond that would be an estimate wearing a gauge's
-// clothes.
 func derive(c *models.ContextUsage) {
 	if c.UsedPercent == nil && c.CapacityTokens != nil && c.UsedTokens != nil && *c.CapacityTokens > 0 {
 		pct := float64(*c.UsedTokens) / float64(*c.CapacityTokens) * 100
@@ -205,8 +176,7 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 		if at, ok := payload.Time(decoded, w.ResetsAt); ok {
 			window.ResetsAt = &at
 		}
-		// A window the provider did not report this time is omitted rather than
-		// carried as an empty row: the UI would render it as a gauge at zero.
+
 		if window.UsedPercent == nil && window.ResetsAt == nil {
 			continue
 		}

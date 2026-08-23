@@ -18,9 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
 )
 
-// helperMode re-enters the test binary as the child process. It is the standard
-// way to get a real, controllable subprocess without shipping fixture binaries or
-// depending on the shape of any system utility.
 const helperMode = "CROWBAR_EXEC_HELPER"
 
 func TestMain(m *testing.M) {
@@ -45,8 +42,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	case "pwd":
 		wd, _ := os.Getwd()
-		// macOS routes temp dirs through /private; resolve so the assertion
-		// compares real paths rather than symlink spellings.
+
 		resolved, err := filepath.EvalSymlinks(wd)
 		if err == nil {
 			wd = resolved
