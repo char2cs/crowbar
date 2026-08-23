@@ -52,7 +52,8 @@ func Load() (Vocabulary, error) {
 		case "in", "out", "ask":
 		default:
 			return Vocabulary{}, fmt.Errorf(
-				"schema: event %q has direction %q, want in|out|ask", name, rule.Direction)
+				"schema: event %q has direction %q, want in|out|ask", name, rule.Direction,
+			)
 		}
 	}
 	return v, nil
