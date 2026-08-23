@@ -1,0 +1,167 @@
+# Crowbar's canonical conversation vocabulary.
+#
+# CLOSED: a provider descriptor maps INTO these names and cannot add to them. Adding an
+# entry here is a Crowbar capability change and needs Go on the consuming side; adding
+# a PROVIDER does not, which is the whole point of moving this out of spec/hooks.go.
+#
+# direction
+#   in   — they tell us. `in:` names the wire event; `map:` pulls canonical fields out.
+#   out  — we tell them. `out:` names the call; `send:` builds the payload.
+#   ask  — they block on our reply. Both halves plus a correlation id.
+#
+# required  — the descriptor MUST map these, or it fails to load.
+# optional  — it may. A name ending in `.*` is a prefix FAMILY: any field under it is
+#             allowed, because its keys are provider vocabulary Crowbar must not learn
+#             (see permission.suggestion_label.*).
+# extras    — sibling keys on the event that are structured rather than field maps.
+#             Their shape is validated by the event's own rule, not by this table.
+# replies   — for `ask` events, the decision names the reply template may define.
+version: 3
+
+events:
+  session_start:
+    direction: in
+    required: [session_id]
+    optional: [model]
+
+  user_prompt:
+    direction: in
+    required: []
+    optional: [session_id, message]
+
+  turn_stop:
+    direction: in
+    required: [message]
+    optional: [session_id, async_work, effort]
+
+  turn_failed:
+    direction: in
+    required: [reason]
+    optional: [session_id, message, detail]
+
+  tool_pre:
+    direction: in
+    required: []
+    optional: [session_id, tool_id, tool_name, tool_target, tool_input]
+
+  tool_post:
+    direction: in
+    required: []
+    optional: [session_id, tool_id, tool_name, tool_target, tool_input, tool_result, duration_ms]
+
+  # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
+  # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
+  tool_fail:
+    direction: in
+    required: []
+    optional: [session_id, tool_id, tool_name, tool_target, tool_input, tool_result, tool_error, duration_ms]
+
+  subagent_pre:
+    direction: in
+    required: []
+    optional: [session_id, subagent_id, agent_type]
+
+  subagent_post:
+    direction: in
+    required: []
+    optional: [session_id, subagent_id, agent_type]
+
+  notification:
+    direction: in
+    required: []
+    optional: [session_id, message]
+
+  message_delta:
+    direction: in
+    required: [message_id, index, text]
+    optional: [session_id, turn_id, final]
+
+  session_end:
+    direction: in
+    required: []
+    optional: [session_id, reason]
+
+  # Compaction is a STATE the chat is in, not an interrupt that happened to a turn:
+  # the CLI is busy, prompts queue, and the transcript needs a boundary marker so
+  # AssembleHandoff stops replaying turns the model can no longer see.
+  compact_pre:
+    direction: in
+    required: []
+    optional: [session_id, trigger]
+
+  compact_post:
+    direction: in
+    required: []
+    optional: [session_id, trigger, turn_id]
+
+  telemetry:
+    direction: in
+    required: []
+    optional:
+      - context.capacity_tokens
+      - context.used_tokens
+      - context.used_percent
+      - context.remaining_percent
+      - cost.total_usd
+      - cost.api_duration_ms
+      - model.id
+      - model.display_name
+      - input_tokens
+      - output_tokens
+    extras: [rate_limits]
+
+  permission:
+    direction: ask
+    # NOT prompt_id. claude carries one; codex's permission payload has none, and its
+    # answers correlate by the hook delivery id instead. Requiring it here would make
+    # codex fail to load.
+    required: []
+    optional:
+      - prompt_id
+      - session_id
+      - message
+      - tool_name
+      - tool_target
+      - tool_input
+      - suggestions
+      - suggestion_type
+      - suggestion_description
+      # Crowbar's words for each suggestion type — PROVIDER vocabulary, which Go must
+      # never learn. A prefix family precisely so a new provider term is a YAML line.
+      - suggestion_label.*
+      - questions
+      - question_title
+      - question_text
+      - question_options
+      - question_multi
+      - option_label
+      - option_description
+    extras: [answers_into]
+    replies: [allow, deny, answer]
+
+  elicitation:
+    direction: ask
+    required: []
+    optional: [session_id, prompt_id, message, mode, schema, mcp_server]
+    replies: [accept, decline, cancel]
+
+  # --- outbound: Crowbar drives the CLI ---------------------------------------
+
+  prompt:
+    direction: out
+    required: [text]
+    optional: [session_id]
+
+  interrupt:
+    direction: out
+    required: []
+    optional: [session_id]
+
+  # Crowbar asks for compaction. Codex exposes thread/compact/start; claude has no API
+  # for it, so its descriptor injects the /compact slash command over the prompt
+  # transport. Capability is key-presence: a provider that declares no compact_start
+  # gets no compact control in the UI.
+  compact_start:
+    direction: out
+    required: []
+    optional: [session_id]
