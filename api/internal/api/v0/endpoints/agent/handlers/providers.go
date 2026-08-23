@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -24,7 +25,7 @@ func (h *Handlers) Providers(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	libs.WriteQueryOK(ctx, providers)
+	libs.WriteQueryOK(ctx, providerDTOs(providers))
 }
 
 // UpdateProviderPreferences handles PUT /v0/settings/agent/providers: the full
@@ -78,5 +79,24 @@ func (h *Handlers) UpdateProviderPreferences(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	libs.WriteQueryOK(ctx, resolved)
+	libs.WriteQueryOK(ctx, providerDTOs(resolved))
+}
+
+func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
+	out := make([]dto.AgentProviderDTO, 0, len(in))
+	for _, p := range in {
+		out = append(out, dto.AgentProviderDTO{
+			ID:           p.ID,
+			DisplayName:  p.DisplayName,
+			Icon:         p.Icon,
+			Connected:    p.Connected,
+			Enabled:      p.Enabled,
+			MCPEnabled:   p.MCPEnabled,
+			ModelSelect:  p.ModelSelect,
+			EffortSelect: p.EffortSelect,
+			Models:       p.Models,
+			Efforts:      p.Efforts,
+		})
+	}
+	return out
 }

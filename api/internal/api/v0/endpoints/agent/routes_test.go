@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -155,8 +154,8 @@ func (stubUsecase) ReadMessages(
 
 func (stubUsecase) SubmitPrompt(
 	context.Context, string, string, string,
-) (dto.PromptSubmissionDTO, error) {
-	return dto.PromptSubmissionDTO{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
+) (domain.AgentPromptSubmission, error) {
+	return domain.AgentPromptSubmission{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
 }
 
 func (stubUsecase) SlashCatalog(
@@ -247,14 +246,14 @@ func (stubUsecase) PurgeChat(
 
 func (stubUsecase) ResolveProviders(
 	_ context.Context,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 
 func (stubUsecase) ReplaceProviderPreferences(
 	_ context.Context,
 	_ []domain.AgentProviderPreference,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 

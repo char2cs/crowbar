@@ -414,9 +414,9 @@ type AgentModelIdentityDTO struct {
 	DisplayName string `json:"displayName,omitempty"`
 }
 
-// PromptSubmissionDTO identifies the replacement interactive TUI whose spawn
-// made a React prompt submission successful. Completion of the model turn is
-// observed later through hooks; it is intentionally not represented here.
+// PromptSubmissionDTO is the wire shape of domain.AgentPromptSubmission — see
+// there for what the pair identifies and why a completed model turn is
+// deliberately absent from it.
 type PromptSubmissionDTO struct {
 	RunnerID          string `json:"runnerId"`
 	TerminalSessionID string `json:"terminalSessionId"`
@@ -508,50 +508,26 @@ type HandoffDTO struct {
 	Handoff string `json:"handoff"`
 }
 
-// AgentProviderDTO is the wire shape of one registered agent provider (00
-// agentic-engine spec §7.2): the id the FE passes back to create/switch, a
-// human display name, and an inline SVG icon (fill="currentColor"). Backed by the
-// descriptor enumeration; workspace-independent but served on the workspace-scoped
-// route for surface consistency.
+// AgentProviderDTO is the wire shape of domain.AgentProvider (00 agentic-engine
+// spec §7.2) — see there for what connected, enabled and mcpEnabled each mean,
+// what orders the list, and why efforts arrives already resolved. The catalog is
+// workspace-independent but served on the workspace-scoped route for surface
+// consistency.
 //
-// Connected is whether the provider's spawn.cmd resolves to an installed
-// executable on PATH (install-only, no auth probe). Enabled is !disabled from the
-// global AgentProviderPreference (a provider with no stored preference defaults to
-// enabled). The list is returned in priority order — priority is implicit in the
-// array position, preferenced providers first in saved order, unpreferenced ones
-// appended by descriptor id.
-//
-// MCPEnabled is whether Crowbar registers its own tool surface with this
-// provider, and it is a SEPARATE axis from Enabled: a provider with the tools
-// switched off still spawns, still fires its hooks and still holds a normal
-// chat — only the tools are gone. Like Enabled it is the positive reading of a
-// negatively stored flag (see AgentProviderPreference for why the DB stores the
-// negative), so a provider with no row reports true.
+// models and efforts are OMITTED rather than sent empty for a provider that
+// declares no catalogue: an absent field says the picker does not exist, which an
+// empty array would not.
 type AgentProviderDTO struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Icon        string `json:"icon"`
-	Connected   bool   `json:"connected"`
-	Enabled     bool   `json:"enabled"`
-	MCPEnabled  bool   `json:"mcpEnabled"`
-
-	// ModelSelect and EffortSelect are whether this provider's descriptor declares
-	// a model / effort catalogue at all. False means the picker does not exist for
-	// it — absent UI, never a disabled control implying breakage. Both shipped
-	// descriptors declare both today; the flags exist so a third provider that
-	// declares neither renders no picker rather than an empty one.
-	ModelSelect  bool `json:"modelSelect"`
-	EffortSelect bool `json:"effortSelect"`
-
-	// Models is the declared catalogue, in descriptor order.
-	//
-	// Efforts is keyed by model id and ALREADY RESOLVED: every entry in Models has
-	// a key, plus "" for the provider's own default model. The descriptor's
-	// model-independent fallback is applied here rather than on the wire, so a
-	// client picks a model and reads Efforts[model] with no fallback rule to
-	// implement and no provider knowledge to hardcode.
-	Models  []string            `json:"models,omitempty"`
-	Efforts map[string][]string `json:"efforts,omitempty"`
+	ID           string              `json:"id"`
+	DisplayName  string              `json:"displayName"`
+	Icon         string              `json:"icon"`
+	Connected    bool                `json:"connected"`
+	Enabled      bool                `json:"enabled"`
+	MCPEnabled   bool                `json:"mcpEnabled"`
+	ModelSelect  bool                `json:"modelSelect"`
+	EffortSelect bool                `json:"effortSelect"`
+	Models       []string            `json:"models,omitempty"`
+	Efforts      map[string][]string `json:"efforts,omitempty"`
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 const (
@@ -41,8 +41,8 @@ type promptRequestRecord struct {
 	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
-func (r promptRequestRecord) result() dto.PromptSubmissionDTO {
-	return dto.PromptSubmissionDTO{
+func (r promptRequestRecord) result() domain.AgentPromptSubmission {
+	return domain.AgentPromptSubmission{
 		RunnerID:          r.RunnerID,
 		TerminalSessionID: r.TerminalSessionID,
 	}
@@ -165,7 +165,7 @@ func (j *promptJournal) begin(
 
 func (j *promptJournal) markSpawned(
 	dir, requestID, textHash string,
-	result dto.PromptSubmissionDTO,
+	result domain.AgentPromptSubmission,
 	now time.Time,
 ) (promptRequestRecord, error) {
 	j.mu.Lock()

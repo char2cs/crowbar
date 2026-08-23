@@ -18,7 +18,7 @@ import (
 // enriched provider list (connected + enabled, in priority order) into the wire
 // envelope unchanged.
 func TestProviders_Success(t *testing.T) {
-	uc := &fakeAgentUsecase{resolveProviders: []dto.AgentProviderDTO{
+	uc := &fakeAgentUsecase{resolveProviders: []domain.AgentProvider{
 		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true},
 		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false},
 	}}
@@ -62,7 +62,7 @@ func TestProviders_UsecaseError(t *testing.T) {
 // {providers:[{id,disabled}]} into ordered AgentProviderPreference rows (array
 // index → Priority) and echoes the resolved list the usecase returns.
 func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
-	uc := &fakeAgentUsecase{replaceResult: []dto.AgentProviderDTO{
+	uc := &fakeAgentUsecase{replaceResult: []domain.AgentProvider{
 		{ID: "codex", DisplayName: "Codex", Enabled: true},
 		{ID: "claude", DisplayName: "Claude", Enabled: false},
 	}}

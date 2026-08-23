@@ -200,8 +200,8 @@ func (*configurableListGetUsecase) ReadMessages(
 
 func (*configurableListGetUsecase) SubmitPrompt(
 	context.Context, string, string, string,
-) (dto.PromptSubmissionDTO, error) {
-	return dto.PromptSubmissionDTO{}, nil
+) (domain.AgentPromptSubmission, error) {
+	return domain.AgentPromptSubmission{}, nil
 }
 
 func (*configurableListGetUsecase) SlashCatalog(
@@ -295,14 +295,14 @@ func (configurableListGetUsecase) PurgeChat(
 
 func (configurableListGetUsecase) ResolveProviders(
 	_ context.Context,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 
 func (configurableListGetUsecase) ReplaceProviderPreferences(
 	_ context.Context,
 	_ []domain.AgentProviderPreference,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 

@@ -75,7 +75,10 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
 		return
 	}
-	libs.WriteQueryOK(ctx, result)
+	libs.WriteQueryOK(ctx, dto.PromptSubmissionDTO{
+		RunnerID:          result.RunnerID,
+		TerminalSessionID: result.TerminalSessionID,
+	})
 }
 
 func (h *Handlers) SlashCatalog(ctx *gin.Context) {

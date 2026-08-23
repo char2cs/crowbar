@@ -10,8 +10,9 @@ package domain
 // naming choice: the store auto-migrates this struct, so adding a column
 // backfills every existing row with the zero value. A positive MCPEnabled would
 // have switched the tool surface OFF for every provider the user had ever
-// touched, the first time the daemon came up on the new schema. The wire flips
-// both back to positive (dto.AgentProviderDTO) because a UI switch reads as "on".
+// touched, the first time the daemon came up on the new schema. The resolved
+// view flips both back to positive (AgentProvider) because a UI switch reads as
+// "on".
 type AgentProviderPreference struct {
 	ProviderID  string `gorm:"primaryKey" json:"providerId"`
 	Priority    int    `json:"priority"`

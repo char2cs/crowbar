@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -43,7 +42,7 @@ func writeGeminiDescriptor(
 }
 
 func providerIDs(
-	got []dto.AgentProviderDTO,
+	got []domain.AgentProvider,
 ) []string {
 	ids := make([]string, len(got))
 	for i, p := range got {

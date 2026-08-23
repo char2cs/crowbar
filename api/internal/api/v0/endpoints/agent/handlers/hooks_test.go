@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
@@ -131,10 +130,10 @@ type fakeAgentUsecase struct {
 	purgeCalls []string
 	purgeErr   error
 
-	resolveProviders []dto.AgentProviderDTO
+	resolveProviders []domain.AgentProvider
 	resolveErr       error
 
-	replaceResult []dto.AgentProviderDTO
+	replaceResult []domain.AgentProvider
 	replaceErr    error
 	replaceCalls  [][]domain.AgentProviderPreference
 
@@ -171,7 +170,7 @@ type fakeAgentUsecase struct {
 	messagePage  chatlog.Page
 	messageErr   error
 	messageCalls []messageCall
-	promptResult dto.PromptSubmissionDTO
+	promptResult domain.AgentPromptSubmission
 	promptErr    error
 	promptCalls  []promptCall
 	catalog      engineagents.SlashCatalog
@@ -258,7 +257,7 @@ func (f *fakeAgentUsecase) ReadMessages(
 func (f *fakeAgentUsecase) SubmitPrompt(
 	_ context.Context,
 	chatID, text, requestID string,
-) (dto.PromptSubmissionDTO, error) {
+) (domain.AgentPromptSubmission, error) {
 	f.promptCalls = append(f.promptCalls, promptCall{chatID: chatID, text: text, requestID: requestID})
 	return f.promptResult, f.promptErr
 }
@@ -373,14 +372,14 @@ func (f *fakeAgentUsecase) PurgeChat(
 
 func (f *fakeAgentUsecase) ResolveProviders(
 	_ context.Context,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	return f.resolveProviders, f.resolveErr
 }
 
 func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 	_ context.Context,
 	prefs []domain.AgentProviderPreference,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	f.replaceCalls = append(f.replaceCalls, prefs)
 	if f.replaceErr != nil {
 		return nil, f.replaceErr

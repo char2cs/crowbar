@@ -47,7 +47,7 @@ func TestSubmitPrompt_ReturnsReplacementIdentity(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	uc := &fakeAgentUsecase{
 		getChat:      domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
-		promptResult: dto.PromptSubmissionDTO{RunnerID: "runner-new", TerminalSessionID: "term-new"},
+		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
 	}
 	newChatHandlers(uc).SubmitPrompt(ctx)
 

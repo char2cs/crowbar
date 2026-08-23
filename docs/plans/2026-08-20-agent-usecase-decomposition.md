@@ -442,3 +442,56 @@ so a green `go test -tags noEmbed` proves much less than it appears to.
 - **CI runs no `golangci-lint` step for Go.** The 52 findings in this package are
   a local standard, not a merge gate. 20 are new from the comment strip and are
   cleaned before commit; `gocyclo`/`nestif` (4) are pre-existing and out of S0.
+
+---
+
+## 8. Stages reordered, and the Stage B design
+
+**Reordered.** DTO removal now runs BEFORE the durability move. `promptRequestRecord.result()`
+returns `dto.PromptSubmissionDTO`, so moving the journal first would drag
+`api/v0/dto` down into the adapter layer — creating a worse inversion than the
+one being fixed. Order is now:
+
+- **A** — DTOs out of the usecase (domain types; mapping in handlers)
+- **B** — durability down to `adapter/store/agentjournal`
+- **C** — the five-type split
+
+### Stage B design
+
+Template is `adapter/store/wspaths` (read directly): package doc explaining
+*why*, exported interface with one-param-per-line methods, unexported impl, and
+package-local sentinels whose translation is explicitly the caller's job.
+
+```
+adapter/store/agentjournal/
+  agentjournal.go     package doc
+  prompt_requests.go  PromptRequests interface + impl
+  hook_deliveries.go  HookDeliveries interface + impl
+  record.go           the ONE atomic temp→fsync→rename writer, unexported
+  errors.go           package-local sentinels
+```
+
+Three things stay in the usecase, deliberately:
+
+1. **`hookDeliveryContextKey` / `hookDeliveryID`** — four consumers across
+   `hook_delivery.go`, `chatlog.go`, `answers.go`, `agent.go`. Duplicating it
+   yields a random `turnID`, which breaks the `rowKey(chatID,turnID)` upsert that
+   is the real at-most-once mechanism → duplicate user turns in production (B9).
+   One definition, in the usecase.
+2. **The `*chatGate`** currently inside `hookDeliveryJournal`. It is held across
+   `ingestHookNow` — the whole hook machine, not a store operation. It becomes a
+   `Usecase` field of its own. A store exporting a lock the caller holds across
+   orchestration would be a worse edge than the one removed.
+3. **`IngestHookDelivery`** — orchestration.
+
+**Sentinels.** The app-level ones (`ErrPromptBusy`, `ErrPromptRequestIDConflict`,
+`ErrPromptOutcomeUnknown`) wrap `apperr.ErrConflict`, so they cannot move to the
+adapter without inverting the layering. Following `wspaths`, the store declares
+its own plain sentinels and the usecase translates at the boundary. That
+preserves the identity `presentation_test.go` pins and the `errors.Is` switch in
+`agent_errors.go`.
+
+**Directories are passed per call.** The store cannot resolve its own location:
+`dir` comes from `u.ws.AgentChatsDir(...)`, and `repositories/container.go:61-79`
+documents that this reader does not exist until `repositories.New` returns. Per-call
+directories sidestep that entirely — and `wspaths` likewise takes its key per call.

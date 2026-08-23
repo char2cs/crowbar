@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -26,7 +25,7 @@ func (u *Usecase) requireProviderEnabled(
 
 func (u *Usecase) ResolveProviders(
 	ctx context.Context,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	home, err := u.home()
 	if err != nil {
 		return nil, fmt.Errorf("agent: resolve providers: home: %w", err)
@@ -44,12 +43,12 @@ func (u *Usecase) ResolveProviders(
 		byID[p.ProviderID] = p
 	}
 
-	out := make([]dto.AgentProviderDTO, 0, len(descs))
+	out := make([]domain.AgentProvider, 0, len(descs))
 	for _, d := range descs {
 		p := byID[d.ID()]
 		display := d.Display()
 		caps := d.Capabilities()
-		out = append(out, dto.AgentProviderDTO{
+		out = append(out, domain.AgentProvider{
 			ID:           d.ID(),
 			DisplayName:  display.Name,
 			Icon:         display.Icon,
@@ -79,7 +78,7 @@ func (u *Usecase) ResolveProviders(
 func (u *Usecase) ReplaceProviderPreferences(
 	ctx context.Context,
 	prefs []domain.AgentProviderPreference,
-) ([]dto.AgentProviderDTO, error) {
+) ([]domain.AgentProvider, error) {
 	home, err := u.home()
 	if err != nil {
 		return nil, fmt.Errorf("agent: replace provider preferences: home: %w", err)

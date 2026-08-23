@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 var jnow = time.Now()
@@ -314,8 +314,8 @@ func TestPromptTextHash_IsStableAndDistinguishing(t *testing.T) {
 	assert.NotEmpty(t, promptTextHash(""))
 }
 
-func spawnResult(runnerID, sessionID string) dto.PromptSubmissionDTO {
-	return dto.PromptSubmissionDTO{RunnerID: runnerID, TerminalSessionID: sessionID}
+func spawnResult(runnerID, sessionID string) domain.AgentPromptSubmission {
+	return domain.AgentPromptSubmission{RunnerID: runnerID, TerminalSessionID: sessionID}
 }
 
 func mustRecord(t *testing.T, dir, id string) promptRequestRecord {
@@ -331,7 +331,7 @@ func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.markSpawned(dir, "req-1", "hash",
-		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+		domain.AgentPromptSubmission{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
 	require.NoError(t, err)
 
 	pending, err := j.hasPendingDelivery(dir)
@@ -354,7 +354,7 @@ func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.markSpawned(dir, "req-1", "hash",
-		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+		domain.AgentPromptSubmission{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
 	require.NoError(t, err)
 	requireSettled(t, j, dir, "req-1")
 
@@ -370,7 +370,7 @@ func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
 	_, _, err := j.begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.markSpawned(dir, "req-1", "hash",
-		dto.PromptSubmissionDTO{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
+		domain.AgentPromptSubmission{RunnerID: "new", TerminalSessionID: "pty"}, jnow)
 	require.NoError(t, err)
 	requireSettled(t, j, dir, "req-1")
 

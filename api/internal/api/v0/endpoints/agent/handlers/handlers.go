@@ -5,7 +5,6 @@ package handlers
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
@@ -125,7 +124,7 @@ type AgentUsecase interface {
 	SubmitPrompt(
 		ctx context.Context,
 		chatID, text, clientRequestID string,
-	) (dto.PromptSubmissionDTO, error)
+	) (domain.AgentPromptSubmission, error)
 
 	SlashCatalog(
 		ctx context.Context,
@@ -229,7 +228,7 @@ type AgentUsecase interface {
 	// wsId — providers are global — and backs the enriched GET .../agent/providers.
 	ResolveProviders(
 		ctx context.Context,
-	) ([]dto.AgentProviderDTO, error)
+	) ([]domain.AgentProvider, error)
 
 	// ReplaceProviderPreferences rewrites the whole global preference table from the
 	// submitted ordered set (array position → priority), validating ids against the
@@ -238,7 +237,7 @@ type AgentUsecase interface {
 	ReplaceProviderPreferences(
 		ctx context.Context,
 		prefs []domain.AgentProviderPreference,
-	) ([]dto.AgentProviderDTO, error)
+	) ([]domain.AgentProvider, error)
 }
 
 // ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder

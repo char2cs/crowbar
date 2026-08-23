@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -391,7 +390,7 @@ func TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce(t *testing.T) {
 	const message = "deliver me exactly once"
 
 	type outcome struct {
-		dto dto.PromptSubmissionDTO
+		dto domain.AgentPromptSubmission
 		err error
 	}
 	start := make(chan struct{})

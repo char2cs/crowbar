@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -53,10 +52,10 @@ func (u *Usecase) ReadMessages(
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
-) (dto.PromptSubmissionDTO, error) {
+) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, err
+		return domain.AgentPromptSubmission{}, err
 	}
 	textHash := promptTextHash(text)
 
@@ -64,11 +63,11 @@ func (u *Usecase) SubmitPrompt(
 
 	chat, err := u.chats.GetChat(ctx, chatID)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
 	}
 	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: chats dir: %w", err)
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chats dir: %w", err)
 	}
 	journalDir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
 	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
@@ -83,15 +82,15 @@ func (u *Usecase) SubmitPrompt(
 
 	live, descriptor, err := u.promptTarget(ctx, chat)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, err
+		return domain.AgentPromptSubmission{}, err
 	}
 	delivery, err := u.resolvePromptDelivery(ctx, chat.ID, live, descriptor)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, err
+		return domain.AgentPromptSubmission{}, err
 	}
 
 	if err := u.requirePromptIdle(ctx, chatID, live.ID); err != nil {
-		return dto.PromptSubmissionDTO{}, err
+		return domain.AgentPromptSubmission{}, err
 	}
 
 	replacementRunnerID := uuid.NewString()
@@ -99,7 +98,7 @@ func (u *Usecase) SubmitPrompt(
 		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
 	}
 	if existingAttempt {
 		result, done, classifyErr := u.classifyPriorAttempt(
@@ -108,10 +107,10 @@ func (u *Usecase) SubmitPrompt(
 		if done {
 			return result, classifyErr
 		}
-		return dto.PromptSubmissionDTO{}, ErrPromptOutcomeUnknown
+		return domain.AgentPromptSubmission{}, ErrPromptOutcomeUnknown
 	}
 	if err := u.displaceForPrompt(ctx, chatID, journalDir, clientRequestID, live.ID); err != nil {
-		return dto.PromptSubmissionDTO{}, err
+		return domain.AgentPromptSubmission{}, err
 	}
 
 	runnerID, err := u.spawnRunner(
@@ -122,9 +121,9 @@ func (u *Usecase) SubmitPrompt(
 	if err != nil {
 		if errors.Is(err, engineterminal.ErrCommandNotFound) {
 			_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
-			return dto.PromptSubmissionDTO{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
+			return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
 		}
-		return dto.PromptSubmissionDTO{}, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "replacement spawn", err,
 		)
 	}
@@ -158,18 +157,18 @@ func (u *Usecase) replayPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID, textHash string,
-) (dto.PromptSubmissionDTO, bool, error) {
+) (domain.AgentPromptSubmission, bool, error) {
 	existing, found, err := u.prompts.lookup(journalDir, clientRequestID, textHash)
 	if errors.Is(err, ErrPromptRequestIDConflict) {
-		return dto.PromptSubmissionDTO{}, true, err
+		return domain.AgentPromptSubmission{}, true, err
 	}
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, true, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, true, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "idempotency lookup", err,
 		)
 	}
 	if !found {
-		return dto.PromptSubmissionDTO{}, false, nil
+		return domain.AgentPromptSubmission{}, false, nil
 	}
 	return u.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
 }
@@ -218,30 +217,30 @@ func (u *Usecase) displaceForPrompt(
 func (u *Usecase) commitPromptSpawn(
 	ctx context.Context,
 	journalDir, clientRequestID, textHash, runnerID string,
-) (dto.PromptSubmissionDTO, error) {
+) (domain.AgentPromptSubmission, error) {
 	spawned, err := u.runners.Get(ctx, runnerID)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "read replacement runner", err,
 		)
 	}
-	result := dto.PromptSubmissionDTO{
+	result := domain.AgentPromptSubmission{
 		RunnerID:          runnerID,
 		TerminalSessionID: spawned.TerminalSession,
 	}
 	if result.TerminalSessionID == "" {
-		return dto.PromptSubmissionDTO{}, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "replacement terminal identity is missing", nil,
 		)
 	}
 	committed, err := u.prompts.markSpawned(journalDir, clientRequestID, textHash, result, time.Now())
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "persist replacement identity", err,
 		)
 	}
 	if committed.State == promptStateUncertain {
-		return dto.PromptSubmissionDTO{}, ErrPromptOutcomeUnknown
+		return domain.AgentPromptSubmission{}, ErrPromptOutcomeUnknown
 	}
 	return result, nil
 }
@@ -353,7 +352,7 @@ func (u *Usecase) classifyPriorAttempt(
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
 	existing promptRequestRecord,
-) (dto.PromptSubmissionDTO, bool, error) {
+) (domain.AgentPromptSubmission, bool, error) {
 	if existing.RunnerID != "" && existing.TerminalSessionID != "" &&
 		(existing.State == promptStateSpawned || existing.State == promptStateAccepted) {
 		return existing.result(), true, nil
@@ -364,9 +363,9 @@ func (u *Usecase) classifyPriorAttempt(
 		return u.recoverPriorDelivery(ctx, chat, journalDir, clientRequestID, existing)
 	}
 	if existing.State == promptStateAccepted {
-		return dto.PromptSubmissionDTO{}, true, ErrPromptAlreadyAccepted
+		return domain.AgentPromptSubmission{}, true, ErrPromptAlreadyAccepted
 	}
-	return dto.PromptSubmissionDTO{}, false, nil
+	return domain.AgentPromptSubmission{}, false, nil
 }
 
 func (u *Usecase) recoverPriorDelivery(
@@ -374,21 +373,21 @@ func (u *Usecase) recoverPriorDelivery(
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
 	existing promptRequestRecord,
-) (dto.PromptSubmissionDTO, bool, error) {
+) (domain.AgentPromptSubmission, bool, error) {
 	accepted, err := u.promptRecordAccepted(ctx, chat, existing)
 	if err != nil {
-		return dto.PromptSubmissionDTO{}, true, u.markPromptOutcomeUncertain(
+		return domain.AgentPromptSubmission{}, true, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "recover prior delivery", err,
 		)
 	}
 	if !accepted {
-		return dto.PromptSubmissionDTO{}, true, ErrPromptOutcomeUnknown
+		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
 	}
 	if _, err := u.prompts.markAcceptedByRequest(journalDir, clientRequestID, time.Now()); err != nil {
 		slog.ErrorContext(ctx, "agent: submit prompt: persist recovered acceptance",
 			"chat_id", chat.ID, "client_request_id", clientRequestID, "err", err)
 	}
-	return dto.PromptSubmissionDTO{}, true, ErrPromptAlreadyAccepted
+	return domain.AgentPromptSubmission{}, true, ErrPromptAlreadyAccepted
 }
 
 func (u *Usecase) promptRecordAccepted(
