@@ -73,8 +73,12 @@ events:
 
   message_delta:
     direction: in
-    required: [message_id, index, text]
-    optional: [session_id, turn_id, final]
+    # index is OPTIONAL, not required as the Go rule had it. claude numbers its deltas;
+    # codex's item/agentMessage/delta carries only {delta, itemId, threadId, turnId},
+    # so requiring an index would make codex unloadable. A provider that supplies none
+    # is ordered by arrival, which is sound because its deltas arrive on one stream.
+    required: [message_id, text]
+    optional: [session_id, turn_id, index, final]
 
   session_end:
     direction: in
@@ -98,6 +102,7 @@ events:
     direction: in
     required: []
     optional:
+      - session_id
       - context.capacity_tokens
       - context.used_tokens
       - context.used_percent

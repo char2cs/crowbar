@@ -137,3 +137,66 @@ func TestMatch_MissingDiscriminatorDoesNotMatch(t *testing.T) {
 		t.Fatal("a missing discriminator must not match")
 	}
 }
+
+// --- array selection -------------------------------------------------------
+//
+// Real provider payloads put the interesting value inside a list. Codex's final
+// agent message is turn.items[type=agentMessage].text, and its user message text is
+// item.content[type=text].text. Without selection those are unmappable and the
+// provider needs Go.
+
+func arrayDoc() map[string]any {
+	return map[string]any{
+		"turn": map[string]any{
+			"items": []any{
+				map[string]any{"type": "reasoning", "text": "thinking"},
+				map[string]any{"type": "agentMessage", "text": "OK", "phase": "final_answer"},
+			},
+		},
+		"item": map[string]any{
+			"content": []any{
+				map[string]any{"type": "text", "text": "Reply with exactly: OK"},
+			},
+		},
+		"empty": map[string]any{"items": []any{}},
+	}
+}
+
+func TestString_SelectsFromAnArrayByField(t *testing.T) {
+	if got := mapping.String(arrayDoc(), "turn.items[type=agentMessage].text"); got != "OK" {
+		t.Fatalf("got %q, want OK", got)
+	}
+}
+
+func TestString_ArraySelectionTakesTheFirstMatch(t *testing.T) {
+	if got := mapping.String(arrayDoc(), "turn.items[type=reasoning].text"); got != "thinking" {
+		t.Fatalf("got %q, want thinking", got)
+	}
+}
+
+func TestString_ArraySelectionWithNoMatchIsEmpty(t *testing.T) {
+	if got := mapping.String(arrayDoc(), "turn.items[type=nothingLikeThis].text"); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+func TestString_ArraySelectionOnAnEmptyListIsEmpty(t *testing.T) {
+	if got := mapping.String(arrayDoc(), "empty.items[type=x].y"); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+func TestString_ArraySelectionComposesWithAlternation(t *testing.T) {
+	expr := "turn.items[type=missing].text || item.content[type=text].text"
+	if got := mapping.String(arrayDoc(), expr); got != "Reply with exactly: OK" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A bracket in a plain key must not be mistaken for a selector.
+func TestString_ABracketedKeyIsStillAddressable(t *testing.T) {
+	d := map[string]any{"weird[key]": "kept"}
+	if got := mapping.String(d, "weird[key]"); got != "kept" {
+		t.Fatalf("got %q, want kept (whole-key match wins)", got)
+	}
+}

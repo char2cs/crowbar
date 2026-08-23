@@ -32,8 +32,16 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 		return nil, err
 	}
 
+	// An inbound event's canonical fields are the KEYS of map:. An outbound event has
+	// no map: — its payload is built by send:, whose keys are the PROVIDER's field
+	// names and whose values reference canonical names as {braced} templates. So the
+	// direction is inverted and the canonical set has to be read out of the values.
 	maps := make(map[string]map[string]string, len(d.Events))
 	for name, e := range d.Events {
+		if e.Out != "" {
+			maps[name] = canonicalRefs(e.Send)
+			continue
+		}
 		maps[name] = e.Map
 	}
 	if err := vocab.Validate(d.ID, maps); err != nil {
@@ -100,6 +108,31 @@ func CheckProtocolVersion(d *spec.Descriptor, actual string) error {
 		)
 	}
 	return nil
+}
+
+// canonicalRefs pulls the {braced} canonical names an outbound event's send templates
+// reference, so the same required/optional table validates both directions.
+func canonicalRefs(send map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, tmpl := range send {
+		rest := tmpl
+		for {
+			open := strings.IndexByte(rest, '{')
+			if open < 0 {
+				break
+			}
+			rest = rest[open+1:]
+			close := strings.IndexByte(rest, '}')
+			if close < 0 {
+				break
+			}
+			if name := rest[:close]; name != "" {
+				out[name] = tmpl
+			}
+			rest = rest[close+1:]
+		}
+	}
+	return out
 }
 
 // versionLess compares dotted-numeric versions component by component. A string

@@ -1,0 +1,24 @@
+{
+  "method": "hook/started",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "run": {
+      "id": "session-start:2:/REDACTED-HOME/.codex/hooks.json",
+      "eventName": "sessionStart",
+      "handlerType": "command",
+      "executionMode": "sync",
+      "scope": "thread",
+      "sourcePath": "/REDACTED-HOME/.codex/hooks.json",
+      "source": "user",
+      "displayOrder": 2,
+      "status": "running",
+      "statusMessage": null,
+      "startedAt": 1787518750,
+      "completedAt": null,
+      "durationMs": null,
+      "entries": []
+    }
+  },
+  "emittedAtMs": 1787518750888
+}

@@ -1,0 +1,27 @@
+{
+  "method": "thread/tokenUsage/updated",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "tokenUsage": {
+      "total": {
+        "totalTokens": 16924,
+        "inputTokens": 16907,
+        "cachedInputTokens": 5504,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 17,
+        "reasoningOutputTokens": 10
+      },
+      "last": {
+        "totalTokens": 16924,
+        "inputTokens": 16907,
+        "cachedInputTokens": 5504,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 17,
+        "reasoningOutputTokens": 10
+      },
+      "modelContextWindow": 258400
+    }
+  },
+  "emittedAtMs": 1787518754271
+}

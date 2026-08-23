@@ -1,0 +1,35 @@
+{
+  "method": "thread/started",
+  "params": {
+    "thread": {
+      "id": "01a0306b-8589-7d72-b688-c1de62c9db37",
+      "extra": null,
+      "sessionId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "isPinned": false,
+      "historyMode": "legacy",
+      "modelProvider": "openai",
+      "createdAt": 1787518748,
+      "updatedAt": 1787518748,
+      "recencyAt": 1787518748,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/REDACTED-HOME/.codex/sessions/2026/08/23/rollout-2026-08-23T17-59-08-01a0306b-8589-7d72-b688-c1de62c9db37.jsonl",
+      "cwd": "/tmp/codex-fixture-cwd",
+      "cliVersion": "0.146.0",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "turns": []
+    }
+  },
+  "emittedAtMs": 1787518748101
+}

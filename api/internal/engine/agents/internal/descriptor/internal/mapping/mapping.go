@@ -55,8 +55,13 @@ func resolve(doc map[string]any, expr string) (any, bool) {
 
 // walk resolves ONE dotted path with no alternation.
 //
-// A whole-key match is tried first so a payload key that itself contains dots stays
-// addressable; only then does it descend segment by segment.
+// A whole-key match is tried first so a payload key that itself contains dots — or
+// brackets — stays addressable; only then does it descend segment by segment.
+//
+// A segment of the form `name[field=value]` SELECTS from a list: the first element
+// whose field equals value. Real provider payloads put the interesting value inside a
+// list (codex's final message is turn.items[type=agentMessage].text), and without
+// selection those are unmappable and the provider needs Go.
 func walk(doc map[string]any, path string) (any, bool) {
 	if path == "" {
 		return nil, false
@@ -66,17 +71,61 @@ func walk(doc map[string]any, path string) (any, bool) {
 	}
 	var cur any = doc
 	for _, seg := range strings.Split(path, ".") {
+		name, field, want, isSelector := parseSelector(seg)
+
 		m, isObject := cur.(map[string]any)
 		if !isObject {
 			return nil, false
 		}
-		next, present := m[seg]
+		next, present := m[name]
 		if !present {
 			return nil, false
 		}
-		cur = next
+		if !isSelector {
+			cur = next
+			continue
+		}
+
+		picked, ok := selectFrom(next, field, want)
+		if !ok {
+			return nil, false
+		}
+		cur = picked
 	}
 	return cur, true
+}
+
+// parseSelector splits `name[field=value]` into its parts. A segment without that
+// exact shape is a plain key.
+func parseSelector(seg string) (name, field, want string, ok bool) {
+	open := strings.IndexByte(seg, '[')
+	if open <= 0 || !strings.HasSuffix(seg, "]") {
+		return seg, "", "", false
+	}
+	inner := seg[open+1 : len(seg)-1]
+	field, want, found := strings.Cut(inner, "=")
+	if !found || field == "" {
+		return seg, "", "", false
+	}
+	return seg[:open], field, want, true
+}
+
+// selectFrom returns the first element of list whose field equals want.
+func selectFrom(list any, field, want string) (any, bool) {
+	arr, isArray := list.([]any)
+	if !isArray {
+		return nil, false
+	}
+	for _, item := range arr {
+		obj, isObject := item.(map[string]any)
+		if !isObject {
+			continue
+		}
+		if got, ok := scalarOf(obj[field]); ok && got == want {
+			return obj, true
+		}
+	}
+	return nil, false
 }
 
 // isEmpty decides what alternation skips over. Only nil and "" count: a false bool and
@@ -227,7 +276,14 @@ func Object(doc map[string]any, expr string) map[string]any {
 // substitution needs.
 func Scalar(doc map[string]any, expr string) (string, bool) {
 	v, ok := resolve(doc, expr)
-	if !ok || v == nil {
+	if !ok {
+		return "", false
+	}
+	return scalarOf(v)
+}
+
+func scalarOf(v any) (string, bool) {
+	if v == nil {
 		return "", false
 	}
 	switch n := v.(type) {

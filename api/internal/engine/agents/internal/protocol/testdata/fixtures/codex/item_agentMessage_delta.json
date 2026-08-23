@@ -1,0 +1,10 @@
+{
+  "method": "item/agentMessage/delta",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "itemId": "msg_0978412001346529016a8b5f21302887d28732c74fd837ca5e",
+    "delta": "OK"
+  },
+  "emittedAtMs": 1787518753173
+}

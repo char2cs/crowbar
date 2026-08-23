@@ -1,0 +1,11 @@
+{
+  "method": "mcpServer/startupStatus/updated",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "name": "codex_apps",
+    "status": "starting",
+    "error": null,
+    "failureReason": null
+  },
+  "emittedAtMs": 1787518748101
+}
