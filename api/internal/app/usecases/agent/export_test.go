@@ -2,11 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
+	"slices"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -35,8 +34,12 @@ var ComposeContext = composeContext
 // SetPromptJournalDirSync installs a deterministic durability fault for external
 // package tests. It is test-only surface; production always uses fsync+close on
 // the journal parent directory after the atomic rename.
+//
+// It REPLACES the journal, so it must be called before the chat under test has
+// submitted anything. The prompt journal holds no state between calls, so a
+// replacement loses nothing.
 func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
-	u.prompts.syncDir = syncDir
+	u.prompts = agentjournal.NewPromptRequests(agentjournal.WithDirSync(syncDir))
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it
@@ -62,47 +65,45 @@ func RequirePromptRestart(
 // SetHookDeliveryDirSync installs a deterministic durability fault for external
 // package tests. It is test-only surface; production always uses fsync+close on
 // the hook delivery directory after the atomic rename.
+//
+// It REPLACES the journal, so it must be called before the runner under test
+// has delivered anything: the in-memory completion markers do not survive it.
 func SetHookDeliveryDirSync(u *Usecase, syncDir func(string) error) {
-	u.hookDeliveries.syncDir = syncDir
+	u.hookDeliveries = agentjournal.NewHookDeliveries(agentjournal.WithDirSync(syncDir))
 }
 
 // HookDeliveryCompletedMax is the FIFO cap on the hook delivery journal's
 // in-memory completion markers, exposed so an external test can drive past it.
-const HookDeliveryCompletedMax = hookDeliveryCompletedMax
+const HookDeliveryCompletedMax = agentjournal.HookDeliveryCompletedMax
 
 // HookDeliveryJournalMax is the cap on records kept in one runner's on-disk hook
 // delivery directory, exposed so an external test can drive past it.
-const HookDeliveryJournalMax = hookDeliveryJournalMax
+const HookDeliveryJournalMax = agentjournal.HookDeliveryJournalMax
 
 // HookDeliveryPruneEvery is how many completions apart the amortised on-disk
 // prune runs, exposed so an external test can land its last delivery on a tick.
-const HookDeliveryPruneEvery = hookDeliveryPruneEvery
+const HookDeliveryPruneEvery = agentjournal.HookDeliveryPruneEvery
 
 // HookDeliveryJournalMaxAge is the silence after which a whole runner directory
 // is reaped, exposed so an external test can backdate a directory past it.
-const HookDeliveryJournalMaxAge = hookDeliveryJournalMaxAge
+const HookDeliveryJournalMaxAge = agentjournal.HookDeliveryJournalMaxAge
 
 // HookDeliveryDirName is the per-workspace root the runner directories live
 // under, exposed so an external test can count what is on disk.
-const HookDeliveryDirName = hookDeliveryDirName
+const HookDeliveryDirName = agentjournal.HookDeliveriesDirName
 
 // HookDeliveryMarked reports whether the journal holds an in-memory completion
 // marker for deliveryID. It is the discriminator a replay test needs: a marker
 // answers begin() without ever reading the disk, so a test that means to
 // exercise the on-disk record must first prove the marker is absent.
 func HookDeliveryMarked(u *Usecase, deliveryID string) bool {
-	u.hookDeliveries.mu.Lock()
-	defer u.hookDeliveries.mu.Unlock()
-	_, ok := u.hookDeliveries.completed[deliveryID]
-	return ok
+	return slices.Contains(u.hookDeliveries.CompletionMarkers(), deliveryID)
 }
 
 // HookDeliveryMarkerCount reports how many in-memory completion markers the
 // journal is holding.
 func HookDeliveryMarkerCount(u *Usecase) int {
-	u.hookDeliveries.mu.Lock()
-	defer u.hookDeliveries.mu.Unlock()
-	return len(u.hookDeliveries.completed)
+	return len(u.hookDeliveries.CompletionMarkers())
 }
 
 // PlantPendingHookDelivery writes an in-flight hook delivery record straight into
@@ -116,14 +117,6 @@ func PlantPendingHookDelivery(
 	deliveryID string,
 	now time.Time,
 ) error {
-	data, err := json.Marshal(hookDeliveryRecord{
-		DeliveryID: deliveryID,
-		State:      hookDeliveryStatePending,
-		CreatedAt:  now.UTC(),
-		UpdatedAt:  now.UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, deliveryID+".json"), data, 0o600)
+	_, err := agentjournal.NewHookDeliveries().Begin(dir, deliveryID, "", now)
+	return err
 }

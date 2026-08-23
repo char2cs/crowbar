@@ -196,7 +196,7 @@ func (u *Usecase) replayStartupHook(
 	if hook.deliveryID == "" {
 		return
 	}
-	if err := u.hookDeliveries.complete(
+	if err := u.hookDeliveries.Complete(
 		hook.deliveryDir, hook.deliveryID, hook.deliveryHash, time.Now(),
 	); err != nil {
 		slog.Error("agent: persist replayed startup hook delivery (effects already committed)",

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -57,7 +57,7 @@ func (u *Usecase) SubmitPrompt(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-	textHash := promptTextHash(text)
+	textHash := agentjournal.PromptTextHash(text)
 
 	defer u.spawns.lock(chatID)()
 
@@ -69,7 +69,7 @@ func (u *Usecase) SubmitPrompt(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chats dir: %w", err)
 	}
-	journalDir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
+	journalDir := u.prompts.Dir(chatsDir, chat.ID)
 	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		slog.ErrorContext(ctx, "agent: reconcile React prompt before submission (best-effort)",
 			"chat_id", chat.ID, "err", err)
@@ -94,11 +94,12 @@ func (u *Usecase) SubmitPrompt(
 	}
 
 	replacementRunnerID := uuid.NewString()
-	prior, existingAttempt, err := u.prompts.begin(
+	prior, existingAttempt, err := u.prompts.Begin(
 		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: begin durable dispatch: %w", err)
+		return domain.AgentPromptSubmission{}, fmt.Errorf(
+			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err))
 	}
 	if existingAttempt {
 		result, done, classifyErr := u.classifyPriorAttempt(
@@ -120,7 +121,7 @@ func (u *Usecase) SubmitPrompt(
 	)
 	if err != nil {
 		if errors.Is(err, engineterminal.ErrCommandNotFound) {
-			_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
+			_ = u.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
 			return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
 		}
 		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
@@ -158,7 +159,8 @@ func (u *Usecase) replayPriorAttempt(
 	chat domain.AgentChat,
 	journalDir, clientRequestID, textHash string,
 ) (domain.AgentPromptSubmission, bool, error) {
-	existing, found, err := u.prompts.lookup(journalDir, clientRequestID, textHash)
+	existing, found, err := u.prompts.Lookup(journalDir, clientRequestID, textHash)
+	err = promptJournalError(err)
 	if errors.Is(err, ErrPromptRequestIDConflict) {
 		return domain.AgentPromptSubmission{}, true, err
 	}
@@ -203,12 +205,12 @@ func (u *Usecase) displaceForPrompt(
 	defer unlockTurnStart()
 
 	if err := u.requirePromptIdle(ctx, chatID, liveRunnerID); err != nil {
-		_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
+		_ = u.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
 
 	if err := u.quitOutgoingCLI(ctx, chatID); err != nil {
-		_ = u.prompts.markFailedDispatch(journalDir, clientRequestID, time.Now())
+		_ = u.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
 	return nil
@@ -233,13 +235,15 @@ func (u *Usecase) commitPromptSpawn(
 			ctx, journalDir, clientRequestID, "replacement terminal identity is missing", nil,
 		)
 	}
-	committed, err := u.prompts.markSpawned(journalDir, clientRequestID, textHash, result, time.Now())
+	committed, err := u.prompts.MarkSpawned(
+		journalDir, clientRequestID, textHash, result.RunnerID, result.TerminalSessionID, time.Now(),
+	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, u.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "persist replacement identity", err,
 		)
 	}
-	if committed.State == promptStateUncertain {
+	if committed.State == agentjournal.PromptStateUncertain {
 		return domain.AgentPromptSubmission{}, ErrPromptOutcomeUnknown
 	}
 	return result, nil
@@ -259,7 +263,7 @@ func (u *Usecase) markPromptOutcomeUncertain(
 	journalDir, clientRequestID, stage string,
 	cause error,
 ) error {
-	if err := u.prompts.markUncertain(journalDir, clientRequestID, time.Now()); err != nil {
+	if err := u.prompts.MarkUncertain(journalDir, clientRequestID, time.Now()); err != nil {
 		slog.ErrorContext(ctx, "agent: persist uncertain React prompt outcome",
 			"stage", stage, "client_request_id", clientRequestID, "err", err)
 	}
@@ -296,7 +300,7 @@ func (u *Usecase) requireNoPendingPromptDelivery(ctx context.Context, chat domai
 	if err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: chats dir: %w", err)
 	}
-	pending, err := u.prompts.hasPendingDelivery(promptJournalDir(filepath.Join(chatsDir, chat.ID)))
+	pending, err := u.prompts.HasPendingDelivery(u.prompts.Dir(chatsDir, chat.ID))
 	if err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: inspect journal: %w", err)
 	}
@@ -322,8 +326,8 @@ func (u *Usecase) reconcilePromptJournalsOnBoot(ctx context.Context) error {
 			}
 			dirs[chat.WorkspaceID] = chatsDir
 		}
-		dir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
-		if err := u.prompts.recoverOrphanedDispatches(dir, now); err != nil {
+		dir := u.prompts.Dir(chatsDir, chat.ID)
+		if err := u.prompts.RecoverOrphanedDispatches(dir, now); err != nil {
 			return fmt.Errorf("agent: boot reconcile prompt journal for %s: %w", chat.ID, err)
 		}
 	}
@@ -347,22 +351,29 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return steps
 }
 
+func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmission {
+	return domain.AgentPromptSubmission{
+		RunnerID:          record.RunnerID,
+		TerminalSessionID: record.TerminalSessionID,
+	}
+}
+
 func (u *Usecase) classifyPriorAttempt(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
-	existing promptRequestRecord,
+	existing agentjournal.PromptRequest,
 ) (domain.AgentPromptSubmission, bool, error) {
 	if existing.RunnerID != "" && existing.TerminalSessionID != "" &&
-		(existing.State == promptStateSpawned || existing.State == promptStateAccepted) {
-		return existing.result(), true, nil
+		(existing.State == agentjournal.PromptStateSpawned || existing.State == agentjournal.PromptStateAccepted) {
+		return promptSubmission(existing), true, nil
 	}
-	if existing.State == promptStateDispatching ||
-		existing.State == promptStateSpawned ||
-		existing.State == promptStateUncertain {
+	if existing.State == agentjournal.PromptStateDispatching ||
+		existing.State == agentjournal.PromptStateSpawned ||
+		existing.State == agentjournal.PromptStateUncertain {
 		return u.recoverPriorDelivery(ctx, chat, journalDir, clientRequestID, existing)
 	}
-	if existing.State == promptStateAccepted {
+	if existing.State == agentjournal.PromptStateAccepted {
 		return domain.AgentPromptSubmission{}, true, ErrPromptAlreadyAccepted
 	}
 	return domain.AgentPromptSubmission{}, false, nil
@@ -372,7 +383,7 @@ func (u *Usecase) recoverPriorDelivery(
 	ctx context.Context,
 	chat domain.AgentChat,
 	journalDir, clientRequestID string,
-	existing promptRequestRecord,
+	existing agentjournal.PromptRequest,
 ) (domain.AgentPromptSubmission, bool, error) {
 	accepted, err := u.promptRecordAccepted(ctx, chat, existing)
 	if err != nil {
@@ -383,7 +394,7 @@ func (u *Usecase) recoverPriorDelivery(
 	if !accepted {
 		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
 	}
-	if _, err := u.prompts.markAcceptedByRequest(journalDir, clientRequestID, time.Now()); err != nil {
+	if _, err := u.prompts.MarkAccepted(journalDir, clientRequestID, time.Now()); err != nil {
 		slog.ErrorContext(ctx, "agent: submit prompt: persist recovered acceptance",
 			"chat_id", chat.ID, "client_request_id", clientRequestID, "err", err)
 	}
@@ -393,14 +404,14 @@ func (u *Usecase) recoverPriorDelivery(
 func (u *Usecase) promptRecordAccepted(
 	ctx context.Context,
 	chat domain.AgentChat,
-	record promptRequestRecord,
+	record agentjournal.PromptRequest,
 ) (bool, error) {
 	turns, err := u.chatTurns(ctx, chat.ID)
 	if err != nil {
 		return false, fmt.Errorf("agent: recover prompt request: turns: %w", err)
 	}
 	for _, t := range turns {
-		if deliveredThisRequest(t, record) && promptTextHash(t.Text) == record.TextHash {
+		if deliveredThisRequest(t, record) && agentjournal.PromptTextHash(t.Text) == record.TextHash {
 			return true, nil
 		}
 	}
@@ -409,7 +420,7 @@ func (u *Usecase) promptRecordAccepted(
 
 func deliveredThisRequest(
 	turn chatlog.Turn,
-	record promptRequestRecord,
+	record agentjournal.PromptRequest,
 ) bool {
 	if turn.Role != "user" || turn.Provider != record.ProviderID || turn.At.Before(record.CreatedAt) {
 		return false
@@ -428,8 +439,8 @@ func (u *Usecase) reconcilePendingPromptFromLedger(
 	if err != nil {
 		return fmt.Errorf("reconcile prompt acceptance: chats dir: %w", err)
 	}
-	dir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
-	record, found, err := u.prompts.activeDelivery(dir)
+	dir := u.prompts.Dir(chatsDir, chat.ID)
+	record, found, err := u.prompts.ActiveDelivery(dir)
 	if err != nil || !found {
 		return err
 	}
@@ -437,7 +448,7 @@ func (u *Usecase) reconcilePendingPromptFromLedger(
 	if err != nil || !accepted {
 		return err
 	}
-	if _, err := u.prompts.markAcceptedByRequest(dir, record.RequestID, time.Now()); err != nil {
+	if _, err := u.prompts.MarkAccepted(dir, record.RequestID, time.Now()); err != nil {
 		return fmt.Errorf("reconcile prompt acceptance: persist: %w", err)
 	}
 	return nil
@@ -453,9 +464,9 @@ func (u *Usecase) confirmPromptAccepted(
 	if err != nil {
 		return fmt.Errorf("prompt journal chats dir: %w", err)
 	}
-	dir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
-	return u.prompts.confirmAccepted(
-		dir, runner.ID, runner.ProviderID, promptTextHash(text), time.Now(),
+	dir := u.prompts.Dir(chatsDir, chat.ID)
+	return u.prompts.ConfirmAccepted(
+		dir, runner.ID, runner.ProviderID, agentjournal.PromptTextHash(text), time.Now(),
 	)
 }
 
@@ -475,8 +486,8 @@ func (u *Usecase) reconcilePromptRunnerDeparture(
 	if err != nil {
 		return
 	}
-	dir := promptJournalDir(filepath.Join(chatsDir, chat.ID))
-	record, found, err := u.prompts.activeForRunner(dir, runner.ID, runner.ProviderID)
+	dir := u.prompts.Dir(chatsDir, chat.ID)
+	record, found, err := u.prompts.ActiveForRunner(dir, runner.ID, runner.ProviderID)
 	if err != nil || !found {
 		return
 	}
@@ -485,11 +496,11 @@ func (u *Usecase) reconcilePromptRunnerDeparture(
 		return
 	}
 	if accepted {
-		_, _ = u.prompts.markAcceptedByRequest(dir, record.RequestID, time.Now())
+		_, _ = u.prompts.MarkAccepted(dir, record.RequestID, time.Now())
 		return
 	}
 
-	_ = u.prompts.markUncertain(dir, record.RequestID, time.Now())
+	_ = u.prompts.MarkUncertain(dir, record.RequestID, time.Now())
 }
 
 type promptDelivery struct {

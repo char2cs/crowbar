@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
@@ -115,7 +116,7 @@ type Usecase struct {
 	turnStarts *chatGate
 	// prompts is the durable at-most-once React-submission journal and the
 	// process-local transition lock shared with user_prompt hook confirmation.
-	prompts *promptJournal
+	prompts agentjournal.PromptRequests
 	// pendingHooks is the fork-before-runner-persistence barrier. It buffers the
 	// authenticated local hooks a provider can fire the instant its PTY starts,
 	// then replays them in order once the runner row exists.
@@ -127,7 +128,13 @@ type Usecase struct {
 	// hookDeliveries durably deduplicates Crowbar relay retries before any turn
 	// state or ledger mutation. The relay owns retry/spooling; this journal owns
 	// the exactly-once ingress boundary.
-	hookDeliveries *hookDeliveryJournal
+	hookDeliveries agentjournal.HookDeliveries
+	// hookGates serialises one runner's hook ingestion. It is held here rather
+	// than inside the delivery journal because it is taken across the WHOLE
+	// ingest — dedupe, replay buffering, effects, completion — which is
+	// orchestration, and a store that lent out a lock held across arbitrary
+	// caller work would couple them harder than the fs call it removed.
+	hookGates *chatGate
 	// catalogs owns only cancellation for in-flight deterministic probes. Results
 	// are deliberately never cached.
 	catalogs *catalogRuns
@@ -181,9 +188,10 @@ func New(
 		turns:          newTurnWaits(),
 		work:           newChatWorkStates(),
 		turnStarts:     newChatGate(),
-		prompts:        newPromptJournal(),
+		prompts:        agentjournal.NewPromptRequests(),
 		pendingHooks:   newPendingRunnerHooks(),
-		hookDeliveries: newHookDeliveryJournal(),
+		hookDeliveries: agentjournal.NewHookDeliveries(),
+		hookGates:      newChatGate(),
 		catalogs:       newCatalogRuns(),
 		answers:        newAnswerDesk(),
 		tools:          tools,

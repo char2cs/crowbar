@@ -495,3 +495,48 @@ preserves the identity `presentation_test.go` pins and the `errors.Is` switch in
 `dir` comes from `u.ws.AgentChatsDir(...)`, and `repositories/container.go:61-79`
 documents that this reader does not exist until `repositories.New` returns. Per-call
 directories sidestep that entirely — and `wspaths` likewise takes its key per call.
+
+---
+
+## 9. Stage C — the five-type split, done incrementally
+
+One package, five usecase types (§4.1). Extracted **one at a time**, each ending
+green, rather than as a single 133-method rearrangement. During the intermediate
+steps `Usecase` stays as a thin delegating shell; it is deleted in the last step
+when `usecases.Container` and `handlers.AgentUsecase` are rewired.
+
+Measured dependencies, cleanest first:
+
+| type | ports it needs | machinery it owns | inbound seams |
+| --- | --- | --- | --- |
+| `answerUsecase` | activity, chats, agents, runners, ws | `answers` | `holdForAnswer` ← observation (turn); `releaseAnswerWaiters` ← runners |
+| `providerUsecase` | agents, home, installed, providerPrefs, minter, tools | — | `requireProviderEnabled` ← switch, agent (runner) |
+| `chatUsecase` | chats, runners, activity, ws, telemetry, lineage | `spawns` (shared) | `switchProviderLocked` → runner |
+| `turnUsecase` | chats, runners, activity, agents, ws | turns, work, messages, telemetry, pendingHooks, hookDeliveries, termWait | several |
+| `runnerUsecase` | chats, runners, activity, agents, term, ws | spawns, turnStarts, prompts, catalogs | the remainder |
+
+`answerUsecase` and `providerUsecase` are the canaries: each is a closed set of
+ports plus at most one machinery type, and neither calls into another concern.
+
+### Two free wins taken with them
+
+- **`note` becomes a package-level function.** It is `func (u *Usecase) note(ctx, what, err)`
+  and touches no field — pure logging. `go-style` rule 6 says a stateless
+  singleton is a package function, and it is one of the three cross-concern
+  methods (answers, message_record, observation), so this deletes a seam.
+- **`agent.go` dissolves.** Its 29 methods belong to five different types; it is
+  the reason 11 of the 14 apparent cross-concern seams exist.
+
+### Rules carried from the reviews
+
+1. `spawns` must NOT reach the hook-ingest path. `gate.go:23-25` states the
+   invariant; nothing enforces it. Keep it unreachable from `turnUsecase`.
+2. Locked-inner-body pairs keep their `…Locked` names and document which gate the
+   caller holds. `ResumeChat` → `switchProviderLocked` and `discardSpawnedChat`
+   → `purgeChatLocked` exist precisely because `chatGate` is non-reentrant;
+   wiring either to its exported sibling compiles and deadlocks forever.
+3. The termwait detector and `agenttools.Deps` are built **last** in `New`, after
+   the five types exist — the detector's ports span four of them, and a nil
+   `ToolAccess` fails OPEN.
+4. `work.set` must publish before `turns.complete` (`turn.go:192` runs before the
+   `defer` at `:180`). Splitting `closeTurnFromStop` must not reorder them.

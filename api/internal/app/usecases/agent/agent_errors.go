@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
@@ -77,6 +78,24 @@ var (
 	// submission, not this error.
 	ErrPromptSessionUnavailable = fmt.Errorf("agent: chat has no live provider TUI for prompt submission: %w", apperr.ErrUnprocessable)
 )
+
+// promptJournalError translates the prompt journal's own refusals into this
+// package's sentinels, at the one boundary where the store's answer becomes the
+// caller's. The store cannot declare these itself: they wrap apperr classes,
+// which live above it — and their IDENTITY is what handlers switch on for an
+// HTTP status, so the translation must produce the very same values.
+func promptJournalError(err error) error {
+	switch {
+	case errors.Is(err, agentjournal.ErrPromptBusy):
+		return ErrPromptBusy
+	case errors.Is(err, agentjournal.ErrPromptRequestIDConflict):
+		return ErrPromptRequestIDConflict
+	case errors.Is(err, agentjournal.ErrPromptOutcomeUnknown):
+		return ErrPromptOutcomeUnknown
+	default:
+		return err
+	}
+}
 
 const (
 	PromptCodeBusy              = "chat_busy"

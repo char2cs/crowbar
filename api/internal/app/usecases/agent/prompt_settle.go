@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
@@ -15,7 +14,7 @@ func (u *Usecase) PendingDelivery(ctx context.Context, chatID string) (termwait.
 	if err != nil {
 		return termwait.Delivery{}, false
 	}
-	record, found, err := u.prompts.activeDelivery(dir)
+	record, found, err := u.prompts.ActiveDelivery(dir)
 	if err != nil || !found {
 		return termwait.Delivery{}, false
 	}
@@ -34,7 +33,7 @@ func (u *Usecase) SettleDelivery(ctx context.Context, chatID, requestID string) 
 	if err != nil {
 		return false, err
 	}
-	retired, err := u.prompts.settle(dir, requestID, time.Now())
+	retired, err := u.prompts.Settle(dir, requestID, time.Now())
 	if err != nil {
 		return false, fmt.Errorf("agent: settle prompt delivery: persist: %w", err)
 	}
@@ -58,5 +57,5 @@ func (u *Usecase) promptJournalDirFor(ctx context.Context, chatID string) (strin
 	if err != nil {
 		return "", fmt.Errorf("agent: prompt journal dir: chats dir: %w", err)
 	}
-	return promptJournalDir(filepath.Join(chatsDir, chat.ID)), nil
+	return u.prompts.Dir(chatsDir, chat.ID), nil
 }
