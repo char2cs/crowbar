@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/payload"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -114,7 +114,7 @@ func declaredToolInput(d *spec.Descriptor, canonical string, raw []byte) map[str
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return map[string]any{}
 	}
-	if sub := payload.Object(decoded, fields["tool_input"]); sub != nil {
+	if sub := mapping.Object(decoded, fields["tool_input"]); sub != nil {
 		return sub
 	}
 	return map[string]any{}

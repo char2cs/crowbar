@@ -3,8 +3,8 @@ package hooks
 import (
 	"strconv"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/payload"
 )
 
 const maxChoiceOptions = 32
@@ -38,7 +38,7 @@ func permissionChoice(fields map[string]string, decoded map[string]any) *models.
 	promptID := firstNonEmpty(decoded, fields["prompt_id"])
 	toolName := firstNonEmpty(decoded, fields["tool_name"])
 
-	if questions := payload.Objects(decoded, fields["questions"]); len(questions) > 0 {
+	if questions := mapping.Objects(decoded, fields["questions"]); len(questions) > 0 {
 		return questionChoice(fields, questions, promptID, toolName)
 	}
 
@@ -85,7 +85,7 @@ func choiceQuestion(
 	question map[string]any,
 	index int,
 ) models.PromptQuestion {
-	multi, _ := payload.Bool(question, fields["question_multi"])
+	multi, _ := mapping.Bool(question, fields["question_multi"])
 	id := "q" + strconv.Itoa(index)
 	out := models.PromptQuestion{
 		ID:    id,
@@ -93,7 +93,7 @@ func choiceQuestion(
 		Text:  firstNonEmpty(question, fields["question_text"]),
 		Multi: multi,
 	}
-	for i, option := range payload.Objects(question, fields["question_options"]) {
+	for i, option := range mapping.Objects(question, fields["question_options"]) {
 		if len(out.Options) >= maxChoiceOptions {
 			break
 		}
@@ -108,7 +108,7 @@ func choiceQuestion(
 }
 
 func suggestionOptions(fields map[string]string, decoded map[string]any) []models.ChoiceOption {
-	suggestions := payload.Objects(decoded, fields["suggestions"])
+	suggestions := mapping.Objects(decoded, fields["suggestions"])
 	out := make([]models.ChoiceOption, 0, len(suggestions))
 	for i, suggestion := range suggestions {
 		if len(out) >= maxChoiceOptions {
@@ -154,7 +154,7 @@ func elicitationChoice(
 }
 
 func boundedSchema(decoded map[string]any, path string) []byte {
-	data := payload.JSON(decoded, path)
+	data := mapping.JSON(decoded, path)
 	if len(data) > maxChoiceSchemaBytes {
 		return nil
 	}

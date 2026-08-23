@@ -11,8 +11,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/env"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/payload"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -170,10 +170,10 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 	out := make([]models.RateLimitWindow, 0, len(windows))
 	for _, w := range windows {
 		window := models.RateLimitWindow{ID: w.ID, Label: w.Label}
-		if pct, ok := payload.Float(decoded, w.UsedPercent); ok {
+		if pct, ok := mapping.Float(decoded, w.UsedPercent); ok {
 			window.UsedPercent = &pct
 		}
-		if at, ok := payload.Time(decoded, w.ResetsAt); ok {
+		if at, ok := mapping.Time(decoded, w.ResetsAt); ok {
 			window.ResetsAt = &at
 		}
 
@@ -193,7 +193,7 @@ func readInt(fields map[string]string, decoded map[string]any, fact string) *int
 	if !mapped {
 		return nil
 	}
-	v, ok := payload.Int(decoded, path)
+	v, ok := mapping.Int(decoded, path)
 	if !ok {
 		return nil
 	}
@@ -205,7 +205,7 @@ func readFloat(fields map[string]string, decoded map[string]any, fact string) *f
 	if !mapped {
 		return nil
 	}
-	v, ok := payload.Float(decoded, path)
+	v, ok := mapping.Float(decoded, path)
 	if !ok {
 		return nil
 	}
@@ -217,5 +217,5 @@ func readString(fields map[string]string, decoded map[string]any, fact string) s
 	if !mapped {
 		return ""
 	}
-	return payload.String(decoded, path)
+	return mapping.String(decoded, path)
 }

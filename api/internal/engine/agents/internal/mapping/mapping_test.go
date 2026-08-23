@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor/internal/mapping"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 )
 
 func doc() map[string]any {

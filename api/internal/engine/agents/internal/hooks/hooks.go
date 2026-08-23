@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/payload"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -60,7 +60,7 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
-		if payload.String(decoded, field) == "" {
+		if mapping.String(decoded, field) == "" {
 			return field, false
 		}
 	}
@@ -74,7 +74,7 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 		Kind:      canonical,
 		SessionID: get("session_id"),
 		Message:   get("message"),
-		AsyncWork: payload.Count(decoded, fields["async_work"]),
+		AsyncWork: mapping.Count(decoded, fields["async_work"]),
 		Model:     get("model"),
 		Effort:    get("effort"),
 		Reason:    get("reason"),
@@ -111,8 +111,8 @@ func build(canonical string, fields map[string]string, decoded map[string]any) m
 }
 
 func buildDelta(fields map[string]string, decoded map[string]any) *models.MessageDelta {
-	index, _ := payload.Int(decoded, fields["index"])
-	final, _ := payload.Bool(decoded, fields["final"])
+	index, _ := mapping.Int(decoded, fields["index"])
+	final, _ := mapping.Bool(decoded, fields["final"])
 	return &models.MessageDelta{
 		TurnID:    firstNonEmpty(decoded, fields["turn_id"]),
 		MessageID: firstNonEmpty(decoded, fields["message_id"]),
@@ -123,12 +123,12 @@ func buildDelta(fields map[string]string, decoded map[string]any) *models.Messag
 }
 
 func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEvent {
-	duration, _ := payload.Int(decoded, fields["duration_ms"])
+	duration, _ := mapping.Int(decoded, fields["duration_ms"])
 	return &models.ToolEvent{
 		ID:     firstNonEmpty(decoded, fields["tool_id"]),
 		Name:   firstNonEmpty(decoded, fields["tool_name"]),
 		Target: firstNonEmpty(decoded, fields["tool_target"]),
-		Input:  payload.JSON(decoded, fields["tool_input"]),
+		Input:  mapping.JSON(decoded, fields["tool_input"]),
 
 		Result:     firstNonEmptyJSON(decoded, fields["tool_result"]),
 		Error:      firstNonEmpty(decoded, fields["tool_error"]),
@@ -151,7 +151,7 @@ func firstNonEmptyJSON(decoded map[string]any, expr string) []byte {
 		return nil
 	}
 	for _, path := range branches(expr) {
-		if v := payload.JSON(decoded, strings.TrimSpace(path)); len(v) > 0 {
+		if v := mapping.JSON(decoded, strings.TrimSpace(path)); len(v) > 0 {
 			return v
 		}
 	}
@@ -163,7 +163,7 @@ func firstNonEmpty(decoded map[string]any, expr string) string {
 		return ""
 	}
 	for _, path := range branches(expr) {
-		if v := payload.String(decoded, strings.TrimSpace(path)); v != "" {
+		if v := mapping.String(decoded, strings.TrimSpace(path)); v != "" {
 			return v
 		}
 	}
