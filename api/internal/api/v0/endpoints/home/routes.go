@@ -20,7 +20,7 @@ import (
 // project's home workspace and injects :wsId before each reused handler runs.
 // That lets the file-change WS handler (filesWS), the dual-served thread list
 // WS (threadsWS), the thread REST handlers, and the agent chat REST + WS
-// (agentUsecase/agentWS) resolve the home workspace by id. Git is intentionally
+// (the agent concerns/agentWS) resolve the home workspace by id. Git is intentionally
 // absent — the home workspace is the project root, not a per-workspace git
 // worktree.
 //
@@ -40,7 +40,11 @@ func Register(
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
 	threadsWS gin.HandlerFunc,
-	agentUsecase agenthandlers.AgentUsecase,
+	agentChats agenthandlers.ChatUsecase,
+	agentTurns agenthandlers.TurnUsecase,
+	agentRunners agenthandlers.RunnerUsecase,
+	agentAnswers agenthandlers.AnswerUsecase,
+	agentProviders agenthandlers.ProviderUsecase,
 	agentFolders agenthandlers.ChatTreeUsecase,
 	agentBroadcastFolder func(folderID, workspaceID, kind string),
 	agentWS gin.HandlerFunc,
@@ -48,7 +52,10 @@ func Register(
 ) {
 	h := homehandlers.New(workspaces, projects, files, termEng, working)
 	th := threadhandlers.New(threadStore, threadBroadcast)
-	ah := agenthandlers.New(agentUsecase, agentFolders, agentBroadcastFolder)
+	ah := agenthandlers.New(
+		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
+		agentFolders, agentBroadcastFolder,
+	)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)

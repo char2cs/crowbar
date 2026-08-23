@@ -28,7 +28,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the

@@ -32,7 +32,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		// settingsRG carries only the GLOBAL /settings/agent/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
 		// (it is not an /agent/... path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, noopWS)
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, noopWS)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
@@ -41,7 +41,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			nil, nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
 			noopWS,
 			nil, nil, noopWS,
-			nil,      // agent usecase
+			nil, nil, nil, nil, nil, // the five agent concerns
 			nil, nil, // chat-folder usecase + broadcast
 			noopWS, // agent WS
 			func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },

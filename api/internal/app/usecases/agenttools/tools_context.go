@@ -64,7 +64,7 @@ type ChatLineageReader interface {
 // yet — a NORMAL state, not an error and not empty text. A model handed an
 // error would try to work around a failure that is not one; handed an empty
 // result, it would likely retry or report a broken tool. Exported so
-// agent.Usecase's ReadChatLog (the production ChatLogReader) renders the exact
+// the agent chat concern's ReadChatLog (the production ChatLogReader) renders the exact
 // same wording rather than the two ever drifting apart.
 const NoChatTurnsText = "This chat has no turns yet."
 
@@ -241,7 +241,7 @@ func getChatLog(
 	}
 	// Rendering the empty case is THIS function's job, and only this one's. A
 	// chat with nothing recorded yet comes back with no turns — the production
-	// reader (agent.Usecase.ReadChatLog) deliberately returns them rather than
+	// reader (agent.ChatUsecase.ReadChatLog) deliberately returns them rather than
 	// wording of its own, so the phrasing lives in exactly one place instead of
 	// drifting between two. Any other ChatLogReader gets the same treatment.
 	if len(turns) == 0 {

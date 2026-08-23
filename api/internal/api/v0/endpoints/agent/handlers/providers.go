@@ -19,7 +19,7 @@ import (
 func (h *Handlers) Providers(
 	ctx *gin.Context,
 ) {
-	providers, err := h.usecase.ResolveProviders(ctx.Request.Context())
+	providers, err := h.providers.ResolveProviders(ctx.Request.Context())
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -73,7 +73,7 @@ func (h *Handlers) UpdateProviderPreferences(
 		}
 	}
 
-	resolved, err := h.usecase.ReplaceProviderPreferences(ctx.Request.Context(), prefs)
+	resolved, err := h.providers.ReplaceProviderPreferences(ctx.Request.Context(), prefs)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

@@ -11,7 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // fakeSessionStore is an in-memory store.Store[domain.TerminalSession, string].

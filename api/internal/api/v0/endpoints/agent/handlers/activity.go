@@ -26,7 +26,7 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 		return
 	}
 
-	activity, err := h.usecase.ReadActivity(ctx.Request.Context(), chat.ID, int64(after), limit)
+	activity, err := h.turns.ReadActivity(ctx.Request.Context(), chat.ID, int64(after), limit)
 	if err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)
@@ -68,7 +68,7 @@ func (h *Handlers) Choices(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	choices, err := h.usecase.ReadPendingChoices(ctx.Request.Context(), chat.ID)
+	choices, err := h.turns.ReadPendingChoices(ctx.Request.Context(), chat.ID)
 	if err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)
@@ -79,7 +79,7 @@ func (h *Handlers) Choices(ctx *gin.Context) {
 
 func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.AgentChoiceDTO {
 	answerable := map[string]bool{}
-	for _, id := range h.usecase.AnswerableChoiceIDs(chatID, in) {
+	for _, id := range h.answers.AnswerableChoiceIDs(chatID, in) {
 		answerable[id] = true
 	}
 	out := make([]dto.AgentChoiceDTO, 0, len(in))
@@ -133,7 +133,7 @@ func (h *Handlers) ToolPayload(ctx *gin.Context) {
 		return
 	}
 
-	payload, err := h.usecase.ReadToolPayload(
+	payload, err := h.turns.ReadToolPayload(
 		ctx.Request.Context(), chat.ID, ctx.Param("toolId"), side)
 	if errors.Is(err, agentactivity.ErrNotFound) {
 
@@ -154,7 +154,7 @@ func (h *Handlers) Telemetry(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	report, ok := h.usecase.Telemetry(chat.ID)
+	report, ok := h.turns.Telemetry(chat.ID)
 	if !ok {
 		ctx.Status(http.StatusNoContent)
 		return

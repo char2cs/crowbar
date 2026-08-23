@@ -33,7 +33,7 @@ func (h *Handlers) Switch(
 		return
 	}
 
-	newSegID, err := h.usecase.SwitchProvider(rctx, id, body.Provider)
+	newSegID, err := h.runners.SwitchProvider(rctx, id, body.Provider)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -60,7 +60,7 @@ func (h *Handlers) Resume(
 		return
 	}
 
-	segID, err := h.usecase.ResumeChat(rctx, id)
+	segID, err := h.runners.ResumeChat(rctx, id)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -88,7 +88,7 @@ func (h *Handlers) Stop(
 		return
 	}
 
-	if err := h.usecase.StopChat(rctx, id); err != nil {
+	if err := h.runners.StopChat(rctx, id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
@@ -112,7 +112,7 @@ func (h *Handlers) Handoff(
 		return
 	}
 
-	handoff, err := h.usecase.AssembleHandoff(rctx, id)
+	handoff, err := h.chats.AssembleHandoff(rctx, id)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

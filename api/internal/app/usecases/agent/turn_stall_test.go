@@ -42,7 +42,7 @@ func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok, "the shipped codex descriptor must recognise its own usage-limit banner")
 
-	agentusecase.CloseStalledTurn(f.usecase, f.ctx, termwait.Stall{
+	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, termwait.Stall{
 		ChatID:      chatID,
 		WorkspaceID: "ws1",
 		ProviderID:  "codex",
@@ -79,7 +79,7 @@ func TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose(t *tes
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok)
-	agentusecase.CloseStalledTurn(f.usecase, f.ctx, termwait.Stall{
+	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, termwait.Stall{
 		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
 		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
 	})
@@ -285,7 +285,7 @@ func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok)
-	agentusecase.CloseStalledTurn(f.usecase, f.ctx, termwait.Stall{
+	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, termwait.Stall{
 		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
 		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
 	})

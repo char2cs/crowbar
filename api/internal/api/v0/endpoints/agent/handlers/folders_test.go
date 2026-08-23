@@ -139,12 +139,24 @@ type folderFrame struct {
 	kind        string
 }
 
+// agentUsecases is every agent port the handler set takes, behind one type, so
+// one test double can still stand in for all five. Production wires them
+// separately — that is the whole point of the split — and each double here is
+// handed to New under each port in turn.
+type agentUsecases interface {
+	handlers.ChatUsecase
+	handlers.TurnUsecase
+	handlers.RunnerUsecase
+	handlers.AnswerUsecase
+	handlers.ProviderUsecase
+}
+
 // newChatHandlers builds the handler set the chat tests use: a real agent
 // usecase double, an inert tree, and no broadcaster.
 func newChatHandlers(
-	uc handlers.AgentUsecase,
+	uc agentUsecases,
 ) *handlers.Handlers {
-	return handlers.New(uc, &fakeChatTree{}, nil)
+	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil)
 }
 
 // newChatHandlersWith is newChatHandlers with the tree double the caller holds,
@@ -152,10 +164,10 @@ func newChatHandlers(
 // row before a CLI is started on it), so what the handler forwarded is recorded
 // there and nowhere else.
 func newChatHandlersWith(
-	uc handlers.AgentUsecase,
+	uc agentUsecases,
 	tree *fakeChatTree,
 ) *handlers.Handlers {
-	return handlers.New(uc, tree, nil)
+	return handlers.New(uc, uc, uc, uc, uc, tree, nil)
 }
 
 // newFolderHandlers builds the handler set the tree tests use, capturing every
@@ -170,11 +182,11 @@ func newFolderHandlers(
 // newFolderHandlersWith is newFolderHandlers with a caller-supplied agent
 // usecase, for the routes that read the chat as well as the tree.
 func newFolderHandlersWith(
-	uc handlers.AgentUsecase,
+	uc agentUsecases,
 	tree *fakeChatTree,
 	frames *[]folderFrame,
 ) *handlers.Handlers {
-	return handlers.New(uc, tree, func(folderID, workspaceID, kind string) {
+	return handlers.New(uc, uc, uc, uc, uc, tree, func(folderID, workspaceID, kind string) {
 		*frames = append(*frames, folderFrame{folderID: folderID, workspaceID: workspaceID, kind: kind})
 	})
 }
@@ -477,7 +489,9 @@ func TestPlaceChat_MalformedBodyIs400(t *testing.T) {
 // A nil broadcast must degrade to a no-op rather than panic, matching every
 // other handler wired without a hub.
 func TestNew_NilFolderBroadcastDegradesToNoop(t *testing.T) {
-	h := handlers.New(&fakeAgentUsecase{}, &fakeChatTree{created: domain.AgentChatFolder{ID: "f1"}}, nil)
+	uc := &fakeAgentUsecase{}
+	h := handlers.New(uc, uc, uc, uc, uc,
+		&fakeChatTree{created: domain.AgentChatFolder{ID: "f1"}}, nil)
 	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":"spikes"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 

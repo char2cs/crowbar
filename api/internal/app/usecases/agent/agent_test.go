@@ -16,7 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // ---------------------------------------------------------------------------

@@ -116,13 +116,17 @@ func (c *Container) Register(
 		c.threads.Handle,
 		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
 		// home group so project-home workspaces get agentic chats too (the same
-		// usecase + WS broadcaster agent.Register uses on the workspace-scoped
+		// concerns + WS broadcaster agent.Register uses on the workspace-scoped
 		// group); home.Register injects the resolved home :wsId so both scope
 		// correctly. The chat-FOLDER surface is re-mounted with it, for the same
 		// reason and then some: the home accumulates the most chats of any
 		// workspace, so a home without folders is the one place the panel most
 		// needs them and would not have them.
-		c.app.Usecases.Agent,
+		c.app.Usecases.AgentChat,
+		c.app.Usecases.AgentTurn,
+		c.app.Usecases.AgentRunner,
+		c.app.Usecases.AgentAnswer,
+		c.app.Usecases.AgentProvider,
 		c.app.Usecases.AgentChatFolder,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
@@ -182,7 +186,11 @@ func (c *Container) Register(
 	agent.Register(
 		wsScoped,
 		rg,
-		c.app.Usecases.Agent,
+		c.app.Usecases.AgentChat,
+		c.app.Usecases.AgentTurn,
+		c.app.Usecases.AgentRunner,
+		c.app.Usecases.AgentAnswer,
+		c.app.Usecases.AgentProvider,
 		c.app.Usecases.AgentChatFolder,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,

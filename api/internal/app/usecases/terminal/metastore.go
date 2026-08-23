@@ -8,7 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 type sessionMetaStoreImpl struct {

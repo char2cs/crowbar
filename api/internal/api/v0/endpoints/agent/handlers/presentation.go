@@ -29,7 +29,7 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 		return
 	}
 
-	page, err := h.usecase.ReadMessages(ctx.Request.Context(), chat.ID, after, before, limit)
+	page, err := h.chats.ReadMessages(ctx.Request.Context(), chat.ID, after, before, limit)
 	if err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)
@@ -68,7 +68,7 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := h.usecase.SubmitPrompt(
+	result, err := h.runners.SubmitPrompt(
 		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
 	)
 	if err != nil {
@@ -86,7 +86,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	catalog, err := h.usecase.SlashCatalog(ctx.Request.Context(), chat.ID)
+	catalog, err := h.runners.SlashCatalog(ctx.Request.Context(), chat.ID)
 	if err != nil {
 		writeCodedErr(ctx, err, agentusecase.CatalogErrorCode(err))
 		return

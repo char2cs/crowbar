@@ -15,7 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // ── mockTerminalEngine — a controllable TerminalEngine double ────────────

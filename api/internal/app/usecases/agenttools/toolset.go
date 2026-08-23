@@ -73,7 +73,7 @@ type ProviderToolAccess func(ctx context.Context, providerID string) (bool, erro
 // That is deliberate — this port is filled in by agent.New alongside Chats and
 // ChatLogs, so a nil here is a hand-assembled Deps in a test, never production,
 // and TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff pins the real
-// wiring against a real *agent.Usecase.
+// wiring against the real agent provider concern.
 func (d Deps) refuseDisabledTools(ctx context.Context, providerID string) error {
 	if d.ToolAccess == nil {
 		return nil

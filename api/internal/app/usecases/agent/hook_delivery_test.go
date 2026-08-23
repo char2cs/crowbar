@@ -140,7 +140,7 @@ func TestRegression_IngestHookDelivery_TheJournalIsBoundedInMemoryAndOnDisk(t *t
 	}
 	f.wait()
 
-	assert.LessOrEqual(t, agentusecase.HookDeliveryMarkerCount(f.usecase),
+	assert.LessOrEqual(t, agentusecase.HookDeliveryMarkerCount(f.usecase.TurnUsecase),
 		agentusecase.HookDeliveryCompletedMax, "the in-memory completion map must be capped")
 	dir := filepath.Join(f.ws.chatsDir, agentusecase.HookDeliveryDirName, runnerID)
 	entries, err := os.ReadDir(dir)
@@ -149,7 +149,7 @@ func TestRegression_IngestHookDelivery_TheJournalIsBoundedInMemoryAndOnDisk(t *t
 		"the on-disk runner journal must be capped")
 
 	replayed := ids[guarded]
-	require.False(t, agentusecase.HookDeliveryMarked(f.usecase, replayed),
+	require.False(t, agentusecase.HookDeliveryMarked(f.usecase.TurnUsecase, replayed),
 		"the guarded delivery must have been evicted from memory, or the replay proves nothing")
 	require.FileExists(t, filepath.Join(dir, replayed+".json"),
 		"the guarded delivery must still be on disk, or there is nothing left to answer the replay")
@@ -189,7 +189,7 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 	firstID := uuid.NewString()
 	firstPayload := mustJSON(t, map[string]any{"last_assistant_message": "the first reply"})
 	var syncs atomic.Int64
-	agentusecase.SetHookDeliveryDirSync(f.usecase, func(string) error {
+	agentusecase.SetHookDeliveryDirSync(f.usecase.TurnUsecase, func(string) error {
 		if syncs.Add(1) != 2 {
 			return nil
 		}
@@ -200,7 +200,7 @@ func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOn
 		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload))
 	f.wait()
 	require.Equal(t, int64(2), syncs.Load(), "the fault must have landed on the completion write")
-	require.False(t, agentusecase.HookDeliveryMarked(f.usecase, firstID),
+	require.False(t, agentusecase.HookDeliveryMarked(f.usecase.TurnUsecase, firstID),
 		"a completion whose durable write failed must not be marked done in memory")
 
 	require.NoError(t, f.usecase.IngestHookDelivery(

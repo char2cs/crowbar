@@ -45,7 +45,7 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 		return
 	}
 
-	err := h.usecase.AnswerChoice(
+	err := h.answers.AnswerChoice(
 		ctx.Request.Context(), chat.ID, ctx.Param("choiceId"),
 		body.OptionIDs, body.Reason, body.Content,
 	)
@@ -70,7 +70,7 @@ func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 		return
 	}
 
-	answer, err := h.usecase.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
+	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
 	if err != nil {
 		if errors.Is(err, ctx.Request.Context().Err()) {
 
@@ -96,7 +96,7 @@ func (h *Handlers) AbandonHookAnswer(ctx *gin.Context) {
 		libs.WriteErr(ctx, http.StatusBadRequest, "delivery_id is required")
 		return
 	}
-	if err := h.usecase.AbandonAnswer(ctx.Request.Context(), body.DeliveryID); err != nil {
+	if err := h.answers.AbandonAnswer(ctx.Request.Context(), body.DeliveryID); err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)
 		return

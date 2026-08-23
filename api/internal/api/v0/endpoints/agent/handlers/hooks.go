@@ -10,32 +10,27 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// hookDeliveryIngress is the journalled ingress: the relay mints one delivery id
-// and reuses it on every retry, and this path turns those retries into ONE
-// semantic hook. It is discovered rather than declared on AgentUsecase because a
-// hand-assembled test usecase legitimately has no journal, and a hook with no
-// delivery id (the daemon's own replay) takes the plain path either way.
-type hookDeliveryIngress interface {
-	IngestHookDelivery(
-		ctx context.Context,
-		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
-		rawPayload []byte,
-	) error
-}
-
-// ingest routes one hook to the journalled ingress when both a journal and a
-// delivery id exist, and to the plain one otherwise. Exactly one of the two runs:
-// they are the same ingestion, and running both would apply every effect twice.
+// ingest routes one hook by whether it carries a delivery id: with one, through
+// the exactly-once journal, which turns a relay's retries into ONE semantic hook;
+// without one — the daemon's own replay — straight through. Exactly one of the
+// two runs: they are the same ingestion, and running both would apply every
+// effect twice.
+//
+// Both ingresses are declared on TurnUsecase, so which one exists is settled at
+// COMPILE time. The journalled half used to be discovered with a `, ok` type
+// assertion, and that failed silently: a port that stopped carrying it sent every
+// hook down the un-journalled path, and every retry duplicated the user turn and
+// the assistant message it had already applied.
 func (h *Handlers) ingest(
 	ctx context.Context,
 	workspaceID, deliveryID, runnerID, provider, event string,
 	raw []byte,
 ) error {
-	if deliveries, journalled := h.usecase.(hookDeliveryIngress); journalled && deliveryID != "" {
-		return deliveries.IngestHookDelivery(
-			ctx, workspaceID, deliveryID, runnerID, provider, event, raw)
+	if deliveryID == "" {
+		return h.turns.IngestHook(ctx, runnerID, provider, event, raw)
 	}
-	return h.usecase.IngestHook(ctx, runnerID, provider, event, raw)
+	return h.turns.IngestHookDelivery(
+		ctx, workspaceID, deliveryID, runnerID, provider, event, raw)
 }
 
 // Hooks handles POST .../workspaces/:wsId/agent/hooks: the vendor-CLI hook forwarder posts a
@@ -81,7 +76,7 @@ func (h *Handlers) Hooks(
 	// A hook that opened nothing answerable — every hook of a provider with no
 	// answer channel, and most hooks of one that has — gets a bare 202 and exits, as
 	// it always did.
-	if pending, waiting := h.usecase.PendingAnswer(body.DeliveryID); waiting {
+	if pending, waiting := h.answers.PendingAnswer(body.DeliveryID); waiting {
 		libs.WriteQueryWithStatus(ctx, http.StatusAccepted, dto.AgentHookAckDTO{
 			Await: &dto.AgentHookAwaitDTO{
 				ChoiceID: pending.ChoiceID,

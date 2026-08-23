@@ -222,7 +222,7 @@ func (m *OriginSyncManager) run(
 // production that is a real interval ticker. A test installs its own source
 // (driveCyclesForTest) so a cycle happens exactly when the test fires one and the
 // background cadence can never race the test — the same discipline as
-// engine/terminal's StopMaintenanceForTest + RunMaintenanceOnceForTest. Sleeping
+// core/terminal's StopMaintenanceForTest + RunMaintenanceOnceForTest. Sleeping
 // for a 5-minute production interval is not an option, and shrinking the interval
 // to "small enough" would only trade a slow test for a flaky one.
 func (m *OriginSyncManager) tickSource() (<-chan time.Time, func()) {

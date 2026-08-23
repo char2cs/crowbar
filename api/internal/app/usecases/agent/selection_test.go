@@ -240,13 +240,13 @@ func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDon
 	require.NotEqual(t, engineagents.DeliveryRestartTUI, descriptor.Capabilities().Delivery,
 		"the fixture must not restart for delivery reasons, or this proves nothing")
 
-	err = agentusecase.RequirePromptRestart(f.ctx, f.usecase, chatID, live, descriptor)
+	err = agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor)
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported,
 		"a delivery this daemon has no channel for is refused, never guessed at")
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 
-	require.NoError(t, agentusecase.RequirePromptRestart(f.ctx, f.usecase, chatID, live, descriptor),
+	require.NoError(t, agentusecase.RequirePromptRestart(f.ctx, f.usecase.RunnerUsecase, chatID, live, descriptor),
 		"a pending selection switch obliges a restart on its own")
 }
 
@@ -431,7 +431,7 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	cs.failLoadChat = errors.New("boom: load chat")
 
 	err = agentusecase.RequirePromptRestart(
-		f.ctx, f.usecase, chatID, live, undeliverableAgent{Agent: shipped})
+		f.ctx, f.usecase.RunnerUsecase, chatID, live, undeliverableAgent{Agent: shipped})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat selection")

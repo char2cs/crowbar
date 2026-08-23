@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -296,40 +295,4 @@ func answersByQuestion(answers []domain.ChoiceAnswer) map[string]any {
 		out[key] = labels[0]
 	}
 	return out
-}
-
-// PendingAnswer reports the prompt a hook delivery is parked on. It delegates
-// to AnswerUsecase.
-func (u *Usecase) PendingAnswer(deliveryID string) (PendingAnswer, bool) {
-	return u.answers.PendingAnswer(deliveryID)
-}
-
-// AwaitAnswer blocks a hook relay until a person answers, its budget expires or
-// ctx is cancelled. It delegates to AnswerUsecase.
-func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswer, error) {
-	return u.answers.AwaitAnswer(ctx, deliveryID)
-}
-
-// AbandonAnswer retires a hook relay without printing. It delegates to
-// AnswerUsecase.
-func (u *Usecase) AbandonAnswer(ctx context.Context, deliveryID string) error {
-	return u.answers.AbandonAnswer(ctx, deliveryID)
-}
-
-// AnswerChoice decides a pending prompt from Crowbar. It delegates to
-// AnswerUsecase.
-func (u *Usecase) AnswerChoice(
-	ctx context.Context,
-	chatID, choiceID string,
-	optionIDs []string,
-	reason string,
-	content []byte,
-) error {
-	return u.answers.AnswerChoice(ctx, chatID, choiceID, optionIDs, reason, content)
-}
-
-// AnswerableChoiceIDs filters choices down to the ones a relay is still blocked
-// on. It delegates to AnswerUsecase.
-func (u *Usecase) AnswerableChoiceIDs(chatID string, choices []domain.ActivityChoice) []string {
-	return u.answers.AnswerableChoiceIDs(chatID, choices)
 }

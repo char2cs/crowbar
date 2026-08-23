@@ -98,20 +98,21 @@ type RunnerUsecase interface {
 		ctx context.Context,
 	) error
 
-	// PendingDelivery reports the prompt delivery a chat is still waiting on a
-	// turn for.
-	PendingDelivery(
-		ctx context.Context,
+	// TerminalWait reports whether a chat's CLI is parked on a modal terminal
+	// prompt, and on which kind. A daemon whose terminal seam cannot render a
+	// screen always answers "not waiting".
+	TerminalWait(
 		chatID string,
-	) (termwait.Delivery, bool)
+	) domain.AgentTerminalWait
 
-	// SettleDelivery retires a prompt delivery that produced no turn, after one
-	// last look for ledger evidence that it was in fact accepted. The bool reports
-	// whether anything was retired.
-	SettleDelivery(
+	// StartTerminalWaitSweep starts the screen sweep and binds the three publish
+	// callbacks the hub owns. It runs until ctx is cancelled.
+	StartTerminalWaitSweep(
 		ctx context.Context,
-		chatID, requestID string,
-	) (bool, error)
+		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
+		promptSettled func(chatID, workspaceID, requestID string),
+		messageDelta func(chatID, workspaceID, messageID, text string),
+	)
 }
 
 var _ RunnerUsecase = (*runnerUsecase)(nil)
@@ -152,6 +153,11 @@ type runnerUsecase struct {
 	turn      *turnUsecase
 	answers   *answerUsecase
 	providers *providerUsecase
+	// termWait detects the state no hook reports: a CLI parked on a modal Crowbar
+	// cannot answer, which otherwise renders as an empty pane over a live process.
+	// NIL when the terminal seam cannot render a screen, in which case every chat
+	// reports the zero verdict — see newTerminalWaitDetector.
+	termWait termwait.Detector
 	// promptSettled fans out the edge where a delivery is retired without ever
 	// having produced a turn. Wired at sweep start rather than at construction,
 	// because the thing it publishes through is the hub — a layer above this one.

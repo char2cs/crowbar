@@ -63,12 +63,16 @@ import (
 func Register(
 	wsScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
-	usecase agenthandlers.AgentUsecase,
+	chats agenthandlers.ChatUsecase,
+	turns agenthandlers.TurnUsecase,
+	runners agenthandlers.RunnerUsecase,
+	answers agenthandlers.AnswerUsecase,
+	providers agenthandlers.ProviderUsecase,
 	folders agenthandlers.ChatTreeUsecase,
 	broadcastFolder func(folderID, workspaceID, kind string),
 	wsHandle gin.HandlerFunc,
 ) {
-	h := agenthandlers.New(usecase, folders, broadcastFolder)
+	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder)
 
 	wsScoped.POST("/agent/chats", h.Create)
 	wsScoped.GET("/agent/chats", h.List)

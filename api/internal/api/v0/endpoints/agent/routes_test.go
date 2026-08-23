@@ -129,6 +129,14 @@ func (stubUsecase) IngestHook(
 	return nil
 }
 
+func (stubUsecase) IngestHookDelivery(
+	_ context.Context,
+	_, _, _, _, _ string,
+	_ []byte,
+) error {
+	return nil
+}
+
 func (stubUsecase) ListChatsByWorkspace(
 	_ context.Context,
 	_ string,
@@ -267,10 +275,12 @@ func TestRegisterMountsRoutes(
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
 	wsHit := false
-	agent.Register(wsScoped, settingsRG, stubUsecase{}, stubChatTree{}, nil, func(c *gin.Context) {
-		wsHit = true
-		c.Status(http.StatusOK)
-	})
+	uc := stubUsecase{}
+	agent.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+		func(c *gin.Context) {
+			wsHit = true
+			c.Status(http.StatusOK)
+		})
 
 	const base = "/v0/projects/p1/repos/r1/workspaces/w1"
 	cases := []struct {
@@ -325,9 +335,11 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	agent.Register(wsScoped, settingsRG, stubUsecase{dispatch: got}, stubChatTree{}, nil, func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+	uc := stubUsecase{dispatch: got}
+	agent.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+		func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
 
 	const path = "/v0/projects/p1/repos/r1/workspaces/w1/agent/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,

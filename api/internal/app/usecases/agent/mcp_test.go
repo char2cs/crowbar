@@ -71,11 +71,11 @@ func TestDispatchMCP_InitializeAnnouncesCrowbar(
 // missing — and nothing else would ever notice.
 //
 // This asserts the FULL 8-name production surface, not merely Contains, and it
-// does so against a REAL *agent.Usecase built through the real agent.New (via
+// does so against the REAL concerns built through the real agent.New (via
 // newFixture → newFixtureUsing), never a Deps struct a test hand-assembles and
 // then patches — the latter can only prove the surface WOULD be complete if
 // New's own self-assignment ran, not that it actually did. That distinction is
-// exactly what a deleted `u.tools.Chats = u` or `u.tools.ChatLogs = u` needs to
+// exactly what a deleted `tools.Chats = chat` or `tools.ChatLogs = chat` needs to
 // be caught by something.
 func TestDispatchMCP_ListsTheChatTools(
 	t *testing.T,
@@ -108,7 +108,7 @@ func TestDispatchMCP_ListsTheChatTools(
 		"resolve_review_thread",
 		"list_workspaces",
 		"get_chat_log",
-	}, names, "a real *agent.Usecase must advertise the complete production tool surface")
+	}, names, "a real provider concern must advertise the complete production tool surface")
 }
 
 // TestDispatchMCP_ToolCallRenamesTheCallersChat is the end-to-end proof of the
@@ -181,7 +181,7 @@ func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 ) {
 	u := agentusecase.New(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, agenttools.Deps{})
 
-	_, send, err := u.DispatchMCP(t.Context(), "seg-1", "tok",
+	_, send, err := u.Provider.DispatchMCP(t.Context(), "seg-1", "tok",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	require.Error(t, err)
 	assert.False(t, send)

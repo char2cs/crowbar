@@ -38,8 +38,8 @@ var ComposeContext = composeContext
 // It REPLACES the journal, so it must be called before the chat under test has
 // submitted anything. The prompt journal holds no state between calls, so a
 // replacement loses nothing.
-func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
-	u.runner.prompts = agentjournal.NewPromptRequests(agentjournal.WithDirSync(syncDir))
+func SetPromptJournalDirSync(u RunnerUsecase, syncDir func(string) error) {
+	u.(*runnerUsecase).prompts = agentjournal.NewPromptRequests(agentjournal.WithDirSync(syncDir))
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it
@@ -54,12 +54,12 @@ func SetPromptJournalDirSync(u *Usecase, syncDir func(string) error) {
 // and a lock nothing exercises is a lock nobody notices going missing.
 func RequirePromptRestart(
 	ctx context.Context,
-	u *Usecase,
+	u RunnerUsecase,
 	chatID string,
 	live domain.AgentRunner,
 	descriptor engineagents.Agent,
 ) error {
-	return u.runner.requirePromptRestart(ctx, chatID, live, descriptor)
+	return u.(*runnerUsecase).requirePromptRestart(ctx, chatID, live, descriptor)
 }
 
 // SetHookDeliveryDirSync installs a deterministic durability fault for external
@@ -68,8 +68,8 @@ func RequirePromptRestart(
 //
 // It REPLACES the journal, so it must be called before the runner under test
 // has delivered anything: the in-memory completion markers do not survive it.
-func SetHookDeliveryDirSync(u *Usecase, syncDir func(string) error) {
-	u.turn.hookDeliveries = agentjournal.NewHookDeliveries(agentjournal.WithDirSync(syncDir))
+func SetHookDeliveryDirSync(u TurnUsecase, syncDir func(string) error) {
+	u.(*turnUsecase).hookDeliveries = agentjournal.NewHookDeliveries(agentjournal.WithDirSync(syncDir))
 }
 
 // HookDeliveryCompletedMax is the FIFO cap on the hook delivery journal's
@@ -96,14 +96,14 @@ const HookDeliveryDirName = agentjournal.HookDeliveriesDirName
 // marker for deliveryID. It is the discriminator a replay test needs: a marker
 // answers begin() without ever reading the disk, so a test that means to
 // exercise the on-disk record must first prove the marker is absent.
-func HookDeliveryMarked(u *Usecase, deliveryID string) bool {
-	return slices.Contains(u.turn.hookDeliveries.CompletionMarkers(), deliveryID)
+func HookDeliveryMarked(u TurnUsecase, deliveryID string) bool {
+	return slices.Contains(u.(*turnUsecase).hookDeliveries.CompletionMarkers(), deliveryID)
 }
 
 // HookDeliveryMarkerCount reports how many in-memory completion markers the
 // journal is holding.
-func HookDeliveryMarkerCount(u *Usecase) int {
-	return len(u.turn.hookDeliveries.CompletionMarkers())
+func HookDeliveryMarkerCount(u TurnUsecase) int {
+	return len(u.(*turnUsecase).hookDeliveries.CompletionMarkers())
 }
 
 // PlantPendingHookDelivery writes an in-flight hook delivery record straight into

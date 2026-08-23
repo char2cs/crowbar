@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestReadChatLog_RendersTheLedger guards agent.Usecase.ReadChatLog — the
+// TestReadChatLog_RendersTheLedger guards agent.ChatUsecase.ReadChatLog — the
 // production agenttools.ChatLogReader get_chat_log calls once a chat's
 // workspace has already cleared the caller's CanSee check. Unlike
 // AssembleHandoff it carries the RAW conversation with no preamble/footer

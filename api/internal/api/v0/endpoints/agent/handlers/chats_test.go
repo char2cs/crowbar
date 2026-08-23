@@ -115,7 +115,7 @@ func TestCreate_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// configurableListGetUsecase is a configurable AgentUsecase double dedicated to
+// configurableListGetUsecase is a configurable agent-port double dedicated to
 // the List/Get handlers: each test dials in the chats or errors it needs to
 // exercise a given branch. SpawnChat/IngestHook are not exercised through this
 // double (see fakeAgentUsecase for those).
@@ -162,6 +162,14 @@ func (configurableListGetUsecase) IngestHook(
 	_ string,
 	_ string,
 	_ string,
+	_ []byte,
+) error {
+	return nil
+}
+
+func (configurableListGetUsecase) IngestHookDelivery(
+	_ context.Context,
+	_, _, _, _, _ string,
 	_ []byte,
 ) error {
 	return nil

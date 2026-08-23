@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
@@ -76,20 +75,6 @@ type TurnUsecase interface {
 	// running. It is the second opinion the stall detector needs before it closes
 	// a turn whose provider went quiet.
 	OpenWork(
-		ctx context.Context,
-		chatID string,
-	) (bool, error)
-
-	// UnfinishedSince reports when the chat's assistant stream last grew, and
-	// whether any message is still unterminated.
-	UnfinishedSince(
-		chatID string,
-	) (time.Time, bool)
-
-	// AbandonMessage records whatever a cut-off assistant message had accumulated
-	// and closes the turn it was written in. The bool reports whether a partial
-	// message was recorded.
-	AbandonMessage(
 		ctx context.Context,
 		chatID string,
 	) (bool, error)

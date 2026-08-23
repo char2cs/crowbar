@@ -96,12 +96,12 @@ type Chats interface {
 // Agent is the agent usecase as this one sees it: the collaborator that owns the
 // AgentChat aggregate itself and the vendor CLIs pointed at it.
 //
-// It is ONE port rather than one per verb because it is one collaborator, and
-// because four separately-named ports that every caller satisfies with the same
-// value are four chances to pass them in the wrong order at the only call site
-// there is, for no isolation gained. This usecase moves ROWS; everything a chat is
-// besides a row — its conversation, its ledger, the process talking to it — lives
-// behind here, and nothing in this package learns how any of it works.
+// It is ONE port rather than one per verb because it is one collaborator from
+// here: this usecase moves ROWS, and everything a chat is besides a row — its
+// conversation, its ledger, the process talking to it — lives behind this port,
+// with nothing in this package learning how any of it works. Which agent concern
+// answers which method is the CONTAINER's business (see usecases.agentChatTree),
+// not this one's.
 type Agent interface {
 	// SpawnChat mints a chat at the panel root and starts a CLI on it in one call.
 	// It is the UNPLACED create kept whole rather than reassembled from MintChat

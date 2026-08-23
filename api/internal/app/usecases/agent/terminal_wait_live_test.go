@@ -12,7 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 const liveTrustScreen = `╭─────────────────────────────────────────────╮

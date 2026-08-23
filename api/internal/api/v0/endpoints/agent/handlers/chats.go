@@ -65,7 +65,7 @@ func (h *Handlers) List(
 	rctx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	chats, err := h.usecase.ListChatsByWorkspace(rctx, wsID)
+	chats, err := h.chats.ListChatsByWorkspace(rctx, wsID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -124,7 +124,7 @@ func (h *Handlers) chatRuntime(
 	chatID string,
 ) (dto.ChatRuntime, error) {
 	var live *domain.AgentRunner
-	runner, err := h.usecase.LiveRunnerForChat(ctx, chatID)
+	runner, err := h.runners.LiveRunnerForChat(ctx, chatID)
 	switch {
 	case err == nil:
 		live = &runner
@@ -132,7 +132,7 @@ func (h *Handlers) chatRuntime(
 		return dto.ChatRuntime{}, err
 	}
 
-	convs, err := h.usecase.ConversationsForChat(ctx, chatID)
+	convs, err := h.runners.ConversationsForChat(ctx, chatID)
 	if err != nil {
 		return dto.ChatRuntime{}, err
 	}
@@ -145,7 +145,7 @@ func (h *Handlers) chatRuntime(
 	return dto.ChatRuntime{
 		LiveRunner:    live,
 		Conversations: convs,
-		TerminalWait:  h.usecase.TerminalWait(chatID),
+		TerminalWait:  h.runners.TerminalWait(chatID),
 	}, nil
 }
 
@@ -166,7 +166,7 @@ func (h *Handlers) requireChatInWorkspace(
 	ctx *gin.Context,
 	chatID string,
 ) (domain.AgentChat, bool) {
-	chat, err := h.usecase.GetChat(ctx.Request.Context(), chatID)
+	chat, err := h.chats.GetChat(ctx.Request.Context(), chatID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -203,7 +203,7 @@ func (h *Handlers) Rename(
 		return
 	}
 
-	if err := h.usecase.RenameChat(rctx, id, body.Title, source); err != nil {
+	if err := h.chats.RenameChat(rctx, id, body.Title, source); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
@@ -242,7 +242,7 @@ func (h *Handlers) SetSelection(
 		return
 	}
 
-	if err := h.usecase.SetChatSelection(rctx, id, body.Model, body.Effort); err != nil {
+	if err := h.chats.SetChatSelection(rctx, id, body.Model, body.Effort); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return

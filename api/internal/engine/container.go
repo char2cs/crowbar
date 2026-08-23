@@ -10,7 +10,7 @@ import (
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // Container holds engine-layer dependencies. The AI Bridge engine and addon

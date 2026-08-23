@@ -12,13 +12,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 var _ termwait.Screens = (engineterminal.Engine)(nil)
 
 func TestUsecase_TerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
-	u := &Usecase{turn: &turnUsecase{}, runner: &runnerUsecase{}}
+	u := &runnerUsecase{turn: &turnUsecase{}}
 
 	assert.False(t, u.TerminalWait("any-chat").Waiting)
 
@@ -42,22 +42,18 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 }
 
 func TestUsecase_TerminalWait_ReadsThroughTheDetector(t *testing.T) {
-	u := &Usecase{
-		chat:   &chatUsecase{},
-		turn:   &turnUsecase{},
-		runner: &runnerUsecase{term: screenReadingCommander{}},
-	}
-	u.termWait = newTerminalWaitDetector(u)
+	u := &runnerUsecase{term: screenReadingCommander{}, turn: &turnUsecase{}}
+	u.termWait = newTerminalWaitDetector(&chatUsecase{}, u.turn, u)
 
 	require.NotNil(t, u.termWait)
 	assert.False(t, u.TerminalWait("chat-1").Waiting)
 }
 
 func TestUsecase_MatchTerminalPrompt_UnresolvableHomeIsSilent(t *testing.T) {
-	u := &Usecase{turn: &turnUsecase{
+	u := &turnUsecase{
 		agents: engineagents.New(),
 		home:   func() (string, error) { return "", errors.New("no home") },
-	}}
+	}
 
 	_, ok := u.MatchTerminalPrompt(t.Context(), "claude", "❯ 1. Yes, I trust this folder")
 
@@ -66,7 +62,7 @@ func TestUsecase_MatchTerminalPrompt_UnresolvableHomeIsSilent(t *testing.T) {
 
 func TestUsecase_StartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	swept := make(chan struct{}, 1)
-	u := &Usecase{turn: &turnUsecase{}, runner: &runnerUsecase{}}
+	u := &runnerUsecase{turn: &turnUsecase{}}
 	u.termWait = sweepRecorder{swept: swept}
 
 	u.StartTerminalWaitSweep(t.Context(), nil, nil, nil)

@@ -38,7 +38,7 @@ func TestSubmitPrompt_ParentDirectorySyncFailureAbortsBeforeTUITeardown(t *testi
 	chatID, runnerID := f.spawn(t, "codex")
 	spawnCount := f.term.callCount()
 	terminatedCount := len(f.term.terminatedIDs())
-	agentusecase.SetPromptJournalDirSync(f.usecase, func(string) error {
+	agentusecase.SetPromptJournalDirSync(f.usecase.RunnerUsecase, func(string) error {
 		return errors.New("injected parent fsync failure")
 	})
 

@@ -91,7 +91,7 @@ func TestHooks_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// fakeAgentUsecase is a configurable AgentUsecase double: each method records
+// fakeAgentUsecase is a configurable double for all five agent ports: each method records
 // its call so tests can assert forwarding, and each returns a canned
 // error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
@@ -222,6 +222,19 @@ func (f *fakeAgentUsecase) IngestHook(
 	segID string,
 	provider string,
 	event string,
+	raw []byte,
+) error {
+	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
+	return f.ingestErr
+}
+
+// IngestHookDelivery is the journalled ingress. The handler picks it by whether
+// the hook carries a delivery id, so this double records into the SAME log as
+// IngestHook: a test asserts what was forwarded, never which of the two ran.
+func (f *fakeAgentUsecase) IngestHookDelivery(
+	_ context.Context,
+	_, _ string,
+	segID, provider, event string,
 	raw []byte,
 ) error {
 	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})

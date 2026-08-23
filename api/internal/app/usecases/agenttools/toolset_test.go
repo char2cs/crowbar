@@ -136,7 +136,7 @@ func TestToolSet_BadTokenCannotReachAnyTool(t *testing.T) {
 // Deps.ToolAccess is the user's "Tools" switch, and it is consulted on EVERY
 // call rather than once at spawn. The tests here pin the three answers the port
 // can give; the live end-to-end behaviour (a switch flipped underneath a running
-// chat) is pinned against a real *agent.Usecase in
+// chat) is pinned against the real agent provider concern in
 // TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff.
 
 // toolsetGatedOn builds the full surface with a ToolAccess port under the test's

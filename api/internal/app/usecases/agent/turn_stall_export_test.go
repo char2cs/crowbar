@@ -6,6 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 )
 
-func CloseStalledTurn(u *Usecase, ctx context.Context, stall termwait.Stall) {
-	u.turn.closeStalledTurn(ctx, stall)
+func CloseStalledTurn(u TurnUsecase, ctx context.Context, stall termwait.Stall) {
+	u.(*turnUsecase).closeStalledTurn(ctx, stall)
 }
