@@ -59,6 +59,11 @@ type EventSpec struct {
 	Send map[string]string `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
 	Reply map[string]string `yaml:"reply"`
+	// Answerable false marks an ask: event Crowbar can SEE but not answer — the
+	// provider declares no response template, so the human answers in the terminal
+	// instead. Declared rather than inferred from an empty reply: "no templates" and
+	// "not answerable" look identical, and one of them is a bug.
+	Answerable *bool `yaml:"answerable"`
 
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 

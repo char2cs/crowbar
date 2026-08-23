@@ -25,24 +25,22 @@ const fixtureRoot = "../protocol/testdata/fixtures"
 // were wrong against real traffic — turn.lastAgentMessage and item.output do not
 // exist, the delta carries no sequence, and tokenUsage nests under total/.
 func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
-	dir := "descriptors-v3"
-	entries, err := os.ReadDir(dir)
+	// Walks experimental/ too: a descriptor that is not shipped yet is exactly the one
+	// whose paths are least proven, so it needs the replay most.
+	files, err := v3Files()
 	if err != nil {
 		t.Skipf("no v3 descriptors yet: %v", err)
 	}
 
 	var checkedEvents int
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".yaml" {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		d, err := descriptor.ParseV3(raw)
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", path, err)
 		}
 
 		t.Run(d.ID, func(t *testing.T) {
@@ -128,7 +126,7 @@ func loadFixture(t *testing.T, provider, wire string) (map[string]any, bool) {
 // This does NOT need a recorded payload, so it covers the two ask: events that have no
 // fixture yet (see the t.Logf in the test above).
 func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
-	entries, err := os.ReadDir("descriptors-v3")
+	files, err := v3Files()
 	if err != nil {
 		t.Skipf("no v3 descriptors yet: %v", err)
 	}
@@ -142,25 +140,29 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 	}
 
 	var checked int
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".yaml" {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join("descriptors-v3", e.Name()))
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		d, err := descriptor.ParseV3(raw)
 		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
+			t.Fatalf("%s: %v", path, err)
 		}
 		for name, ev := range d.Events {
 			if ev.Ask == "" {
 				continue
 			}
+			if ev.Answerable != nil && !*ev.Answerable {
+				if len(ev.Reply) > 0 {
+					t.Errorf("%s/%s declares answerable:false but also carries reply "+
+						"templates — one of the two is wrong", d.ID, name)
+				}
+				continue // observed, not answerable: the human answers in the terminal
+			}
 			if len(ev.Reply) == 0 {
-				t.Errorf("%s/%s is an ask: event with no reply templates — a human's "+
-					"decision would reach nobody", d.ID, name)
+				t.Errorf("%s/%s is an ask: event with no reply templates and no "+
+					"answerable:false — a human's decision would reach nobody", d.ID, name)
 				continue
 			}
 			for decision, tmpl := range ev.Reply {
@@ -186,4 +188,19 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no reply template was checked; this test is not testing anything")
 	}
+}
+
+// v3Files lists every v3 descriptor, including the experimental ones.
+func v3Files() ([]string, error) {
+	var out []string
+	err := filepath.WalkDir("descriptors-v3", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && filepath.Ext(path) == ".yaml" {
+			out = append(out, path)
+		}
+		return nil
+	})
+	return out, err
 }
