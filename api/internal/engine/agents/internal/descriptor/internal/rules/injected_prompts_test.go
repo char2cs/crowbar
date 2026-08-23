@@ -26,17 +26,14 @@ func TestInjectedPrompts_RejectsTheBrokenShapes(t *testing.T) {
 		prompts []spec.InjectedPromptSpec
 	}{
 		{
-
 			name:    "an empty needle silences every user message",
 			prompts: []spec.InjectedPromptSpec{{Needle: ""}},
 		},
 		{
-
 			name:    "a whitespace-only needle silences every user message",
 			prompts: []spec.InjectedPromptSpec{{Needle: " \n\t"}},
 		},
 		{
-
 			name:    "a needle with leading whitespace can never match",
 			prompts: []spec.InjectedPromptSpec{{Needle: " <task-notification>"}},
 		},

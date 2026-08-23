@@ -80,7 +80,6 @@ func TestIdentityAndSpawn_RejectTheUnusableCases(t *testing.T) {
 		{"missing id", func(d *spec.Descriptor) { d.ID = "" }, "missing id"},
 		{"missing spawn.cmd", func(d *spec.Descriptor) { d.Spawn.Cmd = "" }, "missing spawn.cmd"},
 		{
-
 			"interactive not asserted",
 			func(d *spec.Descriptor) { d.Spawn.InteractiveRequired = false },
 			"interactive_required",
@@ -119,13 +118,11 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 		wantMsg string
 	}{
 		{
-
 			"unknown strategy",
 			func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Strategy = "telepathy" },
 			"unsupported strategy",
 		},
 		{
-
 			"no resume argument",
 			func(d *spec.Descriptor) { d.Session.Resume = nil },
 			"requires session.resume",
@@ -141,7 +138,6 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"resume is empty",
 		},
 		{
-
 			"a verb other than pass_arg",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -151,7 +147,6 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"may only pass argv",
 		},
 		{
-
 			"message placed twice",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -162,7 +157,6 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 			"exactly once",
 		},
 		{
-
 			"message never placed",
 			func(d *spec.Descriptor) {
 				d.Presentation.PromptSubmit.Fresh = []spec.InjectStep{
@@ -231,7 +225,6 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"unsupported completeness",
 		},
 		{
-
 			"timeout above the ceiling",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.TimeoutMS = spec.MaxCatalogTimeoutMS + 1 },
 			"timeout_ms must be between",
@@ -259,7 +252,6 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"must be fixed non-empty argv",
 		},
 		{
-
 			"templated command",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Command = []string{"{message}"} },
 			"must be fixed argv",
@@ -283,7 +275,6 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"requires label and insert_text",
 		},
 		{
-
 			"item mapping with an unknown placeholder",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Item.Label = "{unknown}" },
 			"unsupported template",
@@ -428,7 +419,6 @@ func TestTelemetry_RejectsTheBrokenShapes(t *testing.T) {
 		},
 		{"callback maps nothing", func(s *spec.TelemetrySpec) { s.Callback.Fields = nil }, "maps no fields"},
 		{
-
 			"callback maps an unknown fact",
 			func(s *spec.TelemetrySpec) { s.Callback.Fields = map[string]string{"context.vibes": "x"} },
 			"unknown fact",
@@ -549,7 +539,6 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 		wantMsg string
 	}{
 		{
-
 			"model strategy is not restart_tui",
 			func(d *spec.Descriptor) { d.Model.Strategy = "live_switch" },
 			"model.strategy must be",
@@ -560,7 +549,6 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 			"effort.strategy must be",
 		},
 		{
-
 			"model declares no apply",
 			func(d *spec.Descriptor) { d.Model.Apply = nil },
 			"model.apply is empty",
@@ -571,7 +559,6 @@ func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
 			"effort.apply is empty",
 		},
 		{
-
 			"model catalogue holds an empty id",
 			func(d *spec.Descriptor) { d.Model.Available = []string{"sonnet", ""} },
 			"model.available[1] is empty",

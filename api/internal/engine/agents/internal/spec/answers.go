@@ -13,7 +13,6 @@ type AnswerEventSpec struct {
 func (a AnswerSpec) Event(canonical string) (AnswerEventSpec, bool) {
 	s, ok := a[canonical]
 	if !ok || len(s.Responses) == 0 {
-
 		return AnswerEventSpec{}, false
 	}
 	return s, true

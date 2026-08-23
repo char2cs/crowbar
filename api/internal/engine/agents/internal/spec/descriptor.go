@@ -3,6 +3,13 @@ package spec
 type Descriptor struct {
 	ID string `yaml:"id"`
 
+	// --- v3: the event is the unit ------------------------------------------
+	ProtocolVersion *VersionRange        `yaml:"protocol_version"`
+	Runtime         RuntimeSpec          `yaml:"runtime"`
+	Events          map[string]EventSpec `yaml:"events"`
+	Catalog         map[string]CallSpec  `yaml:"catalog"`
+	Inject          []InjectSpec         `yaml:"inject"`
+
 	DisplayName string `yaml:"display_name"`
 	Icon        string `yaml:"icon"`
 

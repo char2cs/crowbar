@@ -17,14 +17,12 @@ func (injectedPrompts) Check(d *spec.Descriptor) error {
 			return invalid(d.ID, "injected_prompts[%d]: needle must not be empty or whitespace", i)
 		}
 		if p.Needle != strings.TrimLeft(p.Needle, " \t\r\n") {
-
 			return invalid(d.ID, "injected_prompts[%d]: needle must not start with whitespace", i)
 		}
 		if p.Kind == "" {
 			continue
 		}
 		if _, ok := spec.InjectedPromptKinds[p.Kind]; !ok {
-
 			return invalid(d.ID, "injected_prompts[%d]: unknown kind %q", i, p.Kind)
 		}
 	}

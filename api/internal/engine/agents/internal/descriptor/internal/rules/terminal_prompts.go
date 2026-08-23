@@ -20,7 +20,6 @@ func (terminalPrompts) Check(d *spec.Descriptor) error {
 			continue
 		}
 		if _, ok := spec.TerminalPromptKinds[p.Kind]; !ok {
-
 			return invalid(d.ID, "terminal_prompts[%d]: unknown kind %q", i, p.Kind)
 		}
 	}
