@@ -97,6 +97,25 @@ func TestNew_LeavesNoConstructorOwnedFieldNil(t *testing.T) {
 	assertExcludedFieldsStillExist(t, fields.Type())
 }
 
+// TestNew_LeavesNoExtractedUsecaseFieldNil extends the guard above across the
+// concern types Usecase delegates to. Without it, moving a port out of Usecase
+// and into one of them would silently move it out of the nil check too — which
+// is exactly what a decomposition does, one field at a time.
+func TestNew_LeavesNoExtractedUsecaseFieldNil(t *testing.T) {
+	u := newWiringFixture(t)
+
+	for name, extracted := range map[string]any{
+		"answers":   u.answers,
+		"providers": u.providers,
+	} {
+		fields := reflect.ValueOf(extracted).Elem()
+		require.NotZero(t, fields.NumField())
+		for i := range fields.NumField() {
+			assertFieldWired(t, name+"."+fields.Type().Field(i).Name, fields.Field(i))
+		}
+	}
+}
+
 func assertFieldWired(
 	t *testing.T,
 	name string,
@@ -133,15 +152,21 @@ func assertExcludedFieldsStillExist(
 func TestNew_WiresTheToolSurfaceBackToTheUsecase(t *testing.T) {
 	u := newWiringFixture(t)
 
-	assert.Same(t, u, u.tools.Chats,
+	assert.Same(t, u, u.providers.tools.Chats,
 		"New must self-assign the Chats port; a caller cannot, because u does not "+
 			"exist when it builds the Deps")
-	assert.Same(t, u, u.tools.ChatLogs,
+	assert.Same(t, u, u.providers.tools.ChatLogs,
 		"New must self-assign the ChatLogs port; without it get_chat_log is not "+
 			"registered at all")
-	assert.NotNil(t, u.tools.ToolAccess,
-		"New must wire ToolAccess to providerMCPEnabled. A nil ToolAccess FAILS "+
-			"OPEN — Deps.refuseDisabledTools returns nil early, so every registered "+
-			"tool stays callable and the per-provider Tools switch the user turned "+
-			"OFF in Settings is silently back on")
+	require.NotNil(t, u.providers.tools.ToolAccess,
+		"newProviderUsecase must wire ToolAccess to providerMCPEnabled. A nil "+
+			"ToolAccess FAILS OPEN — Deps.refuseDisabledTools returns nil early, so "+
+			"every registered tool stays callable and the per-provider Tools switch "+
+			"the user turned OFF in Settings is silently back on")
+	assert.Equal(t,
+		reflect.ValueOf(u.providers.providerMCPEnabled).Pointer(),
+		reflect.ValueOf(u.providers.tools.ToolAccess).Pointer(),
+		"and it must be providerMCPEnabled itself: a non-nil port bound to "+
+			"something else reads the wrong preference and the switch still does "+
+			"not hold")
 }

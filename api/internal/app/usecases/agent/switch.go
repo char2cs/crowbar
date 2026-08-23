@@ -32,7 +32,7 @@ func (u *Usecase) switchProviderLocked(
 	// CLI has already been quit — so a switch that only checked there would leave
 	// the chat with no agent at all. ResumeChat enters here, so a dormant chat is
 	// held to the same rule as a fresh one.
-	if err := u.requireProviderEnabled(ctx, targetProviderID); err != nil {
+	if err := u.providers.requireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
 	for {

@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -223,49 +221,6 @@ func (d *answerDesk) slotsOfLocked(runnerID string) []*answerSlot {
 	return slots
 }
 
-func (u *Usecase) holdForAnswer(
-	ctx context.Context,
-	chat domain.AgentChat,
-	runner domain.AgentRunner,
-	agent engineagents.Agent,
-	ev engineagents.CanonicalEvent,
-	choiceID string,
-	raw []byte,
-) {
-	deliveryID := hookDeliveryID(ctx)
-	if deliveryID == "" || choiceID == "" {
-		return
-	}
-	capability, answerable := agent.AnswerCapability(ev.Kind)
-	if !answerable {
-		return
-	}
-	if len(raw) > maxAnswerPayloadBytes {
-		slog.DebugContext(ctx, "agent: answer: prompt payload too large to answer",
-			"chat_id", chat.ID, "event", ev.Kind, "bytes", len(raw))
-		return
-	}
-	slot := u.answers.open(deliveryID, &answerSlot{
-		choiceID: choiceID,
-		chatID:   chat.ID,
-		runnerID: runner.ID,
-		event:    ev.Kind,
-
-		raw:  append([]byte(nil), raw...),
-		keys: capability,
-		done: make(chan struct{}),
-	})
-	_ = slot
-}
-
-func (u *Usecase) PendingAnswer(deliveryID string) (PendingAnswer, bool) {
-	slot, held := u.answers.byDeliveryID(deliveryID)
-	if !held {
-		return PendingAnswer{}, false
-	}
-	return PendingAnswer{ChoiceID: slot.choiceID, Wait: answerWait(slot.keys.Wait)}, true
-}
-
 func answerWait(declared time.Duration) time.Duration {
 	switch {
 	case declared <= 0:
@@ -275,95 +230,6 @@ func answerWait(declared time.Duration) time.Duration {
 	default:
 		return declared
 	}
-}
-
-func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswer, error) {
-	slot, held := u.answers.byDeliveryID(deliveryID)
-	if !held {
-		return HookAnswer{}, nil
-	}
-	if stdout, claimed := u.answers.claim(slot); claimed {
-		return HookAnswer{Stdout: stdout}, nil
-	}
-	timer := time.NewTimer(answerWait(slot.keys.Wait))
-	defer timer.Stop()
-	select {
-	case <-slot.done:
-		stdout, _ := u.answers.claim(slot)
-		return HookAnswer{Stdout: stdout}, nil
-	case <-timer.C:
-
-		if stdout, claimed := u.answers.claim(slot); claimed {
-			return HookAnswer{Stdout: stdout}, nil
-		}
-		u.answers.release(slot)
-		return HookAnswer{}, nil
-	case <-ctx.Done():
-
-		u.answers.release(slot)
-		return HookAnswer{}, ctx.Err()
-	}
-}
-
-func (u *Usecase) AbandonAnswer(ctx context.Context, deliveryID string) error {
-	slot, held := u.answers.byDeliveryID(deliveryID)
-	if !held {
-		return nil
-	}
-	if decided := u.answers.discard(slot); decided {
-		return nil
-	}
-	u.note(ctx, "choice resolved elsewhere", u.activity.ResolveChoice(
-		ctx, slot.chatID, slot.choiceID, domain.ChoiceResolutionProceeded, time.Now(),
-	))
-	return nil
-}
-
-func (u *Usecase) AnswerChoice(
-	ctx context.Context,
-	chatID, choiceID string,
-	optionIDs []string,
-	reason string,
-	content []byte,
-) error {
-	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
-		return fmt.Errorf("agent: answer choice: chat: %w", err)
-	}
-	slot, held := u.answers.byChoiceID(choiceID)
-	if !held || slot.chatID != chatID {
-		return fmt.Errorf("%w: this prompt can no longer be answered from Crowbar",
-			apperr.ErrConflict)
-	}
-	choice, found, err := u.pendingChoice(ctx, chatID, choiceID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
-	}
-
-	decision, err := decide(choice, optionIDs, reason, content)
-	if err != nil {
-		return err
-	}
-	if !slot.keys.Accepts(decision.Key) {
-		return fmt.Errorf("%w: this provider cannot express that answer", apperr.ErrInvalidArgument)
-	}
-	agent, err := u.agentForChat(ctx, chatID)
-	if err != nil {
-		return err
-	}
-
-	stdout, err := agent.RenderAnswer(slot.event, slot.raw, decision)
-	if err != nil {
-		return fmt.Errorf("agent: answer choice: render: %w", err)
-	}
-
-	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, time.Now()); err != nil {
-		return fmt.Errorf("agent: answer choice: %w", err)
-	}
-	u.answers.resolve(slot, stdout)
-	return nil
 }
 
 func decide(
@@ -432,55 +298,38 @@ func answersByQuestion(answers []domain.ChoiceAnswer) map[string]any {
 	return out
 }
 
-func (u *Usecase) pendingChoice(
+// PendingAnswer reports the prompt a hook delivery is parked on. It delegates
+// to AnswerUsecase.
+func (u *Usecase) PendingAnswer(deliveryID string) (PendingAnswer, bool) {
+	return u.answers.PendingAnswer(deliveryID)
+}
+
+// AwaitAnswer blocks a hook relay until a person answers, its budget expires or
+// ctx is cancelled. It delegates to AnswerUsecase.
+func (u *Usecase) AwaitAnswer(ctx context.Context, deliveryID string) (HookAnswer, error) {
+	return u.answers.AwaitAnswer(ctx, deliveryID)
+}
+
+// AbandonAnswer retires a hook relay without printing. It delegates to
+// AnswerUsecase.
+func (u *Usecase) AbandonAnswer(ctx context.Context, deliveryID string) error {
+	return u.answers.AbandonAnswer(ctx, deliveryID)
+}
+
+// AnswerChoice decides a pending prompt from Crowbar. It delegates to
+// AnswerUsecase.
+func (u *Usecase) AnswerChoice(
 	ctx context.Context,
 	chatID, choiceID string,
-) (domain.ActivityChoice, bool, error) {
-	choices, err := u.activity.PendingChoices(ctx, chatID)
-	if err != nil {
-		return domain.ActivityChoice{}, false, fmt.Errorf("agent: answer choice: pending: %w", err)
-	}
-	for _, choice := range choices {
-		if choice.ID == choiceID {
-			return choice, true, nil
-		}
-	}
-	return domain.ActivityChoice{}, false, nil
+	optionIDs []string,
+	reason string,
+	content []byte,
+) error {
+	return u.answers.AnswerChoice(ctx, chatID, choiceID, optionIDs, reason, content)
 }
 
-func (u *Usecase) agentForChat(ctx context.Context, chatID string) (engineagents.Agent, error) {
-	runner, err := u.runners.LiveRunnerForChat(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: answer choice: runner: %w", err)
-	}
-	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, runner.WorkspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: answer choice: worktree dir: %w", err)
-	}
-	agent, err := u.agents.Get(ctx, crowbarHome, runner.ProviderID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: answer choice: descriptor: %w", err)
-	}
-	return agent, nil
-}
-
+// AnswerableChoiceIDs filters choices down to the ones a relay is still blocked
+// on. It delegates to AnswerUsecase.
 func (u *Usecase) AnswerableChoiceIDs(chatID string, choices []domain.ActivityChoice) []string {
-	out := make([]string, 0, len(choices))
-	for _, choice := range choices {
-		if slot, held := u.answers.byChoiceID(choice.ID); held && slot.chatID == chatID {
-			out = append(out, choice.ID)
-		}
-	}
-	return out
-}
-
-func (u *Usecase) releaseAnswerWaiters(ctx context.Context, runnerID string) {
-	for _, slot := range u.answers.releaseRunner(runnerID) {
-		err := u.activity.ResolveChoice(
-			ctx, slot.chatID, slot.choiceID, domain.ChoiceResolutionAbandoned, time.Now())
-		if err != nil && !errors.Is(err, context.Canceled) {
-			slog.WarnContext(ctx, "agent: answer: release prompt of dead runner",
-				"runner_id", runnerID, "choice_id", slot.choiceID, "err", err)
-		}
-	}
+	return u.answers.AnswerableChoiceIDs(chatID, choices)
 }

@@ -71,18 +71,11 @@ type Usecase struct {
 	// lineage answers "what does this chat read" at spawn time. See ChatLineage
 	// and threadContext.
 	lineage ChatLineage
-	// providerPrefs is the global (per user/machine) priority+enabled table read by
-	// ResolveProviders and rewritten by ReplaceProviderPreferences. It is keyed by
-	// provider id; a provider with no row is enabled and ordered after every
-	// preferenced one by descriptor id.
-	providerPrefs store.Store[domain.AgentProviderPreference, string]
 	// home resolves crowbar home for the descriptor catalog. It is the app-config
-	// resolver, NOT a wsId lookup: providers are global, so provider resolution must
-	// not depend on any workspace (the global PUT has no wsId to resolve one from).
+	// resolver, NOT a wsId lookup, and is the same resolver providerUsecase reads:
+	// providers are global, so descriptor resolution must not depend on any
+	// workspace.
 	home func() (string, error)
-	// installed is the install probe (defaults to Agent.Installed); injectable so
-	// provider-resolution tests never depend on the host having claude/codex.
-	installed func(a engineagents.Agent) bool
 	// termWait detects the state no hook reports: a CLI parked on a modal Crowbar
 	// cannot answer, which otherwise renders as an empty pane over a live process.
 	// NIL when the terminal seam cannot render a screen, in which case every chat
@@ -138,19 +131,19 @@ type Usecase struct {
 	// catalogs owns only cancellation for in-flight deterministic probes. Results
 	// are deliberately never cached.
 	catalogs *catalogRuns
-	// tools is the agent-facing capability surface DispatchMCP builds a per-call
-	// ToolSet from. Its Chats port is always this usecase (set in New), so the one
-	// dependency a caller can get wrong is the Resolver — and DispatchMCP refuses
-	// to serve without it rather than quietly advertising an empty tool list.
-	tools agenttools.Deps
-	// answers is the desk of relays currently BLOCKED on a human. It is in memory
-	// because a slot describes a live hook process holding a live provider gate
-	// open; see answers.go.
-	answers *answerDesk
+	// answers owns every relay BLOCKED on a human and the act of deciding for it.
+	// The hook path reaches it for holdForAnswer and releaseAnswerWaiters; the
+	// exported answer methods in answers.go are one-line delegates onto it. See
+	// answer_usecase.go.
+	answers *answerUsecase
+	// providers owns the provider table, the per-provider switches and the MCP
+	// surface a CLI calls back into. The spawn and switch paths reach it for
+	// requireProviderEnabled and providerMCPEnabled. See provider_usecase.go.
+	providers *providerUsecase
 	// minter issues the per-runner token an MCP call is authenticated by. It is
-	// held here because the spawn path is what hands a runner its token, and a
-	// runner's token must be minted by the same secret DispatchMCP verifies
-	// against.
+	// held here because the spawn path is what hands a runner its token, and it is
+	// the SAME instance providers holds: a runner's token must be minted by the
+	// same secret DispatchMCP verifies against.
 	minter *agenttools.TokenMinter
 }
 
@@ -168,9 +161,6 @@ func New(
 	minter *agenttools.TokenMinter,
 	tools agenttools.Deps,
 ) *Usecase {
-	if installed == nil {
-		installed = func(a engineagents.Agent) bool { return a.Installed() }
-	}
 	u := &Usecase{
 		chats:          chats,
 		runners:        runners,
@@ -181,9 +171,7 @@ func New(
 		term:           term,
 		ws:             ws,
 		lineage:        lineage,
-		providerPrefs:  providerPrefs,
 		home:           home,
-		installed:      installed,
 		spawns:         newChatGate(),
 		turns:          newTurnWaits(),
 		work:           newChatWorkStates(),
@@ -193,17 +181,15 @@ func New(
 		hookDeliveries: agentjournal.NewHookDeliveries(),
 		hookGates:      newChatGate(),
 		catalogs:       newCatalogRuns(),
-		answers:        newAnswerDesk(),
-		tools:          tools,
+		answers:        newAnswerUsecase(activity, chats, runners, agents, ws),
 		minter:         minter,
 	}
-	u.tools.Chats = u
-	u.tools.ChatLogs = u
-	// The per-provider tool switch, wired as a LIVE port rather than read once at
-	// spawn: without it a chat spawned with tools on keeps them for the life of
-	// its CLI, whatever the user does in Settings afterwards. See
-	// agenttools.Deps.ToolAccess.
-	u.tools.ToolAccess = u.providerMCPEnabled
+	// The tool surface's two self-ports, filled in here because u does not exist
+	// when the caller builds the Deps. newProviderUsecase adds the third,
+	// ToolAccess, which it can only bind to a method of its own.
+	tools.Chats = u
+	tools.ChatLogs = u
+	u.providers = newProviderUsecase(agents, home, installed, providerPrefs, minter, tools)
 	// Built LAST, and from u rather than from the arguments: two of its ports are
 	// the usecase's own seams (the descriptor lookup, which needs u.home and
 	// u.agents together). It only observes — nothing runs until

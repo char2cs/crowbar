@@ -30,32 +30,32 @@ func (u *Usecase) handleObservation(
 
 		u.recordMessageDelta(ctx, chat, runner, ev)
 	case engineagents.HookToolPre:
-		u.note(ctx, "tool invoked", u.activity.InvokeTool(ctx, agentactivity.ToolInput{
+		note(ctx, "tool invoked", u.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
 			Request: ev.Tool.Input, Now: now,
 		}))
 	case engineagents.HookToolPost, engineagents.HookToolFail:
 
-		u.note(ctx, "tool completed", u.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
+		note(ctx, "tool completed", u.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
 			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
 	case engineagents.HookSubagentPre:
-		u.note(ctx, "subagent started",
+		note(ctx, "subagent started",
 			u.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookSubagentPost:
-		u.note(ctx, "subagent stopped",
+		note(ctx, "subagent stopped",
 			u.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation, engineagents.HookCompactPre:
-		u.note(ctx, "interrupted", u.activity.Interrupt(
+		note(ctx, "interrupted", u.activity.Interrupt(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 
 		u.openChoice(ctx, chat, runner, agent, ev, raw, now)
 	case engineagents.HookCompactPost:
-		u.note(ctx, "interruption resolved", u.activity.ResolveInterruption(
+		note(ctx, "interruption resolved", u.activity.ResolveInterruption(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 	}
@@ -76,7 +76,7 @@ func (u *Usecase) openChoice(
 	}
 	chatID := chat.ID
 	id := choiceID(chatID, ev.Choice)
-	u.note(ctx, "choice opened", u.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
+	note(ctx, "choice opened", u.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
 		ChatID:   chatID,
 		ChoiceID: id,
 		Kind:     ev.Choice.Kind,
@@ -93,7 +93,7 @@ func (u *Usecase) openChoice(
 		Now:       now,
 	}))
 
-	u.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
+	u.answers.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 }
 
 func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
@@ -133,10 +133,15 @@ func choiceOptions(in []engineagents.ChoiceOption) []domain.ActivityChoiceOption
 	return out
 }
 
-func (u *Usecase) note(ctx context.Context, what string, err error) {
-	if err != nil {
-		slog.WarnContext(ctx, "agent: observation: "+what, "err", err)
+func note(
+	ctx context.Context,
+	what string,
+	err error,
+) {
+	if err == nil {
+		return
 	}
+	slog.WarnContext(ctx, "agent: observation: "+what, "err", err)
 }
 
 func toolID(ev engineagents.CanonicalEvent) string {

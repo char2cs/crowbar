@@ -147,7 +147,7 @@ func (u *Usecase) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// owned is woken with no verdict, and every question it was asking is closed.
 	// A pending prompt over a process that no longer exists is a banner nothing
 	// else will ever clear.
-	u.releaseAnswerWaiters(ctx, runnerID)
+	u.answers.releaseAnswerWaiters(ctx, runnerID)
 	// Nor does an in-flight turn: a CLI that died mid-answer will never send the turn_stop
 	// that closes it, so a provider switch parked on that turn is released by the DEATH
 	// instead — the same real signal that ends the runner, and the reason the wait needs no

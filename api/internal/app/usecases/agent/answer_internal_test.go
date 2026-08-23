@@ -13,8 +13,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func deskFixture(wait time.Duration) (*Usecase, *answerSlot) {
-	u := &Usecase{answers: newAnswerDesk()}
+func deskFixture(wait time.Duration) (*answerUsecase, *answerSlot) {
+	u := &answerUsecase{answers: newAnswerDesk()}
 	slot := u.answers.open("delivery-1", &answerSlot{
 		choiceID: "choice-1",
 		chatID:   "chat-1",

@@ -243,13 +243,13 @@ func (u *Usecase) spawnPreflight(
 ) (spawnPreflight, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it the
 	// only place a disabled provider can actually be stopped.
-	if err := u.requireProviderEnabled(ctx, providerID); err != nil {
+	if err := u.providers.requireProviderEnabled(ctx, providerID); err != nil {
 		return spawnPreflight{}, err
 	}
 	// The tool switch is a SEPARATE axis from whether the provider is enabled: a CLI
 	// spawned with its tools off still comes up, still fires its hooks and still
 	// holds a normal chat.
-	mcpOn, err := u.providerMCPEnabled(ctx, providerID)
+	mcpOn, err := u.providers.providerMCPEnabled(ctx, providerID)
 	if err != nil {
 		return spawnPreflight{}, err
 	}
@@ -524,17 +524,6 @@ func renderLineage(
 		lines = append(lines, "- "+id)
 	}
 	return strings.Join(lines, "\n")
-}
-
-func (u *Usecase) providerMCPEnabled(
-	ctx context.Context,
-	providerID string,
-) (bool, error) {
-	pref, err := u.providerPrefs.FindByKey(ctx, providerID)
-	if err != nil {
-		return false, fmt.Errorf("agent: provider mcp preference %q: %w", providerID, err)
-	}
-	return pref == nil || !pref.MCPDisabled, nil
 }
 
 func (u *Usecase) ListChatsByWorkspace(

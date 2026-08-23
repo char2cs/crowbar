@@ -41,7 +41,7 @@ func (u *Usecase) recordMessageDelta(
 		slog.WarnContext(ctx, "agent: assistant message is missing an increment",
 			"chat_id", chat.ID, "message_id", message.ID)
 	}
-	u.note(ctx, "record streamed message",
+	note(ctx, "record streamed message",
 		u.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true))
 	u.messages.markRecorded(chat.ID, message.ID, message.Text)
 }
@@ -135,7 +135,7 @@ func (u *Usecase) closeTurnFromFailure(
 	defer u.turns.complete(runner.ID)
 
 	if reason := failureNotice(ev); reason != "" {
-		u.note(ctx, "record turn failure", u.recordTurn(
+		note(ctx, "record turn failure", u.recordTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 			domain.TurnRoleNotice, reason, "",
 		))
