@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/terminal"
+	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // Signal is a broadcast edge: every waiter parked on Wait() is released by the

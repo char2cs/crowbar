@@ -229,7 +229,7 @@ func requireCLI(t *testing.T, name string) {
 // at read time.
 func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
-	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "chat %s has no live runner (its CLI never started, or died immediately)", chatID)
 	require.NotEmpty(t, runner.TerminalSession)
 	return runner.TerminalSession
@@ -257,7 +257,7 @@ func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 // exists exactly while the vendor CLI's PTY does.
 func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
-	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
 		return ""
 	}
@@ -269,7 +269,7 @@ func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 // append-only history that succeeded the chat's embedded segment rows.
 func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
-	convs, err := h.app.Usecases.Agent.ConversationsForChat(context.Background(), chatID)
+	convs, err := h.app.Usecases.AgentRunner.ConversationsForChat(context.Background(), chatID)
 	require.NoError(t, err)
 	out := make([]string, 0, len(convs))
 	for _, c := range convs {
@@ -279,7 +279,7 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 }
 
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
-// the daemon's engine/terminal spawns a real `claude` with the descriptor-built
+// the daemon's core/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
 // POSTs over the daemon's unix socket to /v0/agent/hooks, which runs
 // IngestHook -> the reducer, and the active segment gets bound with a
@@ -359,7 +359,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	newRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunnerID)
 
@@ -399,7 +399,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.Equal(t, newRunnerID, liveRunnerID(t, h, chatID),
 		"the chat's live runner must now be the codex one — and the outgoing claude CLI must be gone from it")
 
-	postSwitchHandoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+	postSwitchHandoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, postSwitchHandoff, codeword, "handoff after switching to codex must still carry claude's turn")
 }
