@@ -349,7 +349,7 @@ func newPerfChatStore(
 		ax,
 		adapters.AgentChatES(),
 		adapters.AgentChatReadDB(),
-		func(string, string, string, bool) {},
+		func(agentchat.ChatEvent) {},
 	)
 	require.NoError(b, err)
 	return store

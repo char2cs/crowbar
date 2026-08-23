@@ -26,9 +26,9 @@ type frame struct {
 	working bool
 }
 
-// captureHub is a BroadcastFunc double that records every frame it receives,
-// safe for concurrent pushes from asynx's per-shard event-processing
-// goroutines.
+// captureHub is a WatchFunc double that records every announcement it receives as the
+// frame the fanout would build from it, safe for concurrent pushes from asynx's
+// per-shard event-processing goroutines.
 type captureHub struct {
 	mu     sync.Mutex
 	frames []frame
@@ -43,6 +43,13 @@ func (h *captureHub) push(chatID, workspaceID, kind string, working bool) {
 		kind:        kind,
 		working:     working,
 	})
+}
+
+// watch is the seam the store is now wired with. It reduces a ChatEvent to the same
+// frame the assertions below have always used, so this change is proven against the
+// existing suite rather than a new one. A forgotten chat is never working.
+func (h *captureHub) watch(e ChatEvent) {
+	h.push(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
 }
 
 func (h *captureHub) all() []frame {
@@ -190,7 +197,7 @@ func TestHubProjection_ForgetEmitsScopedDeleted(t *testing.T) {
 }
 
 func TestRegisterHubProjection_SubscribeError(t *testing.T) {
-	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(string, string, string, bool) {})
+	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(ChatEvent) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: subscribe")
 }
@@ -199,7 +206,7 @@ func TestRegisterHubProjection_SubscribeError(t *testing.T) {
 // failure surfaces wrapped, mirroring registerStoreProjection's own
 // OnForget-error test.
 func TestRegisterHubProjection_OnForgetError(t *testing.T) {
-	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(string, string, string, bool) {})
+	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(ChatEvent) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: onforget")
 }
@@ -210,8 +217,8 @@ func TestRegisterHubProjection_OnForgetError(t *testing.T) {
 // event name/id) and passed through untouched.
 func TestHubProjector_OnEvent_DerivesKindFromEventName(t *testing.T) {
 	var got frame
-	p := &hubProjector{broadcast: func(chatID, workspaceID, kind string, _ bool) {
-		got = frame{chatID: chatID, workspaceID: workspaceID, kind: kind}
+	p := &hubProjector{watch: func(e ChatEvent) {
+		got = frame{chatID: e.ChatID, workspaceID: e.WorkspaceID, kind: e.Kind}
 	}}
 	p.onEvent(context.Background(), asynxModels.Event[domain.AgentChat]{
 		AggregateID: "c9",
@@ -226,4 +233,46 @@ func TestHubProjector_OnEvent_DerivesKindFromEventName(t *testing.T) {
 // name that doesn't fit the "agentchat.<kind>.<id>" pattern.
 func TestEventKind_UnrecognizedShape(t *testing.T) {
 	assert.Equal(t, "weird", eventKind("agentchat.weird"))
+}
+
+// --- the watch seam itself -------------------------------------------------
+
+func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
+	var got []ChatEvent
+	p := &hubProjector{watch: func(e ChatEvent) { got = append(got, e) }}
+
+	p.onEvent(context.Background(), asynxModels.Event[domain.AgentChat]{
+		AggregateID: "chat-1",
+		EventName:   "agentchat.turn_started.chat-1",
+		Aggregate:   domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1", Working: true},
+	})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, ChatEvent{
+		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "turn_started", Working: true,
+	}, got[0])
+}
+
+func TestHubProjector_OnForget_MarksForgotten(t *testing.T) {
+	var got []ChatEvent
+	p := &hubProjector{watch: func(e ChatEvent) { got = append(got, e) }}
+
+	p.onForget(asynxModels.Event[domain.AgentChat]{
+		Aggregate: domain.AgentChat{ID: "chat-9", WorkspaceID: "ws-1", Working: true},
+	})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, ChatEvent{
+		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
+	}, got[0])
+}
+
+// A store built without a watch seam must not panic: most unit tests wire none.
+func TestHubProjector_NilWatch_DoesNotPanic(t *testing.T) {
+	p := &hubProjector{}
+	p.onEvent(context.Background(), asynxModels.Event[domain.AgentChat]{
+		AggregateID: "chat-1",
+		EventName:   "agentchat.created.chat-1",
+	})
+	p.onForget(asynxModels.Event[domain.AgentChat]{})
 }

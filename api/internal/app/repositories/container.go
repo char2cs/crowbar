@@ -194,7 +194,12 @@ func New(
 	// commands emit is fanned out here by the hub projection. The usecase no
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
-	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), h.BroadcastAgentChat)
+	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(),
+		// Bridged inline until the fanout lands (plan task 4), which takes this
+		// decision out of the repository layer entirely.
+		func(e agentchat.ChatEvent) {
+			h.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -359,7 +364,7 @@ func (c *Container) forgetDependents(
 // forgetReviewThreads/DeleteThread. It enumerates via ListByWorkspace so a chat's
 // event log + read row can never be left orphaned after the workspace is gone.
 //
-// It is the cascade twin of agent.Usecase.PurgeChat and follows the same ORDER,
+// It is the cascade twin of agent.ChatUsecase.PurgeChat and follows the same ORDER,
 // for the same reason: Forget the chat FIRST, then kill the CLI pointed at it.
 // The PTY teardown fires the runner-exit reconcile asynchronously, and that path
 // writes to the chat (it closes a turn the dead CLI left open); a chat command
@@ -414,7 +419,7 @@ func (c *Container) reapAgentChatFiles(
 }
 
 // retireChatRunners best-effort takes EVERY vendor CLI on chatID off that chat and kills it
-// — the cascade twin of agent.Usecase.retireChatRunners, in the same order and for the same
+// — the cascade twin of the agent runner concern's retireChatRunners, in the same order and for the same
 // reasons.
 //
 // The PLURAL read, not the single-row one: this is a delete, and a delete is precisely where
@@ -613,7 +618,7 @@ func (c *Container) rebroadcast(
 // The closing event always arrives. A chat's turn is opened and closed by its hooks, and
 // each turn_stop restates the async-work level; the ONE case where the closing hook never
 // comes — the CLI dying — is covered by the runner-exit reconcile
-// (agent.Usecase.reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
+// (the agent runner concern's reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
 // that closes the turn AND zeroes the async-work level, since neither can outlive the
 // process that announced them.
 //

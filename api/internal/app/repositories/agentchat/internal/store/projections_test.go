@@ -42,7 +42,7 @@ func newProjected(
 
 	h := &captureHub{}
 	require.NoError(t, registerStoreProjection(st, ax))
-	require.NoError(t, registerHubProjection(ax, h.push))
+	require.NoError(t, registerHubProjection(ax, h.watch))
 	return context.Background(), ax, st, h
 }
 
@@ -134,7 +134,7 @@ func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	_, err = New(db, nil, ax, func(string, string, string, bool) {})
+	_, err = New(db, nil, ax, func(ChatEvent) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }

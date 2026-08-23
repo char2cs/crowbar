@@ -27,10 +27,15 @@ import (
 // contract (spec decision 10).
 const maxOCCAttempts = 8
 
-// BroadcastFunc is an alias for the store-layer broadcast type, exposed so
-// callers can wire the hub fan-out without importing the internal store
-// package directly.
-type BroadcastFunc = store.BroadcastFunc
+// WatchFunc and ChatEvent are aliases for the store-layer watch seam, exposed so
+// callers wire it without importing the internal store package directly.
+//
+// The repository ANNOUNCES what happened; it does not decide what the frontend is
+// told. That decision lives in usecases/agent/internal/fanout.
+type (
+	WatchFunc = store.WatchFunc
+	ChatEvent = store.ChatEvent
+)
 
 // CreateInput seeds a new AgentChat: identity, workspace, clock. It carries no
 // segment/provider/terminal because the chat does not own the CLI talking to it
@@ -180,7 +185,7 @@ type EventStore interface {
 	// found. Two callers: the workspace-delete cascade
 	// (repositories.Container.forgetAgentChats, Task 12), when the owning
 	// workspace itself is gone and the chat has nowhere left to live; and the
-	// standalone hard delete (agent.Usecase.PurgeChat, Task 5), which reaps a
+	// standalone hard delete (agent.ChatUsecase.PurgeChat, Task 5), which reaps a
 	// single chat on user request. Mirrors reviewthread's DeleteThread.
 	Forget(
 		ctx context.Context,
@@ -216,9 +221,9 @@ func NewEventSourced(
 	ax asynx.Asynx[domain.AgentChat],
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, broadcast)
+	st, err := store.New(storeDB, es, ax, watch)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: store: %w", err)
 	}

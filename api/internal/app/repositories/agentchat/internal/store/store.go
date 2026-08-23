@@ -95,7 +95,7 @@ func New(
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.AgentChat],
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) (Store, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
@@ -104,7 +104,7 @@ func New(
 	if err := registerStoreProjection(st, ax); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
-	if err := registerHubProjection(ax, broadcast); err != nil {
+	if err := registerHubProjection(ax, watch); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
 	return &service{storage: st, es: es, ax: ax}, nil

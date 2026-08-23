@@ -269,6 +269,12 @@ func (f *fakeBroadcaster) reset() {
 	f.calls = nil
 }
 
+// watchAgentChat adapts the repository's announcement seam onto this fake's existing
+// frame recorder, so every assertion in this package keeps its current shape.
+func (f *fakeBroadcaster) watchAgentChat(e agentchat.ChatEvent) {
+	f.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+}
+
 func (f *fakeBroadcaster) snapshot() []broadcastCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -564,12 +570,27 @@ func (s *fakeRunnerStore) Move(
 	return r, err
 }
 
+// harnessUsecase is the five agent concerns behind ONE value, so a test that
+// drives a whole chat — spawn, hook, read, answer — still calls one object.
+//
+// It is a TEST aggregate and nothing else: production wires the five ports
+// separately (usecases.Container), and every embedded field here is the port
+// agent.New itself returned, so a call through it reaches exactly the concern
+// that owns the method.
+type harnessUsecase struct {
+	agentusecase.ChatUsecase
+	agentusecase.TurnUsecase
+	agentusecase.RunnerUsecase
+	agentusecase.AnswerUsecase
+	agentusecase.ProviderUsecase
+}
+
 // testFixture is the usecase harness: the real asynx-backed chat AND runner
 // aggregates (in-memory), with the terminal engine, the workspace reader and both
 // hub feeds faked.
 type testFixture struct {
 	ctx     context.Context
-	usecase *agentusecase.Usecase
+	usecase *harnessUsecase
 	// chats/runners are the REAL concrete EventStores, used for test reads; the
 	// usecase may be built over a fault-injecting wrapper of them (newFaultFixture)
 	// but writes still land here.
@@ -642,7 +663,7 @@ func (fixtureWorkspaceLister) List(
 // list_review_threads, get_review_scope, reply_to_review_thread and
 // resolve_review_thread — none of these tests CALL a review tool, so every
 // method here is an empty-returning stand-in. What matters is that the ports
-// are non-nil: the full 8-tool surface has to come from a REAL *agent.Usecase
+// are non-nil: the full 8-tool surface has to come from the REAL concerns
 // built through agent.New for TestDispatchMCP_ListsTheChatTools to be a
 // meaningful guard on New's own internal wiring (see that test's doc comment).
 type fixtureReviewReader struct{}
@@ -854,7 +875,7 @@ func (f testFixture) runnerKinds(t *testing.T) []string {
 // through it exercises the real lifecycle feed — the usecase never broadcasts itself.
 func newChatStore(
 	t *testing.T,
-	broadcast agentchat.BroadcastFunc,
+	watch agentchat.WatchFunc,
 ) (agentchat.EventStore, func()) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -870,7 +891,7 @@ func newChatStore(
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	repo, err := agentchat.NewEventSourced(ax, es, db, broadcast)
+	repo, err := agentchat.NewEventSourced(ax, es, db, watch)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }
@@ -957,7 +978,7 @@ func newFixtureUsing(
 
 	bc := &fakeBroadcaster{}
 	rbc := &fakeRunnerBroadcaster{}
-	realChats, waitChats := newChatStore(t, bc.BroadcastAgentChat)
+	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
 	realRunners, waitRunners := newRunnerStore(t, rbc.BroadcastAgentRunner)
 	realActivity, waitActivity := newActivityStore(t)
 
@@ -1039,8 +1060,14 @@ func newFixtureUsing(
 			ThreadBroadcast: noopThreadBroadcast,
 		})
 	f := testFixture{
-		ctx:           context.Background(),
-		usecase:       u,
+		ctx: context.Background(),
+		usecase: &harnessUsecase{
+			ChatUsecase:     u.Chat,
+			TurnUsecase:     u.Turn,
+			RunnerUsecase:   u.Runner,
+			AnswerUsecase:   u.Answer,
+			ProviderUsecase: u.Provider,
+		},
 		chats:         realChats,
 		runners:       realRunners,
 		waitFn:        func() { waitChats(); waitRunners(); waitActivity() },

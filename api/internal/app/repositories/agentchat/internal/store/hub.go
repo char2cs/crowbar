@@ -16,8 +16,9 @@ import (
 // internal/commands/*.go). eventKind strips it to isolate <kind>.
 const eventNamePrefix = "agentchat."
 
-// BroadcastFunc receives every projected AgentChat event as a bare
-// (chatID, workspaceID, kind, working) lifecycle frame for hub fan-out. This is the
+// ChatEvent is one projected agentchat lifecycle event, in repo-owned terms.
+// It carries the bare (chatID, workspaceID, kind, working) facts a lifecycle
+// frame is built from. This is the
 // wire shape the FE consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a
 // bare id+kind frame plus the owning workspace, not the full aggregate — so a
 // Hub.BroadcastAgentChat-shaped func wires straight through with no adapter.
@@ -52,12 +53,20 @@ const eventNamePrefix = "agentchat."
 // This is the SINGLE source of agent-chat frames: the usecase no longer
 // broadcasts, so a lifecycle change is exactly one event → exactly one frame.
 
-type BroadcastFunc func(
-	chatID string,
-	workspaceID string,
-	kind string,
-	working bool,
-)
+type ChatEvent struct {
+	ChatID      string
+	WorkspaceID string
+	Kind        string
+	Working     bool
+	Forgotten   bool
+}
+
+// WatchFunc receives every projected agentchat event. It replaces the former
+// BroadcastFunc: the repository announces WHAT HAPPENED, and the usecase decides what
+// the frontend is told (usecases/agent/internal/fanout). Registering the subscription
+// is the repository's job only because asynx subscription is; shaping a wire frame is
+// not.
+type WatchFunc func(ChatEvent)
 
 // registerHubProjection subscribes the hub (WS fan-out) projection to every
 // agentchat event on the singleton axAgentChat: for each event it derives the
@@ -70,9 +79,9 @@ type BroadcastFunc func(
 // register ONCE on the singleton.
 func registerHubProjection(
 	ax asynx.Asynx[domain.AgentChat],
-	broadcast BroadcastFunc,
+	watch WatchFunc,
 ) error {
-	p := &hubProjector{broadcast: broadcast}
+	p := &hubProjector{watch: watch}
 	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentchat hub projection: subscribe: %w", err)
 	}
@@ -84,8 +93,7 @@ func registerHubProjection(
 	// (including WorkspaceID) at the moment it was forgotten, exactly like
 	// every other projected event.
 	if _, err := ax.OnForget(func(_ context.Context, evt asynxModels.Event[domain.AgentChat]) {
-		// A forgotten chat is not working: it is not anything. The client drops it.
-		p.broadcast(evt.Aggregate.ID, evt.Aggregate.WorkspaceID, "deleted", false)
+		p.onForget(evt)
 	}); err != nil {
 		return fmt.Errorf("agentchat hub projection: onforget: %w", err)
 	}
@@ -93,7 +101,27 @@ func registerHubProjection(
 }
 
 type hubProjector struct {
-	broadcast BroadcastFunc
+	watch WatchFunc
+}
+
+// emit is the single exit. A nil watch degrades to a no-op so a store built without
+// one (every unit test) never panics.
+func (p *hubProjector) emit(e ChatEvent) {
+	if p.watch == nil {
+		return
+	}
+	p.watch(e)
+}
+
+// onForget announces a hard delete. A forgotten chat is not working: it is not
+// anything. The client drops it.
+func (p *hubProjector) onForget(evt asynxModels.Event[domain.AgentChat]) {
+	p.emit(ChatEvent{
+		ChatID:      evt.Aggregate.ID,
+		WorkspaceID: evt.Aggregate.WorkspaceID,
+		Kind:        "deleted",
+		Forgotten:   true,
+	})
 }
 
 // onEvent broadcasts the (chatID, workspaceID, kind, working) lifecycle frame
@@ -107,12 +135,12 @@ func (p *hubProjector) onEvent(
 	evt asynxModels.Event[domain.AgentChat],
 ) {
 	_ = ctx
-	p.broadcast(
-		evt.AggregateID,
-		evt.Aggregate.WorkspaceID,
-		eventKind(evt.EventName),
-		evt.Aggregate.Working,
-	)
+	p.emit(ChatEvent{
+		ChatID:      evt.AggregateID,
+		WorkspaceID: evt.Aggregate.WorkspaceID,
+		Kind:        eventKind(evt.EventName),
+		Working:     evt.Aggregate.Working,
+	})
 }
 
 // eventKind extracts the <kind> segment from an agentchat EventName

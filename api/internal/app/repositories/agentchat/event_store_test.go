@@ -30,6 +30,12 @@ type captureBroadcast struct {
 	rows []string
 }
 
+// watch adapts the repository's announcement seam onto the frame this fixture's
+// assertions already use, so the change is proven against the existing suite.
+func (c *captureBroadcast) watch(e agentchat.ChatEvent) {
+	c.push(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+}
+
 func (c *captureBroadcast) push(chatID, workspaceID, kind string, _ bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -63,7 +69,7 @@ func newRepoWithDeps(
 	require.NoError(t, err)
 
 	cap := &captureBroadcast{}
-	repo, err := agentchat.NewEventSourced(ax, es, db, cap.push)
+	repo, err := agentchat.NewEventSourced(ax, es, db, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, db, cap
 }
@@ -344,7 +350,7 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = agentchat.NewEventSourced(ax, es, db, func(string, string, string, bool) {})
+	_, err = agentchat.NewEventSourced(ax, es, db, func(agentchat.ChatEvent) {})
 	require.Error(t, err)
 }
 
