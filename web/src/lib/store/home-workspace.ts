@@ -75,20 +75,17 @@ export function subscribeHomeWorkspace(projectId: string): () => void {
 
   void read()
 
-  const unsubscribe = wsManager.subscribe(
-    `/v0/projects/${projectId}/home/chats/ws`,
-    (frame) => {
-      if (disposed) return
-      // The reconnect sentinel is not a lifecycle frame — turns may have both
-      // started and stopped while the socket was down, so re-read unconditionally.
-      if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-        void read()
-        return
-      }
-      const kind = (frame as { kind?: string } | null)?.kind
-      if (kind !== undefined && WORKING_KINDS.has(kind)) void read()
-    },
-  )
+  const unsubscribe = wsManager.subscribe(`/v0/projects/${projectId}/home/chats/ws`, (frame) => {
+    if (disposed) return
+    // The reconnect sentinel is not a lifecycle frame — turns may have both
+    // started and stopped while the socket was down, so re-read unconditionally.
+    if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+      void read()
+      return
+    }
+    const kind = (frame as { kind?: string } | null)?.kind
+    if (kind !== undefined && WORKING_KINDS.has(kind)) void read()
+  })
 
   return () => {
     disposed = true

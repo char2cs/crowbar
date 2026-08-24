@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { UsersIcon } from 'lucide-react'
+import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import type { AgentActivity } from '@/features/agent/api/agent-api'
 import { fitShelf, formatElapsed, type ShelfToken } from '@/features/agent/activity/lib/shelf-fit'
 import { cn } from '@/lib/utils'
@@ -63,11 +63,11 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
     <div
       className={cn('subbar', layout.dense && 'dense')}
       data-testid="agent-subagent-shelf"
-      aria-label={`${running.length} subagents running`}
+      aria-label={`${running.length} ${running.length === 1 ? 'subagent' : 'subagents'} running`}
     >
       <span className="subhd">
-        <UsersIcon className="size-3" />
-        <b>{running.length}</b>&nbsp;subagents
+        <SubagentIcon size={12} />
+        <b>{running.length}</b>&nbsp;{running.length === 1 ? 'subagent' : 'subagents'}
       </span>
       <span className="subline" ref={lineRef}>
         {layout.shown.map((token) => (

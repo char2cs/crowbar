@@ -90,6 +90,48 @@ vi.mock('@/features/terminal/components/terminal', () => ({
     }),
 }))
 
+// The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
+// Slate editable** — measured: window- and document-capture see the event, the
+// editable's own listeners never fire. Neither `PlateContent onKeyDown` nor a
+// plugin handler runs. So a test that typed into the real editor here would not
+// be testing the queue, it would be testing nothing and passing.
+//
+// These suites are about the QUEUE, the catalog and the ledger. The editor gets
+// a stand-in with the same contract — text in, markdown out, keys through — and
+// the editor's own behaviour is verified live and in its own suite.
+vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
+  ChatMarkdownEditor: ({
+    initialValue,
+    placeholder,
+    ariaLabel,
+    onChange,
+    onKeyDown,
+    expanded,
+    controls,
+  }: {
+    initialValue: string
+    placeholder: string
+    ariaLabel: string
+    onChange: (value: string) => void
+    onKeyDown: (event: unknown, readMarkdown: () => string) => void
+    expanded?: boolean
+    controls?: string
+  }) =>
+    createElement('textarea', {
+      'aria-label': ariaLabel,
+      'aria-expanded': expanded,
+      'aria-controls': controls,
+      placeholder,
+      defaultValue: initialValue,
+      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+      // Second argument included deliberately: the real editor hands the key
+      // handler the BOX's text, and a mock that omitted it would let a submit
+      // path that reads stale state keep passing.
+      onKeyDown: (event: { currentTarget: { value: string } }) =>
+        onKeyDown(event, () => event.currentTarget.value),
+    }),
+}))
+
 // Stub the dropdown to expose its props and a one-click switch, so the footer
 // wiring is asserted without the shared Dropdown's framer-motion machinery.
 vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
@@ -120,7 +162,26 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useSettingsStore } from '@/features/settings/store'
 
+/**
+ * Land this pane on the TERMINAL surface.
+ *
+ * The chat's status strip — its title and the provider switcher — is the
+ * provider's-own-view chrome and is drawn only there: Chat states everything it
+ * is running as in its own underbar, under the composer. So a test about the
+ * switcher has to be on the surface that has one.
+ */
+function landOnTerminal() {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: false },
+  }))
+}
+
+// Both real descriptors declare hotswap:true and keep a real terminal — see
+// TestShippedDescriptors_DeclareHotswapTrue on the backend — so these fixtures
+// match that rather than exercising the (currently provider-less) false branch,
+// which has its own dedicated coverage in agent-chat-view.test.tsx.
 const providers: AgentProvider[] = [
   {
     id: 'claude',
@@ -129,6 +190,8 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    hasTerminal: true,
+    hotswap: true,
   },
   {
     id: 'codex',
@@ -137,6 +200,8 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    hasTerminal: true,
+    hotswap: true,
   },
 ]
 
@@ -267,11 +332,24 @@ beforeEach(() => {
   toastErrorFn.mockReset()
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
+  // A chat that has been SPOKEN IN. A chat with no messages is the blank
+  // DOCUMENT surface — writing size, no pill under it — so a pane test about the
+  // composer, the queue or the switcher has to start from a conversation for its
+  // subject to be on screen at all.
   listMessagesFn.mockResolvedValue({
-    cursor: 0,
-    oldestCursor: 0,
+    cursor: 1,
+    oldestCursor: 1,
     hasMore: false,
-    items: [],
+    items: [
+      {
+        sequence: 1,
+        turnId: 'turn-1',
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'earlier turn',
+        at: '2026-08-16T00:00:01Z',
+      },
+    ],
   })
   submitPromptFn.mockResolvedValue({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
   slashCatalogFn.mockResolvedValue({
@@ -286,6 +364,12 @@ beforeEach(() => {
     ),
   )
   useTerminalStore.setState({ sessions: new Map() })
+  // The settings store is a GLOBAL singleton, so a test that lands the pane on
+  // the terminal leaks that choice into every test after it. Reset to the
+  // shipped default — Chat — before each one.
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: true },
+  }))
   localStorage.clear()
   // Every route that mounts a workspace publishes it as THE active one
   // (WorkspaceView). The pane's window-level chord listener is gated on that,
@@ -730,6 +814,7 @@ describe('AgentChatPane', () => {
   // whole component — socket, listeners, observers — down and rebuilding it. This is
   // the P4c fix: the terminal used to be key={sessionId} and remounted here.
   it('adopts the chat new runner in place — new PTY, but the SAME terminal (no remount)', async () => {
+    landOnTerminal()
     const store = seedWorkspace([
       liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
     ])
@@ -840,7 +925,9 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('xterm')).toBeNull()
       expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
       expect(resumeChatFn).not.toHaveBeenCalled() // the store still says the chat is live
-      expect(screen.getByTestId('provider-switch')).toBeTruthy()
+      // The pane is still a pane: it reported the exit and offers the way back,
+      // rather than tearing itself down over a signal it did not trust.
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
     })
 
     // REGRESSION: a prompt submission REPLACES the CLI, so the outgoing PTY dies by
@@ -884,6 +971,9 @@ describe('AgentChatPane', () => {
 
   // ── Footer / provider switch ───────────────────────────────────────
   describe('provider switch', () => {
+    // The switcher is the terminal surface's chrome. See landOnTerminal.
+    beforeEach(landOnTerminal)
+
     it('renders the switcher beneath the terminal at the chat provider', async () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
@@ -1259,7 +1349,11 @@ describe('AgentChatPane', () => {
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
     })
 
-    it('blocks dropdown and chord provider switches through submission and hook confirmation', async () => {
+    // The two switch routes now live on DIFFERENT surfaces: the chord is global,
+    // the dropdown belongs to the terminal's status strip. Both read the same
+    // in-flight booleans, so the guard is only proven by crossing between them —
+    // submit from Chat, then walk to the Terminal and find the control refusing.
+    it('blocks chord and dropdown provider switches through submission and hook confirmation', async () => {
       const submitted = deferred<{ runnerId: string; terminalSessionId: string }>()
       submitPromptFn.mockReturnValue(submitted.promise)
       const store = seedWorkspace([
@@ -1272,18 +1366,29 @@ describe('AgentChatPane', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
-      const switcher = screen.getByTestId('provider-switch')
-      expect(switcher).toBeDisabled()
-      fireEvent.click(switcher)
+      // Chat has no dropdown to press — the chord is the only route off this
+      // surface, and it must not fire.
+      expect(screen.queryByTestId('provider-switch')).toBeNull()
       await act(async () => {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
       })
       expect(switchProviderFn).not.toHaveBeenCalled()
 
+      // Cross to the provider's own view, where the dropdown is, and find it
+      // refusing for the same reason.
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Terminal'))
+      })
+      expect(screen.getByTestId('provider-switch')).toBeDisabled()
+      fireEvent.click(screen.getByTestId('provider-switch'))
+      expect(switchProviderFn).not.toHaveBeenCalled()
+
       await act(async () => {
         submitted.resolve({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
       })
-      expect(await screen.findByTestId('queued-prompt')).toBeInTheDocument()
+      // Still refusing after the submission resolves: the prompt is delivered but
+      // the hook has not confirmed it, and that window is exactly the one a
+      // handover would lose the turn in.
       expect(screen.getByTestId('provider-switch')).toBeDisabled()
       fireEvent.click(screen.getByTestId('provider-switch'))
       expect(switchProviderFn).not.toHaveBeenCalled()

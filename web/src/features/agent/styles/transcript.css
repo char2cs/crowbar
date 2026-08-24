@@ -9,18 +9,41 @@
 .agent-chat.chat {
   display: flex;
   flex-direction: column;
+  /* The dock is laid OVER the conversation, so this is its containing block. */
+  position: relative;
+  /* `height` and `flex` both, because the surface hosts this in two different
+     parents: a plain block in chat/terminal, a flex row in split. Without the
+     height the block parent leaves the column auto-sized, it grows to the whole
+     transcript, and the dock leaves the pane entirely. */
+  height: 100%;
   flex: 1;
   min-height: 0;
 }
 /* Bottom-anchored: a chat is read from its newest end, so a short conversation
-   sits ON the composer rather than floating at the top of an empty pane. */
+   sits ON the composer rather than floating at the top of an empty pane.
+   The anchoring is `margin-top: auto` on the stream, NOT `justify-content:
+   flex-end` here. They look identical until the conversation outgrows the pane,
+   at which point flex-end overflows past the START edge, which is not
+   scrollable: scrollTop stays pinned at 0 and every message above the fold
+   becomes unreachable. The auto margin collapses to nothing once the content is
+   taller, so it anchors a short chat and gets out of the way of a long one. */
 .agent-chat .scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  padding-top: 20px;
+  /* THE CONVERSATION RUNS UNDER THE COMPOSER. Reserving exactly the dock's own
+     height plus a gap means the newest message can be scrolled clear of the box
+     — it stops a line above it rather than touching its edge — while everything
+     older passes behind it and fades out instead of being cut off by a hard
+     border. The height is measured and published by the view, because the dock
+     grows with the box. */
+  padding-bottom: calc(var(--agent-dock-h, 92px) + 20px);
+  /* The scroller owns the bottom gutter now, so the stream must not add its own
+     on top of it. */
+  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 20px);
 }
 /* One measure for the whole surface — the transcript, the composer and the
    controls all sit on it, which is what makes the empty state read as a page. */
@@ -30,11 +53,16 @@
   margin: 0 auto;
   padding: 0 24px;
 }
+/* PADDING-BOTTOM ONLY. `.stream` shares an element with `.center`, at the same
+   specificity and later in the file, so the `padding` SHORTHAND here silently
+   reset `.center`'s `0 24px` and the conversation rendered 48px wider than the
+   composer under it — the two stopped sharing a measure. The top space is the
+   scroller's, so it cannot reach this element at all. */
 .agent-chat .stream {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 20px 0 12px;
+  margin-top: auto;
 }
 
 .agent-chat .row {
@@ -63,6 +91,13 @@
   border-radius: 18px;
   padding: 10px 16px;
 }
+/* The pill's own metrics govern the prose inside it. The canvas draws a bubble
+   at 1.6 and prose at 1.625, and the difference is enough to move the height of
+   the stadium the composer's box turns into. */
+.agent-chat .bubble .agent-prose,
+.agent-chat .bubble .agent-prose .slate-p {
+  line-height: inherit;
+}
 
 .agent-chat .assistant {
   width: 100%;
@@ -73,6 +108,123 @@
    machinery talking to its own model; `notice` is Crowbar relaying the
    provider's words about why a chat stopped. Neither may wear the user's
    bubble — that would quote a person saying something they never said. */
+/* ── an agent's prose ──────────────────────────────────── */
+/* Rendered by Plate, styled here. Unlayered, so it beats the registry's node
+   components' Tailwind (which lives in the `utilities` layer) without
+   `!important` — the same cascade trick markdown-editor.css uses. */
+.agent-chat .agent-prose {
+  font-size: 14px;
+  color: var(--foreground);
+  outline: none;
+}
+.agent-chat .agent-prose h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 12px 0 8px;
+}
+.agent-chat .agent-prose h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+.agent-chat .agent-prose h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 8px 0 4px;
+}
+/* THE CANVAS SPELLS THESE `p`, `ul`, `ol` AND `li`. Plate renders none of those
+   tags: a paragraph is `div.slate-p`, and a list item is that SAME node carrying
+   a `listStyleType` — there is no list container at all, the indentation is a
+   per-level class. Ported as element selectors they matched nothing, and the
+   rhythm on screen was Tailwind's `m-0 px-0 py-1` instead. `padding` is cleared
+   because that is the utility being replaced; leaving it doubles the gap. */
+.agent-chat .agent-prose .slate-p {
+  margin: 0 0 8px;
+  padding: 0;
+  line-height: 1.625;
+}
+.agent-chat .agent-prose [class*='slate-listStyleType-'] {
+  margin: 2px 0;
+  padding: 0;
+  line-height: 1.625;
+}
+.agent-chat .agent-prose [class*='slate-listStyleType-']::marker {
+  color: var(--muted-foreground);
+}
+/* A cell's paragraph is the cell. The canvas's 8px belongs between blocks. */
+.agent-chat .agent-prose th .slate-p,
+.agent-chat .agent-prose td .slate-p {
+  margin: 0;
+}
+/* AFTER the block rules and tied with them on specificity, which is what makes
+   these win. The outer edges of a message have no gap to give — without this the
+   last paragraph pads the bottom of every bubble by 8px. */
+.agent-chat .agent-prose > :is(:first-child) {
+  margin-top: 0;
+}
+.agent-chat .agent-prose > :is(:last-child) {
+  margin-bottom: 0;
+}
+.agent-chat .agent-prose code {
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  padding: 2px 4px;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.agent-chat .agent-prose pre {
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  padding: 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.agent-chat .agent-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+.agent-chat .agent-prose strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.agent-chat .agent-prose em {
+  font-style: italic;
+}
+.agent-chat .agent-prose blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  color: var(--muted-foreground);
+  margin: 8px 0;
+}
+.agent-chat .agent-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+.agent-chat .agent-prose a {
+  color: var(--md-link, var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agent-chat .agent-prose table {
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+  width: 100%;
+}
+.agent-chat .agent-prose th,
+.agent-chat .agent-prose td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+.agent-chat .agent-prose th {
+  font-weight: 600;
+  background: var(--muted);
+}
+
 .agent-chat .harness,
 .agent-chat .notice {
   width: 100%;

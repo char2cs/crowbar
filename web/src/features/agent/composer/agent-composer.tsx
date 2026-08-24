@@ -1,4 +1,4 @@
-import type { KeyboardEvent, Ref } from 'react'
+import type { KeyboardEvent } from 'react'
 import type { AgentActivity, AgentTerminalWait } from '@/features/agent/api/agent-api'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
@@ -29,11 +29,14 @@ interface AgentComposerProps {
   slashOpen: boolean
   onDraftChange: (value: string) => void
   onHeightChange: (height: number) => void
-  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => void
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void
-  fieldRef?: Ref<HTMLTextAreaElement>
+  /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
+  draftSeed: number
+  /** The text that seed carries — see the note on `seed` in the view. */
+  seedText: string
 }
 
 /**
@@ -92,8 +95,8 @@ export function AgentComposer(props: AgentComposerProps) {
       return (
         <div className={cn('pill', isMultiline(props.fieldHeight) && 'multi')}>
           <ComposerField
-            ref={props.fieldRef}
-            value={props.draft}
+            key={props.draftSeed}
+            initialValue={props.seedText}
             placeholder={placeholder}
             expanded={props.slashOpen}
             controls={props.slashOpen ? 'agent-skill-picker' : undefined}

@@ -18,13 +18,36 @@
   --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
 }
 
+/* OVER the conversation, not after it. Text scrolling up passes behind the box
+   and dissolves into the page rather than being clipped by an edge — which is
+   what a hard boundary between a scroller and a bar always looks like. */
 .agent-chat .dock {
-  position: relative;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 1;
   flex: none;
   width: 100%;
   max-width: 768px;
   margin: 0 auto;
   padding: 0 24px 14px;
+  background: var(--background);
+}
+/* The dissolve. A gradient alone leaves text crisply legible right up to where
+   it vanishes; the blur is what makes it read as depth instead of a wipe. The
+   mask fades the blur out too, so there is no visible edge where it stops. */
+.agent-chat .dock::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: 44px;
+  pointer-events: none;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  background: linear-gradient(to top, var(--background), transparent);
+  mask-image: linear-gradient(to top, oklch(0 0 0) 35%, transparent);
+  -webkit-mask-image: linear-gradient(to top, oklch(0 0 0) 35%, transparent);
 }
 
 .agent-chat .pill {
@@ -74,6 +97,93 @@
 }
 .agent-chat .pill .field::placeholder {
   color: var(--muted-foreground);
+}
+/* Plate's placeholder is a rendered span, not the `::placeholder` pseudo the
+   textarea had. It is absolutely positioned over the first block, so it must
+   not add height of its own. */
+.agent-chat [data-slate-placeholder] {
+  color: var(--muted-foreground);
+  opacity: 1 !important;
+}
+
+/* ── the editable's blocks ─────────────────────────────── */
+/* THE PILL IS ONE LINE UNTIL IT IS TWO. Plate's block components carry the
+   registry's Tailwind margins, and on an empty box that margin is pure height:
+   the bar stood ~14px taller than its own line with nothing typed in it. Zero
+   them here and let the pill's own padding do the spacing. Unlayered, so it
+   beats the registry's `utilities` layer without `!important`. */
+.agent-chat .pill .field [data-slate-node='element'] {
+  margin: 0;
+  padding: 0;
+}
+.agent-chat .pill .field [data-slate-node='element'] + [data-slate-node='element'] {
+  margin-top: 0.35em;
+}
+
+/* The DOCUMENT keeps the canvas's writing rhythm: every block on the same
+   vertical measure, headings that step, a rule down the side of a quote. */
+.agent-chat .doc [data-slate-node='element'] {
+  margin: 0 0 0.9em;
+  padding: 0;
+}
+.agent-chat .doc [data-slate-node='element']:last-child {
+  margin-bottom: 0;
+}
+.agent-chat .doc h1 {
+  font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5em;
+}
+.agent-chat .doc h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  margin: 1.5em 0 0.5em;
+}
+.agent-chat .doc h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 1.5em 0 0.5em;
+}
+.agent-chat .doc [data-slate-node='element']:first-child {
+  margin-top: 0;
+}
+.agent-chat .doc ul,
+.agent-chat .doc ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.5em;
+}
+.agent-chat .doc ul {
+  list-style: disc;
+}
+.agent-chat .doc ol {
+  list-style: decimal;
+}
+.agent-chat .doc li {
+  margin: 0 0 0.3em;
+}
+.agent-chat .doc blockquote {
+  border-left: 2px solid color-mix(in oklch, var(--foreground) 22%, transparent);
+  padding-left: 0.9em;
+  color: var(--muted-foreground);
+  margin: 0 0 0.3em;
+}
+/* Both surfaces: code reads as code, and a link as a link. */
+.agent-chat .field code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  background: var(--muted);
+}
+.agent-chat .field a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .agent-chat .handle {
@@ -244,6 +354,77 @@
   color: var(--muted-foreground);
 }
 
+/* ── the blank chat's document ─────────────────────────── */
+/* Its own measure, and deliberately NOT the transcript's: a conversation is read
+   in a 720px column of 14px UI text, and a thing you are WRITING gets 16px at
+   1.7 with the same 720px of line. The two agree on the measure and disagree on
+   the size, which is the difference between reading and drafting. */
+.agent-chat .docwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-chat .doc {
+  --pad: max(40px, calc((100% - 720px) / 2));
+  padding: 48px var(--pad) 96px;
+  font-size: 16px;
+  line-height: 1.7;
+  outline: none;
+  color: var(--foreground);
+}
+/* The document's editable. Plate owns the blocks inside it; this is only the
+   column they sit in. */
+.agent-chat .doc .blk {
+  outline: none;
+}
+/* Rides one line below the caret. `pointer-events` is off on everything but the
+   bar itself, so the document under it stays clickable for its whole width. */
+.agent-chat .dochandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  pointer-events: none;
+  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
+}
+.agent-chat .dochandle .inner {
+  --pad: max(40px, calc((100% - 720px) / 2));
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--pad);
+  pointer-events: none;
+}
+.agent-chat .dochandle .side {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.agent-chat .dochandle .grp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 38px;
+  padding: 0 4px 0 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+  pointer-events: auto;
+}
+.agent-chat .dochandle .chip {
+  height: 24px;
+  padding: 0 7px;
+}
+.agent-chat .dochandle .send {
+  margin-left: 5px;
+}
+
 /* ── the row under the pill ────────────────────────────── */
 .agent-chat .underbar {
   display: flex;
@@ -265,6 +446,44 @@
    pill's text. */
 .agent-chat .underbar .left {
   margin-left: -7px;
+}
+
+/* The selection cluster: model, effort and the view switcher read as ONE
+   control group, which is why they sit closer to each other (2px) than the
+   group does to anything else in the row (10px). */
+.agent-chat-pane .selpos {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/* The underbar's chip. Lower contrast than a Button by design — this row reports
+   what the chat IS, and only earns foreground colour once a choice has actually
+   been made (`.set`). */
+.agent-chat-pane .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat-pane .chip:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.agent-chat-pane .chip.set {
+  color: var(--foreground);
+}
+.agent-chat-pane .chip:disabled {
+  cursor: default;
 }
 
 .agent-chat .gauge {
@@ -292,7 +511,11 @@
 }
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */
-.agent-chat .viewswitch {
+/* Scoped to the PANE, not the chat. The terminal surface draws this same
+   switcher in its status strip and is not inside `.agent-chat`, so a chat-scoped
+   rule left the TUI's copy completely unstyled — three bare glyphs on the
+   background. Everything both surfaces share hangs off `.agent-chat-pane`. */
+.agent-chat-pane .viewswitch {
   display: inline-flex;
   gap: 2px;
   flex: none;
@@ -300,7 +523,7 @@
   border-radius: 9999px;
   background: var(--muted);
 }
-.agent-chat .viewswitch button {
+.agent-chat-pane .viewswitch button {
   display: grid;
   place-items: center;
   width: 22px;
@@ -312,11 +535,11 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.agent-chat .viewswitch button:hover:not(:disabled):not(.on) {
+.agent-chat-pane .viewswitch button:hover:not(:disabled):not(.on) {
   background: var(--accent);
   color: var(--foreground);
 }
-.agent-chat .viewswitch button.on {
+.agent-chat-pane .viewswitch button.on {
   border-color: var(--background);
   background: var(--background);
   color: var(--foreground);
@@ -324,11 +547,11 @@
     0 1px 2px oklch(0 0 0 / 0.1),
     inset 0 1px var(--elevated-highlight);
 }
-.agent-chat .viewswitch button:disabled {
+.agent-chat-pane .viewswitch button:disabled {
   opacity: 0.35;
   cursor: default;
 }
-.agent-chat .viewswitch svg {
+.agent-chat-pane .viewswitch svg {
   width: 14px;
   height: 14px;
 }
@@ -419,23 +642,6 @@
 .agent-chat .doc .sheet p {
   margin: 0;
   color: color-mix(in oklch, var(--foreground) 26%, transparent);
-}
-
-/* The control bar, boxed. Same 38px as the pill it replaces, same stadium, and
-   the same width as the text — so the page keeps one measure whether there is a
-   conversation in it or not. */
-.agent-chat .underbar.boxed {
-  height: 38px;
-  padding: 0 4px 0 10px;
-  border-radius: 9999px;
-  border: 1px solid var(--input);
-  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
-  box-shadow:
-    0 1px 2px oklch(0 0 0 / 0.06),
-    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
-}
-.agent-chat .underbar.boxed .left {
-  margin-left: 0;
 }
 
 /* A prompt occupies the whole dock slot: what is asked reads down the page, and

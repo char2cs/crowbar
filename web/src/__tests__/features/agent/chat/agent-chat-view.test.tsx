@@ -17,10 +17,53 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
   setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
+  listChatActivity: (...args: unknown[]) => activityFn(...args),
 }))
 
-vi.mock('@/features/panes/lib/markdown', () => ({
-  MarkdownPreview: ({ children }: { children: string }) => createElement('div', null, children),
+// The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
+// Slate editable** — measured: window- and document-capture see the event, the
+// editable's own listeners never fire. Neither `PlateContent onKeyDown` nor a
+// plugin handler runs. So a test that typed into the real editor here would not
+// be testing the queue, it would be testing nothing and passing.
+//
+// These suites are about the QUEUE, the catalog and the ledger. The editor gets
+// a stand-in with the same contract — text in, markdown out, keys through — and
+// the editor's own behaviour is verified live and in its own suite.
+vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
+  ChatMarkdownEditor: ({
+    initialValue,
+    placeholder,
+    ariaLabel,
+    onChange,
+    onKeyDown,
+    expanded,
+    controls,
+  }: {
+    initialValue: string
+    placeholder: string
+    ariaLabel: string
+    onChange: (value: string) => void
+    onKeyDown: (event: unknown, readMarkdown: () => string) => void
+    expanded?: boolean
+    controls?: string
+  }) =>
+    createElement('textarea', {
+      'aria-label': ariaLabel,
+      'aria-expanded': expanded,
+      'aria-controls': controls,
+      placeholder,
+      defaultValue: initialValue,
+      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+      // Second argument included deliberately: the real editor hands the key
+      // handler the BOX's text, and a mock that omitted it would let a submit
+      // path that reads stale state keep passing.
+      onKeyDown: (event: { currentTarget: { value: string } }) =>
+        onKeyDown(event, () => event.currentTarget.value),
+    }),
+}))
+
+vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
+  MarkdownMessage: ({ children }: { children: string }) => createElement('div', null, children),
 }))
 
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
@@ -45,6 +88,8 @@ const providers: AgentProvider[] = [
 ]
 
 let initialMessages: AgentChatMessage[]
+const activityFn = vi.fn()
+const emptyActivity = { toolCalls: [], subagents: [], interruptions: [], choices: [] }
 let incrementalMessages: AgentChatMessage[]
 let olderMessages: AgentChatMessage[]
 
@@ -124,8 +169,23 @@ function setup(overrides: Partial<ReturnType<typeof baseProps>> = {}) {
   }
 }
 
+/**
+ * Wherever this chat is currently asking to be written into.
+ *
+ * A blank chat is the DOCUMENT — 16px, its own measure, no bar under it — and it
+ * becomes the pill the instant there is a conversation. Both are the same
+ * gesture to a person, so the harness types into whichever is on screen rather
+ * than making every test declare which surface it expects to be looking at.
+ */
 async function composer() {
-  return screen.findByRole('textbox', { name: /message the agent/i })
+  const find = () =>
+    screen.queryByRole('textbox', { name: /message the agent|describe the change/i })
+  // The surface is not chosen until the ledger's first page lands, so the box does
+  // not exist on the first tick. Flushed with `act` rather than awaited with
+  // `findBy`, because half these tests run on fake timers and a poll-based wait
+  // never advances under them.
+  for (let i = 0; i < 3 && !find(); i++) await act(async () => {})
+  return find() ?? (await screen.findByRole('textbox', { name: /message the agent/i }))
 }
 
 async function enterPrompt(text: string) {
@@ -137,6 +197,8 @@ async function enterPrompt(text: string) {
 beforeEach(() => {
   localStorage.clear()
   vi.useRealTimers()
+  activityFn.mockReset()
+  activityFn.mockResolvedValue(emptyActivity)
   initialMessages = []
   incrementalMessages = []
   olderMessages = []
@@ -673,6 +735,7 @@ describe('AgentChatView durable FIFO', () => {
   })
 
   it('keeps Shift+Enter multiline content in the composer and sends it as one prompt', async () => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
     setup({ working: true })
     const input = await composer()
     fireEvent.change(input, { target: { value: 'line one\nline two' } })
@@ -728,12 +791,20 @@ describe('AgentChatView durable FIFO', () => {
     await enterPrompt('needs live tui')
 
     expect(await screen.findByText('Open the native TUI first')).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+    expect(await composer()).toBeInTheDocument()
     expect(screen.queryByText(/cannot accept a prompt typed here/i)).not.toBeInTheDocument()
   })
 })
 
 describe('AgentChatView streaming', () => {
+  // These are about the PILL: its slash picker, its multiline behaviour, the
+  // bubble that streams above it. None of them exist on a blank chat, which is
+  // the document surface — so each of these starts from a chat that has already
+  // been spoken in.
+  beforeEach(() => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+  })
+
   // The agent is mid-sentence. Its text is not in the ledger yet — a message that
   // is still growing is a view, not a record — so it arrives on the live feed and
   // must be rendered anyway. Without this the chat sits blank while the agent
@@ -775,6 +846,14 @@ describe('AgentChatView streaming', () => {
 })
 
 describe('AgentChatView slash catalog', () => {
+  // These are about the PILL: its slash picker, its multiline behaviour, the
+  // bubble that streams above it. None of them exist on a blank chat, which is
+  // the document surface — so each of these starts from a chat that has already
+  // been spoken in.
+  beforeEach(() => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+  })
+
   // The picker owns Enter only while it has something to accept. It used to own
   // the key for as long as it was OPEN, which made every provider built-in
   // unsendable: no probe reports /compact, /clear, /model or /context, so the
@@ -789,7 +868,7 @@ describe('AgentChatView slash catalog', () => {
       items: [],
     })
     setup()
-    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    const input = await composer()
     fireEvent.change(input, { target: { value: '/compact' } })
     await act(async () => vi.advanceTimersByTimeAsync(150))
     expect(slashCatalogFn).toHaveBeenCalledTimes(1)
@@ -819,13 +898,16 @@ describe('AgentChatView slash catalog', () => {
       ],
     })
     setup()
-    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    const input = await composer()
     fireEvent.change(input, { target: { value: '/rev' } })
     await act(async () => vi.advanceTimersByTimeAsync(150))
 
     fireEvent.keyDown(input, { key: 'Tab' })
 
-    expect(input).toHaveValue('$review-code ')
+    // RE-QUERIED, not the handle from before the insert. Text pushed in from
+    // outside arrives by remounting the box (see `draftSeed`), so the element
+    // that held the `/rev` the picker matched is detached by now.
+    expect(await composer()).toHaveValue('$review-code ')
     expect(submitPromptFn).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
@@ -838,7 +920,7 @@ describe('AgentChatView slash catalog', () => {
     const catalog = deferred<SlashCatalog>()
     slashCatalogFn.mockReturnValue(catalog.promise)
     setup()
-    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    const input = await composer()
     fireEvent.change(input, { target: { value: '/clear' } })
     await act(async () => vi.advanceTimersByTimeAsync(150))
     expect(slashCatalogFn).toHaveBeenCalledTimes(1)
@@ -876,7 +958,7 @@ describe('AgentChatView slash catalog', () => {
       ],
     } satisfies SlashCatalog)
     setup()
-    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    const input = await composer()
     fireEvent.change(input, { target: { value: '/rev' } })
     expect(slashCatalogFn).not.toHaveBeenCalled()
     await act(async () => vi.advanceTimersByTimeAsync(150))
@@ -884,7 +966,10 @@ describe('AgentChatView slash catalog', () => {
     expect(screen.getByText('$review-code')).toBeInTheDocument()
     expect(screen.queryByText('write-tests')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('option', { name: /review-code/i }))
-    expect(input).toHaveValue('$review-code ')
+    // RE-QUERIED, not the handle from before the insert. Text pushed in from
+    // outside arrives by remounting the box (see `draftSeed`), so the element
+    // that held the `/rev` the picker matched is detached by now.
+    expect(await composer()).toHaveValue('$review-code ')
     expect(submitPromptFn).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
@@ -898,7 +983,7 @@ describe('AgentChatView slash catalog', () => {
       return catalog.promise
     })
     const view = setup()
-    fireEvent.change(screen.getByRole('textbox', { name: /message the agent/i }), {
+    fireEvent.change(await composer(), {
       target: { value: '/' },
     })
     await act(async () => vi.advanceTimersByTimeAsync(150))
@@ -944,7 +1029,7 @@ describe('AgentChatView slash catalog', () => {
       ],
     } satisfies SlashCatalog)
     setup({ providerId: 'codex' })
-    fireEvent.change(screen.getByRole('textbox', { name: /message the agent/i }), {
+    fireEvent.change(await composer(), {
       target: { value: '/' },
     })
     await act(async () => vi.advanceTimersByTimeAsync(150))
@@ -959,7 +1044,7 @@ describe('AgentChatView slash catalog', () => {
     const onSelectPresentation = vi.fn()
     slashCatalogFn.mockRejectedValue(new ApiError('catalog unsupported', 422))
     setup({ onSelectPresentation })
-    fireEvent.change(screen.getByRole('textbox', { name: /message the agent/i }), {
+    fireEvent.change(await composer(), {
       target: { value: '/' },
     })
     await act(async () => vi.advanceTimersByTimeAsync(150))
@@ -1116,5 +1201,97 @@ describe('AgentChatView non-conversational roles', () => {
 
     expect(await screen.findByText('a role from the future')).toBeInTheDocument()
     expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-role', 'summary')
+  })
+  // ── The compaction boundary ────────────────────────────────────────
+  // REGRESSION: the divider component and the transcript's prop both existed and
+  // neither was ever fed, so a compacted chat drew no line at all. Interruptions
+  // and messages share ONE sequence space, which is the whole derivation.
+  describe('compaction divider', () => {
+    const compactionAt = (seq: number, detail = 'manual') => ({
+      ...emptyActivity,
+      interruptions: [
+        {
+          id: `i-${seq}`,
+          turnId: '',
+          seq,
+          kind: 'compaction' as const,
+          detail,
+          at: '2026-08-16T00:00:00Z',
+          resolvedAt: '2026-08-16T00:00:01Z',
+        },
+      ],
+    })
+
+    it('draws the rule above the first message that follows the compaction', async () => {
+      initialMessages = [
+        message(10, 'user', 'before the boundary'),
+        message(20, 'assistant', 'after the boundary'),
+      ]
+      activityFn.mockResolvedValue(compactionAt(15))
+      setup()
+
+      const divider = await screen.findByTestId('agent-compaction-divider')
+      expect(divider.textContent).toMatch(/compacted/i)
+      // Above the LATER message: everything over the line is gone from the
+      // model's context, everything under it is not.
+      const after = screen.getByText('after the boundary')
+      expect(divider.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('draws nothing when the compaction is newer than every message', async () => {
+      initialMessages = [message(10, 'user', 'the only message')]
+      activityFn.mockResolvedValue(compactionAt(99))
+      setup()
+
+      expect(await screen.findByText('the only message')).toBeTruthy()
+      // A rule under the newest message would put a boundary below the whole
+      // conversation and read as if the chat had ended.
+      expect(screen.queryByTestId('agent-compaction-divider')).toBeNull()
+    })
+
+    it('names an automatic compaction differently from one the user asked for', async () => {
+      initialMessages = [message(10, 'user', 'older'), message(20, 'assistant', 'newer')]
+      activityFn.mockResolvedValue(compactionAt(15, 'auto'))
+      setup()
+
+      const divider = await screen.findByTestId('agent-compaction-divider')
+      expect(divider.textContent).toMatch(/compacted automatically/i)
+    })
+  })
+})
+
+describe('AgentChatView surface hotswap', () => {
+  it('hides the view switcher entirely when the provider has no terminal', async () => {
+    setup({ providers: [{ ...providers[0], hasTerminal: false }, providers[1]] })
+
+    await composer() // wait for the first paint past the ledger load
+    expect(screen.queryByRole('tablist', { name: 'View' })).not.toBeInTheDocument()
+  })
+
+  it('shows the view switcher when the provider has a terminal', async () => {
+    setup({ providers: [{ ...providers[0], hasTerminal: true }, providers[1]] })
+
+    expect(await screen.findByRole('tablist', { name: 'View' })).toBeTruthy()
+  })
+
+  it('blocks handover to the terminal mid-turn when the provider cannot hotswap', async () => {
+    setup({ providers: [{ ...providers[0], hotswap: false }, providers[1]], working: true })
+
+    const terminalTab = await screen.findByRole('tab', { name: 'Terminal' })
+    expect(terminalTab).toBeDisabled()
+  })
+
+  it('never blocks handover when the provider can hotswap, even mid-turn', async () => {
+    setup({ providers: [{ ...providers[0], hotswap: true }, providers[1]], working: true })
+
+    const terminalTab = await screen.findByRole('tab', { name: 'Terminal' })
+    expect(terminalTab).not.toBeDisabled()
+  })
+
+  it('does not block handover when no turn is open, even without hotswap', async () => {
+    setup({ providers: [{ ...providers[0], hotswap: false }, providers[1]], working: false })
+
+    const terminalTab = await screen.findByRole('tab', { name: 'Terminal' })
+    expect(terminalTab).not.toBeDisabled()
   })
 })

@@ -116,6 +116,9 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
+// Both real descriptors declare hotswap:true — see
+// TestShippedDescriptors_DeclareHotswapTrue on the backend — which is what
+// offers split at all; this suite is about split's OWN behaviour, not the gate.
 const providers: AgentProvider[] = [
   {
     id: 'claude',
@@ -124,6 +127,8 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    hasTerminal: true,
+    hotswap: true,
   },
 ]
 

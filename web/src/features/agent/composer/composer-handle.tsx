@@ -1,4 +1,4 @@
-import { ArrowUpIcon, SquareIcon } from 'lucide-react'
+import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
 
@@ -44,7 +44,7 @@ export function ComposerHandle({
         title={stopping ? 'Stop this turn — Esc' : 'Send — Enter'}
         onClick={stopping ? onStop : onSend}
       >
-        {stopping ? <SquareIcon fill="currentColor" /> : <ArrowUpIcon />}
+        {stopping ? <StopIcon size={16} /> : <UpIcon size={16} />}
       </button>
     </div>
   )

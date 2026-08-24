@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
-import { MarkdownPreview } from '@/features/panes/lib/markdown'
+import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 
 function providerName(providers: AgentProvider[], id: string): string {
   return providers.find((provider) => provider.id === id)?.displayName ?? id
@@ -78,13 +78,19 @@ export function MessageRow({
             Sent to the agent by {providerName(providers, message.providerId)} — not by you
           </p>
         )}
-        {assistant ? (
-          <MarkdownPreview className="break-words text-sm">{message.text}</MarkdownPreview>
+        {assistant || user ? (
+          // BOTH SIDES OF THE CONVERSATION, through the one engine. A prompt is
+          // composed in a rich markdown editor and SENT as markdown, so showing
+          // it back as source is the box's own content un-rendering the instant
+          // it is sent — the same table, the same fenced block, two appearances
+          // one line apart.
+          <MarkdownMessage className="break-words">{message.text}</MarkdownMessage>
         ) : (
-          // Verbatim for everything the model did not write. A harness payload is
-          // markup — `<task-notification>` is an HTML tag to a markdown renderer,
-          // which would swallow the row whole — and a notice is a provider's exact
-          // sentence, which is the one thing about it worth showing.
+          // Verbatim for the two roles nobody in the conversation typed, and for
+          // opposite reasons. A harness payload is MARKUP — `<task-notification>`
+          // is an HTML tag to a markdown parser, which would swallow the row
+          // whole — and a notice is the provider's exact sentence, which is the
+          // one thing about it worth showing.
           <span>{message.text}</span>
         )}
         {/* Provenance, not a headline: what the CLI ITSELF said it ran this turn

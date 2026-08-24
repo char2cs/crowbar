@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TerminalIcon } from 'lucide-react'
+import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'

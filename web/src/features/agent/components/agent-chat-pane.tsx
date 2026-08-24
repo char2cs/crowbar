@@ -9,7 +9,6 @@ import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-key
 import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
-import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -27,9 +26,11 @@ import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
-import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
+import {
+  AgentTerminalSurface,
+  type TerminalAttachment,
+} from '@/features/agent/terminal/agent-terminal-surface'
 
 // seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
 // plus the localStorage reconnect backstop, so XtermTerminal's
@@ -101,11 +102,9 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //              under the open pane (see handleSessionGone), or this chat has already
 //              spent its one revive on this mount (see attemptedRef). Honest, and it
 //              cannot be reached by merely opening a dormant chat.
-type Attachment =
-  | { state: 'pending' }
-  | { state: 'attached'; sessionId: string }
-  | { state: 'reviving'; message: string }
-  | { state: 'idle'; reason: 'exited' | 'failed' }
+// Declared beside the surface that renders it — the terminal is the only thing
+// that cares what a runner attachment looks like.
+type Attachment = TerminalAttachment
 
 interface AgentChatPaneProps {
   /** The chat this tab is pointed at. NOT stable for its life: the pane re-points it. */
@@ -546,33 +545,42 @@ export function AgentChatPane({
   // spawn fails — and without a catch the rejection is unhandled: the dropdown just closes
   // and nothing happens. Surface it, matching the write-path error handling in
   // agent-chats-panel (create/rename/delete).
-  const handleSwitch = (providerId: string) => {
+  //
+  // AWAITABLE, and its answer is load-bearing. Picking another provider's model
+  // from the identity chip is one gesture but two writes, and the second is only
+  // legal once the first has landed: the selection endpoint validates the model
+  // against the chat's CURRENT provider, so writing `gpt-5.6-luna` while the chat
+  // is still on claude is a 400 and the user watches their pick bounce.
+  const handleSwitch = async (providerId: string): Promise<boolean> => {
     if (
       switchingRef.current ||
       promptReplacing ||
       deliveryPending ||
       attachment.state === 'reviving'
     )
-      return
+      return false
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
     // Held across the whole request: the outgoing CLI is killed FIRST, so this window is
     // exactly the transient dormancy — and its dead PTY's onSessionGone — that nothing
     // must mistake for a chat needing revival.
     switchingRef.current = true
     setAttachment({ state: 'reviving', message: `Starting ${name}…` })
-    void (async () => {
-      try {
-        await switchProvider(wsId, shownChatId, providerId)
-        if (!(await adopt())) fail()
-      } catch (err: unknown) {
+    try {
+      await switchProvider(wsId, shownChatId, providerId)
+      if (!(await adopt())) {
         fail()
-        // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
-        // PATH for every failure sends the user hunting for a problem they do not have.
-        toastSpawnFailure(err, name, 'switch to')
-      } finally {
-        switchingRef.current = false
+        return false
       }
-    })()
+      return true
+    } catch (err: unknown) {
+      fail()
+      // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
+      // PATH for every failure sends the user hunting for a problem they do not have.
+      toastSpawnFailure(err, name, 'switch to')
+      return false
+    } finally {
+      switchingRef.current = false
+    }
   }
 
   // ⌘/ cycles this chat to the NEXT ENABLED provider, the way ⌘-tab cycles apps.
@@ -612,7 +620,7 @@ export function AgentChatPane({
     // at the top of the list rather than doing nothing.
     const next = enabled[(i + 1) % enabled.length]
     if (!next || next.id === activeProviderId) return
-    handleSwitch(next.id)
+    void handleSwitch(next.id)
   })
 
   useEffect(() => {
@@ -826,6 +834,11 @@ export function AgentChatPane({
       <div
         ref={columnRef}
         className={cn(
+          // The scope shared controls are styled under. The chat's own stylesheet
+          // is scoped to `.agent-chat`, which the TERMINAL surface is not inside —
+          // so the surface switcher sitting in its strip came out with no styling
+          // at all. Anything both surfaces draw hangs off this instead.
+          'agent-chat-pane',
           'mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pt-4',
           // The reading column exists so one surface does not run to 164 characters.
           // Two surfaces have the opposite problem, so the split takes the pane.
@@ -857,10 +870,12 @@ export function AgentChatPane({
             onFocusCapture={splitting ? () => setSplitFocus('chat') : undefined}
             className={cn(
               splitting
-                ? cn(
-                    'relative min-h-0 min-w-0 shrink grow-0 rounded-lg border',
-                    splitFocus === 'chat' ? 'border-ring' : 'border-transparent',
-                  )
+                ? // NO CARD. Split is two surfaces with a handle between them —
+                  // a border and a radius around each half turns a diagnostic
+                  // into two floating panels, and the focus ring drew a box
+                  // around whichever one you were typing in. The caret already
+                  // says that.
+                  'relative min-h-0 min-w-0 shrink grow-0'
                 : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
             )}
             style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
@@ -872,6 +887,8 @@ export function AgentChatPane({
               chatId={shownChatId}
               providerId={activeProviderId}
               providers={providers}
+              onSwitchProvider={handleSwitch}
+              switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
               working={working}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
@@ -894,7 +911,6 @@ export function AgentChatPane({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
-              chatTitle={title}
               presentation={presentation}
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
@@ -931,13 +947,20 @@ export function AgentChatPane({
               onDeliveryPendingChange={setDeliveryPending}
             />
 
-            {attachment.state === 'reviving' && (
+            {/* Mirrors the terminal half's gate below. Both halves state the same
+                thing about the same runner, so exactly one of them is in the
+                document at a time — except in split, where each half speaks for
+                itself. Without the gate the chat's copy stayed mounted behind a
+                display:none surface, which is invisible to a reader and a
+                genuine duplicate to anything that reads the DOM. */}
+
+            {presentation !== 'terminal' && attachment.state === 'reviving' && (
               <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
                 <FlickerSpinner className="size-4 text-foreground" />
                 {attachment.message}
               </div>
             )}
-            {attachment.state === 'idle' && (
+            {presentation !== 'terminal' && attachment.state === 'idle' && (
               <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
                 <p className="min-w-0 text-muted-foreground">
                   {attachment.reason === 'failed'
@@ -989,83 +1012,33 @@ export function AgentChatPane({
             />
           )}
 
-          <div
+          <AgentTerminalSurface
             ref={terminalSurfaceRef}
-            // Layout chrome, exactly like the root above: the mousedown handler
-            // is whitelisted to clicks that land on THIS div and nowhere else —
-            // the strip of the half the terminal's character grid does not reach
-            // — so it is dead space being pointed back at the terminal, not a
-            // control. role="presentation" says so; the terminal inside keeps
-            // every role it has.
-            role="presentation"
-            data-testid="agent-terminal-surface"
-            data-surface-focused={splitting ? String(splitFocus === 'terminal') : undefined}
-            onFocusCapture={splitting ? () => setSplitFocus('terminal') : undefined}
-            onMouseDown={splitting ? focusTerminalFromSplitEmptySpace : undefined}
-            className={cn(
-              splitting
-                ? cn(
-                    'relative min-h-0 min-w-0 shrink grow-0 rounded-lg border',
-                    splitFocus === 'terminal' ? 'border-ring' : 'border-transparent',
-                  )
-                : cn('h-full', presentation === 'terminal' ? '' : 'hidden'),
-            )}
-            style={splitting ? { flexBasis: `${splitSizes[1]}%` } : undefined}
-          >
-            {attachment.state === 'attached' && (
-              // NO key={sessionId}. Runner replacement swaps the PTY imperatively
-              // instead of rebuilding xterm; runner movement keeps the same PTY.
-              //
-              // isActive IS FOCUS, not liveness — it is what makes xterm grab the
-              // caret back, with retries. In split it is therefore gated on the
-              // terminal half actually holding the keyboard, or a user typing into
-              // the composer would lose the rest of their sentence to the TUI.
-              // isVisible is the liveness half, and in split it is simply true:
-              // both surfaces really are on screen. Both still hang off the pane's
-              // own axes, so a split in a hidden tab stays as dormant as one in
-              // terminal mode does.
-              <XtermTerminal
-                sessionId={attachment.sessionId}
-                workspaceId={wsId}
-                isActive={
-                  isActivePane &&
-                  isVisible &&
-                  (presentation === 'terminal' || (splitting && splitFocus === 'terminal'))
-                }
-                isVisible={isVisible && presentation !== 'chat'}
-                attachOnly
-                flush
-                onTerminalRef={(api) => {
-                  terminalApiRef.current = api
-                }}
-                onSessionGone={handleSessionGone}
-              />
-            )}
-            {presentation !== 'chat' && attachment.state === 'reviving' && (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-                <FlickerSpinner className="size-6 text-foreground" />
-                <p className="text-muted-foreground text-center text-sm">{attachment.message}</p>
-              </div>
-            )}
-            {presentation !== 'chat' && attachment.state === 'idle' && (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-                <p className="text-muted-foreground max-w-sm text-center text-sm">
-                  {attachment.reason === 'failed'
-                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-                </p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  data-testid="pane-resume"
-                  onClick={() => void revive()}
-                >
-                  Resume
-                </Button>
-              </div>
-            )}
-          </div>
+            wsId={wsId}
+            attachment={attachment}
+            presentation={presentation}
+            splitting={splitting}
+            focused={splitFocus === 'terminal'}
+            basis={splitSizes[1]}
+            isActivePane={isActivePane}
+            isVisible={isVisible}
+            title={title}
+            gridSlack={gridSlack}
+            providers={providers}
+            activeProviderId={activeProviderId}
+            switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
+            splitEnabled={splitEnabled}
+            working={working}
+            onSwitchProvider={handleSwitch}
+            onSelectPresentation={chooseSurface}
+            onTakeFocus={() => setSplitFocus('terminal')}
+            onDeadSpaceMouseDown={focusTerminalFromSplitEmptySpace}
+            onTerminalRef={(api) => {
+              terminalApiRef.current = api
+            }}
+            onSessionGone={handleSessionGone}
+            onRevive={() => void revive()}
+          />
         </div>
 
         {presentation === 'terminal' && returnOffered && (
@@ -1098,38 +1071,6 @@ export function AgentChatPane({
             </div>
           </div>
         )}
-
-        {/* The chat's own status line, spanning the terminal's width: what this
-            conversation IS on the left, who is running it on the right. Both sit on the
-            column, so the title starts on the agent's first character and the switcher
-            ends on its last one.
-            min-w-0 is what lets a long title truncate instead of shoving the switcher
-            off the column — a flex child defaults to min-width:auto and refuses to
-            shrink below its content. */}
-        <div
-          className="flex items-center justify-between gap-3 py-2"
-          style={{ paddingRight: gridSlack }}
-        >
-          <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          {/* The switcher lives in the CHAT's provider bar — it is a statement
-              about which face of this provider you are looking at, so it belongs
-              with the provider controls. That bar is not on screen on the other
-              two surfaces, so the strip carries it there and only there; drawing
-              it in both places would put two of the same control on one pane. */}
-          {presentation === 'terminal' && (
-            <ViewSwitcher
-              presentation={presentation}
-              splitEnabled={splitEnabled}
-              onSelect={chooseSurface}
-            />
-          )}
-          <ProviderSwitchDropdown
-            providers={providers}
-            currentProviderId={activeProviderId}
-            onSwitch={handleSwitch}
-            disabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
-          />
-        </div>
       </div>
     </div>
   )

@@ -1,9 +1,10 @@
-import { TerminalIcon } from 'lucide-react'
+import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentActivity, AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { WorkingLine } from '@/features/agent/activity/working-line'
+import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
@@ -22,8 +23,11 @@ interface AgentTranscriptProps {
   /** A message the composer is already showing, so the transcript does not say
    *  the same sentence twice. */
   suppressSequence?: number
-  /** Sequence numbers a compaction boundary falls after. */
-  compactionAfter?: Record<number, 'manual' | 'auto' | string>
+  /** The compaction boundary, keyed by the sequence of the first message AFTER
+   *  it — the row the divider is drawn above. A compaction is a boundary
+   *  BETWEEN two messages, so the message that follows it is the only one that
+   *  identifies it unambiguously. */
+  compactionBefore?: Record<number, 'manual' | 'auto' | string>
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -32,8 +36,6 @@ interface AgentTranscriptProps {
   onRetryPrompt: (id: string) => void
   /** The one queued row allowed to offer the terminal detour, if any. */
   showTerminalHintFor?: string
-  /** Rendered when there is nothing at all — the blank document. */
-  empty: React.ReactNode
 }
 
 /** The provider of the nearest earlier assistant message, for the label. */
@@ -53,13 +55,26 @@ function previousAssistantProvider(messages: AgentChatMessage[], index: number):
  */
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue } = props
-  const blank = !props.loading && !props.error && messages.length === 0 && queue.length === 0
+  const anchor = useTranscriptAnchor()
 
   return (
-    <div className="scroll" data-testid="agent-message-list">
+    <div
+      className="scroll"
+      data-testid="agent-message-list"
+      ref={anchor.scrollRef}
+      onScroll={anchor.onScroll}
+    >
       <div className="center stream">
         {props.hasOlder && (
-          <Button className="self-center" variant="ghost" size="sm" onClick={props.onLoadOlder}>
+          <Button
+            className="self-center"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              anchor.preservePosition()
+              props.onLoadOlder()
+            }}
+          >
             Load earlier messages
           </Button>
         )}
@@ -81,13 +96,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             </div>
           </div>
         )}
-        {blank && props.empty}
         {messages.map((message, index) => (
           <div key={message.sequence}>
             {message.sequence === props.suppressSequence ? null : (
               <>
-                {props.compactionAfter?.[message.sequence] && (
-                  <CompactionDivider trigger={props.compactionAfter[message.sequence]} />
+                {props.compactionBefore?.[message.sequence] && (
+                  <CompactionDivider trigger={props.compactionBefore[message.sequence]} />
                 )}
                 <MessageRow
                   message={message}

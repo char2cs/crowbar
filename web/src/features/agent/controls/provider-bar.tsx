@@ -1,15 +1,20 @@
-import { LayersIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CompactIcon } from '@/features/agent/shared/agent-icons'
 import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-api'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
-import { AgentModelPicker } from '@/features/agent/controls/model-picker'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
+import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 interface ProviderBarProps {
   wsId: string
   chatId: string
   provider?: AgentProvider
+  /** Every provider Crowbar knows, for the identity chip's other groups. */
+  providers?: AgentProvider[]
+  /** Move this chat to another provider. Absent means handover is not offered. */
+  onSwitchProvider?: (providerId: string) => Promise<boolean>
+  /** A turn is in flight, or a switch is already running. */
+  switchDisabled?: boolean
   model: string
   effort: string
   telemetry: AgentTelemetry | null
@@ -28,10 +33,12 @@ interface ProviderBarProps {
    * The pane's strip carries it on the other two surfaces.
    */
   showSwitcher?: boolean
-  /** The empty state boxes the controls instead of the input. */
-  boxed?: boolean
   /** A compaction is running right now. */
   compacting?: boolean
+  /** A turn is in flight, which withdraws the compact gesture. */
+  working?: boolean
+  /** Prompts waiting behind the running turn. 0 draws nothing. */
+  queued?: number
   onCompact?: () => void
 }
 
@@ -53,6 +60,9 @@ export function ProviderBar({
   wsId,
   chatId,
   provider,
+  providers,
+  onSwitchProvider,
+  switchDisabled,
   model,
   effort,
   telemetry,
@@ -61,48 +71,65 @@ export function ProviderBar({
   handoverBlocked,
   onSelectionChange,
   onSelectPresentation,
-  boxed,
   showSwitcher,
   compacting,
+  working,
+  queued = 0,
   onCompact,
 }: ProviderBarProps) {
   return (
-    <div className={boxed ? 'underbar boxed' : 'underbar'}>
+    <div className="underbar">
+      {/* Left: what this chat RUNS AS — the model, its effort, and which face of
+          the provider you are looking at. One cluster, because all three answer
+          the same question and the eye should not have to group them. */}
       <div className="left">
-        <AgentModelPicker
+        <SelectionCluster
           wsId={wsId}
           chatId={chatId}
           provider={provider}
+          providers={providers ?? []}
           model={model}
           effort={effort}
+          presentation={presentation}
+          splitEnabled={splitEnabled}
+          showSwitcher={showSwitcher}
+          handoverBlocked={handoverBlocked}
+          switchDisabled={switchDisabled}
+          onSwitchProvider={onSwitchProvider}
           onSelectionChange={onSelectionChange}
+          onSelectPresentation={onSelectPresentation}
         />
+      </div>
+      {/* Right: what this chat has SPENT, and the one gesture that spends less. */}
+      <div className="right">
+        {queued > 0 && <span>{queued} queued</span>}
         {/* Compaction is the provider's, not Crowbar's — Crowbar cannot compact
             anything itself, it can only ask. Absent entirely for a provider that
-            declares no gesture, which is the house rule and not a special case. */}
-        {provider?.compaction && onCompact && (
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={compacting}
-            aria-label="Compact this conversation"
-            tooltip="Ask the provider to compact its context"
-            onClick={onCompact}
-          >
-            <LayersIcon />
-            {compacting ? 'Compacting…' : 'Compact'}
-          </Button>
-        )}
-        {showSwitcher && (
-          <ViewSwitcher
-            presentation={presentation}
-            splitEnabled={splitEnabled}
-            handoverBlocked={handoverBlocked}
-            onSelect={onSelectPresentation}
-          />
-        )}
-      </div>
-      <div className="right">
+            declares no gesture, which is the house rule and not a special case.
+            Absent again while a turn is in flight: there is nothing to compact
+            between a prompt and its answer, and a live turn is not a moment to
+            offer restarting the context. */}
+        {provider?.compaction &&
+          onCompact &&
+          (compacting ? (
+            <span className="chip off" aria-live="polite">
+              <CompactIcon size={12} />
+              Compacting
+            </span>
+          ) : (
+            !working && (
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="Compact this conversation"
+                tooltip="Compact the context now"
+                onClick={onCompact}
+              >
+                <CompactIcon />
+                Compact
+              </Button>
+            )
+          ))}
         <AgentContextGauge telemetry={telemetry} />
       </div>
     </div>

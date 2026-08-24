@@ -1,4 +1,4 @@
-import { PencilIcon, RotateCcwIcon, TerminalIcon, XIcon } from 'lucide-react'
+import { CloseIcon, PencilIcon, RetryIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { cn } from '@/lib/utils'
@@ -74,7 +74,7 @@ export function QueuedRow({
               aria-label={uncertain ? 'Retry same request' : 'Retry prompt'}
               onClick={onRetry}
             >
-              <RotateCcwIcon />
+              <RetryIcon />
             </Button>
           )}
           {!uncertain && (
@@ -95,7 +95,7 @@ export function QueuedRow({
             aria-label="Cancel queued prompt"
             onClick={onCancel}
           >
-            <XIcon />
+            <CloseIcon />
           </Button>
         </span>
       )}

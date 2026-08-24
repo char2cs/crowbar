@@ -1,4 +1,4 @@
-import { MessageSquareIcon, SquareSplitHorizontalIcon, TerminalIcon } from 'lucide-react'
+import { ChatIcon, SplitIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { cn } from '@/lib/utils'
 
@@ -46,7 +46,7 @@ export function ViewSwitcher({
         title="Crowbar chat"
         onClick={() => onSelect('chat')}
       >
-        <MessageSquareIcon />
+        <ChatIcon />
       </button>
       <button
         type="button"
@@ -74,7 +74,7 @@ export function ViewSwitcher({
           title="Both, side by side"
           onClick={() => onSelect('split')}
         >
-          <SquareSplitHorizontalIcon />
+          <SplitIcon />
         </button>
       )}
     </span>

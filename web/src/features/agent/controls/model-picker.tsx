@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
-import { CaretUpDown, Check } from '@phosphor-icons/react'
-import { Dropdown, dropdownTriggerClassName, type MenuItem } from '@/components/ui/dropdown'
+import { Dropdown, type MenuItem } from '@/components/ui/dropdown'
 import { setChatSelection, type AgentProvider } from '@/features/agent/api/agent-api'
+import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -124,7 +124,7 @@ export function AgentModelPicker({
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-1" data-testid="agent-model-picker">
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="flex min-w-0 items-center">
         {models.length > 0 && (
           <SelectionDropdown
             axis="Model"
@@ -135,6 +135,7 @@ export function AgentModelPicker({
             onPick={pickModel}
           />
         )}
+        {models.length > 0 && levels.length > 0 && <span className="sep" />}
         {levels.length > 0 && (
           <SelectionDropdown
             axis="Effort"
@@ -185,7 +186,7 @@ function SelectionDropdown({
   // The default row leads, then the catalogue in DESCRIPTOR ORDER — the provider's
   // own ranking, never re-sorted. The tick marks what the chat chose, and on the
   // default row it marks the absence of a choice rather than a value.
-  const tick = <Check size={12} data-testid="selection-tick" />
+  const tick = <CheckIcon size={12} data-testid="selection-tick" />
   const items: MenuItem[] = [
     {
       id: 'provider-default',
@@ -213,15 +214,13 @@ function SelectionDropdown({
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className={dropdownTriggerClassName('h-6 max-w-40 justify-between text-xs', 'ghost')}
+        className={cn('chip max-w-40', value && 'set')}
       >
         {/* Unset reads as "Default model" / "Default effort" rather than the menu's
             "Provider default": side by side, two triggers saying the same words
             would be one control the eye cannot split in half. */}
-        <span className={cn('truncate', value ? 'text-foreground' : 'text-muted-foreground')}>
-          {value || `Default ${axis.toLowerCase()}`}
-        </span>
-        <CaretUpDown size={12} className="shrink-0 text-muted-foreground" />
+        <span className="truncate">{value || `Default ${axis.toLowerCase()}`}</span>
+        <UpDownIcon size={12} className="opacity-55" />
       </button>
       {/* Always mounted, never gated on `busy`. Picking an item is exactly what
           sets `busy`, so unmounting on it would tear the menu out mid-exit and

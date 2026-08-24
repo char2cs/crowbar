@@ -1,4 +1,4 @@
-import { TerminalIcon } from 'lucide-react'
+import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import type { SignpostReason } from '@/features/agent/composer/lib/composer-state'
 
