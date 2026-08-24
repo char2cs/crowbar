@@ -15,7 +15,7 @@ import (
 
 func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
-	raw, err := os.ReadFile("../descriptor/descriptors-v3/experimental/codex-api.yaml")
+	raw, err := os.ReadFile("../descriptor/descriptors-v3/codex.yaml")
 	require.NoError(t, err)
 	d, err := descriptor.ParseV3(raw)
 	require.NoError(t, err)
@@ -24,7 +24,7 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 
 func loadParams(t *testing.T, fixture string) map[string]any {
 	t.Helper()
-	raw, err := os.ReadFile("../../testdata/fixtures/codex-api/" + fixture + ".json")
+	raw, err := os.ReadFile("../../testdata/fixtures/codex/" + fixture + ".json")
 	require.NoError(t, err)
 	var frame struct {
 		Params map[string]any `json:"params"`

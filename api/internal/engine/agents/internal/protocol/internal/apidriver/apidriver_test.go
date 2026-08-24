@@ -21,7 +21,7 @@ import (
 
 func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
-	raw, err := os.ReadFile("../descriptor/descriptors-v3/experimental/codex-api.yaml")
+	raw, err := os.ReadFile("../descriptor/descriptors-v3/codex.yaml")
 	require.NoError(t, err)
 	d, err := descriptor.ParseV3(raw)
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func fakeCodexServer(t *testing.T, afterInit func(*websocket.Conn)) string {
 }
 
 func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
-	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex-api/turn_completed.json")
+	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex/turn_completed.json")
 	require.NoError(t, err)
 
 	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
@@ -132,7 +132,7 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 }
 
 func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
-	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex-api/turn_completed.json")
+	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex/turn_completed.json")
 	require.NoError(t, err)
 
 	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {

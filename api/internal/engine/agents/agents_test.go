@@ -658,14 +658,21 @@ func TestAgent_ClaudeAnswersAnElicitationWithTheMCPVerbs(t *testing.T) {
 		string(got))
 }
 
-func TestAgent_CodexDeclaresNoAnswerChannel(t *testing.T) {
+// codex's permission is now ANSWERABLE: the merged mixed-transport descriptor
+// carries it over the api transport, which declares real allow/deny reply
+// templates — unlike the old hooks-only observation this replaces (design spec
+// §2.1, §2.3: "Permission requests become answerable from the chat").
+func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 	a := get(t, "codex")
 
-	_, ok := a.AnswerCapability(agents.HookPermission)
-	assert.False(t, ok)
+	cap, ok := a.AnswerCapability(agents.HookPermission)
+	require.True(t, ok)
+	assert.True(t, cap.Accepts(agents.ChoiceOptionAllow))
+	assert.True(t, cap.Accepts(agents.ChoiceOptionDeny))
 
-	_, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: "allow"})
-	assert.ErrorIs(t, err, agents.ErrNotAnswerable)
+	stdout, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: agents.ChoiceOptionAllow})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"decision":"approved"}`, string(stdout))
 }
 
 func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {

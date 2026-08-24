@@ -245,3 +245,31 @@ func TestShippedDescriptors_DeclareHotswapTrue(t *testing.T) {
 			"attached for the whole session with hooks reporting alongside (design spec §3.5)", id)
 	}
 }
+
+func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	assert.Equal(t, "api", d.Runtime.Transport)
+	assert.NotEmpty(t, d.Runtime.API.Serve)
+	assert.NotEmpty(t, d.Runtime.API.Attach)
+	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — the attached TUI still fires them")
+
+	hooksOnly := []string{"subagent_pre", "subagent_post", "compact_pre", "compact_post", "session_end"}
+	for _, name := range hooksOnly {
+		assert.Equal(t, "hooks", d.TransportFor(name),
+			"event %q must stay on hooks — the API does not carry it", name)
+	}
+	apiOnly := []string{
+		"session_start", "user_prompt", "turn_stop", "tool_pre", "tool_post",
+		"message_delta", "permission", "elicitation", "telemetry", "interrupt", "compact_start",
+	}
+	for _, name := range apiOnly {
+		assert.Equal(t, "api", d.TransportFor(name), "event %q must be on the api default", name)
+	}
+}
+
+func TestExperimentalCodexAPIDescriptorIsGone(t *testing.T) {
+	_, err := os.Stat("descriptors-v3/experimental/codex-api.yaml")
+	assert.True(t, os.IsNotExist(err), "codex-api.yaml is merged into codex.yaml — it must not exist alongside it")
+}
