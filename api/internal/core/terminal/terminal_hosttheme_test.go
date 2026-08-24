@@ -72,7 +72,7 @@ func TestRegression_CommandSessionAnswersOSC11WithHostThemeAtBirth(t *testing.T)
 	// rather than blocking here.
 	<-exits
 
-	reply, readErr := os.ReadFile(out) //nolint:gosec // G304: outPath is this test's own t.TempDir().
+	reply, readErr := os.ReadFile(out)
 	require.NoError(t, readErr)
 	require.Contains(t, string(reply), "rgb:",
 		"the command must have received an OSC 11 default-background report")
@@ -94,7 +94,7 @@ func TestCommandSessionWithoutHostTheme_KeepsEmulatorDefault(t *testing.T) {
 	require.NoError(t, err)
 	<-exits
 
-	reply, readErr := os.ReadFile(out) //nolint:gosec // G304: outPath is this test's own t.TempDir().
+	reply, readErr := os.ReadFile(out)
 	require.NoError(t, readErr)
 	require.Contains(t, string(reply), "rgb:0000/0000/0000",
 		"with no host theme pushed the emulator default (black) must still be what answers")
@@ -117,7 +117,7 @@ func TestSetHostTheme_LastPushWins(t *testing.T) {
 	require.NoError(t, err)
 	<-exits
 
-	reply, readErr := os.ReadFile(out) //nolint:gosec // G304: outPath is this test's own t.TempDir().
+	reply, readErr := os.ReadFile(out)
 	require.NoError(t, readErr)
 	require.Contains(t, string(reply), "1e1e/1e1e/1e1e")
 }

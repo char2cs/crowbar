@@ -155,7 +155,7 @@ func hookCommands(t *testing.T, providerID string, ctx engineagents.TemplateCtx)
 				} `json:"hooks"`
 			} `json:"hooks"`
 		}
-		data, readErr := os.ReadFile(path) //nolint:gosec // test-local path under t.TempDir()
+		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}

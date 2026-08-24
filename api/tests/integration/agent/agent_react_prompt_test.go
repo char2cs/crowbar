@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -87,18 +87,18 @@ func awaitPositionalPromptTurn(
 	chatID, provider string,
 	after int,
 	text string,
-) (chatlog.Message, chatlog.Message) {
+) (domain.LedgerMessage, domain.LedgerMessage) {
 	t.Helper()
 	type result struct {
-		user      chatlog.Message
-		assistant chatlog.Message
+		user      domain.LedgerMessage
+		assistant domain.LedgerMessage
 	}
 	found := awaitHook(t, h, provider+" positional prompt turn", func() (result, bool) {
 		page, err := h.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, after, 0, 200)
 		if err != nil {
 			return result{}, false
 		}
-		var user chatlog.Message
+		var user domain.LedgerMessage
 		for _, message := range page.Items {
 			if message.Sequence <= after || message.Provider != provider {
 				continue
@@ -109,7 +109,16 @@ func awaitPositionalPromptTurn(
 				}
 				continue
 			}
+			// An assistant message is NOT the end of the turn. The streaming path
+			// records one message per assistant message, so a model that narrates
+			// and then keeps working banks a message mid-flight — and the caller
+			// goes on to submit the next prompt, which the runner correctly refuses
+			// with ErrPromptBusy because the turn really is still open. Wait for the
+			// chat to stop working too: that is the turn CLOSING.
 			if message.Role == "assistant" && message.Sequence > user.Sequence && message.Text != "" {
+				if chatWorking(t, h, chatID) {
+					return result{}, false
+				}
 				return result{user: user, assistant: message}, true
 			}
 		}

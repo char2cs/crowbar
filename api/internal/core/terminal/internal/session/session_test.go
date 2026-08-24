@@ -468,7 +468,7 @@ func TestSession_DropOnOverflow(t *testing.T) {
 	// is the real signal, and fanOutFrameLocked performs it synchronously on the overflowing
 	// send. Drain to the close rather than waiting out a deadline: if the drop never happens
 	// this ranges forever, and `go test -timeout` reports the hang with the blocked stack.
-	for range ch { //nolint:revive // draining to the close IS the assertion
+	for range ch {
 	}
 }
 

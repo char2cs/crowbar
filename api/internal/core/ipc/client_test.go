@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/core/ipc"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
 func TestClient_PostJSON_OverUnixSocket(t *testing.T) {

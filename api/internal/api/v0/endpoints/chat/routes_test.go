@@ -11,9 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -58,7 +56,7 @@ func (stubChatTree) ListInWorkspace(
 
 func (stubChatTree) Create(
 	_ context.Context,
-	_ agentchatfolder.CreateInput,
+	_ agentusecase.CreateInput,
 ) (domain.ChatFolder, []domain.ChatFolder, error) {
 	return domain.ChatFolder{}, nil, nil
 }
@@ -76,7 +74,7 @@ func (stubChatTree) Move(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ agentchatfolder.MoveInput,
+	_ agentusecase.MoveInput,
 ) (domain.ChatFolder, []domain.ChatFolder, error) {
 	return domain.ChatFolder{}, nil, nil
 }
@@ -93,7 +91,7 @@ func (stubChatTree) PlaceChat(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ agentchatfolder.PlaceInput,
+	_ agentusecase.PlaceInput,
 ) (domain.Chat, []domain.ChatFolder, error) {
 	return domain.Chat{}, nil, nil
 }
@@ -101,8 +99,8 @@ func (stubChatTree) PlaceChat(
 func (stubChatTree) DeleteChat(
 	_ context.Context,
 	_ string,
-) (agentchatfolder.ChatDeletion, error) {
-	return agentchatfolder.ChatDeletion{}, nil
+) (agentusecase.ChatDeletion, error) {
+	return agentusecase.ChatDeletion{}, nil
 }
 
 // stubUsecase is a VALUE receiver stub throughout, so recording goes through a
@@ -156,8 +154,8 @@ func (stubUsecase) GetChat(
 
 func (stubUsecase) ReadMessages(
 	context.Context, string, int, int, int,
-) (chatlog.Page, error) {
-	return chatlog.Page{Items: []chatlog.Message{}}, nil
+) (domain.LedgerPage, error) {
+	return domain.LedgerPage{Items: []domain.LedgerMessage{}}, nil
 }
 
 func (stubUsecase) SubmitPrompt(

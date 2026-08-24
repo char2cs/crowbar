@@ -22,22 +22,6 @@ const shellPrompt = terminal.ShellPromptForTest
 // protocol rather than a lottery. Must be called before creating any session.
 func pinShell(t *testing.T) { t.Helper(); terminal.PinShellForTest(t) }
 
-// screenText returns the session's current visible screen as plain text.
-func screenText(eng terminal.Engine, sid string) string { return terminal.ScreenTextForTest(eng, sid) }
-
-// waitScreen blocks on the pump's progress signal until pred holds for the session's screen.
-func waitScreen(t *testing.T, eng terminal.Engine, sid string, pred func(string) bool, what string) {
-	t.Helper()
-	terminal.WaitScreenForTest(t, eng, sid, pred, what)
-}
-
-// waitPrompt blocks until the shell has printed its prompt: it has said everything it is
-// going to say and is now blocked on read(2).
-func waitPrompt(t *testing.T, eng terminal.Engine, sid string) {
-	t.Helper()
-	terminal.WaitPromptForTest(t, eng, sid)
-}
-
 // runShell runs cmd and blocks until it has finished AND the prompt has returned, leaving the
 // session quiescent with no output in flight.
 func runShell(t *testing.T, eng terminal.Engine, sid, cmd string) {

@@ -740,7 +740,11 @@ func (e *terminalEngine) CreateCommand(
 		e.cmdCleanups.Store(id, onExit)
 	}
 	e.reg.Add(id, workspaceID, s)
-	go e.reapOnDone(id, workspaceID, s)
+	// Deliberately NOT the request context: the reaper has to outlive the call that
+	// created the session — a PTY is reaped when the process exits, which is minutes
+	// or hours after the HTTP request returned. It is joined by e.reaps, which
+	// Shutdown drains.
+	go e.reapOnDone(id, workspaceID, s) //nolint:gosec // G118: detached by design; joined by e.reaps, not by the caller's ctx.
 	return id, nil
 }
 

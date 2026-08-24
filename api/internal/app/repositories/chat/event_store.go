@@ -31,7 +31,7 @@ const maxOCCAttempts = 8
 // callers wire it without importing the internal store package directly.
 //
 // The repository ANNOUNCES what happened; it does not decide what the frontend is
-// told. That decision lives in usecases/agent/internal/fanout.
+// told. That decision lives in usecases/chat/internal/fanout.
 type (
 	WatchFunc = store.WatchFunc
 	ChatEvent = store.ChatEvent

@@ -1125,7 +1125,7 @@ func (s *TerminalProfileStore) FindAll(
 	return s.Saved, nil
 }
 
-// AgentChatFolderStore is a fake agentchatfolder.Store backed by an in-memory
+// AgentChatFolderStore is a fake chat-tree Store backed by an in-memory
 // slice.
 //
 // FindErr and FindByKeyErr are separate so a test can fail ONE read: the
@@ -1217,7 +1217,7 @@ func (s *AgentChatFolderStore) Delete(
 	return nil
 }
 
-// AgentChatPlacements is a fake agentchatfolder.Chats AND agentchatfolder.Agent:
+// AgentChatPlacements is a fake chat-tree Chats AND Agent:
 // it holds the chat rows a Chats-panel move has to carry along, records the
 // placement writes made against them, mints and starts the ones a create asks
 // for, erases the ones a cascade purges, and records the lineage notes a move

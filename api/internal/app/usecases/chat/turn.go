@@ -2,280 +2,185 @@ package chat
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
-	"strings"
-	"time"
 
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (u *turnUsecase) openAssistantTurn(
-	ctx context.Context,
-	chat domain.Chat,
-	runner engineagents.Runner,
-) {
-	if err := u.activity.OpenTurn(ctx, agentactivity.TurnInput{
-		ChatID:     chat.ID,
-		TurnID:     openTurnID(chat.ID, runner.ID),
-		ProviderID: runner.ProviderID,
-		RunnerID:   runner.ID,
-		SessionID:  runner.CurrentSession,
-		Now:        time.Now(),
-	}); err != nil {
-		slog.WarnContext(ctx, "agent: ingest hook: open assistant turn",
-			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
-	}
+// TurnUsecase is the hook ingress and everything it writes: turns opening and
+// closing, tool calls, subagents, interruptions, streamed assistant messages
+// and provider telemetry.
+//
+// IT NEVER TAKES A SPAWN GATE. A hook must never block and must never fail — by
+// the time it arrives the CLI has already acted — and the switch path parks on
+// an in-flight turn with no timeout, releasable only from here. A path through
+// this type that waited on the spawn gate would deadlock the CLI against its own
+// hook and wedge every hook after it (see inflight.Gate and awaitTurnComplete).
+type TurnUsecase interface {
+	// IngestHook applies one canonical hook event from a runner's CLI. It buffers
+	// the event instead when the runner's row is still being persisted, so a
+	// provider that fires the instant its PTY starts cannot overtake its own
+	// session_start.
+	IngestHook(
+		ctx context.Context,
+		runnerID string,
+		provider string,
+		canonicalEvent string,
+		rawPayload []byte,
+	) error
+
+	// IngestHookDelivery is the exactly-once ingress for one RELAYED hook: it
+	// dedupes the delivery, buffers it if the runner is still starting, runs its
+	// effects, then durably records the completion.
+	IngestHookDelivery(
+		ctx context.Context,
+		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+		rawPayload []byte,
+	) error
+
+	// ReadActivity pages a chat's tool calls and returns its subagents,
+	// interruptions and choices alongside them.
+	ReadActivity(
+		ctx context.Context,
+		chatID string,
+		after int64,
+		limit int,
+	) (ChatActivity, error)
+
+	// ReadPendingChoices lists the questions a chat's CLI is still waiting on an
+	// answer to.
+	ReadPendingChoices(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ActivityChoice, error)
+
+	// ReadToolPayload returns one tool call's stored request or result body.
+	// side is "result" for the result, anything else for the request.
+	ReadToolPayload(
+		ctx context.Context,
+		chatID, toolID, side string,
+	) ([]byte, error)
+
+	// Telemetry reports the newest provider telemetry for a chat, if its CLI has
+	// sent any. It is in memory because it describes a LIVE process.
+	Telemetry(
+		chatID string,
+	) (engineagents.Telemetry, bool)
+
+	// OpenWork reports whether the chat has a tool call or a subagent still
+	// running. It is the second opinion the stall detector needs before it closes
+	// a turn whose provider went quiet.
+	OpenWork(
+		ctx context.Context,
+		chatID string,
+	) (bool, error)
+
+	// MatchTerminalPrompt asks a provider's descriptor whether a rendered screen
+	// is one of its modal prompts. An unresolvable home or descriptor is silent
+	// rather than an error: it is a detector input, not a command.
+	MatchTerminalPrompt(
+		ctx context.Context,
+		providerID string,
+		screen string,
+	) (engineagents.TerminalPrompt, bool)
+
+	// MatchTerminalNotice asks a provider's descriptor whether a rendered screen
+	// carries a notice worth recording against the stalled turn it closes.
+	MatchTerminalNotice(
+		ctx context.Context,
+		providerID string,
+		screen string,
+	) (engineagents.TerminalNotice, bool)
 }
 
-func openTurnID(chatID, runnerID string) string {
-	return "open-" + chatID + "-" + runnerID
-}
+var _ TurnUsecase = (*Usecase)(nil)
 
-func (u *turnUsecase) handleTurn(
+// ChatActivity is one page of what the agent DID: the tool calls, the subagents,
+// the interruptions and the questions it is blocked on.
+type ChatActivity = turn.ChatActivity
+
+// The turn: what the vendor CLI did, and what it is blocked on.
+//
+// Everything here is driven by a hook, and a hook is a fait accompli — by the
+// time one arrives the CLI has already acted. So none of it refuses, and none of
+// it blocks on a lock a user-initiated path can hold.
+
+// IngestHook applies one canonical hook event that carries no delivery id.
+func (u *Usecase) IngestHook(
 	ctx context.Context,
-	runner engineagents.Runner,
-	agent engineagents.Agent,
-	ev engineagents.CanonicalEvent,
+	runnerID, provider, canonicalEvent string,
+	rawPayload []byte,
 ) error {
-	chat, ok, err := u.chatForRunner(ctx, runner)
-	if err != nil || !ok {
-		return err
-	}
-
-	switch ev.Kind {
-	case "user_prompt":
-		return u.openTurnFromPrompt(ctx, chat, runner, agent, ev)
-	case "turn_stop":
-		return u.closeTurnFromStop(ctx, chat, runner, agent, ev)
-	case engineagents.HookTurnFailed:
-		return u.closeTurnFromFailure(ctx, chat, runner, ev)
-	}
-	return nil
+	return u.turns.IngestHook(ctx, runnerID, provider, canonicalEvent, rawPayload)
 }
 
-func (u *turnUsecase) openTurnFromPrompt(
+// IngestHookDelivery is the exactly-once ingress for one relayed hook.
+func (u *Usecase) IngestHookDelivery(
 	ctx context.Context,
-	chat domain.Chat,
-	runner engineagents.Runner,
-	agent engineagents.Agent,
-	ev engineagents.CanonicalEvent,
+	workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+	rawPayload []byte,
 ) error {
-	// WHOSE WORDS ARE THESE? Three different authors reach this one hook — the
-	// user, Crowbar's own injected handoff, and the provider's harness — and the
-	// two checks below are what tell them apart. Neither is a guess about the
-	// runner: a prompt Crowbar delivered arrived in the argv of the process
-	// Crowbar spawned, so the only thing left to classify here is content.
-	//
-	// Crowbar's own context document coming back at us: a provider whose only
-	// resume channel is a user message (codex) fires user_prompt with the very
-	// handoff we injected. That is not something the user said — recording it would
-	// put the handoff in the ledger as a "user" turn, and the NEXT handoff would
-	// then quote it inside itself (the nesting seen live). Drop it from the ledger
-	// and from title derivation, but still open the turn: the CLI really is working
-	// on it, and the workspace's working overlay must say so.
-	if u.agents.WasInjected(runner.ID, ev.Message) {
-		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
-		if err != nil {
-			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
-		}
-		u.work.set(chat.ID, started.Working)
-		u.turns.begin(runner.ID, chat.ID)
-		u.openAssistantTurn(ctx, chat, runner)
-		return nil
-	}
-	// The PROVIDER's own harness talking to its own model on the user's hook: a
-	// background-subagent completion report is the measured case, and the ledger
-	// recorded every one of them as something the user said. It is the sibling of
-	// the branch above and deliberately not a copy of it — that one drops the text
-	// because Crowbar wrote it and already has it, and this one must NOT, because
-	// this text is real context the agent received and its next answer refers to
-	// it. Dropped, the reply would have no antecedent; attributed, the user is
-	// quoted saying something they never wrote, which is what get_chat_log was
-	// serving to other agents. So it is recorded under its own role.
-	//
-	// No derived title: a chat named after a subagent's completion report is named
-	// after nothing its user did. The turn still opens — the agent genuinely is
-	// about to work on this — and no prompt-delivery journal is advanced, because
-	// nothing Crowbar queued was accepted here.
-	if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
-		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
-			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
-			"kind", injected.Kind, "needle", injected.Needle)
-		started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
-		if err != nil {
-			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
-		}
-		u.work.set(chat.ID, started.Working)
-		u.turns.begin(runner.ID, chat.ID)
-		appendErr := u.chat.appendRunnerTurn(
-			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-			domain.TurnRoleHarness, ev.Message,
-		)
-		u.openAssistantTurn(ctx, chat, runner)
-		return appendErr
-	}
-	if err := u.chat.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
-		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
-	}
-	// A user prompt opens the turn: mark the chat Working so the read model (and
-	// the workspace spinner) see a live turn.
-	started, err := u.chats.StartTurn(ctx, chat.ID, time.Now())
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
-	}
-	u.work.set(chat.ID, started.Working)
-	// And record it as IN FLIGHT, which is the same fact without the read model's lag
-	// in front of it — a provider switch blocks on this rather than on Working, so that
-	// it never quits a CLI that is still answering (turnWaits).
-	u.turns.begin(runner.ID, chat.ID)
-	appendErr := u.chat.appendRunnerTurn(
-		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-		domain.TurnRoleUser, ev.Message,
+	return u.turns.IngestHookDelivery(
+		ctx, workspaceID, deliveryID, runnerID, provider, canonicalEvent, rawPayload,
 	)
-	// The reply this prompt is about to produce, opened NOW so the tool calls,
-	// subagents and interruptions that follow attach to it. Without an open turn
-	// each of them would open one of its own, and the reply recorded at turn_stop
-	// would be a separate record — leaving the UI unable to say which activity
-	// produced which answer.
-	u.openAssistantTurn(ctx, chat, runner)
-	// The hook is the provider's acknowledgement that the argv prompt was
-	// accepted. Advance the journal even when the ledger write failed: the hook
-	// itself is positive delivery evidence, and leaving the request spawned
-	// would wedge every future prompt. Conversely, a journal failure after a
-	// successful ledger append is repaired from that attributed turn by the
-	// turn_stop and pre-destructive reconciliation paths.
-	confirmErr := u.runner.confirmPromptAccepted(ctx, chat, runner, ev.Message)
-	if appendErr != nil {
-		return appendErr
-	}
-	if confirmErr != nil {
-		return fmt.Errorf("agent: confirm React prompt acceptance: %w", confirmErr)
-	}
-	return nil
 }
 
-func (u *turnUsecase) closeTurnFromStop(
-	ctx context.Context,
-	chat domain.Chat,
-	runner engineagents.Runner,
-	agent engineagents.Agent,
-	ev engineagents.CanonicalEvent,
-) error {
-	// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
-	// projection broadcasts Working=false, and the React chat treats that edge as
-	// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the
-	// state change first raced this append: the read could be served before the
-	// assistant row existed, and with the turn over and the queue empty nothing ever
-	// re-read it — the reply sat in the ledger, invisible, until an unrelated
-	// refresh (a chat switch, a reload) happened to fire. Observed live 2026-08-16.
-	//
-	// Ordering this way costs nothing the old comment worried about: an empty
-	// message is a ledger no-op here and StopTurn below still runs, and a FAILED
-	// append still falls through to StopTurn rather than returning early, so the
-	// turn state is never left open on a write error.
-	appendErr := u.closeAssistantTurn(ctx, chat, runner, ev)
-	// Released only ONCE THE LEDGER HAS THE ANSWER: a switch waiting on this turn
-	// reads the ledger the moment it wakes, to assemble the handoff. Waking it
-	// earlier would hand the incoming CLI a conversation missing the very turn the
-	// switch waited for. Deferred so a failed StopTurn still releases the waiter —
-	// the turn is over either way, and a switch parked on it would never wake.
-	defer u.turns.complete(runner.ID)
-	// The turn ended — which is NOT the same fact as the agent being done, so this
-	// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
-	// aggregate fold Working from both. A CLI that hands work to a background task
-	// ends its turn right here and goes quiet until that work reports back; clearing
-	// Working on the strength of this hook alone is what darkened the spinner under a
-	// live subagent. A provider that reports no such level sends 0 and gets exactly
-	// the turn-only behaviour it had before.
-	stopped, err := u.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork)
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
-	}
-	u.work.set(chat.ID, stopped.Working)
-	if err := u.runner.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
-		slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
-			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
-	}
-	return appendErr
-}
-
-func (u *turnUsecase) awaitTurnComplete(
+// ReadActivity returns one page of the chat's tool calls, subagents,
+// interruptions and choices.
+func (u *Usecase) ReadActivity(
 	ctx context.Context,
 	chatID string,
-) error {
-	logged := false
-	for {
-		// Read the runner-scoped turn first. StopTurn publishes its authoritative
-		// Working result before completing this registry entry, so an async-work
-		// handoff can never appear as the forbidden (no turn, idle) combination.
-		turnOpen, turnChanged := u.turns.watch(chatID)
-		working, known, workChanged := u.work.observe(chatID)
-		if !known {
-			var err error
-			if working, workChanged, err = u.seedWorkFromProjection(ctx, chatID); err != nil {
-				return err
-			}
-		}
-		if !turnOpen && !working {
-			return nil
-		}
-
-		if !logged {
-			slog.InfoContext(ctx, waitingForTurnLog, "chat_id", chatID)
-			logged = true
-		}
-		select {
-		case <-turnChanged:
-		case <-workChanged:
-		case <-ctx.Done():
-			return fmt.Errorf("agent: switch provider: waiting for the chat to become idle: %w", ctx.Err())
-		}
-	}
+	after int64,
+	limit int,
+) (ChatActivity, error) {
+	return u.turns.ReadActivity(ctx, chatID, after, limit)
 }
 
-func (u *turnUsecase) chatWorking(ctx context.Context, chatID string) (bool, error) {
-	if working, known, _ := u.work.observe(chatID); known {
-		return working, nil
-	}
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return false, err
-	}
-	if working, known, _ := u.work.observe(chatID); known {
-		return working, nil
-	}
-	return chat.Working, nil
-}
-
-func deriveTitle(prompt string) string {
-	for _, line := range strings.Split(prompt, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		r := []rune(line)
-		if len(r) > 60 {
-			return strings.TrimSpace(string(r[:60])) + "…"
-		}
-		return line
-	}
-	return ""
-}
-
-func (u *turnUsecase) seedWorkFromProjection(
+// ReadPendingChoices returns the questions the chat is currently blocked on.
+func (u *Usecase) ReadPendingChoices(
 	ctx context.Context,
 	chatID string,
-) (bool, <-chan struct{}, error) {
-	chat, err := u.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return false, nil, fmt.Errorf("agent: switch provider: inspect chat work: %w", err)
-	}
-	current, known, changed := u.work.observe(chatID)
-	if known {
-		return current, changed, nil
-	}
-	return chat.Working, changed, nil
+) ([]domain.ActivityChoice, error) {
+	return u.turns.ReadPendingChoices(ctx, chatID)
+}
+
+// ReadToolPayload returns one side — request or result — of a recorded tool call.
+func (u *Usecase) ReadToolPayload(
+	ctx context.Context,
+	chatID, toolID, side string,
+) ([]byte, error) {
+	return u.turns.ReadToolPayload(ctx, chatID, toolID, side)
+}
+
+// Telemetry returns the chat provider's last usage report. ok is false when no
+// provider has reported for the chat in this process.
+func (u *Usecase) Telemetry(chatID string) (engineagents.Telemetry, bool) {
+	return u.turns.Telemetry(chatID)
+}
+
+// OpenWork reports whether the chat has work in flight, from the authoritative
+// process-local mirror rather than the asynchronous projection.
+func (u *Usecase) OpenWork(ctx context.Context, chatID string) (bool, error) {
+	return u.turns.OpenWork(ctx, chatID)
+}
+
+// MatchTerminalPrompt asks a provider's descriptor whether a rendered screen is
+// one of the modal prompts it declares.
+func (u *Usecase) MatchTerminalPrompt(
+	ctx context.Context,
+	providerID string,
+	screen string,
+) (engineagents.TerminalPrompt, bool) {
+	return u.turns.MatchTerminalPrompt(ctx, providerID, screen)
+}
+
+// MatchTerminalNotice asks a provider's descriptor whether a rendered screen is
+// one of the standing notices it declares — a usage limit, a service outage.
+func (u *Usecase) MatchTerminalNotice(
+	ctx context.Context,
+	providerID string,
+	screen string,
+) (engineagents.TerminalNotice, bool) {
+	return u.turns.MatchTerminalNotice(ctx, providerID, screen)
 }

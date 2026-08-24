@@ -9,7 +9,7 @@ import (
 )
 
 // The agent repositories ANNOUNCE events. They must never reach the frontend: deciding
-// what a client is told is the usecase's job, and lives in usecases/agent's fanout
+// what a client is told is the usecase's job, and lives in usecases/chat's fanout
 // (spec 2026-08-23 §1.5). This guard is the reason that stays true — without it the
 // next person adds a broadcast back into a projection and nothing complains.
 //

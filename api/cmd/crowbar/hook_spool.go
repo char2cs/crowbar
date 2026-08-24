@@ -204,7 +204,6 @@ func deliverSpooled(
 	path := filepath.Join(dir, name)
 	data, err := os.ReadFile(path) //nolint:gosec // listed from Crowbar-owned spool
 	if errors.Is(err, os.ErrNotExist) {
-
 		return hookEnvelope{}, nil, nil
 	}
 	if err != nil {
@@ -227,7 +226,6 @@ func deliverSpooled(
 }
 
 func drainHookSpoolLoop(ctx context.Context, host string) {
-
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {

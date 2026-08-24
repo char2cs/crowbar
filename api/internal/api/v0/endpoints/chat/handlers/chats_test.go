@@ -16,10 +16,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -202,8 +200,8 @@ func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTer
 
 func (*configurableListGetUsecase) ReadMessages(
 	context.Context, string, int, int, int,
-) (chatlog.Page, error) {
-	return chatlog.Page{}, nil
+) (domain.LedgerPage, error) {
+	return domain.LedgerPage{}, nil
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
@@ -825,7 +823,7 @@ func TestDelete_Success(
 // A chat delete takes any folder inside its subtree with it, and those folders
 // are a plain row with no projection to announce them — so the handler does.
 func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
-	tree := &fakeChatTree{deletion: agentchatfolder.ChatDeletion{
+	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{
 		Chats:   []string{"c-2", "c-1"},
 		Folders: []string{"f-1"},
 		Shifted: []domain.ChatFolder{{ID: "f-0", WorkspaceID: "ws-1"}},

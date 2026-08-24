@@ -415,23 +415,6 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 	}
 }
 
-// connReceived reports whether the mock connection has received a frame whose
-// decoded data payload contains sub.
-func connReceived(c *mockConn, sub string) bool {
-	for _, raw := range c.allReceived() {
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
-			continue
-		}
-		if containsStr(msg.Data, sub) {
-			return true
-		}
-	}
-	return false
-}
-
 // waitUntil — a generic "poll cond every 10 ms until a timeout" helper — is deliberately
 // gone. Every one of its callers was waiting for a specific event that the engine already
 // signals: the shell reaching its prompt (waitPrompt), a client receiving a frame

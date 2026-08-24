@@ -63,7 +63,7 @@ type ChatEvent struct {
 
 // WatchFunc receives every projected agentchat event. It replaces the former
 // BroadcastFunc: the repository announces WHAT HAPPENED, and the usecase decides what
-// the frontend is told (usecases/agent/internal/fanout). Registering the subscription
+// the frontend is told (usecases/chat/internal/fanout). Registering the subscription
 // is the repository's job only because asynx subscription is; shaping a wire frame is
 // not.
 type WatchFunc func(ChatEvent)

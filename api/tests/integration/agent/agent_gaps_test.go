@@ -24,7 +24,7 @@ import (
 )
 
 // TestAgent_CodexTurnAppendsLedger is codex's counterpart to
-// TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/agent/
+// TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/chat/
 // agent_test.go), which only ever fires IngestHook with a SYNTHETIC transcript
 // file and a "claude"-tagged segment. It has never been proven that a REAL
 // codex turn_stop hook (codex's own `crowbar hook turn_stop` shelling out from
@@ -192,7 +192,7 @@ func assistantReplies(turns []ledgerTurn, provider string) []string {
 // outcome (internal/engine/agent/registry.go's OnSessionStart, CASE 2: "an
 // unknown id appeared -> register a new chat") through the REAL Go stack, not
 // just internal/engine/agent/registry_test.go's pure-registry unit test or
-// internal/app/usecases/agent/agent_test.go's TestIngestHook_SessionStart_
+// internal/app/usecases/chat/agent_test.go's TestIngestHook_SessionStart_
 // Registered_MovesOldSegmentAndCreatesNewChat (which fires IngestHook twice
 // with synthetic session ids, never a real CLI). TestAgent_ClaudeSpawnAndDetect
 // only proves the FIRST "bound" outcome for a freshly spawned segment; this
@@ -419,7 +419,7 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 //
 //  1. Deterministic/cheap: the resumed segment's ProviderSessionID must equal
 //     the ORIGINAL (pre-switch) claude segment's — i.e. SwitchProvider's
-//     `--resume <id>` (internal/app/usecases/agent/agent.go's priorSessionID
+//     `--resume <id>` (internal/app/usecases/chat/internal/runner's priorSessionID
 //     lookup + descriptor session.resume) actually reattached claude to its own
 //     prior native session, the Go-stack proof of the Phase-0 spike's "Native
 //     resume / Case-1 (--resume <id> -> source=resume)" scorecard row. Under
@@ -663,6 +663,7 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	// Waiting for a session id on a codex that has not spoken yet waits forever
 	// (TestAgent_CodexTurnAppendsLedger drives first, which is why it passes).
 	chatID, codexSegID, codexTermSessID, codexTap := spawnReady(t, h, wsID, "codex")
+	diagnoseOnFailure(t, h, codexTap, "codex")
 
 	drive(t, h, codexTap, codexTermSessID, "Remember this exact codeword for the rest of our conversation: "+
 		codeword+". Reply with only the word: acknowledged.")
@@ -686,6 +687,12 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	claudeTermSessID := runnerTerminalSession(t, h, claudeSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
 	claudeLegTap := attachReady(t, h, claudeTermSessID, "claude", claudeSegID)
+	// Registered HERE rather than at the top of the test: this is the leg that
+	// costs five minutes when it goes wrong, and a backstop expiry inside
+	// awaitSessionBound reports only an empty session id — the CLI's own screen is
+	// the only thing that says whether claude never started, is parked on a prompt,
+	// or is cycling API retries.
+	diagnoseOnFailure(t, h, claudeLegTap, "claude")
 	claudeSessionID, claudeRunner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeLegTap)
 	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
 

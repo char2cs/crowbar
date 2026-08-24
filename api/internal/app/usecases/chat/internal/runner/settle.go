@@ -1,0 +1,61 @@
+package runner
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
+)
+
+func (rs *Runners) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
+	dir, err := rs.promptJournalDirFor(ctx, chatID)
+	if err != nil {
+		return termwait.Delivery{}, false
+	}
+	record, found, err := rs.prompts.ActiveDelivery(dir)
+	if err != nil || !found {
+		return termwait.Delivery{}, false
+	}
+	return termwait.Delivery{RequestID: record.RequestID, RunnerID: record.RunnerID}, true
+}
+
+func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: settle prompt delivery: chat: %w", err)
+	}
+	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
+		return false, fmt.Errorf("agent: settle prompt delivery: ledger evidence: %w", err)
+	}
+	dir, err := rs.promptJournalDirFor(ctx, chatID)
+	if err != nil {
+		return false, err
+	}
+	retired, err := rs.prompts.Settle(dir, requestID, time.Now())
+	if err != nil {
+		return false, fmt.Errorf("agent: settle prompt delivery: persist: %w", err)
+	}
+	if !retired {
+		return false, nil
+	}
+	slog.InfoContext(ctx, "agent: prompt delivery produced no turn and was settled",
+		"chat_id", chatID, "client_request_id", requestID)
+	if rs.promptSettled != nil {
+		rs.promptSettled(chatID, chat.WorkspaceID, requestID)
+	}
+	return true, nil
+}
+
+func (rs *Runners) promptJournalDirFor(ctx context.Context, chatID string) (string, error) {
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: prompt journal dir: chat: %w", err)
+	}
+	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: prompt journal dir: chats dir: %w", err)
+	}
+	return rs.prompts.Dir(chatsDir, chat.ID), nil
+}

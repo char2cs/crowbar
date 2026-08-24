@@ -44,7 +44,7 @@ type RunnerEvent struct {
 
 // WatchFunc receives every projected agentrunner event. It replaces the former
 // BroadcastFunc: the repository announces WHAT HAPPENED, and the usecase decides what
-// the frontend is told (usecases/agent/internal/fanout).
+// the frontend is told (usecases/chat/internal/fanout).
 //
 // Unlike agentchat this projector registers no OnForget handler, so there is no
 // Forgotten flag to carry: a runner is never hard-deleted, it exits.

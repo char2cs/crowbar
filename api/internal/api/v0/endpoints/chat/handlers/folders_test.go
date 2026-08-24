@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -26,12 +27,12 @@ type fakeChatTree struct {
 	moved    domain.ChatFolder
 	placed   domain.Chat
 	shifted  []domain.ChatFolder
-	deletion agentchatfolder.ChatDeletion
+	deletion agentusecase.ChatDeletion
 	err      error
 
-	gotCreate  agentchatfolder.CreateInput
-	gotMove    agentchatfolder.MoveInput
-	gotPlace   agentchatfolder.PlaceInput
+	gotCreate  agentusecase.CreateInput
+	gotMove    agentusecase.MoveInput
+	gotPlace   agentusecase.PlaceInput
 	gotScopes  []string
 	gotRename  string
 	gotDelete  string
@@ -52,7 +53,7 @@ func (f *fakeChatTree) ListInWorkspace(
 
 func (f *fakeChatTree) Create(
 	_ context.Context,
-	in agentchatfolder.CreateInput,
+	in agentusecase.CreateInput,
 ) (domain.ChatFolder, []domain.ChatFolder, error) {
 	f.gotCreate = in
 	return f.created, f.shifted, f.err
@@ -74,7 +75,7 @@ func (f *fakeChatTree) Move(
 	_ context.Context,
 	workspaceID string,
 	_ string,
-	in agentchatfolder.MoveInput,
+	in agentusecase.MoveInput,
 ) (domain.ChatFolder, []domain.ChatFolder, error) {
 	f.moves++
 	f.gotScopes = append(f.gotScopes, workspaceID)
@@ -116,7 +117,7 @@ func (f *fakeChatTree) PlaceChat(
 	_ context.Context,
 	workspaceID string,
 	chatID string,
-	in agentchatfolder.PlaceInput,
+	in agentusecase.PlaceInput,
 ) (domain.Chat, []domain.ChatFolder, error) {
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	f.gotPlaceID = chatID
@@ -127,7 +128,7 @@ func (f *fakeChatTree) PlaceChat(
 func (f *fakeChatTree) DeleteChat(
 	_ context.Context,
 	chatID string,
-) (agentchatfolder.ChatDeletion, error) {
+) (agentusecase.ChatDeletion, error) {
 	f.gotPurge = chatID
 	return f.deletion, f.err
 }
@@ -233,7 +234,7 @@ func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
 }
 
 func TestCreateFolder_SurfacesTheUsecaseRefusal(t *testing.T) {
-	tree := &fakeChatTree{err: agentchatfolder.ErrNameRequired}
+	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":" "}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
@@ -345,7 +346,7 @@ func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 // A failed rename must stop before the placement runs, or a refused PATCH would
 // still half-apply.
 func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
-	tree := &fakeChatTree{err: agentchatfolder.ErrNameRequired}
+	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":" ","order":0}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
@@ -359,7 +360,7 @@ func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 }
 
 func TestPatchFolder_CycleIsAConflict(t *testing.T) {
-	tree := &fakeChatTree{err: agentchatfolder.ErrCycle}
+	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":"f2"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
@@ -463,7 +464,7 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 }
 
 func TestPlaceChat_CycleIsAConflict(t *testing.T) {
-	tree := &fakeChatTree{err: agentchatfolder.ErrCycle}
+	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c1/placement", []byte(`{"parentId":"c2"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c1"}}

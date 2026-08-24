@@ -3,7 +3,7 @@
 // This file closes the e2e gap for the DERIVED half of chat titling: neither
 // agent_test.go nor agent_gaps_test.go ever drives a REAL `user_prompt` hook POST
 // against the running daemon and reads a title back —
-// internal/app/usecases/agent/rename_test.go's TestRenameChat_Precedence and
+// internal/app/usecases/chat/rename_test.go's TestRenameChat_Precedence and
 // TestIngestHook_UserPrompt_SetsDerivedTitle already prove RenameChat's precedence
 // rules and deriveTitle's wiring at the usecase level, in-process, with a
 // fakeCommander standing in for the real vendor CLI. What only this file proves is
@@ -110,7 +110,7 @@ func settleTitle(
 // (`{"prompt": "..."}`) matches claude.yaml's hooks.events.user_prompt field
 // map (message: prompt) exactly, and the prompt text is a single short line
 // under deriveTitle's 60-rune truncation threshold, so the derived title must
-// equal the prompt verbatim (internal/app/usecases/agent/rename_test.go's
+// equal the prompt verbatim (internal/app/usecases/chat/rename_test.go's
 // TestIngestHook_UserPrompt_SetsDerivedTitle already proves deriveTitle's
 // first-line/60-rune behavior in-process; this test proves the same outcome
 // reaching the daemon over the real HTTP+hook-CLI path instead of a direct

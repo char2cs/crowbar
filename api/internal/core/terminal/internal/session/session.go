@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
@@ -359,7 +360,7 @@ func (s *Session) spawn(
 
 	// Size the PTY to the persisted/requested dimensions before any Read so the shell's
 	// first output is generated at the correct width.
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}) //nolint:gosec // G115: cols/rows are terminal dimensions (resolveCols/Rows floor them at 1); pty.Winsize fields are uint16 by definition.
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
 
 	m, ser := newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
@@ -412,7 +413,7 @@ func NewCommand(
 func (s *Session) spawnCmd(argv, env []string, p spawnParams) error {
 	cols, rows, sbLines, redraw := s.resolveBirth(p)
 
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: argv is the operator-configured agent command, resolved through binpath; spawning it is the whole point of a command session.
 	cmd.Dir = s.cwd
 	cmd.Env = env
 
@@ -420,7 +421,7 @@ func (s *Session) spawnCmd(argv, env []string, p spawnParams) error {
 	if err != nil {
 		return fmt.Errorf("session: pty start: %w", err)
 	}
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
 
 	m, ser := newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
@@ -500,13 +501,28 @@ func (s *Session) resolveBirth(
 	return resolveCols(p.Cols), resolveRows(p.Rows), resolveScrollback(p.ScrollbackLines), nil
 }
 
+// winDim narrows a resolved dimension to the uint16 a pty.Winsize field is.
+//
+// The resolvers already clamp, so the ceiling here is belt-and-braces — but it is
+// the conversion that has to be provably in range, not the value that reached it,
+// and a client is free to ask for 70000 columns.
+func winDim(n int) uint16 {
+	if n < 1 {
+		return 1
+	}
+	if n > math.MaxUint16 {
+		return math.MaxUint16
+	}
+	return uint16(n)
+}
+
 func resolveCols(
 	c int,
 ) int {
 	if c <= 0 {
 		return 80
 	}
-	return c
+	return min(c, math.MaxUint16)
 }
 
 func resolveRows(
@@ -515,7 +531,7 @@ func resolveRows(
 	if r <= 0 {
 		return 24
 	}
-	return r
+	return min(r, math.MaxUint16)
 }
 
 func resolveScrollback(

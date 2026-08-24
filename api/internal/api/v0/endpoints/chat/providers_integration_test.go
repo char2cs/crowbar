@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -37,15 +36,17 @@ func newProviderServer(
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(a engineagents.Agent) bool { return a.ID() == "codex" }
 
-	uc := agentusecase.New(
-		nil, nil, nil, engineagents.New(), nil, nil, nil,
-		prefs, homeFn, probe, nil, agenttools.Deps{},
-	)
+	uc := agentusecase.New(agentusecase.Deps{
+		Agents:        engineagents.New(),
+		ProviderPrefs: prefs,
+		Home:          homeFn,
+		Installed:     probe,
+	})
 
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	chat.Register(wsScoped, settingsRG, uc.Chat, uc.Turn, uc.Runner, uc.Answer, uc.Provider,
+	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc,
 		nil, nil, func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
 }

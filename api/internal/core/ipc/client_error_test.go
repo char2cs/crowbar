@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
-	"github.com/stretchr/testify/require"
 )
 
 // TestNewClient_BadHost_ReturnsError forces transports.SocketPath's default

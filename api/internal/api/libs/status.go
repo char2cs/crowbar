@@ -5,12 +5,12 @@ import (
 	"io/fs"
 	"net/http"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+
 	asynxmodels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -39,7 +39,7 @@ import (
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
 //     live row, either never spawned or already exited).
 //   - 400 Bad Request    — folder.ErrFolderNameRequired and
-//     agentchatfolder.ErrNameRequired (a folder create or rename with a blank
+//     agentusecase.ErrTreeNameRequired (a folder create or rename with a blank
 //     name, in the sidebar and the Chats panel respectively),
 //     enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
@@ -105,13 +105,13 @@ func StatusAndMessage(
 		return http.StatusForbidden, err.Error()
 	}
 
-	// agenttools.ErrUnauthorized is a runner callback that could not prove it is
+	// agentusecase.ErrToolUnauthorized is a runner callback that could not prove it is
 	// the runner it names: a bad or absent per-boot token, or an id with no runner
 	// behind it. 403 rather than 401 because there is no challenge to issue — the
 	// credential is minted at spawn and there is nothing the caller can be asked
 	// for — and rather than 500 because the daemon is perfectly healthy and the
 	// request is simply not authorised.
-	if errors.Is(err, agenttools.ErrUnauthorized) {
+	if errors.Is(err, agentusecase.ErrToolUnauthorized) {
 		return http.StatusForbidden, err.Error()
 	}
 
@@ -183,7 +183,7 @@ func isBadRequest(
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, folder.ErrFolderNameRequired) ||
-		errors.Is(err, agentchatfolder.ErrNameRequired) ||
+		errors.Is(err, agentusecase.ErrTreeNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
 
@@ -200,36 +200,41 @@ func isConflict(
 		return true
 	}
 
-	if errors.Is(err, apperr.ErrLocked) ||
-		errors.Is(err, apperr.ErrConflict) ||
-		errors.Is(err, enginesearch.ErrLocked) ||
-		errors.Is(err, fs.ErrExist) ||
-		errors.Is(err, worktree.ErrParentLocked) ||
-		errors.Is(err, worktree.ErrWorkspaceLocked) ||
-		errors.Is(err, worktree.ErrParentUnprovisioned) ||
-		errors.Is(err, project.ErrRepoAlreadyImported) {
-		return true
+	for _, sentinel := range conflictSentinels {
+		if errors.Is(err, sentinel) {
+			return true
+		}
 	}
 
-	if isPlacementConflict(err) {
-		return true
-	}
+	return isPlacementConflict(err) || isGitConflict(err)
+}
 
-	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
-		errors.Is(err, worktree.ErrChildHasChildren) ||
-		errors.Is(err, worktree.ErrBranchWorkspaceExists) ||
-		errors.Is(err, worktree.ErrRenameTargetExists) ||
-		errors.Is(err, worktree.ErrRenameUnmanagedWorkspace) {
-		return true
-	}
-
-	return isGitConflict(err)
+// conflictSentinels are the errors that mean "the world is not in a state where
+// this can be done" — something is locked, already exists, or is occupied — as
+// opposed to the request being wrong. Every one maps to 409.
+//
+// A table rather than a chain of errors.Is: adding a sentinel should be one line
+// in a list, not another branch in a function that already has eighteen.
+var conflictSentinels = []error{
+	apperr.ErrLocked,
+	apperr.ErrConflict,
+	enginesearch.ErrLocked,
+	fs.ErrExist,
+	worktree.ErrParentLocked,
+	worktree.ErrWorkspaceLocked,
+	worktree.ErrParentUnprovisioned,
+	project.ErrRepoAlreadyImported,
+	worktree.ErrRebaseNonLeaf,
+	worktree.ErrChildHasChildren,
+	worktree.ErrBranchWorkspaceExists,
+	worktree.ErrRenameTargetExists,
+	worktree.ErrRenameUnmanagedWorkspace,
 }
 
 // isPlacementConflict reports whether err is one of the tree-placement sentinels
 // that map to HTTP 409: a move that would make a row unreachable from its tree's
 // root, cross a repo or workspace boundary, or split a fork chain. Both trees
-// are covered — the sidebar's (folder) and the Chats panel's (agentchatfolder) —
+// are covered — the sidebar's (folder) and the Chats panel's (the chat tree) —
 // because a refused drag is the same answer to the user either way.
 func isPlacementConflict(
 	err error,
@@ -237,8 +242,8 @@ func isPlacementConflict(
 	return errors.Is(err, folder.ErrFolderCycle) ||
 		errors.Is(err, folder.ErrFolderCrossRepo) ||
 		errors.Is(err, folder.ErrForkChainSplit) ||
-		errors.Is(err, agentchatfolder.ErrCycle) ||
-		errors.Is(err, agentchatfolder.ErrCrossWorkspace)
+		errors.Is(err, agentusecase.ErrTreeCycle) ||
+		errors.Is(err, agentusecase.ErrTreeCrossWorkspace)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

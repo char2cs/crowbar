@@ -12,7 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -24,9 +23,9 @@ func TestMessages_MapsBoundedLedgerPage(t *testing.T) {
 	at := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	uc := &fakeAgentUsecase{
 		getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
-		messagePage: chatlog.Page{Cursor: 8, OldestCursor: 8, Items: []chatlog.Message{{
-			Sequence: 8,
-			Turn:     chatlog.Turn{Role: "assistant", Provider: "codex", RunnerID: "private", Text: "done", At: at},
+		messagePage: domain.LedgerPage{Cursor: 8, OldestCursor: 8, Items: []domain.LedgerMessage{{
+			Sequence:   8,
+			LedgerTurn: domain.LedgerTurn{Role: "assistant", Provider: "codex", RunnerID: "private", Text: "done", At: at},
 		}}},
 	}
 	newChatHandlers(uc).Messages(ctx)

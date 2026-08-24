@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -170,7 +169,7 @@ type fakeAgentUsecase struct {
 	telemetry     engineagents.Telemetry
 	telemetryOK   bool
 
-	messagePage  chatlog.Page
+	messagePage  domain.LedgerPage
 	messageErr   error
 	messageCalls []messageCall
 	promptResult domain.AgentPromptSubmission
@@ -265,7 +264,7 @@ func (f *fakeAgentUsecase) ReadMessages(
 	_ context.Context,
 	chatID string,
 	after, before, limit int,
-) (chatlog.Page, error) {
+) (domain.LedgerPage, error) {
 	f.messageCalls = append(f.messageCalls, messageCall{chatID: chatID, after: after, before: before, limit: limit})
 	return f.messagePage, f.messageErr
 }

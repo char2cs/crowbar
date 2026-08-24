@@ -2,11 +2,14 @@ package usecases_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -25,8 +28,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -120,6 +121,53 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.AgentProvider)
 }
 
+// TestContainer_ProductionMCPSurfaceAdvertisesEveryTool is the wiring guard as a
+// RUNNING DAEMON sees it, and the one below is not a substitute for it.
+//
+// That one rebuilds the Deps and fills Chats, ChatLogs and Lineage by hand. In
+// production nothing does: agentusecase.New binds the usecase to itself for all
+// three, because they are its own methods and no caller can supply them. So a
+// mistake in that self-wiring would leave the other test perfectly green while the
+// daemon quietly served a shorter tool list — an agent with fewer tools than it
+// should have, which nothing logs.
+//
+// This one asks the surface itself, over the same JSON-RPC dispatch a vendor CLI
+// uses. tools/list needs no authenticated caller (authentication is per CALL), so
+// the token is arbitrary and the answer is exactly what the daemon advertises.
+func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
+	repos, gormStores, eng := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	require.NoError(t, err)
+
+	out, send, err := c.AgentProvider.DispatchMCP(context.Background(), "RUN", "any-token",
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	require.NoError(t, err)
+	require.True(t, send, "tools/list must be answered, not swallowed")
+
+	var reply struct {
+		Result struct {
+			Tools []struct{ Name string } `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(out, &reply))
+
+	names := make([]string, 0, len(reply.Result.Tools))
+	for _, tool := range reply.Result.Tools {
+		names = append(names, tool.Name)
+	}
+	require.ElementsMatch(t, []string{
+		"set_chat_title",
+		"list_review_threads",
+		"get_review_scope",
+		"post_review_comment",
+		"reply_to_review_thread",
+		"resolve_review_thread",
+		"list_workspaces",
+		"get_chat_log",
+	}, names, "the tool surface a running daemon serves is incomplete — a port New is "+
+		"responsible for self-wiring is nil, so the tool that needs it was withdrawn")
+}
+
 // TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
 //
 // agenttools registers no tool whose port is nil, so a group the container forgets
@@ -129,25 +177,25 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
 // repositories, advertises the complete surface by name.
 //
-// Chats and ChatLogs are filled in the way production fills them: agent.New
-// binds the CHAT concern as both the ChatRenamer and the ChatLogReader (see its
-// doc comment), so c.AgentChat is the exact value the running daemon's Deps
-// carries for either port.
+// Chats, ChatLogs and Lineage are filled in the way production fills them:
+// agentusecase.New binds the usecase to itself for all three (see its doc
+// comment), so c.AgentChat is the exact value the running daemon's Deps carries
+// for each port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
-	minter, err := agenttools.NewTokenMinter()
+	minter, err := agentusecase.NewTokenMinter()
 	require.NoError(t, err)
-	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast,
-		chatlineage.New(gormStores.AgentChatFolders, repos.AgentChat))
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
 	require.NoError(t, err)
 	deps.Chats = c.AgentChat
 	deps.ChatLogs = c.AgentChat
+	deps.Lineage = c.AgentChat
 
 	names := []string{}
-	for _, tool := range agenttools.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
+	for _, tool := range agentusecase.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
 		names = append(names, tool.Name)
 	}
 	require.ElementsMatch(t, []string{
@@ -164,7 +212,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 
 // TestContainer_AgentToolMetricsAreReadableFromTheContainer closes the loop the
 // counters were missing: they were recorded into an instance buried inside
-// agenttools.Deps, which nothing outside the tool surface could reach, so the
+// agentusecase.ToolDeps, which nothing outside the tool surface could reach, so the
 // number instrumentation exists to produce was unobtainable in a running daemon.
 //
 // The stimulus goes through DispatchMCP — the daemon's only entry point to the
@@ -185,37 +233,28 @@ func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	require.NoError(t, err, "a rejected tool call is an RPC-level error, not a dispatch failure")
 
 	require.Equal(t,
-		map[string]agenttools.ToolStat{"set_chat_title": {Calls: 1, Failures: 1}},
+		map[string]agentusecase.ToolStat{"set_chat_title": {Calls: 1, Failures: 1}},
 		c.AgentToolMetrics())
 }
 
 // A missing port is a failed start, not a silently narrowed tool list.
 func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	repos, _, _ := newContainerDeps(t)
-	minter, err := agenttools.NewTokenMinter()
+	minter, err := agentusecase.NewTokenMinter()
 	require.NoError(t, err)
 	review := stubReviewReaderForContainer{}
 
-	lineage := chatlineage.New(nil, nil)
-
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast, lineage)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast)
 	require.Error(t, err, "no review reader")
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil, lineage)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil)
 	require.Error(t, err, "no thread broadcaster")
 
-	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast, lineage)
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast)
 	require.Error(t, err, "no token minter")
 
-	// A nil lineage reader is refused for the same reason as any other port, and
-	// it is the one whose absence would not narrow the tool list but WIDEN what
-	// get_chat_log serves: without it the tool cannot refuse a caller its own
-	// threads. Except it never gets that far — the tool is withdrawn instead.
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, noopThreadBroadcast, nil)
-	require.Error(t, err, "no chat lineage reader")
-
 	bare := &repositories.Container{}
-	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast, lineage)
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
 	require.Error(t, err, "no repository stores")
 }
 

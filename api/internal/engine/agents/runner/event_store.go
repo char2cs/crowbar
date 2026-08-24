@@ -36,7 +36,7 @@ const maxOCCAttempts = 8
 // whole point is telling the frontend which chat the runner moved INTO.
 //
 // The repository ANNOUNCES what happened; it does not decide what the frontend is
-// told. That decision lives in usecases/agent/internal/fanout.
+// told. That decision lives in usecases/chat/internal/fanout.
 type (
 	WatchFunc   = store.WatchFunc
 	RunnerEvent = store.RunnerEvent

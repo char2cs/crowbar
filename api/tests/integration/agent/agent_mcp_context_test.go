@@ -38,12 +38,13 @@ import (
 	"testing"
 	"time"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -360,7 +361,7 @@ func seedSiblingChat(
 // renderChatLog flattens what ReadChatLog returns into one string, which is all the
 // marker check above needs.
 func renderChatLog(
-	turns []agenttools.ChatTurn,
+	turns []agentusecase.ChatTurn,
 ) string {
 	out := make([]string, 0, len(turns))
 	for _, turn := range turns {

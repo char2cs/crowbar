@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 )
 
 func TestInstall_CopiesExecutableIntoBin(t *testing.T) {

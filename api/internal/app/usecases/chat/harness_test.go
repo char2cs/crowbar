@@ -20,8 +20,8 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -576,13 +576,13 @@ func (s *fakeRunnerStore) Move(
 	return r, err
 }
 
-// harnessUsecase is the five agent concerns behind ONE value, so a test that
-// drives a whole chat — spawn, hook, read, answer — still calls one object.
+// harnessUsecase drives a whole chat — spawn, hook, read, answer — through the
+// FIVE PORTS rather than through the concrete usecase behind them.
 //
-// It is a TEST aggregate and nothing else: production wires the five ports
-// separately (usecases.Container), and every embedded field here is the port
-// agentusecase.New itself returned, so a call through it reaches exactly the concern
-// that owns the method.
+// One *Usecase satisfies all five, so this could just be that value. It is not,
+// deliberately: embedding the ports means every call a test makes has to be
+// reachable through the port that declares it, so a method quietly dropped from a
+// port fails here instead of only at the route that needed it.
 type harnessUsecase struct {
 	agentusecase.ChatUsecase
 	agentusecase.TurnUsecase
@@ -1053,26 +1053,37 @@ func newFixtureUsing(
 	// way production does — folders and all. A stub here would have let the walk
 	// and the spawn path agree with each other while both were wrong.
 	folders := mocks.NewAgentChatFolderStore()
-	lineage := chatlineage.New(folders, usedChats)
-	u := agentusecase.New(usedChats, usedRunners, usedActivity, engine, term, ws, lineage,
-		providerPrefs, homeFn, probe, minter, agenttools.Deps{
+	lineage := tree.NewLineage(folders, usedChats)
+	u := agentusecase.New(agentusecase.Deps{
+		Chats:         usedChats,
+		Runners:       usedRunners,
+		Activity:      usedActivity,
+		Agents:        engine,
+		Terminal:      term,
+		Workspace:     ws,
+		Lineage:       lineage,
+		ProviderPrefs: providerPrefs,
+		Home:          homeFn,
+		Installed:     probe,
+		Minter:        minter,
+		Tools: agenttools.Deps{
 			Resolver:        resolver,
 			ChatReads:       chatReader,
-			Lineage:         lineage,
 			Review:          fixtureReviewReader{},
 			Threads:         fixtureThreadReader{},
 			ThreadWrites:    fixtureThreadWriter{},
 			Idempotency:     agenttools.NewIdempotency(),
 			ThreadBroadcast: noopThreadBroadcast,
-		})
+		},
+	})
 	f := testFixture{
 		ctx: context.Background(),
 		usecase: &harnessUsecase{
-			ChatUsecase:     u.Chat,
-			TurnUsecase:     u.Turn,
-			RunnerUsecase:   u.Runner,
-			AnswerUsecase:   u.Answer,
-			ProviderUsecase: u.Provider,
+			ChatUsecase:     u,
+			TurnUsecase:     u,
+			RunnerUsecase:   u,
+			AnswerUsecase:   u,
+			ProviderUsecase: u,
 		},
 		chats:         realChats,
 		runners:       realRunners,

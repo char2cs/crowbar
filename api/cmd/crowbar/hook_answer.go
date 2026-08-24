@@ -42,7 +42,6 @@ func awaitHookAnswer(
 	waitMS int64,
 	out io.Writer,
 ) error {
-
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(signals)
@@ -58,7 +57,6 @@ func awaitHookAnswerOn(
 ) error {
 	wait := time.Duration(waitMS) * time.Millisecond
 	if wait <= 0 {
-
 		return nil
 	}
 	client, err := ipc.NewClientWithTimeout(host, wait+answerSlack)
@@ -107,7 +105,6 @@ func pollHookAnswer(
 		map[string]string{"delivery_id": envelope.DeliveryID},
 	)
 	if err != nil {
-
 		return "", err
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
@@ -119,7 +116,6 @@ func pollHookAnswer(
 	}
 	var answer hookAnswer
 	if err := json.Unmarshal(body, &answer); err != nil {
-
 		return "", fmt.Errorf("hook answer: decode: %w", err)
 	}
 	return answer.Data.Stdout, nil

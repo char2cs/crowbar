@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -93,7 +94,7 @@ func (h *Handlers) CreateFolder(
 		return
 	}
 	wsID := ctx.Param("wsId")
-	created, shifted, err := h.folders.Create(ctx.Request.Context(), agentchatfolder.CreateInput{
+	created, shifted, err := h.folders.Create(ctx.Request.Context(), agentusecase.CreateInput{
 		WorkspaceID: wsID,
 		ParentID:    body.ParentID,
 		Name:        body.Name,
@@ -150,7 +151,7 @@ func (h *Handlers) applyFolderPatch(
 			return domain.ChatFolder{}, nil, err
 		}
 	}
-	return h.folders.Move(ctx, wsID, id, agentchatfolder.MoveInput{ParentID: body.ParentID, Order: body.Order})
+	return h.folders.Move(ctx, wsID, id, agentusecase.MoveInput{ParentID: body.ParentID, Order: body.Order})
 }
 
 // DeleteFolder handles DELETE .../chats/folders/:folderId. What the folder held
@@ -192,7 +193,7 @@ func (h *Handlers) PlaceChat(
 	}
 	wsID := ctx.Param("wsId")
 	placed, shifted, err := h.folders.PlaceChat(ctx.Request.Context(), wsID, ctx.Param("id"),
-		agentchatfolder.PlaceInput{ParentID: body.ParentID, Order: body.Order})
+		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

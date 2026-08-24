@@ -5,9 +5,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -35,7 +33,7 @@ type ChatUsecase interface {
 		ctx context.Context,
 		chatID string,
 		after, before, limit int,
-	) (chatlog.Page, error)
+	) (domain.LedgerPage, error)
 
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
@@ -301,7 +299,7 @@ type ChatTreeUsecase interface {
 	) ([]domain.ChatFolder, error)
 	Create(
 		ctx context.Context,
-		in agentchatfolder.CreateInput,
+		in agentusecase.CreateInput,
 	) (domain.ChatFolder, []domain.ChatFolder, error)
 	Rename(
 		ctx context.Context,
@@ -313,7 +311,7 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		workspaceID string,
 		id string,
-		in agentchatfolder.MoveInput,
+		in agentusecase.MoveInput,
 	) (domain.ChatFolder, []domain.ChatFolder, error)
 	Delete(
 		ctx context.Context,
@@ -335,12 +333,12 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		workspaceID string,
 		chatID string,
-		in agentchatfolder.PlaceInput,
+		in agentusecase.PlaceInput,
 	) (domain.Chat, []domain.ChatFolder, error)
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
-	) (agentchatfolder.ChatDeletion, error)
+	) (agentusecase.ChatDeletion, error)
 }
 
 // Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase

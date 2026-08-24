@@ -131,18 +131,7 @@ func (s *service) GetChat(
 		return domain.Chat{}, err
 	}
 	if chat == nil {
-		// Heal ONLY this id, not the whole model. asynx.Replay takes a single aggregate,
-		// and that is all a keyed GetChat needs: it rebuilds THIS row if the read DB lost
-		// it, and folds NOTHING when the id is unknown or already Forgotten — so a miss for
-		// a deleted chat (or a stale FE request) costs one empty replay instead of folding
-		// every OTHER chat's entire history back through the read model on a hook hot path.
-		// A genuine whole-model loss still heals lazily, one row per GetChat, plus ListChats
-		// rebuilds the lot when the model is empty.
-		if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
-			return domain.Chat{}, fmt.Errorf("agentchat store: heal %q: %w", id, err)
-		}
-		chat, err = s.storage.FindByKey(ctx, id)
-		if err != nil {
+		if chat, err = s.healOne(ctx, id); err != nil {
 			return domain.Chat{}, err
 		}
 	}
@@ -150,6 +139,22 @@ func (s *service) GetChat(
 		return domain.Chat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
 	}
 	return *chat, nil
+}
+
+// healOne rebuilds a SINGLE chat's read-model row from the event log and returns
+// it, or nil when the id is unknown.
+//
+// One id, not the whole model: asynx.Replay takes a single aggregate, and that is
+// all a keyed GetChat needs. It folds NOTHING when the id is unknown or already
+// Forgotten, so a miss for a deleted chat (or a stale FE request) costs one empty
+// replay instead of folding every OTHER chat's entire history back through the
+// read model on a hook hot path. A genuine whole-model loss still heals lazily,
+// one row per GetChat, plus ListChats rebuilds the lot when the model is empty.
+func (s *service) healOne(ctx context.Context, id string) (*domain.Chat, error) {
+	if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
+		return nil, fmt.Errorf("agentchat store: heal %q: %w", id, err)
+	}
+	return s.storage.FindByKey(ctx, id)
 }
 
 // ListChats returns every chat, healing the read model first when empty.

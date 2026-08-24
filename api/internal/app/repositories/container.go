@@ -20,13 +20,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
@@ -862,6 +862,17 @@ func SweepDanglingAliases(crowbarHome string) int {
 		return 0
 	}
 	projects := filepath.Join(crowbarHome, "projects")
+
+	// Every mutation goes through a root pinned to the projects tree, so a path
+	// resolved during the walk cannot be made to point outside it before it is
+	// acted on. The tree is full of symlinks by design — that is what an alias IS —
+	// which is exactly the shape that makes an unrooted remove worth avoiding.
+	root, err := os.OpenRoot(projects)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = root.Close() }()
+
 	var emptied []string
 	removed := 0
 	_ = filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
@@ -871,7 +882,11 @@ func SweepDanglingAliases(crowbarHome string) int {
 		if _, statErr := os.Stat(path); statErr == nil {
 			return nil
 		}
-		if rmErr := os.Remove(path); rmErr != nil {
+		rel, relErr := filepath.Rel(projects, path)
+		if relErr != nil {
+			return nil
+		}
+		if rmErr := root.Remove(rel); rmErr != nil {
 			slog.Warn("repositories: unlink dangling alias", "path", path, "err", rmErr)
 			return nil
 		}

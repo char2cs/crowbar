@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -386,7 +385,7 @@ func reapAgentChatFiles(
 	}
 }
 
-// agentThreadBroadcast adapts the hub into the agenttools.ThreadBroadcast seam:
+// agentThreadBroadcast adapts the hub into the agentusecase.ToolThreadBroadcast seam:
 // when an agent posts a review comment, the resulting thread has to reach a review
 // pane that is already open, exactly as an HTTP-authored comment does.
 //
@@ -402,7 +401,7 @@ func reapAgentChatFiles(
 // handler's path never runs this.
 func agentThreadBroadcast(
 	h threadBroadcaster,
-) agenttools.ThreadBroadcast {
+) agentusecase.ToolThreadBroadcast {
 	return func(thread domain.ReviewThread, projectID, repoID string) {
 		h.BroadcastThread(dto.ThreadDTOFrom(thread, projectID, repoID))
 	}
@@ -498,6 +497,7 @@ func startBootSweep(
 		return fmt.Errorf("app: boot sweep: paths store: %w", err)
 	}
 	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome(), repos.ForgetWorkspaceDependents))
+
 	return nil
 }
 
@@ -548,14 +548,8 @@ func bootSweepPurge(
 		// the SAME strict-under-home test is applied to the root too: a degenerate
 		// one-segment leaf (<home>/worktree) has filepath.Dir == home, and rm'ing
 		// that would nuke the entire crowbar home — refused here.
-		if underHome(path, crowbarHome) {
-			root := filepath.Dir(path)
-			if !underHome(root, crowbarHome) {
-				slog.Warn("app: boot sweep: refusing to rm workspace root at or above the crowbar home",
-					"root", root, "path", path, "home", crowbarHome)
-			} else if err := os.RemoveAll(root); err != nil {
-				return fmt.Errorf("rm workspace root %q: %w", root, err)
-			}
+		if err := removeWorkspaceRoot(path, crowbarHome); err != nil {
+			return err
 		}
 		if err := pathsStore.Delete(ctx, wsID); err != nil {
 			return fmt.Errorf("delete id-path row: %w", err)
@@ -565,6 +559,29 @@ func bootSweepPurge(
 		}
 		return nil
 	}
+}
+
+// removeWorkspaceRoot deletes the worktree's parent directory, and refuses to when
+// that parent is not itself strictly under the crowbar home.
+//
+// The second check is not redundant with the first: path can sit DIRECTLY in the
+// home, and then its parent IS the home. Removing that would take every project,
+// every workspace and the databases with it, so the refusal is logged and the
+// sweep continues rather than failing the boot.
+func removeWorkspaceRoot(path, crowbarHome string) error {
+	if !underHome(path, crowbarHome) {
+		return nil
+	}
+	root := filepath.Dir(path)
+	if !underHome(root, crowbarHome) {
+		slog.Warn("app: boot sweep: refusing to rm workspace root at or above the crowbar home",
+			"root", root, "path", path, "home", crowbarHome)
+		return nil
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return fmt.Errorf("rm workspace root %q: %w", root, err)
+	}
+	return nil
 }
 
 // underHome reports whether path is strictly nested under crowbarHome (home as a
