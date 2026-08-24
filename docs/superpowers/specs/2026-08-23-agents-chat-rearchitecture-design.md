@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-23
 
-**Status:** design spec. Supersedes the structural decisions of
+**Status:** IMPLEMENTED (2026-08-23), with four deviations recorded in §11. Design spec. Supersedes the structural decisions of
 [`2026-08-17-agents-engine-implementation.md`](./2026-08-17-agents-engine-implementation.md)
 §3 (package layout) and §5 (engine interface). Its §1 correction on asynx patch
 storage still holds and is assumed here.
@@ -620,3 +620,57 @@ transport swap adds a second variable.
 3. **`turn/steer`, `thread/fork`, `thread/compact/start`** are Codex capabilities with no
    Claude equivalent and no Crowbar concept. They are out of scope here; the closed
    vocabulary means adding them later is a vocabulary change plus Go, by design.
+
+
+---
+
+## 11. What changed during implementation
+
+Four places where the code disagreed with this spec and the code was right.
+
+**1. The chat and activity aggregates were NOT merged (§3.2, §5).**
+`app/container.go:60` already documents why they are split: *"their write rates differ
+by orders of magnitude: a chat emits a handful of events, its activity emits hundreds
+per turn, and sharing one single-writer event log would put a sidebar repaint behind a
+tool-call storm."* Merging the event logs would reintroduce a solved problem. The
+PACKAGE is unified — `repositories/chat/` with `activity/` inside it — and the two
+aggregates keep their own asynx instances.
+
+**2. The five handler ports were NOT fused into one (§1.3, stage 7).**
+Measured, they are NARROWER than the usecase interfaces they were said to duplicate:
+ChatUsecase 7 methods against 12, TurnUsecase 6 against 9, RunnerUsecase 8 against 12.
+They are consumer-side interfaces narrowed to what each route uses, which is the Go
+idiom. Fusing them would make every handler depend on every capability.
+
+**3. Nine packages did NOT move under `protocol/` (§5).**
+catalog, spawn, selection, move, registry, promptorigin, env, exec and template are
+neither descriptor-reading nor payload-translating — they are behaviours *driven by* a
+descriptor. `protocol/` holds descriptor + translate; forcing the rest in would make
+the name mean "everything".
+
+**4. `transport/` was not created.** There is nothing to put in it: the hook wire is
+the daemon's HTTP handler and the one-shot probe wire is `internal/exec`. A `jsonrpc`
+transport becomes real only when codex adopts app-server, which §8.1 already stages
+separately.
+
+### Also settled by implementation
+
+- **Codex's API transport is a capability REDUCTION**, not a swap: app-server carries
+  no subagent, compaction or session_end notifications. The shipped codex descriptor
+  stays on hooks; the verified API mapping lives in
+  `descriptors-v3/experimental/codex-api.yaml`.
+- **Codex permission prompts are observable but not answerable** (`answerable: false`),
+  which was true before this work and invisible.
+- **Four Codex leaf paths in §4.2 were wrong** and are corrected there.
+- The runner aggregate moved to `engine/agents/runner`, not
+  `engine/agents/internal/runner/internal/store` — the usecase still needs to reach it
+  while the engine has no full facade.
+
+### Not done
+
+- **The outbound half of translate.** `out:`/`send:` are parsed and validated but no
+  code consumes them yet, so `compact_start` is declared and unreachable. The
+  compaction ROUTE therefore does not exist: §4.5's state and ledger marker are
+  specified, not built.
+- **Stage 5's relocation.** The six invariants have tests (each proven by inverting
+  it) but the in-flight tier still lives in `usecases/chat`.
