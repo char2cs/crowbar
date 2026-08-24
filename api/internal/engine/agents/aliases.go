@@ -3,6 +3,7 @@ package agents
 import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -48,6 +49,12 @@ type (
 	ModelIdentity   = models.ModelIdentity
 
 	Acquire = exec.Acquire
+
+	// APIEvent and APIConn are protocol's own wrappers around the api-transport
+	// connection (see protocol.go's own comment on why they exist as a second
+	// layer of indirection rather than re-exporting apidriver's types directly).
+	APIEvent = protocol.APIEvent
+	APIConn  = protocol.APIConn
 )
 
 const (

@@ -18,6 +18,10 @@ import (
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
 
+// errAPITransportNotDeclared is StartAPIConn's refusal for a hooks-only
+// descriptor — one with no runtime.api and no event overriding transport: api.
+var errAPITransportNotDeclared = errors.New("agents: provider does not declare an api transport")
+
 type Agents interface {
 	List(ctx context.Context, homeDir string) ([]Agent, error)
 
@@ -74,6 +78,24 @@ type Agent interface {
 	// interrupt, prompt — into this provider's own call and payload. The bool is the
 	// capability: a provider that declares the event cannot be asked to do it.
 	OutboundCall(canonical string, values map[string]string) (wire string, payload map[string]string, ok bool)
+
+	// StartAPIConn dials this provider's API socket (already resolved by the
+	// caller — the same TemplateCtx machinery SpawnPlan uses expands {socket})
+	// and completes its declared handshake. Returns ErrAPITransportNotDeclared
+	// for a hooks-only descriptor — never (nil, nil).
+	StartAPIConn(ctx context.Context, socketPath string) (*APIConn, error)
+
+	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
+	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
+	// is false when this descriptor declares no such field.
+	APIServeArgv(ctx TemplateCtx) ([]string, bool)
+	APIAttachArgv(ctx TemplateCtx) ([]string, bool)
+
+	// TransportFor is spec.Descriptor.TransportFor, exposed narrowly for the same
+	// reason every other capability here is narrow rather than exposing the raw
+	// descriptor: a caller outside this package can only ever reach a provider
+	// through this interface, never through *spec.Descriptor by name.
+	TransportFor(canonical string) string
 }
 
 type service struct {
@@ -255,6 +277,53 @@ func (a *agent) ProbeTelemetry(
 	now time.Time,
 ) (Telemetry, error) {
 	return protocol.ProbeTelemetry(ctx, a.spec, opts, acquire, now)
+}
+
+func (a *agent) StartAPIConn(ctx context.Context, socketPath string) (*APIConn, error) {
+	if a.spec.Runtime.Transport != "api" && !hasAPIEventOverride(a.spec) {
+		return nil, errAPITransportNotDeclared
+	}
+	return protocol.StartAPIDriver(ctx, a.spec, socketPath)
+}
+
+func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
+	if len(a.spec.Runtime.API.Serve) == 0 {
+		return nil, false
+	}
+	return expandArgv(a.spec.Runtime.API.Serve, ctx), true
+}
+
+func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
+	if len(a.spec.Runtime.API.Attach) == 0 {
+		return nil, false
+	}
+	return expandArgv(a.spec.Runtime.API.Attach, ctx), true
+}
+
+func (a *agent) TransportFor(canonical string) string {
+	return a.spec.TransportFor(canonical)
+}
+
+func expandArgv(argv []string, ctx TemplateCtx) []string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		out[i] = template.Expand(a, ctx)
+	}
+	return out
+}
+
+// hasAPIEventOverride reports whether any event declares transport: api even
+// when the runtime default is something else — defensive: neither shipped
+// descriptor relies on this today (codex's runtime.transport IS api once
+// merged), but StartAPIConn must not assume Runtime.Transport is the only
+// source of truth.
+func hasAPIEventOverride(d *spec.Descriptor) bool {
+	for _, e := range d.Events {
+		if e.Transport == "api" {
+			return true
+		}
+	}
+	return false
 }
 
 var (

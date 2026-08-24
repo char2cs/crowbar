@@ -29,6 +29,12 @@ type TemplateCtx struct {
 	ProjectID   string
 	RepoID      string
 	WorkspaceID string
+
+	// Socket is the unix socket path an api-transport provider's `serve` and
+	// `attach` argv template against ({socket} in codex.yaml's
+	// runtime.api.serve/.attach). Short-lived, per-runner, and NEVER under a
+	// Crowbar worktree — macOS's sun_path is a hard 104 bytes.
+	Socket string
 }
 
 func (c TemplateCtx) ScopeFlags() string {
@@ -61,5 +67,6 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{project_id}", c.ProjectID,
 		"{repo_id}", c.RepoID,
 		"{workspace_id}", c.WorkspaceID,
+		"{socket}", c.Socket,
 	)
 }

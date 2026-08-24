@@ -45,4 +45,6 @@ var (
 	ErrUnsupportedDecision = protocol.ErrUnsupportedAnswer
 
 	ErrMalformedAnswer = protocol.ErrMalformedAnswer
+
+	ErrAPITransportNotDeclared = errAPITransportNotDeclared
 )

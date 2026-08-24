@@ -827,6 +827,86 @@ runtime:
 	assert.True(t, apiWithAttach.Capabilities().HasTerminal)
 }
 
+func TestAgent_StartAPIConnRefusesAHooksTransportDescriptor(t *testing.T) {
+	claude := get(t, "claude")
+	_, err := claude.StartAPIConn(context.Background(), "/nonexistent.sock")
+	assert.ErrorIs(t, err, agents.ErrAPITransportNotDeclared)
+}
+
+func TestAgent_APIServeAndAttachArgvAreAbsentForAHooksOnlyDescriptor(t *testing.T) {
+	claude := get(t, "claude")
+	_, ok := claude.APIServeArgv(agents.TemplateCtx{})
+	assert.False(t, ok)
+	_, ok = claude.APIAttachArgv(agents.TemplateCtx{})
+	assert.False(t, ok)
+}
+
+func TestAgent_APIServeAndAttachArgvExpandTemplatesForAnAPITransportDescriptor(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-transport", `
+id: api-transport
+spawn:
+  cmd: acme
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    attach: [acme, --remote, "unix://{socket}"]
+    handshake: { call: initialize }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-transport")
+	require.NoError(t, err)
+
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv)
+
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "--remote", "unix:///tmp/s.sock"}, attachArgv)
+}
+
+func TestAgent_TransportForResolvesPerEventOverridesAgainstTheRuntimeDefault(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "mixed-transport", `
+id: mixed-transport
+spawn:
+  cmd: acme
+  interactive_required: true
+events:
+  session_start:
+    in: thread/started
+    map:
+      session_id: thread.id
+  turn_stop:
+    in: turn/completed
+    map:
+      message: turn.last
+  session_end:
+    transport: hooks
+    in: SessionEnd
+    map:
+      session_id: session_id
+runtime:
+  transport: api
+  hotswap: true
+  api:
+    protocol: jsonrpc2
+    serve: [acme, app-server, --listen, "unix://{socket}"]
+    handshake: { call: initialize }
+  hooks:
+    format: json
+`)
+	a, err := agents.New().Get(context.Background(), home, "mixed-transport")
+	require.NoError(t, err)
+
+	assert.Equal(t, "api", a.TransportFor("turn_stop"), "no override — the runtime default applies")
+	assert.Equal(t, "hooks", a.TransportFor("session_end"), "declared transport: hooks overrides the api default")
+}
+
 func TestCapabilities_HotswapDefaultsFalse(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "undeclared", `
