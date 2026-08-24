@@ -49,6 +49,8 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // Nothing here is exercised; SetTurns only has to be able to bind it.
 type stubTurns struct{}
 
+func (stubTurns) IngestHook(context.Context, string, string, string, []byte) error { return nil }
+
 func (stubTurns) ReplayStartupHook(string, inflight.Hook) {}
 
 func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }

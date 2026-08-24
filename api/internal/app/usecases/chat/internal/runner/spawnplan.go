@@ -96,6 +96,11 @@ func (rs *Runners) renderSpawnContext(
 		// that would read them are not rendered at all in that case.
 		Model:  in.selection.Model,
 		Effort: in.selection.Effort,
+		// Templated against by an api-transport descriptor's serve/attach argv
+		// ({socket}). A short path under the OS temp dir, never under the
+		// worktree — macOS's sun_path is a hard 104 bytes (see
+		// [[project_dev_home_isolation]]).
+		Socket: apiSocketPath(in.runnerID),
 	}
 	// The message for a provider that can ONLY be reached through a user message (a
 	// resumed codex ignores every config channel). It POINTS at the ledger already on

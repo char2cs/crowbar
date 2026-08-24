@@ -156,6 +156,7 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
+	rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, plan)
 
 	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
 	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
@@ -399,6 +400,10 @@ func (rs *Runners) teardownAfterPersistFailure(
 func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
 	return func() {
 		worktreepath.RemoveUnderHome(context.Background(), home, tmpDir)
+		// A dead PTY takes its api-transport connection (serve process + driver)
+		// with it — never leaked, and safe to call for a hooks-only runner that
+		// never had one.
+		rs.apiConns.drop(runnerID)
 		// CreateCommand can observe process exit before recordRunner has a
 		// terminal-session id to persist. The startup barrier remembers that fact;
 		// spawnRunner reconciles it immediately after persistence and ordered hook

@@ -67,6 +67,17 @@ type Conversations interface {
 // NOTHING here may take the spawn gate, and nothing here does: this side holds it
 // while parked on a turn only the hook side can release.
 type Turns interface {
+	// IngestHook applies one canonical hook or api-transport event, the same
+	// entrypoint the HTTP hook ingress uses — pumpAPIConn (apiconn.go) feeds an
+	// api-transport connection's resolved events through here too, so ownership,
+	// activity and the answer desk need no transport-specific branch.
+	IngestHook(
+		ctx context.Context,
+		runnerID string,
+		provider string,
+		canonicalEvent string,
+		rawPayload []byte,
+	) error
 	// ReplayStartupHook ingests one hook that arrived before the runner row
 	// existed, now that it does.
 	ReplayStartupHook(runnerID string, hook inflight.Hook)

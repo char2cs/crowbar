@@ -61,6 +61,9 @@ type Runners struct {
 	minter *agenttools.TokenMinter
 	// answers is the desk a dead runner's blocked relays are released from.
 	answers *answerdesk.Desk
+	// apiConns holds each runner's api-transport connection (serve process +
+	// driver), for a mixed-transport provider. Empty for a hooks-only one.
+	apiConns *apiConnRegistry
 
 	conversations Conversations
 	providers     Providers
@@ -125,6 +128,7 @@ func New(d Deps) *Runners {
 		pendingHooks:  d.PendingHooks,
 		minter:        d.Minter,
 		answers:       d.Answers,
+		apiConns:      newAPIConnRegistry(),
 		conversations: d.Conversations,
 		providers:     d.Providers,
 	}
