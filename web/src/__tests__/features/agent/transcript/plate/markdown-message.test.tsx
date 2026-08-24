@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
+import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 
 /**
  * What an agent sends back, rendered.
@@ -46,5 +47,40 @@ describe('MarkdownMessage', () => {
     const editable = document.querySelector('[data-slate-editor]')
     expect(editable).not.toBeNull()
     expect(editable?.getAttribute('contenteditable')).toBe('false')
+  })
+})
+
+describe('chat.stream.token perf span', () => {
+  beforeEach(() => {
+    __resetPerfForTests()
+    window.__CROWBAR_PERF__ = true
+  })
+
+  afterEach(() => {
+    delete window.__CROWBAR_PERF__
+  })
+
+  it('records one measure per distinct text value, on mount and on update', async () => {
+    const { rerender } = render(<MarkdownMessage>first</MarkdownMessage>)
+    await waitFor(() => {
+      expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(1)
+    })
+
+    rerender(<MarkdownMessage>first second</MarkdownMessage>)
+    await waitFor(() => {
+      expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(2)
+    })
+  })
+
+  it('does not record a second measure when props are unchanged', async () => {
+    const { rerender } = render(<MarkdownMessage>steady</MarkdownMessage>)
+    await waitFor(() => {
+      expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(1)
+    })
+
+    rerender(<MarkdownMessage>steady</MarkdownMessage>)
+    // Give any errant effect a chance to run, then assert no growth.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(1)
   })
 })

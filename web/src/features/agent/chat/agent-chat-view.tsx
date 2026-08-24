@@ -8,6 +8,7 @@ import {
   type AgentProvider,
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
+import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { blockedOn } from '@/features/agent/lib/agent-activity'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
@@ -218,6 +219,20 @@ export function AgentChatView({
     onRecoveryExhausted: prompts.onRecoveryExhausted,
   })
   ledgerRef.current = { cursor: ledger.getCursor(), refresh: () => void ledger.refresh() }
+
+  // Cold-open span: opened once per mount (this view remounts per chat via
+  // `key={wsId:chatId}` in AgentChatPane), closed a frame after the ledger's
+  // first page has painted. Mirrors workspace.switch's hydrate-to-pixels
+  // pattern (workspace-view.tsx).
+  useEffect(() => {
+    markStart('chat.open')
+  }, [])
+
+  useEffect(() => {
+    if (ledger.loading) return
+    const raf = requestAnimationFrame(() => markEnd('chat.open'))
+    return () => cancelAnimationFrame(raf)
+  }, [ledger.loading])
 
   const slash = useSlashCatalog({ wsId, chatId, providerId, active, draft })
 

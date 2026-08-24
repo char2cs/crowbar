@@ -5,6 +5,7 @@ import type { AgentActivity, AgentChatMessage, AgentProvider } from '@/features/
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
+import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
@@ -56,13 +57,17 @@ function previousAssistantProvider(messages: AgentChatMessage[], index: number):
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue } = props
   const anchor = useTranscriptAnchor()
+  const scrollFrame = useScrollFrameSpan()
 
   return (
     <div
       className="scroll"
       data-testid="agent-message-list"
       ref={anchor.scrollRef}
-      onScroll={anchor.onScroll}
+      onScroll={() => {
+        anchor.onScroll()
+        scrollFrame.onScrollEvent()
+      }}
     >
       <div className="center stream">
         {props.hasOlder && (

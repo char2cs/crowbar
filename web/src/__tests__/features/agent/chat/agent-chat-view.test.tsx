@@ -1,9 +1,10 @@
 import { createElement, createRef } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { ApiError } from '@/lib/api'
+import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn } = vi.hoisted(() => ({
   listMessagesFn: vi.fn(),
@@ -1293,5 +1294,25 @@ describe('AgentChatView surface hotswap', () => {
 
     const terminalTab = await screen.findByRole('tab', { name: 'Terminal' })
     expect(terminalTab).not.toBeDisabled()
+  })
+})
+
+describe('chat.open perf span', () => {
+  beforeEach(() => {
+    __resetPerfForTests()
+    window.__CROWBAR_PERF__ = true
+  })
+
+  afterEach(() => {
+    delete window.__CROWBAR_PERF__
+  })
+
+  it('closes the chat.open span once the first page of messages has loaded', async () => {
+    initialMessages = [message(1, 'user', 'hello')]
+    setup()
+
+    await waitFor(() => {
+      expect(performance.getEntriesByName('chat.open', 'measure')).toHaveLength(1)
+    })
   })
 })

@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { cn } from '@/lib/utils'
 
 interface MarkdownMessageProps {
@@ -26,16 +27,27 @@ interface MarkdownMessageProps {
  */
 export function MarkdownMessage({ children, className }: MarkdownMessageProps) {
   // Re-parsed only when the text actually changes. A streaming message changes
-  // on every token and this is its hot path.
-  const value = useMemo(() => chatMarkdownToValue(children), [children])
+  // on every token and this is its hot path — markStart lives INSIDE the
+  // memo so it fires exactly when a new value is computed, never on a
+  // same-text re-render, keeping every markStart paired with exactly one
+  // markEnd below.
+  const value = useMemo(() => {
+    markStart('chat.stream.token')
+    return chatMarkdownToValue(children)
+  }, [children])
   const editor = usePlateEditor({ plugins: chatComposerPlugins, value }, [value])
+
+  // Paint-inclusive: rAF defers markEnd past the commit this value produced,
+  // the same pattern workspace.switch uses for its cold-path span.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => markEnd('chat.stream.token'))
+    return () => cancelAnimationFrame(raf)
+  }, [value])
 
   return (
     <Plate editor={editor} readOnly>
       <PlateContent
         readOnly
-        // Not focusable: a transcript is read, and a tab stop per message would
-        // make the keyboard walk the whole conversation to reach the composer.
         tabIndex={-1}
         className={cn('agent-prose', className)}
       />
