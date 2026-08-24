@@ -124,13 +124,13 @@ async function setWait(store: Store, wait: { kind: string } | null) {
 /** Which surface is showing. The pane keeps both mounted and hides one, so the
  *  honest read is the toggle's own aria-pressed rather than a class. */
 const showing = () =>
-  (surfaceToggle().getAttribute('aria-pressed') === 'true' ? 'terminal' : 'chat') as
+  (surfaceToggle().getAttribute('aria-selected') === 'true' ? 'terminal' : 'chat') as
     | 'chat'
     | 'terminal'
 
 /** The Terminal half of the surface switcher. Named EXACTLY, because the banner's
  *  own call to action is "Open Terminal" and a loose match finds both. */
-const surfaceToggle = () => screen.getByRole('button', { name: 'Terminal' })
+const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
   getChatFn.mockReset()

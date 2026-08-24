@@ -379,7 +379,7 @@ describe('AgentChatPane', () => {
     })
 
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
     expect(resumeChatFn).not.toHaveBeenCalled()
     expect(screen.getByTestId('xterm')).toBeTruthy()
   })
@@ -404,7 +404,7 @@ describe('AgentChatPane', () => {
       // complained about.
       expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
       expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
-      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
 
       await act(async () => {
@@ -431,7 +431,7 @@ describe('AgentChatPane', () => {
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       // The reason is REPORTED, and the PATH is not blamed for a failure that has
       // nothing to do with it.
       const [, why] = toastErrorFn.mock.calls[0] as [string, string]
@@ -448,7 +448,7 @@ describe('AgentChatPane', () => {
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
     })
 
@@ -476,7 +476,7 @@ describe('AgentChatPane', () => {
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       // The manual retry is still there — that is what the button is FOR now.
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
       expect(resumeChatFn).toHaveBeenCalledTimes(2)
       err.mockRestore()
@@ -500,7 +500,7 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).toHaveBeenCalledTimes(1) // NOT revived again
       expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
     })
 
     it('never revives from the pending state (the chat list has not landed)', async () => {
@@ -691,7 +691,7 @@ describe('AgentChatPane', () => {
     await renderPane(store, bufferId)
 
     expect(screen.queryByTestId('xterm')).toBeNull()
-    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
   })
 
@@ -786,7 +786,7 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockResolvedValue('r9')
       getChatFn.mockResolvedValue(detail(liveChat({ id: 'c1', runnerId: 'r9', pty: 'pty9' })))
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
       expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
@@ -804,14 +804,14 @@ describe('AgentChatPane', () => {
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
       const [title, why] = toastErrorFn.mock.lastCall as [string, string]
       expect(title).toMatch(/resume/i)
       expect(why).toContain('not on PATH')
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       // The auto-revive, then the click. Each attempt is a SETTLED one — nothing here
       // ever retries on its own.
       expect(resumeChatFn).toHaveBeenCalledTimes(2)
@@ -980,7 +980,7 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByText(/starting codex/i)).toBeTruthy() // the spinner stands
-      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
 
       // The incoming CLI lands.
       getChatFn.mockResolvedValue(
@@ -1228,16 +1228,13 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       await renderPane(store, openBuffer(store, 'c1', 'r1'))
 
-      expect(screen.getByRole('button', { name: /^chat$/i })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      )
+      expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-attach-only', 'true')
 
-      fireEvent.click(screen.getByRole('button', { name: /^terminal$/i }))
-      expect(screen.getByRole('button', { name: /^terminal$/i })).toHaveAttribute(
-        'aria-pressed',
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
         'true',
       )
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
@@ -1253,7 +1250,7 @@ describe('AgentChatPane', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(await screen.findByText('queued while busy')).toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: /^terminal$/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
       expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
       await act(async () => store.getState().setAgentChatWorking('c1', false))
       expect(submitPromptFn).not.toHaveBeenCalled()
@@ -1286,7 +1283,7 @@ describe('AgentChatPane', () => {
       await act(async () => {
         submitted.resolve({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
       })
-      expect(await screen.findByText(/waiting for provider confirmation/i)).toBeInTheDocument()
+      expect(await screen.findByTestId('queued-prompt')).toBeInTheDocument()
       expect(screen.getByTestId('provider-switch')).toBeDisabled()
       fireEvent.click(screen.getByTestId('provider-switch'))
       expect(switchProviderFn).not.toHaveBeenCalled()

@@ -1,0 +1,450 @@
+/* The composer, lifted from the design canvas.
+ *
+ * Everything here is scoped under `.agent-chat` so the design's own class names
+ * survive verbatim — parity with the artboards is a diff of two stylesheets
+ * rather than a judgement about whether a utility class rounded a value.
+ *
+ * Values are Crowbar tokens throughout. Nothing here invents a colour. */
+
+/* The affirmative accent: Crowbar's green, legible on both grounds.
+ *
+ * MIXED IN OKLAB, NOT OKLCH. The green sits at hue 130 and `--foreground` is
+ * achromatic, so an oklch mix interpolates 130deg toward 0 and lands on olive.
+ * oklab moves through the rectangular space and keeps the hue. */
+.agent-chat {
+  --emph: var(--primary);
+}
+.dark .agent-chat {
+  --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+}
+
+.agent-chat .dock {
+  position: relative;
+  flex: none;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px 14px;
+}
+
+.agent-chat .pill {
+  position: relative;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+  padding: 8px 14px;
+  transition:
+    border-radius 0.18s ease,
+    box-shadow 0.18s ease;
+}
+/* Stadium on one line, 18px once it wraps. The EASE between them is the design;
+   a snap reads as the box being replaced rather than growing. */
+.agent-chat .pill.multi {
+  border-radius: 18px;
+}
+.agent-chat .pill:focus-within {
+  border-color: color-mix(in oklch, var(--ring) 60%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
+}
+
+.agent-chat .pill .field {
+  display: block;
+  width: 100%;
+  min-height: 20px;
+  line-height: 20px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--foreground);
+  border: none;
+  background: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  padding: 0 62px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: var(--foreground);
+}
+.agent-chat .pill .field::placeholder {
+  color: var(--muted-foreground);
+}
+
+.agent-chat .handle {
+  position: absolute;
+  right: 4px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
+}
+.agent-chat .handle .sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* 28px inside the pill's 36px padding box, inset 4px on EVERY side: the circle
+   overhangs the 20px line by exactly the pill's 8px vertical padding minus 4,
+   and `right: 4px` matches it horizontally. Change the diameter or the padding
+   and the two stop agreeing — they are one number, (36 - d) / 2 = right. */
+.agent-chat .send {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  margin-left: 5px;
+  box-shadow:
+    0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent),
+    inset 0 1px var(--elevated-highlight);
+  transition:
+    transform 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.agent-chat .send svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+.agent-chat .send:active {
+  transform: scale(0.94);
+}
+.agent-chat .send.off {
+  border-color: var(--input);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  box-shadow: none;
+  cursor: default;
+}
+.agent-chat .send.halt {
+  border-color: color-mix(in oklch, var(--foreground) 22%, transparent);
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+/* A stop notice REPLACES the input rather than sitting above it, because the
+   fact it reports IS that there is nothing to type into. Same 38px box, same
+   stadium — the bar has not gone anywhere, it has stopped being an input. The
+   footer selectors stay live underneath: switching model is the one thing that
+   can actually clear a usage limit. */
+.agent-chat .pill.halted {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-color: color-mix(in oklch, var(--warning) 45%, transparent);
+  background: color-mix(in oklch, var(--warning) 10%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    inset 0 1px color-mix(in oklch, var(--foreground) 5%, transparent);
+  cursor: default;
+}
+.agent-chat .pill.halted .msg {
+  font-size: 14px;
+  color: var(--warning-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .pill.halted .when {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bar as a QUESTION. Same box, same height; what changes is who is asking. */
+.agent-chat .pill.asking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  background: color-mix(in oklch, var(--primary) 8%, var(--background));
+  cursor: default;
+}
+.agent-chat .pill.asking .q {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.agent-chat .pill.asking .q .sub {
+  display: block;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .pill.asking .acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* The options a question offers, above the bar that asks it. Crowbar green,
+   never a second accent: this is the app's one affirmative colour. */
+.agent-chat .opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 0 8px;
+}
+.agent-chat .optrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--input);
+  background: var(--background);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.agent-chat .optrow:hover {
+  background: var(--accent);
+}
+.agent-chat .optrow.on {
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  background: color-mix(in oklch, var(--primary) 10%, var(--background));
+  color: var(--emph);
+}
+.agent-chat .optrow .d {
+  display: block;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ── the row under the pill ────────────────────────────── */
+.agent-chat .underbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 0;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .underbar .left,
+.agent-chat .underbar .right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* Optical alignment: the leading chip's glyph, not its box, lines up with the
+   pill's text. */
+.agent-chat .underbar .left {
+  margin-left: -7px;
+}
+
+.agent-chat .gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .gbar {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.agent-chat .gbar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 42%, transparent);
+  transition: width 0.3s ease;
+}
+.agent-chat .gbar.warn > span {
+  background: var(--warning);
+}
+
+/* ── the view switcher (ui/tabs pill variant) ──────────── */
+.agent-chat .viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+.agent-chat .viewswitch button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat .viewswitch button:hover:not(:disabled):not(.on) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.agent-chat .viewswitch button.on {
+  border-color: var(--background);
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.1),
+    inset 0 1px var(--elevated-highlight);
+}
+.agent-chat .viewswitch button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.agent-chat .viewswitch svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── the slash picker ──────────────────────────────────── */
+.agent-chat .slash {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--popover);
+  padding: 6px;
+  box-shadow: 0 16px 40px -12px oklch(0 0 0 / 0.5);
+  margin-bottom: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+/* One line per skill: the command, then its description beside it. Both 13px —
+   the command was 14px mono, which sets optically larger than the UI face at the
+   same size and made every row read as a heading. */
+.agent-chat .slash .opt {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius-lg);
+  padding: 6px 12px;
+  color: var(--foreground);
+  font-family: inherit;
+  cursor: pointer;
+}
+.agent-chat .slash .opt.on {
+  background: var(--accent);
+}
+.agent-chat .slash .opt .t {
+  flex: none;
+  font-size: 13px;
+  font-weight: 400;
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+}
+.agent-chat .slash .opt .d {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-chat .slash .state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ── the empty state ───────────────────────────────────── */
+/* A blank markdown document, because that is what a good first prompt looks
+   like. The affordance is inverted from the transcript's: the writing surface is
+   the page and the controls are the box, rather than the other way round. */
+.agent-chat .doc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.agent-chat .doc .sheet {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px;
+  color: var(--muted-foreground);
+  font-size: 16px;
+  line-height: 1.7;
+}
+.agent-chat .doc .sheet h1 {
+  margin: 0 0 6px;
+  font-size: 2em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: color-mix(in oklch, var(--foreground) 32%, transparent);
+}
+.agent-chat .doc .sheet p {
+  margin: 0;
+  color: color-mix(in oklch, var(--foreground) 26%, transparent);
+}
+
+/* The control bar, boxed. Same 38px as the pill it replaces, same stadium, and
+   the same width as the text — so the page keeps one measure whether there is a
+   conversation in it or not. */
+.agent-chat .underbar.boxed {
+  height: 38px;
+  padding: 0 4px 0 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+.agent-chat .underbar.boxed .left {
+  margin-left: 0;
+}
+
+/* A prompt occupies the whole dock slot: what is asked reads down the page, and
+   the bar underneath is the question itself with its controls. */
+.agent-chat .asks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agent-chat .asks .pill.asking {
+  margin: 0;
+}

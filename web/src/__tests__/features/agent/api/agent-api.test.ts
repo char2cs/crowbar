@@ -175,10 +175,9 @@ describe('agent-api', () => {
       signal: controller.signal,
     })
     await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
-    expect(apiFetch).toHaveBeenLastCalledWith(
-      '/v0/ws/w1/chats/c1/messages?before=10&limit=25',
-      { signal: undefined },
-    )
+    expect(apiFetch).toHaveBeenLastCalledWith('/v0/ws/w1/chats/c1/messages?before=10&limit=25', {
+      signal: undefined,
+    })
   })
 
   it('submits one completed prompt with a stable client request identity', async () => {

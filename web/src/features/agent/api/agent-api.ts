@@ -232,6 +232,14 @@ export interface AgentProvider {
    */
   modelSelect?: boolean
   effortSelect?: boolean
+  /**
+   * The provider declares a compaction gesture (`compact_start`) — claude's
+   * `/compact` injection, or an API transport's own call.
+   *
+   * Key presence, like everything else here: a provider that declares none gets
+   * NO compact control, and `POST /compact` answers 404 for it.
+   */
+  compaction?: boolean
   /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
    *  order is the provider's own ranking. */
   models?: string[]
@@ -744,14 +752,11 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
 export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
-  const res = await apiFetch<{ id: string }>(
-    `${chatBase(wsId)}/${encodeURIComponent(id)}/switch`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider }),
-    },
-  )
+  const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  })
   return res.id
 }
 
@@ -764,10 +769,9 @@ export async function switchProvider(wsId: string, id: string, provider: string)
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
 export async function resumeChat(wsId: string, id: string): Promise<string> {
-  const res = await apiFetch<{ id: string }>(
-    `${chatBase(wsId)}/${encodeURIComponent(id)}/resume`,
-    { method: 'POST' },
-  )
+  const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
+    method: 'POST',
+  })
   return res.id
 }
 

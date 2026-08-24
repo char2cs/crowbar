@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import { Columns2Icon, MessageSquareIcon, TerminalIcon, Trash2Icon } from 'lucide-react'
+import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
@@ -14,16 +14,22 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
-  getDefaultChatPresentation,
-  useSplitPresentationEnabled,
-  type ChatPresentation,
-} from '@/features/settings/lib/chat-presentation'
+  SPLIT_MIN_HALF_PX,
+  SPLIT_MIN_STACKED_PX,
+  useChatPresentation,
+  useTerminalGridSlack,
+} from '@/features/agent/hooks/use-chat-presentation'
 import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
-import { AgentReturnToChatNotice, AgentTerminalWaitBanner } from './agent-terminal-wait-banner'
-import { ProviderSwitchDropdown } from './provider-switch-dropdown'
-import { AgentChatView, type AgentChatViewHandle } from './agent-chat-view'
+import {
+  AgentReturnToChatNotice,
+  AgentTerminalWaitBanner,
+} from '@/features/agent/components/agent-terminal-wait-banner'
+import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
+import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
+import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 
 // seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
 // plus the localStorage reconnect backstop, so XtermTerminal's
@@ -70,10 +76,6 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //   BELOW the side-by-side threshold there is no ratio that leaves the TUI usable,
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
-const SPLIT_MIN_HALF_PX = 340
-const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
-const SPLIT_MIN_STACKED_PX = 160
-const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
 // The pane's attach outcome.
 //
@@ -236,57 +238,21 @@ export function AgentChatPane({
   const streamingText = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.text)
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
-  // Seeded from the user's preference, never subscribed to it: a chat already open
-  // keeps the surface it is on if the setting changes underneath it.
-  const [chosenPresentation, setPresentation] = useState<ChatPresentation>(
-    getDefaultChatPresentation,
-  )
-  // Is the dev split view on offer at all? SUBSCRIBED, unlike the landing
-  // preference above, because this one is about what EXISTS rather than where a
-  // chat starts — the switcher has to grow and lose its third button live.
-  const splitEnabled = useSplitPresentationEnabled()
-  // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
-  // dev toggle off cannot strand a chat on a surface whose button has just gone:
-  // there is no state to write back, and no frame in which the two disagree.
-  const presentation: ChatPresentation =
-    chosenPresentation === 'split' && !splitEnabled ? 'chat' : chosenPresentation
-  const splitting = presentation === 'split'
-  // Whether the way back to the chat is being OFFERED. See AgentReturnToChatNotice:
-  // it is what Crowbar shows when it moved somebody to the terminal and then
-  // cannot move them back without overriding a choice they made themselves.
-  const [returnOffered, setReturnOffered] = useState(false)
-  // WHICH HALF OF THE SPLIT OWNS THE KEYBOARD. Two live surfaces means two things
-  // that can eat a keystroke, and the terminal is the greedy one — xterm re-focuses
-  // itself, with retries, whenever it is told it is active. So it is only told that
-  // while it actually holds the caret, and this follows REAL DOM FOCUS (the halves
-  // report it on focus-capture) rather than trying to predict it. The composer wins
-  // by default: typing a prompt into a terminal by accident is the worse mistake.
-  const [splitFocus, setSplitFocus] = useState<'chat' | 'terminal'>('chat')
-  // Re-seed PER CHAT, not per mount — that distinction is the whole fix. This pane
-  // is RETAINED across chat selection, so a lazy useState initializer runs once for
-  // the pane's entire life: turning the preference off and opening a chat did
-  // nothing, and it only ever took effect after a full reload. That reads, fairly,
-  // as "the setting is broken".
-  //
-  // Keyed on the CHAT rather than on the preference, so the two cases stay
-  // distinct: a different chat lands on whatever the user prefers, while a chat
-  // already on screen never jumps surface under someone because the preference
-  // changed elsewhere. returnOffered goes with it — an offer to return belongs to
-  // the chat that raised it, not to whichever one is shown next.
-  const [seededFor, setSeededFor] = useState(shownChatId)
-  if (seededFor !== shownChatId) {
-    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: React's documented "adjust state when a prop changes" pattern. An effect would paint the previous chat's surface for a frame first, which is the flicker this exists to avoid.
-    setSeededFor(shownChatId)
-    // Split is an INSTRUMENT the user reached for, not a landing surface, so it
-    // is the one thing here that survives the re-seed: somebody comparing what
-    // Crowbar recorded against what the CLI actually printed is doing it to
-    // whichever chat they look at next, and dropping them back to Chat on every
-    // selection would take the instrument away mid-investigation. Chat and
-    // Terminal re-seed exactly as they did before.
-    if (!splitting) setPresentation(getDefaultChatPresentation())
-    setReturnOffered(false)
-    setSplitFocus('chat')
-  }
+  const columnRef = useRef<HTMLDivElement>(null)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const {
+    presentation,
+    setPresentation,
+    splitEnabled,
+    splitting,
+    returnOffered,
+    setReturnOffered,
+    splitFocus,
+    setSplitFocus,
+    splitSizes,
+    setSplitSizes,
+    splitStacked,
+  } = useChatPresentation(shownChatId, splitContainerRef)
   const [queuedPromptCount, setQueuedPromptCount] = useState(0)
   const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
   const [promptReplacing, setPromptReplacing] = useState(false)
@@ -314,7 +280,6 @@ export function AgentChatPane({
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
   const rootRef = useRef<HTMLDivElement>(null)
-  const columnRef = useRef<HTMLDivElement>(null)
   const terminalApiRef = useRef<{ focus: () => void } | null>(null)
 
   // The split's own three boxes: the container that defines 100%, and the two
@@ -322,95 +287,13 @@ export function AgentChatPane({
   // that hold each surface in the other two modes — one element per surface,
   // whichever mode is on — so nothing about chat or terminal changes shape when
   // the diagnostic is off.
-  const splitContainerRef = useRef<HTMLDivElement>(null)
   const chatSurfaceRef = useRef<HTMLDivElement>(null)
   const terminalSurfaceRef = useRef<HTMLDivElement>(null)
-  const [splitSizes, setSplitSizes] = useState<[number, number]>(SPLIT_DEFAULT_SIZES)
-  // Side by side, or stacked? The PANE's width decides, not the window's — a
-  // narrow pane inside a wide window is exactly the case a viewport media query
-  // gets wrong. Only observed while the split is up; the other two modes pay
-  // nothing for it.
-  const [splitStacked, setSplitStacked] = useState(false)
 
-  useEffect(() => {
-    const container = splitContainerRef.current
-    if (!splitting || !container) return
-    const measure = () => {
-      // A ZERO WIDTH IS "NOT MEASURED YET", NOT "NARROW". The first read can land
-      // before layout — and answering it with `stacked` makes the split flash
-      // vertical on the way in, then jump. Side by side is the shape this is FOR,
-      // so an unknown width keeps it.
-      const width = container.getBoundingClientRect().width
-      setSplitStacked(width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX)
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(container)
-    measure()
-    return () => observer.disconnect()
-  }, [splitting])
-
-  // A TERMINAL DOES NOT RENDER TO THE EDGE OF ITS OWN BOX.
-  //
-  // xterm draws a character grid: it fits `floor(width / cellWidth)` columns and also
-  // holds back room for a scrollbar, so the canvas is NARROWER than the element that
-  // contains it — here by 16px. That strip is never drawn to. Align the status line to
-  // the terminal's ELEMENT and it lands perfectly on empty space, sitting visibly past
-  // where the agent's text actually stops. (Which is exactly what happened: the box was
-  // flush to the pixel while the switcher hung ~25px beyond the last column.)
-  //
-  // So measure the real thing — the canvas — and pad the status line by the difference.
-  // It cannot be a constant: it moves with the font metrics, the pane width, and the
-  // scrollbar reservation.
-  const [gridSlack, setGridSlack] = useState(0)
-
-  useEffect(() => {
-    const column = columnRef.current
-    if (attachment.state !== 'attached' || presentation !== 'terminal' || !column) {
-      setGridSlack(0)
-      return
-    }
-
-    const measure = () => {
-      const element = column.querySelector('.xterm')
-      const canvas = column.querySelector('.xterm canvas')
-      // No canvas yet — the renderer has not drawn. The MutationObserver below will call
-      // us back the moment it appears; do NOT fall back to 0, that is what pinned the
-      // status line to the element's edge instead of the grid's.
-      if (!element || !canvas) return
-      const slack = element.getBoundingClientRect().right - canvas.getBoundingClientRect().right
-      setGridSlack(Math.max(0, Math.round(slack)))
-    }
-
-    // Two different events change the answer, and BOTH are needed.
-    //
-    // MutationObserver — xterm builds its canvas asynchronously, after this effect's
-    // first frame. Measuring only on mount reads a terminal that has not rendered yet
-    // and silently yields 0, and since nothing then resizes, it stays 0 forever. That is
-    // precisely the bug that made this look "already aligned" while it wasn't.
-    //
-    // ResizeObserver — on relayout xterm re-fits to a new column count, so the slack
-    // changes. Measured a frame later, because the observer fires when the CONTAINER
-    // resizes and xterm re-fits after that; same-tick reads the stale canvas.
-    let frame = 0
-    const remeasure = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(measure)
-    }
-
-    const resize = new ResizeObserver(remeasure)
-    resize.observe(column)
-
-    const mutation = new MutationObserver(remeasure)
-    mutation.observe(column, { childList: true, subtree: true })
-
-    remeasure()
-
-    return () => {
-      cancelAnimationFrame(frame)
-      resize.disconnect()
-      mutation.disconnect()
-    }
-  }, [attachment.state, presentation])
+  const gridSlack = useTerminalGridSlack(
+    columnRef,
+    attachment.state === 'attached' && presentation === 'terminal',
+  )
 
   // Re-point the buffer at what this pane is actually showing. This is the write that
   // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
@@ -1010,6 +893,11 @@ export function AgentChatPane({
                 setPresentation('terminal')
               }}
               terminalWaiting={waiting}
+              terminalWaitKind={waitKind ?? ''}
+              chatTitle={title}
+              presentation={presentation}
+              splitEnabled={splitEnabled}
+              onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
               streamingMessageId={streamingId}
               streamingMessageText={streamingText}
@@ -1061,6 +949,7 @@ export function AgentChatPane({
                   type="button"
                   variant="secondary"
                   size="sm"
+                  data-testid="pane-resume"
                   onClick={() => void revive()}
                 >
                   Resume
@@ -1165,7 +1054,13 @@ export function AgentChatPane({
                     ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
                     : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
                 </p>
-                <Button type="button" variant="secondary" size="sm" onClick={() => void revive()}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  data-testid="pane-resume"
+                  onClick={() => void revive()}
+                >
                   Resume
                 </Button>
               </div>
@@ -1216,41 +1111,18 @@ export function AgentChatPane({
           style={{ paddingRight: gridSlack }}
         >
           <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          <div
-            className="flex shrink-0 items-center rounded-lg bg-muted p-0.5"
-            aria-label="Presentation"
-          >
-            <Button
-              size="xs"
-              variant={presentation === 'chat' ? 'secondary' : 'ghost'}
-              aria-pressed={presentation === 'chat'}
-              onClick={() => chooseSurface('chat')}
-            >
-              <MessageSquareIcon /> Chat
-            </Button>
-            <Button
-              size="xs"
-              variant={presentation === 'terminal' ? 'secondary' : 'ghost'}
-              aria-pressed={presentation === 'terminal'}
-              onClick={() => chooseSurface('terminal')}
-            >
-              <TerminalIcon /> Terminal
-            </Button>
-            {/* The diagnostic's only way in, and it is absent unless BOTH gates
-                are open — a development build, and the Developer tab's switch. With
-                it off the switcher is byte-for-byte the two-button control it has
-                always been, which is the regression that actually matters. */}
-            {splitEnabled && (
-              <Button
-                size="xs"
-                variant={splitting ? 'secondary' : 'ghost'}
-                aria-pressed={splitting}
-                onClick={() => chooseSurface('split')}
-              >
-                <Columns2Icon /> Split
-              </Button>
-            )}
-          </div>
+          {/* The switcher lives in the CHAT's provider bar — it is a statement
+              about which face of this provider you are looking at, so it belongs
+              with the provider controls. That bar is not on screen on the other
+              two surfaces, so the strip carries it there and only there; drawing
+              it in both places would put two of the same control on one pane. */}
+          {presentation === 'terminal' && (
+            <ViewSwitcher
+              presentation={presentation}
+              splitEnabled={splitEnabled}
+              onSelect={chooseSurface}
+            />
+          )}
           <ProviderSwitchDropdown
             providers={providers}
             currentProviderId={activeProviderId}

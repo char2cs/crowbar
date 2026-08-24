@@ -46,18 +46,43 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn()
 // view in particular is stubbed rather than rendered for real because `active`
 // is exactly the prop under test — a stub reports it, a real transcript only
 // implies it.
-vi.mock('@/features/agent/components/agent-chat-view', () => ({
-  AgentChatView: ({ active, visible }: { active: boolean; visible: boolean }) =>
-    createElement(
-      'div',
-      {
-        'data-testid': 'chat-view',
-        'data-active': String(active),
-        'data-visible': String(visible),
-      },
-      createElement('textarea', { 'data-testid': 'composer' }),
-    ),
-}))
+vi.mock('@/features/agent/chat/agent-chat-view', async () => {
+  const { ViewSwitcher } = await import('@/features/agent/controls/view-switcher')
+  return {
+    AgentChatView: ({
+      active,
+      visible,
+      presentation,
+      splitEnabled,
+      onSelectPresentation,
+    }: {
+      active: boolean
+      visible: boolean
+      presentation: 'chat' | 'terminal' | 'split'
+      splitEnabled: boolean
+      onSelectPresentation: (next: 'chat' | 'terminal' | 'split') => void
+    }) =>
+      createElement(
+        'div',
+        {
+          'data-testid': 'chat-view',
+          'data-active': String(active),
+          'data-visible': String(visible),
+        },
+        createElement('textarea', { 'data-testid': 'composer' }),
+        // The surface switcher lives in the chat's provider bar now, so the stub
+        // carries the real one: it is a pane control, and this file is the pane's
+        // contract for it.
+        presentation === 'terminal'
+          ? null
+          : createElement(ViewSwitcher, {
+              presentation,
+              splitEnabled,
+              onSelect: onSelectPresentation,
+            }),
+      ),
+  }
+})
 
 vi.mock('@/features/terminal/components/terminal', () => ({
   XtermTerminal: ({
@@ -155,15 +180,15 @@ async function renderPane(
 
 /** A string `name` is matched against the WHOLE accessible name, which is what
  *  keeps 'Terminal' off the wait banner's own 'Open Terminal' button. */
-const surface = (name: 'Chat' | 'Terminal' | 'Split') => screen.getByRole('button', { name })
+const surface = (name: 'Chat' | 'Terminal' | 'Split') => screen.getByRole('tab', { name })
 
 /** Which surface the switcher says is showing. Read off aria-pressed rather than
  *  a class, because the class is exactly the thing under test. */
 function showing(): 'chat' | 'terminal' | 'split' {
-  if (screen.queryByRole('button', { name: 'Split' })?.getAttribute('aria-pressed') === 'true') {
+  if (screen.queryByRole('tab', { name: 'Split' })?.getAttribute('aria-selected') === 'true') {
     return 'split'
   }
-  return surface('Terminal').getAttribute('aria-pressed') === 'true' ? 'terminal' : 'chat'
+  return surface('Terminal').getAttribute('aria-selected') === 'true' ? 'terminal' : 'chat'
 }
 
 const chatView = () => screen.getByTestId('chat-view')
@@ -211,7 +236,7 @@ describe('AgentChatPane — with the split view switched off', () => {
 
     expect(surface('Chat')).toBeInTheDocument()
     expect(surface('Terminal')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Split' })).not.toBeInTheDocument()
     // The divider belongs to the split and to nothing else.
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
@@ -281,7 +306,7 @@ describe('AgentChatPane — the split view', () => {
       setSplitEnabled(false)
     })
 
-    expect(screen.queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Split' })).not.toBeInTheDocument()
     expect(showing()).toBe('chat')
     expect(chatView()).toHaveAttribute('data-active', 'true')
     expect(xterm()).toHaveAttribute('data-visible', 'false')

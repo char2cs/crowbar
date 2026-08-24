@@ -3,7 +3,7 @@ import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
-import { isChatRemoval, sendChatRemoval } from '@/features/agent/lib/chat-removal'
+import { isChatRemoval, sendChatRemoval } from '@/features/agent/tree/lib/chat-removal'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.

@@ -3,7 +3,7 @@ import { File as FileIcon, TerminalWindow, ChatCircle } from '@phosphor-icons/re
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
 import { ProjectIconMark, type ProjectIconSource } from '@/components/layout/project-icon-mark'
-import { AgentChatGlyph } from '@/features/agent/components/agent-chat-glyph'
+import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { createChat } from '@/features/agent/api/agent-api'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
