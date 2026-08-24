@@ -13,11 +13,12 @@ import (
 // (spec 2026-08-23 §1.5). This guard is the reason that stays true — without it the
 // next person adds a broadcast back into a projection and nothing complains.
 //
-// Scope is deliberately the AGENT aggregates only. The workspace aggregate still
-// broadcasts from this layer (container.go:177, :504); lifting it is the same cleanup
-// but a different subsystem, and widening this test would fail on day one for a reason
-// that has nothing to do with agents.
-func TestAgentRepositories_DoNotReachTheFrontend(t *testing.T) {
+// Scope is deliberately repositories/chat (which now contains activity too). The
+// runner aggregate moved into engine/agents/runner and is covered by the engine's own
+// guards; the workspace aggregate still broadcasts from this layer
+// (container.go:177, :504), and widening this test would fail on day one for a reason
+// that has nothing to do with chats.
+func TestChatRepository_DoesNotReachTheFrontend(t *testing.T) {
 	forbidden := []string{
 		"github.com/char2cs/crowbar/api/internal/app/hub",
 		"github.com/char2cs/crowbar/api/internal/app/realtime",
@@ -29,7 +30,7 @@ func TestAgentRepositories_DoNotReachTheFrontend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, agg := range []string{"agentchat", "agentrunner", "agentactivity"} {
+	for _, agg := range []string{"chat"} {
 		aggRoot := filepath.Join(root, agg)
 		if _, err := os.Stat(aggRoot); err != nil {
 			continue // folded into another package by a later stage
@@ -43,7 +44,7 @@ func TestAgentRepositories_DoNotReachTheFrontend(t *testing.T) {
 					}
 					rel, _ := filepath.Rel(root, dir)
 					t.Errorf(
-						"repositories/%s imports %s — an agent repository must announce, not broadcast",
+						"repositories/%s imports %s — the chat repository must announce, not broadcast",
 						rel, imp,
 					)
 				}
