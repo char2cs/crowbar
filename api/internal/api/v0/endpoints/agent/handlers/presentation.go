@@ -8,7 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 func (h *Handlers) Messages(ctx *gin.Context) {

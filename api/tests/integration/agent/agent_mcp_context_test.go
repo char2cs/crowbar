@@ -43,7 +43,7 @@ import (
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"

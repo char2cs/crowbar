@@ -14,7 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )

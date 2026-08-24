@@ -6,8 +6,8 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -45,7 +45,7 @@ type ChatUsecase interface {
 	) (string, error)
 
 	// RenameChat sets chatID's title under user>agent>derived precedence (see
-	// agent.ChatUsecase.RenameChat). Broadcasts "titled" on a successful change.
+	// agentusecase.ChatUsecase.RenameChat). Broadcasts "titled" on a successful change.
 	RenameChat(
 		ctx context.Context,
 		chatID, title, source string,
@@ -359,7 +359,7 @@ type Handlers struct {
 // without a hub (tests). A nil tree usecase does NOT degrade: every route that
 // takes one would have to answer some fiction about a tree it cannot read, and
 // the daemon wires it unconditionally — so the routes are simply not mounted
-// without it (see agent.Register).
+// without it (see agentusecase.Register).
 func New(
 	chats ChatUsecase,
 	turns TurnUsecase,

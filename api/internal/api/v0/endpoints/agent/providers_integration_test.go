@@ -14,8 +14,8 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )

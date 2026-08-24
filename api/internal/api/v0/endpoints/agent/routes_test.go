@@ -13,8 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )

@@ -6,9 +6,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chatlineage"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
@@ -59,32 +59,32 @@ type Container struct {
 	TerminalMeta engineterminal.SessionMetaStore
 	// AgentChat is the chat aggregate — identity, title, model selection, hard
 	// delete — and every read served off the conversation record it accumulates.
-	AgentChat agent.ChatUsecase
+	AgentChat agentusecase.ChatUsecase
 	// AgentTurn is the vendor CLI's hook ingress and everything it writes: turns,
 	// tool calls, subagents, interruptions, streamed messages and telemetry.
-	AgentTurn agent.TurnUsecase
+	AgentTurn agentusecase.TurnUsecase
 	// AgentRunner is the vendor CLI lifecycle: starting one on a chat, replacing
 	// it, resuming it, stopping it, and delivering a React-authored prompt to it.
-	AgentRunner agent.RunnerUsecase
+	AgentRunner agentusecase.RunnerUsecase
 	// AgentAnswer is the human-in-the-loop answer desk: the hook relay blocked on
 	// a person, and the Crowbar-side act of deciding for it.
-	AgentAnswer agent.AnswerUsecase
+	AgentAnswer agentusecase.AnswerUsecase
 	// AgentProvider is the provider table and the MCP surface the vendor CLIs
 	// call back into. It is global, never per workspace.
-	AgentProvider agent.ProviderUsecase
+	AgentProvider agentusecase.ProviderUsecase
 	// AgentChatFolder is the Chats panel's tree usecase: folder CRUD, chat
 	// placement, and the cascading chat delete. It is built AFTER the agent
 	// concerns because it holds two of them: erasing a chat and starting a CLI on
 	// one are their job, and this one only decides which chats a delete takes.
 	AgentChatFolder agentchatfolder.Usecase
-	// AgentWorkspaceReader is the SAME agent.WorkspaceReader (AgentChatsDir +
+	// AgentWorkspaceReader is the SAME agentusecase.WorkspaceReader (AgentChatsDir +
 	// WorktreeDir) instance the concerns were built with, exposed so the app layer can
 	// wire the workspace-delete cascade's on-disk reap seam
 	// (repositories.Container.ReapChatFiles) off the identical path resolution
 	// PurgeChat already uses — without reimplementing it. It cannot be threaded
 	// into repositories.New itself: the reader is built from repos.Workspace,
 	// which does not exist until repositories.New returns.
-	AgentWorkspaceReader agent.WorkspaceReader
+	AgentWorkspaceReader agentusecase.WorkspaceReader
 
 	// agentToolMetrics is the SAME *agenttools.Metrics instance the agent tool
 	// surface records through — held here only so AgentToolMetrics can read it
@@ -216,9 +216,9 @@ func New(
 // reuses for the delete cascade's on-disk reap, and the tool metrics nothing else
 // can reach.
 type agentWiring struct {
-	concerns agent.Concerns
+	concerns agentusecase.Concerns
 	chatTree agentchatfolder.Usecase
-	wsReader agent.WorkspaceReader
+	wsReader agentusecase.WorkspaceReader
 	metrics  *agenttools.Metrics
 }
 
@@ -228,8 +228,8 @@ type agentWiring struct {
 // lifecycle. The tree usecase takes ONE collaborator by design (see
 // agentchatfolder.Agent); this is where its two halves are put together.
 type agentChatTree struct {
-	agent.ChatUsecase
-	agent.RunnerUsecase
+	agentusecase.ChatUsecase
+	agentusecase.RunnerUsecase
 }
 
 // newAgentWiring assembles the agentic usecases in dependency order. It is split
@@ -268,7 +268,7 @@ func newAgentWiring(
 	if err != nil {
 		return agentWiring{}, err
 	}
-	concerns := agent.New(
+	concerns := agentusecase.New(
 		repos.AgentChat,
 		repos.AgentRunner,
 		repos.AgentActivity,
@@ -340,8 +340,8 @@ func newProjectImport(
 //
 // ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
 // read (agenttools.ChatLogReader) is implemented by the agent CHAT concern
-// (agent.ChatUsecase.ReadChatLog), which does not exist yet at this point in
-// construction — the exact chicken-and-egg agent.New already resolves for
+// (agentusecase.ChatUsecase.ReadChatLog), which does not exist yet at this point in
+// construction — the exact chicken-and-egg agentusecase.New already resolves for
 // Deps.Chats by binding that concern once built. See its doc comment.
 //
 // Metrics is wired here too but, unlike every port above, is deliberately
@@ -435,7 +435,7 @@ type repoGetter interface {
 }
 
 // agentWorkspaceReader adapts the workspace repository into the agent
-// usecase's WorkspaceReader seam (internal/app/usecases/agent.WorkspaceReader):
+// usecase's WorkspaceReader seam (internal/app/usecases/agentusecase.WorkspaceReader):
 // given a workspace id, it resolves the owning project/repo and the git
 // worktree directory from the workspace read model's stored WorktreePath
 // (WorktreeDir), and the directory holding the workspace's agentic chat state
@@ -454,7 +454,7 @@ type agentWorkspaceReader struct {
 	crowbarHome func() (string, error)
 }
 
-// WorktreeDir implements agent.WorkspaceReader.
+// WorktreeDir implements agentusecase.WorkspaceReader.
 func (r *agentWorkspaceReader) WorktreeDir(
 	ctx context.Context,
 	workspaceID string,
@@ -470,7 +470,7 @@ func (r *agentWorkspaceReader) WorktreeDir(
 	return home, w.ProjectID, w.RepoID, w.WorktreePath, nil
 }
 
-// AgentChatsDir implements agent.WorkspaceReader: it resolves the directory that
+// AgentChatsDir implements agentusecase.WorkspaceReader: it resolves the directory that
 // holds a workspace's agentic chat state, ALWAYS strictly under crowbar home.
 //
 // For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir

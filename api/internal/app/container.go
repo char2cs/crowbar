@@ -24,8 +24,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -121,7 +121,7 @@ func New(
 	// The agent aggregates announce; the fanout decides what a client is told. The hub
 	// still reaches the repository layer for workspace frames, which are outside this
 	// subsystem.
-	agentFanout := agent.NewFanout(h)
+	agentFanout := agentusecase.NewFanout(h)
 	repos, err := repositories.New(
 		ctx,
 		adapters,
@@ -362,7 +362,7 @@ func terminateAgentSession(
 // repositories.Container.ReapChatFiles wants: the workspace-delete cascade
 // (repositories.Container.forgetAgentChats) calls it, per forgotten chat, to
 // remove that chat's own <chatsDir>/<chatID> directory. It reuses the EXACT
-// same path resolution and agent.RemoveUnderHome guard the standalone
+// same path resolution and agentusecase.RemoveUnderHome guard the standalone
 // PurgeChat path already routes through (Important-2) — no path logic is
 // reimplemented here — so a workspace delete no longer leaves a chat's
 // plaintext handoff ledger behind under .crowbar. ws is the SAME reader
@@ -370,7 +370,7 @@ func terminateAgentSession(
 // usecases.Container.AgentWorkspaceReader's doc comment for why this is wired
 // in after usecases.New returns rather than threaded into repositories.New).
 func reapAgentChatFiles(
-	ws agent.WorkspaceReader,
+	ws agentusecase.WorkspaceReader,
 ) func(ctx context.Context, wsID, chatID string) error {
 	return func(ctx context.Context, wsID, chatID string) error {
 		chatsDir, err := ws.AgentChatsDir(ctx, wsID)
@@ -381,7 +381,7 @@ func reapAgentChatFiles(
 		if err != nil {
 			return fmt.Errorf("resolve home: %w", err)
 		}
-		agent.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
+		agentusecase.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 		return nil
 	}
 }
