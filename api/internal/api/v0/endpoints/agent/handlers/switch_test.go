@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -68,7 +68,7 @@ func TestSwitch_BadJSON(
 func TestSwitch_WrongWorkspace404s(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-other"}}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"provider":"vendor-b"}`)
@@ -129,7 +129,7 @@ func TestHandoff_Success(
 func TestHandoff_WrongWorkspace404s(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-other"}}
 	h := newChatHandlers(uc)
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/handoff", nil)
@@ -207,7 +207,7 @@ func TestResume_WrongWorkspace404s(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{
-		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"},
+		getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-other"},
 	}
 	h := newChatHandlers(uc)
 
@@ -261,7 +261,7 @@ func TestStop_WrongWorkspace404s(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{
-		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-other"},
+		getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-other"},
 	}
 	h := newChatHandlers(uc)
 

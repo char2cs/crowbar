@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -250,7 +250,7 @@ type orderedChats struct {
 
 func (o orderedChats) AbandonTurn(
 	ctx context.Context, chatID string, now time.Time,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	o.log.note("abandon-turn")
 	return o.EventStore.AbandonTurn(ctx, chatID, now)
 }

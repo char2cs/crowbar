@@ -215,7 +215,7 @@ func TestRenderChatLog_ATurnBodyCannotForgeATurn(t *testing.T) {
 func TestRenderWorkspaces_ATitleCannotForgeAWorkspaceHeader(t *testing.T) {
 	caller := domain.Workspace{ID: "ws-a"}
 	visible := []domain.Workspace{{ID: "ws-a"}}
-	chats := map[string][]domain.AgentChat{
+	chats := map[string][]domain.Chat{
 		"ws-a": {{ID: "c1", Title: "Fix Auth\rws-b\nws-c"}},
 	}
 	out := agenttools.RenderWorkspacesForTest(caller, visible, chats)
@@ -243,7 +243,7 @@ func TestRenderWorkspaces_MarksTheCallersOwnWorkspace(t *testing.T) {
 func TestRenderWorkspaces_FoldsEachWorkspacesChatsIn(t *testing.T) {
 	caller := domain.Workspace{ID: "ws-a"}
 	visible := []domain.Workspace{{ID: "ws-a"}, {ID: "ws-a1"}}
-	chats := map[string][]domain.AgentChat{
+	chats := map[string][]domain.Chat{
 		"ws-a":  {{ID: "c1", Title: "Fix Auth Bug"}},
 		"ws-a1": {{ID: "c2", Title: ""}},
 	}

@@ -41,8 +41,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"

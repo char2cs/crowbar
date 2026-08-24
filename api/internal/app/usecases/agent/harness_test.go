@@ -16,8 +16,8 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -400,7 +400,7 @@ func (s *fakeChatStore) StopTurn(
 	chatID string,
 	now time.Time,
 	asyncWork int,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.onStopTurn != nil {
 		s.onStopTurn()
 	}
@@ -411,7 +411,7 @@ func (s *fakeChatStore) AbandonTurn(
 	ctx context.Context,
 	chatID string,
 	now time.Time,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	s.mu.Lock()
 	s.abandonedIDs = append(s.abandonedIDs, chatID)
 	s.mu.Unlock()
@@ -436,26 +436,26 @@ func (s *fakeChatStore) forget() {
 func (s *fakeChatStore) SetSelection(
 	ctx context.Context,
 	chatID, model, effort string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.failSetSelection != nil {
-		return domain.AgentChat{}, s.failSetSelection
+		return domain.Chat{}, s.failSetSelection
 	}
 	return s.EventStore.SetSelection(ctx, chatID, model, effort)
 }
 
-func (s *fakeChatStore) LoadChat(ctx context.Context, id string) (domain.AgentChat, error) {
+func (s *fakeChatStore) LoadChat(ctx context.Context, id string) (domain.Chat, error) {
 	if s.failLoadChat != nil {
 		if s.failLoadChatAfter <= 0 {
-			return domain.AgentChat{}, s.failLoadChat
+			return domain.Chat{}, s.failLoadChat
 		}
 		s.failLoadChatAfter--
 	}
 	return s.EventStore.LoadChat(ctx, id)
 }
 
-func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentChat, error) {
+func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.Chat, error) {
 	if s.failGetChat != nil {
-		return domain.AgentChat{}, s.failGetChat
+		return domain.Chat{}, s.failGetChat
 	}
 	chat, err := s.EventStore.GetChat(ctx, id)
 	if err != nil || !s.staleProjection {
@@ -465,14 +465,14 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.AgentCha
 	return chat, nil
 }
 
-func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.AgentChat, error) {
+func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.Chat, error) {
 	if s.failCreate != nil {
-		return domain.AgentChat{}, s.failCreate
+		return domain.Chat{}, s.failCreate
 	}
 	return s.EventStore.Create(ctx, in)
 }
 
-func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.AgentChat, error) {
+func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.Chat, error) {
 	if s.failListChats != nil {
 		return nil, s.failListChats
 	}
@@ -636,13 +636,13 @@ type fixtureChatReader struct {
 func (r fixtureChatReader) Get(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	return r.chats.GetChat(ctx, chatID)
 }
 
 func (r fixtureChatReader) ListChats(
 	ctx context.Context,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return r.chats.ListChats(ctx)
 }
 
@@ -796,7 +796,7 @@ func turn(t *testing.T, f testFixture, runnerID, provider, content string) {
 }
 
 // chat waits for quiescence then reads chatID from the read model.
-func (f testFixture) chat(t *testing.T, chatID string) domain.AgentChat {
+func (f testFixture) chat(t *testing.T, chatID string) domain.Chat {
 	t.Helper()
 	f.wait()
 	c, err := f.chats.GetChat(f.ctx, chatID)
@@ -886,7 +886,7 @@ func newChatStore(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentChat]().
+	ax, err := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -911,7 +911,7 @@ func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.AgentActivity]().
+	ax, err := asynx.New[domain.ChatActivity]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).

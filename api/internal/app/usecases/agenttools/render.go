@@ -240,7 +240,7 @@ func renderChatLog(turns []ChatTurn) string {
 func renderWorkspaces(
 	caller domain.Workspace,
 	visible []domain.Workspace,
-	chats map[string][]domain.AgentChat,
+	chats map[string][]domain.Chat,
 ) string {
 	if len(visible) == 0 {
 		return "No visible workspaces."

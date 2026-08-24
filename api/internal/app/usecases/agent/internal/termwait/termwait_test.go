@@ -62,7 +62,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		TerminalSession: session,
 		CurrentChatID:   chatID,
 	}}}
-	chats := &fakeChats{byID: map[string]domain.AgentChat{
+	chats := &fakeChats{byID: map[string]domain.Chat{
 		chatID: {ID: chatID, WorkspaceID: wsID},
 	}}
 	choices := &fakeChoices{pending: map[string][]domain.ActivityChoice{}}
@@ -106,7 +106,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 
 func (r *rig) wedged() {
 	r.runners.live[0].ProviderID = "codex"
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.screens.set(session, usageLimitScreen)
 }
 
@@ -116,7 +116,7 @@ func (r *rig) delivering() {
 }
 
 func (r *rig) cutOff() {
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.msgs.unfinished = true
 	r.msgs.since = r.clock.Now()
 }
@@ -149,7 +149,7 @@ func TestDetector_Sweep_UnrecognisedPromptCarriesNoKind(t *testing.T) {
 
 func TestDetector_Sweep_WorkingChatIsNeverWaiting(t *testing.T) {
 	r := newRig(t)
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 
 	r.sweep()
 
@@ -298,9 +298,9 @@ func TestDetector_Sweep_ScreenCacheSurvivesABusyTurn(t *testing.T) {
 	r.sweep()
 	renders := r.screens.renderCount()
 
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.sweep()
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID}
 	r.sweep()
 
 	assert.Equal(t, renders, r.screens.renderCount())
@@ -498,7 +498,7 @@ func TestDetector_Sweep_SessionWithNoScreenNeverCloses(t *testing.T) {
 func TestDetector_Sweep_IdleChatIsNeverClosed(t *testing.T) {
 	r := newRig(t)
 	r.wedged()
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID}
 
 	r.sweep()
 	r.clock.advance(termwait.DefaultStallQuiet)
@@ -758,7 +758,7 @@ func TestDetector_Sweep_SettlesOnce(t *testing.T) {
 func TestDetector_Sweep_NeverSettlesADeliveryOnAWorkingChat(t *testing.T) {
 	r := newRig(t)
 	r.delivering()
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.sweep()
 	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
 
@@ -866,7 +866,7 @@ func TestDetector_Sweep_NeverAbandonsAMessageWithAPendingChoice(t *testing.T) {
 
 func TestDetector_Sweep_AFinishedMessageIsNotEvidence(t *testing.T) {
 	r := newRig(t)
-	r.chats.byID[chatID] = domain.AgentChat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
 	r.msgs.unfinished = false
 	r.clock.advance(10 * termwait.DefaultMessageQuiet)
 

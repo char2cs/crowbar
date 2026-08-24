@@ -28,14 +28,14 @@ const liveTrustScreen = `╭─────────────────�
 type liveRig struct {
 	detector termwait.Detector
 	engine   engineterminal.Engine
-	chat     domain.AgentChat
+	chat     domain.Chat
 	pending  []domain.ActivityChoice
 	runners  []engineagents.Runner
 }
 
 func (r *liveRig) AllLive(context.Context) ([]engineagents.Runner, error) { return r.runners, nil }
 
-func (r *liveRig) GetChat(context.Context, string) (domain.AgentChat, error) { return r.chat, nil }
+func (r *liveRig) GetChat(context.Context, string) (domain.Chat, error) { return r.chat, nil }
 
 func (r *liveRig) PendingChoices(context.Context, string) ([]domain.ActivityChoice, error) {
 	return r.pending, nil
@@ -70,7 +70,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 
 	rig := &liveRig{
 		engine: engine,
-		chat:   domain.AgentChat{ID: "chat-live", WorkspaceID: "ws-live"},
+		chat:   domain.Chat{ID: "chat-live", WorkspaceID: "ws-live"},
 		runners: []engineagents.Runner{{
 			ID:              "runner-live",
 			WorkspaceID:     "ws-live",

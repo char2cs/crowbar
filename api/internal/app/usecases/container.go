@@ -33,7 +33,7 @@ type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
-	AgentChatFolders         store.ScopedStore[domain.AgentChatFolder, string]
+	AgentChatFolders         store.ScopedStore[domain.ChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -394,8 +394,8 @@ func newAgentToolDeps(
 
 // chatGetter is the minimal chat-read surface agentChatReader adapts.
 type chatGetter interface {
-	GetChat(ctx context.Context, id string) (domain.AgentChat, error)
-	ListChats(ctx context.Context) ([]domain.AgentChat, error)
+	GetChat(ctx context.Context, id string) (domain.Chat, error)
+	ListChats(ctx context.Context) ([]domain.Chat, error)
 }
 
 // agentChatReader adapts the chat repository into agenttools.ChatReader. Only
@@ -409,14 +409,14 @@ type agentChatReader struct {
 func (r agentChatReader) Get(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	return r.chats.GetChat(ctx, chatID)
 }
 
 // ListChats implements agenttools.ChatReader.
 func (r agentChatReader) ListChats(
 	ctx context.Context,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return r.chats.ListChats(ctx)
 }
 

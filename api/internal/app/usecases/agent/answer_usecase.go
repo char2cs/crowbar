@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -108,7 +108,7 @@ func newAnswerUsecase(
 
 func (u *answerUsecase) holdForAnswer(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,

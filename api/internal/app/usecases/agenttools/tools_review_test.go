@@ -174,7 +174,7 @@ func reviewToolsetOn(
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	deps := agenttools.Deps{
@@ -244,7 +244,7 @@ func newPostFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	review := &stubReviewReader{outline: outline}
 	deps := agenttools.Deps{
@@ -829,7 +829,7 @@ func reviewToolsOn(t *testing.T, threads *spyThreads) *agenttools.ToolSet {
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
 		Resolver:        res,
@@ -933,7 +933,7 @@ func newReplyResolveFixture(t *testing.T, callerWs string, thread domain.ReviewT
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	threads := &spyThreads{thread: thread}
 	broadcast := &spyThreadBroadcast{}
@@ -1083,7 +1083,7 @@ func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 			require.NoError(t, err)
 			deps.Resolver = agenttools.NewResolver(m,
 				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-				stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+				stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 				stubWorkspaces{all: tree()})
 			ts := agenttools.NewToolSet(deps, "RUN", m.Mint("RUN"))
 			for _, tool := range ts.Tools() {
@@ -1117,7 +1117,7 @@ func attributedReviewToolsOn(
 			WorkspaceID:   "ws-a",
 			ProviderID:    providerID,
 		}},
-		stubChats{c: domain.AgentChat{ID: chatID, WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: chatID, WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return agenttools.NewToolSet(agenttools.Deps{
 		Resolver:        res,

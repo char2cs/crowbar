@@ -28,7 +28,7 @@ const waitingForTurnLog = "agent: switch provider: the chat is mid-turn; waiting
 // they follow (a daemon restart empties it, and a restart kills every CLI it could have
 // been describing), so it can never survive to lie.
 //
-// WHY NOT domain.AgentChat.Working, which says the same thing? Because Working is a READ
+// WHY NOT domain.Chat.Working, which says the same thing? Because Working is a READ
 // MODEL, and the turn commands are deliberately on asynx's ASYNC Send path (blocking a
 // hook on a projection is the contention shape behind this repo's history of git-mutex
 // hangs, see agentchat.EventStore.Create's doc). So Working lags the hooks in BOTH

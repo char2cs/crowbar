@@ -56,7 +56,7 @@ func lazyResolverOn(
 	require.NoError(t, err)
 	return agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		workspaces,
 	), m
 }
@@ -142,7 +142,7 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 			ws := &treeLister{all: tree()}
 			m, err := agenttools.NewTokenMinter()
 			require.NoError(t, err)
-			chats := stubChats{c: domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}}
+			chats := stubChats{c: domain.Chat{ID: "other", WorkspaceID: "ws-a1"}}
 			res := agenttools.NewResolver(m,
 				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 				chats, ws)

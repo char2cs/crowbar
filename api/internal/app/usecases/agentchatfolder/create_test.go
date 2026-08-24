@@ -112,7 +112,7 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 // inherit context from a workspace the user is not in.
 func TestCreateChat_RefusesAParentInAnotherWorkspace(t *testing.T) {
 	folders, chats, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other")
 	assert.ErrorIs(t, err, agentchatfolder.ErrCrossWorkspace)
@@ -122,7 +122,7 @@ func TestCreateChat_RefusesAParentInAnotherWorkspace(t *testing.T) {
 // A chat parent in another workspace is refused the same way.
 func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 	_, chats, uc := newUsecase(t)
-	chats.Rows = append(chats.Rows, domain.AgentChat{ID: "c-other", WorkspaceID: "ws-2"})
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other")
 	assert.ErrorIs(t, err, agentchatfolder.ErrCrossWorkspace)

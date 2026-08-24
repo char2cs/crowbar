@@ -23,7 +23,7 @@ func TestMessages_MapsBoundedLedgerPage(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	at := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	uc := &fakeAgentUsecase{
-		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
+		getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
 		messagePage: chatlog.Page{Cursor: 8, OldestCursor: 8, Items: []chatlog.Message{{
 			Sequence: 8,
 			Turn:     chatlog.Turn{Role: "assistant", Provider: "codex", RunnerID: "private", Text: "done", At: at},
@@ -46,7 +46,7 @@ func TestSubmitPrompt_ReturnsReplacementIdentity(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts", []byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	uc := &fakeAgentUsecase{
-		getChat:      domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
+		getChat:      domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
 		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
 	}
 	newChatHandlers(uc).SubmitPrompt(ctx)
@@ -61,7 +61,7 @@ func TestSubmitPrompt_ConflictCarriesStableMachineCode(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts", []byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	uc := &fakeAgentUsecase{
-		getChat:   domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
+		getChat:   domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
 		promptErr: agentusecase.ErrPromptOutcomeUnknown,
 	}
 	newChatHandlers(uc).SubmitPrompt(ctx)
@@ -76,7 +76,7 @@ func TestMessagesAndPrompt_DenyCrossWorkspaceChat(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		ctx, rec := newTestContext(t, method, "/presentation", []byte(`{"text":"x","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
 		ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
-		uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-2"}}
+		uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-2"}}
 		if method == http.MethodGet {
 			newChatHandlers(uc).Messages(ctx)
 		} else {
@@ -92,7 +92,7 @@ func TestSlashCatalog_MapsProviderNeutralEphemeralResult(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodGet, "/slash-catalog", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 	uc := &fakeAgentUsecase{
-		getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
+		getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
 		catalog: engineagents.SlashCatalog{
 			ProviderID:   "codex",
 			Completeness: engineagents.CatalogCompletenessModelVisible,
@@ -125,7 +125,7 @@ func TestSlashCatalog_ErrorsCarryStableCodeAndStatus(t *testing.T) {
 		ctx, rec := newTestContext(t, http.MethodGet, "/slash-catalog", nil)
 		ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 		uc := &fakeAgentUsecase{
-			getChat:    domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"},
+			getChat:    domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
 			catalogErr: tc.err,
 		}
 		newChatHandlers(uc).SlashCatalog(ctx)

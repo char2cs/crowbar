@@ -31,7 +31,7 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	// EVERY port is wired here (with empty-returning stubs) so the shared toolset
@@ -47,7 +47,7 @@ func toolsetOn(t *testing.T, renamer agenttools.ChatRenamer) (*agenttools.ToolSe
 		Review:          &stubReviewReader{},
 		ThreadWrites:    &stubThreadWriter{},
 		Idempotency:     agenttools.NewIdempotency(),
-		ChatReads:       stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		ChatReads:       stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		ChatLogs:        &stubChatLogs{},
 		Lineage:         &stubLineage{},
 		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
@@ -157,7 +157,7 @@ func toolsetGatedOn(
 		stubRunners{r: agents.Runner{
 			ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a", ProviderID: "codex",
 		}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	asked := &[]string{}
 	deps := agenttools.Deps{

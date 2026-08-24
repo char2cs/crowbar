@@ -56,13 +56,13 @@ type Container struct {
 	// in one PTY, the thing that moves between chats on /clear and /resume.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
-	axAgentChat    asynx.Asynx[domain.AgentChat]
+	axAgentChat    asynx.Asynx[domain.Chat]
 	// axAgentActivity is the conversation record's own per-type singleton. It is
 	// separate from axAgentChat because their write rates differ by orders of
 	// magnitude: a chat emits a handful of events, its activity emits hundreds per
 	// turn, and sharing one single-writer event log would put a sidebar repaint
 	// behind a tool-call storm.
-	axAgentActivity asynx.Asynx[domain.AgentActivity]
+	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
 }
 
@@ -89,7 +89,7 @@ func New(
 	// agentchat.NewEventSourced), and the agent usecase now sends every AgentChat
 	// mutation through it (the gorm-backed store was retired in the Task 10
 	// cutover).
-	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES(), adapters.AgentChatSS())
+	axAgentChat, err := newAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
@@ -100,7 +100,7 @@ func New(
 	// Built and its projections registered (via repositories.New ->
 	// runner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
-	axAgentActivity, err := newAsynx[domain.AgentActivity](
+	axAgentActivity, err := newAsynx[domain.ChatActivity](
 		adapters.AgentActivityES(), adapters.AgentActivitySS(),
 	)
 	if err != nil {

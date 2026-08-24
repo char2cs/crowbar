@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -26,16 +26,16 @@ type raceChats struct {
 func (raceChats) GetChat(
 	_ context.Context,
 	id string,
-) (domain.AgentChat, error) {
-	return domain.AgentChat{ID: id}, nil
+) (domain.Chat, error) {
+	return domain.Chat{ID: id}, nil
 }
 
 func (raceChats) AbandonTurn(
 	_ context.Context,
 	chatID string,
 	_ time.Time,
-) (domain.AgentChat, error) {
-	return domain.AgentChat{ID: chatID}, nil
+) (domain.Chat, error) {
+	return domain.Chat{ID: chatID}, nil
 }
 
 type raceRunners struct {

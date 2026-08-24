@@ -20,12 +20,12 @@ import (
 // fakeChatTree records each call and returns canned results, so the handlers'
 // HTTP contract can be pinned without a store.
 type fakeChatTree struct {
-	list     []domain.AgentChatFolder
-	created  domain.AgentChatFolder
-	renamed  domain.AgentChatFolder
-	moved    domain.AgentChatFolder
-	placed   domain.AgentChat
-	shifted  []domain.AgentChatFolder
+	list     []domain.ChatFolder
+	created  domain.ChatFolder
+	renamed  domain.ChatFolder
+	moved    domain.ChatFolder
+	placed   domain.Chat
+	shifted  []domain.ChatFolder
 	deletion agentchatfolder.ChatDeletion
 	err      error
 
@@ -45,7 +45,7 @@ type fakeChatTree struct {
 func (f *fakeChatTree) ListInWorkspace(
 	_ context.Context,
 	workspaceID string,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	return f.list, f.err
 }
@@ -53,7 +53,7 @@ func (f *fakeChatTree) ListInWorkspace(
 func (f *fakeChatTree) Create(
 	_ context.Context,
 	in agentchatfolder.CreateInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+) (domain.ChatFolder, []domain.ChatFolder, error) {
 	f.gotCreate = in
 	return f.created, f.shifted, f.err
 }
@@ -63,7 +63,7 @@ func (f *fakeChatTree) Rename(
 	workspaceID string,
 	_ string,
 	name string,
-) (domain.AgentChatFolder, error) {
+) (domain.ChatFolder, error) {
 	f.renames++
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	f.gotRename = name
@@ -75,7 +75,7 @@ func (f *fakeChatTree) Move(
 	workspaceID string,
 	_ string,
 	in agentchatfolder.MoveInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+) (domain.ChatFolder, []domain.ChatFolder, error) {
 	f.moves++
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	f.gotMove = in
@@ -86,7 +86,7 @@ func (f *fakeChatTree) Delete(
 	_ context.Context,
 	workspaceID string,
 	id string,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	f.gotDelete = id
 	return f.shifted, f.err
@@ -117,7 +117,7 @@ func (f *fakeChatTree) PlaceChat(
 	workspaceID string,
 	chatID string,
 	in agentchatfolder.PlaceInput,
-) (domain.AgentChat, []domain.AgentChatFolder, error) {
+) (domain.Chat, []domain.ChatFolder, error) {
 	f.gotScopes = append(f.gotScopes, workspaceID)
 	f.gotPlaceID = chatID
 	f.gotPlace = in
@@ -194,7 +194,7 @@ func newFolderHandlersWith(
 // The URL scope is authoritative: a POST against one workspace must never
 // create a folder in another, so the body carries no workspace at all.
 func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
-	tree := &fakeChatTree{created: domain.AgentChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "spikes"}}
+	tree := &fakeChatTree{created: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "spikes"}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders",
 		[]byte(`{"name":"spikes","parentId":"c1","workspaceId":"evil"}`))
@@ -213,8 +213,8 @@ func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 // too — otherwise their orders stay stale until the next reconnect.
 func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
 	tree := &fakeChatTree{
-		created: domain.AgentChatFolder{ID: "f1", WorkspaceID: "ws-1"},
-		shifted: []domain.AgentChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 0}},
+		created: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1"},
+		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 0}},
 	}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":"spikes"}`))
@@ -257,7 +257,7 @@ func TestCreateFolder_MalformedBodyIs400(t *testing.T) {
 }
 
 func TestListFolders_ScopesToTheURLWorkspace(t *testing.T) {
-	tree := &fakeChatTree{list: []domain.AgentChatFolder{
+	tree := &fakeChatTree{list: []domain.ChatFolder{
 		{ID: "b", WorkspaceID: "ws-1", Order: 1},
 		{ID: "a", WorkspaceID: "ws-1", Order: 0},
 	}}
@@ -290,7 +290,7 @@ func TestListFolders_SurfacesAStoreError(t *testing.T) {
 
 // A drag that renames AND moves must land as one answer, not two half-states.
 func TestPatchFolder_RenameThenMove(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.AgentChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "new", Order: 2}}
+	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "new", Order: 2}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1",
 		[]byte(`{"name":"new","parentId":"c1","order":2}`))
@@ -313,7 +313,7 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 // A PATCH that reorders within one parent carries no parentId, and the nil must
 // reach the usecase as "leave it where it is" rather than "move it to the root".
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.AgentChatFolder{ID: "f1", WorkspaceID: "ws-1", Order: 1}}
+	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Order: 1}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"order":1}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
@@ -330,7 +330,7 @@ func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 // An explicit empty parentId is a MOVE TO THE PANEL ROOT, and must be
 // distinguishable from an absent one.
 func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.AgentChatFolder{ID: "f1", WorkspaceID: "ws-1"}}
+	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1"}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"parentId":""}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
@@ -385,7 +385,7 @@ func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 // The promoted rows are what stop a folder's children vanishing with it; the
 // tombstone frame is what makes the client drop the folder itself.
 func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
-	tree := &fakeChatTree{shifted: []domain.AgentChatFolder{{ID: "child", WorkspaceID: "ws-1"}}}
+	tree := &fakeChatTree{shifted: []domain.ChatFolder{{ID: "child", WorkspaceID: "ws-1"}}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/agent/folders/f1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
@@ -414,7 +414,7 @@ func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 // The placement endpoint is where a chat becomes a THREAD of another, so the
 // parent it is given has to reach the usecase verbatim.
 func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
-	tree := &fakeChatTree{placed: domain.AgentChat{ID: "c2", WorkspaceID: "ws-1", ParentID: "c1", Order: 3}}
+	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1", ParentID: "c1", Order: 3}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c2/placement",
 		[]byte(`{"parentId":"c1","order":3}`))
@@ -440,8 +440,8 @@ func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 // moved ride back with the answer and are announced.
 func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	tree := &fakeChatTree{
-		placed:  domain.AgentChat{ID: "c2", WorkspaceID: "ws-1"},
-		shifted: []domain.AgentChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 1}},
+		placed:  domain.Chat{ID: "c2", WorkspaceID: "ws-1"},
+		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 1}},
 	}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c2/placement", []byte(`{"order":0}`))
@@ -491,7 +491,7 @@ func TestPlaceChat_MalformedBodyIs400(t *testing.T) {
 func TestNew_NilFolderBroadcastDegradesToNoop(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	h := handlers.New(uc, uc, uc, uc, uc,
-		&fakeChatTree{created: domain.AgentChatFolder{ID: "f1"}}, nil)
+		&fakeChatTree{created: domain.ChatFolder{ID: "f1"}}, nil)
 	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":"spikes"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 

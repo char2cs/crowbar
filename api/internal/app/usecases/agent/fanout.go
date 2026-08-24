@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/fanout"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )

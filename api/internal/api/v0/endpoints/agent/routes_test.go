@@ -52,15 +52,15 @@ func (stubChatTree) CreateChat(
 func (stubChatTree) ListInWorkspace(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	return nil, nil
 }
 
 func (stubChatTree) Create(
 	_ context.Context,
 	_ agentchatfolder.CreateInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
-	return domain.AgentChatFolder{}, nil, nil
+) (domain.ChatFolder, []domain.ChatFolder, error) {
+	return domain.ChatFolder{}, nil, nil
 }
 
 func (stubChatTree) Rename(
@@ -68,8 +68,8 @@ func (stubChatTree) Rename(
 	_ string,
 	_ string,
 	_ string,
-) (domain.AgentChatFolder, error) {
-	return domain.AgentChatFolder{}, nil
+) (domain.ChatFolder, error) {
+	return domain.ChatFolder{}, nil
 }
 
 func (stubChatTree) Move(
@@ -77,15 +77,15 @@ func (stubChatTree) Move(
 	_ string,
 	_ string,
 	_ agentchatfolder.MoveInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
-	return domain.AgentChatFolder{}, nil, nil
+) (domain.ChatFolder, []domain.ChatFolder, error) {
+	return domain.ChatFolder{}, nil, nil
 }
 
 func (stubChatTree) Delete(
 	_ context.Context,
 	_ string,
 	_ string,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	return nil, nil
 }
 
@@ -94,8 +94,8 @@ func (stubChatTree) PlaceChat(
 	_ string,
 	_ string,
 	_ agentchatfolder.PlaceInput,
-) (domain.AgentChat, []domain.AgentChatFolder, error) {
-	return domain.AgentChat{}, nil, nil
+) (domain.Chat, []domain.ChatFolder, error) {
+	return domain.Chat{}, nil, nil
 }
 
 func (stubChatTree) DeleteChat(
@@ -140,7 +140,7 @@ func (stubUsecase) IngestHookDelivery(
 func (stubUsecase) ListChatsByWorkspace(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return nil, nil
 }
 
@@ -150,8 +150,8 @@ func (stubUsecase) ListChatsByWorkspace(
 func (stubUsecase) GetChat(
 	_ context.Context,
 	id string,
-) (domain.AgentChat, error) {
-	return domain.AgentChat{ID: id, WorkspaceID: "w1"}, nil
+) (domain.Chat, error) {
+	return domain.Chat{ID: id, WorkspaceID: "w1"}, nil
 }
 
 func (stubUsecase) ReadMessages(

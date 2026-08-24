@@ -33,7 +33,7 @@ func seedChat(
 	id string,
 	createdAtSec int64,
 ) {
-	chats.Rows = append(chats.Rows, domain.AgentChat{
+	chats.Rows = append(chats.Rows, domain.Chat{
 		ID:          id,
 		WorkspaceID: workspaceID,
 		CreatedAt:   time.Unix(createdAtSec, 0).UTC(),
@@ -47,7 +47,7 @@ func seedThread(
 	parentID string,
 	createdAtSec int64,
 ) {
-	chats.Rows = append(chats.Rows, domain.AgentChat{
+	chats.Rows = append(chats.Rows, domain.Chat{
 		ID:          id,
 		WorkspaceID: workspaceID,
 		ParentID:    parentID,
@@ -59,7 +59,7 @@ func folderRow(
 	t *testing.T,
 	folders *mocks.AgentChatFolderStore,
 	id string,
-) domain.AgentChatFolder {
+) domain.ChatFolder {
 	t.Helper()
 	row, err := folders.FindByKey(context.Background(), id)
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func chatRow(
 	t *testing.T,
 	chats *mocks.AgentChatPlacements,
 	id string,
-) domain.AgentChat {
+) domain.Chat {
 	t.Helper()
 	for _, c := range chats.Rows {
 		if c.ID == id {
@@ -79,16 +79,16 @@ func chatRow(
 		}
 	}
 	t.Fatalf("chat %s not found", id)
-	return domain.AgentChat{}
+	return domain.Chat{}
 }
 
 // folderRows is every folder the store still holds for this workspace.
 func folderRows(
 	t *testing.T,
 	folders *mocks.AgentChatFolderStore,
-) []domain.AgentChatFolder {
+) []domain.ChatFolder {
 	t.Helper()
-	rows, err := folders.FindWhere(context.Background(), domain.AgentChatFolder{WorkspaceID: workspaceID})
+	rows, err := folders.FindWhere(context.Background(), domain.ChatFolder{WorkspaceID: workspaceID})
 	require.NoError(t, err)
 	return rows
 }
@@ -172,7 +172,7 @@ func TestCreate_RefusesAParentThatDoesNotExist(t *testing.T) {
 // than as a missing row, because the two are fixed in different ways.
 func TestCreate_RefusesAFolderParentInAnotherWorkspace(t *testing.T) {
 	folders, _, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.Create(context.Background(), agentchatfolder.CreateInput{
 		WorkspaceID: workspaceID, ParentID: "f-other", Name: "spikes",
@@ -185,7 +185,7 @@ func TestCreate_RefusesAFolderParentInAnotherWorkspace(t *testing.T) {
 // context from a workspace the user is not in.
 func TestCreate_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 	_, chats, uc := newUsecase(t)
-	chats.Rows = append(chats.Rows, domain.AgentChat{ID: "c-other", WorkspaceID: "ws-2"})
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.Create(context.Background(), agentchatfolder.CreateInput{
 		WorkspaceID: workspaceID, ParentID: "c-other", Name: "spikes",
@@ -266,8 +266,8 @@ func TestCreate_SurfacesAChatRenumberFailure(t *testing.T) {
 func TestListInWorkspace_ScopesToTheWorkspace(t *testing.T) {
 	folders, _, uc := newUsecase(t)
 	folders.Rows = append(folders.Rows,
-		domain.AgentChatFolder{ID: "f1", WorkspaceID: workspaceID},
-		domain.AgentChatFolder{ID: "f2", WorkspaceID: "ws-2"},
+		domain.ChatFolder{ID: "f1", WorkspaceID: workspaceID},
+		domain.ChatFolder{ID: "f2", WorkspaceID: "ws-2"},
 	)
 
 	rows, err := uc.ListInWorkspace(context.Background(), workspaceID)
@@ -303,7 +303,7 @@ func TestRename_TrimsAndRefusesABlankName(t *testing.T) {
 // caller is concerned — any other answer would confirm a row it may not touch.
 func TestRename_RefusesAFolderInAnotherWorkspace(t *testing.T) {
 	folders, _, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
 
 	_, err := uc.Rename(context.Background(), workspaceID, "f-other", "new")
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -319,7 +319,7 @@ func TestRename_SurfacesAReadFailure(t *testing.T) {
 
 func TestRename_SurfacesASaveFailure(t *testing.T) {
 	folders, _, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f1", WorkspaceID: workspaceID})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f1", WorkspaceID: workspaceID})
 	folders.SaveErr = errors.New("disk full")
 
 	_, err := uc.Rename(context.Background(), workspaceID, "f1", "new")
@@ -410,7 +410,7 @@ func TestMove_RefusesAMoveIntoItsOwnSubtree(t *testing.T) {
 
 func TestMove_RefusesAFolderInAnotherWorkspace(t *testing.T) {
 	folders, _, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.Move(context.Background(), workspaceID, "f-other", agentchatfolder.MoveInput{})
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -479,7 +479,7 @@ func TestDelete_PromotesChildrenToTheFoldersOwnParent(t *testing.T) {
 
 func TestDelete_RefusesAFolderInAnotherWorkspace(t *testing.T) {
 	folders, _, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
 
 	_, err := uc.Delete(context.Background(), workspaceID, "f-other")
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -577,7 +577,7 @@ func TestPlaceChat_RefusesAMoveIntoItsOwnThread(t *testing.T) {
 
 func TestPlaceChat_RefusesAChatFromAnotherWorkspace(t *testing.T) {
 	_, chats, uc := newUsecase(t)
-	chats.Rows = append(chats.Rows, domain.AgentChat{ID: "c-other", WorkspaceID: "ws-2"})
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c-other", agentchatfolder.PlaceInput{})
 	assert.ErrorIs(t, err, apperr.ErrNotFound)

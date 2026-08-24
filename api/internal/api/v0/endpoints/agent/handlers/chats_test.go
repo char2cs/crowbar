@@ -17,7 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
@@ -36,7 +36,7 @@ import (
 func TestCreate_Success(
 	t *testing.T,
 ) {
-	tree := &fakeChatTree{placed: domain.AgentChat{ID: "chat-1"}}
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a"}`)
@@ -66,7 +66,7 @@ func TestCreate_Success(
 func TestCreate_ForwardsTheParentTheChatIsBornUnder(
 	t *testing.T,
 ) {
-	tree := &fakeChatTree{placed: domain.AgentChat{ID: "chat-1"}}
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat"}`)
@@ -120,11 +120,11 @@ func TestCreate_UsecaseError(
 // exercise a given branch. SpawnChat/IngestHook are not exercised through this
 // double (see fakeAgentUsecase for those).
 type configurableListGetUsecase struct {
-	chats     []domain.AgentChat
+	chats     []domain.Chat
 	listErr   error
 	listWsIDs []string
 
-	chat   domain.AgentChat
+	chat   domain.Chat
 	getErr error
 
 	// liveRunners maps a chat id to the runner PLACED on it. A chat ABSENT from
@@ -178,7 +178,7 @@ func (configurableListGetUsecase) IngestHookDelivery(
 func (u *configurableListGetUsecase) ListChatsByWorkspace(
 	_ context.Context,
 	wsID string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	u.listWsIDs = append(u.listWsIDs, wsID)
 	if u.listErr != nil {
 		return nil, u.listErr
@@ -189,9 +189,9 @@ func (u *configurableListGetUsecase) ListChatsByWorkspace(
 func (u *configurableListGetUsecase) GetChat(
 	_ context.Context,
 	_ string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if u.getErr != nil {
-		return domain.AgentChat{}, u.getErr
+		return domain.Chat{}, u.getErr
 	}
 	return u.chat, nil
 }
@@ -321,7 +321,7 @@ func TestList_Success(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats: []domain.AgentChat{
+		chats: []domain.Chat{
 			{ID: "c1", WorkspaceID: "ws1", CreatedAt: time.Unix(1, 0).UTC()},
 			{ID: "c2", WorkspaceID: "ws1", CreatedAt: time.Unix(2, 0).UTC()},
 		},
@@ -386,7 +386,7 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		// No live runner for c1: the chat is dormant.
 		conversations: map[string][]engineagents.ChatConversation{
 			"c1": {
@@ -422,7 +422,7 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		liveRunners: map[string]engineagents.Runner{
 			"c1": {
 				ID:              "run-1",
@@ -462,7 +462,7 @@ func TestList_ChatWithNoRunnerEverIsEmpty(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats: []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 	}
 	h := newChatHandlers(uc)
 
@@ -488,7 +488,7 @@ func TestList_LiveRunnerLookupError(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		chats:   []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		liveErr: errors.New("projection down"),
 	}
 	h := newChatHandlers(uc)
@@ -507,7 +507,7 @@ func TestList_ConversationsLookupError(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats:   []domain.AgentChat{{ID: "c1", WorkspaceID: "ws1"}},
+		chats:   []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		convErr: errors.New("projection down"),
 	}
 	h := newChatHandlers(uc)
@@ -527,7 +527,7 @@ func TestGet_Success(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1", Title: "a title"},
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws1", Title: "a title"},
 		liveRunners: map[string]engineagents.Runner{
 			"c1": {ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1", CurrentChatID: "c1"},
 		},
@@ -580,7 +580,7 @@ func TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chats: []domain.AgentChat{
+		chats: []domain.Chat{
 			{ID: "c1", WorkspaceID: "ws1"},
 			{ID: "c2", WorkspaceID: "ws1"},
 		},
@@ -621,7 +621,7 @@ func TestGet_CarriesTerminalWait(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws1"},
 		terminalWait: map[string]domain.AgentTerminalWait{
 			"c1": {Waiting: true, Kind: domain.AgentTerminalWaitTrust},
 		},
@@ -644,7 +644,7 @@ func TestGet_ConversationsIsNeverNull(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws1"},
 	}
 	h := newChatHandlers(uc)
 
@@ -665,7 +665,7 @@ func TestGet_RuntimeLookupError(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat:    domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		chat:    domain.Chat{ID: "c1", WorkspaceID: "ws1"},
 		liveErr: errors.New("projection down"),
 	}
 	h := newChatHandlers(uc)
@@ -686,7 +686,7 @@ func TestGet_WrongWorkspace404s(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
-		chat: domain.AgentChat{ID: "c1", WorkspaceID: "ws-other"},
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-other"},
 	}
 	h := newChatHandlers(uc)
 
@@ -744,7 +744,7 @@ func TestRename_PostsTitleAndSource(
 func TestRename_WrongWorkspace404s(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
@@ -821,10 +821,10 @@ func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
 	tree := &fakeChatTree{deletion: agentchatfolder.ChatDeletion{
 		Chats:   []string{"c-2", "c-1"},
 		Folders: []string{"f-1"},
-		Shifted: []domain.AgentChatFolder{{ID: "f-0", WorkspaceID: "ws-1"}},
+		Shifted: []domain.ChatFolder{{ID: "f-0", WorkspaceID: "ws-1"}},
 	}}
 	var frames []folderFrame
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-1"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-1"}}
 	h := newFolderHandlersWith(uc, tree, &frames)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/c-1", nil)
@@ -844,7 +844,7 @@ func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
 func TestDelete_WrongWorkspace404s(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
 	tree := &fakeChatTree{}
 	var frames []folderFrame
 	h := newFolderHandlersWith(uc, tree, &frames)
@@ -965,7 +965,7 @@ func TestSetSelection_EmptyBodyClearsBothHalves(
 func TestSetSelection_WrongWorkspace404s(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "c-1", WorkspaceID: "ws-other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"model":"opus"}`)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )

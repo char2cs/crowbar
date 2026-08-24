@@ -27,19 +27,19 @@ import (
 // makes ONE, so a count is the only assertion that can fail if the loop ever
 // comes back.
 type stubChatsByWorkspace struct {
-	byWS  map[string][]domain.AgentChat
+	byWS  map[string][]domain.Chat
 	calls int
 }
 
-func (s *stubChatsByWorkspace) Get(context.Context, string) (domain.AgentChat, error) {
-	return domain.AgentChat{}, nil
+func (s *stubChatsByWorkspace) Get(context.Context, string) (domain.Chat, error) {
+	return domain.Chat{}, nil
 }
 
 func (s *stubChatsByWorkspace) ListChats(
 	_ context.Context,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	s.calls++
-	var out []domain.AgentChat
+	var out []domain.Chat
 	for wsID, chats := range s.byWS {
 		for _, chat := range chats {
 			chat.WorkspaceID = wsID
@@ -52,14 +52,14 @@ func (s *stubChatsByWorkspace) ListChats(
 func listWorkspacesToolsOn(
 	t *testing.T,
 	callerWs string,
-	byWS map[string][]domain.AgentChat,
+	byWS map[string][]domain.Chat,
 ) (*agenttools.ToolSet, *stubChatsByWorkspace) {
 	t.Helper()
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	chats := &stubChatsByWorkspace{byWS: byWS}
 	return agenttools.NewToolSet(agenttools.Deps{
@@ -93,7 +93,7 @@ func TestListWorkspaces_ListsOnlyTheVisibleSetAndMarksSelf(t *testing.T) {
 }
 
 func TestListWorkspaces_IncludesEachWorkspacesChats(t *testing.T) {
-	byWS := map[string][]domain.AgentChat{
+	byWS := map[string][]domain.Chat{
 		"ws-a":  {{ID: "c1", Title: "Fix Auth Bug"}},
 		"ws-a1": {{ID: "c2", Title: "Refactor Parser"}},
 	}
@@ -113,7 +113,7 @@ func TestListWorkspaces_IncludesEachWorkspacesChats(t *testing.T) {
 // visible workspace decoded the whole table V times over. ws-a sees itself and
 // ws-a1, so a per-workspace loop would show up here as 2.
 func TestListWorkspaces_ReadsTheChatTableOnce(t *testing.T) {
-	byWS := map[string][]domain.AgentChat{
+	byWS := map[string][]domain.Chat{
 		"ws-a":  {{ID: "c1", Title: "Fix Auth Bug"}},
 		"ws-a1": {{ID: "c2", Title: "Refactor Parser"}},
 	}
@@ -140,7 +140,7 @@ func TestListWorkspaces_ReadsTheChatTableOnce(t *testing.T) {
 // every visible workspace is seeded so one with no chats still renders as itself
 // rather than vanishing.
 func TestChatsByWorkspace_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T) {
-	all := []domain.AgentChat{
+	all := []domain.Chat{
 		{ID: "c1", WorkspaceID: "ws-a", Title: "Fix Auth Bug"},
 		{ID: "secret-chat", WorkspaceID: "ws-b", Title: "Siblings Private Work"},
 	}
@@ -148,7 +148,7 @@ func TestChatsByWorkspace_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T)
 
 	got := agenttools.ChatsByWorkspaceForTest(all, visible)
 
-	require.Equal(t, map[string][]domain.AgentChat{
+	require.Equal(t, map[string][]domain.Chat{
 		"ws-a":  {{ID: "c1", WorkspaceID: "ws-a", Title: "Fix Auth Bug"}},
 		"ws-a1": nil,
 	}, got, "a chat whose workspace is not visible must not be bucketed at all")
@@ -160,7 +160,7 @@ func TestChatsByWorkspace_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T)
 // reads, and it must keep holding even if the bucketing ever changes shape.
 // ws-b is a sibling of ws-a, so neither its header nor its chat may appear.
 func TestListWorkspaces_DropsChatsOfWorkspacesTheCallerCannotSee(t *testing.T) {
-	byWS := map[string][]domain.AgentChat{
+	byWS := map[string][]domain.Chat{
 		"ws-a": {{ID: "c1", Title: "Fix Auth Bug"}},
 		"ws-b": {{ID: "secret-chat", Title: "Siblings Private Work"}},
 	}
@@ -245,7 +245,7 @@ func (s *stubLineage) Ancestors(
 // chat into the given workspace, and whose target chat is threaded off nobody.
 func chatLogToolsOn(
 	t *testing.T,
-	target domain.AgentChat,
+	target domain.Chat,
 	logs *stubChatLogs,
 ) *agenttools.ToolSet {
 	t.Helper()
@@ -256,7 +256,7 @@ func chatLogToolsOn(
 // the tests that turn on where the target sits relative to the caller.
 func chatLogToolsUnder(
 	t *testing.T,
-	target domain.AgentChat,
+	target domain.Chat,
 	logs *stubChatLogs,
 	lineage *stubLineage,
 ) *agenttools.ToolSet {
@@ -277,7 +277,7 @@ func TestGetChatLog_ReturnsTheLedgerRendering(t *testing.T) {
 		{Speaker: "user", Body: "hello"},
 		{Speaker: "assistant (claude)", Body: "hi"},
 	}}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
@@ -289,7 +289,7 @@ func TestGetChatLog_ReturnsTheLedgerRendering(t *testing.T) {
 // ws-b is a sibling, so it is not.
 func TestGetChatLog_RejectsAChatOutsideTheCallersScope(t *testing.T) {
 	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "secret"}}}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-b"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-b"}, logs)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
@@ -298,7 +298,7 @@ func TestGetChatLog_RejectsAChatOutsideTheCallersScope(t *testing.T) {
 
 func TestGetChatLog_RejectsAChatOnAnAncestorWorkspace(t *testing.T) {
 	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "secret"}}}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "repo-default"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "repo-default"}, logs)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
@@ -309,7 +309,7 @@ func TestGetChatLog_RejectsAChatOnAnAncestorWorkspace(t *testing.T) {
 // read as such rather than as a failure the model tries to work around.
 func TestGetChatLog_EmptyLedgerIsExplicitNotAnError(t *testing.T) {
 	logs := &stubChatLogs{}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestGetChatLog_AThreadReadsTheChatItHangsOff(t *testing.T) {
 	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "the parent's plan"}}}
 	// CHAT is the caller. Its own lineage names PARENT; PARENT's names nobody.
 	lineage := &stubLineage{byChat: map[string][]string{"CHAT": {"PARENT"}}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "PARENT", WorkspaceID: "ws-a"}, logs, lineage)
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "PARENT", WorkspaceID: "ws-a"}, logs, lineage)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"PARENT"}`))
 	require.NoError(t, err)
@@ -344,7 +344,7 @@ func TestGetChatLog_AThreadReadsTheChatItHangsOff(t *testing.T) {
 func TestGetChatLog_AChatCannotReadItsOwnThread(t *testing.T) {
 	logs := &stubChatLogs{turns: chatTurns(3)}
 	lineage := &stubLineage{byChat: map[string][]string{"THREAD": {"CHAT"}}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"THREAD"}`))
 	require.ErrorIs(t, err, agenttools.ErrOwnThread)
@@ -356,7 +356,7 @@ func TestGetChatLog_AChatCannotReadItsOwnThread(t *testing.T) {
 func TestGetChatLog_AChatCannotReadAThreadOfItsOwnThread(t *testing.T) {
 	logs := &stubChatLogs{turns: chatTurns(3)}
 	lineage := &stubLineage{byChat: map[string][]string{"DEEP": {"THREAD", "CHAT"}}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "DEEP", WorkspaceID: "ws-a"}, logs, lineage)
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "DEEP", WorkspaceID: "ws-a"}, logs, lineage)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"DEEP"}`))
 	require.ErrorIs(t, err, agenttools.ErrOwnThread)
@@ -371,7 +371,7 @@ func TestGetChatLog_AFiledThreadIsStillThisChatsThread(t *testing.T) {
 	// THREAD sits in a folder in a folder under CHAT; folders never appear in a
 	// lineage, so what the walk hands back is the caller and nothing else.
 	lineage := &stubLineage{byChat: map[string][]string{"THREAD": {"CHAT"}}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "THREAD", WorkspaceID: "ws-a"}, logs, lineage)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"THREAD"}`))
 	require.ErrorIs(t, err, agenttools.ErrOwnThread)
@@ -388,7 +388,7 @@ func TestGetChatLog_SiblingThreadsStillReadEachOther(t *testing.T) {
 		"CHAT":    {"PARENT"},
 		"SIBLING": {"PARENT"},
 	}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "SIBLING", WorkspaceID: "ws-a"}, logs, lineage)
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "SIBLING", WorkspaceID: "ws-a"}, logs, lineage)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"SIBLING"}`))
 	require.NoError(t, err)
@@ -400,7 +400,7 @@ func TestGetChatLog_SiblingThreadsStillReadEachOther(t *testing.T) {
 // your ancestors" rule.
 func TestGetChatLog_AnUnrelatedChatInScopeStaysReadable(t *testing.T) {
 	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "user", Body: "somebody else's work"}}}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"},
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"},
 		logs, &stubLineage{})
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -413,7 +413,7 @@ func TestGetChatLog_AnUnrelatedChatInScopeStaysReadable(t *testing.T) {
 // thread from a sibling.
 func TestGetChatLog_ALineageThatCannotBeReadRefuses(t *testing.T) {
 	logs := &stubChatLogs{turns: chatTurns(2)}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a"},
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "other", WorkspaceID: "ws-a"},
 		logs, &stubLineage{err: errors.New("tree unreadable")})
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -426,7 +426,7 @@ func TestGetChatLog_ALineageThatCannotBeReadRefuses(t *testing.T) {
 // workspace is turned away without the tree being read at all.
 func TestGetChatLog_AnOutOfScopeChatIsRefusedBeforeTheLineageIsRead(t *testing.T) {
 	lineage := &stubLineage{}
-	ts := chatLogToolsUnder(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-b"},
+	ts := chatLogToolsUnder(t, domain.Chat{ID: "other", WorkspaceID: "ws-b"},
 		&stubChatLogs{}, lineage)
 
 	_, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
@@ -439,7 +439,7 @@ func TestGetChatLog_AnOutOfScopeChatIsRefusedBeforeTheLineageIsRead(t *testing.T
 func TestGetChatLog_IsNotAdvertisedWithoutTheLineagePort(t *testing.T) {
 	m, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
-	chats := stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}}
+	chats := stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}}
 	res := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
 		chats, stubWorkspaces{all: tree()})

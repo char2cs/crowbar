@@ -144,7 +144,7 @@ func newReplyIdemFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	return &replyFixture{
 		ts: agenttools.NewToolSet(agenttools.Deps{

@@ -10,7 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/asynx"
@@ -65,8 +65,8 @@ func newContainerDeps(
 		hub.NewHub(),
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
-		newTestAsynx[domain.AgentChat](t, adapters.AgentChatES()),
-		newTestAsynx[domain.AgentActivity](t, adapters.AgentActivityES()),
+		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
+		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
 		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test

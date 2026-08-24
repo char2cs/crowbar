@@ -136,7 +136,7 @@ func (u *runnerUsecase) switchProviderLocked(
 
 func (u *runnerUsecase) displaceForSwitch(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 ) (bool, error) {
 	unlockTurnStart := u.turnStarts.lock(chat.ID)
 	defer unlockTurnStart()
@@ -199,7 +199,7 @@ func (u *runnerUsecase) quitOutgoingCLI(
 
 func (u *runnerUsecase) resumableConversation(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	targetProviderID string,
 ) (sessionID string, leftAt time.Time, err error) {
 	convs, err := u.runners.ConversationsForChat(ctx, chat.ID)

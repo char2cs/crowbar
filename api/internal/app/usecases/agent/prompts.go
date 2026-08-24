@@ -133,7 +133,7 @@ func normalisePromptRequest(
 
 func (u *runnerUsecase) replayPriorAttempt(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	journalDir, clientRequestID, textHash string,
 ) (domain.AgentPromptSubmission, bool, error) {
 	existing, found, err := u.prompts.Lookup(journalDir, clientRequestID, textHash)
@@ -154,7 +154,7 @@ func (u *runnerUsecase) replayPriorAttempt(
 
 func (u *runnerUsecase) promptTarget(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 ) (engineagents.Runner, engineagents.Agent, error) {
 	live, err := u.runners.LiveRunnerForChat(ctx, chat.ID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
@@ -269,7 +269,7 @@ func (u *runnerUsecase) requirePromptIdle(ctx context.Context, chatID, runnerID 
 	return nil
 }
 
-func (u *runnerUsecase) requireNoPendingPromptDelivery(ctx context.Context, chat domain.AgentChat) error {
+func (u *runnerUsecase) requireNoPendingPromptDelivery(ctx context.Context, chat domain.Chat) error {
 	if err := u.reconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: reconcile ledger evidence: %w", err)
 	}
@@ -337,7 +337,7 @@ func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmi
 
 func (u *runnerUsecase) classifyPriorAttempt(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	journalDir, clientRequestID string,
 	existing agentjournal.PromptRequest,
 ) (domain.AgentPromptSubmission, bool, error) {
@@ -358,7 +358,7 @@ func (u *runnerUsecase) classifyPriorAttempt(
 
 func (u *runnerUsecase) recoverPriorDelivery(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	journalDir, clientRequestID string,
 	existing agentjournal.PromptRequest,
 ) (domain.AgentPromptSubmission, bool, error) {
@@ -380,7 +380,7 @@ func (u *runnerUsecase) recoverPriorDelivery(
 
 func (u *runnerUsecase) promptRecordAccepted(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	record agentjournal.PromptRequest,
 ) (bool, error) {
 	turns, err := u.chat.chatTurns(ctx, chat.ID)
@@ -410,7 +410,7 @@ func deliveredThisRequest(
 
 func (u *runnerUsecase) reconcilePendingPromptFromLedger(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 ) error {
 	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
 	if err != nil {
@@ -433,7 +433,7 @@ func (u *runnerUsecase) reconcilePendingPromptFromLedger(
 
 func (u *runnerUsecase) confirmPromptAccepted(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	text string,
 ) error {

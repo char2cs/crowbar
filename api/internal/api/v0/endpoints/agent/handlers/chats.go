@@ -167,16 +167,16 @@ func (h *Handlers) chatRuntime(
 func (h *Handlers) requireChatInWorkspace(
 	ctx *gin.Context,
 	chatID string,
-) (domain.AgentChat, bool) {
+) (domain.Chat, bool) {
 	chat, err := h.chats.GetChat(ctx.Request.Context(), chatID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
-		return domain.AgentChat{}, false
+		return domain.Chat{}, false
 	}
 	if chat.WorkspaceID != ctx.Param("wsId") {
 		libs.WriteErr(ctx, http.StatusNotFound, "chat not found in workspace")
-		return domain.AgentChat{}, false
+		return domain.Chat{}, false
 	}
 	return chat, true
 }

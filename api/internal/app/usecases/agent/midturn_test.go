@@ -331,7 +331,7 @@ func (h *parkHandler) WithGroup(_ string) slog.Handler { return h }
 // into a freshly minted one, and the turn_stop lands over there. Nothing closes the
 // turn where it was opened.
 //
-// The cost is not cosmetic. domain.AgentChat.Working stays true forever, and the
+// The cost is not cosmetic. domain.Chat.Working stays true forever, and the
 // workspace's derived Working overlay (repositories.Container.agentWorking) keeps that
 // chat in its mid-turn set for the life of the daemon — so the sidebar and context-pill
 // spinners run forever over a workspace where nothing at all is happening. The chat ROWS

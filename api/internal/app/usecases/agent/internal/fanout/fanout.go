@@ -8,7 +8,7 @@
 package fanout
 
 import (
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 

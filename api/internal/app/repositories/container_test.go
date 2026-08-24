@@ -21,7 +21,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -77,9 +77,9 @@ func wsAx(
 func agentChatAx(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.AgentChat] {
+) asynx.Asynx[domain.Chat] {
 	t.Helper()
-	a, err := asynx.New[domain.AgentChat]().
+	a, err := asynx.New[domain.Chat]().
 		WithEventStore(ad.AgentChatES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -96,9 +96,9 @@ func agentChatAx(
 func agentActivityAx(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.AgentActivity] {
+) asynx.Asynx[domain.ChatActivity] {
 	t.Helper()
-	a, err := asynx.New[domain.AgentActivity]().
+	a, err := asynx.New[domain.ChatActivity]().
 		WithEventStore(ad.AgentActivityES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).

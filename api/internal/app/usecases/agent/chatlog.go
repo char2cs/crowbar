@@ -10,13 +10,13 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func (u *chatUsecase) recordTurn(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	providerID, runnerID, sessionID string,
 	role, text, effort string,
 ) error {
@@ -149,7 +149,7 @@ func (u *chatUsecase) renderConversation(
 
 func (u *chatUsecase) appendTurn(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	providerID string,
 	role, text string,
 ) error {
@@ -158,7 +158,7 @@ func (u *chatUsecase) appendTurn(
 
 func (u *chatUsecase) appendRunnerTurn(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	providerID, runnerID, sessionID string,
 	role, text string,
 ) error {

@@ -30,13 +30,13 @@ func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
 }
 
 type fakeChats struct {
-	byID map[string]domain.AgentChat
+	byID map[string]domain.Chat
 	err  error
 }
 
-func (f *fakeChats) GetChat(_ context.Context, id string) (domain.AgentChat, error) {
+func (f *fakeChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	if f.err != nil {
-		return domain.AgentChat{}, f.err
+		return domain.Chat{}, f.err
 	}
 	return f.byID[id], nil
 }

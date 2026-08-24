@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func (u *turnUsecase) openAssistantTurn(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 ) {
 	if err := u.activity.OpenTurn(ctx, agentactivity.TurnInput{
@@ -58,7 +58,7 @@ func (u *turnUsecase) handleTurn(
 
 func (u *turnUsecase) openTurnFromPrompt(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
@@ -159,7 +159,7 @@ func (u *turnUsecase) openTurnFromPrompt(
 
 func (u *turnUsecase) closeTurnFromStop(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,

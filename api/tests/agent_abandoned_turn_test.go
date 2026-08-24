@@ -17,7 +17,7 @@ import (
 // resuming that chat and completing another turn ever did.
 //
 // The cause was WHERE the teardown asked "is there a turn here to close?". It asked the
-// READ MODEL (agent.closeAbandonedTurn read domain.AgentChat.Working through GetChat) and
+// READ MODEL (agent.closeAbandonedTurn read domain.Chat.Working through GetChat) and
 // went home when the answer was no — but the read model is folded by an ASYNCHRONOUS
 // projection, while the turn is durable in the event log the instant the user_prompt hook
 // returns. A prompt landing just before a teardown therefore read back as "idle", and the

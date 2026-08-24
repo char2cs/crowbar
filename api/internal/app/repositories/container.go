@@ -20,8 +20,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -85,8 +85,8 @@ type Container struct {
 	// polling, no timeouts).
 	axWorkspace     asynx.Asynx[domain.Workspace]
 	axReviewThread  asynx.Asynx[domain.ReviewThread]
-	axAgentChat     asynx.Asynx[domain.AgentChat]
-	axAgentActivity asynx.Asynx[domain.AgentActivity]
+	axAgentChat     asynx.Asynx[domain.Chat]
+	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
@@ -146,8 +146,8 @@ func New(
 	h hub.WebSocketHub,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
-	axAgentChat asynx.Asynx[domain.AgentChat],
-	axAgentActivity asynx.Asynx[domain.AgentActivity],
+	axAgentChat asynx.Asynx[domain.Chat],
+	axAgentActivity asynx.Asynx[domain.ChatActivity],
 	axAgentRunner asynx.Asynx[agents.Runner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
@@ -610,7 +610,7 @@ func (c *Container) rebroadcast(
 //
 // The overlay MIRRORS the aggregate's own Working (evt.Aggregate.Working) rather than
 // re-deriving "busy" from the event kind. The fold — a turn being open OR async work
-// being in flight (domain.AgentChat.Working) — then lives in exactly ONE place, the
+// being in flight (domain.Chat.Working) — then lives in exactly ONE place, the
 // write side, and this cannot drift from what the chat row and REST reads report. It is
 // also why turn_stopped is NOT read as "idle" here: a chat waiting on a background task
 // ends its turn but stays Working, and this reads that Working straight off the event.
@@ -634,7 +634,7 @@ func (c *Container) rebroadcast(
 // consistent with the FE chat-row working map's accepted default-idle-on-load.
 func (c *Container) registerAgentWorkingProjection() error {
 	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
-		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 			wsID := evt.Aggregate.WorkspaceID
 			if wsID == "" {
 				return
@@ -653,7 +653,7 @@ func (c *Container) registerAgentWorkingProjection() error {
 		return fmt.Errorf("subscribe: %w", err)
 	}
 	if _, err := c.axAgentChat.OnForget(
-		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 			wsID := evt.Aggregate.WorkspaceID
 			if wsID == "" {
 				return

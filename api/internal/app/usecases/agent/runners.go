@@ -11,7 +11,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -127,7 +127,7 @@ func (u *runnerUsecase) ReconcileRunnersOnBoot(
 		u.reapCrashOrphanRunnerTmp(ctx, r)
 
 		// Close the turn it died in the middle of. Turn state has never been durable truth
-		// (domain.AgentChat.Working is documented as reconciled, not authoritative — a CLI
+		// (domain.Chat.Working is documented as reconciled, not authoritative — a CLI
 		// that dies mid-turn never sends the turn_stop hook that would close it), so
 		// repairing it asserts nothing about any process. Without this, a chat that was
 		// working when the daemon died comes back spinning and spins forever, and the

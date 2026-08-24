@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -55,19 +55,19 @@ type ChatUsecase interface {
 	// ListChats returns every chat the daemon knows, across all workspaces.
 	ListChats(
 		ctx context.Context,
-	) ([]domain.AgentChat, error)
+	) ([]domain.Chat, error)
 
 	// ListChatsByWorkspace returns one workspace's chats.
 	ListChatsByWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChat, error)
+	) ([]domain.Chat, error)
 
 	// GetChat reads one chat aggregate.
 	GetChat(
 		ctx context.Context,
 		id string,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 
 	// SetChatSelection records the model and effort the chat's next CLI is to be
 	// launched with, refusing a value the resolved provider does not declare with

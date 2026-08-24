@@ -80,9 +80,9 @@ func (r *Resolver) Ancestors(
 // authoritative answer in the whole map.
 func (r *Resolver) lookups(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 ) (map[string]string, map[string]bool, error) {
-	folders, err := r.folders.FindWhere(ctx, domain.AgentChatFolder{WorkspaceID: chat.WorkspaceID})
+	folders, err := r.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: chat.WorkspaceID})
 	if err != nil {
 		return nil, nil, fmt.Errorf("chat lineage: folders: %w", err)
 	}

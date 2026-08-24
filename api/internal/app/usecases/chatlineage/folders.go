@@ -14,6 +14,6 @@ import (
 type Folders interface {
 	FindWhere(
 		ctx context.Context,
-		match domain.AgentChatFolder,
-	) ([]domain.AgentChatFolder, error)
+		match domain.ChatFolder,
+	) ([]domain.ChatFolder, error)
 }

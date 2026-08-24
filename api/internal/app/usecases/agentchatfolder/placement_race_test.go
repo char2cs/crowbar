@@ -24,9 +24,9 @@ func staleAt(
 	createdAtSec int64,
 ) {
 	if chats.Stale == nil {
-		chats.Stale = map[string]domain.AgentChat{}
+		chats.Stale = map[string]domain.Chat{}
 	}
-	chats.Stale[id] = domain.AgentChat{
+	chats.Stale[id] = domain.Chat{
 		ID:          id,
 		WorkspaceID: workspaceID,
 		ParentID:    parentID,

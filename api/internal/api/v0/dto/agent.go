@@ -132,7 +132,7 @@ type AgentChatDTO struct {
 // wire shape. The zero ChatRuntime (no live runner, no history) is the honest shape of
 // a chat that has never had a runner: every derived field reads "".
 func AgentChatDTOFrom(
-	c domain.AgentChat,
+	c domain.Chat,
 	rt ChatRuntime,
 ) AgentChatDTO {
 	out := AgentChatDTO{
@@ -465,7 +465,7 @@ func activeProviderID(
 // ChatRuntime — dormant, no history — which is exactly what a chat missing from both
 // runner projections is.
 func AgentChatDTOList(
-	chats []domain.AgentChat,
+	chats []domain.Chat,
 	runtimes map[string]ChatRuntime,
 ) []AgentChatDTO {
 	out := make([]AgentChatDTO, 0, len(chats))
@@ -489,7 +489,7 @@ type AgentChatDetailDTO struct {
 // AgentChatDetailDTOFrom composes a chat and its derived runtime into the detail wire
 // shape, normalising nil conversations to [] so the envelope never carries null.
 func AgentChatDetailDTOFrom(
-	c domain.AgentChat,
+	c domain.Chat,
 	rt ChatRuntime,
 ) AgentChatDetailDTO {
 	convs := rt.Conversations
@@ -571,7 +571,7 @@ type AgentChatEvent struct {
 	// what a reconnect does, so the outage path and the live path repair
 	// identically.
 	FolderID string `json:"folderId,omitempty"`
-	// Working is the chat's folded busy state (domain.AgentChat.Working) as of this
+	// Working is the chat's folded busy state (domain.Chat.Working) as of this
 	// event — the spinner, answered by the server. Set on the CHAT kinds; meaningless
 	// on runner kinds, which are about a process and not about a conversation.
 	//

@@ -20,7 +20,7 @@ import (
 // title and creation time.
 func TestAgentChatDTOFrom_CarriesIdentityAndTitle(t *testing.T) {
 	created := time.Unix(1, 0).UTC()
-	got := dto.AgentChatDTOFrom(domain.AgentChat{
+	got := dto.AgentChatDTOFrom(domain.Chat{
 		ID:          "c1",
 		WorkspaceID: "ws1",
 		Title:       "a title",
@@ -38,7 +38,7 @@ func TestAgentChatDTOFrom_CarriesIdentityAndTitle(t *testing.T) {
 // field exists to disagree with it), its PTY, and the provider. Its provider outranks
 // the history, whose last entry can still name the OUTGOING vendor mid-switch.
 func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		LiveRunner: &agents.Runner{
 			ID:              "run-1",
 			ProviderID:      "vendor-b",
@@ -58,7 +58,7 @@ func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
 // activeProviderId still resolves — off the LAST conversation (history is oldest-first)
 // — so the provider dropdown shows the right vendor and Resume knows who to bring back.
 func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		Conversations: []agents.ChatConversation{
 			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC()},
 			{ChatID: "c1", ProviderID: "vendor-b", FirstSeenAt: time.Unix(2, 0).UTC()},
@@ -73,7 +73,7 @@ func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 // TestAgentChatDTOFrom_NeverRanIsAllEmpty proves a chat no runner has ever been placed
 // on derives to empty strings everywhere rather than erroring or inventing a provider.
 func TestAgentChatDTOFrom_NeverRanIsAllEmpty(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
 
 	assert.Empty(t, got.LiveRunnerID)
 	assert.Empty(t, got.TerminalSessionID)
@@ -89,7 +89,7 @@ func TestAgentChatDTOList_IsNonNil(t *testing.T) {
 	assert.Empty(t, got)
 
 	got = dto.AgentChatDTOList(
-		[]domain.AgentChat{{ID: "c1"}, {ID: "c2"}},
+		[]domain.Chat{{ID: "c1"}, {ID: "c2"}},
 		map[string]dto.ChatRuntime{
 			"c1": {LiveRunner: &agents.Runner{ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1"}},
 		},
@@ -114,7 +114,7 @@ func TestAgentChatDetailDTOFrom_CarriesConversations(t *testing.T) {
 		{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC()},
 	}
 	got := dto.AgentChatDetailDTOFrom(
-		domain.AgentChat{ID: "c1", WorkspaceID: "ws1"},
+		domain.Chat{ID: "c1", WorkspaceID: "ws1"},
 		dto.ChatRuntime{
 			LiveRunner:    &agents.Runner{ID: "run-1", ProviderID: "vendor-b", TerminalSession: "term-1"},
 			Conversations: convs,
@@ -130,7 +130,7 @@ func TestAgentChatDetailDTOFrom_CarriesConversations(t *testing.T) {
 // TestAgentChatDetailDTOFrom_ConversationsNeverNull keeps the envelope carrying [] on a
 // chat that has hosted no conversation yet, so the FE can map over it unguarded.
 func TestAgentChatDetailDTOFrom_ConversationsNeverNull(t *testing.T) {
-	got := dto.AgentChatDetailDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDetailDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
 
 	require.NotNil(t, got.Conversations)
 	assert.Empty(t, got.Conversations)
@@ -145,7 +145,7 @@ func TestAgentChatDetailDTOFrom_ConversationsNeverNull(t *testing.T) {
 // is durable config like the title, and the client needs it to show the picker's
 // current value.
 func TestAgentChatDTOFrom_CarriesTheStickySelection(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1", Model: "opus", Effort: "high"},
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", Model: "opus", Effort: "high"},
 		dto.ChatRuntime{})
 
 	assert.Equal(t, "opus", got.Model)
@@ -157,7 +157,7 @@ func TestAgentChatDTOFrom_CarriesTheStickySelection(t *testing.T) {
 // client might render as a selected value. Crowbar does not know what the default
 // resolves to and must not imply that it does.
 func TestAgentChatDTOFrom_UnselectedChatOmitsTheSelection(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestTerminalWaitDTOFrom_WaitingCarriesKind(t *testing.T) {
 // what it was before TerminalWait existed. A present-but-null field would break
 // that promise just as much as a wrong value would.
 func TestAgentChatDTOFrom_TerminalWaitOmittedWhenNotWaiting(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestAgentChatDTOFrom_TerminalWaitOmittedWhenNotWaiting(t *testing.T) {
 // TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting proves a chat whose
 // runtime reports a recognised prompt carries it on the wire, kind and all.
 func TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		TerminalWait: domain.AgentTerminalWait{
 			Waiting: true,
 			Kind:    domain.AgentTerminalWaitTrust,
@@ -245,7 +245,7 @@ func TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting(t *testing.T) {
 // a present, empty object rather than being omitted like the not-waiting case.
 // Presence is the verdict; the empty kind is the honest detail.
 func TestAgentChatDTOFrom_UnidentifiedTerminalWaitMarshalsAsEmptyObject(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.AgentChat{ID: "c1"}, dto.ChatRuntime{
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		TerminalWait: domain.AgentTerminalWait{Waiting: true},
 	})
 

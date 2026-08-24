@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -27,7 +27,7 @@ func scoped(t *testing.T, target string) (*gin.Context, *httptest.ResponseRecord
 }
 
 func inWorkspace(uc *fakeAgentUsecase) *fakeAgentUsecase {
-	uc.getChat = domain.AgentChat{ID: "chat-1", WorkspaceID: "ws-1"}
+	uc.getChat = domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}
 	return uc
 }
 
@@ -192,7 +192,7 @@ func TestActivity_SurfacesAReadFailure(t *testing.T) {
 }
 
 func TestActivity_RefusesAChatOutsideTheRouteScope(t *testing.T) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "another-ws"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "another-ws"}}
 	ctx, rec := scoped(t, "/activity")
 
 	newChatHandlers(uc).Activity(ctx)
@@ -212,7 +212,7 @@ func TestToolPayload_SurfacesAReadFailure(t *testing.T) {
 }
 
 func TestToolPayload_RefusesAChatOutsideTheRouteScope(t *testing.T) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "another-ws"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "another-ws"}}
 	ctx, rec := scoped(t, "/activity/tool-1/payload?side=request")
 	ctx.Params = append(ctx.Params, gin.Param{Key: "toolId", Value: "tool-1"})
 
@@ -223,7 +223,7 @@ func TestToolPayload_RefusesAChatOutsideTheRouteScope(t *testing.T) {
 
 func TestTelemetry_RefusesAChatOutsideTheRouteScope(t *testing.T) {
 	uc := &fakeAgentUsecase{
-		getChat:     domain.AgentChat{ID: "chat-1", WorkspaceID: "another-ws"},
+		getChat:     domain.Chat{ID: "chat-1", WorkspaceID: "another-ws"},
 		telemetryOK: true,
 	}
 	ctx, rec := scoped(t, "/telemetry")
@@ -388,7 +388,7 @@ func TestChoices_PropagatesAReadFailure(t *testing.T) {
 }
 
 func TestChoices_RefusesAChatOutsideTheScopedWorkspace(t *testing.T) {
-	uc := &fakeAgentUsecase{getChat: domain.AgentChat{ID: "chat-1", WorkspaceID: "other"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "other"}}
 	ctx, rec := scoped(t, "/choices")
 	newChatHandlers(uc).Choices(ctx)
 

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -16,7 +16,7 @@ import (
 
 func (u *turnUsecase) recordMessageDelta(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) {
@@ -48,7 +48,7 @@ func (u *turnUsecase) recordMessageDelta(
 
 func (u *turnUsecase) recordAssistantMessage(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	messageID, text, effort string,
 	reopen bool,
@@ -78,7 +78,7 @@ func assistantTurnID(messageID string) string { return "msg-" + messageID }
 
 func (u *turnUsecase) closeAssistantTurn(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
@@ -127,7 +127,7 @@ func hookMessageID(ctx context.Context) string { return "hook-" + turnID(ctx) }
 
 func (u *turnUsecase) closeTurnFromFailure(
 	ctx context.Context,
-	chat domain.AgentChat,
+	chat domain.Chat,
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {

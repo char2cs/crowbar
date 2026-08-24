@@ -121,7 +121,7 @@ func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := minter.Mint("RUN")
 
@@ -151,7 +151,7 @@ func TestToolSet_FoldsUnknownToolNamesIntoOneBucket(t *testing.T) {
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	ts := agenttools.NewToolSet(agenttools.Deps{
@@ -183,7 +183,7 @@ func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
 	require.NoError(t, err)
 	res := agenttools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	// Chats only: list_review_threads is a real tool name, but not on this set.

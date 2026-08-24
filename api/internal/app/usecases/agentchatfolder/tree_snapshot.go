@@ -23,8 +23,8 @@ import (
 // drawn and what it reads. So the container a chat hands over is simply its
 // ParentID, and a drag that changes it legitimately changes lineage.
 type treeSnapshot struct {
-	folders  []domain.AgentChatFolder
-	chats    []domain.AgentChat
+	folders  []domain.ChatFolder
+	chats    []domain.Chat
 	folderAt map[string]int
 	chatAt   map[string]int
 	plan     tree.Tree
@@ -34,8 +34,8 @@ type treeSnapshot struct {
 // Both kinds go into a single sibling space because that is how the panel draws
 // them: they interleave at every level and sort on one Order field.
 func newTreeSnapshot(
-	folders []domain.AgentChatFolder,
-	chats []domain.AgentChat,
+	folders []domain.ChatFolder,
+	chats []domain.Chat,
 ) *treeSnapshot {
 	t := &treeSnapshot{
 		folders:  folders,
@@ -75,7 +75,7 @@ func (t *treeSnapshot) nodes() []tree.Node {
 
 func (t *treeSnapshot) folder(
 	id string,
-) *domain.AgentChatFolder {
+) *domain.ChatFolder {
 	at, ok := t.folderAt[id]
 	if !ok {
 		return nil
@@ -85,7 +85,7 @@ func (t *treeSnapshot) folder(
 
 func (t *treeSnapshot) chat(
 	id string,
-) *domain.AgentChat {
+) *domain.Chat {
 	at, ok := t.chatAt[id]
 	if !ok {
 		return nil
@@ -99,7 +99,7 @@ func (t *treeSnapshot) chat(
 // saved with the placement it had before the drag.
 func (t *treeSnapshot) placedFolder(
 	id string,
-) *domain.AgentChatFolder {
+) *domain.ChatFolder {
 	row := t.folder(id)
 	node, ok := t.plan.Node(id)
 	if row == nil || !ok {
@@ -116,7 +116,7 @@ func (t *treeSnapshot) placedFolder(
 // it outright.
 func (t *treeSnapshot) placedChat(
 	id string,
-) *domain.AgentChat {
+) *domain.Chat {
 	row := t.chat(id)
 	node, ok := t.plan.Node(id)
 	if row == nil || !ok {
@@ -128,7 +128,7 @@ func (t *treeSnapshot) placedChat(
 }
 
 func (t *treeSnapshot) add(
-	row domain.AgentChatFolder,
+	row domain.ChatFolder,
 ) {
 	t.folderAt[row.ID] = len(t.folders)
 	t.folders = append(t.folders, row)
@@ -144,7 +144,7 @@ func (t *treeSnapshot) drop(
 		return
 	}
 	t.plan.Drop(id)
-	t.folders = slices.DeleteFunc(t.folders, func(f domain.AgentChatFolder) bool { return f.ID == id })
+	t.folders = slices.DeleteFunc(t.folders, func(f domain.ChatFolder) bool { return f.ID == id })
 	t.folderAt = make(map[string]int, len(t.folders))
 	for i, f := range t.folders {
 		t.folderAt[f.ID] = i
@@ -162,7 +162,7 @@ func (t *treeSnapshot) dropChat(
 		return
 	}
 	t.plan.Drop(id)
-	t.chats = slices.DeleteFunc(t.chats, func(c domain.AgentChat) bool { return c.ID == id })
+	t.chats = slices.DeleteFunc(t.chats, func(c domain.Chat) bool { return c.ID == id })
 	t.chatAt = make(map[string]int, len(t.chats))
 	for i, c := range t.chats {
 		t.chatAt[c.ID] = i

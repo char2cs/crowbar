@@ -42,14 +42,14 @@ type Store interface {
 	FindByKey(
 		ctx context.Context,
 		id string,
-	) (*domain.AgentChatFolder, error)
+	) (*domain.ChatFolder, error)
 	FindWhere(
 		ctx context.Context,
-		match domain.AgentChatFolder,
-	) ([]domain.AgentChatFolder, error)
+		match domain.ChatFolder,
+	) ([]domain.ChatFolder, error)
 	Save(
 		ctx context.Context,
-		folder domain.AgentChatFolder,
+		folder domain.ChatFolder,
 	) error
 	Delete(
 		ctx context.Context,
@@ -71,26 +71,26 @@ type Chats interface {
 	ListByWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChat, error)
+	) ([]domain.Chat, error)
 	GetChat(
 		ctx context.Context,
 		id string,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 	LoadChat(
 		ctx context.Context,
 		id string,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 	SetPlacement(
 		ctx context.Context,
 		chatID string,
 		parentID string,
 		order int,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 	SetOrder(
 		ctx context.Context,
 		chatID string,
 		order int,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 }
 
 // Agent is the agent usecase as this one sees it: the collaborator that owns the
@@ -187,7 +187,7 @@ type PlaceInput struct {
 type ChatDeletion struct {
 	Chats   []string
 	Folders []string
-	Shifted []domain.AgentChatFolder
+	Shifted []domain.ChatFolder
 }
 
 // Usecase owns Chats-panel folder CRUD, chat placement, and the dense sibling
@@ -198,7 +198,7 @@ type Usecase interface {
 	ListInWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChatFolder, error)
+	) ([]domain.ChatFolder, error)
 	// Create appends a new folder to the end of its parent's sibling space and
 	// densifies that level. It returns the new folder plus every OTHER folder the
 	// densify shifted, so the caller broadcasts the whole change rather than one
@@ -209,14 +209,14 @@ type Usecase interface {
 	Create(
 		ctx context.Context,
 		in CreateInput,
-	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	) (domain.ChatFolder, []domain.ChatFolder, error)
 	// Rename sets a folder's display name, leaving its placement untouched.
 	Rename(
 		ctx context.Context,
 		workspaceID string,
 		id string,
 		name string,
-	) (domain.AgentChatFolder, error)
+	) (domain.ChatFolder, error)
 	// Move re-parents and/or reorders a folder, densifying both the level it left
 	// and the level it joined. It returns the moved folder plus every other folder
 	// those two densifies shifted.
@@ -225,7 +225,7 @@ type Usecase interface {
 		workspaceID string,
 		id string,
 		in MoveInput,
-	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	) (domain.ChatFolder, []domain.ChatFolder, error)
 	// Delete removes a folder and PROMOTES what it held to the folder's own
 	// parent. It never cascades: a folder holds no conversation, so deleting the
 	// chats filed under it would destroy work the user only meant to unfile. It
@@ -234,7 +234,7 @@ type Usecase interface {
 		ctx context.Context,
 		workspaceID string,
 		id string,
-	) ([]domain.AgentChatFolder, error)
+	) ([]domain.ChatFolder, error)
 	// CreateChat mints a chat, places it under parentID, and starts providerID's
 	// vendor CLI on it — in that order, which is the whole contract.
 	//
@@ -275,7 +275,7 @@ type Usecase interface {
 		workspaceID string,
 		chatID string,
 		in PlaceInput,
-	) (domain.AgentChat, []domain.AgentChatFolder, error)
+	) (domain.Chat, []domain.ChatFolder, error)
 	// DeleteChat erases a chat AND EVERY DESCENDANT — every threaded chat below
 	// it, purged one aggregate at a time, and every folder caught inside that
 	// subtree.
@@ -318,8 +318,8 @@ func New(
 func (u *chatFolderUsecase) ListInWorkspace(
 	ctx context.Context,
 	workspaceID string,
-) ([]domain.AgentChatFolder, error) {
-	rows, err := u.folders.FindWhere(ctx, domain.AgentChatFolder{WorkspaceID: workspaceID})
+) ([]domain.ChatFolder, error) {
+	rows, err := u.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: workspaceID})
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: list in workspace: %w", err)
 	}
@@ -329,24 +329,24 @@ func (u *chatFolderUsecase) ListInWorkspace(
 func (u *chatFolderUsecase) Create(
 	ctx context.Context,
 	in CreateInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+) (domain.ChatFolder, []domain.ChatFolder, error) {
 	name, err := cleanName(in.Name)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	snapshot, err := u.snapshot(ctx, in.WorkspaceID)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	if cErr := u.checkContainer(ctx, snapshot, in.WorkspaceID, in.ParentID); cErr != nil {
-		return domain.AgentChatFolder{}, nil, cErr
+		return domain.ChatFolder{}, nil, cErr
 	}
 	id := in.ID
 	if id == "" {
 		id = uuid.NewString()
 	}
 	target := snapshot.plan.NextSlot(in.ParentID)
-	snapshot.add(domain.AgentChatFolder{
+	snapshot.add(domain.ChatFolder{
 		ID:          id,
 		WorkspaceID: in.WorkspaceID,
 		ParentID:    in.ParentID,
@@ -356,7 +356,7 @@ func (u *chatFolderUsecase) Create(
 	snapshot.plan.Reorder(in.ParentID, id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	return *snapshot.placedFolder(id), without(written, id), nil
 }
@@ -366,18 +366,18 @@ func (u *chatFolderUsecase) Rename(
 	workspaceID string,
 	id string,
 	name string,
-) (domain.AgentChatFolder, error) {
+) (domain.ChatFolder, error) {
 	clean, err := cleanName(name)
 	if err != nil {
-		return domain.AgentChatFolder{}, err
+		return domain.ChatFolder{}, err
 	}
 	current, err := u.load(ctx, workspaceID, id)
 	if err != nil {
-		return domain.AgentChatFolder{}, err
+		return domain.ChatFolder{}, err
 	}
 	current.Name = clean
 	if err := u.folders.Save(ctx, current); err != nil {
-		return domain.AgentChatFolder{}, fmt.Errorf("agent chat folder: rename %s: save: %w", id, err)
+		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: rename %s: save: %w", id, err)
 	}
 	return current, nil
 }
@@ -387,26 +387,26 @@ func (u *chatFolderUsecase) Move(
 	workspaceID string,
 	id string,
 	in MoveInput,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+) (domain.ChatFolder, []domain.ChatFolder, error) {
 	current, err := u.load(ctx, workspaceID, id)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	snapshot, err := u.snapshot(ctx, current.WorkspaceID)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
 	if mErr := u.checkMove(ctx, snapshot, current.WorkspaceID, id, destination); mErr != nil {
-		return domain.AgentChatFolder{}, nil, mErr
+		return domain.ChatFolder{}, nil, mErr
 	}
 	u.replace(snapshot, id, current.ParentID, destination, in.Order)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
-		return domain.AgentChatFolder{}, nil, err
+		return domain.ChatFolder{}, nil, err
 	}
 	return *snapshot.placedFolder(id), without(written, id), nil
 }
@@ -415,7 +415,7 @@ func (u *chatFolderUsecase) Delete(
 	ctx context.Context,
 	workspaceID string,
 	id string,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	current, err := u.load(ctx, workspaceID, id)
 	if err != nil {
 		return nil, err
@@ -504,21 +504,21 @@ func (u *chatFolderUsecase) PlaceChat(
 	workspaceID string,
 	chatID string,
 	in PlaceInput,
-) (domain.AgentChat, []domain.AgentChatFolder, error) {
+) (domain.Chat, []domain.ChatFolder, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
-		return domain.AgentChat{}, nil, err
+		return domain.Chat{}, nil, err
 	}
 	snapshot, err := u.snapshotAround(ctx, workspaceID, current)
 	if err != nil {
-		return domain.AgentChat{}, nil, err
+		return domain.Chat{}, nil, err
 	}
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
 	if mErr := u.checkMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
-		return domain.AgentChat{}, nil, mErr
+		return domain.Chat{}, nil, mErr
 	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the
 	// chat has been living under is still recoverable, and the comparison against
@@ -527,7 +527,7 @@ func (u *chatFolderUsecase) PlaceChat(
 	u.replace(snapshot, chatID, current.ParentID, destination, in.Order)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
-		return domain.AgentChat{}, nil, err
+		return domain.Chat{}, nil, err
 	}
 	u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
 	return *snapshot.placedChat(chatID), written, nil
@@ -742,13 +742,13 @@ func (u *chatFolderUsecase) load(
 	ctx context.Context,
 	workspaceID string,
 	id string,
-) (domain.AgentChatFolder, error) {
+) (domain.ChatFolder, error) {
 	row, err := u.folders.FindByKey(ctx, id)
 	if err != nil {
-		return domain.AgentChatFolder{}, fmt.Errorf("agent chat folder: get %s: %w", id, err)
+		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: get %s: %w", id, err)
 	}
 	if row == nil || row.WorkspaceID != workspaceID {
-		return domain.AgentChatFolder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
 	return *row, nil
 }
@@ -767,13 +767,13 @@ func (u *chatFolderUsecase) loadChat(
 	ctx context.Context,
 	workspaceID string,
 	chatID string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	chat, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
-		return domain.AgentChat{}, fmt.Errorf("agent chat folder: get chat %s: %w", chatID, err)
+		return domain.Chat{}, fmt.Errorf("agent chat folder: get chat %s: %w", chatID, err)
 	}
 	if chat.WorkspaceID != workspaceID {
-		return domain.AgentChat{}, fmt.Errorf(
+		return domain.Chat{}, fmt.Errorf(
 			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, apperr.ErrNotFound,
 		)
 	}
@@ -787,7 +787,7 @@ func (u *chatFolderUsecase) snapshot(
 	ctx context.Context,
 	workspaceID string,
 ) (*treeSnapshot, error) {
-	return u.snapshotAround(ctx, workspaceID, domain.AgentChat{})
+	return u.snapshotAround(ctx, workspaceID, domain.Chat{})
 }
 
 // snapshotAround is the same read with the SUBJECT's row corrected from the log
@@ -806,9 +806,9 @@ func (u *chatFolderUsecase) snapshot(
 func (u *chatFolderUsecase) snapshotAround(
 	ctx context.Context,
 	workspaceID string,
-	subject domain.AgentChat,
+	subject domain.Chat,
 ) (*treeSnapshot, error) {
-	folders, err := u.folders.FindWhere(ctx, domain.AgentChatFolder{WorkspaceID: workspaceID})
+	folders, err := u.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: workspaceID})
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: folders: %w", err)
 	}
@@ -822,9 +822,9 @@ func (u *chatFolderUsecase) snapshotAround(
 // corrected replaces the projected row for subject with the log-folded one, or
 // adds it when the projection has not caught up enough to list it at all.
 func corrected(
-	rows []domain.AgentChat,
-	subject domain.AgentChat,
-) []domain.AgentChat {
+	rows []domain.Chat,
+	subject domain.Chat,
+) []domain.Chat {
 	if subject.ID == "" {
 		return rows
 	}
@@ -844,9 +844,9 @@ func corrected(
 func (u *chatFolderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
-) ([]domain.AgentChatFolder, error) {
+) ([]domain.ChatFolder, error) {
 	ids := snapshot.plan.Dirty()
-	written := make([]domain.AgentChatFolder, 0, len(ids))
+	written := make([]domain.ChatFolder, 0, len(ids))
 	for _, id := range ids {
 		row, err := u.writeRow(ctx, snapshot, id)
 		if err != nil {
@@ -872,7 +872,7 @@ func (u *chatFolderUsecase) writeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	id string,
-) (*domain.AgentChatFolder, error) {
+) (*domain.ChatFolder, error) {
 	if row := snapshot.placedFolder(id); row != nil {
 		if err := u.folders.Save(ctx, *row); err != nil {
 			return nil, fmt.Errorf("agent chat folder: save %s: %w", id, err)
@@ -898,10 +898,10 @@ func (u *chatFolderUsecase) writeRow(
 // without drops the subject row from a written set, leaving the collateral the
 // caller broadcasts alongside it.
 func without(
-	rows []domain.AgentChatFolder,
+	rows []domain.ChatFolder,
 	id string,
-) []domain.AgentChatFolder {
-	out := make([]domain.AgentChatFolder, 0, len(rows))
+) []domain.ChatFolder {
+	out := make([]domain.ChatFolder, 0, len(rows))
 	for _, row := range rows {
 		if row.ID != id {
 			out = append(out, row)

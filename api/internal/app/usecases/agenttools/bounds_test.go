@@ -226,7 +226,7 @@ func TestGetChatLog_CapsATurnBodyAndSaysHowMuchItCut(t *testing.T) {
 	over := 42
 	body := longBody(agenttools.MaxTurnBodyCharsForTest + over)
 	logs := &stubChatLogs{turns: []agenttools.ChatTurn{{Speaker: "assistant (claude)", Body: body}}}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
@@ -592,7 +592,7 @@ func TestGetReviewScope_ClampsAnOversizedLimit(t *testing.T) {
 func TestGetChatLog_KeepsTheMostRecentTurnsAndSaysWhatItDropped(t *testing.T) {
 	total := 63
 	logs := &stubChatLogs{turns: chatTurns(total)}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
@@ -611,7 +611,7 @@ func TestGetChatLog_PagesBackwardsIntoOlderHistory(t *testing.T) {
 	total := 63
 	kept := agenttools.DefaultChatLogTurnsForTest
 	logs := &stubChatLogs{turns: chatTurns(total)}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log",
 		json.RawMessage(fmt.Sprintf(`{"chatId":"other","offset":%d}`, kept)))
@@ -632,7 +632,7 @@ func TestGetChatLog_PagesBackwardsIntoOlderHistory(t *testing.T) {
 func TestGetChatLog_ReachingTheStartSaysNothingIsOlder(t *testing.T) {
 	total := 25
 	logs := &stubChatLogs{turns: chatTurns(total)}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log",
 		json.RawMessage(fmt.Sprintf(`{"chatId":"other","offset":%d}`, total-5)))
@@ -645,7 +645,7 @@ func TestGetChatLog_ReachingTheStartSaysNothingIsOlder(t *testing.T) {
 
 func TestGetChatLog_ClampsAnOversizedLimit(t *testing.T) {
 	logs := &stubChatLogs{turns: chatTurns(agenttools.MaxChatLogTurnsForTest + 40)}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log",
 		json.RawMessage(`{"chatId":"other","limit":99999}`))
@@ -673,7 +673,7 @@ func TestBoundedTools_AnUntruncatedResultStillStatesItsTotal(t *testing.T) {
 	require.Contains(t, out, "Showing all 3 changed files.")
 
 	logs := &stubChatLogs{turns: chatTurns(4)}
-	chatTS := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	chatTS := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 	out, err = chatTS.Call(context.Background(), "get_chat_log", json.RawMessage(`{"chatId":"other"}`))
 	require.NoError(t, err)
 	require.Contains(t, out, "Showing all 4 turns, oldest first.")
@@ -700,7 +700,7 @@ func TestBoundedTools_PaginationCannotReachPastTheCallersScope(t *testing.T) {
 	// ws-b is a sibling of the caller's ws-a. Paging arguments must not change
 	// that the read is refused before ChatLogs is ever touched.
 	logs := &stubChatLogs{turns: chatTurns(5)}
-	chatTS := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-b"}, logs)
+	chatTS := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-b"}, logs)
 	_, err = chatTS.Call(context.Background(), "get_chat_log",
 		json.RawMessage(`{"chatId":"other","offset":0,"limit":100000}`))
 	require.ErrorIs(t, err, agenttools.ErrOutOfScope)
@@ -770,7 +770,7 @@ func TestGetReviewScope_ANegativeOffsetReadsAsTheFirstPage(t *testing.T) {
 func TestGetChatLog_ANegativeOffsetReadsAsTheNewestPage(t *testing.T) {
 	total := 5
 	logs := &stubChatLogs{turns: chatTurns(total)}
-	ts := chatLogToolsOn(t, domain.AgentChat{ID: "other", WorkspaceID: "ws-a1"}, logs)
+	ts := chatLogToolsOn(t, domain.Chat{ID: "other", WorkspaceID: "ws-a1"}, logs)
 
 	out, err := ts.Call(context.Background(), "get_chat_log",
 		json.RawMessage(`{"chatId":"other","offset":-1}`))

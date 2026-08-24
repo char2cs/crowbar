@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -136,14 +136,14 @@ func (u *chatUsecase) purgeChatLocked(
 
 func (u *chatUsecase) ListChats(
 	ctx context.Context,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return u.chats.ListChats(ctx)
 }
 
 func (u *chatUsecase) GetChat(
 	ctx context.Context,
 	id string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	return u.chats.GetChat(ctx, id)
 }
 
@@ -198,6 +198,6 @@ func lineageNoteText(
 func (u *chatUsecase) ListChatsByWorkspace(
 	ctx context.Context,
 	workspaceID string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return u.chats.ListByWorkspace(ctx, workspaceID)
 }

@@ -52,7 +52,7 @@ func file(
 	parentID string,
 ) {
 	t.Helper()
-	require.NoError(t, f.folders.Save(f.ctx, domain.AgentChatFolder{
+	require.NoError(t, f.folders.Save(f.ctx, domain.ChatFolder{
 		ID: id, WorkspaceID: "ws1", ParentID: parentID, Name: id,
 	}))
 }

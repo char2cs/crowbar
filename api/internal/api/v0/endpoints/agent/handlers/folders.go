@@ -104,7 +104,7 @@ func (h *Handlers) CreateFolder(
 		return
 	}
 	h.announceFolders(wsID, shifted, "folder_updated")
-	h.announceFolders(wsID, []domain.AgentChatFolder{created}, "folder_created")
+	h.announceFolders(wsID, []domain.ChatFolder{created}, "folder_created")
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, folderResponse{
 		Folder:  dto.AgentChatFolderDTOFrom(created),
 		Shifted: dto.AgentChatFolderDTOList(shifted),
@@ -144,10 +144,10 @@ func (h *Handlers) applyFolderPatch(
 	wsID string,
 	id string,
 	body patchFolderRequest,
-) (domain.AgentChatFolder, []domain.AgentChatFolder, error) {
+) (domain.ChatFolder, []domain.ChatFolder, error) {
 	if body.Name != nil {
 		if _, err := h.folders.Rename(ctx, wsID, id, *body.Name); err != nil {
-			return domain.AgentChatFolder{}, nil, err
+			return domain.ChatFolder{}, nil, err
 		}
 	}
 	return h.folders.Move(ctx, wsID, id, agentchatfolder.MoveInput{ParentID: body.ParentID, Order: body.Order})
@@ -217,7 +217,7 @@ func (h *Handlers) PlaceChat(
 // dragged would hold stale orders for its siblings until the next reconnect.
 func (h *Handlers) announceFolders(
 	wsID string,
-	rows []domain.AgentChatFolder,
+	rows []domain.ChatFolder,
 	kind string,
 ) {
 	for _, row := range rows {

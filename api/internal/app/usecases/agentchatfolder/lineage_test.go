@@ -19,7 +19,7 @@ func seedFolder(
 	id string,
 	parentID string,
 ) {
-	folders.Rows = append(folders.Rows, domain.AgentChatFolder{
+	folders.Rows = append(folders.Rows, domain.ChatFolder{
 		ID: id, WorkspaceID: workspaceID, ParentID: parentID, Name: id,
 	})
 }

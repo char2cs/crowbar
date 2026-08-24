@@ -139,9 +139,9 @@ type fakeAgentUsecase struct {
 
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
-	// first. The zero value (an empty domain.AgentChat, WorkspaceID "") makes
+	// first. The zero value (an empty domain.Chat, WorkspaceID "") makes
 	// the scope check pass by default for callers that leave :wsId unset too.
-	getChat    domain.AgentChat
+	getChat    domain.Chat
 	getChatErr error
 
 	activity      agentusecase.ChatActivity
@@ -244,16 +244,16 @@ func (f *fakeAgentUsecase) IngestHookDelivery(
 func (f *fakeAgentUsecase) ListChatsByWorkspace(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	return nil, nil
 }
 
 func (f *fakeAgentUsecase) GetChat(
 	_ context.Context,
 	_ string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if f.getChatErr != nil {
-		return domain.AgentChat{}, f.getChatErr
+		return domain.Chat{}, f.getChatErr
 	}
 	return f.getChat, nil
 }

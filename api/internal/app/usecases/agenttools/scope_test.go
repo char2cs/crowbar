@@ -21,12 +21,12 @@ type stubRunners struct {
 func (s stubRunners) Get(context.Context, string) (agents.Runner, error) { return s.r, s.err }
 
 type stubChats struct {
-	c    domain.AgentChat
-	list []domain.AgentChat
+	c    domain.Chat
+	list []domain.Chat
 }
 
-func (s stubChats) Get(context.Context, string) (domain.AgentChat, error) { return s.c, nil }
-func (s stubChats) ListChats(context.Context) ([]domain.AgentChat, error) {
+func (s stubChats) Get(context.Context, string) (domain.Chat, error) { return s.c, nil }
+func (s stubChats) ListChats(context.Context) ([]domain.Chat, error) {
 	return s.list, nil
 }
 
@@ -67,7 +67,7 @@ func resolverOn(t *testing.T, callerWs string) (*agenttools.Resolver, *agenttool
 	require.NoError(t, err)
 	return agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: callerWs}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()},
 	), m
 }
@@ -169,7 +169,7 @@ func TestResolve_NeverSeesDeletedWorkspaces(t *testing.T) {
 			require.NoError(t, err)
 			r := agenttools.NewResolver(m,
 				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: tc.caller}},
-				stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: tc.caller}},
+				stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: tc.caller}},
 				stubWorkspaces{all: deletedTree()})
 
 			c, err := r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
@@ -197,7 +197,7 @@ func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
 	require.NoError(t, err)
 	r := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: all})
 
 	c, err := r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
@@ -228,7 +228,7 @@ func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 	}
 	r := agenttools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "x"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "x"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "x"}},
 		stubWorkspaces{all: cyc})
 
 	c, err := r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
@@ -243,7 +243,7 @@ func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 func TestResolve_NilMinterFailsClosed(t *testing.T) {
 	r := agenttools.NewResolver(nil,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.AgentChat{ID: "CHAT", WorkspaceID: "ws-a"}},
+		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	_, err := r.Resolve(context.Background(), "RUN", "any-token")

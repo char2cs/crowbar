@@ -19,8 +19,8 @@ const workspaceID = "ws-1"
 // a moment after every placement write: the log fold (LoadChat) already has the
 // new parent while the projection the list serves has not folded it yet.
 type stubChats struct {
-	keyed  map[string]domain.AgentChat
-	listed []domain.AgentChat
+	keyed  map[string]domain.Chat
+	listed []domain.Chat
 	getErr error
 	list   error
 	lists  int
@@ -29,13 +29,13 @@ type stubChats struct {
 func (s *stubChats) LoadChat(
 	_ context.Context,
 	id string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.getErr != nil {
-		return domain.AgentChat{}, s.getErr
+		return domain.Chat{}, s.getErr
 	}
 	chat, ok := s.keyed[id]
 	if !ok {
-		return domain.AgentChat{}, errors.New("no such chat")
+		return domain.Chat{}, errors.New("no such chat")
 	}
 	return chat, nil
 }
@@ -43,7 +43,7 @@ func (s *stubChats) LoadChat(
 func (s *stubChats) ListByWorkspace(
 	_ context.Context,
 	_ string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	s.lists++
 	if s.list != nil {
 		return nil, s.list
@@ -52,15 +52,15 @@ func (s *stubChats) ListByWorkspace(
 }
 
 type stubFolders struct {
-	rows  []domain.AgentChatFolder
+	rows  []domain.ChatFolder
 	err   error
 	finds int
 }
 
 func (s *stubFolders) FindWhere(
 	_ context.Context,
-	_ domain.AgentChatFolder,
-) ([]domain.AgentChatFolder, error) {
+	_ domain.ChatFolder,
+) ([]domain.ChatFolder, error) {
 	s.finds++
 	if s.err != nil {
 		return nil, s.err
@@ -71,24 +71,24 @@ func (s *stubFolders) FindWhere(
 func chat(
 	id string,
 	parentID string,
-) domain.AgentChat {
-	return domain.AgentChat{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
+) domain.Chat {
+	return domain.Chat{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
 }
 
 func folder(
 	id string,
 	parentID string,
-) domain.AgentChatFolder {
-	return domain.AgentChatFolder{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
+) domain.ChatFolder {
+	return domain.ChatFolder{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
 }
 
 // tree builds a resolver over one workspace's rows, keying the chats for the
 // authoritative read and listing the same rows for the walk.
 func tree(
-	chats []domain.AgentChat,
-	folders []domain.AgentChatFolder,
+	chats []domain.Chat,
+	folders []domain.ChatFolder,
 ) (*stubFolders, *stubChats, *chatlineage.Resolver) {
-	keyed := make(map[string]domain.AgentChat, len(chats))
+	keyed := make(map[string]domain.Chat, len(chats))
 	for _, c := range chats {
 		keyed[c.ID] = c
 	}
@@ -98,7 +98,7 @@ func tree(
 }
 
 func TestAncestors_AChatUnderAChatReadsIt(t *testing.T) {
-	_, _, resolver := tree([]domain.AgentChat{chat("c1", ""), chat("c2", "c1")}, nil)
+	_, _, resolver := tree([]domain.Chat{chat("c1", ""), chat("c2", "c1")}, nil)
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
 	require.NoError(t, err)
@@ -111,8 +111,8 @@ func TestAncestors_AChatUnderAChatReadsIt(t *testing.T) {
 // thread inherits nothing.
 func TestAncestors_StepsThroughTwoFolders(t *testing.T) {
 	_, _, resolver := tree(
-		[]domain.AgentChat{chat("c1", ""), chat("c2", "f2")},
-		[]domain.AgentChatFolder{folder("f1", "c1"), folder("f2", "f1")},
+		[]domain.Chat{chat("c1", ""), chat("c2", "f2")},
+		[]domain.ChatFolder{folder("f1", "c1"), folder("f2", "f1")},
 	)
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
@@ -123,8 +123,8 @@ func TestAncestors_StepsThroughTwoFolders(t *testing.T) {
 
 func TestAncestors_ReturnsTheWholeChainNearestFirst(t *testing.T) {
 	_, _, resolver := tree(
-		[]domain.AgentChat{chat("c1", ""), chat("c2", "c1"), chat("c3", "f1")},
-		[]domain.AgentChatFolder{folder("f1", "c2")},
+		[]domain.Chat{chat("c1", ""), chat("c2", "c1"), chat("c3", "f1")},
+		[]domain.ChatFolder{folder("f1", "c2")},
 	)
 
 	got, err := resolver.Ancestors(context.Background(), "c3")
@@ -136,7 +136,7 @@ func TestAncestors_ReturnsTheWholeChainNearestFirst(t *testing.T) {
 // table scans are what this feature would otherwise charge every spawn in the
 // daemon for a relationship almost none of them have.
 func TestAncestors_AChatAtTheRootReadsNoTables(t *testing.T) {
-	folders, chats, resolver := tree([]domain.AgentChat{chat("c1", "")}, nil)
+	folders, chats, resolver := tree([]domain.Chat{chat("c1", "")}, nil)
 
 	got, err := resolver.Ancestors(context.Background(), "c1")
 	require.NoError(t, err)
@@ -149,8 +149,8 @@ func TestAncestors_AChatAtTheRootReadsNoTables(t *testing.T) {
 // still inherits nothing — the walk finds a folder above it and then the root.
 func TestAncestors_AChatFiledInARootFolderInheritsNothing(t *testing.T) {
 	_, _, resolver := tree(
-		[]domain.AgentChat{chat("c1", "f1")},
-		[]domain.AgentChatFolder{folder("f1", "")},
+		[]domain.Chat{chat("c1", "f1")},
+		[]domain.ChatFolder{folder("f1", "")},
 	)
 
 	got, err := resolver.Ancestors(context.Background(), "c1")
@@ -172,8 +172,8 @@ func TestAncestors_ThePlacementComesFromTheLogFoldNotTheStaleList(t *testing.T) 
 	placed := chat("c2", "c1")
 	unplaced := chat("c2", "")
 	cs := &stubChats{
-		keyed:  map[string]domain.AgentChat{"c1": chat("c1", ""), "c2": placed},
-		listed: []domain.AgentChat{chat("c1", ""), unplaced},
+		keyed:  map[string]domain.Chat{"c1": chat("c1", ""), "c2": placed},
+		listed: []domain.Chat{chat("c1", ""), unplaced},
 	}
 	resolver := chatlineage.New(&stubFolders{}, cs)
 
@@ -192,10 +192,10 @@ func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {
 }
 
 func TestAncestors_SurfacesAFolderReadFailure(t *testing.T) {
-	folders, _, _ := tree([]domain.AgentChat{chat("c1", ""), chat("c2", "c1")}, nil)
+	folders, _, _ := tree([]domain.Chat{chat("c1", ""), chat("c2", "c1")}, nil)
 	folders.err = errors.New("folders down")
 	resolver := chatlineage.New(folders, &stubChats{
-		keyed: map[string]domain.AgentChat{"c2": chat("c2", "c1")},
+		keyed: map[string]domain.Chat{"c2": chat("c2", "c1")},
 	})
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
@@ -204,7 +204,7 @@ func TestAncestors_SurfacesAFolderReadFailure(t *testing.T) {
 
 func TestAncestors_SurfacesAChatListFailure(t *testing.T) {
 	cs := &stubChats{
-		keyed: map[string]domain.AgentChat{"c2": chat("c2", "c1")},
+		keyed: map[string]domain.Chat{"c2": chat("c2", "c1")},
 		list:  errors.New("chats down"),
 	}
 	resolver := chatlineage.New(&stubFolders{}, cs)

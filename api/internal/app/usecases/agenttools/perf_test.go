@@ -56,7 +56,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -140,7 +140,7 @@ type countingChats struct {
 func (c *countingChats) Get(
 	ctx context.Context,
 	chatID string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	c.gets.Add(1)
 	return c.chats.GetChat(ctx, chatID)
 }
@@ -148,14 +148,14 @@ func (c *countingChats) Get(
 func (c *countingChats) ListByWorkspace(
 	ctx context.Context,
 	wsID string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	c.byWs.Add(1)
 	return c.chats.ListByWorkspace(ctx, wsID)
 }
 
 func (c *countingChats) ListChats(
 	ctx context.Context,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	c.lists.Add(1)
 	return c.chats.ListChats(ctx)
 }
@@ -339,7 +339,7 @@ func newPerfChatStore(
 	adapters *adapter.Container,
 ) agentchat.EventStore {
 	b.Helper()
-	ax, err := asynx.New[domain.AgentChat]().
+	ax, err := asynx.New[domain.Chat]().
 		WithEventStore(adapters.AgentChatES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).

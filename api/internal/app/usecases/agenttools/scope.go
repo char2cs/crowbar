@@ -60,7 +60,7 @@ type RunnerReader interface {
 // never enumerates — handing it the listing half would give the authority path a
 // capability it has no use for.
 type ChatGetter interface {
-	Get(ctx context.Context, chatID string) (domain.AgentChat, error)
+	Get(ctx context.Context, chatID string) (domain.Chat, error)
 }
 
 // ChatReader is the read port the chat-facing tools need from the chat store:
@@ -74,7 +74,7 @@ type ChatGetter interface {
 // costs one pass instead.
 type ChatReader interface {
 	ChatGetter
-	ListChats(ctx context.Context) ([]domain.AgentChat, error)
+	ListChats(ctx context.Context) ([]domain.Chat, error)
 }
 
 // WorkspaceLister is the narrow read port the resolver needs from the

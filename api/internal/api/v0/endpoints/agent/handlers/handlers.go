@@ -24,12 +24,12 @@ type ChatUsecase interface {
 	ListChatsByWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChat, error)
+	) ([]domain.Chat, error)
 
 	GetChat(
 		ctx context.Context,
 		id string,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 
 	ReadMessages(
 		ctx context.Context,
@@ -290,28 +290,28 @@ type ChatTreeUsecase interface {
 	ListInWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChatFolder, error)
+	) ([]domain.ChatFolder, error)
 	Create(
 		ctx context.Context,
 		in agentchatfolder.CreateInput,
-	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	) (domain.ChatFolder, []domain.ChatFolder, error)
 	Rename(
 		ctx context.Context,
 		workspaceID string,
 		id string,
 		name string,
-	) (domain.AgentChatFolder, error)
+	) (domain.ChatFolder, error)
 	Move(
 		ctx context.Context,
 		workspaceID string,
 		id string,
 		in agentchatfolder.MoveInput,
-	) (domain.AgentChatFolder, []domain.AgentChatFolder, error)
+	) (domain.ChatFolder, []domain.ChatFolder, error)
 	Delete(
 		ctx context.Context,
 		workspaceID string,
 		id string,
-	) ([]domain.AgentChatFolder, error)
+	) ([]domain.ChatFolder, error)
 	// CreateChat mints a chat, places it under parentID (a chat, a folder, or "" for
 	// the panel root) and starts providerID's CLI on it — in that order, so a chat
 	// created as a THREAD carries the parent edge before its first CLI exists and is
@@ -328,7 +328,7 @@ type ChatTreeUsecase interface {
 		workspaceID string,
 		chatID string,
 		in agentchatfolder.PlaceInput,
-	) (domain.AgentChat, []domain.AgentChatFolder, error)
+	) (domain.Chat, []domain.ChatFolder, error)
 	DeleteChat(
 		ctx context.Context,
 		chatID string,

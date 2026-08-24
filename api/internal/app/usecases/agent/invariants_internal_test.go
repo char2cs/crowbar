@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -215,6 +215,6 @@ type workingChats struct {
 	working bool
 }
 
-func (c workingChats) GetChat(_ context.Context, id string) (domain.AgentChat, error) {
-	return domain.AgentChat{ID: id, Working: c.working}, nil
+func (c workingChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
+	return domain.Chat{ID: id, Working: c.working}, nil
 }

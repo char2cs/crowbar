@@ -152,10 +152,10 @@ func listWorkspaces(
 // about anything else — moving the read out of the loop must not move the
 // boundary with it.
 func chatsByWorkspace(
-	all []domain.AgentChat,
+	all []domain.Chat,
 	visible []domain.Workspace,
-) map[string][]domain.AgentChat {
-	out := make(map[string][]domain.AgentChat, len(visible))
+) map[string][]domain.Chat {
+	out := make(map[string][]domain.Chat, len(visible))
 	for _, w := range visible {
 		out[w.ID] = nil
 	}

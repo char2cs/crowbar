@@ -22,7 +22,7 @@ type Runners interface {
 }
 
 type Chats interface {
-	GetChat(ctx context.Context, id string) (domain.AgentChat, error)
+	GetChat(ctx context.Context, id string) (domain.Chat, error)
 }
 
 type Choices interface {

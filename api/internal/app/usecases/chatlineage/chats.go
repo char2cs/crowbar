@@ -29,9 +29,9 @@ type Chats interface {
 	LoadChat(
 		ctx context.Context,
 		id string,
-	) (domain.AgentChat, error)
+	) (domain.Chat, error)
 	ListByWorkspace(
 		ctx context.Context,
 		workspaceID string,
-	) ([]domain.AgentChat, error)
+	) ([]domain.Chat, error)
 }
