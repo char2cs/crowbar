@@ -5,19 +5,15 @@ import (
 	"errors"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/answers"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/hooks"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/move"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/selection"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/termprompt"
 )
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
@@ -84,7 +80,7 @@ func New() Agents {
 }
 
 func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
-	descriptors, err := descriptor.All(ctx, homeDir)
+	descriptors, err := protocol.All(ctx, homeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +92,7 @@ func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
 }
 
 func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
-	d, err := descriptor.Resolve(ctx, homeDir, id)
+	d, err := protocol.Resolve(ctx, homeDir, id)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +129,7 @@ func (a *agent) Display() Display {
 	return Display{Name: a.spec.DisplayName, Icon: a.spec.Icon}
 }
 
-func (a *agent) Installed() bool { return descriptor.Installed(a.spec.Spawn.Cmd) }
+func (a *agent) Installed() bool { return protocol.Installed(a.spec.Spawn.Cmd) }
 
 func (a *agent) Capabilities() Capabilities {
 	caps := Capabilities{
@@ -142,8 +138,8 @@ func (a *agent) Capabilities() Capabilities {
 		ModelSelect:  a.spec.Model != nil,
 		EffortSelect: a.spec.Effort != nil,
 
-		TerminalPrompts: termprompt.Declared(a.spec),
-		Observes:        hooks.Declared(a.spec),
+		TerminalPrompts: protocol.TerminalPrompts(a.spec),
+		Observes:        protocol.Observes(a.spec),
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
 		caps.PromptSubmit = true
@@ -205,15 +201,15 @@ func (a *agent) ResumeArg() (string, bool) {
 }
 
 func (a *agent) ParseHook(canonical string, raw []byte) (CanonicalEvent, error) {
-	return hooks.Parse(a.spec, canonical, raw)
+	return protocol.Recv(a.spec, canonical, raw)
 }
 
 func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {
-	return telemetry.ParseCallback(a.spec, raw, now)
+	return protocol.RecvTelemetry(a.spec, raw, now)
 }
 
 func (a *agent) AnswerCapability(canonical string) (AnswerCapability, bool) {
-	return answers.Capability(a.spec, canonical)
+	return protocol.AnswerCapability(a.spec, canonical)
 }
 
 func (a *agent) RenderAnswer(
@@ -221,7 +217,7 @@ func (a *agent) RenderAnswer(
 	raw []byte,
 	decision AnswerDecision,
 ) ([]byte, error) {
-	return answers.Render(a.spec, canonical, raw, decision)
+	return protocol.Reply(a.spec, canonical, raw, decision)
 }
 
 func (a *agent) SlashCatalog(
@@ -233,7 +229,7 @@ func (a *agent) SlashCatalog(
 }
 
 func (a *agent) MatchTerminalPrompt(screen string) (TerminalPrompt, bool) {
-	return termprompt.Match(a.spec, screen)
+	return protocol.MatchTerminalPrompt(a.spec, screen)
 }
 
 func (a *agent) ProbeTelemetry(
@@ -242,7 +238,7 @@ func (a *agent) ProbeTelemetry(
 	acquire Acquire,
 	now time.Time,
 ) (Telemetry, error) {
-	return telemetry.Probe(ctx, a.spec, opts, acquire, now)
+	return protocol.ProbeTelemetry(ctx, a.spec, opts, acquire, now)
 }
 
 var (

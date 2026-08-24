@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor/internal/schema"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/schema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 

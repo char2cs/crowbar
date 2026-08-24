@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor/internal/rules"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 

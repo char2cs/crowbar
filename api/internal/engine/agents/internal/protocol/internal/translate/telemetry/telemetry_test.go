@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/telemetry"
 )
 
 var at = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)

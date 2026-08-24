@@ -372,7 +372,7 @@ func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	descriptors := filepath.Join(filepath.Dir(filepath.Dir(thisFile)),
-		"internal", "engine", "agents", "internal", "descriptor", "descriptors-v3")
+		"internal", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3")
 
 	entries, err := os.ReadDir(descriptors)
 	require.NoError(t, err)

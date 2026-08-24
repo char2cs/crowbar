@@ -1,4 +1,4 @@
-package hooks_test
+package inbound_test
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/hooks"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -26,7 +26,7 @@ func TestParse_MapsTheConversationFields(t *testing.T) {
 		spec.HookUserPrompt: {"message": "prompt", "session_id": "session_id"},
 	})
 
-	ev, err := hooks.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi","session_id":"s1"}`))
+	ev, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi","session_id":"s1"}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, spec.HookUserPrompt, ev.Kind)
@@ -37,7 +37,7 @@ func TestParse_MapsTheConversationFields(t *testing.T) {
 func TestParse_UnmappedFieldsStayZero(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
-	ev, err := hooks.Parse(d, spec.HookTurnStop, []byte(`{"last":"done","effort":{"level":"high"}}`))
+	ev, err := inbound.Parse(d, spec.HookTurnStop, []byte(`{"last":"done","effort":{"level":"high"}}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, "done", ev.Message)
@@ -47,7 +47,7 @@ func TestParse_UnmappedFieldsStayZero(t *testing.T) {
 func TestParse_AnEmptyPayloadIsNotAnError(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
-	ev, err := hooks.Parse(d, spec.HookTurnStop, nil)
+	ev, err := inbound.Parse(d, spec.HookTurnStop, nil)
 
 	require.NoError(t, err)
 	assert.Empty(t, ev.Message)
@@ -56,7 +56,7 @@ func TestParse_AnEmptyPayloadIsNotAnError(t *testing.T) {
 func TestParse_MalformedPayloadIsAnError(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
-	_, err := hooks.Parse(d, spec.HookTurnStop, []byte(`{not json`))
+	_, err := inbound.Parse(d, spec.HookTurnStop, []byte(`{not json`))
 
 	assert.Error(t, err)
 }
@@ -65,17 +65,17 @@ func TestParse_UnsupportedFormatIsAnError(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 	d.Runtime.Hooks.Format = "toml"
 
-	_, err := hooks.Parse(d, spec.HookTurnStop, []byte(`{}`))
+	_, err := inbound.Parse(d, spec.HookTurnStop, []byte(`{}`))
 
-	assert.ErrorIs(t, err, hooks.ErrUnsupportedFormat)
+	assert.ErrorIs(t, err, inbound.ErrUnsupportedFormat)
 }
 
 func TestParse_AnUndeclaredEventIsReportedAsUndeclared(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
-	_, err := hooks.Parse(d, spec.HookNotification, []byte(`{}`))
+	_, err := inbound.Parse(d, spec.HookNotification, []byte(`{}`))
 
-	assert.ErrorIs(t, err, hooks.ErrUndeclaredEvent)
+	assert.ErrorIs(t, err, inbound.ErrUndeclaredEvent)
 }
 
 func TestParse_DropsAPayloadThatIsNotThisCLIsOwnConversation(t *testing.T) {
@@ -84,11 +84,11 @@ func TestParse_DropsAPayloadThatIsNotThisCLIsOwnConversation(t *testing.T) {
 		"transcript_path",
 	)
 
-	_, err := hooks.Parse(d, spec.HookUserPrompt,
+	_, err := inbound.Parse(d, spec.HookUserPrompt,
 		[]byte(`{"prompt":"consolidate memories","transcript_path":null}`))
 
-	require.ErrorIs(t, err, hooks.ErrForeignConversation)
-	var foreign *hooks.ForeignConversationError
+	require.ErrorIs(t, err, inbound.ErrForeignConversation)
+	var foreign *inbound.ForeignConversationError
 	require.ErrorAs(t, err, &foreign)
 	assert.Equal(t, "transcript_path", foreign.Field,
 		"the drop must say which declared field gave it away")
@@ -100,18 +100,18 @@ func TestParse_TreatsAnExplicitNullAsAbsentForTheOwnershipGuard(t *testing.T) {
 		"transcript_path",
 	)
 
-	_, nullErr := hooks.Parse(d, spec.HookUserPrompt, []byte(`{"transcript_path":null}`))
-	_, realErr := hooks.Parse(d, spec.HookUserPrompt,
+	_, nullErr := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"transcript_path":null}`))
+	_, realErr := inbound.Parse(d, spec.HookUserPrompt,
 		[]byte(`{"prompt":"hi","transcript_path":"/rollouts/x.jsonl"}`))
 
-	assert.ErrorIs(t, nullErr, hooks.ErrForeignConversation)
+	assert.ErrorIs(t, nullErr, inbound.ErrForeignConversation)
 	assert.NoError(t, realErr)
 }
 
 func TestParse_ADescriptorDeclaringNoGuardIsUnaffected(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}})
 
-	_, err := hooks.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi","transcript_path":null}`))
+	_, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi","transcript_path":null}`))
 
 	assert.NoError(t, err)
 }
@@ -153,7 +153,7 @@ func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
 			}
 			d := descriptor(map[string]map[string]string{spec.HookTurnStop: mapping})
 
-			ev, err := hooks.Parse(d, spec.HookTurnStop, []byte(tc.payload))
+			ev, err := inbound.Parse(d, spec.HookTurnStop, []byte(tc.payload))
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, ev.AsyncWork)
@@ -173,7 +173,7 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 		},
 	})
 
-	pre, err := hooks.Parse(d, spec.HookToolPre,
+	pre, err := inbound.Parse(d, spec.HookToolPre,
 		[]byte(`{"tool_use_id":"t1","tool_name":"Edit","tool_input":{"file_path":"a.go"}}`))
 	require.NoError(t, err)
 	require.NotNil(t, pre.Tool)
@@ -182,7 +182,7 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, "a.go", pre.Tool.Target)
 	assert.JSONEq(t, `{"file_path":"a.go"}`, string(pre.Tool.Input))
 
-	post, err := hooks.Parse(d, spec.HookToolPost,
+	post, err := inbound.Parse(d, spec.HookToolPost,
 		[]byte(`{"tool_use_id":"t1","tool_name":"Edit","tool_response":"ok","duration_ms":42}`))
 	require.NoError(t, err)
 	require.NotNil(t, post.Tool)
@@ -208,7 +208,7 @@ func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ev, err := hooks.Parse(d, spec.HookToolPre, []byte(tc.payload))
+			ev, err := inbound.Parse(d, spec.HookToolPre, []byte(tc.payload))
 			require.NoError(t, err)
 			require.NotNil(t, ev.Tool)
 			assert.Equal(t, tc.want, ev.Tool.Target)
@@ -226,31 +226,31 @@ func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 		spec.HookCompactPost:  {"trigger": "trigger"},
 	})
 
-	sub, err := hooks.Parse(d, spec.HookSubagentPre, []byte(`{"agent_id":"a1","agent_type":"explore"}`))
+	sub, err := inbound.Parse(d, spec.HookSubagentPre, []byte(`{"agent_id":"a1","agent_type":"explore"}`))
 	require.NoError(t, err)
 	require.NotNil(t, sub.Subagent)
 	assert.Equal(t, "a1", sub.Subagent.ID)
 	assert.Equal(t, "explore", sub.Subagent.AgentType)
 
-	note, err := hooks.Parse(d, spec.HookNotification, []byte(`{"message":"waiting on you"}`))
+	note, err := inbound.Parse(d, spec.HookNotification, []byte(`{"message":"waiting on you"}`))
 	require.NoError(t, err)
 	require.NotNil(t, note.Interrupt)
 	assert.Equal(t, models.InterruptNotification, note.Interrupt.Kind)
 	assert.Equal(t, "waiting on you", note.Interrupt.Detail)
 	assert.False(t, note.Interrupt.Resolved)
 
-	perm, err := hooks.Parse(d, spec.HookPermission, []byte(`{"tool_name":"Bash"}`))
+	perm, err := inbound.Parse(d, spec.HookPermission, []byte(`{"tool_name":"Bash"}`))
 	require.NoError(t, err)
 	require.NotNil(t, perm.Interrupt)
 	assert.Equal(t, models.InterruptPermission, perm.Interrupt.Kind)
 
-	pre, err := hooks.Parse(d, spec.HookCompactPre, []byte(`{"trigger":"auto"}`))
+	pre, err := inbound.Parse(d, spec.HookCompactPre, []byte(`{"trigger":"auto"}`))
 	require.NoError(t, err)
 	require.NotNil(t, pre.Interrupt)
 	assert.Equal(t, models.InterruptCompaction, pre.Interrupt.Kind)
 	assert.False(t, pre.Interrupt.Resolved)
 
-	post, err := hooks.Parse(d, spec.HookCompactPost, []byte(`{"trigger":"auto"}`))
+	post, err := inbound.Parse(d, spec.HookCompactPost, []byte(`{"trigger":"auto"}`))
 	require.NoError(t, err)
 	require.NotNil(t, post.Interrupt)
 	assert.True(t, post.Interrupt.Resolved, "a completed compaction is a resolved interruption")
@@ -259,7 +259,7 @@ func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 func TestParse_CarriesTheRawPayload(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookTurnStop: {"message": "last"}})
 
-	ev, err := hooks.Parse(d, spec.HookTurnStop, []byte(`{"last":"x","extra":1}`))
+	ev, err := inbound.Parse(d, spec.HookTurnStop, []byte(`{"last":"x","extra":1}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, "x", ev.Raw["last"])
@@ -273,6 +273,6 @@ func TestDeclared_ListsTheMappedKindsSorted(t *testing.T) {
 		spec.HookToolPre:      {},
 	})
 
-	assert.Equal(t, []string{"session_start", "tool_pre", "turn_stop"}, hooks.Declared(d))
-	assert.Nil(t, hooks.Declared(nil))
+	assert.Equal(t, []string{"session_start", "tool_pre", "turn_stop"}, inbound.Declared(d))
+	assert.Nil(t, inbound.Declared(nil))
 }

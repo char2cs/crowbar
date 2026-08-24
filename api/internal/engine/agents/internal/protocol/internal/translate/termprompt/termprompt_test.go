@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/termprompt"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/termprompt"
 )
 
 const claudeTrustScreen = `

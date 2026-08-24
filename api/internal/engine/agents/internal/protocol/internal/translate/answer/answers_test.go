@@ -1,4 +1,4 @@
-package answers_test
+package answer_test
 
 import (
 	"encoding/json"
@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/answers"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -72,20 +72,20 @@ func askUserQuestionPayload() []byte {
 }
 
 func TestCapability_AbsentBlockIsNotAnswerable(t *testing.T) {
-	_, ok := answers.Capability(&spec.Descriptor{ID: "silent"}, "permission")
+	_, ok := answer.Capability(&spec.Descriptor{ID: "silent"}, "permission")
 	assert.False(t, ok)
 
-	_, ok = answers.Capability(nil, "permission")
+	_, ok = answer.Capability(nil, "permission")
 	assert.False(t, ok, "a nil descriptor must answer 'not answerable', never panic")
 }
 
 func TestCapability_UndeclaredEventIsNotAnswerable(t *testing.T) {
-	_, ok := answers.Capability(answering(), "tool_pre")
+	_, ok := answer.Capability(answering(), "tool_pre")
 	assert.False(t, ok)
 }
 
 func TestCapability_ReportsSortedKeysAndTheDeclaredBudget(t *testing.T) {
-	capability, ok := answers.Capability(answering(), "permission")
+	capability, ok := answer.Capability(answering(), "permission")
 	require.True(t, ok)
 	assert.Equal(t, []string{"allow", "answer", "deny"}, capability.Keys)
 	assert.Equal(t, 270*time.Second, capability.Wait)
@@ -97,19 +97,19 @@ func TestCapability_ReportsSortedKeysAndTheDeclaredBudget(t *testing.T) {
 func TestCapability_BlankTemplatesAreNotKeys(t *testing.T) {
 	d := answering()
 	setEventReply(d, "permission", 5, map[string]string{"allow": "   ", "deny": ""})
-	_, ok := answers.Capability(d, "permission")
+	_, ok := answer.Capability(d, "permission")
 	assert.False(t, ok, "a block whose every template is blank declares nothing")
 }
 
 func TestCapability_EmptyResponseMapIsNotAnswerable(t *testing.T) {
 	d := answering()
 	setEventReply(d, "permission", 5, nil)
-	_, ok := answers.Capability(d, "permission")
+	_, ok := answer.Capability(d, "permission")
 	assert.False(t, ok)
 }
 
 func TestRender_AllowIsTheProvidersOwnWrappedShape(t *testing.T) {
-	out, err := answers.Render(answering(), "permission", nil,
+	out, err := answer.Render(answering(), "permission", nil,
 		models.AnswerDecision{Key: "allow"})
 	require.NoError(t, err)
 	assert.JSONEq(t,
@@ -119,7 +119,7 @@ func TestRender_AllowIsTheProvidersOwnWrappedShape(t *testing.T) {
 }
 
 func TestRender_DenyCarriesTheHumansWordsAsAJSONString(t *testing.T) {
-	out, err := answers.Render(answering(), "permission", nil, models.AnswerDecision{
+	out, err := answer.Render(answering(), "permission", nil, models.AnswerDecision{
 		Key: "deny", Reason: `no "rm -rf" here` + "\n",
 	})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestRender_DenyCarriesTheHumansWordsAsAJSONString(t *testing.T) {
 }
 
 func TestRender_AnswerEchoesTheToolInputWithThePicksMergedIn(t *testing.T) {
-	out, err := answers.Render(answering(), "permission", askUserQuestionPayload(),
+	out, err := answer.Render(answering(), "permission", askUserQuestionPayload(),
 		models.AnswerDecision{
 			Key:     "answer",
 			Answers: map[string]any{"Which option do you prefer?": "Option A"},
@@ -162,14 +162,14 @@ func TestRender_AnswerEchoesTheToolInputWithThePicksMergedIn(t *testing.T) {
 }
 
 func TestRender_AnswerWithNoReadablePayloadStillCarriesThePicks(t *testing.T) {
-	out, err := answers.Render(answering(), "permission", []byte("not json"),
+	out, err := answer.Render(answering(), "permission", []byte("not json"),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)
 	assert.Contains(t, string(out), `"answers":{"q":"a"}`)
 }
 
 func TestRender_ElicitationContentIsPassedThroughUninterpreted(t *testing.T) {
-	out, err := answers.Render(answering(), "elicitation", nil, models.AnswerDecision{
+	out, err := answer.Render(answering(), "elicitation", nil, models.AnswerDecision{
 		Key: "accept", Content: []byte(`{"choice":"B","note":"kept verbatim"}`),
 	})
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestRender_ElicitationContentIsPassedThroughUninterpreted(t *testing.T) {
 }
 
 func TestRender_ElicitationWithUnusableContentFallsBackToAnEmptyObject(t *testing.T) {
-	out, err := answers.Render(answering(), "elicitation", nil, models.AnswerDecision{
+	out, err := answer.Render(answering(), "elicitation", nil, models.AnswerDecision{
 		Key: "accept", Content: []byte("{oops"),
 	})
 	require.NoError(t, err)
@@ -185,24 +185,24 @@ func TestRender_ElicitationWithUnusableContentFallsBackToAnEmptyObject(t *testin
 }
 
 func TestRender_RefusesADecisionTheProviderCannotExpress(t *testing.T) {
-	_, err := answers.Render(answering(), "permission", nil,
+	_, err := answer.Render(answering(), "permission", nil,
 		models.AnswerDecision{Key: "suggestion"})
-	require.ErrorIs(t, err, answers.ErrUnsupportedDecision)
+	require.ErrorIs(t, err, answer.ErrUnsupportedDecision)
 }
 
 func TestRender_RefusesAnEventWithNoAnswerChannel(t *testing.T) {
-	_, err := answers.Render(answering(), "tool_pre", nil, models.AnswerDecision{Key: "allow"})
-	require.ErrorIs(t, err, answers.ErrNotAnswerable)
+	_, err := answer.Render(answering(), "tool_pre", nil, models.AnswerDecision{Key: "allow"})
+	require.ErrorIs(t, err, answer.ErrNotAnswerable)
 
-	_, err = answers.Render(nil, "permission", nil, models.AnswerDecision{Key: "allow"})
-	require.ErrorIs(t, err, answers.ErrNotAnswerable)
+	_, err = answer.Render(nil, "permission", nil, models.AnswerDecision{Key: "allow"})
+	require.ErrorIs(t, err, answer.ErrNotAnswerable)
 }
 
 func TestRender_RefusesToEmitInvalidJSON(t *testing.T) {
 	d := answering()
 	setEventReply(d, "permission", 5, map[string]string{"allow": `{"decision":`})
-	_, err := answers.Render(d, "permission", nil, models.AnswerDecision{Key: "allow"})
-	require.ErrorIs(t, err, answers.ErrMalformedAnswer)
+	_, err := answer.Render(d, "permission", nil, models.AnswerDecision{Key: "allow"})
+	require.ErrorIs(t, err, answer.ErrMalformedAnswer)
 }
 
 func TestRender_RefusesAnOversizedAnswer(t *testing.T) {
@@ -210,9 +210,9 @@ func TestRender_RefusesAnOversizedAnswer(t *testing.T) {
 	payload, err := json.Marshal(map[string]any{"tool_input": huge})
 	require.NoError(t, err)
 
-	_, err = answers.Render(answering(), "permission", payload,
+	_, err = answer.Render(answering(), "permission", payload,
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
-	require.ErrorIs(t, err, answers.ErrMalformedAnswer)
+	require.ErrorIs(t, err, answer.ErrMalformedAnswer)
 }
 
 func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
@@ -224,7 +224,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 
 	d := answering()
 	setEventReply(d, "permission", 5, map[string]string{"answer": `{"input":{tool_input_json},"reason":{reason_json}}`})
-	out, err := answers.Render(d, "permission", payload, models.AnswerDecision{
+	out, err := answer.Render(d, "permission", payload, models.AnswerDecision{
 		Key: "answer", Reason: "SMUGGLED", Answers: map[string]any{"q": "a"},
 	})
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
 	setEventMap(d, "permission", map[string]string{"tool_name": "tool_name"})
-	out, err := answers.Render(d, "permission", askUserQuestionPayload(),
+	out, err := answer.Render(d, "permission", askUserQuestionPayload(),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)
 	assert.Contains(t, string(out), `"updatedInput":{"answers":{"q":"a"}}`)
@@ -253,7 +253,7 @@ func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.
 func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	d := answering()
 	setEventReply(d, "permission", 5, map[string]string{"answer": `{"picks":{answers_json},"input":{tool_input_json}}`})
-	out, err := answers.Render(d, "permission", nil, models.AnswerDecision{
+	out, err := answer.Render(d, "permission", nil, models.AnswerDecision{
 		Key: "answer", Answers: map[string]any{"q": make(chan int)},
 	})
 	require.NoError(t, err)

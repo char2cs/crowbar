@@ -1,4 +1,4 @@
-package hooks
+package inbound
 
 import (
 	"encoding/json"

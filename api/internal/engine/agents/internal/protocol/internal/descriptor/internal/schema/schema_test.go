@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor/internal/schema"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/schema"
 )
 
 func load(t *testing.T) schema.Vocabulary {

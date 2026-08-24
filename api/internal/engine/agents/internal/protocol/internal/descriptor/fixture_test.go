@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 var placeholderRe = regexp.MustCompile(`\{[a-z][a-z0-9_]*\}`)
 
-const fixtureRoot = "../protocol/testdata/fixtures"
+const fixtureRoot = "../../testdata/fixtures"
 
 // Every inbound field a v3 descriptor maps must resolve against RECORDED provider
 // traffic. This is the only mechanism that catches a provider changing payload shape,
