@@ -209,7 +209,7 @@ func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 				require.Equal(t, "WS", got.workspace)
 				require.Lenf(t, got.args, 1, "%s hook: `hook <event>` takes exactly one positional", event)
 
-				require.Equal(t, "/v0/projects/PROJ/home/agent/hooks",
+				require.Equal(t, "/v0/projects/PROJ/home/chats/hooks",
 					scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"),
 					"%s hook must target the project-home agent mount", event)
 			}
@@ -235,7 +235,7 @@ func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 
 				require.Equal(t, "REPO", got.repo)
 				require.Lenf(t, got.args, 1, "%s hook: `hook <event>` takes exactly one positional", event)
-				require.Equal(t, "/v0/projects/PROJ/repos/REPO/workspaces/WS/agent/hooks",
+				require.Equal(t, "/v0/projects/PROJ/repos/REPO/workspaces/WS/chats/hooks",
 					scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"),
 					"%s hook must stay workspace-scoped when a repo id exists", event)
 			}
@@ -276,7 +276,7 @@ func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 	require.Equal(t, "SEG-1", got.segment)
 	require.Equal(t, []string{"session_start"}, got.args,
 		"the positional after the scope flags must stay the event name")
-	require.Equal(t, "/v0/projects/PROJ/home/agent/hooks",
+	require.Equal(t, "/v0/projects/PROJ/home/chats/hooks",
 		scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"))
 }
 
@@ -298,6 +298,6 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 
 	require.Equal(t, "", got.repo)
 	require.Equal(t, []string{"chat-1"}, got.args)
-	require.Equal(t, "/v0/projects/PROJ/home/agent/chats/chat-1/handoff",
-		scopedAgentPath(got.project, got.repo, got.workspace, "/chats/"+got.args[0]+"/handoff"))
+	require.Equal(t, "/v0/projects/PROJ/home/chats/chat-1/handoff",
+		scopedAgentPath(got.project, got.repo, got.workspace, "/"+got.args[0]+"/handoff"))
 }

@@ -55,7 +55,7 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/agent/hooks", gotPath)
+	require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/chats/hooks", gotPath)
 	require.Equal(t, "seg-42", got["segment_id"])
 	require.Equal(t, "claude", got["provider"])
 	require.Equal(t, "turn_stop", got["event"])

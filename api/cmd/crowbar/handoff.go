@@ -49,7 +49,7 @@ func runHandoffDump(chatID, project, repo, workspace, host string, out io.Writer
 	}
 
 	status, body, err := client.Get(context.Background(),
-		scopedAgentPath(project, repo, workspace, "/chats/"+chatID+"/handoff"))
+		scopedAgentPath(project, repo, workspace, "/"+chatID+"/handoff"))
 	if err != nil {
 		return err
 	}
