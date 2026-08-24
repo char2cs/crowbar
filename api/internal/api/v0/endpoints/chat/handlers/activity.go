@@ -137,7 +137,6 @@ func (h *Handlers) ToolPayload(ctx *gin.Context) {
 		ctx.Request.Context(), chat.ID, ctx.Param("toolId"), side,
 	)
 	if errors.Is(err, agentactivity.ErrNotFound) {
-
 		libs.WriteErr(ctx, http.StatusNotFound, "payload is no longer available")
 		return
 	}

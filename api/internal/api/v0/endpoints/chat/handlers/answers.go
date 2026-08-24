@@ -73,7 +73,6 @@ func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
 	if err != nil {
 		if errors.Is(err, ctx.Request.Context().Err()) {
-
 			libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{})
 			return
 		}
