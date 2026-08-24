@@ -236,3 +236,12 @@ func TestResolve_ShippedClaudeDeclaresNoNotices(t *testing.T) {
 
 	assert.Empty(t, d.TerminalNotices)
 }
+
+func TestShippedDescriptors_DeclareHotswapTrue(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		d, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
+		require.NoError(t, err)
+		assert.True(t, d.Runtime.Hotswap, "%s must declare hotswap — both keep the PTY "+
+			"attached for the whole session with hooks reporting alongside (design spec §3.5)", id)
+	}
+}
