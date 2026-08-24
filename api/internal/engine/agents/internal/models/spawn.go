@@ -34,6 +34,18 @@ type Capabilities struct {
 	// declares neither gets no compact control in the UI.
 	Compaction bool
 
+	// Hotswap is RuntimeSpec.Hotswap, carried through unchanged: whether both of
+	// this provider's faces can be live at once.
+	Hotswap bool
+
+	// HasTerminal is STRUCTURAL, never declared: true when this descriptor's spawn
+	// plan produces a real interactive PTY the user can look at. A hooks-transport
+	// provider's PTY IS the vendor CLI, so it always has one; an api-transport
+	// provider has one only if it declares `attach` (design spec §3.2 — existence
+	// must be derived from what Crowbar was told to run, not declared, because a
+	// separate boolean could contradict it).
+	HasTerminal bool
+
 	Observes []string
 }
 

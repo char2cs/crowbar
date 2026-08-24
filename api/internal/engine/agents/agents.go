@@ -146,6 +146,9 @@ func (a *agent) Capabilities() Capabilities {
 		TerminalPrompts: protocol.TerminalPrompts(a.spec),
 		Compaction:      protocol.CanSend(a.spec, "compact_start"),
 		Observes:        protocol.Observes(a.spec),
+
+		Hotswap:     a.spec.Runtime.Hotswap,
+		HasTerminal: a.spec.Runtime.Transport != "api" || len(a.spec.Runtime.API.Attach) > 0,
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
 		caps.PromptSubmit = true

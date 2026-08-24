@@ -759,3 +759,105 @@ func TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches(t *testing.T) {
 	assert.False(t, ok)
 	assert.False(t, a.Capabilities().TerminalPrompts)
 }
+
+const v3EventsBlock = `
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+`
+
+func TestCapabilities_HasTerminalIsStructuralNotDeclared(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "hooks-transport", `
+id: hooks-transport
+spawn:
+  cmd: hooks-cli
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`)
+	hooksAgent, err := agents.New().Get(context.Background(), home, "hooks-transport")
+	require.NoError(t, err)
+	assert.True(t, hooksAgent.Capabilities().HasTerminal,
+		"a hooks-transport provider's PTY IS its terminal")
+
+	writeDescriptor(t, home, "api-no-attach", `
+id: api-no-attach
+spawn:
+  cmd: api-cli
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [api-cli, serve]
+    handshake: { call: initialize }
+`)
+	apiNoAttach, err := agents.New().Get(context.Background(), home, "api-no-attach")
+	require.NoError(t, err)
+	assert.False(t, apiNoAttach.Capabilities().HasTerminal,
+		"served with no attach: there is no terminal, not a disabled one")
+
+	writeDescriptor(t, home, "api-with-attach", `
+id: api-with-attach
+spawn:
+  cmd: api-cli
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [api-cli, serve]
+    attach: [api-cli, --remote]
+    handshake: { call: initialize }
+`)
+	apiWithAttach, err := agents.New().Get(context.Background(), home, "api-with-attach")
+	require.NoError(t, err)
+	assert.True(t, apiWithAttach.Capabilities().HasTerminal)
+}
+
+func TestCapabilities_HotswapDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "undeclared", `
+id: undeclared
+spawn:
+  cmd: x
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`)
+	undeclared, err := agents.New().Get(context.Background(), home, "undeclared")
+	require.NoError(t, err)
+	assert.False(t, undeclared.Capabilities().Hotswap,
+		"a descriptor that has not thought about hotswap gets the conservative answer")
+
+	writeDescriptor(t, home, "declared", `
+id: declared
+spawn:
+  cmd: x
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+`)
+	declared, err := agents.New().Get(context.Background(), home, "declared")
+	require.NoError(t, err)
+	assert.True(t, declared.Capabilities().Hotswap)
+}

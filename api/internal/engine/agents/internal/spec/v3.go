@@ -22,6 +22,13 @@ type RuntimeSpec struct {
 	API       APISpec   `yaml:"api"`
 	Hooks     HooksWire `yaml:"hooks"`
 	Spawn     SpawnSpec `yaml:"spawn"`
+
+	// Hotswap is whether this provider's TWO faces — Crowbar's chat and the
+	// provider's own terminal — can be live at the same instant, so a live turn
+	// can hand over mid-flight instead of blocking the switch until it ends.
+	// Defaults false on absence: a descriptor that has not thought about this
+	// gets the conservative answer, matching every other capability key.
+	Hotswap bool `yaml:"hotswap"`
 }
 
 type APISpec struct {
