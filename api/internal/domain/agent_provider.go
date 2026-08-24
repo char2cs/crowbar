@@ -32,6 +32,11 @@ type AgentProvider struct {
 	// it — absent UI, never a disabled control implying breakage. Both shipped
 	// descriptors declare both today; the flags exist so a third provider that
 	// declares neither renders no picker rather than an empty one.
+	// Compaction is whether the provider declares a gesture Crowbar can use to ask it
+	// to compact its own context. A UI compact control must be gated on this: a
+	// button that appears to work and does not is worse than one that is absent.
+	Compaction bool
+
 	ModelSelect  bool
 	EffortSelect bool
 

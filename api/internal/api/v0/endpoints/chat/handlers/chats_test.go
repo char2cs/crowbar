@@ -257,6 +257,13 @@ func (configurableListGetUsecase) ResumeChat(
 	return "", nil
 }
 
+func (configurableListGetUsecase) Compact(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (configurableListGetUsecase) StopChat(
 	_ context.Context,
 	_ string,

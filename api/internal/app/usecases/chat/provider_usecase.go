@@ -163,6 +163,7 @@ func (u *providerUsecase) ResolveProviders(
 			Connected:    u.installed(d),
 			Enabled:      !p.Disabled,
 			MCPEnabled:   !p.MCPDisabled,
+			Compaction:   caps.Compaction,
 			ModelSelect:  caps.ModelSelect,
 			EffortSelect: caps.EffortSelect,
 			Models:       d.Models(),

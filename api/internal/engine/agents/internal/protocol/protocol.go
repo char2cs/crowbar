@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/termprompt"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -85,6 +86,26 @@ func ProbeTelemetry(
 	opts models.ProbeOptions, acquire exec.Acquire, now time.Time,
 ) (models.Telemetry, error) {
 	return telemetry.Probe(ctx, d, opts, acquire, now)
+}
+
+// --- outbound: we tell them ------------------------------------------------
+
+// Send resolves a canonical outbound event into the provider's own call and payload.
+// The bool is the capability check: a provider that declares no such event cannot be
+// told to do it.
+func Send(
+	d *spec.Descriptor, canonical string, values map[string]string,
+) (wireEvent string, payload map[string]string, ok bool) {
+	return outbound.Resolve(d, canonical, values)
+}
+
+// Sends lists the canonical events Crowbar can drive on this provider.
+func Sends(d *spec.Descriptor) []string { return outbound.Declared(d) }
+
+// CanSend reports whether one outbound event is available.
+func CanSend(d *spec.Descriptor, canonical string) bool {
+	_, _, ok := outbound.Resolve(d, canonical, nil)
+	return ok
 }
 
 // --- ask: they block on our reply ------------------------------------------

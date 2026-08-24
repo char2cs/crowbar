@@ -771,6 +771,19 @@ export async function resumeChat(wsId: string, id: string): Promise<string> {
   return res.id
 }
 
+// compactChat asks the chat's CLI to compact its OWN context. Crowbar cannot compact
+// anything itself — the context belongs to the provider — so this triggers whatever
+// gesture the provider declares: claude has no API for it and gets its /compact slash
+// command, an API-transport provider gets the equivalent call.
+//
+// A provider that declares no gesture answers 404. Gate the control on the provider's
+// `compaction` capability rather than letting the user press something that cannot work.
+export async function compactChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/compact`, {
+    method: 'POST',
+  })
+}
+
 // stopChat gracefully terminates the chat's live vendor CLI and leaves the chat
 // DORMANT and resumable — the counterpart of resumeChat. It is what closing a
 // chat TAB calls: the agent process stops, but the chat entry and its bound

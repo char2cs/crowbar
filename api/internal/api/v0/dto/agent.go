@@ -526,6 +526,7 @@ type AgentProviderDTO struct {
 	Connected    bool                `json:"connected"`
 	Enabled      bool                `json:"enabled"`
 	MCPEnabled   bool                `json:"mcpEnabled"`
+	Compaction   bool                `json:"compaction"`
 	ModelSelect  bool                `json:"modelSelect"`
 	EffortSelect bool                `json:"effortSelect"`
 	Models       []string            `json:"models,omitempty"`

@@ -121,3 +121,15 @@ func (h *Handlers) Handoff(
 
 	libs.WriteQueryOK(ctx, dto.HandoffDTO{Handoff: handoff})
 }
+
+// Compact handles POST .../chats/:id/compact: ask the chat's CLI to compact its own
+// context. A provider that declares no compaction gesture is a 404 — the capability is
+// absent, not the chat.
+func (h *Handlers) Compact(ctx *gin.Context) {
+	if err := h.runners.Compact(ctx.Request.Context(), ctx.Param("id")); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
+}

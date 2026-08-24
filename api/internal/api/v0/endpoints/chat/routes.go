@@ -87,6 +87,7 @@ func Register(
 	wsScoped.GET("/chats/:id/slash-catalog", h.SlashCatalog)
 	wsScoped.POST("/chats/:id/switch", h.Switch)
 	wsScoped.POST("/chats/:id/resume", h.Resume)
+	wsScoped.POST("/chats/:id/compact", h.Compact)
 	wsScoped.POST("/chats/:id/stop", h.Stop)
 	wsScoped.POST("/chats/:id/rename", h.Rename)
 	wsScoped.PATCH("/chats/:id/selection", h.SetSelection)

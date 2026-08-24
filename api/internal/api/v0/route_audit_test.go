@@ -293,6 +293,7 @@ func extraRoutes() []string {
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
 		"POST " + ws + "/chats/:id/stop",
+		"POST " + ws + "/chats/:id/compact",
 		// The read surface the Chats tab polls: the activity feed, a tool call's
 		// full payload, open choices, message history, and provider telemetry.
 		"GET " + ws + "/chats/:id/activity",
@@ -375,6 +376,7 @@ func extraRoutes() []string {
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
+		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
 		// worktree workspace, so the surface that most needs somewhere to put them

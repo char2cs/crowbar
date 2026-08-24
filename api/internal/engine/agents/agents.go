@@ -69,6 +69,11 @@ type Agent interface {
 	ProbeTelemetry(ctx context.Context, opts ProbeOptions, acquire Acquire, now time.Time) (Telemetry, error)
 
 	MatchTerminalPrompt(screen string) (TerminalPrompt, bool)
+
+	// OutboundCall resolves a canonical event Crowbar drives — compact_start,
+	// interrupt, prompt — into this provider's own call and payload. The bool is the
+	// capability: a provider that declares the event cannot be asked to do it.
+	OutboundCall(canonical string, values map[string]string) (wire string, payload map[string]string, ok bool)
 }
 
 type service struct {
@@ -139,6 +144,7 @@ func (a *agent) Capabilities() Capabilities {
 		EffortSelect: a.spec.Effort != nil,
 
 		TerminalPrompts: protocol.TerminalPrompts(a.spec),
+		Compaction:      protocol.CanSend(a.spec, "compact_start"),
 		Observes:        protocol.Observes(a.spec),
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
@@ -226,6 +232,13 @@ func (a *agent) SlashCatalog(
 	acquire Acquire,
 ) (SlashCatalog, error) {
 	return catalog.Probe(ctx, a.spec, opts, acquire)
+}
+
+func (a *agent) OutboundCall(
+	canonical string,
+	values map[string]string,
+) (string, map[string]string, bool) {
+	return protocol.Send(a.spec, canonical, values)
 }
 
 func (a *agent) MatchTerminalPrompt(screen string) (TerminalPrompt, bool) {

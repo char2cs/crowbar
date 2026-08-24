@@ -186,6 +186,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// Compact asks the chat's CLI to compact its own context. Crowbar cannot compact
+	// anything itself — the context is the provider's — so this sends the provider's
+	// own declared gesture, and 404s for a provider that declares none.
+	Compact(
+		ctx context.Context,
+		chatID string,
+	) error
+
 	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
 	// modal reaching the daemon through no hook, so the only way past it is the
 	// terminal. The complement of ReadPendingChoices, and deliberately not folded

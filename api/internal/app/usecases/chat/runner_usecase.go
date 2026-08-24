@@ -98,6 +98,13 @@ type RunnerUsecase interface {
 		ctx context.Context,
 	) error
 
+	// Compact asks the chat's CLI to compact its own context, using the gesture the
+	// provider declares. A provider that declares none reports ErrNotFound.
+	Compact(
+		ctx context.Context,
+		chatID string,
+	) error
+
 	// TerminalWait reports whether a chat's CLI is parked on a modal terminal
 	// prompt, and on which kind. A daemon whose terminal seam cannot render a
 	// screen always answers "not waiting".

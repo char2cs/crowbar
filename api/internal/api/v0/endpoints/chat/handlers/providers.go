@@ -92,6 +92,7 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			Connected:    p.Connected,
 			Enabled:      p.Enabled,
 			MCPEnabled:   p.MCPEnabled,
+			Compaction:   p.Compaction,
 			ModelSelect:  p.ModelSelect,
 			EffortSelect: p.EffortSelect,
 			Models:       p.Models,

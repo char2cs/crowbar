@@ -28,6 +28,12 @@ type Capabilities struct {
 
 	TerminalPrompts bool
 
+	// Compaction reports whether Crowbar can ASK this provider to compact its
+	// context. Key-presence on the descriptor's compact_start event: claude injects
+	// its slash command, codex would call thread/compact/start, and a provider that
+	// declares neither gets no compact control in the UI.
+	Compaction bool
+
 	Observes []string
 }
 
