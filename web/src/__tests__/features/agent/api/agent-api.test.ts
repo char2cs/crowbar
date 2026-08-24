@@ -341,6 +341,46 @@ describe('agent-api', () => {
     })
   })
 
+  // REGRESSION: the mapper rebuilds the provider field by field, so a key it
+  // forgets to copy is dropped in silence — the type still declares it, the
+  // backend still sends it, and the control it gates simply never appears. This
+  // is exactly how the Compact button went missing for every provider.
+  it('listProviders carries compaction through, and defaults it OFF', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', compaction: true },
+      { id: 'codex', displayName: 'Codex', icon: '<svg/>', compaction: false },
+      { id: 'older', displayName: 'Older', icon: '<svg/>' },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].compaction).toBe(true)
+    expect(out[1].compaction).toBe(false)
+    // Silence means "declares no compaction gesture", the same direction as the
+    // other capability keys — POST /compact answers 404 for it.
+    expect(out[2].compaction).toBe(false)
+  })
+
+  // hasTerminal defaults ON (opposite direction from every OTHER capability key
+  // here): every shipped provider today has a real terminal, so an older daemon
+  // that predates this field is describing exactly that reality, and defaulting
+  // it OFF would hide the view switcher for every existing install until the
+  // daemon catches up. hotswap defaults OFF, the same direction as compaction —
+  // an older daemon or an undeclared descriptor gets the conservative answer.
+  it('listProviders defaults hasTerminal to true and hotswap to false when omitted', async () => {
+    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    const out = await api.listProviders('w1')
+    expect(out[0].hasTerminal).toBe(true)
+    expect(out[0].hotswap).toBe(false)
+  })
+
+  it('listProviders carries hasTerminal:false and hotswap:true through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', hasTerminal: false, hotswap: true },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].hasTerminal).toBe(false)
+    expect(out[0].hotswap).toBe(true)
+  })
+
   // The selection catalogue: WHETHER each picker exists at all, plus the models
   // and the per-model effort levels the backend has already resolved.
   it('listProviders carries the model/effort catalogue through unchanged', async () => {

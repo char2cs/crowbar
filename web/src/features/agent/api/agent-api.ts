@@ -240,6 +240,25 @@ export interface AgentProvider {
    * NO compact control, and `POST /compact` answers 404 for it.
    */
   compaction?: boolean
+  /**
+   * Whether this provider's terminal surface EXISTS AT ALL — structural, not a
+   * capability the descriptor opts into. Defaults to `true` on omission: every
+   * shipped provider today spawns a real PTY, so an OLDER daemon that predates
+   * this field is describing exactly that reality, and defaulting `false` would
+   * hide the view switcher for every existing install until the daemon catches
+   * up. This is the opposite direction from every OTHER capability key on this
+   * type, deliberately: those gate a control that does not exist yet, and
+   * defaulting them on hides nothing that was already there.
+   */
+  hasTerminal?: boolean
+  /**
+   * Whether this provider's chat and terminal faces can be live at the same
+   * instant. Defaults to `false` on omission, the same direction as
+   * modelSelect/effortSelect/compaction: an older daemon or an undeclared
+   * descriptor gets the conservative answer, and the user is asked to finish
+   * the turn rather than being handed a swap nobody verified.
+   */
+  hotswap?: boolean
   /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
    *  order is the provider's own ranking. */
   models?: string[]
@@ -696,6 +715,14 @@ function mapProvider(p: AgentProvider): AgentProvider {
     // means, and no-catalogue must render as no picker rather than an empty one.
     modelSelect: p.modelSelect ?? false,
     effortSelect: p.effortSelect ?? false,
+    // Same direction and for the same reason: silence means the descriptor
+    // declares no compaction gesture, and POST /compact answers 404 for it.
+    compaction: p.compaction ?? false,
+    // Opposite direction from every capability above: an omitted hasTerminal
+    // describes an older daemon whose providers all had a real terminal, not a
+    // provider that lacks one — see the field's own doc comment.
+    hasTerminal: p.hasTerminal ?? true,
+    hotswap: p.hotswap ?? false,
     models: p.models ?? [],
     efforts: p.efforts ?? {},
   }
