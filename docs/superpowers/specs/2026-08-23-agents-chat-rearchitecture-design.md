@@ -666,11 +666,32 @@ separately.
   `engine/agents/internal/runner/internal/store` — the usecase still needs to reach it
   while the engine has no full facade.
 
-### Not done
+**5. Stage 5's relocation was NOT done, and should not be on its own.**
+The in-flight tier is called from 13 usecase files through **30 distinct methods**.
+Moving it under `engine/agents/runner/internal/inflight` while the orchestration that
+drives it stays in `usecases/chat` would mean exposing all 30 from the engine as a
+pass-through facade — more indirection, no boundary gained. The relocation only pays
+once the engine also owns the conversation orchestration and hands the usecase a Fact
+stream (§3), which is a redesign rather than a move.
 
-- **The outbound half of translate.** `out:`/`send:` are parsed and validated but no
-  code consumes them yet, so `compact_start` is declared and unreachable. The
-  compaction ROUTE therefore does not exist: §4.5's state and ledger marker are
-  specified, not built.
-- **Stage 5's relocation.** The six invariants have tests (each proven by inverting
-  it) but the in-flight tier still lives in `usecases/chat`.
+Stage 5's VALUE is delivered: the six invariants each have a test, and each was
+observed to fail when its invariant was inverted. The tests are what prevent the
+regressions; the address of the code is secondary.
+
+### Done since
+
+- **The outbound half of translate is built.** `translate/outbound` resolves an `out:`
+  event into the provider's call and payload; `protocol.Send`/`CanSend` expose it;
+  `Capabilities.Compaction` comes from key-presence alone.
+- **Compaction works end to end** — `POST .../chats/:id/compact` on both the workspace
+  and home groups, gated on the capability, 404 for a provider that declares no
+  gesture. Verified against a real Claude CLI: `/compact` reaches the screen and the
+  compaction interruption is recorded.
+
+### Still not built
+
+- **§4.5's chat work-state and ledger marker.** `compact_pre`/`compact_post` are
+  recorded as interruptions, as before; they do not yet set a distinct `compacting`
+  state or write a boundary marker that `AssembleHandoff` respects.
+- **A jsonrpc transport**, so an API-transport provider's compaction is refused
+  explicitly rather than half-sent.
