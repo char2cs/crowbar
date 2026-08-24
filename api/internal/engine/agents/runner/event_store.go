@@ -3,7 +3,7 @@
 // touches a runner. Mutations dispatch the command layer with
 // optimistic-concurrency retry; reads delegate to the store package's two
 // projections (live runners, append-only conversation history).
-package agentrunner
+package runner
 
 import (
 	"context"
@@ -18,8 +18,8 @@ import (
 	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/store"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/store"
 )
 
 // maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed:

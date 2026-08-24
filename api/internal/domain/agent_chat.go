@@ -10,7 +10,7 @@ import "time"
 // `ActiveSegmentID` are gone, and nothing replaces them on the aggregate (spec
 // §2): a chat does not own the CLI that happens to be talking to it. The runner
 // points at the chat, never the reverse, so "is this chat live?" is a QUERY
-// against the runner read model (agentrunner.LiveRunnerForChat — a row exists
+// against the runner read model (runner.LiveRunnerForChat — a row exists
 // exactly while its PTY does), never a flag stored here that could contradict
 // the process. Which conversations a chat has hosted is likewise a PROJECTION of
 // runner events (agentrunner's append-only chat_conversations), not chat state —

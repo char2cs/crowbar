@@ -20,14 +20,14 @@ import (
 )
 
 func TestEventKind_ParsesAndFallsBack(t *testing.T) {
-	assert.Equal(t, "started", eventKind("agentrunner.started.r1"))
-	assert.Equal(t, "session_bound", eventKind("agentrunner.session_bound.r1"))
-	assert.Equal(t, "moved", eventKind("agentrunner.moved.r1"))
-	assert.Equal(t, "exited", eventKind("agentrunner.exited.r1"))
+	assert.Equal(t, "started", eventKind("runner.started.r1"))
+	assert.Equal(t, "session_bound", eventKind("runner.session_bound.r1"))
+	assert.Equal(t, "moved", eventKind("runner.moved.r1"))
+	assert.Equal(t, "exited", eventKind("runner.exited.r1"))
 
-	// A name that doesn't fit "agentrunner.<kind>.<id>" still yields a frame
+	// A name that doesn't fit "runner.<kind>.<id>" still yields a frame
 	// rather than being silently dropped.
-	assert.Equal(t, "odd", eventKind("agentrunner.odd"))
+	assert.Equal(t, "odd", eventKind("runner.odd"))
 	assert.Equal(t, "unprefixed", eventKind("unprefixed"))
 }
 

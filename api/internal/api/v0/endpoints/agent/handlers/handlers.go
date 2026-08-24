@@ -140,7 +140,7 @@ type RunnerUsecase interface {
 	) (engineagents.SlashCatalog, error)
 
 	// LiveRunnerForChat returns the runner PLACED on chatID right now.
-	// agentrunner.ErrNotFound is not a failure here: it means the chat is DORMANT —
+	// runner.ErrNotFound is not a failure here: it means the chat is DORMANT —
 	// no live row exists, because no PTY does. Row-existence IS the liveness answer,
 	// which is why the handlers ask no second question and no aggregate carries a
 	// status flag that could disagree.

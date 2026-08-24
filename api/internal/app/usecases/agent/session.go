@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (u *runnerUsecase) handleSessionStart(

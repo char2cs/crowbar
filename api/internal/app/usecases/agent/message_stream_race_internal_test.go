@@ -13,8 +13,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 const raceIncrements = 3000

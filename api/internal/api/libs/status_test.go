@@ -13,7 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"

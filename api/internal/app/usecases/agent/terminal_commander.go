@@ -15,7 +15,7 @@ type TerminalCommander interface {
 	) (string, error)
 	// TerminateGraceful quits a vendor CLI: a clean-exit SIGTERM, never SIGKILL.
 	// It is the ONLY way this package ends a runner — we kill the process and let
-	// its death carry the runner away (the engine's onExit → agentrunner.Exit →
+	// its death carry the runner away (the engine's onExit → runner.Exit →
 	// the live row disappears), because the PTY is the sole authority on liveness
 	// and asserting an Exit we have not observed would make us a second one.
 	//

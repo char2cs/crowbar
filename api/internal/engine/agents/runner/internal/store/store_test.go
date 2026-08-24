@@ -18,8 +18,8 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	arCmds "github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/store"
+	arCmds "github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/store"
 )
 
 // frame is one hub broadcast the projections emitted, captured for assertion.

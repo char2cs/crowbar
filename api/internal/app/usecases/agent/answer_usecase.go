@@ -10,9 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // AnswerUsecase is the human-in-the-loop half of a provider prompt: the hook

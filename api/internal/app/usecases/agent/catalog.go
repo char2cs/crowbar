@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 type catalogRun struct {

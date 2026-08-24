@@ -26,7 +26,7 @@ import (
 // committed, the second failed on chat B's state, and chat A was left with no way
 // back into it — permanently unusable, from one keystroke inside a CLI.
 //
-// A move is now ONE write to ONE aggregate (agentrunner.Move). The runner points at
+// A move is now ONE write to ONE aggregate (runner.Move). The runner points at
 // the chat; the chat never points back, and the chat being LEFT is not written to at
 // all. Every test here is written against the specific OUTCOME the old model
 // produced — a bricked source chat, two live CLIs on one chat, a turn landing in a

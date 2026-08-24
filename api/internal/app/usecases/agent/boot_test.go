@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // TestRegression_DeadPTY_MeansDeadRunner: a runner cannot outlive its PTY. Boot

@@ -6,10 +6,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ChatUsecase owns the chat aggregate — its identity, title, model selection

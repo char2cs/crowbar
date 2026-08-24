@@ -6,11 +6,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // RunnerUsecase owns the vendor CLI: starting one on a chat, replacing it,

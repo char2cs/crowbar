@@ -30,7 +30,7 @@ type Move struct {
 }
 
 func (c Move) AggregateID() string  { return c.RunnerID }
-func (c Move) EventName() string    { return "agentrunner.moved." + c.RunnerID }
+func (c Move) EventName() string    { return "runner.moved." + c.RunnerID }
 func (c Move) ShouldSnapshot() bool { return false }
 
 func (c Move) Validate(current *agents.Runner) error {

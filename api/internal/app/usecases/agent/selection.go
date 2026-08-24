@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (u *chatUsecase) SetChatSelection(

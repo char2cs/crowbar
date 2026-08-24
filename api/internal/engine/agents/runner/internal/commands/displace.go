@@ -53,7 +53,7 @@ type Displace struct {
 }
 
 func (c Displace) AggregateID() string  { return c.RunnerID }
-func (c Displace) EventName() string    { return "agentrunner.displaced." + c.RunnerID }
+func (c Displace) EventName() string    { return "runner.displaced." + c.RunnerID }
 func (c Displace) ShouldSnapshot() bool { return false }
 
 func (c Displace) Validate(current *agents.Runner) error {

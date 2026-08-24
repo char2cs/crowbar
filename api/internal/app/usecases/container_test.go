@@ -11,7 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"

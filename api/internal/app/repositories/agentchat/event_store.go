@@ -39,7 +39,7 @@ type (
 
 // CreateInput seeds a new AgentChat: identity, workspace, clock. It carries no
 // segment/provider/terminal because the chat does not own the CLI talking to it
-// — that is the runner (agentrunner.Start), a separate aggregate.
+// — that is the runner (runner.Start), a separate aggregate.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string

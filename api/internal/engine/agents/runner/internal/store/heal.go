@@ -13,8 +13,6 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
-
-	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 )
 
 // eventKeyPrefix is the namespace asynx prepends to an aggregate id when it
@@ -101,7 +99,7 @@ func replayHistory(
 	es asynxModels.Store,
 	ax asynx.Asynx[agents.Runner],
 ) error {
-	lister, ok := es.(serialize.AggregateLister)
+	lister, ok := es.(aggregateLister)
 	if !ok {
 		return nil
 	}
@@ -165,4 +163,15 @@ func (p *historyProjector) onEvent(
 	if err != nil && p.failure == nil {
 		p.failure = err
 	}
+}
+
+// aggregateLister is the optional capability a global event store exposes so a read
+// model can enumerate every aggregate it holds, driving reconcile-on-open. An event
+// store that does not implement it simply skips reconcile (best-effort).
+//
+// Declared here rather than imported from app/repositories/internal/serialize: the
+// engine must not depend on the app layer's internals, and a one-method structural
+// interface satisfies the same assertion either way.
+type aggregateLister interface {
+	AggregateIDs(ctx context.Context) ([]string, error)
 }

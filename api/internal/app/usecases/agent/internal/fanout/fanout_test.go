@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/fanout"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 type chatFrame struct {
@@ -109,6 +109,6 @@ func TestFanout_NilHub_IsANoOp(t *testing.T) {
 // func even with no hub — returning nil here would make the container fail to build.
 func TestFanout_RunnerWatch_IsNeverNil(t *testing.T) {
 	if fanout.New(nil).RunnerWatch() == nil {
-		t.Fatal("RunnerWatch must never be nil: agentrunner.store.New refuses one")
+		t.Fatal("RunnerWatch must never be nil: runner.store.New refuses one")
 	}
 }

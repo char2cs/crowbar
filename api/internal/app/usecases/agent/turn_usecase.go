@@ -6,9 +6,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // TurnUsecase is the hook ingress and everything it writes: turns opening and

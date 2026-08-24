@@ -1,4 +1,4 @@
-package agentrunner_test
+package runner_test
 
 import (
 	"context"
@@ -19,8 +19,8 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	arcmds "github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	arcmds "github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/commands"
 )
 
 // captureBroadcast records every (runnerID, workspaceID, chatID, kind) frame the
@@ -32,7 +32,7 @@ type captureBroadcast struct {
 }
 
 // watch adapts the announcement seam onto the frame this fixture already asserts on.
-func (c *captureBroadcast) watch(e agentrunner.RunnerEvent) {
+func (c *captureBroadcast) watch(e runner.RunnerEvent) {
 	c.push(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
 }
 
@@ -52,12 +52,12 @@ func (c *captureBroadcast) all() []string {
 // DBs and returns the captured hub broadcast so tests can inspect fan-out.
 //
 // Synchronisation is on asynx's REAL signals only: mutations return once the
-// command is committed, and agentrunner.WaitQuiescentForTest (ax.WaitPublish)
+// command is committed, and runner.WaitQuiescentForTest (ax.WaitPublish)
 // blocks until every projection handler has run. No sleeps, no polling, no
 // timeouts anywhere in this file.
 func newRepoWithDeps(
 	t *testing.T,
-) (context.Context, agentrunner.EventStore, *captureBroadcast) {
+) (context.Context, runner.EventStore, *captureBroadcast) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -73,14 +73,14 @@ func newRepoWithDeps(
 	require.NoError(t, err)
 
 	cap := &captureBroadcast{}
-	repo, err := agentrunner.NewEventSourced(ax, es, db, cap.watch)
+	repo, err := runner.NewEventSourced(ax, es, db, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, cap
 }
 
 func newRepo(
 	t *testing.T,
-) (context.Context, agentrunner.EventStore) {
+) (context.Context, runner.EventStore) {
 	t.Helper()
 	ctx, repo, _ := newRepoWithDeps(t)
 	return ctx, repo
@@ -89,13 +89,13 @@ func newRepo(
 func startRunner(
 	t *testing.T,
 	ctx context.Context,
-	repo agentrunner.EventStore,
+	repo runner.EventStore,
 	runnerID string,
 	chatID string,
 	now time.Time,
 ) agents.Runner {
 	t.Helper()
-	r, err := repo.Start(ctx, agentrunner.StartInput{
+	r, err := repo.Start(ctx, runner.StartInput{
 		RunnerID: runnerID, WorkspaceID: "w1", ProviderID: "claude",
 		TerminalSession: "term-" + runnerID, ChatID: chatID, Now: now,
 	})
@@ -119,7 +119,7 @@ func TestAgentRunner_StartMoveGet_RoundTrip(t *testing.T) {
 	assert.Equal(t, "chat-b", moved.CurrentChatID)
 	assert.Equal(t, "sess-2", moved.CurrentSession)
 
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "chat-b", got.CurrentChatID, "the read model must reflect the moved placement")
@@ -133,7 +133,7 @@ func TestAgentRunner_StartMoveGet_RoundTrip(t *testing.T) {
 	assert.Equal(t, "r1", live.ID)
 
 	_, err = repo.LiveRunnerForChat(ctx, "chat-a")
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat the runner left is dormant again")
+	require.ErrorIs(t, err, runner.ErrNotFound, "the chat the runner left is dormant again")
 }
 
 // TestAgentRunner_Get_MissingBridgesToPackageErrNotFound pins the layering: the
@@ -144,7 +144,7 @@ func TestAgentRunner_Get_MissingBridgesToPackageErrNotFound(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Get(ctx, "does-not-exist")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 }
 
 // TestAgentRunner_MissingReadsBridgeToPackageErrNotFound covers the bridge on
@@ -153,16 +153,16 @@ func TestAgentRunner_MissingReadsBridgeToPackageErrNotFound(t *testing.T) {
 	ctx, repo := newRepo(t)
 
 	_, err := repo.LiveRunnerForChat(ctx, "no-such-chat")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 
 	_, err = repo.LiveRunnerForSession(ctx, "w1", "no-such-session")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 
 	_, err = repo.ChatForSession(ctx, "w1", "no-such-session")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 
 	_, err = repo.LastConversation(ctx, "no-such-chat")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 }
 
 // TestAgentRunner_BindSession_OpensTheConversation: binding announces the
@@ -179,7 +179,7 @@ func TestAgentRunner_BindSession_OpensTheConversation(t *testing.T) {
 	assert.Equal(t, now.Add(time.Second), bound.CurrentSessionSince,
 		"the conversation's opening time is when it was BOUND, never when the runner spawned")
 
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 
 	live, err := repo.LiveRunnerForSession(ctx, "w1", "sess-1")
 	require.NoError(t, err)
@@ -223,12 +223,12 @@ func TestAgentRunner_Exit_DropsTheLiveRow_KeepsHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, exited.ExitedAt, "the tombstone is audit-only, never a liveness flag")
 
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 
 	_, err = repo.Get(ctx, "r1")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "an exited runner has no live row")
+	assert.ErrorIs(t, err, runner.ErrNotFound, "an exited runner has no live row")
 	_, err = repo.LiveRunnerForChat(ctx, "chat-a")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat is dormant again")
+	assert.ErrorIs(t, err, runner.ErrNotFound, "the chat is dormant again")
 
 	// History survives the process.
 	conv, err := repo.LastConversation(ctx, "chat-a")
@@ -244,7 +244,7 @@ func TestAgentRunner_AllLive_ListsRunningRunnersOnly(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
 	startRunner(t, ctx, repo, "r2", "chat-b", now)
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 
 	live, err := repo.AllLive(ctx)
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestAgentRunner_AllLive_ListsRunningRunnersOnly(t *testing.T) {
 
 	_, err = repo.Exit(ctx, "r1", now.Add(time.Second))
 	require.NoError(t, err)
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 
 	live, err = repo.AllLive(ctx)
 	require.NoError(t, err)
@@ -271,14 +271,14 @@ func TestAgentRunner_ForgetChat_DropsHistoryNotTheRunner(t *testing.T) {
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
 	_, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second))
 	require.NoError(t, err)
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 
 	require.NoError(t, repo.ForgetChat(ctx, "chat-a"))
 
 	_, err = repo.LastConversation(ctx, "chat-a")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat's history is gone")
+	assert.ErrorIs(t, err, runner.ErrNotFound, "the chat's history is gone")
 	_, err = repo.ChatForSession(ctx, "w1", "sess-1")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.ErrorIs(t, err, runner.ErrNotFound)
 
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err, "ForgetChat must NOT hand-delete the live runner row")
@@ -298,7 +298,7 @@ func TestAgentRunner_HubBroadcastsRunnerChatAndKind(t *testing.T) {
 	_, err = repo.Exit(ctx, "r1", now.Add(2*time.Second))
 	require.NoError(t, err)
 
-	agentrunner.WaitQuiescentForTest(repo)
+	runner.WaitQuiescentForTest(repo)
 	assert.Equal(t, []string{
 		"r1:w1:chat-a:started",
 		"r1:w1:chat-b:moved",
@@ -352,7 +352,7 @@ func TestAgentRunner_ConcurrentMove_OCCRetryConverges(t *testing.T) {
 			require.NoErrorf(t, e, "trial %d: move %d must converge via OCC retry, never surface the collision", trial, i)
 		}
 
-		agentrunner.WaitQuiescentForTest(repo)
+		runner.WaitQuiescentForTest(repo)
 		got, err := repo.Get(ctx, runnerID)
 		require.NoError(t, err)
 		require.Containsf(t, []string{chatA, chatB}, got.CurrentChatID,
@@ -380,9 +380,9 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 			calls++
 			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
 		}
-		_, err := agentrunner.OccSend(ctx, send, cmd)
+		_, err := runner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-		assert.Equal(t, agentrunner.MaxOCCAttempts, calls)
+		assert.Equal(t, runner.MaxOCCAttempts, calls)
 	})
 
 	t.Run("ErrValidation never retried", func(t *testing.T) {
@@ -391,7 +391,7 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 			calls++
 			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
 		}
-		_, err := agentrunner.OccSend(ctx, send, cmd)
+		_, err := runner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, asynxModels.ErrValidation)
 		assert.Equal(t, 1, calls)
 	})
@@ -402,7 +402,7 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 			calls++
 			return asynxModels.Event[agents.Runner]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
 		}
-		_, err := agentrunner.OccSend(ctx, send, cmd)
+		_, err := runner.OccSend(ctx, send, cmd)
 		require.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Equal(t, 1, calls)
 	})
@@ -411,7 +411,7 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 		send := func(_ context.Context, c asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
 			return asynxModels.Event[agents.Runner]{Aggregate: agents.Runner{ID: c.AggregateID()}}, nil
 		}
-		evt, err := agentrunner.OccSend(ctx, send, cmd)
+		evt, err := runner.OccSend(ctx, send, cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "r1", evt.Aggregate.ID)
 	})
@@ -424,7 +424,7 @@ func TestAgentRunner_Start_ErrorOnDuplicate(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
 
-	_, err := repo.Start(ctx, agentrunner.StartInput{
+	_, err := repo.Start(ctx, runner.StartInput{
 		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
 		TerminalSession: "term-r1", ChatID: "chat-a", Now: now,
 	})
@@ -449,7 +449,7 @@ func TestAgentRunner_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = agentrunner.NewEventSourced(ax, es, db, func(agentrunner.RunnerEvent) {})
+	_, err = runner.NewEventSourced(ax, es, db, func(runner.RunnerEvent) {})
 	require.Error(t, err)
 }
 
@@ -471,6 +471,6 @@ func TestAgentRunner_NewEventSourced_ErrorOnNilBroadcast(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	_, err = agentrunner.NewEventSourced(ax, es, db, nil)
+	_, err = runner.NewEventSourced(ax, es, db, nil)
 	require.Error(t, err)
 }

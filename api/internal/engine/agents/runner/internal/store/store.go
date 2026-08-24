@@ -104,7 +104,7 @@ func New(
 // first, with the id as a final deterministic tiebreak.
 //
 // It is LOAD-BEARING on the eviction path, and a backstop everywhere else. Both halves of
-// that sentence matter, so read them together with agentrunner.Displace's doc.
+// that sentence matter, so read them together with runner.Displace's doc.
 //
 // Invariants I2/I3 are upheld primarily by DISPLACEMENT: Crowbar cannot kill a process
 // synchronously, so whenever it takes a CLI off a chat it records that placement fact at
@@ -398,7 +398,7 @@ func registerStoreProjection(
 	ax asynx.Asynx[agents.Runner],
 ) error {
 	p := &projector{db: db}
-	if _, err := ax.Subscribe(asynx.Topic("agentrunner.*"), p.onEvent); err != nil {
+	if _, err := ax.Subscribe(asynx.Topic("runner.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentrunner store projection: subscribe: %w", err)
 	}
 	return nil

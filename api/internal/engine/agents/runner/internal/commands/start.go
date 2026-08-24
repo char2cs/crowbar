@@ -24,7 +24,7 @@ type Start struct {
 }
 
 func (c Start) AggregateID() string  { return c.RunnerID }
-func (c Start) EventName() string    { return "agentrunner.started." + c.RunnerID }
+func (c Start) EventName() string    { return "runner.started." + c.RunnerID }
 func (c Start) ShouldSnapshot() bool { return false }
 
 func (c Start) Validate(current *agents.Runner) error {

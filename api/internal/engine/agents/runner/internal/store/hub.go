@@ -12,9 +12,9 @@ import (
 )
 
 // eventNamePrefix is the aggregate-name segment every agentrunner command's
-// EventName() puts first ("agentrunner.<kind>.<id>" — see internal/commands/*.go).
+// EventName() puts first ("runner.<kind>.<id>" — see internal/commands/*.go).
 // eventKind strips it to isolate <kind>.
-const eventNamePrefix = "agentrunner."
+const eventNamePrefix = "runner."
 
 // RunnerEvent is one projected agentrunner lifecycle event, in repo-owned terms:
 // the bare (runnerID, workspaceID, chatID, kind) facts a lifecycle frame is built
@@ -60,7 +60,7 @@ func registerHubProjection(
 	watch WatchFunc,
 ) error {
 	p := &hubProjector{watch: watch}
-	if _, err := ax.Subscribe(asynx.Topic("agentrunner.*"), p.onEvent); err != nil {
+	if _, err := ax.Subscribe(asynx.Topic("runner.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentrunner hub projection: subscribe: %w", err)
 	}
 	return nil
@@ -93,7 +93,7 @@ func (p *hubProjector) onEvent(
 }
 
 // eventKind extracts the <kind> segment from an agentrunner EventName
-// ("agentrunner.<kind>.<id>"). Falls back to the name with only the aggregate
+// ("runner.<kind>.<id>"). Falls back to the name with only the aggregate
 // prefix stripped if a future command ever emits a name that doesn't fit the
 // pattern, rather than silently dropping the frame.
 func eventKind(

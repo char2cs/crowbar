@@ -9,7 +9,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/runner/internal/commands"
 )
 
 func TestStart_EmitsRunnerOnItsChat(t *testing.T) {
@@ -122,9 +122,9 @@ func TestDisplace_RejectsUnknownRunner(t *testing.T) {
 }
 
 func TestEventNames_AreAgentRunnerScoped(t *testing.T) {
-	require.Equal(t, "agentrunner.started.r1", commands.Start{RunnerID: "r1"}.EventName())
-	require.Equal(t, "agentrunner.session_bound.r1", commands.BindSession{RunnerID: "r1"}.EventName())
-	require.Equal(t, "agentrunner.moved.r1", commands.Move{RunnerID: "r1"}.EventName())
-	require.Equal(t, "agentrunner.displaced.r1", commands.Displace{RunnerID: "r1"}.EventName())
-	require.Equal(t, "agentrunner.exited.r1", commands.Exit{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.started.r1", commands.Start{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.session_bound.r1", commands.BindSession{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.moved.r1", commands.Move{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.displaced.r1", commands.Displace{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.exited.r1", commands.Exit{RunnerID: "r1"}.EventName())
 }

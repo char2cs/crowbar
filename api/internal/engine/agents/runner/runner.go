@@ -21,7 +21,7 @@
 // command layer with optimistic-concurrency retry, reads delegate to the
 // store-package projections (the live-runner model and the append-only
 // conversation history).
-package agentrunner
+package runner
 
 import "errors"
 

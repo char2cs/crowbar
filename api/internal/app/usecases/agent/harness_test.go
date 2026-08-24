@@ -18,7 +18,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentactivity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
@@ -28,6 +27,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // mustJSON encodes one vendor hook payload. Every payload in this package is a hook

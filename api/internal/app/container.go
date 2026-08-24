@@ -98,7 +98,7 @@ func New(
 	// between chats (/clear, /resume) is a single write to a single aggregate
 	// instead of a delete-here/insert-there across two chats with no transaction.
 	// Built and its projections registered (via repositories.New ->
-	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
+	// runner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
 	axAgentActivity, err := newAsynx[domain.AgentActivity](
 		adapters.AgentActivityES(), adapters.AgentActivitySS(),

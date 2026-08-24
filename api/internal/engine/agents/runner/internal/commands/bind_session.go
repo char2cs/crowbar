@@ -21,7 +21,7 @@ type BindSession struct {
 }
 
 func (c BindSession) AggregateID() string  { return c.RunnerID }
-func (c BindSession) EventName() string    { return "agentrunner.session_bound." + c.RunnerID }
+func (c BindSession) EventName() string    { return "runner.session_bound." + c.RunnerID }
 func (c BindSession) ShouldSnapshot() bool { return false }
 
 func (c BindSession) Validate(current *agents.Runner) error {

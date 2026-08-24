@@ -9,7 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"

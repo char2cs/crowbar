@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (u *runnerUsecase) SwitchProvider(

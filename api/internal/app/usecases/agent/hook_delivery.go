@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // hookDeliveryContextKey carries the delivery id being ingested down to the

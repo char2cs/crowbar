@@ -9,7 +9,7 @@ package fanout
 
 import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Hub is the WS broadcaster as this package needs it. *hub.Hub satisfies it with no

@@ -2,8 +2,8 @@ package agent
 
 import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent/internal/fanout"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Fanout shapes repository lifecycle announcements into frontend frames.

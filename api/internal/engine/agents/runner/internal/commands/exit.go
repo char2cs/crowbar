@@ -19,7 +19,7 @@ type Exit struct {
 }
 
 func (c Exit) AggregateID() string  { return c.RunnerID }
-func (c Exit) EventName() string    { return "agentrunner.exited." + c.RunnerID }
+func (c Exit) EventName() string    { return "runner.exited." + c.RunnerID }
 func (c Exit) ShouldSnapshot() bool { return false }
 
 func (c Exit) Validate(current *agents.Runner) error {
