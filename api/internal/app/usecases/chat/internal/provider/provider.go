@@ -139,6 +139,8 @@ func (p *Providers) ResolveProviders(
 			Compaction:   caps.Compaction,
 			ModelSelect:  caps.ModelSelect,
 			EffortSelect: caps.EffortSelect,
+			Hotswap:      caps.Hotswap,
+			HasTerminal:  caps.HasTerminal,
 			Models:       d.Models(),
 			Efforts:      resolveEfforts(d),
 		})

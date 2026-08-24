@@ -93,6 +93,8 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			Enabled:      p.Enabled,
 			MCPEnabled:   p.MCPEnabled,
 			Compaction:   p.Compaction,
+			Hotswap:      p.Hotswap,
+			HasTerminal:  p.HasTerminal,
 			ModelSelect:  p.ModelSelect,
 			EffortSelect: p.EffortSelect,
 			Models:       p.Models,

@@ -37,6 +37,11 @@ type AgentProvider struct {
 	// button that appears to work and does not is worse than one that is absent.
 	Compaction bool
 
+	// Hotswap and HasTerminal are engine.Capabilities.Hotswap/.HasTerminal,
+	// carried through unchanged — see there for what each means.
+	Hotswap     bool
+	HasTerminal bool
+
 	ModelSelect  bool
 	EffortSelect bool
 
