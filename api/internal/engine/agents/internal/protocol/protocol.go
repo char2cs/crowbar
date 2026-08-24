@@ -12,10 +12,12 @@ package protocol
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
@@ -138,4 +140,36 @@ func MatchTerminalNotice(d *spec.Descriptor, screen string) (models.TerminalNoti
 // modals — the prompts that reach Crowbar through no hook at all.
 func MatchTerminalPrompt(d *spec.Descriptor, screen string) (models.TerminalPrompt, bool) {
 	return termprompt.Match(d, screen)
+}
+
+// --- api transport: a persistent connection instead of a per-hook payload -----
+
+// APIEvent is one canonical event resolved from a provider's API-transport wire
+// frame. AskID is non-nil exactly when a human decision must be sent back.
+type APIEvent = apidriver.Event
+
+// APIConn wraps *apidriver.Driver so a caller outside this package's own
+// internal/ boundary (agents.go, one layer up) can hold and call it without
+// ever naming the apidriver package — Go's internal/ visibility is per
+// directory, and apidriver sits one level deeper than this file does.
+type APIConn struct{ drv *apidriver.Driver }
+
+func (c *APIConn) Events() <-chan APIEvent { return c.drv.Events() }
+
+func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
+	return c.drv.Reply(askID, rendered)
+}
+
+func (c *APIConn) Close() error { return c.drv.Close() }
+
+// StartAPIDriver dials a provider's API socket, completes its declared
+// handshake, and returns a connection translating inbound frames into canonical
+// events — see apidriver's own doc comment for why this is the one new thing
+// this façade exposes for mixed transport.
+func StartAPIDriver(ctx context.Context, d *spec.Descriptor, socketPath string) (*APIConn, error) {
+	drv, err := apidriver.Start(ctx, d, socketPath)
+	if err != nil {
+		return nil, err
+	}
+	return &APIConn{drv: drv}, nil
 }
