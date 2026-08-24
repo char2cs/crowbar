@@ -32,7 +32,7 @@ import (
 //   - Reading runs DOWN and only down. A chat may read its ancestors, its
 //     siblings and anything else in scope; it may NOT read its own threads.
 //
-// The MCP calls go through .../agent/runners/:segid/mcp, the same route a vendor
+// The MCP calls go through .../chats/runners/:segid/mcp, the same route a vendor
 // CLI's relay uses, authenticated with the per-runner token the daemon minted at
 // spawn. The stub descriptor writes that token to a file under {tmp} exactly as a
 // real descriptor writes its hook config there — so the test reaches the tool
@@ -118,7 +118,7 @@ func newThreadChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "threadstub"},
+	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "threadstub"},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
@@ -141,7 +141,7 @@ func newThreadChatUnder(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats",
+	h.post(wsBase(imported)+"/chats",
 		map[string]string{"provider": "threadstub", "parentId": parentID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
@@ -191,7 +191,7 @@ func say(
 	} {
 		hook["segment_id"] = runnerID
 		hook["provider"] = "threadstub"
-		_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", hook, http.StatusAccepted).Body.Close()
+		_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", hook, http.StatusAccepted).Body.Close()
 	}
 	h.Quiesce()
 }
@@ -225,7 +225,7 @@ func readChatLog(
 	var out struct {
 		RPC json.RawMessage `json:"rpc"`
 	}
-	h.post(wsBase(imported)+"/agent/runners/"+runnerID+"/mcp", map[string]any{
+	h.post(wsBase(imported)+"/chats/runners/"+runnerID+"/mcp", map[string]any{
 		"token": runnerFile(t, h, imported, runnerID, "runner-token"),
 		"rpc":   json.RawMessage(rpc),
 	}, http.StatusOK, &out)
@@ -356,7 +356,7 @@ func TestRegression_AThreadIsSpawnedPointedAtItsLineage(t *testing.T) {
 	var switched struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats/"+threadID+"/switch",
+	h.post(base+"/chats/"+threadID+"/switch",
 		map[string]string{"provider": "threadstub"}, http.StatusOK, &switched)
 	h.Quiesce()
 
@@ -386,7 +386,7 @@ func TestRegression_AFiledChatIsSpawnedWithNoThreadContext(t *testing.T) {
 		var switched struct {
 			ID string `json:"id"`
 		}
-		h.post(base+"/agent/chats/"+chatID+"/switch",
+		h.post(base+"/chats/"+chatID+"/switch",
 			map[string]string{"provider": "threadstub"}, http.StatusOK, &switched)
 		h.Quiesce()
 	}
@@ -425,7 +425,7 @@ func TestRegression_FoldersAreTransparentToWhatAThreadIsTold(t *testing.T) {
 		var switched struct {
 			ID string `json:"id"`
 		}
-		h.post(base+"/agent/chats/"+chatID+"/switch",
+		h.post(base+"/chats/"+chatID+"/switch",
 			map[string]string{"provider": "threadstub"}, http.StatusOK, &switched)
 		h.Quiesce()
 		docs[chatID] = runnerFile(t, h, imported,
@@ -467,7 +467,7 @@ func TestRegression_ReParentingIsRecordedInTheThreadsOwnLedger(t *testing.T) {
 	var assembled struct {
 		Handoff string `json:"handoff"`
 	}
-	h.get(base+"/agent/chats/"+threadID+"/handoff", &assembled)
+	h.get(base+"/chats/"+threadID+"/handoff", &assembled)
 	handoff := assembled.Handoff
 
 	assert.Contains(t, handoff, "an answer given with none of that context")
@@ -580,7 +580,7 @@ func TestRegression_CreatingAChatUnderAnUnknownParentLeavesNothingBehind(t *test
 	base := wsBase(imported)
 
 	before := chatIDs(t, h, base)
-	resp := h.raw(http.MethodPost, base+"/agent/chats",
+	resp := h.raw(http.MethodPost, base+"/chats",
 		map[string]string{"provider": "threadstub", "parentId": "no-such-row"}, http.StatusNotFound)
 	_ = resp.Body.Close()
 	h.Quiesce()

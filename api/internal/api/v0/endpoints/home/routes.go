@@ -7,7 +7,7 @@ package home
 import (
 	"github.com/gin-gonic/gin"
 
-	agenthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
+	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	homehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
 	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
@@ -40,19 +40,19 @@ func Register(
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
 	threadsWS gin.HandlerFunc,
-	agentChats agenthandlers.ChatUsecase,
-	agentTurns agenthandlers.TurnUsecase,
-	agentRunners agenthandlers.RunnerUsecase,
-	agentAnswers agenthandlers.AnswerUsecase,
-	agentProviders agenthandlers.ProviderUsecase,
-	agentFolders agenthandlers.ChatTreeUsecase,
+	agentChats chathandlers.ChatUsecase,
+	agentTurns chathandlers.TurnUsecase,
+	agentRunners chathandlers.RunnerUsecase,
+	agentAnswers chathandlers.AnswerUsecase,
+	agentProviders chathandlers.ProviderUsecase,
+	agentFolders chathandlers.ChatTreeUsecase,
 	agentBroadcastFolder func(folderID, workspaceID, kind string),
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := homehandlers.New(workspaces, projects, files, termEng, working)
 	th := threadhandlers.New(threadStore, threadBroadcast)
-	ah := agenthandlers.New(
+	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
 		agentFolders, agentBroadcastFolder,
 	)
@@ -104,7 +104,7 @@ func Register(
 func registerAgent(
 	home *gin.RouterGroup,
 	h *homehandlers.Handlers,
-	ah *agenthandlers.Handlers,
+	ah *chathandlers.Handlers,
 	agentWS gin.HandlerFunc,
 ) {
 	// Agentic chats are a home capability too (00 agentic-engine spec: chats must
@@ -118,41 +118,41 @@ func registerAgent(
 	// in-PTY CLI callbacks (crowbar hook/handoff) and the agent's own MCP relay
 	// reachable for a project-home workspace, whose repo-less scope resolves to
 	// this /home/agent mount (see cmd/crowbar/scope.go's home branch).
-	home.POST("/agent/chats", h.RequireHomeWorkspace, ah.Create)
-	home.GET("/agent/chats", h.RequireHomeWorkspace, ah.List)
-	home.GET("/agent/chats/:id", h.RequireHomeWorkspace, ah.Get)
-	home.GET("/agent/chats/:id/messages", h.RequireHomeWorkspace, ah.Messages)
-	home.POST("/agent/chats/:id/prompts", h.RequireHomeWorkspace, ah.SubmitPrompt)
-	home.GET("/agent/chats/:id/activity", h.RequireHomeWorkspace, ah.Activity)
-	home.GET("/agent/chats/:id/activity/:toolId/payload", h.RequireHomeWorkspace, ah.ToolPayload)
-	home.GET("/agent/chats/:id/choices", h.RequireHomeWorkspace, ah.Choices)
-	home.POST("/agent/chats/:id/choices/:choiceId/answer", h.RequireHomeWorkspace, ah.AnswerChoice)
-	home.GET("/agent/chats/:id/telemetry", h.RequireHomeWorkspace, ah.Telemetry)
-	home.GET("/agent/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
-	home.POST("/agent/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
-	home.POST("/agent/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
-	home.POST("/agent/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
-	home.POST("/agent/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
-	home.PATCH("/agent/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
-	home.GET("/agent/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
-	home.PATCH("/agent/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
-	home.DELETE("/agent/chats/:id", h.RequireHomeWorkspace, ah.Delete)
+	home.POST("/chats", h.RequireHomeWorkspace, ah.Create)
+	home.GET("/chats", h.RequireHomeWorkspace, ah.List)
+	home.GET("/chats/:id", h.RequireHomeWorkspace, ah.Get)
+	home.GET("/chats/:id/messages", h.RequireHomeWorkspace, ah.Messages)
+	home.POST("/chats/:id/prompts", h.RequireHomeWorkspace, ah.SubmitPrompt)
+	home.GET("/chats/:id/activity", h.RequireHomeWorkspace, ah.Activity)
+	home.GET("/chats/:id/activity/:toolId/payload", h.RequireHomeWorkspace, ah.ToolPayload)
+	home.GET("/chats/:id/choices", h.RequireHomeWorkspace, ah.Choices)
+	home.POST("/chats/:id/choices/:choiceId/answer", h.RequireHomeWorkspace, ah.AnswerChoice)
+	home.GET("/chats/:id/telemetry", h.RequireHomeWorkspace, ah.Telemetry)
+	home.GET("/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
+	home.POST("/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
+	home.POST("/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
+	home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
+	home.POST("/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
+	home.PATCH("/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
+	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
+	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
+	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
 	// Chat FOLDERS, mounted here for the reason the chats above are: the project
 	// home is the surface that accumulates the most chats, so it is the one that
 	// most needs somewhere to put them. Mounting them only on the workspace group
 	// would have left the home with a Chats panel that cannot be organised at all.
-	home.GET("/agent/folders", h.RequireHomeWorkspace, ah.ListFolders)
-	home.POST("/agent/folders", h.RequireHomeWorkspace, ah.CreateFolder)
-	home.PATCH("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
-	home.DELETE("/agent/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
-	home.POST("/agent/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
-	home.POST("/agent/hooks", h.RequireHomeWorkspace, ah.Hooks)
+	home.GET("/chats/folders", h.RequireHomeWorkspace, ah.ListFolders)
+	home.POST("/chats/folders", h.RequireHomeWorkspace, ah.CreateFolder)
+	home.PATCH("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
+	home.DELETE("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
+	home.POST("/chats/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
+	home.POST("/chats/hooks", h.RequireHomeWorkspace, ah.Hooks)
 	// The answer channel's relay half. It mounts here for exactly the reason the
 	// hook ingress above does: a project-home workspace's repo-less scope resolves
 	// to this /home/agent mount, so a CLI running there reaches these leaves and no
 	// others (see cmd/crowbar/scope.go).
-	home.POST("/agent/hooks/await", h.RequireHomeWorkspace, ah.AwaitHookAnswer)
-	home.POST("/agent/hooks/abandon", h.RequireHomeWorkspace, ah.AbandonHookAnswer)
-	home.GET("/agent/providers", h.RequireHomeWorkspace, ah.Providers)
-	home.GET("/agent/ws/chats", h.RequireHomeWorkspace, agentWS)
+	home.POST("/chats/hooks/await", h.RequireHomeWorkspace, ah.AwaitHookAnswer)
+	home.POST("/chats/hooks/abandon", h.RequireHomeWorkspace, ah.AbandonHookAnswer)
+	home.GET("/chats/providers", h.RequireHomeWorkspace, ah.Providers)
+	home.GET("/chats/ws", h.RequireHomeWorkspace, agentWS)
 }

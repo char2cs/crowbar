@@ -11,15 +11,15 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// Create handles POST .../workspaces/:wsId/agent/chats: spawns a fresh
+// Create handles POST .../workspaces/:wsId/chats: spawns a fresh
 // AgentChat anchored to the :wsId path param and starts a RUNNER on it,
 // launching the provider's vendor CLI in a PTY. It responds with the new
 // chat's id; the spawned runner id is not surfaced here (the client reads it
-// back as liveRunnerId via GET .../agent/chats or .../agent/chats/:id).
+// back as liveRunnerId via GET .../chats or .../chats/:id).
 //
 // The optional parentId names where the chat is BORN in the Chats tree: another
 // chat (making it a thread of that chat), a folder ("new chat in this folder"), or
@@ -56,7 +56,7 @@ func (h *Handlers) Create(
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
 }
 
-// List handles GET .../workspaces/:wsId/agent/chats, returning only the
+// List handles GET .../workspaces/:wsId/chats, returning only the
 // chats anchored to the :wsId path param, each carrying the runner facts derived
 // for it by chatRuntime (its live runner, that runner's PTY, its provider) — so the
 // chat list can render provider glyphs and attach a pane without a second round trip
@@ -88,7 +88,7 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes))
 }
 
-// Get handles GET .../workspaces/:wsId/agent/chats/:id, returning the chat with its
+// Get handles GET .../workspaces/:wsId/chats/:id, returning the chat with its
 // derived runner facts and the conversations it has hosted — the append-only history
 // that succeeds the deleted segment list. 404s (via requireChatInWorkspace) when id
 // names a chat anchored to a DIFFERENT workspace than :wsId.
@@ -181,7 +181,7 @@ func (h *Handlers) requireChatInWorkspace(
 	return chat, true
 }
 
-// Rename handles POST .../workspaces/:wsId/agent/chats/:id/rename: sets the
+// Rename handles POST .../workspaces/:wsId/chats/:id/rename: sets the
 // chat's title. `?source=agent` applies the agent precedence rule (skip if
 // user-locked); the default (a human/FE rename) sets unconditionally and
 // locks. 404s (via requireChatInWorkspace) when id names a chat anchored to a
@@ -213,7 +213,7 @@ func (h *Handlers) Rename(
 	libs.WriteAccepted(ctx)
 }
 
-// SetSelection handles PATCH .../workspaces/:wsId/agent/chats/:id/selection:
+// SetSelection handles PATCH .../workspaces/:wsId/chats/:id/selection:
 // writes the chat's sticky choice of model and reasoning effort.
 //
 // The body is the WHOLE selection, not a patch of one field: an omitted or empty
@@ -252,7 +252,7 @@ func (h *Handlers) SetSelection(
 	libs.WriteAccepted(ctx)
 }
 
-// Delete handles DELETE .../workspaces/:wsId/agent/chats/:id: hard-deletes the
+// Delete handles DELETE .../workspaces/:wsId/chats/:id: hard-deletes the
 // chat AND EVERY CHAT THREADED BELOW IT, each through PurgeChat (best-effort PTY
 // teardown, then asynx Forget), plus any folder caught inside that subtree. Each
 // chat's event log is erased, not merely tombstoned, so it is gone from every

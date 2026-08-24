@@ -281,7 +281,7 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
 // the daemon's core/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
-// POSTs over the daemon's unix socket to /v0/agent/hooks, which runs
+// POSTs over the daemon's unix socket to /v0/chats/hooks, which runs
 // IngestHook -> the reducer, and the active segment gets bound with a
 // non-empty ProviderSessionID — the full Go integration path, end to end.
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
@@ -304,7 +304,7 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	// this blocks on that hook ARRIVING rather than on a stopwatch.
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"claude's SessionStart hook never reached /v0/agent/hooks to bind a provider conversation; this means "+
+		"claude's SessionStart hook never reached /v0/chats/hooks to bind a provider conversation; this means "+
 			"either claude never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not "+
 			"reach the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v",
 		runner)
@@ -388,7 +388,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 
 	codexProviderSessionID, codexRunner := awaitSessionBound(t, h, newRunnerID, newTermSessID, codexTap)
 	require.NotEmpty(t, codexProviderSessionID,
-		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation to the switched-to "+
+		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation to the switched-to "+
 			"runner; this means either codex never started in the new PTY, its SessionStart hook never fired, "+
 			"`crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
 			"outcome — runner observed: %+v", codexRunner)

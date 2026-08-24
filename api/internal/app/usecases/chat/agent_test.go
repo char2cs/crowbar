@@ -279,7 +279,7 @@ func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {
 // DAEMON's PATH (cmd.Env is ignored for lookup), and a launchd-started daemon
 // has a minimal PATH that misses ~/.local/bin — where claude and codex install.
 // Every spawn therefore died with "executable file not found in $PATH", which
-// surfaced as POST /agent/chats 500 and a chat button that did nothing.
+// surfaced as POST /chats 500 and a chat button that did nothing.
 //
 // argv[0] must come out of binpath.Resolve so the CLI is exec'd by absolute path.
 func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {

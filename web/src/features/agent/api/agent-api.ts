@@ -3,11 +3,11 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
 // Workspace-scoped agentic-chat REST client. Routes nest under
-// workspaceBase(wsId)/agent (00 agentic-engine spec §2); the {success,data}
+// workspaceBase(wsId)/chats (00 agentic-engine spec §2); the {success,data}
 // envelope is unwrapped by apiFetch. Modelled on features/git/api/review-api.ts.
 
-function agentBase(wsId: string): string {
-  return `${workspaceBase(wsId)}/agent`
+function chatBase(wsId: string): string {
+  return `${workspaceBase(wsId)}/chats`
 }
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────
@@ -311,12 +311,12 @@ function mapShift(raw: Partial<FolderShift> | null): AgentChatFolder[] {
 
 // ── Reads ───────────────────────────────────────────────────────────
 export async function listChats(wsId: string): Promise<AgentChat[]> {
-  const raw = await apiFetch<AgentChat[]>(`${agentBase(wsId)}/chats`)
+  const raw = await apiFetch<AgentChat[]>(`${chatBase(wsId)}`)
   return (raw ?? []).map(mapChat)
 }
 
 export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
-  const raw = await apiFetch<AgentChatDetail>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}`)
+  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`)
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
@@ -339,7 +339,7 @@ export async function listChatMessages(
   if (options.before !== undefined) query.set('before', String(options.before))
   query.set('limit', String(options.limit ?? 100))
   const raw = await apiFetch<AgentChatMessagesPage>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/messages?${query}`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/messages?${query}`,
     { signal: options.signal },
   )
   const items = raw?.items ?? []
@@ -531,7 +531,7 @@ export async function listChatActivity(
   if (options.after !== undefined) query.set('after', String(options.after))
   if (options.limit !== undefined) query.set('limit', String(options.limit))
   const raw = await apiFetch<AgentActivity>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/activity?${query}`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/activity?${query}`,
     { signal: options.signal },
   )
   return {
@@ -585,7 +585,7 @@ export async function answerChoice(
   answer: { optionIds: string[]; reason?: string; content?: unknown },
 ): Promise<void> {
   await apiFetch<unknown>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(chatId)}` +
+    `${chatBase(wsId)}/${encodeURIComponent(chatId)}` +
       `/choices/${encodeURIComponent(choiceId)}/answer`,
     {
       method: 'POST',
@@ -611,7 +611,7 @@ export async function getToolPayload(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const url =
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}` +
+    `${chatBase(wsId)}/${encodeURIComponent(id)}` +
     `/activity/${encodeURIComponent(toolId)}/payload?side=${side}`
   const response = await fetch(`${API_BASE}${url}`, { signal })
   if (response.status === 404) return null
@@ -629,7 +629,7 @@ export async function getChatTelemetry(
   signal?: AbortSignal,
 ): Promise<AgentTelemetry | null> {
   const raw = await apiFetch<AgentTelemetry | null>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/telemetry`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/telemetry`,
     { signal },
     { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
   )
@@ -644,7 +644,7 @@ export async function submitAgentPrompt(
   text: string,
   clientRequestId: string,
 ): Promise<AgentPromptResult> {
-  return apiFetch<AgentPromptResult>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/prompts`, {
+  return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, clientRequestId }),
@@ -660,7 +660,7 @@ export async function getSlashCatalog(
   signal?: AbortSignal,
 ): Promise<SlashCatalog> {
   const raw = await apiFetch<SlashCatalog>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/slash-catalog`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/slash-catalog`,
     { signal },
     { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
   )
@@ -694,7 +694,7 @@ function mapProvider(p: AgentProvider): AgentProvider {
 }
 
 export async function listProviders(wsId: string): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>(`${agentBase(wsId)}/providers`)
+  const raw = await apiFetch<AgentProvider[]>(`${chatBase(wsId)}/providers`)
   return (raw ?? []).map(mapProvider)
 }
 
@@ -707,7 +707,7 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
 export async function updateProviderPreferences(
   prefs: ProviderPreference[],
 ): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/agent/providers`, {
+  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/chat/providers`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ providers: prefs }),
@@ -732,7 +732,7 @@ export async function updateProviderPreferences(
  * turns, so lineage steps straight through them.
  */
 export async function createChat(wsId: string, provider: string, parentId = ''): Promise<string> {
-  const res = await apiFetch<{ id: string }>(`${agentBase(wsId)}/chats`, {
+  const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, parentId }),
@@ -745,7 +745,7 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
 // runner's id — the chat is unchanged, the process is not.
 export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/switch`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/switch`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -765,7 +765,7 @@ export async function switchProvider(wsId: string, id: string, provider: string)
 // two CLIs on one conversation.
 export async function resumeChat(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(id)}/resume`,
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/resume`,
     { method: 'POST' },
   )
   return res.id
@@ -778,7 +778,7 @@ export async function resumeChat(wsId: string, id: string): Promise<string> {
 // through the same resume path. This is NOT deleteChat: the chat is preserved.
 // A chat whose CLI is already gone is a backend no-op.
 export async function stopChat(wsId: string, id: string): Promise<void> {
-  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/stop`, {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/stop`, {
     method: 'POST',
   })
 }
@@ -803,7 +803,7 @@ export async function setChatSelection(
   model: string,
   effort: string,
 ): Promise<void> {
-  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/selection`, {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/selection`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, effort }),
@@ -811,7 +811,7 @@ export async function setChatSelection(
 }
 
 export async function renameChat(wsId: string, id: string, title: string): Promise<void> {
-  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}/rename`, {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/rename`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -826,7 +826,7 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
 // with `keepalive` so an eight-second undo window that ends in a reload still
 // posts the delete the user already walked away from.
 export async function deleteChat(wsId: string, id: string, init?: RequestInit): Promise<void> {
-  await apiFetch<unknown>(`${agentBase(wsId)}/chats/${encodeURIComponent(id)}`, {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     ...init,
   })
@@ -845,7 +845,7 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
 // asked about. Apply both halves or the level paints in its old order.
 
 export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
-  const raw = await apiFetch<AgentChatFolder[]>(`${agentBase(wsId)}/folders`)
+  const raw = await apiFetch<AgentChatFolder[]>(`${chatBase(wsId)}/folders`)
   return (raw ?? []).map(mapFolder)
 }
 
@@ -855,7 +855,7 @@ export async function createChatFolder(
   parentId: string,
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
   const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
-    `${agentBase(wsId)}/folders`,
+    `${chatBase(wsId)}/folders`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -872,7 +872,7 @@ export async function updateChatFolder(
   patch: { name?: string; parentId?: string; order?: number },
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
   const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
-    `${agentBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
+    `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -891,7 +891,7 @@ export async function deleteChatFolder(
   init?: RequestInit,
 ): Promise<AgentChatFolder[]> {
   const raw = await apiFetch<Partial<FolderShift> | null>(
-    `${agentBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
+    `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
     { method: 'DELETE', ...init },
   )
   return mapShift(raw)
@@ -904,7 +904,7 @@ export async function setChatPlacement(
   patch: { parentId?: string; order?: number },
 ): Promise<{ chat: AgentChat; shifted: AgentChatFolder[] }> {
   const raw = await apiFetch<{ chat: AgentChat } & Partial<FolderShift>>(
-    `${agentBase(wsId)}/chats/${encodeURIComponent(chatId)}/placement`,
+    `${chatBase(wsId)}/${encodeURIComponent(chatId)}/placement`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

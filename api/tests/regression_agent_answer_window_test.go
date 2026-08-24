@@ -74,7 +74,7 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats", map[string]string{"provider": "answerstub"},
+	h.post(base+"/chats", map[string]string{"provider": "answerstub"},
 		http.StatusCreated, &created)
 	h.Quiesce()
 	segID := getAgentChat(t, h, base, created.ID).LiveRunnerID
@@ -99,7 +99,7 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 		} `json:"options"`
 		Answerable bool `json:"answerable"`
 	}
-	h.get(base+"/agent/chats/"+created.ID+"/choices", &choices)
+	h.get(base+"/chats/"+created.ID+"/choices", &choices)
 	require.Len(t, choices, 1)
 	require.Equal(t, ack.Await.ChoiceID, choices[0].ID)
 	allow := ""
@@ -110,14 +110,14 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	}
 	require.NotEmpty(t, allow, "a permission offers an allow")
 
-	h.post(base+"/agent/chats/"+created.ID+"/choices/"+choices[0].ID+"/answer",
+	h.post(base+"/chats/"+created.ID+"/choices/"+choices[0].ID+"/answer",
 		map[string]any{"optionIds": []string{allow}}, http.StatusOK, nil)
 	h.Quiesce()
 
 	var answer struct {
 		Stdout string `json:"stdout"`
 	}
-	h.post(base+"/agent/hooks/await", map[string]string{"delivery_id": deliveryID},
+	h.post(base+"/chats/hooks/await", map[string]string{"delivery_id": deliveryID},
 		http.StatusOK, &answer)
 	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, answer.Stdout,
 		"the CLI must receive the bytes Crowbar's record says it was given")
@@ -125,7 +125,7 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	var second struct {
 		Stdout string `json:"stdout"`
 	}
-	h.post(base+"/agent/hooks/await", map[string]string{"delivery_id": deliveryID},
+	h.post(base+"/chats/hooks/await", map[string]string{"delivery_id": deliveryID},
 		http.StatusOK, &second)
 	assert.Empty(t, second.Stdout, "a claimed verdict is gone")
 }
@@ -143,7 +143,7 @@ func postAnswerStubHook(
 	base, segID, deliveryID, event, payloadRaw string,
 ) answerStubAck {
 	t.Helper()
-	resp := h.raw(http.MethodPost, base+"/agent/hooks", map[string]string{
+	resp := h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
 		"delivery_id": deliveryID,
 		"segment_id":  segID,
 		"provider":    "answerstub",

@@ -71,7 +71,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation; this means either "+
+		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation; this means either "+
 			"codex never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not reach "+
 			"the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v", runner)
 
@@ -92,7 +92,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	turns := readLedgerTurns(t, h, wsID, chatID)
 	require.NotEmpty(t, assistantReplies(turns, "codex"),
 		"codex's turn_stop hook never appended an ASSISTANT turn after a real codex turn; this "+
-			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> AppendTurn never "+
+			"proves codex's own Stop hook never reached /v0/chats/hooks, or turn_stop -> AppendTurn never "+
 			"ran; turns observed: %+v", turns)
 
 	handoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)

@@ -34,7 +34,7 @@ import (
 // two-writes-two-aggregates fails them rather than sliding past.
 //
 // NO TIMING. Every wait blocks on a real signal:
-//   - POST /agent/hooks runs IngestHook SYNCHRONOUSLY, so its 202 means the move,
+//   - POST /chats/hooks runs IngestHook SYNCHRONOUSLY, so its 202 means the move,
 //     the eviction and the SIGTERM have all already happened;
 //   - runner commands are asynx SendWait, so a placement is durable AND visible to
 //     the read model the instant the command returns;
@@ -171,7 +171,7 @@ func announce(
 	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"`+sessionID+`"}`)
 }
 
-// chatHandoff reads a chat's assembled ledger (GET .../agent/chats/:id/handoff): the
+// chatHandoff reads a chat's assembled ledger (GET .../chats/:id/handoff): the
 // DURABLE record of what was actually said in it. It is the on-disk oracle for "did
 // this turn land in this chat", answerable long after any in-memory state is gone.
 func chatHandoff(
@@ -184,11 +184,11 @@ func chatHandoff(
 	var out struct {
 		Handoff string `json:"handoff"`
 	}
-	h.get(base+"/agent/chats/"+chatID+"/handoff", &out)
+	h.get(base+"/chats/"+chatID+"/handoff", &out)
 	return out.Handoff
 }
 
-// resumeChat revives a dormant chat (POST .../agent/chats/:id/resume) and returns the
+// resumeChat revives a dormant chat (POST .../chats/:id/resume) and returns the
 // id of the runner it brought back.
 func resumeChat(
 	t *testing.T,
@@ -200,7 +200,7 @@ func resumeChat(
 	var revived struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
+	h.post(base+"/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
 	return revived.ID
 }
 
@@ -237,7 +237,7 @@ func TestRegression_ResumeIntoOccupiedChat_DoesNotBrickSource(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runnerA := createLiveStubChat(t, h, ws)
 	chatB, runnerB := createLiveStubChat(t, h, ws)
@@ -340,7 +340,7 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runnerA := createLiveStubChat(t, h, ws)
 	chatB, runnerB1 := createLiveStubChat(t, h, ws)
@@ -358,7 +358,7 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	var switched struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats/"+chatB+"/switch", map[string]string{"provider": "livestub"}, http.StatusOK, &switched)
+	h.post(base+"/chats/"+chatB+"/switch", map[string]string{"provider": "livestub"}, http.StatusOK, &switched)
 	runnerB2 := switched.ID
 	require.NotEmpty(t, runnerB2)
 	require.NotEqual(t, runnerB1, runnerB2, "a switch spawns a new CLI")
@@ -474,7 +474,7 @@ func TestRegression_HookAfterMove_DoesNotPolluteTheChatItLeft(t *testing.T) {
 	base := wsBase(ws)
 	ctx := context.Background()
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 	announce(t, h, ws, runner, "sess-A")
@@ -546,7 +546,7 @@ func TestRegression_ClearMintsChat_KeepsSamePTY(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 
@@ -636,7 +636,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	base := wsBase(ws)
 	ctx := context.Background()
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	doomed, doomedRunner := createLiveStubChat(t, h, ws)
 	other, otherRunner := createLiveStubChat(t, h, ws)
@@ -679,7 +679,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 		"precondition: Crowbar keeps its own plaintext copy of what was said")
 
 	// --- hard delete ---
-	resp := h.raw(http.MethodDelete, base+"/agent/chats/"+doomed, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	frames.awaitChat(doomed, "deleted")
 	frames.awaitRunner(doomedRunner, "displaced") // its CLI is taken off the chat and killed
@@ -701,7 +701,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	assert.Empty(t, turns,
 		"the chat's conversation record must be reaped with the chat: a hard delete that leaves what was "+
 			"said readable under .crowbar has not deleted anything the user cares about")
-	gone := h.raw(http.MethodGet, base+"/agent/chats/"+doomed, nil, http.StatusNotFound)
+	gone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)
 	_ = gone.Body.Close()
 
 	// And now the consequence of leaving the vendor's file alone: that conversation is
@@ -717,7 +717,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	assert.NotEqual(t, other, landed, "an unknown conversation mints a NEW chat")
 	h.Quiesce()
 
-	stillGone := h.raw(http.MethodGet, base+"/agent/chats/"+doomed, nil, http.StatusNotFound)
+	stillGone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)
 	_ = stillGone.Body.Close()
 	assert.Equal(t, otherRunner, getAgentChat(t, h, base, landed).LiveRunnerID,
 		"the CLI is placed on the chat it landed on, and is reachable there")
@@ -741,7 +741,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 // the whole path: the runner-keyed rename ROUTE is gone with the shell command that was
 // its only caller, and the agent's set_chat_title tool calls this method directly after
 // the MCP resolver has turned its per-boot token into a runner. Reaching the tool over
-// /agent/runners/:segid/mcp instead would need that token, which is minted inside the
+// /chats/runners/:segid/mcp instead would need that token, which is minted inside the
 // daemon and deliberately not published — so the transport is skipped and the property
 // the regression is about (runner → CURRENT chat, resolved late) is exercised whole.
 func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
@@ -750,7 +750,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 	announce(t, h, ws, runner, "sess-A")

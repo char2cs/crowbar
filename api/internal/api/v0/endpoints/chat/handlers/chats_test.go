@@ -18,15 +18,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId path
-// param (Task 3: nested under .../workspaces/:wsId/agent/chats) and the provider
+// param (Task 3: nested under .../workspaces/:wsId/chats) and the provider
 // from the body, forwards both to the create, and responds 201 with the mutation
 // envelope carrying the new chat's id.
 //
@@ -40,7 +40,7 @@ func TestCreate_Success(
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Create(ctx)
@@ -70,7 +70,7 @@ func TestCreate_ForwardsTheParentTheChatIsBornUnder(
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Create(ctx)
@@ -89,7 +89,7 @@ func TestCreate_BadJSON(
 	tree := &fakeChatTree{}
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Create(ctx)
@@ -107,7 +107,7 @@ func TestCreate_UsecaseError(
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
 	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/chats", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Create(ctx)
@@ -315,7 +315,7 @@ func (configurableListGetUsecase) ReplaceProviderPreferences(
 }
 
 // TestList_Success proves List reads the :wsId path param (Task 3: nested
-// under .../workspaces/:wsId/agent/chats), forwards it to
+// under .../workspaces/:wsId/chats), forwards it to
 // ListChatsByWorkspace, and returns every chat as wire DTOs.
 func TestList_Success(
 	t *testing.T,
@@ -328,7 +328,7 @@ func TestList_Success(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -354,7 +354,7 @@ func TestList_UsecaseError(
 	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -397,7 +397,7 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -438,7 +438,7 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -466,7 +466,7 @@ func TestList_ChatWithNoRunnerEverIsEmpty(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -493,7 +493,7 @@ func TestList_LiveRunnerLookupError(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -512,7 +512,7 @@ func TestList_ConversationsLookupError(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -537,7 +537,7 @@ func TestGet_Success(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
 
 	h.Get(ctx)
@@ -590,7 +590,7 @@ func TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
 
 	h.List(ctx)
@@ -628,7 +628,7 @@ func TestGet_CarriesTerminalWait(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
 
 	h.Get(ctx)
@@ -648,7 +648,7 @@ func TestGet_ConversationsIsNeverNull(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
 
 	h.Get(ctx)
@@ -670,7 +670,7 @@ func TestGet_RuntimeLookupError(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
 
 	h.Get(ctx)
@@ -690,7 +690,7 @@ func TestGet_WrongWorkspace404s(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c1", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
 
 	h.Get(ctx)
@@ -706,7 +706,7 @@ func TestGet_ChatNotFound(
 	uc := &configurableListGetUsecase{getErr: agentchat.ErrNotFound}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/agent/chats/missing", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/chats/missing", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
 
 	h.Get(ctx)
@@ -724,7 +724,7 @@ func TestRename_PostsTitleAndSource(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename?source=agent", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/c-1/rename?source=agent", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.Rename(ctx)
@@ -748,7 +748,7 @@ func TestRename_WrongWorkspace404s(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1/rename", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/rename", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
 
 	h.Rename(ctx)
@@ -765,7 +765,7 @@ func TestRename_BadJSON(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/c-1/rename", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.Rename(ctx)
@@ -783,7 +783,7 @@ func TestRename_UsecaseError(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/missing/rename", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/missing/rename", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
 
 	h.Rename(ctx)
@@ -804,7 +804,7 @@ func TestDelete_Success(
 	var frames []folderFrame
 	h := newFolderHandlersWith(uc, tree, &frames)
 
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/c-1", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.Delete(ctx)
@@ -827,7 +827,7 @@ func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-1"}}
 	h := newFolderHandlersWith(uc, tree, &frames)
 
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/c-1", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c-1"}}
 
 	h.Delete(ctx)
@@ -849,7 +849,7 @@ func TestDelete_WrongWorkspace404s(
 	var frames []folderFrame
 	h := newFolderHandlersWith(uc, tree, &frames)
 
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
 
 	h.Delete(ctx)
@@ -868,7 +868,7 @@ func TestDelete_UsecaseError(
 	var frames []folderFrame
 	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound}, &frames)
 
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/agent/chats/missing", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/missing", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
 
 	h.Delete(ctx)
@@ -932,7 +932,7 @@ func TestSetSelection_ForwardsTheWholeSelection(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"model":"opus","effort":"high"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", body)
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.SetSelection(ctx)
@@ -952,7 +952,7 @@ func TestSetSelection_EmptyBodyClearsBothHalves(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", []byte(`{}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", []byte(`{}`))
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.SetSelection(ctx)
@@ -970,7 +970,7 @@ func TestSetSelection_WrongWorkspace404s(
 
 	body := []byte(`{"model":"opus"}`)
 	ctx, rec := newTestContext(t, http.MethodPatch,
-		"/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/c-1/selection", body)
+		"/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/selection", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
 
 	h.SetSelection(ctx)
@@ -985,7 +985,7 @@ func TestSetSelection_BadJSON(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.SetSelection(ctx)
@@ -1004,7 +1004,7 @@ func TestSetSelection_RejectedValueSurfacesAs400(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"model":"telepathy"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/agent/chats/c-1/selection", body)
+	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
 	h.SetSelection(ctx)

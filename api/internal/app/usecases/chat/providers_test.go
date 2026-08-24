@@ -103,7 +103,7 @@ func TestResolveProviders_NoPreferences_OrdersByDescriptorID(t *testing.T) {
 
 // A disabled provider is a provider the user has switched OFF, and the only
 // place that decision can be honoured is the spawn path: the preference is
-// persisted and reported, but a POST .../agent/chats naming it — from a stale
+// persisted and reported, but a POST .../chats naming it — from a stale
 // tab, a second window, or the CLI — reaches spawnRunner directly and never
 // passes through the list the Enabled flag decorates.
 func TestSpawnChat_RefusesDisabledProvider(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Switch handles POST .../workspaces/:wsId/agent/chats/:id/switch: terminates
+// Switch handles POST .../workspaces/:wsId/chats/:id/switch: terminates
 // the chat's active provider CLI, assembles a handoff from the ledger, and
 // spawns the requested provider as a new segment in the same chat. It
 // responds with the new segment's id under the mutation envelope. 404s (via
@@ -43,7 +43,7 @@ func (h *Handlers) Switch(
 	libs.WriteMutationOK(ctx, http.StatusOK, newSegID)
 }
 
-// Resume handles POST .../workspaces/:wsId/agent/chats/:id/resume: revives a
+// Resume handles POST .../workspaces/:wsId/chats/:id/resume: revives a
 // chat whose vendor CLI is gone (it exited, or it died with the daemon),
 // bringing the last provider back into its own native session — exactly where
 // the user left it. Responds with the (re)active segment's id; a chat that is
@@ -70,7 +70,7 @@ func (h *Handlers) Resume(
 	libs.WriteMutationOK(ctx, http.StatusOK, segID)
 }
 
-// Stop handles POST .../workspaces/:wsId/agent/chats/:id/stop: gracefully
+// Stop handles POST .../workspaces/:wsId/chats/:id/stop: gracefully
 // terminates the chat's live vendor CLI and leaves the chat DORMANT and resumable
 // — the counterpart of Resume, and what closing a chat TAB calls. The agent
 // process stops, but the chat entry (and the conversation it can be resumed into)
@@ -97,7 +97,7 @@ func (h *Handlers) Stop(
 	libs.WriteAccepted(ctx)
 }
 
-// Handoff handles GET .../workspaces/:wsId/agent/chats/:id/handoff: assembles
+// Handoff handles GET .../workspaces/:wsId/chats/:id/handoff: assembles
 // the chat's ledger into the legible handoff blob a freshly spawned provider
 // CLI can be given as prior context. Used by the `crowbar handoff dump` CLI
 // as well as the switch flow internally. 404s (via requireChatInWorkspace)

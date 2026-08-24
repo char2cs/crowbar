@@ -77,7 +77,7 @@ describe('subscribeHomeWorkspace', () => {
     const dispose = subscribeHomeWorkspace('p1')
 
     expect(subscribeSpy).toHaveBeenCalledWith(
-      '/v0/projects/p1/home/agent/ws/chats',
+      '/v0/projects/p1/home/chats/ws',
       expect.any(Function),
     )
     dispose()

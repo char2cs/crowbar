@@ -250,7 +250,7 @@ type ProviderUsecase interface {
 	// ResolveProviders returns the enriched, priority-ordered provider list the
 	// backend owns: the descriptor catalog joined with the global preference table
 	// and the install probe (connected + enabled, in priority order). It takes no
-	// wsId — providers are global — and backs the enriched GET .../agent/providers.
+	// wsId — providers are global — and backs the enriched GET .../chats/providers.
 	ResolveProviders(
 		ctx context.Context,
 	) ([]domain.AgentProvider, error)
@@ -258,7 +258,7 @@ type ProviderUsecase interface {
 	// ReplaceProviderPreferences rewrites the whole global preference table from the
 	// submitted ordered set (array position → priority), validating ids against the
 	// catalog (unknown → apperr.ErrInvalidArgument → 400) and returning the freshly
-	// resolved list. It backs PUT /v0/settings/agent/providers.
+	// resolved list. It backs PUT /v0/settings/chat/providers.
 	ReplaceProviderPreferences(
 		ctx context.Context,
 		prefs []domain.AgentProviderPreference,
@@ -282,7 +282,7 @@ type ProviderUsecase interface {
 // ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder
 // CRUD, chat placement, and the cascading chat delete.
 //
-// The DELETE it serves is the one on .../agent/chats/:id, and it goes through
+// The DELETE it serves is the one on .../chats/:id, and it goes through
 // here rather than straight to ChatUsecase.PurgeChat because a chat delete in
 // this panel is not one chat: a chat's children are THREADS of it, so they go
 // with it. Only something holding the tree can know which chats those are.

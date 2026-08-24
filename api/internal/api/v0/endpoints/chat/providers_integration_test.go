@@ -1,4 +1,4 @@
-package agent_test
+package chat_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -45,7 +45,7 @@ func newProviderServer(
 	r := gin.New()
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
-	agent.Register(wsScoped, settingsRG, uc.Chat, uc.Turn, uc.Runner, uc.Answer, uc.Provider,
+	chat.Register(wsScoped, settingsRG, uc.Chat, uc.Turn, uc.Runner, uc.Answer, uc.Provider,
 		nil, nil, func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
 }
@@ -73,7 +73,7 @@ func putProviders(
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/v0/settings/agent/providers", bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPut, "/v0/settings/chat/providers", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
@@ -89,7 +89,7 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	// GET returns the enriched catalog in default (id) order, all enabled.
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet,
-		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -115,7 +115,7 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	// The change persisted: a fresh GET reflects the new order + disabled flag.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet,
-		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
 	afterGet := decodeProviderList(t, rec)
 	require.Equal(t, []string{"codex", "claude"}, providerIDsFromDTO(afterGet))
@@ -138,7 +138,7 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet,
-		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
 	for _, p := range decodeProviderList(t, rec) {
 		assert.True(t, p.MCPEnabled, "%s must default to having its tool surface on", p.ID)
@@ -171,7 +171,7 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 	// And it persisted, rather than only being echoed back off the request body.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet,
-		"/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", http.NoBody)
+		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
 	after := decodeProviderList(t, rec)
 	assert.False(t, after[0].MCPEnabled)

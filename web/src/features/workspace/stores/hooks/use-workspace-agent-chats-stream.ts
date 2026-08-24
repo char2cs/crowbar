@@ -485,7 +485,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     void seedChats()
     void seedProviders()
 
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/agent/ws/chats`, (frame) => {
+    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/chats/ws`, (frame) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.

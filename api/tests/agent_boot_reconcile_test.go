@@ -33,12 +33,12 @@ func bootReconcileFixture(
 	imported := importProject(t, h)
 	homeBase = "/v0/projects/" + imported.projectID + "/home"
 
-	frames := dialAgentWS(t, h, homeBase+"/agent/ws/chats")
+	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
 
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(homeBase+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	waitForChatFrame(t, frames, created.ID, "created")
 
@@ -178,7 +178,7 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 	var revived struct {
 		ID string `json:"id"`
 	}
-	h2.post(homeBase+"/agent/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
+	h2.post(homeBase+"/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
 	revivedRunnerID := revived.ID
 
 	require.NotEmpty(t, revivedRunnerID, "resume must spawn a runner")

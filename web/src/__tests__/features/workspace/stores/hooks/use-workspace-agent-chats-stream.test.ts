@@ -196,9 +196,9 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
-  it('subscribes to the workspace-scoped /agent/ws/chats endpoint', () => {
+  it('subscribes to the workspace-scoped /chats/ws endpoint', () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    expect(subscribe).toHaveBeenCalledWith('/v0/ws/w1/agent/ws/chats', expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith('/v0/ws/w1/chats/ws', expect.any(Function))
   })
 
   it('seeds chats + providers on mount and populates the slice', async () => {
@@ -1243,7 +1243,7 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(unsubW1).toHaveBeenCalledTimes(1)
     expect(subscribe).toHaveBeenCalledTimes(2)
-    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe('/v0/ws/w2/agent/ws/chats')
+    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe('/v0/ws/w2/chats/ws')
   })
 })
 

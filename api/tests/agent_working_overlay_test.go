@@ -88,7 +88,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	h.Quiesce()
 
 	detail := getAgentChat(t, h, wsBase(imported), created.ID)
@@ -98,7 +98,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	conn := h.dial(repoBase + "/workspaces")
 
 	// user_prompt opens the turn.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "user_prompt",
 		"payload_raw": `{"prompt":"hi"}`,
 	}, http.StatusAccepted).Body.Close()
@@ -109,7 +109,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "turn_stop",
 		"payload_raw": `{"last_assistant_message":"done"}`,
 	}, http.StatusAccepted).Body.Close()
@@ -137,7 +137,7 @@ func createLiveStubChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
@@ -154,7 +154,7 @@ func postAgentHook(
 	segID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }

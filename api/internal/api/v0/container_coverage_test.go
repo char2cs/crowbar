@@ -254,13 +254,13 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/agent/ws/chats",
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
 		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/agent/ws/chats")
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
 	c.agentChats.WaitRegistered()
 
 	c.PushAgentChat("chat-in-b", "B", "bound", false)

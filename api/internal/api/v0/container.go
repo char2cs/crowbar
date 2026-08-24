@@ -302,7 +302,7 @@ func (c *Container) PushFile(
 
 // PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
 // event out to every subscriber of the agent-chat WebSocket (GET
-// .../workspaces/:wsId/agent/ws/chats) whose :wsId matches workspaceID,
+// .../workspaces/:wsId/chats/ws) whose :wsId matches workspaceID,
 // mirroring PushGit/PushFile's wsId-scoped fan-out (Task 3: agentChatDef's
 // Filter enforces the scoping; this method itself pushes unconditionally).
 func (c *Container) PushAgentChat(
@@ -391,7 +391,7 @@ func (c *Container) PushAgentChatFolder(
 
 // PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
 // (started/session_bound/moved/exited) out on the SAME workspace-scoped
-// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/agent/ws/chats)
+// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/chats/ws)
 // — one feed for "what changed about this workspace's agent chats", whether the
 // change came from the chat aggregate or from the runner pointed at it. A second
 // socket would buy nothing and would have to be kept in order with the first.
@@ -555,7 +555,7 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 }
 
 // agentChatDef serves the agent-chat lifecycle event stream (GET
-// .../workspaces/:wsId/agent/ws/chats), scoped to a single workspace by wsId
+// .../workspaces/:wsId/chats/ws), scoped to a single workspace by wsId
 // (Task 3), mirroring gitDef/filesDef. It carries no snapshot: unlike the
 // full-state resource streams above (projects, repos, workspaces, ...) a
 // freshly-connected client simply waits for the next lifecycle event — there

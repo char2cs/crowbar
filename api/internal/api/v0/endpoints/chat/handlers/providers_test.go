@@ -24,7 +24,7 @@ func TestProviders_Success(t *testing.T) {
 	}}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Providers(ctx)
@@ -50,7 +50,7 @@ func TestProviders_UsecaseError(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveErr: assert.AnError}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/agent/providers", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Providers(ctx)
@@ -69,7 +69,7 @@ func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"codex","disabled":false},{"id":"claude","disabled":true}]}`)
-	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/chat/providers", body)
 
 	h.UpdateProviderPreferences(ctx)
 
@@ -95,7 +95,7 @@ func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/chat/providers", []byte("{not json"))
 
 	h.UpdateProviderPreferences(ctx)
 
@@ -111,7 +111,7 @@ func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"nope","disabled":false}]}`)
-	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/agent/providers", body)
+	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/chat/providers", body)
 
 	h.UpdateProviderPreferences(ctx)
 

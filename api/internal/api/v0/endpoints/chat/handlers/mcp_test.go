@@ -29,7 +29,7 @@ func TestMCP_ReturnsRPCResponseInEnvelope(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", body)
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
@@ -61,7 +61,7 @@ func TestMCP_NotificationGets204(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","method":"notifications/initialized"}}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", body)
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
@@ -79,7 +79,7 @@ func TestMCP_MissingRPCIs400(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", []byte(`{"token":"TOK"}`))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", []byte(`{"token":"TOK"}`))
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
@@ -96,7 +96,7 @@ func TestMCP_BadJSONIs400(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
@@ -122,7 +122,7 @@ func TestMCP_MapsUsecaseErrorsThroughStatusAndMessage(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", body)
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)
@@ -140,7 +140,7 @@ func TestMCP_DispatchErrorIs500(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/runners/seg-1/mcp", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/runners/seg-1/mcp", body)
 	ctx.Params = gin.Params{{Key: "segid", Value: "seg-1"}}
 
 	h.MCP(ctx)

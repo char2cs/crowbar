@@ -22,7 +22,7 @@ describe('agent-api', () => {
       },
     ])
     const chats = await api.listChats('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats')
     // liveRunnerId + its PTY must survive the mapper — they ARE the attach contract.
     expect(chats[0]).toMatchObject({
       id: 'c1',
@@ -110,7 +110,7 @@ describe('agent-api', () => {
       ],
     })
     const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1')
     expect(chat.liveRunnerId).toBe('r1')
     expect(chat.terminalSessionId).toBe('pty1')
     // Conversations succeed the deleted `segments`: pure append-only history, with
@@ -156,7 +156,7 @@ describe('agent-api', () => {
       ],
     })
     const page = await api.listChatMessages('w1', 'chat/1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/chat%2F1/messages?limit=100', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/chat%2F1/messages?limit=100', {
       signal: undefined,
     })
     expect(page).toMatchObject({ cursor: 12, oldestCursor: 11, hasMore: true })
@@ -171,12 +171,12 @@ describe('agent-api', () => {
       limit: 25,
       signal: controller.signal,
     })
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1/messages?after=4&limit=25', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/messages?after=4&limit=25', {
       signal: controller.signal,
     })
     await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
     expect(apiFetch).toHaveBeenLastCalledWith(
-      '/v0/ws/w1/agent/chats/c1/messages?before=10&limit=25',
+      '/v0/ws/w1/chats/c1/messages?before=10&limit=25',
       { signal: undefined },
     )
   })
@@ -186,7 +186,7 @@ describe('agent-api', () => {
     const result = await api.submitAgentPrompt('w1', 'c1', 'Line one\nline two', 'request-1')
     expect(result).toEqual({ runnerId: 'r2', terminalSessionId: 'pty2' })
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/agent/chats/c1/prompts',
+      '/v0/ws/w1/chats/c1/prompts',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ text: 'Line one\nline two', clientRequestId: 'request-1' }),
@@ -205,7 +205,7 @@ describe('agent-api', () => {
     const catalog = await api.getSlashCatalog('w1', 'c1', controller.signal)
     expect(catalog.warnings).toEqual(['one plugin failed'])
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/agent/chats/c1/slash-catalog',
+      '/v0/ws/w1/chats/c1/slash-catalog',
       { signal: controller.signal },
       { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
     )
@@ -216,7 +216,7 @@ describe('agent-api', () => {
     const id = await api.createChat('w1', 'codex')
     expect(id).toBe('c9')
     const [url, init] = apiFetch.mock.calls[0]
-    expect(url).toBe('/v0/ws/w1/agent/chats')
+    expect(url).toBe('/v0/ws/w1/chats')
     // No parent given is the workspace root, said explicitly rather than by
     // omission — one shape on the wire whether or not the chat is a thread.
     expect(init).toMatchObject({
@@ -243,7 +243,7 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')
     expect(runnerId).toBe('r2')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/switch')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/switch')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ provider: 'claude' }),
@@ -254,22 +254,22 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'r9' })
     const runnerId = await api.resumeChat('w1', 'c1')
     expect(runnerId).toBe('r9')
-    expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/agent/chats/c1/resume', { method: 'POST' }])
+    expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/c1/resume', { method: 'POST' }])
   })
 
   it('renameChat POSTs the title; deleteChat DELETEs; listProviders GETs', async () => {
     apiFetch.mockResolvedValue(undefined)
     await api.renameChat('w1', 'c1', 'New')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/rename')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/rename')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ title: 'New' }),
     })
     await api.deleteChat('w1', 'c1')
-    expect(apiFetch.mock.calls[1]).toEqual(['/v0/ws/w1/agent/chats/c1', { method: 'DELETE' }])
+    expect(apiFetch.mock.calls[1]).toEqual(['/v0/ws/w1/chats/c1', { method: 'DELETE' }])
     apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const p = await api.listProviders('w1')
-    expect(apiFetch.mock.calls[2][0]).toBe('/v0/ws/w1/agent/providers')
+    expect(apiFetch.mock.calls[2][0]).toBe('/v0/ws/w1/chats/providers')
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
   })
 
@@ -279,7 +279,7 @@ describe('agent-api', () => {
   it('setChatSelection PATCHes the whole selection', async () => {
     apiFetch.mockResolvedValue(undefined)
     await api.setChatSelection('w1', 'c1', 'gpt-5.6-luna', 'max')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1/selection', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/selection', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'gpt-5.6-luna', effort: 'max' }),
@@ -398,7 +398,7 @@ describe('agent-api', () => {
       { id: 'claude', disabled: true, mcpDisabled: false },
     ])
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/settings/agent/providers',
+      '/v0/settings/chat/providers',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({
@@ -582,7 +582,7 @@ describe('agent-api', () => {
     await api.answerChoice('w1', 'c1', 'k 1', { optionIds: ['allow'] })
 
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/agent/chats/c1/choices/k%201/answer',
+      '/v0/ws/w1/chats/c1/choices/k%201/answer',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
@@ -629,7 +629,7 @@ describe('agent-api', () => {
         { id: 'f2', workspaceId: 'w1', name: 'Folder 2' }, // parentId/order omitted
       ])
       const folders = await api.listChatFolders('w1')
-      expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/folders')
+      expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/folders')
       expect(folders[0]).toMatchObject({ id: 'f1', parentId: 'f0', order: 2 })
       // A root/never-placed folder grounds the same way mapChat does.
       expect(folders[1]).toMatchObject({ id: 'f2', parentId: '', order: 0 })
@@ -646,7 +646,7 @@ describe('agent-api', () => {
         shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }],
       })
       const { folder, shifted } = await api.createChatFolder('w1', 'New folder', '')
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/folders')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'POST',
         body: JSON.stringify({ name: 'New folder', parentId: '' }),
@@ -679,7 +679,7 @@ describe('agent-api', () => {
         shifted: [],
       })
       const { folder } = await api.updateChatFolder('w1', 'f1', { name: 'Renamed' })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/folders/f1')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders/f1')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ name: 'Renamed' }),
@@ -701,7 +701,7 @@ describe('agent-api', () => {
     it('deleteChatFolder DELETEs and defaults to [] when the backend responds with a null body', async () => {
       apiFetch.mockResolvedValueOnce(null)
       const shifted = await api.deleteChatFolder('w1', 'f1')
-      expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/agent/folders/f1', { method: 'DELETE' }])
+      expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/folders/f1', { method: 'DELETE' }])
       expect(shifted).toEqual([])
     })
 
@@ -728,7 +728,7 @@ describe('agent-api', () => {
         shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 3 }],
       })
       const { chat, shifted } = await api.setChatPlacement('w1', 'c1', { parentId: 'f1', order: 2 })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/placement')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/placement')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ parentId: 'f1', order: 2 }),

@@ -259,7 +259,7 @@ type AgentInterruptionDTO struct {
 // what is being asked, and which answers exist.
 //
 // An answer names this record by ID and an option by its own — see
-// POST .../agent/chats/:id/choices/:choiceId/answer.
+// POST .../chats/:id/choices/:choiceId/answer.
 type AgentChoiceDTO struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turnId"`
@@ -475,7 +475,7 @@ func AgentChatDTOList(
 	return out
 }
 
-// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id: the
+// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/chats/:id: the
 // chat (with its derived runner facts) plus the conversations it has hosted, oldest
 // first. Conversations succeeds the deleted `segments` list: it is what a segment really
 // was, minus everything that described a process (no status, no PTY, no runner id), so
@@ -502,7 +502,7 @@ func AgentChatDetailDTOFrom(
 	}
 }
 
-// HandoffDTO is the wire shape of GET .../workspaces/:wsId/agent/chats/:id/handoff: the
+// HandoffDTO is the wire shape of GET .../workspaces/:wsId/chats/:id/handoff: the
 // assembled handoff blob a freshly spawned provider CLI can be given as prior
 // context. Handoff is "" (not omitted) when the chat's ledger has no entries
 // yet.
@@ -533,7 +533,7 @@ type AgentProviderDTO struct {
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
-// (GET .../workspaces/:wsId/agent/ws/chats): the thing that changed, the workspace it
+// (GET .../workspaces/:wsId/chats/ws): the thing that changed, the workspace it
 // belongs to, and the lifecycle kind — chat kinds (created/turn_started/turn_stopped/
 // title_set/placement_set/deleted), runner kinds (started/session_bound/moved/
 // displaced/exited), and folder kinds (folder_created/folder_updated/folder_deleted),

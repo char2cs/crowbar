@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -196,7 +196,7 @@ func newFolderHandlersWith(
 func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 	tree := &fakeChatTree{created: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "spikes"}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders",
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders",
 		[]byte(`{"name":"spikes","parentId":"c1","workspaceId":"evil"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
@@ -217,7 +217,7 @@ func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
 		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 0}},
 	}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":"spikes"}`))
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
@@ -235,7 +235,7 @@ func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
 func TestCreateFolder_SurfacesTheUsecaseRefusal(t *testing.T) {
 	tree := &fakeChatTree{err: agentchatfolder.ErrNameRequired}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":" "}`))
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":" "}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
@@ -247,7 +247,7 @@ func TestCreateFolder_SurfacesTheUsecaseRefusal(t *testing.T) {
 func TestCreateFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{`))
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
@@ -262,7 +262,7 @@ func TestListFolders_ScopesToTheURLWorkspace(t *testing.T) {
 		{ID: "a", WorkspaceID: "ws-1", Order: 0},
 	}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodGet, "/agent/folders", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	newFolderHandlers(tree, &frames).ListFolders(ctx)
@@ -280,7 +280,7 @@ func TestListFolders_ScopesToTheURLWorkspace(t *testing.T) {
 func TestListFolders_SurfacesAStoreError(t *testing.T) {
 	tree := &fakeChatTree{err: apperr.ErrNotFound}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodGet, "/agent/folders", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	newFolderHandlers(tree, &frames).ListFolders(ctx)
@@ -292,7 +292,7 @@ func TestListFolders_SurfacesAStoreError(t *testing.T) {
 func TestPatchFolder_RenameThenMove(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "new", Order: 2}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1",
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1",
 		[]byte(`{"name":"new","parentId":"c1","order":2}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
@@ -315,7 +315,7 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Order: 1}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"order":1}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"order":1}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
@@ -332,7 +332,7 @@ func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1"}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"parentId":""}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":""}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
@@ -347,7 +347,7 @@ func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{err: agentchatfolder.ErrNameRequired}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"name":" ","order":0}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":" ","order":0}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
@@ -361,7 +361,7 @@ func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 func TestPatchFolder_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentchatfolder.ErrCycle}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{"parentId":"f2"}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":"f2"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
@@ -373,7 +373,7 @@ func TestPatchFolder_CycleIsAConflict(t *testing.T) {
 func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/folders/f1", []byte(`{`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
@@ -387,7 +387,7 @@ func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
 	tree := &fakeChatTree{shifted: []domain.ChatFolder{{ID: "child", WorkspaceID: "ws-1"}}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodDelete, "/agent/folders/f1", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
@@ -402,7 +402,7 @@ func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
 func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 	tree := &fakeChatTree{err: apperr.ErrNotFound}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodDelete, "/agent/folders/f1", nil)
+	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
 
 	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
@@ -416,7 +416,7 @@ func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1", ParentID: "c1", Order: 3}}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c2/placement",
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement",
 		[]byte(`{"parentId":"c1","order":3}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
 
@@ -444,7 +444,7 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 1}},
 	}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c2/placement", []byte(`{"order":0}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"order":0}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
 
 	newFolderHandlers(tree, &frames).PlaceChat(ctx)
@@ -465,7 +465,7 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 func TestPlaceChat_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentchatfolder.ErrCycle}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c1/placement", []byte(`{"parentId":"c2"}`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c1/placement", []byte(`{"parentId":"c2"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c1"}}
 
 	newFolderHandlers(tree, &frames).PlaceChat(ctx)
@@ -477,7 +477,7 @@ func TestPlaceChat_CycleIsAConflict(t *testing.T) {
 func TestPlaceChat_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
 	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/agent/chats/c1/placement", []byte(`{`))
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c1/placement", []byte(`{`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c1"}}
 
 	newFolderHandlers(tree, &frames).PlaceChat(ctx)
@@ -492,7 +492,7 @@ func TestNew_NilFolderBroadcastDegradesToNoop(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	h := handlers.New(uc, uc, uc, uc, uc,
 		&fakeChatTree{created: domain.ChatFolder{ID: "f1"}}, nil)
-	ctx, rec := newTestContext(t, http.MethodPost, "/agent/folders", []byte(`{"name":"spikes"}`))
+	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	assert.NotPanics(t, func() { h.CreateFolder(ctx) })

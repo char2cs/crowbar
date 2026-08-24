@@ -3,7 +3,7 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	foldersPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/folders"
@@ -116,7 +116,7 @@ func (c *Container) Register(
 		c.threads.Handle,
 		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
 		// home group so project-home workspaces get agentic chats too (the same
-		// concerns + WS broadcaster agent.Register uses on the workspace-scoped
+		// concerns + WS broadcaster chat.Register uses on the workspace-scoped
 		// group); home.Register injects the resolved home :wsId so both scope
 		// correctly. The chat-FOLDER surface is re-mounted with it, for the same
 		// reason and then some: the home accumulates the most chats of any
@@ -179,11 +179,11 @@ func (c *Container) Register(
 	// AgentChat is anchored to a workspace, so its routes mount on wsScoped
 	// (.../workspaces/:wsId) exactly like terminal.Register above, giving it
 	// scopeWorkspaceToPath's wsId-ownership enforcement for free. The WS route
-	// (.../agent/ws/chats) lands in the SAME group as the REST routes so its
+	// (.../chats/ws) lands in the SAME group as the REST routes so its
 	// :wsId path param is available to agentChatDef's Filter (container.go). rg
-	// carries the GLOBAL provider-preferences write route (/settings/agent/providers),
+	// carries the GLOBAL provider-preferences write route (/settings/chat/providers),
 	// mounted once outside the entity hierarchy like /settings/terminal/profiles.
-	agent.Register(
+	chat.Register(
 		wsScoped,
 		rg,
 		c.app.Usecases.AgentChat,

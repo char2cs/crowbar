@@ -24,7 +24,7 @@ func TestSwitch_Success(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"provider":"vendor-b"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/switch", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Switch(ctx)
@@ -53,7 +53,7 @@ func TestSwitch_BadJSON(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/switch", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch", []byte("{not json"))
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Switch(ctx)
@@ -72,7 +72,7 @@ func TestSwitch_WrongWorkspace404s(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"provider":"vendor-b"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/switch", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/chat-1/switch", body)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
 
 	h.Switch(ctx)
@@ -90,7 +90,7 @@ func TestSwitch_UsecaseError(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"provider":"vendor-b"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/missing/switch", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/missing/switch", body)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
 
 	h.Switch(ctx)
@@ -106,7 +106,7 @@ func TestHandoff_Success(
 	uc := &fakeAgentUsecase{handoffStr: "=== HANDED-OFF CONTEXT ==="}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/agent/chats/chat-1/handoff", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/chats/chat-1/handoff", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Handoff(ctx)
@@ -132,7 +132,7 @@ func TestHandoff_WrongWorkspace404s(
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-other"}}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/handoff", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/chat-1/handoff", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
 
 	h.Handoff(ctx)
@@ -148,7 +148,7 @@ func TestHandoff_UsecaseError(
 	uc := &fakeAgentUsecase{handoffErr: errors.New("boom")}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/agent/chats/chat-1/handoff", nil)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/chats/chat-1/handoff", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Handoff(ctx)
@@ -164,7 +164,7 @@ func TestResume_Success(
 	uc := &fakeAgentUsecase{resumeSegID: "seg-9"}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/resume", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Resume(ctx)
@@ -192,7 +192,7 @@ func TestResume_UsecaseError_MapsStatus(
 	uc := &fakeAgentUsecase{resumeErr: agentchat.ErrNotFound}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/resume", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Resume(ctx)
@@ -211,7 +211,7 @@ func TestResume_WrongWorkspace404s(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/resume", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/resume", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
 
 	h.Resume(ctx)
@@ -228,7 +228,7 @@ func TestStop_Success(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/stop", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/stop", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Stop(ctx)
@@ -246,7 +246,7 @@ func TestStop_UsecaseError_MapsStatus(
 	uc := &fakeAgentUsecase{stopErr: agentchat.ErrNotFound}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/chat-1/stop", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/stop", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
 	h.Stop(ctx)
@@ -265,7 +265,7 @@ func TestStop_WrongWorkspace404s(
 	}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/agent/chats/chat-1/stop", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/chat-1/stop", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "chat-1"}}
 
 	h.Stop(ctx)

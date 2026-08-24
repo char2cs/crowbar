@@ -116,7 +116,7 @@ type agentChatDetail struct {
 	Conversations []agentChatConversation `json:"conversations"`
 }
 
-// getAgentChat reads GET <base>/agent/chats/:id. base is a workspace mount
+// getAgentChat reads GET <base>/chats/:id. base is a workspace mount
 // (wsBase) or a project-home mount, both of which serve the same shape.
 func getAgentChat(
 	t *testing.T,
@@ -126,7 +126,7 @@ func getAgentChat(
 ) agentChatDetail {
 	t.Helper()
 	var detail agentChatDetail
-	h.get(base+"/agent/chats/"+chatID, &detail)
+	h.get(base+"/chats/"+chatID, &detail)
 	return detail
 }
 
@@ -140,7 +140,7 @@ func (d agentChatDetail) sessionIDs() []string {
 }
 
 // createAgentChat creates a chat in imported's workspace via the nested
-// .../workspaces/:wsId/agent/chats route using the livestub provider, then
+// .../workspaces/:wsId/chats route using the livestub provider, then
 // quiesces the async read-model projection (harness.Quiesce, backed by
 // app/repositories.Container.WaitQuiescent — asynx's WaitPublish, never a
 // sleep/poll) so a subsequent plain REST List/Get against the store-backed
@@ -162,7 +162,7 @@ func createAgentChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
 	// QuiesceReactors, not Quiesce: creating a chat also PLACES A RUNNER on it,
 	// and that placement detaches into its own goroutine. A plain projection
@@ -191,7 +191,7 @@ func TestAgentREST_Scope(t *testing.T) {
 
 	// List: workspace A's chat list must contain only its own chat, never B's.
 	var listA []agentChatDTO
-	h.get(wsBase(a)+"/agent/chats", &listA)
+	h.get(wsBase(a)+"/chats", &listA)
 	require.Len(t, listA, 1, "workspace A's chat list must contain exactly its own chat")
 	assert.Equal(t, chatA, listA[0].ID)
 	assert.Equal(t, a.workspaceID, listA[0].WorkspaceID)
@@ -199,20 +199,20 @@ func TestAgentREST_Scope(t *testing.T) {
 	// Get-by-id: addressing B's chat through A's workspace route must 404 —
 	// indistinguishable from an unknown id, never leaking that the chat exists
 	// in another workspace.
-	resp := h.raw(http.MethodGet, wsBase(a)+"/agent/chats/"+chatB, nil, http.StatusNotFound)
+	resp := h.raw(http.MethodGet, wsBase(a)+"/chats/"+chatB, nil, http.StatusNotFound)
 	_ = resp.Body.Close()
 
 	// Create: the chat created against A's route must be anchored to A's
 	// workspace id (read from the :wsId path param, not a workspaceId body
 	// field the caller could otherwise spoof).
 	var gotA agentChatDTO
-	h.get(wsBase(a)+"/agent/chats/"+chatA, &gotA)
+	h.get(wsBase(a)+"/chats/"+chatA, &gotA)
 	assert.Equal(t, a.workspaceID, gotA.WorkspaceID)
 
 	// Sanity: B's own route still resolves its own chat (the 404 above is
 	// scope-specific, not a general breakage).
 	var gotB agentChatDTO
-	h.get(wsBase(b)+"/agent/chats/"+chatB, &gotB)
+	h.get(wsBase(b)+"/chats/"+chatB, &gotB)
 	assert.Equal(t, b.workspaceID, gotB.WorkspaceID)
 }
 
@@ -228,7 +228,7 @@ func spawnStubChat(
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"provider": "stub"})
 	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPost, h.url+wsBase(imported)+"/agent/chats", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, h.url+wsBase(imported)+"/chats", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.server.Client().Do(req)
@@ -301,7 +301,7 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 		"a CLI that exits during startup is either refused as a dependency failure or "+
 			"accepted as a chat that is already dormant — never any other status")
 	var chat agentChatDTO
-	h.get(wsBase(ws)+"/agent/chats/"+chatID, &chat)
+	h.get(wsBase(ws)+"/chats/"+chatID, &chat)
 	assert.Empty(t, chat.LiveRunnerID,
 		"the CLI is dead, so the chat it was handed back for must read as dormant")
 	assert.Empty(t, chat.TerminalSessionID,

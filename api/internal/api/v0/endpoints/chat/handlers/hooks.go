@@ -34,7 +34,7 @@ func (h *Handlers) ingest(
 	)
 }
 
-// Hooks handles POST .../workspaces/:wsId/agent/hooks: the vendor-CLI hook forwarder posts a
+// Hooks handles POST .../workspaces/:wsId/chats/hooks: the vendor-CLI hook forwarder posts a
 // canonical hook event here (segment_id/provider/event/payload_raw). IngestHook
 // runs the context-move reducer and persists the outcome. Ingestion is a
 // fail-fast/good-path-async mutation — any resulting chat-lifecycle change is

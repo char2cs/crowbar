@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func newTestContext(
@@ -45,7 +45,7 @@ func TestHooks_DecodesAndDispatches(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"session_start","payload_raw":"{\"sessionId\":\"sess-1\"}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
 
 	h.Hooks(ctx)
 
@@ -67,7 +67,7 @@ func TestHooks_BadJSON(
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", []byte("{not json"))
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", []byte("{not json"))
 
 	h.Hooks(ctx)
 
@@ -84,7 +84,7 @@ func TestHooks_UsecaseError(
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"turn_stop","payload_raw":"{}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
 
 	h.Hooks(ctx)
 

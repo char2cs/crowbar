@@ -51,7 +51,7 @@ import (
 const backstop = 5 * time.Minute
 
 // hookBarrier observes COMPLETED agent-hook requests: gin middleware fires it
-// after the handler chain for POST .../agent/hooks has returned.
+// after the handler chain for POST .../chats/hooks has returned.
 //
 // "After" is the whole point, and it is why this is middleware rather than a hub
 // subscription. When the handler returns, IngestHook has already run to
@@ -74,7 +74,7 @@ func newHookBarrier() *hookBarrier {
 func (b *hookBarrier) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
-		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/agent/hooks") {
+		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/chats/hooks") {
 			b.sig.Fire()
 		}
 	}

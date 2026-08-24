@@ -1,4 +1,4 @@
-package agent_test
+package chat_test
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	"github.com/char2cs/crowbar/api/internal/app/chatlog"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agentchatfolder "github.com/char2cs/crowbar/api/internal/app/usecases/chat/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func TestMain(
@@ -276,7 +276,7 @@ func TestRegisterMountsRoutes(
 	settingsRG := r.Group("/v0")
 	wsHit := false
 	uc := stubUsecase{}
-	agent.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
 		func(c *gin.Context) {
 			wsHit = true
 			c.Status(http.StatusOK)
@@ -287,26 +287,26 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		{http.MethodPost, base + "/agent/chats"},
-		{http.MethodGet, base + "/agent/chats"},
-		{http.MethodGet, base + "/agent/chats/c1"},
-		{http.MethodGet, base + "/agent/chats/c1/messages"},
-		{http.MethodPost, base + "/agent/chats/c1/prompts"},
-		{http.MethodGet, base + "/agent/chats/c1/slash-catalog"},
-		{http.MethodPost, base + "/agent/chats/c1/switch"},
-		{http.MethodPost, base + "/agent/chats/c1/rename"},
-		{http.MethodGet, base + "/agent/chats/c1/handoff"},
-		{http.MethodPatch, base + "/agent/chats/c1/placement"},
-		{http.MethodDelete, base + "/agent/chats/c1"},
-		{http.MethodGet, base + "/agent/folders"},
-		{http.MethodPost, base + "/agent/folders"},
-		{http.MethodPatch, base + "/agent/folders/f1"},
-		{http.MethodDelete, base + "/agent/folders/f1"},
-		{http.MethodPost, base + "/agent/runners/seg-1/mcp"},
-		{http.MethodPost, base + "/agent/hooks"},
-		{http.MethodGet, base + "/agent/providers"},
-		{http.MethodGet, base + "/agent/ws/chats"},
-		{http.MethodPut, "/v0/settings/agent/providers"},
+		{http.MethodPost, base + "/chats"},
+		{http.MethodGet, base + "/chats"},
+		{http.MethodGet, base + "/chats/c1"},
+		{http.MethodGet, base + "/chats/c1/messages"},
+		{http.MethodPost, base + "/chats/c1/prompts"},
+		{http.MethodGet, base + "/chats/c1/slash-catalog"},
+		{http.MethodPost, base + "/chats/c1/switch"},
+		{http.MethodPost, base + "/chats/c1/rename"},
+		{http.MethodGet, base + "/chats/c1/handoff"},
+		{http.MethodPatch, base + "/chats/c1/placement"},
+		{http.MethodDelete, base + "/chats/c1"},
+		{http.MethodGet, base + "/chats/folders"},
+		{http.MethodPost, base + "/chats/folders"},
+		{http.MethodPatch, base + "/chats/folders/f1"},
+		{http.MethodDelete, base + "/chats/folders/f1"},
+		{http.MethodPost, base + "/chats/runners/seg-1/mcp"},
+		{http.MethodPost, base + "/chats/hooks"},
+		{http.MethodGet, base + "/chats/providers"},
+		{http.MethodGet, base + "/chats/ws"},
+		{http.MethodPut, "/v0/settings/chat/providers"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -317,7 +317,7 @@ func TestRegisterMountsRoutes(
 		r.ServeHTTP(rec, req)
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
-	assert.True(t, wsHit, "GET .../agent/ws/chats must delegate to the supplied handler")
+	assert.True(t, wsHit, "GET .../chats/ws must delegate to the supplied handler")
 }
 
 // TestRegisterBindsMCPSegIDFromTheURL closes the gap every other MCP test leaves
@@ -336,12 +336,12 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	agent.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
 		func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
 
-	const path = "/v0/projects/p1/repos/r1/workspaces/w1/agent/runners/seg-42/mcp"
+	const path = "/v0/projects/p1/repos/r1/workspaces/w1/chats/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,
 		strings.NewReader(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`))
 	req.Header.Set("Content-Type", "application/json")

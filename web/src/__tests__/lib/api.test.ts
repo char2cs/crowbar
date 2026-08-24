@@ -72,7 +72,7 @@ describe('apiFetch transient-transport retry', () => {
       }),
     )
 
-    const error = (await apiFetch('/v0/ws/w1/agent/chats/c1/prompts', {
+    const error = (await apiFetch('/v0/ws/w1/chats/c1/prompts', {
       method: 'POST',
     }).catch((caught) => caught)) as ApiError
     expect(error).toMatchObject({

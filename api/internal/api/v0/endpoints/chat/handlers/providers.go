@@ -10,7 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Providers handles GET .../workspaces/:wsId/agent/providers: the registered
+// Providers handles GET .../workspaces/:wsId/chats/providers: the registered
 // agent providers enriched with connected (installed) + enabled (!disabled) and
 // returned in priority order (spec §3.1). The :wsId path param is retained for
 // surface compatibility but the list is workspace-independent — the resolver reads
@@ -28,7 +28,7 @@ func (h *Handlers) Providers(
 	libs.WriteQueryOK(ctx, providerDTOs(providers))
 }
 
-// UpdateProviderPreferences handles PUT /v0/settings/agent/providers: the full
+// UpdateProviderPreferences handles PUT /v0/settings/chat/providers: the full
 // ordered preference set (spec §3.2). The body is the COMPLETE ordered list of
 // known providers; the array position defines the new priority. The handler
 // replaces the whole preference table (upsert submitted, delete omitted) and

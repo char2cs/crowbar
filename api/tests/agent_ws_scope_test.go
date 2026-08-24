@@ -60,8 +60,8 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
 
-	framesA := dialAgentWS(t, h, wsBase(a)+"/agent/ws/chats")
-	framesB := dialAgentWS(t, h, wsBase(b)+"/agent/ws/chats")
+	framesA := dialAgentWS(t, h, wsBase(a)+"/chats/ws")
+	framesB := dialAgentWS(t, h, wsBase(b)+"/chats/ws")
 
 	// Create B's chat FIRST and require ITS OWN connection to observe the
 	// "created" frame before A's chat is ever created: this is a real,
@@ -72,7 +72,7 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	var chatB struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(b)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatB)
+	h.post(wsBase(b)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatB)
 	require.NotEmpty(t, chatB.ID)
 
 	select {
@@ -91,7 +91,7 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	var chatA struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(a)+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatA)
+	h.post(wsBase(a)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatA)
 	require.NotEmpty(t, chatA.ID)
 
 	select {

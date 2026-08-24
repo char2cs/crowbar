@@ -20,7 +20,7 @@ import (
 func answerRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	ctx, rec := newTestContext(t, http.MethodPost,
-		"/v0/projects/p/repos/r/workspaces/ws-1/agent/chats/chat-1/choices/c1/answer",
+		"/v0/projects/p/repos/r/workspaces/ws-1/chats/chat-1/choices/c1/answer",
 		[]byte(body))
 	ctx.Params = gin.Params{
 		{Key: "wsId", Value: "ws-1"},
@@ -87,7 +87,7 @@ func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 		pendingAwait:  true,
 		pendingAnswer: agentusecase.PendingAnswer{ChoiceID: "c1", Wait: 270 * time.Second},
 	}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
 		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"claude",`+
 			`"event":"permission","payload_raw":"{}"}`))
 
@@ -109,7 +109,7 @@ func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 
 func TestRegression_HooksKeepsTheBare202WhenNothingIsAnswerable(t *testing.T) {
 	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
 		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"codex",`+
 			`"event":"permission","payload_raw":"{}"}`))
 
@@ -123,7 +123,7 @@ func TestAwaitHookAnswer_ServesTheRenderedVerdict(t *testing.T) {
 	uc := &fakeAgentUsecase{awaitAnswer: agentusecase.HookAnswer{
 		Stdout: []byte(`{"hookSpecificOutput":{"hookEventName":"PermissionRequest"}}`),
 	}}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/await",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
 		[]byte(`{"delivery_id":"d1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)
@@ -135,7 +135,7 @@ func TestAwaitHookAnswer_ServesTheRenderedVerdict(t *testing.T) {
 
 func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
 	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/await",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
 		[]byte(`{"delivery_id":"d1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)
@@ -147,7 +147,7 @@ func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
 func TestAwaitHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 	for _, body := range []string{"{", `{}`, `{"delivery_id":""}`} {
 		uc := &fakeAgentUsecase{}
-		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/await", []byte(body))
+		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await", []byte(body))
 
 		newChatHandlers(uc).AwaitHookAnswer(ctx)
 
@@ -158,7 +158,7 @@ func TestAwaitHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 
 func TestAbandonHookAnswer_ReportsAndAcknowledges(t *testing.T) {
 	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/abandon",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
 		[]byte(`{"delivery_id":"d1"}`))
 
 	newChatHandlers(uc).AbandonHookAnswer(ctx)
@@ -170,7 +170,7 @@ func TestAbandonHookAnswer_ReportsAndAcknowledges(t *testing.T) {
 func TestAbandonHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 	for _, body := range []string{"{", `{"delivery_id":""}`} {
 		uc := &fakeAgentUsecase{}
-		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/abandon", []byte(body))
+		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon", []byte(body))
 
 		newChatHandlers(uc).AbandonHookAnswer(ctx)
 
@@ -181,7 +181,7 @@ func TestAbandonHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 
 func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
 	uc := &fakeAgentUsecase{abandonErr: apperr.ErrUnavailable}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/abandon",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
 		[]byte(`{"delivery_id":"d1"}`))
 
 	newChatHandlers(uc).AbandonHookAnswer(ctx)
@@ -191,7 +191,7 @@ func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
 
 func TestAwaitHookAnswer_SurfacesAFailure(t *testing.T) {
 	uc := &fakeAgentUsecase{awaitErr: apperr.ErrUnavailable}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/agent/hooks/await",
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
 		[]byte(`{"delivery_id":"d1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)

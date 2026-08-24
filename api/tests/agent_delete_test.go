@@ -34,7 +34,7 @@ func waitForChatFrame(
 }
 
 // TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted proves the Task 5
-// hard-delete route end-to-end: DELETE .../agent/chats/:id responds 202,
+// hard-delete route end-to-end: DELETE .../chats/:id responds 202,
 // the chat is genuinely gone (not merely tombstoned) from both List and a
 // direct GET-by-id, and a subscriber of the chat's own workspace WS feed
 // receives a scoped "deleted" frame for it — the live signal every workspace
@@ -47,12 +47,12 @@ func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 
 	// Dial BEFORE creating the chat so the "created" frame (drained below to
 	// make the later "deleted" read unambiguous) is never missed.
-	frames := dialAgentWS(t, h, wsBase(ws)+"/agent/ws/chats")
+	frames := dialAgentWS(t, h, wsBase(ws)+"/chats/ws")
 
 	chatID := createAgentChat(t, h, ws)
 	waitForChatFrame(t, frames, chatID, "created")
 
-	resp := h.raw(http.MethodDelete, wsBase(ws)+"/agent/chats/"+chatID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, wsBase(ws)+"/chats/"+chatID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 
 	deleted := waitForChatFrame(t, frames, chatID, "deleted")
@@ -61,11 +61,11 @@ func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 	h.Quiesce()
 
 	var list []agentChatDTO
-	h.get(wsBase(ws)+"/agent/chats", &list)
+	h.get(wsBase(ws)+"/chats", &list)
 	for _, c := range list {
 		require.NotEqual(t, chatID, c.ID, "a purged chat must not appear in List")
 	}
 
-	getResp := h.raw(http.MethodGet, wsBase(ws)+"/agent/chats/"+chatID, nil, http.StatusNotFound)
+	getResp := h.raw(http.MethodGet, wsBase(ws)+"/chats/"+chatID, nil, http.StatusNotFound)
 	_ = getResp.Body.Close()
 }

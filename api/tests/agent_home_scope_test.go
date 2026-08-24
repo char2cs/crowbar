@@ -22,20 +22,20 @@ func TestRegression_AgentChatsWorkOnHomeWorkspace(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(homeBase+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
 	var list []struct {
 		ID string `json:"id"`
 	}
-	h.get(homeBase+"/agent/chats", &list)
+	h.get(homeBase+"/chats", &list)
 	require.Len(t, list, 1)
 	assert.Equal(t, created.ID, list[0].ID)
 
 	var providers []struct {
 		ID string `json:"id"`
 	}
-	h.get(homeBase+"/agent/providers", &providers)
+	h.get(homeBase+"/chats/providers", &providers)
 	require.NotEmpty(t, providers)
 }

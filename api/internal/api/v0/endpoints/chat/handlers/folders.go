@@ -12,13 +12,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createFolderRequest is the POST .../agent/folders body.
+// createFolderRequest is the POST .../chats/folders body.
 type createFolderRequest struct {
 	Name     string `json:"name"`
 	ParentID string `json:"parentId"`
 }
 
-// patchFolderRequest is the PATCH .../agent/folders/:folderId body. Every field
+// patchFolderRequest is the PATCH .../chats/folders/:folderId body. Every field
 // is optional and a nil field is left as it is, so a rename, a re-parent and a
 // reorder are the same endpoint — which is what a drag that does two of them at
 // once needs.
@@ -28,7 +28,7 @@ type patchFolderRequest struct {
 	Order    *int    `json:"order"`
 }
 
-// placeChatRequest is the PATCH .../agent/chats/:id/placement body. It is the
+// placeChatRequest is the PATCH .../chats/:id/placement body. It is the
 // chat half of the same gesture the folder PATCH serves, minus the name: a chat
 // is renamed through its own rename route, which carries the agent/user title
 // precedence this endpoint has no business in.
@@ -49,14 +49,14 @@ type folderResponse struct {
 	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
 }
 
-// deleteFolderResponse is the body of DELETE .../agent/folders/:folderId. There
+// deleteFolderResponse is the body of DELETE .../chats/folders/:folderId. There
 // is no folder to return — it is gone — but the rows its children's promotion
 // renumbered still have to reach the caller.
 type deleteFolderResponse struct {
 	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
 }
 
-// placeChatResponse is the body of PATCH .../agent/chats/:id/placement: the
+// placeChatResponse is the body of PATCH .../chats/:id/placement: the
 // moved chat, and the folder rows the densify shifted. The chats that shifted
 // alongside it are absent on purpose — their write is an aggregate command, so
 // each one has already announced itself on the Chats socket.
@@ -65,7 +65,7 @@ type placeChatResponse struct {
 	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
 }
 
-// ListFolders handles GET .../agent/folders, returning the workspace's chat
+// ListFolders handles GET .../chats/folders, returning the workspace's chat
 // folders as AgentChatFolderDTO[] in panel order. It is the read a reconnect
 // reseeds from: the Chats socket carries no snapshot, so this list is the only
 // full answer there is.
@@ -81,7 +81,7 @@ func (h *Handlers) ListFolders(
 	libs.WriteQueryOK(ctx, dto.AgentChatFolderDTOList(rows))
 }
 
-// CreateFolder handles POST .../agent/folders. The URL scope is authoritative: a
+// CreateFolder handles POST .../chats/folders. The URL scope is authoritative: a
 // body-supplied workspace would let a POST against one workspace create a folder
 // in another, so none is accepted.
 func (h *Handlers) CreateFolder(
@@ -111,7 +111,7 @@ func (h *Handlers) CreateFolder(
 	})
 }
 
-// PatchFolder handles PATCH .../agent/folders/:folderId: rename, re-parent and
+// PatchFolder handles PATCH .../chats/folders/:folderId: rename, re-parent and
 // reorder, in that order, so a single drag that renames and moves lands as one
 // answer rather than two half-states.
 func (h *Handlers) PatchFolder(
@@ -153,7 +153,7 @@ func (h *Handlers) applyFolderPatch(
 	return h.folders.Move(ctx, wsID, id, agentchatfolder.MoveInput{ParentID: body.ParentID, Order: body.Order})
 }
 
-// DeleteFolder handles DELETE .../agent/folders/:folderId. What the folder held
+// DeleteFolder handles DELETE .../chats/folders/:folderId. What the folder held
 // is PROMOTED to the folder's own parent, never deleted: a folder holds no
 // conversation, so removing the chats filed under it would destroy work the user
 // only meant to unfile. That is the opposite of deleting a CHAT, which does take
@@ -174,7 +174,7 @@ func (h *Handlers) DeleteFolder(
 	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: dto.AgentChatFolderDTOList(promoted)})
 }
 
-// PlaceChat handles PATCH .../agent/chats/:id/placement: where the chat hangs in
+// PlaceChat handles PATCH .../chats/:id/placement: where the chat hangs in
 // the tree and where it sits among its siblings.
 //
 // Unlike the sidebar's equivalent this write DOES move lineage, and deliberately.
