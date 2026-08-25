@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
@@ -7,9 +8,8 @@ import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
-import { MessageRow } from '@/features/agent/transcript/message-row'
-import { QueuedRow } from '@/features/agent/transcript/queued-row'
-import { AgentTurnTools } from '@/features/agent/transcript/turn-tools'
+import { MessageRow, QueuedMessageRow } from '@/features/agent/transcript/message-row'
+import { AgentTurnTools, groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
 
 interface AgentTranscriptProps {
   messages: AgentChatMessage[]
@@ -58,6 +58,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue } = props
   const anchor = useTranscriptAnchor()
   const scrollFrame = useScrollFrameSpan()
+  const callsByTurn = useMemo(
+    () => groupToolCallsByTurn(props.activity.toolCalls),
+    [props.activity.toolCalls],
+  )
 
   return (
     <div
@@ -118,7 +122,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                   }
                 />
                 {message.role === 'assistant' && (
-                  <AgentTurnTools activity={props.activity} turnId={message.turnId ?? ''} />
+                  <AgentTurnTools callsByTurn={callsByTurn} turnId={message.turnId ?? ''} />
                 )}
               </>
             )}
@@ -132,7 +136,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           />
         )}
         {queue.map((item) => (
-          <QueuedRow
+          <QueuedMessageRow
             key={item.clientRequestId}
             item={item}
             onEdit={() => props.onEditPrompt(item)}
