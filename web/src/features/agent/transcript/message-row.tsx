@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { cn } from '@/lib/utils'
 import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
@@ -31,7 +32,7 @@ function providerName(providers: AgentProvider[], id: string): string {
  * across chat selection, so a row holding state of its own would carry one
  * chat's UI onto another chat's transcript.
  */
-export function MessageRow({
+function MessageRowComponent({
   message,
   showProvider,
   providers,
@@ -110,3 +111,5 @@ export function MessageRow({
     </article>
   )
 }
+
+export const MessageRow = memo(MessageRowComponent)

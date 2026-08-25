@@ -78,3 +78,23 @@ describe('MessageRow', () => {
     expect(screen.getByText('recorded anyway')).toBeInTheDocument()
   })
 })
+
+describe('MessageRow memoization', () => {
+  it('does not re-render when called twice with identical prop values', () => {
+    const message: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 1,
+      role: 'assistant',
+      providerId: 'claude',
+      text: 'hi',
+      at: '2026-08-24T00:00:00Z',
+    }
+    const { rerender, container } = render(
+      <MessageRow message={message} showProvider={false} providers={providers} />,
+    )
+    const firstHTML = container.innerHTML
+    // Same object references — memo's default shallow comparator must skip this render.
+    rerender(<MessageRow message={message} showProvider={false} providers={providers} />)
+    expect(container.innerHTML).toBe(firstHTML)
+  })
+})

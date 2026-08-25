@@ -76,16 +76,25 @@ export function useChatMessages(options: ChatMessagesOptions) {
 
   const applyMessages = useCallback(
     (incoming: AgentChatMessage[]) => {
+      if (incoming.length === 0) {
+        // Nothing new: skip the Map rebuild and setMessages entirely — a
+        // fresh array reference here forces AgentTranscript's messages.map()
+        // to re-run on every unchanged poll tick. Cursor bookkeeping has
+        // nothing to advance either. onApply still fires: it drives the
+        // prompt-queue recovery walk in loadInitial, which reads
+        // pendingEvidence()/recovery.hasMore after every applied page,
+        // empty or not.
+        onApply(messagesRef.current)
+        return
+      }
       const next = mergeMessages(messagesRef.current, incoming)
       messagesRef.current = next
       setMessages(next)
-      if (next.length > 0) {
-        cursorRef.current = Math.max(cursorRef.current, next.at(-1)?.sequence ?? 0)
-        oldestCursorRef.current =
-          oldestCursorRef.current === 0
-            ? (next[0]?.sequence ?? 0)
-            : Math.min(oldestCursorRef.current, next[0]?.sequence ?? oldestCursorRef.current)
-      }
+      cursorRef.current = Math.max(cursorRef.current, next.at(-1)?.sequence ?? 0)
+      oldestCursorRef.current =
+        oldestCursorRef.current === 0
+          ? (next[0]?.sequence ?? 0)
+          : Math.min(oldestCursorRef.current, next[0]?.sequence ?? oldestCursorRef.current)
       onApply(next)
     },
     [onApply],
