@@ -8,7 +8,8 @@ import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
-import { MessageRow, QueuedMessageRow } from '@/features/agent/transcript/message-row'
+import { MessageRow } from '@/features/agent/transcript/message-row'
+import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { AgentTurnTools, groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
 
 interface AgentTranscriptProps {
@@ -136,7 +137,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           />
         )}
         {queue.map((item) => (
-          <QueuedMessageRow
+          <QueuedRow
             key={item.clientRequestId}
             item={item}
             onEdit={() => props.onEditPrompt(item)}
