@@ -107,6 +107,7 @@ type EventStore interface {
 	HasTurnAtOrAfter(ctx context.Context, chatID, providerID string, since time.Time) (bool, error)
 
 	ToolCalls(ctx context.Context, chatID string, after int64, limit int) ([]domain.ActivityToolCall, error)
+	ToolCallsBefore(ctx context.Context, chatID string, before int64, limit int) ([]domain.ActivityToolCall, error)
 	Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error)
 	Interruptions(ctx context.Context, chatID string) ([]domain.ActivityInterruption, error)
 
@@ -339,6 +340,12 @@ func (r *eventSourced) ToolCalls(
 	ctx context.Context, chatID string, after int64, limit int,
 ) ([]domain.ActivityToolCall, error) {
 	return r.store.ToolCalls(ctx, chatID, after, limit)
+}
+
+func (r *eventSourced) ToolCallsBefore(
+	ctx context.Context, chatID string, before int64, limit int,
+) ([]domain.ActivityToolCall, error) {
+	return r.store.ToolCallsBefore(ctx, chatID, before, limit)
 }
 
 func (r *eventSourced) Subagents(

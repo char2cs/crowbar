@@ -186,6 +186,16 @@ func (s *Store) ToolCalls(
 	return s.storage.ToolCalls(ctx, chatID, after, limit)
 }
 
+func (s *Store) ToolCallsBefore(
+	ctx context.Context,
+	chatID string,
+	before int64,
+	limit int,
+) ([]domain.ActivityToolCall, error) {
+	s.heal(ctx)
+	return s.storage.ToolCallsBefore(ctx, chatID, before, limit)
+}
+
 func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error) {
 	s.heal(ctx)
 	return s.storage.Subagents(ctx, chatID)

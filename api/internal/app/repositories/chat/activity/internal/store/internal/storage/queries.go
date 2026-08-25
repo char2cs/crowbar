@@ -155,6 +155,27 @@ func (s *Store) ToolCalls(
 	return out, nil
 }
 
+func (s *Store) ToolCallsBefore(
+	ctx context.Context,
+	chatID string,
+	before int64,
+	limit int,
+) ([]domain.ActivityToolCall, error) {
+	q := s.db.WithContext(ctx).Model(&ToolCallRow{}).Where("chat_id = ?", chatID)
+	if before > 0 {
+		q = q.Where("seq < ?", before)
+	}
+	var rows []ToolCallRow
+	if err := q.Order("seq DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("agentactivity storage: tool calls before: %w", err)
+	}
+	out := make([]domain.ActivityToolCall, len(rows))
+	for i, r := range rows {
+		out[len(rows)-1-i] = r.domain()
+	}
+	return out, nil
+}
+
 func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error) {
 	var rows []SubagentRow
 	err := s.db.WithContext(ctx).Model(&SubagentRow{}).

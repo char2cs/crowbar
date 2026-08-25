@@ -256,7 +256,13 @@ func (t *Turns) ReadActivity(
 	if limit <= 0 || limit > maxActivityPage {
 		limit = maxActivityPage
 	}
-	calls, err := t.activity.ToolCalls(ctx, chatID, after, limit)
+	var calls []domain.ActivityToolCall
+	var err error
+	if after > 0 {
+		calls, err = t.activity.ToolCalls(ctx, chatID, after, limit)
+	} else {
+		calls, err = t.activity.ToolCallsBefore(ctx, chatID, 0, limit)
+	}
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: tool calls: %w", err)
 	}

@@ -643,3 +643,39 @@ func TestInterrupt_OutsideATurnDoesNotOpenOne(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, turns)
 }
+
+func TestToolCallsBefore_ReturnsTheNewestPageInAscendingOrder(t *testing.T) {
+	f := newFixture(t)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+			ChatID: chat, ToolID: fmt.Sprintf("tool-%d", i), Name: "Read",
+			Target: fmt.Sprintf("f%d.go", i), Now: t0.Add(time.Duration(i) * time.Second),
+		}))
+	}
+	f.wait()
+
+	got, err := f.repo.ToolCallsBefore(f.ctx, chat, 0, 3)
+	require.NoError(t, err)
+	require.Len(t, got, 3, "newest 3 of 5")
+	assert.Equal(t, "f2.go", got[0].Target, "still ascending by seq")
+	assert.Equal(t, "f3.go", got[1].Target)
+	assert.Equal(t, "f4.go", got[2].Target, "newest last")
+}
+
+func TestRegression_ToolCallsBeforeDefaultsToNewestNotOldest(t *testing.T) {
+	f := newFixture(t)
+	const total = 520
+	for i := 0; i < total; i++ {
+		require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+			ChatID: chat, ToolID: fmt.Sprintf("tool-%d", i), Name: "Read",
+			Target: fmt.Sprintf("f%d.go", i), Now: t0.Add(time.Duration(i) * time.Second),
+		}))
+	}
+	f.wait()
+
+	got, err := f.repo.ToolCallsBefore(f.ctx, chat, 0, 500)
+	require.NoError(t, err)
+	require.Len(t, got, 500)
+	assert.Equal(t, "f20.go", got[0].Target, "oldest of the newest-500 window")
+	assert.Equal(t, "f519.go", got[499].Target, "the actual newest call is present")
+}
