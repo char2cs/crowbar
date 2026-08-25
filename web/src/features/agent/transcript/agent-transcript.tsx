@@ -40,12 +40,22 @@ interface AgentTranscriptProps {
   showTerminalHintFor?: string
 }
 
-/** The provider of the nearest earlier assistant message, for the label. */
-function previousAssistantProvider(messages: AgentChatMessage[], index: number): string {
-  for (let i = index - 1; i >= 0; i--) {
-    if (messages[i]?.role === 'assistant') return messages[i]?.providerId ?? ''
+/** Sequences of assistant messages that should carry the provider label — the
+ *  first assistant message in the loaded window, and any whose provider
+ *  differs from the nearest earlier assistant message. One forward pass,
+ *  computed once per messages change, replacing a backward walk that used to
+ *  run twice per assistant row. */
+function providerLabelSequences(messages: AgentChatMessage[]): Set<number> {
+  const sequences = new Set<number>()
+  let previousProvider = ''
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    if (previousProvider === '' || previousProvider !== message.providerId) {
+      sequences.add(message.sequence)
+    }
+    previousProvider = message.providerId ?? ''
   }
-  return ''
+  return sequences
 }
 
 /**
@@ -63,6 +73,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
   )
+  const providerLabelSeqs = useMemo(() => providerLabelSequences(messages), [messages])
 
   return (
     <div
@@ -106,7 +117,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             </div>
           </div>
         )}
-        {messages.map((message, index) => (
+        {messages.map((message) => (
           <div key={message.sequence}>
             {message.sequence === props.suppressSequence ? null : (
               <>
@@ -116,11 +127,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                 <MessageRow
                   message={message}
                   providers={props.providers}
-                  showProvider={
-                    message.role === 'assistant' &&
-                    (previousAssistantProvider(messages, index) === '' ||
-                      previousAssistantProvider(messages, index) !== message.providerId)
-                  }
+                  showProvider={message.role === 'assistant' && providerLabelSeqs.has(message.sequence)}
                 />
                 {message.role === 'assistant' && (
                   <AgentTurnTools callsByTurn={callsByTurn} turnId={message.turnId ?? ''} />
