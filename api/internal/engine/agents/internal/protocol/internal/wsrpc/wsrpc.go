@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -98,12 +99,17 @@ func Dial(ctx context.Context, socketPath string) (*Conn, error) {
 }
 
 func (c *Conn) readLoop() {
-	defer c.teardown()
+	defer func() {
+		slog.Info("DIAG4: wsrpc readLoop exiting")
+		c.teardown()
+	}()
 	for {
 		_, data, err := c.ws.ReadMessage()
 		if err != nil {
+			slog.Info("DIAG4: wsrpc ReadMessage error", "err", fmt.Sprint(err))
 			return
 		}
+		slog.Info("DIAG4: wsrpc raw frame", "data", string(data))
 		var f wireFrame
 		if err := json.Unmarshal(data, &f); err != nil {
 			continue // a malformed frame is dropped, never fatal to the connection

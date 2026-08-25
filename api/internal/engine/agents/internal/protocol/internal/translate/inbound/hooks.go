@@ -34,8 +34,21 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
-	if field, ok := ownsConversation(d, decoded); !ok {
-		return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
+	// The ownership guard (RequiredPayloadFields, e.g. codex's transcript_path)
+	// exists for HTTP-delivered hook payloads: any process on the machine can
+	// POST one, so Crowbar must confirm it actually names THIS CLI's own
+	// conversation before trusting it. An api-transport event carries no such
+	// ambiguity — it arrived on the one websocket connection this runner's own
+	// serve process opened, which IS the scoping — and structurally can never
+	// carry a hooks-only field like transcript_path. Applying the guard to it
+	// anyway means EVERY api-transport event fails ownsConversation and is
+	// silently dropped as "foreign", which is exactly what happened before this
+	// fix: session_start through turn_stop all reported successful ingestion
+	// while the ledger never gained a single turn.
+	if d.TransportFor(canonical) != "api" {
+		if field, ok := ownsConversation(d, decoded); !ok {
+			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
+		}
 	}
 	fields, declared := d.EventFields(canonical)
 	if !declared {

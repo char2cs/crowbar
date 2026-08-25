@@ -29,6 +29,9 @@ import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
 import '@/features/agent/styles/activity.css'
 
+/** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
+const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
+
 export interface AgentChatViewHandle {
   cancelUnsentPrompts: () => void
 }
@@ -445,6 +448,12 @@ export function AgentChatView({
       style={{ '--agent-dock-h': `${Math.round(dockHeight)}px` } as React.CSSProperties}
     >
       {transcript}
+
+      <div className="dissolve" aria-hidden="true">
+        {DISSOLVE_LAYERS.map((_, i) => (
+          <div key={i} className="dissolve-layer" />
+        ))}
+      </div>
 
       <div ref={dockRef} className="dock">
         <SubagentShelf activity={activity} />

@@ -40,10 +40,21 @@
      older passes behind it and fades out instead of being cut off by a hard
      border. The height is measured and published by the view, because the dock
      grows with the box. */
-  padding-bottom: calc(var(--agent-dock-h, 92px) + 20px);
+  padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
   /* The scroller owns the bottom gutter now, so the stream must not add its own
      on top of it. */
-  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 20px);
+  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
+  /* Text passing under the dock fades by OPACITY, not a colour overlay — see
+     composer.css. The gradient spans the same --agent-dock-h + 88px band as
+     the dissolve's blur layers there, so the two read as one effect instead
+     of opacity finishing before the blur does; it is clear right up to that
+     band and fully gone by the switches line below it, on any background. */
+  mask-image: linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px));
+  -webkit-mask-image: linear-gradient(
+    to top,
+    transparent 0,
+    black calc(var(--agent-dock-h, 92px) + 88px)
+  );
 }
 /* One measure for the whole surface — the transcript, the composer and the
    controls all sit on it, which is what makes the empty state read as a page. */
@@ -90,6 +101,31 @@
 .agent-chat .bubble.multi {
   border-radius: 18px;
   padding: 10px 16px;
+}
+/* A queued prompt is the SAME bubble — same radius/padding rules, same
+   markdown — with its status layered on as a modifier, not a second
+   component. That is what makes the state transition (queued → sent)
+   invisible: nothing about the box's own geometry changes, only the border
+   and background swap out from under it. Dashed because it is not in the
+   record yet; solid + warning once it needs attention. */
+.agent-chat .bubble.pending {
+  border: 1px dashed var(--input);
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+.agent-chat .bubble.bad {
+  border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent);
+  background: color-mix(in oklch, var(--warning) 8%, transparent);
+}
+.agent-chat .pending-err {
+  margin: 6px 0 0;
+  font-size: var(--ui-text-xs);
+  color: var(--warning-foreground);
+}
+.agent-chat .pending-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 6px;
 }
 /* The pill's own metrics govern the prose inside it. The canvas draws a bubble
    at 1.6 and prose at 1.625, and the difference is enough to move the height of
@@ -267,43 +303,6 @@
   white-space: nowrap;
 }
 
-/* A prompt waiting its turn. Dashed, because it is not in the record yet. */
-.agent-chat .queued {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  max-width: 88%;
-  margin-left: auto;
-  border-radius: 9999px;
-  border: 1px dashed var(--input);
-  background: color-mix(in oklch, var(--muted) 50%, transparent);
-  padding: 8px 16px;
-  font-size: 14px;
-  color: var(--muted-foreground);
-}
-.agent-chat .queued.multi {
-  border-radius: 18px;
-}
-.agent-chat .queued .txt {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-chat .queued .acts {
-  display: flex;
-  gap: 2px;
-  flex: none;
-}
-.agent-chat .queued.bad {
-  border-style: solid;
-  border-color: color-mix(in oklch, var(--warning) 45%, transparent);
-  background: color-mix(in oklch, var(--warning) 8%, transparent);
-  color: var(--warning-foreground);
-}
-
 /* The compaction boundary. Everything above it is out of the model's context and
    still in the transcript — this line is the only thing that says so. */
 .agent-chat .divider {
@@ -327,14 +326,4 @@
   border: 1px solid var(--border);
   padding: 2px 9px;
   background: var(--background);
-}
-
-.agent-chat .queued .err {
-  flex: none;
-  max-width: 40%;
-  font-size: var(--ui-text-xs);
-  color: var(--warning-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

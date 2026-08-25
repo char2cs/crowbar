@@ -31,6 +31,16 @@ import (
 type apiconn struct {
 	serveCmd *exec.Cmd
 	driver   *engineagents.APIConn
+	// ctx/cancel are the connection's OWN lifetime, deliberately NOT derived
+	// from whatever request's ctx happened to trigger the spawn. pumpAPIConn's
+	// goroutine outlives that request by design — codex's reply to THIS
+	// message can arrive minutes after the spawn (or prompt) HTTP call already
+	// returned — and a request-scoped ctx is cancelled the instant that call
+	// completes, silently failing every IngestHook call after with "context
+	// canceled" and making the reply vanish. cancel is called from drop, the
+	// same place serveCmd is killed, so nothing outlives the connection either.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -53,6 +63,16 @@ func (r *apiConnRegistry) set(runnerID string, c *apiconn) {
 	r.byRun[runnerID] = c
 }
 
+// get returns runnerID's live connection, if it has one. ok=false is the
+// common case for a hooks-only provider, and is how submitPromptOverAPI
+// decides to fall back to restart_tui instead.
+func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, ok := r.byRun[runnerID]
+	return c, ok
+}
+
 // drop closes and forgets runnerID's connection, if it has one. Safe to call
 // for a runner that never had one (the hooks-only common case).
 func (r *apiConnRegistry) drop(runnerID string) {
@@ -62,6 +82,9 @@ func (r *apiConnRegistry) drop(runnerID string) {
 	r.mu.Unlock()
 	if !ok {
 		return
+	}
+	if c.cancel != nil {
+		c.cancel()
 	}
 	if c.driver != nil {
 		_ = c.driver.Close()
@@ -97,6 +120,16 @@ func (rs *Runners) startAPIConn(
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
 ) (*apiconn, bool) {
+	// Test-only escape hatch, mirroring crowbarHookPath's CROWBAR_HOOK_BIN
+	// override below: a unit test's descriptor is the REAL codex.yaml, and a
+	// developer machine with codex actually installed would otherwise fork a
+	// genuine `codex app-server` subprocess as a side effect of any test that
+	// spawns a "codex" runner — slow, leaks processes, and makes test behavior
+	// depend on what happens to be on the local PATH. CI (no codex installed)
+	// already degrades this way for free; this makes every environment agree.
+	if os.Getenv("CROWBAR_DISABLE_API_TRANSPORT") != "" {
+		return nil, false
+	}
 	serveArgv, ok := agent.APIServeArgv(tctx)
 	if !ok {
 		return nil, false
@@ -118,7 +151,8 @@ func (rs *Runners) startAPIConn(
 		_ = cmd.Process.Kill()
 		return nil, false
 	}
-	conn := &apiconn{serveCmd: cmd, driver: driver}
+	connCtx, cancel := context.WithCancel(context.Background())
+	conn := &apiconn{serveCmd: cmd, driver: driver, ctx: connCtx, cancel: cancel}
 	rs.apiConns.set(runnerID, conn)
 	return conn, true
 }
@@ -148,7 +182,7 @@ func (rs *Runners) applyAPITransport(
 		plan.Executable = binpath.Resolve(attachArgv[0])
 		plan.Argv = attachArgv[1:]
 	}
-	rs.pumpAPIConn(ctx, runnerID, providerID, agent, conn)
+	rs.pumpAPIConn(runnerID, providerID, agent, conn)
 }
 
 // forkServeProcess starts argv as a long-lived BACKGROUND process — not a PTY:
@@ -194,14 +228,19 @@ func waitForSocket(ctx context.Context, sockPath string) error {
 // pumpAPIConn forwards every canonical event this connection's driver resolves
 // into the SAME ingest entrypoint hooks use — ownership, activity, and the
 // answer desk need no transport-specific branch because of this. Runs until the
-// driver's Events() channel closes (the connection died) or ctx is cancelled.
+// driver's Events() channel closes (the connection died) or conn's own ctx is
+// cancelled (by drop, on runner exit) — NEVER the ctx of whatever request
+// triggered the spawn: this goroutine outlives that request by design, and
+// using its ctx would cancel every IngestHook the instant that request
+// returned. See apiconn's own field comment.
 //
 // agent (the SAME engineagents.Agent spawnRunner already holds) is how this
 // reaches TransportFor — never a raw *spec.Descriptor, which this package
 // cannot name.
 func (rs *Runners) pumpAPIConn(
-	ctx context.Context, runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
+	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
+	ctx := conn.ctx
 	go func() {
 		for ev := range conn.driver.Events() {
 			if agent.TransportFor(ev.Canonical) != "api" {
@@ -227,6 +266,26 @@ func (rs *Runners) pumpAPIConn(
 			}
 		}
 	}()
+}
+
+// pushPromptOverAPI delivers text to runnerID's live api connection, if it has
+// one — no PTY restart, no new runnerID: the same connection applyAPITransport
+// opened at spawn carries every message the conversation ever sends. ok=false
+// means this runner has no live api connection at all (a hooks-only provider,
+// or a mixed-transport one whose serve process never came up); the caller
+// falls back to restart_tui exactly as it did before mixed transport existed.
+func (rs *Runners) pushPromptOverAPI(
+	ctx context.Context, runnerID, sessionID, cwd, text string,
+) (usedSessionID string, ok bool, err error) {
+	conn, ok := rs.apiConns.get(runnerID)
+	if !ok {
+		return "", false, nil
+	}
+	used, err := conn.driver.SendPrompt(ctx, sessionID, cwd, text)
+	if err != nil {
+		return "", true, err
+	}
+	return used, true, nil
 }
 
 // awaitAndReplyOverSocket blocks on the SAME answerdesk.Await an HTTP hook relay

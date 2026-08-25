@@ -81,12 +81,21 @@ func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
 	assert.Empty(t, ev.Failure.Detail)
 }
 
-func TestAgent_CodexDeclaresNeitherStreamingNorFailureHooks(t *testing.T) {
-	codex := get(t, "codex")
+// codex still declares no failure hook at all — turn_failed has no wire event
+// on either transport.
+func TestAgent_CodexDeclaresNoFailureHook(t *testing.T) {
+	_, err := get(t, "codex").ParseHook(agents.HookTurnFailed, []byte(`{"session_id":"s"}`))
 
-	for _, kind := range []string{agents.HookMessageDelta, agents.HookTurnFailed} {
-		_, err := codex.ParseHook(kind, []byte(`{"session_id":"s"}`))
+	require.Error(t, err, "codex must not claim to observe turn_failed")
+}
 
-		require.Errorf(t, err, "codex must not claim to observe %s", kind)
-	}
+// message_delta IS observed now — over the api transport (item/agentMessage/delta),
+// not a hook. See the mixed transport design spec.
+func TestAgent_CodexObservesMessageDeltaOverAPITransport(t *testing.T) {
+	ev, err := get(t, "codex").ParseHook(agents.HookMessageDelta,
+		[]byte(`{"threadId":"t1","itemId":"m1","turnId":"tn1","delta":"partial text"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Delta)
+	assert.Equal(t, "partial text", ev.Delta.Text)
 }

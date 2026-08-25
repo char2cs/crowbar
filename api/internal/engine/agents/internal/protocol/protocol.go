@@ -162,6 +162,13 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 
 func (c *APIConn) Close() error { return c.drv.Close() }
 
+// SendPrompt delivers one user message over this connection — see
+// apidriver.Driver.SendPrompt's own doc comment for why this is hand-written
+// rather than routed through Send/outbound.Resolve.
+func (c *APIConn) SendPrompt(ctx context.Context, threadID, cwd, text string) (string, error) {
+	return c.drv.SendPrompt(ctx, threadID, cwd, text)
+}
+
 // StartAPIDriver dials a provider's API socket, completes its declared
 // handshake, and returns a connection translating inbound frames into canonical
 // events — see apidriver's own doc comment for why this is the one new thing

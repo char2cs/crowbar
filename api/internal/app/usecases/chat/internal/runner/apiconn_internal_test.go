@@ -286,8 +286,8 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 
 	spy := &spyTurns{}
 	rs := &Runners{turns: spy}
-	conn := &apiconn{driver: apiConn}
-	rs.pumpAPIConn(ctx, "runner-1", "api-test", agent, conn)
+	conn := &apiconn{driver: apiConn, ctx: ctx}
+	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
 	calls := spy.snapshot()
@@ -324,8 +324,8 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
 	rs := &Runners{turns: spy, answers: answers}
-	conn := &apiconn{driver: apiConn}
-	rs.pumpAPIConn(ctx, "runner-1", "api-test", agent, conn)
+	conn := &apiconn{driver: apiConn, ctx: ctx}
+	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
 	call := spy.snapshot()[0]
@@ -374,8 +374,8 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	// time" — without this test waiting out the real 270s default.
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	rs := &Runners{turns: spy, answers: answers}
-	conn := &apiconn{driver: apiConn}
-	rs.pumpAPIConn(ctx, "runner-1", "api-test", agent, conn)
+	conn := &apiconn{driver: apiConn, ctx: ctx}
+	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
 	// The slot is already held (spyTurns.IngestHook did it, since spy.answers is

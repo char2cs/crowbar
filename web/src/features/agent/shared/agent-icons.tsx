@@ -96,14 +96,6 @@ export const PencilIcon = icon(
   'PencilIcon',
 )
 
-export const RetryIcon = icon(
-  <>
-    <path d="M4 12a8 8 0 1 1 2.6 5.9" />
-    <path d="M4 18.5V13h5.5" />
-  </>,
-  'RetryIcon',
-)
-
 /* Filled, unlike every other glyph here: a stop is the one control whose meaning
    is "solid", and the canvas draws it as a rounded square rather than an outline. */
 export const StopIcon = icon(

@@ -31,23 +31,112 @@
   max-width: 768px;
   margin: 0 auto;
   padding: 0 24px 14px;
-  background: var(--background);
+  /* NO fill here. A colour — even a translucent one — is a tint that never
+     matches whatever it sits over (that was the original --background bug,
+     and swapping in --pane-background just made it a fainter version of the
+     same mistake). The dock stays genuinely colourless; only the pill and
+     the chips paint anything, each with its own opaque surface. */
 }
-/* The dissolve. A gradient alone leaves text crisply legible right up to where
-   it vanishes; the blur is what makes it read as depth instead of a wipe. The
-   mask fades the blur out too, so there is no visible edge where it stops. */
-.agent-chat .dock::before {
-  content: '';
+/* The dissolve: text passing under the dock gets progressively BLURRED and
+   faded — pure distortion, no colour of its own, so it reads as glass rather
+   than a tinted panel. Opacity lives on the transcript's own text (.scroll,
+   in transcript.css) as a mask; blur can't ramp from one `backdrop-filter` —
+   a single blur value is uniform wherever it applies — so it's faked with
+   stacked layers, each blurring more and masked into a lower band, following
+   the layered-mask recipe at https://kennethnym.com/blog/progressive-blur-in-css/.
+   Sharp edge starts a clear band ABOVE the dock's own top (the input's top
+   edge) — .scroll's padding-bottom is taller than this zone on purpose, so
+   the newest message stays clear of it entirely; only older text scrolled
+   back into view does. Most blurred at the dock's own bottom, the switches
+   line.
+
+   A SIBLING of .dock, not a child of it: the dock is a centred 768px column
+   (it only needs to be as wide as the controls it holds), but the transcript
+   underneath runs the full pane, so the glass has to too — sized off
+   --agent-dock-h directly instead of borrowing the dock's own narrow box. */
+.agent-chat .dissolve {
   position: absolute;
   inset-inline: 0;
-  bottom: 100%;
-  height: 44px;
+  bottom: 0;
+  height: calc(var(--agent-dock-h, 92px) + 88px);
+  z-index: 1;
   pointer-events: none;
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-  background: linear-gradient(to top, var(--background), transparent);
-  mask-image: linear-gradient(to top, oklch(0 0 0) 35%, transparent);
-  -webkit-mask-image: linear-gradient(to top, oklch(0 0 0) 35%, transparent);
+}
+.agent-chat .dissolve-layer {
+  position: absolute;
+  inset: 0;
+}
+.agent-chat .dissolve-layer:nth-child(1) {
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 30%, transparent 40%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 10%,
+    black 30%,
+    transparent 40%
+  );
+}
+.agent-chat .dissolve-layer:nth-child(2) {
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  mask-image: linear-gradient(to bottom, transparent 10%, black 20%, black 40%, transparent 50%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 10%,
+    black 20%,
+    black 40%,
+    transparent 50%
+  );
+}
+.agent-chat .dissolve-layer:nth-child(3) {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 50%, transparent 60%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 15%,
+    black 30%,
+    black 50%,
+    transparent 60%
+  );
+}
+.agent-chat .dissolve-layer:nth-child(4) {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  mask-image: linear-gradient(to bottom, transparent 20%, black 40%, black 60%, transparent 70%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 20%,
+    black 40%,
+    black 60%,
+    transparent 70%
+  );
+}
+.agent-chat .dissolve-layer:nth-child(5) {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  mask-image: linear-gradient(to bottom, transparent 40%, black 60%, black 80%, transparent 90%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 40%,
+    black 60%,
+    black 80%,
+    transparent 90%
+  );
+}
+.agent-chat .dissolve-layer:nth-child(6) {
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
+}
+.agent-chat .dissolve-layer:nth-child(7) {
+  backdrop-filter: blur(64px);
+  -webkit-backdrop-filter: blur(64px);
+  mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
 }
 
 .agent-chat .pill {

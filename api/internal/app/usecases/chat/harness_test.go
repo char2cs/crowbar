@@ -981,6 +981,12 @@ func newFixtureUsing(
 ) (testFixture, agentchat.EventStore, agentrunner.EventStore) {
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
+	// codex.yaml is api-transport, and startAPIConn resolves the real `codex`
+	// binary via binpath's well-known-dirs fallback regardless of PATH — a
+	// developer machine with codex installed would otherwise fork a genuine
+	// `codex app-server` subprocess as a side effect of spawning "codex" here.
+	// See apiconn.go's own comment on this same variable.
+	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
 
 	bc := &fakeBroadcaster{}
 	rbc := &fakeRunnerBroadcaster{}

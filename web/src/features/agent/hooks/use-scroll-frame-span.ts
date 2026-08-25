@@ -17,7 +17,7 @@ const SCROLL_IDLE_MS = 200
  */
 export function useScrollFrameSpan(): { onScrollEvent: () => void } {
   const sampling = useRef(false)
-  const idleTimer = useRef<ReturnType<typeof setTimeout>>()
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const sampleFrame = useCallback(() => {
     markEnd('chat.scroll.frame')

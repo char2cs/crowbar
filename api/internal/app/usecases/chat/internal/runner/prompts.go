@@ -51,16 +51,23 @@ func (rs *Runners) SubmitPrompt(
 		return result, err
 	}
 
-	live, descriptor, err := rs.promptTarget(ctx, chat)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, live, descriptor)
+	live, descriptor, worktree, err := rs.promptTarget(ctx, chat)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
 
 	if err := rs.requirePromptIdle(ctx, chatID, live.ID); err != nil {
+		return domain.AgentPromptSubmission{}, err
+	}
+
+	if submission, handled, pushErr := rs.submitPromptOverAPI(
+		ctx, chat, journalDir, clientRequestID, textHash, live, worktree, text,
+	); handled {
+		return submission, pushErr
+	}
+
+	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, live, descriptor)
+	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
 
@@ -147,26 +154,74 @@ func (rs *Runners) replayPriorAttempt(
 	return rs.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
 }
 
+// submitPromptOverAPI delivers text over live's connection when it has one —
+// the mixed-transport case, where a message needs no restart at all: the same
+// connection applyAPITransport opened at spawn carries every message the
+// conversation ever sends, first or hundredth. handled=false means live has no
+// live api connection (every hooks-only provider, and a mixed-transport one
+// whose serve process never came up); the caller falls back to the
+// restart_tui path unchanged.
+func (rs *Runners) submitPromptOverAPI(
+	ctx context.Context,
+	chat domain.Chat,
+	journalDir, clientRequestID, textHash string,
+	live engineagents.Runner,
+	worktree, text string,
+) (domain.AgentPromptSubmission, bool, error) {
+	if _, ok := rs.apiConns.get(live.ID); !ok {
+		slog.InfoContext(ctx, "DIAG2: no live apiConn found", "runner_id", live.ID)
+		return domain.AgentPromptSubmission{}, false, nil
+	}
+
+	prior, existingAttempt, err := rs.prompts.Begin(
+		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
+	)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf(
+			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err),
+		)
+	}
+	if existingAttempt {
+		result, done, classifyErr := rs.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, prior)
+		if done {
+			return result, true, classifyErr
+		}
+		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
+	}
+
+	usedSession, ok, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, text)
+	slog.InfoContext(ctx, "DIAG2: pushPromptOverAPI returned", "runner_id", live.ID,
+		"used_session", usedSession, "ok", ok, "err", fmt.Sprint(pushErr))
+	if pushErr != nil {
+		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
+			ctx, journalDir, clientRequestID, "api push", pushErr,
+		)
+	}
+	submission, err := rs.commitPromptSpawn(ctx, journalDir, clientRequestID, textHash, live.ID)
+	slog.InfoContext(ctx, "DIAG2: commitPromptSpawn returned", "runner_id", live.ID, "err", fmt.Sprint(err))
+	return submission, true, err
+}
+
 func (rs *Runners) promptTarget(
 	ctx context.Context,
 	chat domain.Chat,
-) (engineagents.Runner, engineagents.Agent, error) {
+) (engineagents.Runner, engineagents.Agent, string, error) {
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chat.ID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
-		return engineagents.Runner{}, nil, ErrPromptSessionUnavailable
+		return engineagents.Runner{}, nil, "", ErrPromptSessionUnavailable
 	}
 	if err != nil {
-		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: live runner: %w", err)
+		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: live runner: %w", err)
 	}
-	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
 	if err != nil {
-		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
+		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
 	}
 	descriptor, err := rs.agents.Get(ctx, crowbarHome, live.ProviderID)
 	if err != nil {
-		return engineagents.Runner{}, nil, fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
+		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
 	}
-	return live, descriptor, nil
+	return live, descriptor, worktree, nil
 }
 
 func (rs *Runners) displaceForPrompt(

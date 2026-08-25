@@ -172,10 +172,17 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	assert.Equal(t, 1, ev.AsyncWork)
 }
 
+// The foreign-conversation guard is meaningful only for a hooks-delivered
+// payload — codex's user_prompt is now api-transport (see the mixed transport
+// design spec), and an api-transport event carries no such ambiguity: it
+// arrives on the one websocket this runner's own serve process opened, which
+// IS the scoping. subagent_pre stays hooks-only, so it is what this test now
+// exercises the guard against.
 func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
-	_, err := a.ParseHook(agents.HookUserPrompt, []byte(`{"prompt":"x","transcript_path":null}`))
+	_, err := a.ParseHook(agents.HookSubagentPre,
+		[]byte(`{"session_id":"s1","agent_id":"a1","agent_type":"t1","transcript_path":null}`))
 
 	assert.ErrorIs(t, err, agents.ErrForeignConversation)
 }
