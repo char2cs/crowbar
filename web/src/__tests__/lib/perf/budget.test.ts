@@ -57,7 +57,7 @@ describe('perf-baseline.json', () => {
   it('has a positive budget for every span this phase instruments', () => {
     for (const span of ['chat.open', 'chat.scroll.frame', 'chat.stream.token']) {
       expect(baseline).toHaveProperty(span)
-      expect((baseline as Record<string, number>)[span]).toBeGreaterThan(0)
+      expect((baseline as unknown as Record<string, number>)[span]).toBeGreaterThan(0)
     }
   })
 })

@@ -31,6 +31,7 @@ api/docs/superpowers/
 
 # stray local build artifact (noEmbed daemon binary)
 /api/crowbar
+/api/crowbar-seed-chat
 
 # hardening loop scratch (not committed)
 /.hardening/

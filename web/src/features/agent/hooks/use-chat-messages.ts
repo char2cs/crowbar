@@ -4,6 +4,7 @@ import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/ag
 const MESSAGE_PAGE_SIZE = 100
 const MESSAGE_POLL_MS = 1_000
 const EVIDENCE_RECOVERY_MAX_PAGES = 100
+const EMPTY_MESSAGES: AgentChatMessage[] = []
 
 function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -107,7 +108,8 @@ export function useChatMessages(options: ChatMessagesOptions) {
     try {
       const page = await listChatMessages(wsId, chatId, { limit: MESSAGE_PAGE_SIZE })
       if (generation !== loadGeneration.current) return
-      messagesRef.current = []
+      messagesRef.current = EMPTY_MESSAGES
+      setMessages(EMPTY_MESSAGES)
       cursorRef.current = page.cursor
       oldestCursorRef.current = page.oldestCursor
       setHasOlder(page.hasMore)

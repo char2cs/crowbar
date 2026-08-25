@@ -54,25 +54,64 @@ describe('applyMessages empty-page guard', () => {
         items: [message(1), message(5)],
       })
       .mockResolvedValue({ cursor: 5, oldestCursor: 1, hasMore: false, items: [] })
-    const { result, rerender } = renderHook(() =>
-      useChatMessages({
-        wsId: 'ws',
-        chatId: 'c1',
-        providerId: 'claude',
-        visible: true,
-        working: true,
-        turnRevision: 0,
-        awaiting: false,
-        onApply: (m) => seen.push(m),
-        pendingEvidence: () => false,
-        pendingBaselines: () => [],
-        onRecoveryExhausted: () => {},
-      }),
-    )
+    // Options are built once, outside the render callback — like the real caller
+    // (agent-chat-view.tsx), which passes useCallback-memoized handlers from
+    // use-prompt-queue.ts. Rebuilding them inline on every render would give
+    // applyMessages/loadInitial a fresh identity each time messages state
+    // changes, re-triggering the mount effect and calling loadInitial again —
+    // an artifact this hook's real callers never produce.
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: true,
+      turnRevision: 0,
+      awaiting: false,
+      onApply: (m: AgentChatMessage[]) => seen.push(m),
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    const { result, rerender } = renderHook(() => useChatMessages(options))
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
     const firstRef = result.current.messages
     await result.current.refresh()
     rerender()
     expect(result.current.messages).toBe(firstRef)
+  })
+
+  it('clears rendered messages when loadInitial re-runs and returns an empty page', async () => {
+    listChatMessagesFn
+      .mockResolvedValueOnce({
+        cursor: 5,
+        oldestCursor: 1,
+        hasMore: false,
+        items: [message(1), message(5)],
+      })
+      .mockResolvedValue({ cursor: 5, oldestCursor: 1, hasMore: false, items: [] })
+    // Same stabilization as above: a stable options reference so loadInitial's
+    // identity doesn't churn on its own state updates.
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    const { result, rerender } = renderHook(() => useChatMessages(options))
+    await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+    listChatMessagesFn.mockResolvedValueOnce({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+    await result.current.loadInitial()
+    rerender()
+
+    expect(result.current.messages).toHaveLength(0)
   })
 })
