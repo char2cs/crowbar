@@ -19,8 +19,8 @@ var (
 )
 
 // Prompts holds Crowbar's agent-facing prompt templates. Placeholders
-// ({conversation}, {ledger_dir}, {ledger_cut}) are expanded by Crowbar at
-// injection time.
+// ({conversation}, {chat_id}, {gap_turns}, {lineage}) are expanded by Crowbar
+// at injection time.
 //
 // Every prompt here is CONTEXT, never a capability: a prompt can only ask a model
 // to do something, and a model that ignores it leaves no trace. Anything Crowbar
@@ -49,18 +49,20 @@ type Prompts struct {
 	// filed in a folder — is injected nothing at all, and must not pay a token
 	// for a relationship it does not have.
 	ThreadLineage string `yaml:"thread_lineage"`
-	// HandoffWrapper wraps the WHOLE conversation for a provider joining the chat
-	// fresh (it has no session of its own to resume, so it has no history).
+	// HandoffWrapper wraps the conversation for a provider joining the chat fresh
+	// (it has no session of its own to resume, so it has no history) — capped to
+	// the most recent turns, not the whole ledger; see RecentHandoffWindow.
 	HandoffWrapper string `yaml:"handoff_wrapper"`
 	// HandoffResumeWrapper wraps only the GAP for a provider resumed into its own
 	// native session — it already holds everything up to the moment it was
-	// switched out, so it is handed just what happened while it was away.
+	// switched out, so it is handed just what happened while it was away, itself
+	// capped to the most recent turns of that gap; see RecentHandoffWindow.
 	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
 	// HandoffPointer is the SHORT message handed to a provider that can only be
 	// reached through a USER MESSAGE (a resumed codex ignores every config channel).
-	// It POINTS at the conversation ledger already on disk ({ledger_dir}) and says
-	// where to start reading ({ledger_cut}) — it never carries the transcript
-	// itself, which would dump the whole handed-off exchange into the chat.
+	// It points the provider at its OWN get_chat_log MCP tool ({chat_id}, {gap_turns})
+	// rather than carrying the transcript itself, which would dump the whole
+	// handed-off exchange into the chat.
 	HandoffPointer string `yaml:"handoff_pointer"`
 }
 

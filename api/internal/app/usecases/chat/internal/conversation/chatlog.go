@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -147,8 +148,13 @@ func (c *Conversations) renderConversation(
 	if err != nil {
 		return nil, fmt.Errorf("agent: render conversation: %w", err)
 	}
+	// Capped to the same "recent" window get_chat_log itself pages against: a
+	// handoff is injected cold into the next provider's context on every switch,
+	// so an ever-growing chat must not mean an ever-growing preamble.
+	kept, note := agenttools.RecentHandoffWindow(chatID, rows)
 	var b strings.Builder
-	for _, t := range toChatTurns(rows) {
+	b.WriteString(note)
+	for _, t := range toChatTurns(kept) {
 		b.WriteString(speaker(t))
 		b.WriteString(": ")
 		b.WriteString(t.Text)

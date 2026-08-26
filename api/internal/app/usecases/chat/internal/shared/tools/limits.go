@@ -21,6 +21,11 @@ import (
 // partial picture — worse than an error, which it would at least try to recover
 // from. So nothing here truncates quietly: each tool leads its output with a
 // note giving the range, the total, and the argument that fetches the rest.
+//
+// defaultChatLogTurns/maxChatLogTurns bound a second surface beyond get_chat_log
+// itself: RecentHandoffWindow (handoff_window.go) reuses them to cap the
+// conversation text a provider is handed cold on switch or resume, so "how much
+// history counts as recent" stays one number instead of two that can drift apart.
 const (
 	// defaultThreadPage / maxThreadPage bound one page of list_review_threads.
 	//

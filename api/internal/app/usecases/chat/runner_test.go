@@ -21,6 +21,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -268,6 +269,41 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 
 	doc := configValue(t, argv, "developer_instructions=")
 	assert.Contains(t, doc, "claude said this first")
+}
+
+// TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow pins the
+// bug this cap fixes: before it existed, the "whole ledger" the test above
+// describes was UNBOUNDED — a chat with a long-running conversation on the other
+// provider dumped its entire history into the incoming CLI's context on every
+// single switch. The handoff must now carry only the most recent
+// defaultChatLogTurns turns, with the earliest ones pointed at through
+// get_chat_log rather than replayed.
+func TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow(t *testing.T) {
+	f := newFixture(t)
+
+	// Discovered from the real cap rather than copied, so a future change to it
+	// cannot leave this test silently under the threshold it means to exceed.
+	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
+	handoffCap := len(kept)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-claude-native")
+	total := handoffCap + 5
+	for i := 0; i < total; i++ {
+		turn(t, f, runnerID, "claude", fmt.Sprintf("claude turn %d", i))
+	}
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	doc := configValue(t, argv, "developer_instructions=")
+	assert.NotContains(t, doc, "claude turn 0",
+		"the earliest turn must be trimmed once history exceeds the cap")
+	assert.Contains(t, doc, fmt.Sprintf("claude turn %d", total-1),
+		"the most recent turn must survive")
+	assert.Contains(t, doc, "get_chat_log",
+		"a trimmed handoff must point at how to read what was cut")
 }
 
 func TestSwitchProvider_UnknownChat_ReturnsWrappedError(t *testing.T) {

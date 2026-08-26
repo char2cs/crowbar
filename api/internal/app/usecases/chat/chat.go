@@ -121,9 +121,10 @@ type ChatUsecase interface {
 		chatID string,
 	) ([]string, error)
 
-	// AssembleHandoff renders the whole conversation into the document an
-	// incoming CLI is spawned with. It returns the empty string when there is
-	// nothing to hand over.
+	// AssembleHandoff renders the conversation — capped to the most recent
+	// turns, see RecentHandoffWindow — into the document an incoming CLI is
+	// spawned with. It returns the empty string when there is nothing to hand
+	// over.
 	AssembleHandoff(
 		ctx context.Context,
 		chatID string,

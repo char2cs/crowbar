@@ -91,7 +91,8 @@ func (rs *Runners) switchProviderLocked(
 		// moment it was switched out, so it is handed only the gap. Replaying the whole
 		// ledger to it would duplicate its own history back at it — noise that dilutes the
 		// very turns it is meant to notice. A provider new to this chat has no history at
-		// all, so it gets the whole conversation.
+		// all, so it gets the conversation so far — capped to the most recent turns, same
+		// as the gap, so a long-running chat does not grow the handoff without bound.
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
