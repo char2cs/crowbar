@@ -30,7 +30,7 @@ func Resolve(
 	}
 	out := make(map[string]string, len(e.Send))
 	for field, tmpl := range e.Send {
-		out[field] = substitute(tmpl, values)
+		out[field] = Substitute(tmpl, values)
 	}
 	return e.Out, out, true
 }
@@ -48,11 +48,15 @@ func Declared(d *spec.Descriptor) []string {
 	return out
 }
 
-// substitute replaces every {name} with its value. An unsupplied name becomes EMPTY
+// Substitute replaces every {name} with its value. An unsupplied name becomes EMPTY
 // rather than being left in place: a provider receiving a literal "{session_id}" is a
 // bug that reaches the wire, where an empty field fails loudly at the provider's own
 // validation.
-func substitute(tmpl string, values map[string]string) string {
+//
+// Exported so apidriver's structured (nested, non-flat) outbound payloads can reuse
+// the SAME substitution rule at every leaf of a tree instead of a second
+// implementation — one canonical {placeholder} grammar, two shapes of document.
+func Substitute(tmpl string, values map[string]string) string {
 	if !strings.ContainsRune(tmpl, '{') {
 		return tmpl
 	}

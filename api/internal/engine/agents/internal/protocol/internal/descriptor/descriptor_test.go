@@ -237,13 +237,28 @@ func TestResolve_ShippedClaudeDeclaresNoNotices(t *testing.T) {
 	assert.Empty(t, d.TerminalNotices)
 }
 
-func TestShippedDescriptors_DeclareHotswapTrue(t *testing.T) {
-	for _, id := range []string{"claude", "codex"} {
-		d, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
-		require.NoError(t, err)
-		assert.True(t, d.Runtime.Hotswap, "%s must declare hotswap — both keep the PTY "+
-			"attached for the whole session with hooks reporting alongside (design spec §3.5)", id)
-	}
+func TestShippedClaudeDeclaresHotswapTrue(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	require.NoError(t, err)
+	assert.True(t, d.Runtime.Hotswap, "claude keeps the PTY attached for the whole "+
+		"session with hooks reporting alongside (design spec §3.5)")
+}
+
+// codex declares attach WITHOUT hotswap — confirmed live against codex-cli
+// 0.149.1 that the app-server's LIVE-attach mechanism (a second client on the
+// SAME connection, `codex resume {id} --remote`) does not work (fails
+// outright — "no rollout found for thread id" — before any turn has
+// completed) and is the wrong shape anyway (codex enforces one writer per
+// thread). What DOES work, confirmed live: a bare, ordinary `codex resume
+// {id}` — no --remote — once idle. So attach is idle-only sequential handoff
+// (SwitchToTerminal in runner/attach.go), never a live/concurrent view, which
+// is exactly what hotswap:false means. See codex.yaml's own comment.
+func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, d.Runtime.API.Attach, "idle-only handoff needs a bare resume argv to fork")
+	assert.False(t, d.Runtime.Hotswap, "codex hands its live turn over, it never shares it")
 }
 
 func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
@@ -252,8 +267,7 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 
 	assert.Equal(t, "api", d.Runtime.Transport)
 	assert.NotEmpty(t, d.Runtime.API.Serve)
-	assert.NotEmpty(t, d.Runtime.API.Attach)
-	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — the attached TUI still fires them")
+	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — see codex.yaml's own comment on why")
 
 	hooksOnly := []string{"subagent_pre", "subagent_post", "compact_pre", "compact_post", "session_end"}
 	for _, name := range hooksOnly {

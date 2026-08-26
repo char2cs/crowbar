@@ -218,6 +218,28 @@ func (stubUsecase) StopChat(
 	return nil
 }
 
+func (stubUsecase) SwitchToTerminal(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (stubUsecase) SwitchToNative(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+func (stubUsecase) AttachedTerminalSession(_ string) (string, bool) {
+	return "", false
+}
+
+func (stubUsecase) HasLiveAPIConnection(_ string) bool {
+	return false
+}
+
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,

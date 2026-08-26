@@ -24,6 +24,10 @@ type buffer struct {
 
 	highest int
 
+	// nextArrival is the index an unsequenced increment gets: arrival order,
+	// since the provider that sent it numbered none of its own chunks.
+	nextArrival int
+
 	Final bool
 
 	LastAt time.Time
@@ -89,13 +93,19 @@ func New() *Streams {
 
 // Observe folds one streamed increment into its message and returns the frozen
 // result. index is the increment's position, so out-of-order arrivals still
-// assemble correctly and a gap leaves the message incomplete. ok is false for an
-// increment that names no chat or no message.
+// assemble correctly and a gap leaves the message incomplete — but only when
+// sequenced is true. A provider whose deltas carry no position of their own
+// (see models.MessageDelta.Sequenced) reports every increment at index 0, and
+// trusting that would fold every chunk onto the same slot; sequenced false
+// instead assigns the next chunk arrival order, which is sound exactly because
+// such a provider's own deltas arrive on one ordered stream to begin with. ok
+// is false for an increment that names no chat or no message.
 func (s *Streams) Observe(
 	chatID string,
 	turnID string,
 	messageID string,
 	index int,
+	sequenced bool,
 	final bool,
 	text string,
 	now time.Time,
@@ -107,6 +117,10 @@ func (s *Streams) Observe(
 	defer s.mu.Unlock()
 
 	buffer := s.bufferLocked(chatID, turnID, messageID)
+	if !sequenced {
+		index = buffer.nextArrival
+		buffer.nextArrival++
+	}
 	buffer.chunks[index] = text
 	if index > buffer.highest {
 		buffer.highest = index

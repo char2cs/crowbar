@@ -286,18 +286,48 @@ func (a *agent) StartAPIConn(ctx context.Context, socketPath string) (*APIConn, 
 	return protocol.StartAPIDriver(ctx, a.spec, socketPath)
 }
 
+// APIServeArgv carries the SAME MCPInject/ConfigInjection steps
+// APIAttachArgv's sibling SpawnPlan applies to a hooks-attached CLI — a
+// provider's own MCP server is a fact about the provider, not about which of
+// its processes happens to be talking to Crowbar right now (see spawn.Inject).
+// Without this, an api-transport serve process is never told Crowbar's tools
+// exist at all: confirmed live against codex-cli 0.149.1, whose thread/start
+// started only the servers config.toml already knew about, never crowbar's.
+//
+// A failed injection degrades to ok=false, same as no declared serve argv at
+// all: the caller already knows that means "run this provider over hooks
+// alone" (design spec §2.2b), which is the right answer here too rather than
+// serving with tools silently missing.
 func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Serve) == 0 {
 		return nil, false
 	}
-	return expandArgv(a.spec.Runtime.API.Serve, ctx), true
+	argv := expandArgv(a.spec.Runtime.API.Serve, ctx)
+	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
+	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
+		return nil, false
+	}
+	return append([]string{plan.Executable}, plan.Argv...), true
 }
 
+// APIAttachArgv carries the SAME MCPInject/ConfigInjection steps APIServeArgv
+// now does — see that method's doc comment. It matters even more here: the
+// attached process is an ORDINARY hooks-transport CLI the instant it starts
+// (config_injection is where session_start/user_prompt/turn_stop/tool_pre&
+// post/subagent_pre&post/permission/compact_pre&post/session_end all get
+// wired to {crowbar_hook}), so without this the one process a non-hotswap
+// provider hands a live turn over to would report NOTHING back to Crowbar's
+// ledger — indistinguishable from the chat going silently out of sync.
 func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Attach) == 0 {
 		return nil, false
 	}
-	return expandArgv(a.spec.Runtime.API.Attach, ctx), true
+	argv := expandArgv(a.spec.Runtime.API.Attach, ctx)
+	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
+	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
+		return nil, false
+	}
+	return append([]string{plan.Executable}, plan.Argv...), true
 }
 
 func (a *agent) TransportFor(canonical string) string {

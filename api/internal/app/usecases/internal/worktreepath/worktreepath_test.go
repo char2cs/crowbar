@@ -208,7 +208,7 @@ func TestDerive_AppendsWorktreeLeaf(t *testing.T) {
 	}
 }
 
-func TestChatsAndLedgerAndRunnerDirs_SiblingOfWorktree(t *testing.T) {
+func TestChatsAndRunnerDirs_SiblingOfWorktree(t *testing.T) {
 	wt := "/home/.crowbar/projects/proj1/github.com/acme/repo/feat-x/worktree"
 	root := "/home/.crowbar/projects/proj1/github.com/acme/repo/feat-x"
 
@@ -219,12 +219,10 @@ func TestChatsAndLedgerAndRunnerDirs_SiblingOfWorktree(t *testing.T) {
 	if want := root + "/chats"; chats != want {
 		t.Fatalf("ChatsDir = %q, want %q", chats, want)
 	}
-	// AgentLedgerDir/RunnerDir take the resolved chats dir (Task 7): the caller
-	// decides where chats live (sibling of a managed worktree, or rerooted under home
-	// for an adopted checkout), and these helpers only hang the leaves off it.
-	if got, want := AgentLedgerDir(chats, "chatA"), root+"/chats/chatA/ledger"; got != want {
-		t.Fatalf("AgentLedgerDir = %q, want %q", got, want)
-	}
+	// RunnerDir takes the resolved chats dir (Task 7): the caller decides where
+	// chats live (sibling of a managed worktree, or rerooted under home for an
+	// adopted checkout), and this helper only hangs the leaf off it.
+	//
 	// The runner's tmp dir hangs off the CHATS dir, not off a chat: it is keyed by the
 	// runner id + provider, the two things a Displace cannot erase, so boot
 	// reconciliation can still find it for a runner that is placed nowhere.

@@ -133,6 +133,8 @@ func registerAgent(
 	home.POST("/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
 	home.POST("/chats/:id/compact", h.RequireHomeWorkspace, ah.Compact)
 	home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
+	home.POST("/chats/:id/switch-to-terminal", h.RequireHomeWorkspace, ah.SwitchToTerminal)
+	home.POST("/chats/:id/switch-to-native", h.RequireHomeWorkspace, ah.SwitchToNative)
 	home.POST("/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
 	home.PATCH("/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
 	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)

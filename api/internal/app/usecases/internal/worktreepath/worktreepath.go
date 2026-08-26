@@ -118,12 +118,6 @@ func HomeDefaultChatsDir(
 	return filepath.Join(home, "projects", project, slug, "default", "chats")
 }
 
-// AgentLedgerDir returns the per-chat handoff-ledger directory under an already
-// resolved chats directory.
-func AgentLedgerDir(chatsDir, chatID string) string {
-	return filepath.Join(chatsDir, chatID, "ledger")
-}
-
 // RunnerDir returns a runner's per-spawn config directory ({tmp}) — the rendered
 // hook config the vendor CLI is pointed at — under an already resolved chats
 // directory.

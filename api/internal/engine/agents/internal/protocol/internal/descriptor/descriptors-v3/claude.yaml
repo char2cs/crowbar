@@ -307,8 +307,36 @@ mcp_injection:
       value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
+# A RESUMED claude session already holds every turn up to the moment it was
+# switched out via --resume's own rollout, and that competes for attention
+# with whatever this appends to the system prompt — background config a model
+# already carrying a full native history is free to deprioritize. Confirmed
+# live: the gap conversation embedded here went unrecalled over
+# --append-system-prompt, which is why this rides the positional channel (a
+# real user turn) instead — a model must attend to and respond to that.
+#
+# {context}, NOT {context_pointer} — this used to hand claude only a POINTER,
+# naming get_chat_log and the ids to call it with, on the bet that a model
+# told "context only: do not act on it" would still reliably choose to act on
+# the ONE clause in that same sentence telling it to call a tool first.
+# Confirmed live it does not: claude regularly never called it at all,
+# leaving every switch-back with zero memory of the gap despite the pointer
+# having arrived and been read. Handing the real {conversation} text removes
+# the dependency on the model choosing to do anything — it is already IN
+# context the moment the CLI starts. RecordInjection/WasInjected (spawn.go,
+# turn.go) still keep it out of the ledger exactly as they did the pointer,
+# so this costs nothing there; a literal Terminal-view PTY now shows the
+# whole document instead of one line, which is the trade this makes.
+#
+# <system-reminder> wrapping is still required, independent of that swap: a
+# "[Crowbar]" bracket-tagged pointer sitting in what is otherwise an ordinary
+# user turn read to claude's own safety training as a classic injection
+# attempt and got refused outright; <system-reminder> is the tag Claude
+# Code's own harness already uses to mark injected, non-user content as
+# context rather than instruction (visible in this very transcript format),
+# and dropping it was not re-tested once the content behind it changed.
 resume_context_inject:
-  - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
+  - pass_arg: { positional: "<system-reminder>{context}</system-reminder>" }
 # The telemetry FACTS, not the transport. No claude HOOK carries token, context or cost
 # data; statusLine is the only channel that does. Each fact is mapped independently so
 # a provider that reports only one still works. context_window is null until the first

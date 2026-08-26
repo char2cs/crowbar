@@ -41,6 +41,12 @@ type apiconn struct {
 	// same place serveCmd is killed, so nothing outlives the connection either.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// agent/tctx are this connection's own descriptor and rendered template
+	// context, set once establish succeeds. SwitchToTerminal (attach.go) reads
+	// them back to render attach's argv and to re-establish this SAME
+	// connection later, on the way back to native — nothing else needs them.
+	agent engineagents.Agent
+	tctx  engineagents.TemplateCtx
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -181,30 +187,92 @@ func (rs *Runners) startAPIConn(
 	return conn, true
 }
 
-// applyAPITransport starts serve+handshake for an api-transport descriptor and,
-// once connected, points plan at `attach`'s argv instead of the bare descriptor
-// spawn.cmd — so the PTY spawnRunner forks carries the attached TUI, not a
-// second copy of the hooks-only launch. A no-op for a hooks-transport
-// descriptor (agent.APIServeArgv reports ok=false) and, per design spec §2.2b,
-// never a reason to fail the spawn: a failed serve leaves plan untouched and the
-// session runs over hooks alone.
+// applyAPITransport starts serve+handshake for an api-transport descriptor,
+// ESTABLISHES its session (Fresh or Resume — see apiconn's own EstablishSession
+// doc) before anything else, and, once connected, points plan at `attach`'s
+// argv instead of the bare descriptor spawn.cmd — so the PTY spawnRunner forks
+// carries the attached TUI, not a second copy of the hooks-only launch.
+//
+// The session must exist BEFORE attach's argv is rendered: attach has to name
+// the SAME thread `prompt`'s turn/start will act on (codex.yaml's attach is
+// `codex resume {session_id} --remote ...`), and that id is not known until
+// EstablishSession has run — which is why this happens here, at spawn time,
+// rather than lazily on the first message the way sending itself still does.
+//
+// A no-op for a hooks-transport descriptor (agent.APIServeArgv reports
+// ok=false) and, per design spec §2.2b, never a reason to fail the spawn: a
+// failed serve OR a failed establish leaves plan untouched and the session
+// runs over hooks alone.
+//
+// resumeContext is non-empty exactly when this is resuming a session that
+// already existed (tctx.Session was non-blank going in) AND there is a real
+// gap to hand over (renderSpawnContext's own inject gate — nothing recorded
+// while this provider was away yields ""). It rides a SEPARATE call
+// (InjectAt "context") from EstablishSession's own "context" value below:
+// codex's thread/resume never accepts a context field (confirmed live — its
+// own send: template does not reference {context} at all), so the identical
+// composed document is threaded through twice, once per channel that can
+// actually carry it depending on which branch runs.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
 	runnerID, providerID string,
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
 	plan *engineagents.SpawnPlan,
+	resumeContext string,
 ) {
 	conn, ok := rs.startAPIConn(ctx, runnerID, agent, tctx)
 	if !ok {
 		return
 	}
-	// No attach declared: serve runs and the PTY is absent for this session —
-	// capability 2's third state, reached here at runtime rather than by
-	// declaration.
-	if attachArgv, ok := agent.APIAttachArgv(tctx); ok {
-		plan.Executable = binpath.Resolve(attachArgv[0])
-		plan.Argv = attachArgv[1:]
+	established, err := conn.driver.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": tctx.Session,
+		"cwd":        tctx.Cwd,
+		// Same tctx.Context a restart_tui spawn's ContextSteps would fold into
+		// its CLI argv (see spawnRunner/renderSpawnContext) — composed exactly
+		// once, transport-agnostic. Fresh's own thread/start send: template is
+		// the only Fresh-or-Resume step that references {context} (as
+		// developerInstructions); Resume's ignores it, so passing it
+		// unconditionally is a no-op on that branch — resumeContext below is
+		// how the SAME document still reaches a resumed thread.
+		"context": tctx.Context,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
+		rs.apiConns.drop(runnerID)
+		return
+	}
+	tctx.Session = established["session_id"]
+	// The ONLY channel that reaches an already-resumed codex thread: no CLI
+	// argv exists to carry it (the redundant hooks-only PTY is deliberately
+	// starved of both the native id and this document — see apiOwnsResume,
+	// prompts.go — because handing either to a second writer on the same
+	// thread is what corrupted the switch in the first place), and
+	// thread/resume's own send: template has nowhere to put it either. Best
+	// effort, like every other step in this function: a failed inject leaves
+	// the resumed session running with no memory of the gap, not un-resumed.
+	if resumeContext != "" {
+		if err := conn.driver.InjectAt(ctx, "context", map[string]string{
+			"session_id": tctx.Session,
+			"context":    resumeContext,
+		}); err != nil {
+			slog.WarnContext(ctx, "agent: api transport: inject resume context", "err", err, "runner_id", runnerID)
+		}
+	}
+	conn.agent, conn.tctx = agent, tctx
+
+	// Auto-attaching at spawn is only correct for a HOTSWAP provider: it means
+	// the attached view is meant to be there for the whole session, the way
+	// claude's hooks-transport PTY already is. A provider that declares attach
+	// WITHOUT hotswap wants it on demand only, once idle — attaching here,
+	// before any turn has run, is exactly the request that fails live against
+	// codex (its rollout is not flushed yet) — so that case is left to
+	// SwitchToTerminal (attach.go), never rendered eagerly.
+	if agent.Capabilities().Hotswap {
+		if attachArgv, ok := agent.APIAttachArgv(tctx); ok {
+			plan.Executable = binpath.Resolve(attachArgv[0])
+			plan.Argv = attachArgv[1:]
+		}
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
 }
@@ -292,6 +360,20 @@ func (rs *Runners) pumpAPIConn(
 	}()
 }
 
+// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
+// connection right now — as opposed to torn down for its native view (see
+// SwitchToTerminal, attach.go), or never declared one at all. chatRuntime
+// (chats.go) uses this to tell a legitimately-live TerminalSession (claude:
+// its PTY IS the conversation) from the disconnected companion PTY every
+// api-transport spawn still forks alongside a LIVE connection (a known gap) —
+// reporting the latter as "the terminal" is what let a user type into an
+// unrelated codex session and have it silently promoted into its own new
+// chat. Confirmed live.
+func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
+	_, ok := rs.apiConns.get(runnerID)
+	return ok
+}
+
 // Shutdown kills every live api-transport connection this daemon still holds.
 // Nothing else on the shutdown path reaches these: engine.Container.Close()
 // only knows about PTYs and LSP servers, and this registry lives one layer
@@ -314,11 +396,18 @@ func (rs *Runners) pushPromptOverAPI(
 	if !ok {
 		return "", false, nil
 	}
-	used, err := conn.driver.SendPrompt(ctx, sessionID, cwd, text)
+	// The session was already established (Fresh or Resume) by
+	// applyAPITransport at spawn time, before attach's argv was ever
+	// rendered — this call only ever runs Action (turn/start).
+	result, err := conn.driver.Dispatch(ctx, "prompt", map[string]string{
+		"session_id": sessionID,
+		"cwd":        cwd,
+		"text":       text,
+	})
 	if err != nil {
 		return "", true, err
 	}
-	return used, true, nil
+	return result["session_id"], true, nil
 }
 
 // awaitAndReplyOverSocket blocks on the SAME answerdesk.Await an HTTP hook relay

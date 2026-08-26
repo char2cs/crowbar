@@ -112,6 +112,14 @@ type fakeAgentUsecase struct {
 	stopCalls []string
 	stopErr   error
 
+	switchToTerminalCalls  []string
+	switchToTerminalSessID string
+	switchToTerminalErr    error
+	switchToNativeCalls    []string
+	switchToNativeErr      error
+	attachedSessionID      string
+	hasLiveAPIConn         bool
+
 	compactCalls []string
 	compactErr   error
 
@@ -341,6 +349,30 @@ func (f *fakeAgentUsecase) StopChat(
 ) error {
 	f.stopCalls = append(f.stopCalls, chatID)
 	return f.stopErr
+}
+
+func (f *fakeAgentUsecase) SwitchToTerminal(
+	_ context.Context,
+	chatID string,
+) (string, error) {
+	f.switchToTerminalCalls = append(f.switchToTerminalCalls, chatID)
+	return f.switchToTerminalSessID, f.switchToTerminalErr
+}
+
+func (f *fakeAgentUsecase) SwitchToNative(
+	_ context.Context,
+	chatID string,
+) error {
+	f.switchToNativeCalls = append(f.switchToNativeCalls, chatID)
+	return f.switchToNativeErr
+}
+
+func (f *fakeAgentUsecase) AttachedTerminalSession(_ string) (string, bool) {
+	return f.attachedSessionID, f.attachedSessionID != ""
+}
+
+func (f *fakeAgentUsecase) HasLiveAPIConnection(_ string) bool {
+	return f.hasLiveAPIConn
 }
 
 func (f *fakeAgentUsecase) AssembleHandoff(

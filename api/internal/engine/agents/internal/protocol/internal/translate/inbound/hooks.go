@@ -130,6 +130,7 @@ func buildDelta(fields map[string]string, decoded map[string]any) *models.Messag
 		TurnID:    firstNonEmpty(decoded, fields["turn_id"]),
 		MessageID: firstNonEmpty(decoded, fields["message_id"]),
 		Index:     index,
+		Sequenced: fields["index"] != "",
 		Final:     final,
 		Text:      firstNonEmpty(decoded, fields["text"]),
 	}

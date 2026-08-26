@@ -36,16 +36,21 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 	}
 
 	// An inbound event's canonical fields are the KEYS of map:. An outbound event has
-	// no map: — its payload is built by send:, whose keys are the PROVIDER's field
-	// names and whose values reference canonical names as {braced} templates. So the
-	// direction is inverted and the canonical set has to be read out of the values.
+	// no map: — its payload is built by send: (or, for one that must first establish
+	// a session, by fresh:/resume:/action:'s own nested send: trees), whose keys are
+	// the PROVIDER's field names and whose values reference canonical names as
+	// {braced} templates. So the direction is inverted and the canonical set has to
+	// be read out of the values.
 	maps := make(map[string]map[string]string, len(d.Events))
 	for name, e := range d.Events {
-		if e.Out != "" {
+		switch {
+		case e.Out != "":
 			maps[name] = canonicalRefs(e.Send)
-			continue
+		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
+			maps[name] = canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action)
+		default:
+			maps[name] = e.Map
 		}
-		maps[name] = e.Map
 	}
 	if err := vocab.Validate(d.ID, maps); err != nil {
 		return nil, fmt.Errorf("descriptor: %w", err)
@@ -67,10 +72,17 @@ func checkEvent(vocab schema.Vocabulary, providerID, name string, e spec.EventSp
 
 	wire, direction := e.WireEvent()
 	if wire == "" {
-		return fmt.Errorf(
-			"descriptor: %s: event %q declares no in:, out: or ask: — it names nothing",
-			providerID, name,
-		)
+		if len(e.Fresh) == 0 && len(e.Resume) == 0 && len(e.Action) == 0 {
+			return fmt.Errorf(
+				"descriptor: %s: event %q declares no in:, out:, ask:, or fresh:/resume:/action: — it names nothing",
+				providerID, name,
+			)
+		}
+		// A Fresh/Resume/Action event names several wire calls, not one — the
+		// event as a whole is still an OUTBOUND fact (Crowbar is the one
+		// acting), same as an ordinary out: event, just without a single
+		// name to check the direction table against.
+		direction = "out"
 	}
 	if direction != rule.Direction {
 		return fmt.Errorf(
@@ -136,6 +148,50 @@ func canonicalRefs(send map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// canonicalRefsFromSteps is canonicalRefs' counterpart for an event whose
+// outbound payload is a Fresh/Resume/Action sequence rather than a single flat
+// send: — each step's Send is an arbitrary (YAML-shaped) tree, so every string
+// leaf at any depth is walked, not just a flat map's top-level values.
+func canonicalRefsFromSteps(stepLists ...[]spec.CallStep) map[string]string {
+	out := map[string]string{}
+	for _, steps := range stepLists {
+		for _, step := range steps {
+			collectCanonicalRefs(step.Send, out)
+		}
+	}
+	return out
+}
+
+func collectCanonicalRefs(node any, out map[string]string) {
+	switch v := node.(type) {
+	case string:
+		rest := v
+		for {
+			open := strings.IndexByte(rest, '{')
+			if open < 0 {
+				return
+			}
+			rest = rest[open+1:]
+			close := strings.IndexByte(rest, '}')
+			if close < 0 {
+				return
+			}
+			if name := rest[:close]; name != "" {
+				out[name] = v
+			}
+			rest = rest[close+1:]
+		}
+	case map[string]any:
+		for _, val := range v {
+			collectCanonicalRefs(val, out)
+		}
+	case []any:
+		for _, val := range v {
+			collectCanonicalRefs(val, out)
+		}
+	}
 }
 
 // versionLess compares dotted-numeric versions component by component. A string

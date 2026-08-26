@@ -69,7 +69,7 @@ type streamRacer struct {
 func (r *streamRacer) stream() {
 	defer close(r.done)
 	for i := range raceIncrements {
-		r.messages.Observe("c", "t", "m", i, false, "increment", time.Now())
+		r.messages.Observe("c", "t", "m", i, true, false, "increment", time.Now())
 	}
 }
 

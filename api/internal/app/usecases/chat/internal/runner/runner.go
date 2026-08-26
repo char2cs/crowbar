@@ -64,6 +64,11 @@ type Runners struct {
 	// apiConns holds each runner's api-transport connection (serve process +
 	// driver), for a mixed-transport provider. Empty for a hooks-only one.
 	apiConns *apiConnRegistry
+	// attached holds, for a runner CURRENTLY showing its provider's native TUI
+	// instead of its api connection, the terminal session that IS that TUI —
+	// in memory only, exactly like apiConns: it describes a live process, not
+	// a fact to survive a restart on. See attach.go.
+	attached *attachRegistry
 
 	conversations Conversations
 	providers     Providers
@@ -129,6 +134,7 @@ func New(d Deps) *Runners {
 		minter:        d.Minter,
 		answers:       d.Answers,
 		apiConns:      newAPIConnRegistry(),
+		attached:      newAttachRegistry(),
 		conversations: d.Conversations,
 		providers:     d.Providers,
 	}

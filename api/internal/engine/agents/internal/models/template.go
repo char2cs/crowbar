@@ -35,6 +35,13 @@ type TemplateCtx struct {
 	// runtime.api.serve/.attach). Short-lived, per-runner, and NEVER under a
 	// Crowbar worktree — macOS's sun_path is a hard 104 bytes.
 	Socket string
+
+	// Session is the session/thread id an api-transport provider's live
+	// connection has established ({session_id} in codex.yaml's
+	// runtime.api.attach) — set only AFTER EstablishSession has run, so
+	// attach's argv can point at the SAME conversation `prompt`'s turn/start
+	// acts on rather than a disconnected one of its own.
+	Session string
 }
 
 func (c TemplateCtx) ScopeFlags() string {
@@ -68,5 +75,6 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{repo_id}", c.RepoID,
 		"{workspace_id}", c.WorkspaceID,
 		"{socket}", c.Socket,
+		"{session_id}", c.Session,
 	)
 }

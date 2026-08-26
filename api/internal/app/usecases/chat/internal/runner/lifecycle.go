@@ -208,6 +208,11 @@ func (rs *Runners) retire(
 		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
 			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
 	}
+	// See quitOutgoingCLI's own comment: an api-transport runner's serve process
+	// is not the terminal session above, has no PTY to take it down on exit, and
+	// is otherwise leaked forever. Retire (Stop) is the other path a runner
+	// permanently leaves a chat through.
+	rs.apiConns.drop(runner.ID)
 }
 
 func (rs *Runners) reapCrashOrphanRunnerTmp(
@@ -356,6 +361,51 @@ func (rs *Runners) StopChat(
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
+	if rs.interruptTurn(ctx, live) {
+		return nil
+	}
 	rs.retire(ctx, live)
 	return nil
+}
+
+// interruptEvent is the canonical outbound event a provider declares when
+// Crowbar can cancel its in-flight turn without ending the session — the one
+// case StopChat's full teardown (retire) is too blunt for. Key-presence on the
+// descriptor is the whole capability check, same as compactStartEvent.
+const interruptEvent = "interrupt"
+
+// interruptTurn asks a live api-transport connection to cancel its current
+// turn in place, and reports whether it actually did: false for anything that
+// falls back to StopChat's own teardown — no live api driver, a descriptor
+// that declares no interrupt gesture, or one whose gesture isn't reachable
+// over this connection (wire == "prompt", the same refusal Compact makes).
+// That fallback is today's behaviour for every provider, unchanged; this only
+// adds a better path where one now exists.
+func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
+	conn, ok := rs.apiConns.get(live.ID)
+	if !ok {
+		return false
+	}
+	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, live.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: interrupt turn: worktree dir (falling back to a full stop)",
+			"runner_id", live.ID, "err", err)
+		return false
+	}
+	agent, err := rs.agents.Get(ctx, crowbarHome, live.ProviderID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: interrupt turn: resolve descriptor (falling back to a full stop)",
+			"runner_id", live.ID, "err", err)
+		return false
+	}
+	wire, _, ok := agent.OutboundCall(interruptEvent, nil)
+	if !ok || wire == "prompt" {
+		return false
+	}
+	if err := conn.driver.Send(ctx, interruptEvent, nil); err != nil {
+		slog.WarnContext(ctx, "agent: interrupt turn: send (falling back to a full stop)",
+			"runner_id", live.ID, "err", err)
+		return false
+	}
+	return true
 }

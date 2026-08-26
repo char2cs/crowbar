@@ -133,3 +133,38 @@ func (h *Handlers) Compact(ctx *gin.Context) {
 	}
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
 }
+
+// SwitchToTerminal handles POST .../chats/:id/switch-to-terminal: hands the
+// chat's live turn over to its provider's own native view. Idle-only — a
+// turn in flight is a conflict, and a provider with no native view to show
+// is unprocessable — both mapped by libs.StatusAndMessage same as any other
+// usecase error. Responds with the new terminal session id.
+func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
+	id := ctx.Param("id")
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+	termSessID, err := h.runners.SwitchToTerminal(ctx.Request.Context(), id)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusOK, termSessID)
+}
+
+// SwitchToNative handles POST .../chats/:id/switch-to-native: reverses
+// SwitchToTerminal. A chat with nothing attached is a no-op, same as Stop on
+// an already-dormant chat.
+func (h *Handlers) SwitchToNative(ctx *gin.Context) {
+	id := ctx.Param("id")
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+	if err := h.runners.SwitchToNative(ctx.Request.Context(), id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteAccepted(ctx)
+}

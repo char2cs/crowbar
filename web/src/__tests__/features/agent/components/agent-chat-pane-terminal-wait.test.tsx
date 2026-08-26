@@ -62,6 +62,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    // These tests move the SAME provider between chat/terminal via chooseSurface,
+    // which is now capability-gated: hotswap:true is what keeps that move
+    // synchronous (claude's terminal is already live) rather than routing
+    // through switchToTerminal/switchToNative, which a non-hotswap provider
+    // needs instead.
+    hotswap: true,
   },
 ]
 

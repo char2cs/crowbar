@@ -3,7 +3,13 @@ import { useStore } from 'zustand'
 import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
+import {
+  getChat,
+  resumeChat,
+  switchProvider,
+  switchToNative,
+  switchToTerminal,
+} from '@/features/agent/api/agent-api'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
@@ -179,7 +185,10 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId ?? '',
   )
-  // That runner's PTY. Empty exactly when liveRunnerId is: no runner, nothing to attach.
+  // That runner's PTY, if it has one to show right now. NOT a second liveness
+  // signal — a non-hotswap api-transport runner (codex) is legitimately live
+  // with this empty (nothing attached), so liveRunnerId above is the only
+  // thing that means "no runner, nothing to attach".
   const sessionId = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.terminalSessionId ?? '',
@@ -270,7 +279,7 @@ export function AgentChatPane({
   // Tracked as the id STRING, not the Attachment object: `attachment` is rebuilt
   // every render while `known` is false, so depending on the object would re-run
   // this on every render for no change.
-  const attachedSessionId = attachment.state === 'attached' ? attachment.sessionId : ''
+  const attachedSessionId = attachment.state === 'attached' ? (attachment.sessionId ?? '') : ''
   const desiredSessionRef = useRef('')
   useEffect(() => {
     desiredSessionRef.current = attachedSessionId
@@ -375,13 +384,16 @@ export function AgentChatPane({
     const s = store.getState()
     s.upsertAgentChat(chat)
     s.setAgentChatWorking(chat.id, chat.working === true)
-    if (!chat.liveRunnerId || !chat.terminalSessionId) return false
+    // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
+    // A non-hotswap api-transport runner (codex) is legitimately live with nothing
+    // attached: empty here means "no terminal to show right now", not "no runner".
+    if (!chat.liveRunnerId) return false
     s.bufferActions.repointAgentChatBuffer(bufferId, {
       chatId: chat.id,
       runnerId: chat.liveRunnerId,
     })
-    seedAttach(wsId, chat.terminalSessionId)
-    setAttachment({ state: 'attached', sessionId: chat.terminalSessionId })
+    if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
+    setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
     return true
   }, [store, wsId, bufferId, shownChatId])
 
@@ -470,15 +482,19 @@ export function AgentChatPane({
     // Not knowable yet — `attachment` above already reads `pending` while this
     // is false, so there is nothing to write.
     if (!known) return
-    if (!sessionId) {
+    // liveRunnerId, not sessionId — a non-hotswap api-transport runner (codex) is
+    // legitimately live with an empty terminalSessionId (nothing attached right
+    // now), and that must not read as dormant: it would fire a revive onto a chat
+    // that already has a perfectly healthy runner on it.
+    if (!liveRunnerId) {
       if (switchingRef.current) return // the switch's own spinner stands
       // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must
       // NOT spawn a CLI: opening a workspace with N dormant chat tabs would otherwise
       // fire N revives at once, one CLI per hidden tab. A hidden dormant chat waits;
       // when the user switches to it (isVisible flips true, this effect re-runs) it
       // revives — exactly once, because the budget below is spent inside revive(). An
-      // already-attached chat has a sessionId and never reaches here, so it keeps its
-      // live PTY while hidden.
+      // already-attached chat has a liveRunnerId and never reaches here, so it keeps
+      // its live PTY while hidden.
       if (isVisible && !attemptedRef.current.has(shownChatId)) {
         void revive()
         return
@@ -491,9 +507,9 @@ export function AgentChatPane({
       )
       return
     }
-    seedAttach(wsId, sessionId)
-    setAttachment({ state: 'attached', sessionId })
-  }, [wsId, known, sessionId, shownChatId, revive, isVisible])
+    if (sessionId) seedAttach(wsId, sessionId)
+    setAttachment({ state: 'attached', sessionId: sessionId || null })
+  }, [wsId, known, liveRunnerId, sessionId, shownChatId, revive, isVisible])
 
   // The attach above proves the PTY was alive when the store last spoke. The CLI can die
   // at any moment while the pane sits here — daemon restart, /exit, crash — and the
@@ -727,12 +743,59 @@ export function AgentChatPane({
   // SPLIT COUNTS AS BEING BACK, for exactly that reason: it SHOWS the chat. An
   // offer to "return to chat" raised over a surface with the chat already on it
   // would be nonsense, so the claim is dropped rather than released.
+  // A hotswap provider's terminal is already live — always has been, from spawn —
+  // so picking it is a pure rendering choice, same as it always was. A provider
+  // that hands its turn over instead (codex: attach declared, hotswap false) has
+  // NO terminal session to render until Crowbar asks for one: switching to it
+  // forks the native view first (switchToTerminal), and switching away from it
+  // tears that view down and re-establishes the api connection (switchToNative).
+  // Both are idle-only by construction — the control is disabled mid-turn (see
+  // ViewSwitcher's handoverBlocked) — so neither races a live turn.
   const chooseSurface = (next: ChatPresentation) => {
     if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
     if (next !== 'terminal') setReturnOffered(false)
     // Arrive with the caret where the user just was. Coming from Terminal they
     // were typing at the CLI; coming from Chat they were typing a prompt.
     if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
+
+    // An unresolved provider (catalogue not loaded yet, or this chat's provider
+    // simply isn't in it) defaults to hotswap — the ORIGINAL, always-synchronous
+    // behaviour every existing surface relies on — never to "must call the new
+    // endpoint": that direction fails outright the instant it does (no
+    // workspace/project scope to route through), where defaulting the other way
+    // just costs a non-hotswap provider one extra render before its capability
+    // loads in, same as any other capability-gated control.
+    const chatProvider = providers.find((p) => p.id === chatProviderId)
+    const hotswap = chatProvider ? chatProvider.hotswap === true : true
+    if (hotswap || next === presentation) {
+      setPresentation(next)
+      return
+    }
+    if (next === 'terminal') {
+      void (async () => {
+        try {
+          await switchToTerminal(wsId, shownChatId)
+          await adopt()
+          setPresentation('terminal')
+        } catch {
+          // Left where they were — a blocked/unavailable switch is reported by
+          // whatever surfaces the request's own error today, not by moving them
+          // to a view that never actually came up.
+        }
+      })()
+      return
+    }
+    if (presentation === 'terminal') {
+      void (async () => {
+        try {
+          await switchToNative(wsId, shownChatId)
+        } finally {
+          await adopt()
+          setPresentation(next)
+        }
+      })()
+      return
+    }
     setPresentation(next)
   }
 

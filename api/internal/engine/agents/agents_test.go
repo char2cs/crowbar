@@ -129,17 +129,38 @@ func TestAgent_PromptStepsPlaceTheMessageExactlyOnceAfterEndOfOptions(t *testing
 	}
 }
 
+// TestAgent_ContextStepsDifferBetweenFreshAndResume covers claude: a fresh spawn
+// rides silent config (--append-system-prompt), a resume rides a real positional
+// user turn instead — --append-system-prompt on an already-native-resumed CLI is
+// background config a model carrying its own restored history is free to
+// deprioritize (confirmed live), which a positional turn is not.
 func TestAgent_ContextStepsDifferBetweenFreshAndResume(t *testing.T) {
-	codex := get(t, "codex")
+	claude := get(t, "claude")
 
-	fresh := codex.ContextSteps(false)
-	resumed := codex.ContextSteps(true)
+	fresh := claude.ContextSteps(false)
+	resumed := claude.ContextSteps(true)
 
 	require.NotEmpty(t, fresh)
 	require.NotEmpty(t, resumed)
 
 	assert.Contains(t, fresh[0].Args, "arg")
 	assert.Contains(t, resumed[0].Args, "positional")
+}
+
+// TestAgent_Codex_ResumeContextStepsIsEmpty: codex's resume-context delivery does
+// NOT ride ContextSteps at all — a resumed codex thread is entirely owned by the
+// api connection (apiOwnsResume, chat/internal/runner/prompts.go), which delivers
+// the identical {context} document over its own live socket (InjectAt "context",
+// apiconn.go) instead of any CLI argv. codex.yaml declaring no
+// resume_context_inject is that fact made explicit, not an oversight — asserted
+// here so a reintroduced stanza (unreachable dead weight; spawn.go's own
+// apiOwnsResume gate already withholds ContextSteps(true) from codex's redundant
+// PTY) fails loudly instead of silently.
+func TestAgent_Codex_ResumeContextStepsIsEmpty(t *testing.T) {
+	codex := get(t, "codex")
+
+	assert.NotEmpty(t, codex.ContextSteps(false), "a fresh codex spawn still carries {context} as developer_instructions")
+	assert.Empty(t, codex.ContextSteps(true), "a resumed codex thread's context now rides the api connection, not CLI argv")
 }
 
 func TestAgent_ContextStepsAreADefensiveCopy(t *testing.T) {
@@ -881,6 +902,82 @@ runtime:
 	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
 	require.True(t, ok)
 	assert.Equal(t, []string{"acme", "--remote", "unix:///tmp/s.sock"}, attachArgv)
+}
+
+// TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the
+// attached process is an ORDINARY hooks-transport CLI from the instant it
+// starts, and config_injection is where session_start/user_prompt/turn_stop/
+// etc. all get wired to {crowbar_hook} — without this, the one process a
+// non-hotswap provider hands a live turn over to would report nothing back
+// to Crowbar's ledger at all.
+func TestAgent_APIAttachArgvCarriesConfigInjection(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-attach-hooks", `
+id: api-attach-hooks
+spawn:
+  cmd: acme
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    attach: [acme, resume, "{session_id}"]
+    handshake: { call: initialize }
+config_injection:
+  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-attach-hooks")
+	require.NoError(t, err)
+
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{
+		Socket: "/tmp/s.sock", Session: "sess-1", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+	})
+	require.True(t, ok)
+	assert.Equal(t, []string{
+		"acme", "resume", "sess-1",
+		"-c", `hooks.Stop=[{hooks=[{type="command",command="/bin/crowbar hook turn_stop --segment seg-1"}]}]`,
+	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
+}
+
+// TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed
+// gap: codex's api-transport serve process was never told Crowbar's MCP
+// server exists, because forkServeProcess's argv skipped MCPInject/
+// ConfigInjection entirely. What a provider needs injected is a fact about
+// the provider, not about which of its processes is talking right now — see
+// spawn.Inject's own doc comment — so the SAME steps a hooks-attached CLI
+// gets via SpawnPlan must also land on the serve argv.
+func TestAgent_APIServeArgvCarriesMCPInjection(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-mcp", `
+id: api-mcp
+spawn:
+  cmd: acme
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    handshake: { call: initialize }
+mcp_injection:
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}"]' }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-mcp")
+	require.NoError(t, err)
+
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
+		Socket: "/tmp/s.sock", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+	})
+	require.True(t, ok)
+	assert.Equal(t, []string{
+		"acme", "app-server", "--listen", "unix:///tmp/s.sock",
+		"-c", `mcp_servers.crowbar.command="/bin/crowbar"`,
+		"-c", `mcp_servers.crowbar.args=["mcp","--segment","seg-1"]`,
+	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
 }
 
 func TestAgent_TransportForResolvesPerEventOverridesAgainstTheRuntimeDefault(t *testing.T) {

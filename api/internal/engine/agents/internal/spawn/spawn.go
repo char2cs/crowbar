@@ -31,6 +31,35 @@ func Plan(
 		plan.Argv = append(plan.Argv, template.Expand(a, ctx))
 	}
 
+	if err := Inject(d, ctx, plan, extra); err != nil {
+		plan.Cleanup()
+		return nil, err
+	}
+	if err := checkForbidden(d, plan.Argv); err != nil {
+		plan.Cleanup()
+		return nil, err
+	}
+	return plan, nil
+}
+
+// Inject applies a descriptor's MCPInject and ConfigInjection steps, plus any
+// caller-supplied extra, onto plan — in that order, always, regardless of
+// which process plan describes.
+//
+// What a provider needs injected (its own MCP server, its settings/hooks
+// file) is a fact about the PROVIDER, not about which of its processes is
+// doing the talking right now — a hooks-attached CLI and an api-transport
+// serve process are still the same provider, and both need the same crowbar
+// MCP server registered to reach Crowbar's tools at all. Plan calls this for
+// the former; the api-transport package calls it again, on a plan of its own,
+// for the latter — same steps, same verbs, the only difference is which argv
+// they land on.
+func Inject(
+	d *spec.Descriptor,
+	ctx models.TemplateCtx,
+	plan *models.SpawnPlan,
+	extra []spec.InjectStep,
+) error {
 	steps := make([]spec.InjectStep, 0, len(d.MCPInject)+len(d.ConfigInjection)+len(extra))
 	steps = append(steps, d.MCPInject...)
 	steps = append(steps, d.ConfigInjection...)
@@ -38,15 +67,10 @@ func Plan(
 
 	for _, step := range steps {
 		if err := verbs.Apply(step, ctx, plan); err != nil {
-			plan.Cleanup()
-			return nil, err
+			return err
 		}
 	}
-	if err := checkForbidden(d, plan.Argv); err != nil {
-		plan.Cleanup()
-		return nil, err
-	}
-	return plan, nil
+	return nil
 }
 
 func checkForbidden(d *spec.Descriptor, argv []string) error {

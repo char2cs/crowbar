@@ -827,6 +827,30 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
+// switchToTerminal hands the chat's live turn over to its provider's OWN native
+// view — idle-only, for a provider whose `hotswap` capability is false (its
+// terminal is not already live the way a hotswap provider's always is). Returns
+// the new terminal session id to point the terminal surface at. Rejects
+// (409) while a turn is in flight, and (422) for a provider with no native
+// view to show at all — gate the control on `hasTerminal`/`hotswap` rather
+// than letting the user press something that cannot work.
+export async function switchToTerminal(wsId: string, id: string): Promise<string> {
+  const res = await apiFetch<{ id: string }>(
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-terminal`,
+    { method: 'POST' },
+  )
+  return res.id
+}
+
+// switchToNative reverses switchToTerminal: the native-view PTY is torn down
+// and the chat's api connection is re-established over the same session. A
+// chat with nothing attached is a backend no-op.
+export async function switchToNative(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-native`, {
+    method: 'POST',
+  })
+}
+
 /**
  * Write the chat's sticky model + effort selection.
  *

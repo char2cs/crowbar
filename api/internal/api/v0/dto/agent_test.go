@@ -53,6 +53,47 @@ func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
 	assert.Equal(t, "vendor-b", got.ActiveProviderID)
 }
 
+// TestAgentChatDTOFrom_LiveAPIConnectionBlanksTheCompanionPTY proves the DTO's own
+// honesty fix: while a non-hotswap runner has a LIVE api connection (nothing
+// attached), its own TerminalSession is the disconnected companion PTY every
+// api-transport spawn still forks alongside a live connection — never a real view —
+// so the wire must never hand it to the frontend as if it were one. Confirmed live:
+// reporting it is what let a user type into an unrelated codex session and have it
+// silently promoted into its own new chat.
+func TestAgentChatDTOFrom_LiveAPIConnectionBlanksTheCompanionPTY(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
+		LiveRunner: &agents.Runner{
+			ID:              "run-1",
+			ProviderID:      "codex",
+			TerminalSession: "term-1",
+			CurrentChatID:   "c1",
+		},
+		HasLiveAPIConnection: true,
+	})
+
+	assert.Equal(t, "run-1", got.LiveRunnerID)
+	assert.Empty(t, got.TerminalSessionID, "the companion PTY must never be reported as a view")
+}
+
+// TestAgentChatDTOFrom_AttachedSessionOutranksLiveAPIConnection documents the
+// priority order between the two fields even though this combination cannot occur
+// in practice — attaching tears the api connection down, so a runner never carries
+// both AttachedSessionID and HasLiveAPIConnection at once.
+func TestAgentChatDTOFrom_AttachedSessionOutranksLiveAPIConnection(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
+		LiveRunner: &agents.Runner{
+			ID:              "run-1",
+			ProviderID:      "codex",
+			TerminalSession: "term-1",
+			CurrentChatID:   "c1",
+		},
+		AttachedSessionID:    "attach-1",
+		HasLiveAPIConnection: true,
+	})
+
+	assert.Equal(t, "attach-1", got.TerminalSessionID)
+}
+
 // TestAgentChatDTOFrom_DormantFallsBackToLastConversation proves the fallback that keeps
 // a dormant chat legible: no live runner means no runner id and no PTY, but
 // activeProviderId still resolves — off the LAST conversation (history is oldest-first)

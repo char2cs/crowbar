@@ -82,6 +82,39 @@ type EventSpec struct {
 	RateLimits []RateLimitSpec `yaml:"rate_limits"`
 	// AnswersInto is permission's structured extra.
 	AnswersInto string `yaml:"answers_into"`
+
+	// Fresh/Resume/Action are the alternative to Out/Send for an api-transport
+	// event that must first ESTABLISH a session before it can act — codex's
+	// `turn/start` needs a `thread/start` (nothing known yet) or a
+	// `thread/resume` (a session id is already known, e.g. from a prior life of
+	// this chat, but THIS connection has never itself loaded it) ahead of it,
+	// and neither the field-per-string Send shape nor a single Out call can
+	// express a call whose params are typed/nested (thread/start's `input` is
+	// an array of typed content blocks) or whose response feeds the next call
+	// (thread/start's id becomes turn/start's threadId).
+	//
+	// Fresh runs when no session id is known yet; Resume runs when one is known
+	// but this connection has not itself established it; Action always runs
+	// last. Mutually exclusive with Out/Send, which remain the single flat-call
+	// outbound shape for an event that needs neither (interrupt, compact_start).
+	Fresh  []CallStep `yaml:"fresh"`
+	Resume []CallStep `yaml:"resume"`
+	Action []CallStep `yaml:"action"`
+}
+
+// CallStep is one RPC call in a Fresh/Resume/Action sequence. Send is an
+// arbitrary (YAML-shaped) tree, not a flat field map — every string leaf,
+// however deeply nested, is a {placeholder} template — so a typed/nested
+// payload (an array of typed content blocks, a nested object) is just normal
+// YAML rather than something Go code assembles. Capture pulls named fields out
+// of the call's JSON response, by the SAME dotted-path grammar Map already
+// uses, into the caller's own values for later steps (and the caller) to read
+// — thread/start's response has no field literally called "session_id"; a
+// descriptor names whatever dotted path it actually returned.
+type CallStep struct {
+	Call    string            `yaml:"call"`
+	Send    map[string]any    `yaml:"send"`
+	Capture map[string]string `yaml:"capture"`
 }
 
 type RateLimitSpec struct {
@@ -98,12 +131,14 @@ type CallSpec struct {
 }
 
 // InjectSpec is one setup action, keyed by the lifecycle moment it happens at:
-// config | mcp | context | resume.
+// config | mcp | context | resume. Send is a TREE like CallStep's own — codex's
+// thread/inject_items needs a nested Responses API item, not a flat
+// {field: "{value}"} shape.
 type InjectSpec struct {
-	At    string            `yaml:"at"`
-	Call  string            `yaml:"call"`
-	Send  map[string]string `yaml:"send"`
-	Steps []InjectStep      `yaml:"steps"`
+	At    string         `yaml:"at"`
+	Call  string         `yaml:"call"`
+	Send  map[string]any `yaml:"send"`
+	Steps []InjectStep   `yaml:"steps"`
 }
 
 // TransportFor returns the transport an event uses: its own if it declares one, the

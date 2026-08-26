@@ -197,16 +197,31 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap exercises the codex-target
-// switch-back path. Two things are load-bearing:
+// TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY exercises the
+// codex-target switch-back path. codex is api-transport, non-hotswap:
+// applyAPITransport's own thread/resume call (apiconn.go) is what actually
+// resumes sid-codex-native — never the redundant hooks-only PTY spawnRunner
+// still forks alongside it (codex.yaml's own comment on subagent_pre explains
+// why that PTY exists at all). Handing that SAME session id to the PTY too —
+// natively as `resume {id}`, or as the resume context pointer, which for a
+// provider whose only resume channel is a user message IS a prompt the PTY
+// will act on — makes it a second writer on a thread the api connection
+// already holds. codex enforces one writer per thread (a thread-writer-lock
+// file, confirmed on disk): confirmed live, the native-id case crashes that
+// PTY outright and the switch that looked like it succeeded silently reverts;
+// confirmed live also, the pointer-without-id case doesn't crash, but the PTY
+// answers the pointer as its OWN genuine first turn, landing on this chat as
+// a second, disconnected "codex" conversation the api connection knows
+// nothing about. nativeResumeSteps/apiOwnsResume (prompts.go, spawn.go)
+// withhold both from this PTY for exactly that reason.
 //
-//   - the resume arg ("resume {id}", no leading dash) MUST precede the positional, or
-//     codex parses the message as its subcommand;
-//   - a resumed codex can only be reached through a USER MESSAGE, so it is handed a
-//     POINTER — the ledger directory plus the last turn it already saw — and NOT the
-//     transcript. Pasting the handed-off exchange into the chat is a wall of text the
-//     user has to scroll past on every switch, and the agent can just read the file.
-func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
+// The api connection resuming silently, with no gap handed to it either, is a
+// real, separate, KNOWN gap this leaves in place — codex.yaml declares an
+// inject: at: context step (thread/inject_items) for exactly this, and
+// nothing calls it yet. Recorded here, not silently assumed fixed: this test
+// asserts only that the switch-back is SAFE, not that codex is told what it
+// missed.
+func TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, codexRunner := f.spawn(t, "codex")
@@ -220,7 +235,7 @@ func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
 	// What codex misses while it is away.
 	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunnerID, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
 
@@ -228,23 +243,19 @@ func TestSwitchProvider_SwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "codex", live.ProviderID)
 
+	// The api connection is what actually resumes sid-codex-native — see
+	// resumeTarget/resolvePromptDelivery's launchSessionID plumbing, persisted
+	// here as the new runner's own LaunchSessionID.
+	assert.Equal(t, "sid-codex-native", f.runner(t, newRunnerID).LaunchSessionID)
+
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
-
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must contain resume as its own token", argv)
-	require.Less(t, resumeIdx+1, len(argv))
-	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1])
-
-	msg := argv[len(argv)-1]
-	assert.Contains(t, msg, "[Crowbar]")
-	assert.Contains(t, msg, "get_chat_log", "the message must name the tool that reads the record: %q", msg)
-	assert.Contains(t, msg, "limit 1", "the message must name HOW MUCH is new, or the CLI re-reads what it was already handed: %q", msg)
-
-	// The transcript itself must NOT be in the message — neither the gap nor its own
-	// earlier turns. That is the whole point: point at the record, do not paste it.
-	assert.NotContains(t, msg, "claude spoke while codex was away")
-	assert.NotContains(t, msg, "codex ledger content")
+	assert.NotContains(t, argv, "resume",
+		"the redundant PTY must never resume the SAME thread the api connection just did: %v", argv)
+	for _, tok := range argv {
+		assert.NotContains(t, tok, "[Crowbar]",
+			"the resume pointer must not reach this PTY either — it would answer as an unrelated second conversation: %v", argv)
+	}
 }
 
 // TestSwitchProvider_ForwardSwitch_CarriesWholeConversation is the other half of the
@@ -419,6 +430,95 @@ func TestResumeChat_RevivesLastProviderIntoItsOwnConversation(t *testing.T) {
 	}
 }
 
+// waitForClockTick blocks until real time.Now() has strictly advanced past its
+// current instant — a real signal (the clock itself), never a guessed sleep
+// duration. Needed wherever a gap boundary is a strict `>` against wall time
+// (TurnsSince): two turns recorded back-to-back against the harness's
+// in-memory sqlite can otherwise land on the identical instant and the second
+// is silently excluded from "since", exactly the false negative this file's
+// own gap tests must not be exposed to.
+func waitForClockTick(t *testing.T) {
+	t.Helper()
+	start := time.Now()
+	for time.Now().Equal(start) {
+		if time.Since(start) > 2*time.Second {
+			t.Fatal("real clock never advanced")
+		}
+	}
+}
+
+// TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap pins the live bug:
+// a claude chat resumed into its own conversation recalled nothing that happened
+// while it was away — first because --append-system-prompt is silent config a
+// model already carrying its own --resume-restored history is free to
+// deprioritize, and then, after that was fixed by delivering a pointer as a real
+// user turn instead, because a pointer asking the model to call get_chat_log for
+// the gap depends on the model actually choosing to call it, and confirmed live
+// it often just doesn't. This asserts the real gap conversation rides that same
+// positional channel directly, not a pointer to it.
+func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	// The gap is drawn as started_at > this turn's own timestamp (TurnsSince):
+	// without a real tick between them, codex's turn below can land on the
+	// identical wall-clock instant and be silently excluded from the gap.
+	waitForClockTick(t)
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+
+	// What claude misses while it is away. codex's turn_stop maps
+	// threadId/turn.items[type=agentMessage].text (see codex.yaml), NOT the flat
+	// last_assistant_message shape turn() builds for claude — using turn() here
+	// would silently extract an empty message and record nothing at all.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-native",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
+
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+
+	require.Equal(t, 3, f.term.callCount())
+	argv := f.term.calls[2].argv
+
+	assert.Equal(t, "sid-claude-native", argAfter(t, argv, "--resume"),
+		"switch-back must resume claude's own conversation, not start a blank one")
+
+	msg := argv[len(argv)-1]
+	assert.Contains(t, msg, "codex spoke while claude was away",
+		"the real gap must ride the positional channel directly, not a pointer to fetch it later: %q", msg)
+	// <system-reminder> is the tag claude's own harness uses to mark injected
+	// content as context rather than instruction — kept regardless of whether
+	// this carries a pointer or the real gap, since a bracket-tagged directive
+	// with no such wrapper is what read to claude's own safety training as a
+	// classic injection attempt in the first place.
+	assert.True(t, strings.HasPrefix(msg, "<system-reminder>") && strings.HasSuffix(msg, "</system-reminder>"),
+		"the gap must be wrapped as trusted context, not delivered as a bare user turn: %q", msg)
+	assert.NotContains(t, msg, "claude ledger content",
+		"a provider resumed into its own conversation must not be re-fed its own earlier turns")
+	for _, a := range argv {
+		assert.NotEqual(t, "--append-system-prompt", a,
+			"the gap must ride the same positional channel a real turn does, not silent config")
+	}
+}
+
 // TestResumeChat_LiveChat_IsNoop: reviving a chat whose CLI is alive must never tear
 // that CLI down — it hands back the runner already on it. (Dormant is a QUERY, so
 // "already live" is answerable without any flag.)
@@ -541,20 +641,22 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 	}
 
 	// Leave codex and come back: it resumes its own conversation, and Crowbar had no
-	// session store to lose in between.
+	// session store to lose in between. The resume itself happens over the api
+	// connection (applyAPITransport's thread/resume), never the redundant
+	// hooks-only PTY — see apiOwnsResume (prompts.go) — so it is codex's OWN
+	// resume, not one this test could have papered over by owning CODEX_HOME.
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
 	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	newRunnerID, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 
+	assert.Equal(t, "sid-codex", f.runner(t, newRunnerID).LaunchSessionID)
 	require.Equal(t, 3, f.term.callCount())
-	argv := f.term.calls[2].argv
-	resumeIdx := indexOf(argv, "resume")
-	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must resume codex's own conversation", argv)
-	assert.Equal(t, "sid-codex", argv[resumeIdx+1])
+	assert.NotContains(t, f.term.calls[2].argv, "resume",
+		"the redundant PTY must never also resume codex's own conversation")
 }
 
 // ─── from midturn_test.go ─────────────────────────────────────────────
@@ -1284,15 +1386,16 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	turn(t, f, runnerID, "codex", "the current conversation exists")
 	message := "CONTINUE FROM REACT"
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+	// codex is api-transport, non-hotswap: the redundant hooks-only PTY this
+	// restart still forks must never ALSO resume native-session natively — see
+	// apiOwnsResume (prompts.go) — so no `resume {id} --` prefix precedes the
+	// message; native-session survives only as this replacement runner's own
+	// LaunchSessionID.
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
 	require.NoError(t, err)
+	assert.Equal(t, "native-session", f.runner(t, submission.RunnerID).LaunchSessionID)
 	call := f.term.calls[f.term.callCount()-1]
-	resumeAt := indexOf(call.argv, "resume")
-	require.GreaterOrEqual(t, resumeAt, 0)
-	require.Less(t, resumeAt+3, len(call.argv))
-	assert.Equal(t, "native-session", call.argv[resumeAt+1])
-	assert.Equal(t, "--", call.argv[resumeAt+2], "the option terminator precedes untrusted positional text")
-	assert.Equal(t, message, call.argv[resumeAt+3])
+	assert.NotContains(t, call.argv, "resume")
 	assert.Equal(t, message, call.argv[len(call.argv)-1])
 }
 
@@ -1477,13 +1580,15 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 	assert.Equal(t, "durable-session", f.runner(t, resumedID).LaunchSessionID)
 	f.announce(t, resumedID, "durable-session")
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString())
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString())
 	require.NoError(t, err)
-	call := f.term.calls[f.term.callCount()-1]
-	resumeAt := indexOf(call.argv, "resume")
-	require.GreaterOrEqual(t, resumeAt, 0)
-	assert.Equal(t, "durable-session", call.argv[resumeAt+1],
-		"launch-as-resume identity wins even though old ledger turns predate the new runner's session_start")
+	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
+	// PTY must never ALSO resume durable-session natively (apiOwnsResume,
+	// prompts.go) — launch-as-resume identity survives instead as this
+	// replacement runner's own LaunchSessionID, even though old ledger turns
+	// predate the new runner's session_start.
+	assert.Equal(t, "durable-session", f.runner(t, submission.RunnerID).LaunchSessionID)
+	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
 }
 
 func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
@@ -1498,12 +1603,76 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	require.Equal(t, chatID, current.CurrentChatID)
 	require.True(t, current.CurrentSessionResumable)
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString())
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString())
+	require.NoError(t, err)
+	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
+	// PTY must never ALSO resume known-session natively (apiOwnsResume,
+	// prompts.go) — the identity survives instead as this replacement
+	// runner's own LaunchSessionID.
+	assert.Equal(t, "known-session", f.runner(t, submission.RunnerID).LaunchSessionID)
+	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
+}
+
+// TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff pins the
+// exact bug a live user hit: switching providers spawns the new CLI with the
+// whole conversation correctly injected on its silent placeholder — but every
+// restart_tui provider (see claude.yaml/codex.yaml) delivers EVERY message,
+// including the first, by killing that placeholder and respawning with the
+// message baked in. Before this fix, that replacement spawn hardcoded an
+// empty conversation and zero gap regardless of history, discarding the
+// handoff the instant the user typed anything: the new provider answered as
+// if it had never been told what came before.
+func TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff(t *testing.T) {
+	f := newFixture(t)
+	chatID, codexRunnerID := f.spawn(t, "codex")
+	f.announce(t, codexRunnerID, "codex-session")
+	// codex's turn_stop maps threadId/turn.items[type=agentMessage].text (see
+	// codex.yaml), NOT claude's flat last_assistant_message shape that turn()
+	// builds — using turn() here would silently extract an empty message.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "codex-session",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "I like turtles"},
+				},
+			},
+		})))
+	f.wait()
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	claudeRunner, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	// The switch's own placeholder is silent — claude reports its OWN session
+	// id the moment it starts, well before the user has said anything to it.
+	f.announce(t, claudeRunner.ID, "claude-session")
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I say before?", uuid.NewString())
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
-	resumeAt := indexOf(call.argv, "resume")
-	require.GreaterOrEqual(t, resumeAt, 0)
-	assert.Equal(t, "known-session", call.argv[resumeAt+1])
+	contextAt := indexOf(call.argv, "--append-system-prompt")
+	require.GreaterOrEqual(t, contextAt, 0, "the replacement spawn must still carry the handoff")
+	require.Less(t, contextAt+1, len(call.argv))
+	assert.Contains(t, call.argv[contextAt+1], "I like turtles",
+		"the whole prior conversation, not an empty gap, since this native session never turned")
+}
+
+// TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath is the
+// companion regression: a session that has recorded a turn already holds its
+// own history, so the fix above must not fire and re-inject a handoff on
+// every ordinary follow-up message.
+func TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "claude-session")
+	turn(t, f, runnerID, "claude", "first answer")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "a normal follow-up", uuid.NewString())
+	require.NoError(t, err)
+	call := f.term.calls[f.term.callCount()-1]
+	assert.Equal(t, -1, indexOf(call.argv, "--append-system-prompt"),
+		"an already-turned session must not be re-handed a handoff on every follow-up")
 }
 
 func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *testing.T) {

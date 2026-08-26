@@ -244,6 +244,22 @@ function dormantChat(o: { id: string; title?: string; provider?: string }): Agen
   }
 }
 
+/** A LIVE runner with nothing attached — the correct idle shape for a non-hotswap
+ *  api-transport provider (codex) that has never been switched to its native view.
+ *  This is NOT dormancy: liveRunnerId is the only liveness signal, and it is set. */
+function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string }): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: o.runnerId,
+    terminalSessionId: '',
+    activeProviderId: 'codex',
+    createdAt: '',
+    order: 0,
+  }
+}
+
 function detail(chat: AgentChat): AgentChatDetail {
   return { ...chat, conversations: [] }
 }
@@ -622,6 +638,36 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+    })
+
+    // Regression: a non-hotswap api-transport runner (codex) is legitimately live
+    // with an empty terminalSessionId whenever it has never been switched to its
+    // native view — that used to be indistinguishable from dormant (both had an
+    // empty terminalSessionId), so this state fired a needless revive onto a chat
+    // that already had a perfectly healthy runner on it, and any failure of that
+    // SECOND, unwanted resume then latched the whole chat into `idle: failed`
+    // permanently — Resume re-running the exact same needless resume every time.
+    // Confirmed live. liveRunnerId is the only thing that may mean "no runner".
+    it('does not revive a live runner that simply has no terminal to attach', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
+      expect(screen.queryByText(/could not restart this agent/i)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+    })
+
+    // The terminal surface's own placeholder for this same state, visible once the
+    // user actually looks at the terminal view for a runner with nothing attached.
+    it('shows a plain placeholder, never Resume, in the terminal view of a live runner with no terminal', async () => {
+      landOnTerminal()
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
     })
   })
 

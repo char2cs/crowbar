@@ -87,7 +87,6 @@ func (t *Turns) openTurnFromPrompt(
 	// and from title derivation, but still open the turn: the CLI really is working
 	// on it, and the workspace's working overlay must say so.
 	if t.agents.WasInjected(runner.ID, ev.Message) {
-		slog.InfoContext(ctx, "DIAG3: openTurnFromPrompt: WasInjected branch", "runner_id", runner.ID, "message", ev.Message)
 		started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
 		if err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
@@ -112,8 +111,6 @@ func (t *Turns) openTurnFromPrompt(
 	// about to work on this — and no prompt-delivery journal is advanced, because
 	// nothing Crowbar queued was accepted here.
 	if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
-		slog.InfoContext(ctx, "DIAG3: openTurnFromPrompt: MatchInjectedPrompt branch",
-			"runner_id", runner.ID, "message", ev.Message, "kind", injected.Kind)
 		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
 			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
 			"kind", injected.Kind, "needle", injected.Needle)
@@ -130,7 +127,6 @@ func (t *Turns) openTurnFromPrompt(
 		t.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	slog.InfoContext(ctx, "DIAG3: openTurnFromPrompt: normal user branch", "runner_id", runner.ID, "message", ev.Message)
 	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
@@ -162,8 +158,6 @@ func (t *Turns) openTurnFromPrompt(
 	// successful ledger append is repaired from that attributed turn by the
 	// turn_stop and pre-destructive reconciliation paths.
 	confirmErr := t.runners.ConfirmPromptAccepted(ctx, chat, runner, ev.Message)
-	slog.InfoContext(ctx, "DIAG3: openTurnFromPrompt: ConfirmPromptAccepted returned",
-		"runner_id", runner.ID, "append_err", fmt.Sprint(appendErr), "confirm_err", fmt.Sprint(confirmErr))
 	if appendErr != nil {
 		return appendErr
 	}

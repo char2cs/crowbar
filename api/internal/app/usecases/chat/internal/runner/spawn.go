@@ -101,37 +101,25 @@ func (rs *Runners) spawnRunner(
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
 	tctx, inject := rs.renderSpawnContext(spawnContext{
-		chatID:        chatID,
-		workspaceID:   workspaceID,
-		providerID:    providerID,
-		projectID:     projectID,
-		repoID:        repoID,
-		runnerID:      runnerID,
-		tmpDir:        tmpDir,
-		worktree:      worktree,
-		crowbarHome:   crowbarHome,
-		threads:       threads,
-		conversation:  conversation,
-		promptMessage: promptMessage,
-		gapTurns:      gapTurns,
-		resuming:      resuming,
-		selection:     sel,
+		chatID:          chatID,
+		workspaceID:     workspaceID,
+		providerID:      providerID,
+		projectID:       projectID,
+		repoID:          repoID,
+		runnerID:        runnerID,
+		tmpDir:          tmpDir,
+		worktree:        worktree,
+		crowbarHome:     crowbarHome,
+		launchSessionID: launchSessionID,
+		threads:         threads,
+		conversation:    conversation,
+		promptMessage:   promptMessage,
+		gapTurns:        gapTurns,
+		resuming:        resuming,
+		selection:       sel,
 	})
 
-	steps := append([]engineagents.InjectStep{}, extraSteps...)
-	// The chat's model/effort choice, rendered by the descriptor that declares it.
-	// An unset choice, or a provider declaring no such block, contributes an EMPTY
-	// slice — so this line is the whole of the feature's cost on a spawn that is
-	// not using it, and the argv is byte-identical to one rendered before it
-	// existed.
-	steps = append(steps, descriptor.SelectionSteps(sel)...)
-	if inject {
-		steps = append(steps, descriptor.ContextSteps(resuming)...)
-	}
-	// Positional user prompts are final by contract. In particular Claude's
-	// variadic --mcp-config must already have been terminated by later options,
-	// and Codex's resume subcommand/id must precede the message.
-	steps = append(steps, finalSteps...)
+	steps := buildSpawnSteps(descriptor, resuming, inject, sel, extraSteps, finalSteps)
 
 	// Register the injected document BEFORE the CLI can run: a provider whose only
 	// resume channel is a user message (codex) fires its user-prompt hook with this
@@ -156,7 +144,7 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
-	rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, plan)
+	rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, plan, resumeContextFor(resuming, inject, tctx))
 
 	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
 	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
@@ -334,6 +322,13 @@ type spawnContext struct {
 	gapTurns      int
 	resuming      bool
 	selection     engineagents.Selection
+
+	// launchSessionID is the prior session/thread id to resume, if any — the
+	// SAME value hooks-transport's own resume argv already carries, and what
+	// an api-transport connection's EstablishSession needs to know whether to
+	// run Fresh (nothing known yet) or Resume (known, but not yet loaded on
+	// THIS connection).
+	launchSessionID string
 }
 
 type spawnPreflight struct {
@@ -394,6 +389,11 @@ func (rs *Runners) teardownAfterPersistFailure(
 		slog.WarnContext(ctx, "agent: spawn runner: teardown after persist failure",
 			"chat_id", chatID, "runner_id", runnerID, "terminal_session_id", termSessID, "err", err)
 	}
+	// applyAPITransport runs before this point in spawnRunner and can have
+	// already established a live serve process by the time persistence fails —
+	// that process has no PTY of its own to fall with the one just terminated
+	// above (see quitOutgoingCLI's comment), so it leaks unless dropped here too.
+	rs.apiConns.drop(runnerID)
 	return cause
 }
 
@@ -413,6 +413,56 @@ func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
 		}
 		rs.reconcileRunnerExit(context.Background(), runnerID)
 	}
+}
+
+// buildSpawnSteps assembles the ordered InjectStep list a spawn's SpawnPlan
+// renders against: extraSteps first, then the descriptor's own selection and
+// context steps, then finalSteps — positional user prompts are final by
+// contract (Claude's variadic --mcp-config must already be terminated by
+// later options, and codex's resume subcommand/id must precede the message).
+//
+// descriptor.SelectionSteps contributes an EMPTY slice for a chat with no
+// model/effort choice, or a provider declaring no such block — so this costs
+// nothing on a spawn not using the feature, and the argv is byte-identical to
+// one rendered before it existed.
+func buildSpawnSteps(
+	descriptor engineagents.Agent,
+	resuming, inject bool,
+	sel engineagents.Selection,
+	extraSteps, finalSteps []engineagents.InjectStep,
+) []engineagents.InjectStep {
+	steps := append([]engineagents.InjectStep{}, extraSteps...)
+	steps = append(steps, descriptor.SelectionSteps(sel)...)
+	if contextStepsAllowed(resuming, inject, descriptor) {
+		steps = append(steps, descriptor.ContextSteps(resuming)...)
+	}
+	return append(steps, finalSteps...)
+}
+
+// contextStepsAllowed is whether ContextSteps — a CLI argv, a POSITIONAL
+// PROMPT on the resume path — may be rendered at all. False exactly when the
+// redundant hooks-only PTY this same spawn's applyAPITransport call has
+// already resumed over the api connection would otherwise answer it as its
+// own genuine first turn (a provider whose only resume channel is a user
+// message, e.g. codex — see apiOwnsResume). Never suppressed for a FRESH
+// inject: an unresumed spawn's ContextSteps is silent config, nothing for the
+// PTY to act on. resumeContextFor, just below, is this same routing decision
+// for the OTHER channel — InjectAt over the api connection itself.
+func contextStepsAllowed(resuming, inject bool, descriptor engineagents.Agent) bool {
+	return inject && (!resuming || !apiOwnsResume(descriptor))
+}
+
+// resumeContextFor is the gap document a resumed api-transport connection's
+// applyAPITransport call hands to InjectAt("context") — see that function's own
+// comment for why this rides a separate channel from EstablishSession's own
+// "context" value. Empty whenever inject's own gate says there is nothing to
+// hand over, or this spawn isn't a resume at all: a fresh establish already
+// carries tctx.Context as thread/start's developerInstructions.
+func resumeContextFor(resuming, inject bool, tctx engineagents.TemplateCtx) string {
+	if resuming && inject {
+		return tctx.Context
+	}
+	return ""
 }
 
 func (rs *Runners) crowbarHookPath(home string) string {

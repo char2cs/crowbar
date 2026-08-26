@@ -155,12 +155,25 @@ events:
   prompt:
     direction: out
     required: [text]
-    optional: [session_id]
+    # cwd is what a session-establishing Fresh/Resume step needs to create or
+    # reload the right conversation — a hooks-transport provider's prompt
+    # never references it, so it stays optional rather than required.
+    #
+    # context is the same handoff document a restart_tui spawn's context_inject
+    # folds into its CLI argv (spawnRunner's tctx.Context, composed once,
+    # transport-agnostic) — optional because it is only ever consumed by a
+    # Fresh step establishing a brand-new session; a Resume step reloads a
+    # session that already has its own history and has nothing to fold in.
+    optional: [session_id, cwd, context]
 
   interrupt:
     direction: out
     required: []
-    optional: [session_id]
+    # turn_id is optional: a hooks-transport provider has no notion of one (its
+    # descriptor's interrupt, if it declares any, has nowhere to source it from),
+    # while an rpc-transport provider whose cancel call is scoped to a specific
+    # turn — not just the thread — needs it. codex does; see codex.yaml.
+    optional: [session_id, turn_id]
 
   # Crowbar asks for compaction. Codex exposes thread/compact/start; claude has no API
   # for it, so its descriptor injects the /compact slash command over the prompt

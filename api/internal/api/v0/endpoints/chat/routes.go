@@ -89,6 +89,8 @@ func Register(
 	wsScoped.POST("/chats/:id/resume", h.Resume)
 	wsScoped.POST("/chats/:id/compact", h.Compact)
 	wsScoped.POST("/chats/:id/stop", h.Stop)
+	wsScoped.POST("/chats/:id/switch-to-terminal", h.SwitchToTerminal)
+	wsScoped.POST("/chats/:id/switch-to-native", h.SwitchToNative)
 	wsScoped.POST("/chats/:id/rename", h.Rename)
 	wsScoped.PATCH("/chats/:id/selection", h.SetSelection)
 	wsScoped.GET("/chats/:id/handoff", h.Handoff)

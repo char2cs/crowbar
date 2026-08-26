@@ -101,6 +101,10 @@ func (rs *Runners) renderSpawnContext(
 		// worktree — macOS's sun_path is a hard 104 bytes (see
 		// [[project_dev_home_isolation]]).
 		Socket: apiSocketPath(in.runnerID),
+		// The prior session id, if any — applyAPITransport overwrites this with
+		// whatever EstablishSession actually confirmed (a resumed id unchanged,
+		// or a freshly minted one) before attach's argv is ever rendered.
+		Session: in.launchSessionID,
 	}
 	// The message for a provider that can ONLY be reached through a user message (a
 	// resumed codex ignores every config channel). It POINTS at the ledger already on

@@ -123,11 +123,12 @@ func (rs *Runners) switchProviderLocked(
 		// pass_arg would become one literal argument.
 		var resumeSteps []engineagents.InjectStep
 		if resuming {
-			resumeSteps = resumeInjectionSteps(d, priorSessionID)
+			resumeSteps = nativeResumeSteps(d, priorSessionID)
 		}
 
-		// Resume args go first so codex's `resume <id>` subcommand precedes any positional
-		// context; order is irrelevant for claude's flag pair.
+		// Resume args go first so a positional resume_context_inject — codex's `resume
+		// <id>` subcommand, or claude's own --resume value — precedes rather than
+		// follows the positional context pointer built from it.
 		return rs.spawnRunner(
 			ctx, chatID, chat.WorkspaceID, targetProviderID,
 			"", resumeSteps, nil, conversation, gapTurns, resuming, priorSessionID, false, "",
@@ -186,6 +187,16 @@ func (rs *Runners) quitOutgoingCLI(
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
 	}
+	// An api-transport runner's serve process is NOT the terminal session above —
+	// it is a separate background process (apiconn.go's forkServeProcess), never a
+	// PTY, for exactly the hotswap:false shape codex declares: no attach at spawn,
+	// so no PTY ever exists to take it down on exit. onRunnerExit's own drop only
+	// fires from a PTY dying, which never happens here — confirmed live as a
+	// process leak: every switch away from codex left its serve process running,
+	// and dozens accumulated over one session. Safe to call unconditionally; it is
+	// a no-op for the hooks-only common case (claude) and for a codex runner
+	// already torn down some other way.
+	rs.apiConns.drop(live.ID)
 	// A failed displace ABORTS the switch, and this is the one teardown where it must: the
 	// caller's very next act is to spawn the incoming CLI, so continuing would place a
 	// second runner on a chat the first one is still recorded on — the two-live-CLIs state

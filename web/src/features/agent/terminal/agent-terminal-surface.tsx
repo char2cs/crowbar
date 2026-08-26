@@ -14,10 +14,15 @@ import { cn } from '@/lib/utils'
  * `pending` is "not answered yet", which is NOT the same as idle: a chat whose
  * liveness has not come back must not be offered a Resume button, or the pane
  * spawns a second CLI onto a chat that already has one.
+ *
+ * `attached`'s sessionId is null for a runner that IS live but has no terminal
+ * to show right now — a non-hotswap api-transport provider (codex) between
+ * switches, never attached. That is not dormancy: the chat itself is fine, and
+ * offering Resume here would restart an agent that was never down.
  */
 export type TerminalAttachment =
   | { state: 'pending' }
-  | { state: 'attached'; sessionId: string }
+  | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
   | { state: 'idle'; reason: 'exited' | 'failed' }
 
@@ -121,7 +126,7 @@ export function AgentTerminalSurface({
       )}
       style={splitting ? ({ flexBasis: `${basis}%` } as CSSProperties) : undefined}
     >
-      {attachment.state === 'attached' && (
+      {attachment.state === 'attached' && attachment.sessionId && (
         // NO key={sessionId}. Runner replacement swaps the PTY imperatively
         // instead of rebuilding xterm; runner movement keeps the same PTY.
         //
@@ -144,6 +149,17 @@ export function AgentTerminalSurface({
           onTerminalRef={onTerminalRef}
           onSessionGone={onSessionGone}
         />
+      )}
+
+      {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
+        // A live, non-hotswap api-transport runner (codex) with nothing attached —
+        // correct and common, not a failure. No Resume button: there is nothing to
+        // restart.
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
+          <p className="max-w-sm text-center text-muted-foreground text-sm">
+            This agent has no terminal view attached right now.
+          </p>
+        </div>
       )}
 
       {presentation !== 'chat' && attachment.state === 'reviving' && (

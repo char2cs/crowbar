@@ -1,10 +1,30 @@
 # Codex — v3, event-centric, MIXED TRANSPORT: the app-server API carries the
 # interactive core (turns, streaming, answerable permissions, telemetry,
-# interrupt, compact), and hooks carry the five events the API does not —
-# subagent_pre/post, compact_pre/post, session_end — fired by the SAME attached
-# TUI the api.attach argv launches. See the design spec's "Corrections" section
-# for how the api transport's wire framing (WebSocket, not raw NDJSON) was
-# confirmed live against codex-cli 0.146.0.
+# interrupt, compact). See the design spec's "Corrections" section for how the
+# api transport's wire framing (WebSocket, not raw NDJSON) was confirmed live
+# against codex-cli 0.146.0.
+#
+# `attach` is declared WITHOUT `hotswap` — codex hands its live turn over,
+# never shares it. Confirmed live against codex-cli 0.149.1 that the
+# app-server's own live-attach mechanism (`codex resume {id} --remote
+# unix://socket`, connecting a SECOND client to the SAME app-server process)
+# does not work: it fails outright with "no rollout found for thread id" on a
+# fresh thread (the rollout is not flushed to disk until a turn completes),
+# and — separately — codex enforces one writer per thread (a
+# thread-writer-lock file, confirmed on disk), so even once a rollout exists
+# a second live client is the wrong shape regardless. There is no live
+# hotswap here, and none is declared.
+#
+# What IS confirmed live: a bare, ORDINARY `codex resume {id}` (no --remote,
+# no shared socket, run only once at least one turn has completed and the
+# rollout is flushed) is codex's own standard resume feature and needs
+# nothing api-transport-specific at all. So `attach` is idle-only sequential
+# handoff, never concurrent access — see runner/attach.go's SwitchToTerminal:
+# the api connection is torn down FIRST, then this is forked as a plain
+# hooks-transport CLI (carrying the same MCPInject/ConfigInjection every
+# hooks-attached CLI gets, so it reports back to Crowbar's ledger exactly like
+# claude's always-live PTY does), and switching back re-establishes the api
+# connection over the SAME session via `resume:` above.
 #
 # Replaces the standalone experimental/codex-api.yaml, deleted by this merge —
 # its map:/send:/reply: paths carry over unchanged, replayed against the same
@@ -15,14 +35,13 @@ icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="current
 
 runtime:
   transport: api
-  hotswap: true
   api:
     protocol: jsonrpc2
     serve:  [codex, app-server, --listen, "unix://{socket}"]
-    # Points a TUI at the SAME conversation, so one session yields both the
-    # structured protocol and the terminal pane. Codex therefore needs no
-    # screen scraping at all — verified live (design spec's "Corrections").
-    attach: [codex, --remote, "unix://{socket}"]
+    # Idle-only, sequential handoff — see this file's own header comment.
+    # Never rendered at spawn (see applyAPITransport's Hotswap gate); only
+    # SwitchToTerminal (runner/attach.go) forks this, and only once idle.
+    attach: [codex, resume, "{session_id}"]
     handshake: { call: initialize }
   hooks:
     format: json
@@ -32,18 +51,36 @@ runtime:
     cmd: codex
 
 events:
+  # Two live shapes share this one canonical event: the api transport's own
+  # thread/started (thread.id), and the flat session_id/transcript_path a real
+  # `crowbar hook session_start` delivery still carries — codex's own spawned
+  # config.toml wires that hook unconditionally (see the SessionStart entry
+  # below), so it fires on every codex process, api-transport or attached,
+  # not only while native-attached. thread.id is tried first; the bare
+  # session_id is the hooks-delivered fallback.
   session_start:
     in: thread/started
-    map: { session_id: thread.id }
+    map: { session_id: "thread.id || session_id" }
 
   # item/started is a SUM TYPE: one wire event serves several canonical events,
   # selected by item.type.
+  #
+  # Same dual-shape hazard as session_start (see its comment above): codex's
+  # own spawn config unconditionally wires hooks.UserPromptSubmit/Stop/
+  # PreToolUse/PostToolUse too, delivering the OLD flat payload shape
+  # (session_id/prompt/last_assistant_message/tool_use_id/tool_name) over the
+  # SAME IngestHook path these api-shape mappings feed. tool_id in particular
+  # is load-bearing, not cosmetic: an unresolved tool_id makes toolID() mint a
+  # fresh random fallback id per call (observation.go), so tool_pre and
+  # tool_post never match the SAME id and OpenWork reports the chat as
+  # perpetually mid-turn — confirmed live and by
+  # TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed.
   user_prompt:
     in: item/started
     when: { item.type: userMessage }
     map:
-      session_id: threadId
-      message:    item.content[type=text].text
+      session_id: "threadId || session_id"
+      message:    "item.content[type=text].text || prompt"
 
   # The final message is an ITEM IN A LIST, not turn.lastAgentMessage — that
   # field does not exist. turn.items holds {type, id, text, phase}; the answer
@@ -51,26 +88,26 @@ events:
   turn_stop:
     in: turn/completed
     map:
-      session_id: threadId
-      message:    "turn.items[type=agentMessage].text"
+      session_id: "threadId || session_id"
+      message:    "turn.items[type=agentMessage].text || last_assistant_message"
 
   tool_pre:
     in: item/started
     when: { item.type: commandExecution || fileChange || mcpToolCall }
     map:
-      session_id: threadId
-      tool_id:    item.id
-      tool_name:  item.type
+      session_id: "threadId || session_id"
+      tool_id:    "item.id || tool_use_id"
+      tool_name:  "item.type || tool_name"
       tool_input: item
 
   tool_post:
     in: item/completed
     when: { item.type: commandExecution || fileChange || mcpToolCall }
     map:
-      session_id:  threadId
-      tool_id:     item.id
-      tool_name:   item.type
-      tool_result: item.content
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.type || tool_name"
+      tool_result: "item.content || tool_response"
 
   # No index: codex's delta carries {delta, itemId, threadId, turnId} and
   # nothing more. Deltas arrive on one ordered stream, so arrival order is the
@@ -117,23 +154,83 @@ events:
       decline: '{"action":"decline"}'
       cancel:  '{"action":"cancel"}'
 
+  # Sending a message needs a session to already exist, and codex has no single
+  # call that both starts one and acts on it: `thread/start` (a fresh
+  # conversation) and `thread/resume` (an existing one this connection has
+  # never itself loaded — the ordinary case right after a Crowbar restart,
+  # where the runner already remembers a session id from before) are two
+  # DIFFERENT calls, each producing the {session_id} `action` then sends to.
+  # `input` is an array of typed content blocks, never a bare string — the
+  # ONE reason `send:` needs to be a tree here instead of the flat
+  # {field: "{value}"} shape interrupt/compact_start still use below.
+  #
+  # sandbox/approvalPolicy are fixed literals, mirroring codex.yaml's own
+  # hooks-transport `spawn.args` (`--sandbox workspace-write --ask-for-approval
+  # on-request`) — the PTY-launched settings this connection replaces. Update
+  # both together if either ever changes.
   prompt:
-    out: turn/start
-    send:
-      threadId: "{session_id}"
-      text:     "{text}"
+    fresh:
+      - call: thread/start
+        send:
+          cwd:                   "{cwd}"
+          sandbox:               workspace-write
+          approvalPolicy:        on-request
+          # The api-transport equivalent of context_inject's -c
+          # developer_instructions={context} below — same document, same
+          # {context} value (spawnRunner's tctx.Context), the CLI's config
+          # override and this thread/start param confirmed live as the two
+          # ways codex accepts it (see ThreadStartParams in codex-cli
+          # 0.149.1's `codex app-server generate-json-schema`). Without this a
+          # thread/start-ed codex has no handoff at all: a chat switched to
+          # codex answers its first message with zero memory of what came
+          # before, even though the switch's own spawn assembled it.
+          developerInstructions: "{context}"
+        capture:
+          session_id: thread.id
+    resume:
+      - call: thread/resume
+        send:
+          threadId: "{session_id}"
+          cwd:      "{cwd}"
+    action:
+      - call: turn/start
+        send:
+          threadId: "{session_id}"
+          input:
+            - type: text
+              text: "{text}"
+        # turn.id is the ONE thing interrupt below needs that thread/start never
+        # has: a cancel scoped to "this turn", not "this thread". Captured here,
+        # remembered by the driver across calls (same mechanism as session_id),
+        # so interrupt's own send: below can reference it with nothing else
+        # threading it through.
+        capture:
+          turn_id: turn.id
 
+  # Confirmed live: turn/interrupt with only threadId fails outright ("missing
+  # field turnId") — a codex cancel is scoped to the turn, not the thread. With
+  # both fields it succeeds, the thread moves to idle, and the cancelled turn
+  # surfaces as an ordinary turn/completed (status "interrupted") — already
+  # covered by turn_stop's existing in: turn/completed mapping above, so
+  # nothing else has to change to close it out. Also confirmed: the connection
+  # survives a successful interrupt and accepts a new turn/start immediately —
+  # this is a turn-scoped cancel, not a teardown.
   interrupt:
     out: turn/interrupt
-    send: { threadId: "{session_id}" }
+    send: { threadId: "{session_id}", turnId: "{turn_id}" }
 
   compact_start:
     out: thread/compact/start
     send: { threadId: "{session_id}" }
 
-  # The five events the api transport does not carry, still reported by the
-  # ATTACHED TUI over hooks — the config_injection block below still wires
-  # them, unchanged from the hooks-only descriptor this replaces.
+  # The five events the api transport does not carry. Declared transport:
+  # hooks because SOME codex process still fires them — but with no attach (see
+  # runtime.api's own comment), that process is a SEPARATE, disconnected PTY
+  # spawnRunner still forks (nothing today makes "no attach" mean "no PTY" —
+  # design spec capability 2's third state), driving its own unrelated
+  # conversation. Its subagent/compact/session_end events do not describe the
+  # thread `prompt` is actually driving. Known, tracked as follow-up work
+  # (implement the no-PTY-at-all path), not silently papered over.
   subagent_pre:
     transport: hooks
     in: SubagentStart
@@ -164,6 +261,23 @@ catalog:
   commands: { call: skills/list }
   limits:   { call: account/rateLimits/read }
 
+# at: mcp is a SEPARATE known gap, still unimplemented — nothing in Go calls
+# it. at: context is not: apiconn.go's applyAPITransport (runner package)
+# calls this the moment a RESUME establishes a session that had a real gap to
+# hand over, sending the exact same {context} document thread/start's own
+# developerInstructions carries on a fresh thread — no CLI turn, no
+# positional prompt, and (unlike the pointer this replaces) no dependence on
+# the model choosing to fetch anything.
+#
+# items is "Raw Responses API items" (ThreadInjectItemsParams's own schema
+# comment; codex-cli 0.149.1's generate-json-schema declares the array element
+# type as unconstrained, so nothing validates this shape — it was guessed,
+# then confirmed live against a real thread). A "message"/role "user" item is
+# what a live probe showed the model actually recalling on its very next turn
+# (role "developer" and "system" items, sent the same way, sat inert) — the
+# SAME role claude's own resume_context_inject uses for the identical
+# content, delivered over a channel that fires no item/started at all, so
+# there is nothing here for WasInjected to ever need to suppress.
 inject:
   - at: mcp
     call: config/mcpServer/reload
@@ -171,7 +285,12 @@ inject:
     call: thread/inject_items
     send:
       threadId: "{session_id}"
-      text:     "{context}"
+      items:
+        - type: message
+          role: user
+          content:
+            - type: input_text
+              text: "{context}"
 
 # --- carried across from v2 unchanged -------------------------------------
 # Validated against codex 0.139.0, except the mcp_servers.crowbar entries below,
@@ -356,15 +475,18 @@ mcp_injection:
 # empty. NOT model_instructions_file, which REPLACES codex's built-in system prompt.
 context_inject:
   - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
-# A RESUMED codex session cannot be told anything through config: `codex resume`
-# rebuilds from its rollout, which never records developer instructions. The ONLY
-# channel that reaches it is a USER MESSAGE.
-#
-# So it is handed a POINTER, not a transcript — the conversation is already on disk
-# and an agent reads files. Pasting the whole exchange in, which is what this used to
-# do, dumped a wall of text into the chat on every switch.
-resume_context_inject:
-  - pass_arg: { positional: "{context_pointer}" }
+# NO resume_context_inject, deliberately: a RESUMED codex session is entirely
+# api-transport-owned (apiOwnsResume, prompts.go) — the redundant hooks-only
+# PTY spawnRunner still forks alongside it never resumes the same thread and
+# is withheld from both the native resume id and any positional prompt, so
+# there is no CLI argv left for this to ride at all. The api connection's own
+# thread/resume can't carry {context} either (see the inject: at: context
+# comment below) — one used to hand a POINTER in here instead, betting the
+# model would call get_chat_log for the rest; not reliable enough to keep
+# (claude.yaml's own resume_context_inject has the fuller account of why that
+# bet was dropped there too, on a hooks-transport channel that DOES still
+# exist for it). codex's api connection delivers the same document instead,
+# out of band, via inject: at: context below.
 # Blocking modals no hook reports — see claude.yaml's terminal_prompts. codex asks
 # about trust before it reports anything, so a chat behind that dialog renders as a
 # dead pane.

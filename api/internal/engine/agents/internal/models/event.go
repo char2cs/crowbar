@@ -30,7 +30,13 @@ type MessageDelta struct {
 	TurnID    string
 	MessageID string
 
-	Index int
+	// Index is the increment's position, meaningful only when Sequenced is
+	// true. A provider whose descriptor maps no index: field (its deltas
+	// arrive on one ordered stream with nothing to number) leaves this zero
+	// on every increment — reading it then would fold every chunk onto the
+	// same slot, so stream.Streams instead assigns arrival order itself.
+	Index     int
+	Sequenced bool
 
 	Final bool
 

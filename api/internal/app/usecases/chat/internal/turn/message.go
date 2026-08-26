@@ -26,7 +26,7 @@ func (t *Turns) recordMessageDelta(
 	}
 	message, ok := t.messages.Observe(
 		chat.ID, ev.Delta.TurnID, ev.Delta.MessageID,
-		ev.Delta.Index, ev.Delta.Final, ev.Delta.Text, time.Now(),
+		ev.Delta.Index, ev.Delta.Sequenced, ev.Delta.Final, ev.Delta.Text, time.Now(),
 	)
 	if !ok {
 		return

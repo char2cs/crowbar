@@ -192,6 +192,34 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// SwitchToTerminal hands chatID's live turn over to its provider's OWN native
+	// view — idle-only, for a provider whose descriptor declares attach without
+	// hotswap (codex): the api connection is torn down and a bare resume of the
+	// SAME session is forked as a real terminal session, returned here so the
+	// caller can point its existing terminal-rendering path at it. Refuses
+	// (ErrTurnInProgress) while a turn is in flight, and (ErrNoNativeTerminal) for
+	// a provider with no native view to show at all.
+	SwitchToTerminal(
+		ctx context.Context,
+		chatID string,
+	) (terminalSessionID string, err error)
+
+	// SwitchToNative reverses SwitchToTerminal: the native-view PTY is torn down
+	// and the api connection is re-established over the same session. A chat with
+	// nothing attached is a nil no-op.
+	SwitchToNative(
+		ctx context.Context,
+		chatID string,
+	) error
+
+	// AttachedTerminalSession answers which terminal session IS a runner's
+	// native view right now, if it has one — see chatRuntime.
+	AttachedTerminalSession(runnerID string) (string, bool)
+
+	// HasLiveAPIConnection reports whether runnerID has a live api-transport
+	// connection right now — see chatRuntime's own use, chats.go.
+	HasLiveAPIConnection(runnerID string) bool
+
 	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
 	// modal reaching the daemon through no hook, so the only way past it is the
 	// terminal. The complement of ReadPendingChoices, and deliberately not folded

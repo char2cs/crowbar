@@ -162,11 +162,34 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 
 func (c *APIConn) Close() error { return c.drv.Close() }
 
-// SendPrompt delivers one user message over this connection — see
-// apidriver.Driver.SendPrompt's own doc comment for why this is hand-written
-// rather than routed through Send/outbound.Resolve.
-func (c *APIConn) SendPrompt(ctx context.Context, threadID, cwd, text string) (string, error) {
-	return c.drv.SendPrompt(ctx, threadID, cwd, text)
+// EstablishSession runs canonical's Fresh-or-Resume steps on this connection,
+// if it has not already — see apidriver.Driver.EstablishSession's own doc
+// comment for why a caller needs this split out from Dispatch (attach's argv
+// must name the session id before anything is said on it).
+func (c *APIConn) EstablishSession(
+	ctx context.Context, canonical string, values map[string]string,
+) (map[string]string, error) {
+	return c.drv.EstablishSession(ctx, canonical, values)
+}
+
+// Dispatch establishes canonical's session (a no-op once this connection
+// already has), then runs its Action steps — see apidriver.Driver.Dispatch.
+func (c *APIConn) Dispatch(
+	ctx context.Context, canonical string, values map[string]string,
+) (map[string]string, error) {
+	return c.drv.Dispatch(ctx, canonical, values)
+}
+
+// Send drives a plain outbound canonical event (interrupt, compact_start) —
+// see apidriver.Driver.Send.
+func (c *APIConn) Send(ctx context.Context, canonical string, values map[string]string) error {
+	return c.drv.Send(ctx, canonical, values)
+}
+
+// InjectAt runs the descriptor's declared inject step for lifecycle moment at,
+// if it has one — see apidriver.Driver.InjectAt.
+func (c *APIConn) InjectAt(ctx context.Context, at string, values map[string]string) error {
+	return c.drv.InjectAt(ctx, at, values)
 }
 
 // StartAPIDriver dials a provider's API socket, completes its declared

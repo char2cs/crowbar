@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/dispatch"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/wsrpc"
@@ -30,19 +30,22 @@ type Driver struct {
 	d    *spec.Descriptor
 	out  chan Event
 
-	// inject carries synthesized frames — SendPrompt's own echo of the message
-	// it just sent, and the thread/read pull-based turn_stop fallback below —
-	// back through the SAME handleFrame path a real wire frame takes, so
-	// dispatch.Resolve's declarative mapping is the one and only place a
-	// canonical event's shape is ever decided. Buffered: a send must not block
-	// on translateLoop happening to be parked in select at that exact instant.
-	inject chan wsrpc.Frame
-
-	// mu guards turnSettled, touched by translateLoop's goroutine (on a native
-	// turn/completed or after a successful thread/read pull) and by
-	// pullTurnStop's own goroutine (spawned per idle transition) alike.
+	// mu guards established and remembered.
+	//
+	// established is set once this connection has itself run an event's Fresh
+	// or Resume steps successfully — never re-entered on a later Dispatch for
+	// the same event, so a second message on an already-live connection goes
+	// straight to Action.
+	//
+	// remembered holds every field ANY step's capture: has ever pulled out of a
+	// response on this connection — session_id from thread/start, turn_id from
+	// turn/start, whatever a descriptor names — so a LATER Send (which has no
+	// step of its own to capture from) can still reference it. A codex
+	// interrupt needs the turn/start it never ran itself; this is how it gets
+	// it without Crowbar's code knowing turns exist.
 	mu          sync.Mutex
-	turnSettled map[string]bool
+	established bool
+	remembered  map[string]string
 }
 
 // Start dials socketPath, runs the descriptor's declared handshake call, sends
@@ -69,148 +72,24 @@ func Start(ctx context.Context, d *spec.Descriptor, socketPath string) (*Driver,
 		return nil, fmt.Errorf("apidriver: %s initialized: %w", d.ID, err)
 	}
 
-	drv := &Driver{
-		conn:        conn,
-		d:           d,
-		out:         make(chan Event, 64),
-		inject:      make(chan wsrpc.Frame, 4),
-		turnSettled: make(map[string]bool),
-	}
+	drv := &Driver{conn: conn, d: d, out: make(chan Event, 64), remembered: map[string]string{}}
 	go drv.translateLoop()
 	return drv, nil
 }
 
-// translateLoop drains both the wire and this driver's own synthesized frames
-// through the identical handleFrame path — a synthetic frame is never a
-// separate code path, only a second SOURCE of the same Frame shape.
 func (drv *Driver) translateLoop() {
 	defer close(drv.out)
-	frames := drv.conn.Frames()
-	for {
-		select {
-		case frame, ok := <-frames:
-			if !ok {
-				return
-			}
-			drv.handleFrame(frame)
-		case frame := <-drv.inject:
-			drv.handleFrame(frame)
+	for frame := range drv.conn.Frames() {
+		var params map[string]any
+		if err := json.Unmarshal(frame.Params, &params); err != nil {
+			continue // a malformed params object is dropped, never fatal
 		}
+		canonical, ok := dispatch.Resolve(drv.d, frame.Method, params)
+		if !ok {
+			continue // this provider's descriptor does not map this wire method
+		}
+		drv.out <- Event{Canonical: canonical, Raw: frame.Params, AskID: frame.ID}
 	}
-}
-
-func (drv *Driver) handleFrame(frame wsrpc.Frame) {
-	var params map[string]any
-	if err := json.Unmarshal(frame.Params, &params); err != nil {
-		return // a malformed params object is dropped, never fatal
-	}
-
-	// codex's app-server sometimes reports a thread's whole life through this
-	// coarse pair alone — item/started, item/agentMessage/delta and
-	// turn/completed never arrive at all for it — a variant confirmed live
-	// against real codex-cli 0.149.1 traffic and visible on the THREAD ITSELF
-	// as historyMode:"paginated" (vs "legacy"). Nothing here declares which
-	// variant a given thread will be: it is decided server-side per thread,
-	// unrelated to any capability Crowbar negotiates at handshake, so both
-	// must always be handled rather than picked between.
-	switch frame.Method {
-	case "turn/completed":
-		drv.markSettled(threadIDOf(params))
-	case "thread/status/changed":
-		drv.maybePullTurnStop(params)
-	}
-
-	canonical, ok := dispatch.Resolve(drv.d, frame.Method, params)
-	if !ok {
-		return // this provider's descriptor does not map this wire method
-	}
-	drv.out <- Event{Canonical: canonical, Raw: frame.Params, AskID: frame.ID}
-}
-
-func threadIDOf(params map[string]any) string {
-	id, _ := params["threadId"].(string)
-	return id
-}
-
-func (drv *Driver) markSettled(threadID string) {
-	if threadID == "" {
-		return
-	}
-	drv.mu.Lock()
-	drv.turnSettled[threadID] = true
-	drv.mu.Unlock()
-}
-
-// maybePullTurnStop reacts to a thread going idle: if turn/completed already
-// reported this same turn's end (the "legacy" wire, the common case), the
-// native path already forwarded turn_stop and there is nothing to do. If it
-// never arrived — the "paginated" wire — this thread's own content is still
-// sitting in the rollout codex keeps regardless of which notifications it
-// chooses to stream, so a pull fills the gap the push never carried.
-func (drv *Driver) maybePullTurnStop(params map[string]any) {
-	threadID := threadIDOf(params)
-	status, _ := params["status"].(map[string]any)
-	statusType, _ := status["type"].(string)
-	if threadID == "" || statusType != "idle" {
-		return
-	}
-	drv.mu.Lock()
-	settled := drv.turnSettled[threadID]
-	drv.mu.Unlock()
-	if settled {
-		return
-	}
-	// thread/read is a blocking RPC; running it inline would stall every other
-	// frame this connection is delivering (hooks-relayed permission asks
-	// included) until it returns.
-	go drv.pullTurnStop(threadID)
-}
-
-// pullTurnStop fetches threadID's full history and, if turn/completed still
-// has not settled it in the meantime (the two paths race harmlessly — only
-// one is allowed to win, guarded by the SAME turnSettled map turn/completed
-// itself sets), synthesizes a turn_stop-shaped frame from the last recorded
-// turn. Its shape — {threadId, turn} — is deliberately identical to
-// turn/completed's own params, so codex.yaml's existing turn_stop mapping
-// (turn.items[type=agentMessage].text) applies unchanged; this is a second
-// SOURCE for that exact shape, not a second mapping to keep in sync.
-func (drv *Driver) pullTurnStop(threadID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	result, err := drv.conn.Call(ctx, "thread/read", map[string]any{
-		"threadId":     threadID,
-		"includeTurns": true,
-	})
-	if err != nil {
-		return // best-effort: a truly stuck turn is still caught by the delivery-uncertainty path
-	}
-	var parsed struct {
-		Thread struct {
-			Turns []json.RawMessage `json:"turns"`
-		} `json:"thread"`
-	}
-	if err := json.Unmarshal(result, &parsed); err != nil || len(parsed.Thread.Turns) == 0 {
-		return
-	}
-
-	drv.mu.Lock()
-	already := drv.turnSettled[threadID]
-	if !already {
-		drv.turnSettled[threadID] = true
-	}
-	drv.mu.Unlock()
-	if already {
-		return
-	}
-
-	raw, err := json.Marshal(map[string]any{
-		"threadId": threadID,
-		"turn":     parsed.Thread.Turns[len(parsed.Thread.Turns)-1],
-	})
-	if err != nil {
-		return
-	}
-	drv.inject <- wsrpc.Frame{Method: "turn/completed", Params: raw}
 }
 
 // Events delivers every canonical event this driver has resolved, in arrival
@@ -225,11 +104,26 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 	return drv.conn.Reply(askID, json.RawMessage(rendered))
 }
 
-// Send drives an outbound canonical event (prompt, interrupt, compact_start) by
+// Send drives an outbound canonical event (interrupt, compact_start) by
 // resolving it through the SAME outbound.Resolve the hooks transport's
-// injection-based sends use, then notifying over the socket.
-func (drv *Driver) Send(canonical string, values map[string]string) error {
-	wire, payload, ok := outbound.Resolve(drv.d, canonical, values)
+// injection-based sends use, merged over every value this connection has ever
+// remembered (so interrupt's turnId is there without the caller supplying it),
+// then calling it over the socket and waiting for the reply — confirmed live
+// that codex's own turn/interrupt is a request needing a real response, not a
+// fire-and-forget notification: a malformed one comes back a JSON-RPC error,
+// not silence. For an event that must first establish a session before
+// acting, see Dispatch instead — Send's flat {field: "{value}"} template
+// cannot express a typed/nested payload or a response value feeding a later
+// call.
+func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
+	drv.mu.Lock()
+	merged := cloneValues(drv.remembered)
+	drv.mu.Unlock()
+	for k, v := range values {
+		merged[k] = v
+	}
+
+	wire, payload, ok := outbound.Resolve(drv.d, canonical, merged)
 	if !ok {
 		return fmt.Errorf("apidriver: %s does not declare outbound event %q", drv.d.ID, canonical)
 	}
@@ -237,98 +131,209 @@ func (drv *Driver) Send(canonical string, values map[string]string) error {
 	for k, v := range payload {
 		params[k] = v
 	}
-	return drv.conn.Notify(wire, params)
+	_, err := drv.conn.Call(ctx, wire, params)
+	if err != nil {
+		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, wire, err)
+	}
+	return nil
 }
 
-// SendPrompt delivers one user message over an already-open connection — the
-// reason mixed transport needs no restart_tui equivalent at all: unlike every
-// hooks-only provider, this socket stays open for the conversation's whole
-// life, so a SECOND message reuses the SAME thread rather than spawning
-// anything.
+// EstablishSession runs canonical's Fresh steps (no session id known yet) or
+// Resume steps (one is known, e.g. carried over from a prior life of this
+// chat, but this connection has never itself loaded it) — whichever applies —
+// and is a no-op on every later call once this connection has already
+// established a session once. It returns values merged with whatever each
+// step's Capture pulled out of its response (a freshly-minted session id,
+// most notably), for the caller to keep and to pass to Dispatch.
 //
-// codex's app-server has no single "send a message" call, and neither of the
-// two it does have fits outbound.Resolve's {field: "{value}"} template: a new
-// conversation needs `thread/start` first (its own JSON-RPC REQUEST, answered
-// with the new thread's id, which every following `turn/start` must carry —
-// there is no implicit "start a thread and a turn together" call), and
-// `turn/start`'s `input` is an array of typed content blocks, never a bare
-// string. Both are hand-written here, the same way Start's handshake already
-// is, rather than descriptor-driven.
+// Split out from Dispatch so a caller can establish a session (and learn its
+// id) before anything needs to be SAID on it — attach's argv must name the
+// same thread turn/start will act on, and that id has to exist before the
+// attach process is even spawned, well before the first message.
+func (drv *Driver) EstablishSession(
+	ctx context.Context, canonical string, values map[string]string,
+) (map[string]string, error) {
+	ev, declared := drv.d.Events[canonical]
+	if !declared {
+		return nil, fmt.Errorf("apidriver: %s does not declare event %q", drv.d.ID, canonical)
+	}
+	out := cloneValues(values)
+
+	drv.mu.Lock()
+	already := drv.established
+	remembered := cloneValues(drv.remembered)
+	drv.mu.Unlock()
+	if already {
+		// A later caller on an established connection (pushPromptOverAPI, after
+		// a switch back to a resumed session) reads session_id from the RUNNER
+		// ROW, not this driver — and that row is never rebound on a pure
+		// api-transport resume (thread/resume fires no thread/started
+		// notification for pumpAPIConn to carry into HandleSessionStart), so it
+		// hands back "". Passed straight through before this fix, turn/start
+		// got literally session_id="" and codex refused it outright ("invalid
+		// thread id: ... found 0"), permanently uncertain-ing every prompt to
+		// this runner from then on — confirmed live. Filling any BLANK field
+		// from what THIS connection actually remembers (the real thing Fresh or
+		// Resume captured at establish) is what Dispatch has always assumed
+		// happens here; an empty caller value must lose to it, not overwrite it.
+		return fillBlanksFromRemembered(out, remembered), nil
+	}
+
+	steps := ev.Resume
+	if out["session_id"] == "" {
+		steps = ev.Fresh
+	}
+	if err := drv.runSteps(ctx, steps, out); err != nil {
+		return nil, err
+	}
+	if out["session_id"] != "" {
+		drv.mu.Lock()
+		drv.established = true
+		// Resume's own steps declare no capture: (only Fresh's thread/start
+		// does) — session_id survives Resume's runSteps only because it was
+		// already non-empty going IN, from the caller's own prior-session
+		// value. Remember it explicitly here too, or a LATER call on this
+		// SAME connection with a blank caller value (see the established
+		// branch above) has nothing to fall back to.
+		drv.remembered["session_id"] = out["session_id"]
+		drv.mu.Unlock()
+	}
+	return out, nil
+}
+
+// fillBlanksFromRemembered overwrites every blank value in out with what this
+// connection actually remembers from its own establish — see
+// EstablishSession's already-established branch for why an empty caller
+// value must lose to it, not overwrite it.
+func fillBlanksFromRemembered(out, remembered map[string]string) map[string]string {
+	for k, v := range out {
+		if v != "" {
+			continue
+		}
+		if rv, ok := remembered[k]; ok {
+			out[k] = rv
+		}
+	}
+	return out
+}
+
+// Dispatch establishes canonical's session if this connection has not already
+// (see EstablishSession), then runs its Action steps — the actual "do the
+// thing" call (turn/start), always last, always run.
+func (drv *Driver) Dispatch(
+	ctx context.Context, canonical string, values map[string]string,
+) (map[string]string, error) {
+	out, err := drv.EstablishSession(ctx, canonical, values)
+	if err != nil {
+		return nil, err
+	}
+	if err := drv.runSteps(ctx, drv.d.Events[canonical].Action, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// InjectAt runs the descriptor's inject step declared for lifecycle moment at
+// (spec.InjectSpec's "config | mcp | context | resume"), if it has one — a
+// descriptor with nothing declared for at is a no-op, not an error, the same
+// declarative-capability shape ContextSteps already has (a provider whose
+// resume channel is config, not a live connection, has no use for this).
 //
-// threadID empty means "no thread yet" — the conversation's first message —
-// and SendPrompt creates one, returning its id so the caller remembers it for
-// every later call. A non-empty threadID is reused unchanged, and cwd is used
-// only on that first call — an existing thread already has one.
-//
-// sandbox/approvalPolicy are fixed at workspace-write/on-request, mirroring
-// codex.yaml's own `spawn.args` (`--sandbox workspace-write --ask-for-approval
-// on-request`) — the PTY-launched settings this connection replaces. Update
-// both together if either ever changes.
-//
-// user_prompt is synthesized here rather than parsed off item/started: in
-// "paginated" mode codex never sends that notification at all, and Crowbar
-// does not need it to — it is the one party that already knows exactly what
-// text was just accepted, the moment this call returns, on EVERY thread
-// regardless of which wire variant it turns out to use.
-func (drv *Driver) SendPrompt(ctx context.Context, threadID, cwd, text string) (string, error) {
-	if threadID == "" {
-		result, err := drv.conn.Call(ctx, "thread/start", map[string]any{
-			"cwd":            cwd,
-			"sandbox":        "workspace-write",
-			"approvalPolicy": "on-request",
-		})
-		if err != nil {
-			return "", fmt.Errorf("apidriver: %s: thread/start: %w", drv.d.ID, err)
+// Unlike EstablishSession/Dispatch's Fresh/Resume/Action lists (bound to a
+// canonical EVENT, always run in the same place in that event's lifecycle),
+// an inject step is bound to a lifecycle MOMENT the caller decides on: codex's
+// own thread/inject_items (at: context) has to run once, right after a RESUME
+// establishes a session that existed before this connection loaded it — never
+// on a fresh thread/start, which already carries {context} as
+// developerInstructions in the very call that creates the thread.
+func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
+	var step *spec.InjectSpec
+	for i := range drv.d.Inject {
+		if drv.d.Inject[i].At == at {
+			step = &drv.d.Inject[i]
+			break
 		}
-		var started struct {
-			Thread struct {
-				ID string `json:"id"`
-			} `json:"thread"`
-		}
-		if err := json.Unmarshal(result, &started); err != nil {
-			return "", fmt.Errorf("apidriver: %s: thread/start: parse response: %w", drv.d.ID, err)
-		}
-		if started.Thread.ID == "" {
-			return "", fmt.Errorf("apidriver: %s: thread/start: response carried no thread id", drv.d.ID)
-		}
-		threadID = started.Thread.ID
+	}
+	if step == nil || step.Call == "" {
+		return nil
 	}
 
 	drv.mu.Lock()
-	drv.turnSettled[threadID] = false // a new turn is starting; its end has not been observed yet
+	merged := cloneValues(drv.remembered)
 	drv.mu.Unlock()
-
-	if _, err := drv.conn.Call(ctx, "turn/start", map[string]any{
-		"threadId": threadID,
-		"input":    []map[string]string{{"type": "text", "text": text}},
-	}); err != nil {
-		return "", fmt.Errorf("apidriver: %s: turn/start: %w", drv.d.ID, err)
+	for k, v := range values {
+		merged[k] = v
 	}
 
-	// Shaped like a real item/started(userMessage) frame so codex.yaml's
-	// EXISTING user_prompt mapping (item.content[type=text].text) applies
-	// unchanged — this is a second SOURCE for that shape, never a second
-	// mapping. A natural item/started(userMessage) may also arrive in legacy
-	// mode; ingesting user_prompt twice for one message is a pre-existing,
-	// separately-owned concern (durable-dispatch dedup in the runner usecase
-	// keys on provider+text, not on frame count), not one this driver invents.
-	raw, err := json.Marshal(map[string]any{
-		"threadId": threadID,
-		"item": map[string]any{
-			"type": "userMessage",
-			"content": []map[string]any{
-				{"type": "text", "text": text},
-			},
-		},
-	})
-	if err == nil {
-		select {
-		case drv.inject <- wsrpc.Frame{Method: "item/started", Params: raw}:
-		default:
+	payload, _ := expandTree(step.Send, merged).(map[string]any)
+	if _, err := drv.conn.Call(ctx, step.Call, payload); err != nil {
+		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
+	}
+	return nil
+}
+
+// runSteps executes one Fresh/Resume/Action list in order: expand Send's
+// template tree against values, call it, and fold any Capture into values so
+// a later step in the SAME list (or the caller) can read it.
+func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
+	for _, step := range steps {
+		payload, _ := expandTree(step.Send, values).(map[string]any)
+		result, err := drv.conn.Call(ctx, step.Call, payload)
+		if err != nil {
+			return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
+		}
+		if len(step.Capture) == 0 {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(result, &decoded); err != nil {
+			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
+		}
+		for field, path := range step.Capture {
+			if v, ok := mapping.Scalar(decoded, path); ok {
+				values[field] = v
+				drv.mu.Lock()
+				drv.remembered[field] = v
+				drv.mu.Unlock()
+			}
 		}
 	}
+	return nil
+}
 
-	return threadID, nil
+// expandTree walks a Send tree (whatever shape the descriptor's YAML gave it)
+// and substitutes {placeholder} at every string leaf via the SAME
+// outbound.Substitute the flat Send/Notify path already uses — one
+// {placeholder} grammar, applied at every depth instead of only the top one,
+// which is the whole of what a typed/nested payload needed over the old flat
+// map[string]string.
+func expandTree(node any, values map[string]string) any {
+	switch v := node.(type) {
+	case string:
+		return outbound.Substitute(v, values)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, val := range v {
+			out[k] = expandTree(val, values)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, val := range v {
+			out[i] = expandTree(val, values)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func cloneValues(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		out[k] = v
+	}
+	return out
 }
 
 func (drv *Driver) Close() error {

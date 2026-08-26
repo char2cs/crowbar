@@ -18,6 +18,19 @@ func TestRegistry_Consume_RecognisesAnInjectedDocumentOnce(t *testing.T) {
 		"the match is one-shot so a user retyping the text later is still recorded")
 }
 
+// TestRegistry_Consume_RecognisesTheDocWrappedByTheProvidersOwnTemplate pins
+// the live bug: claude's resume pointer reaches the CLI wrapped in
+// <system-reminder> tags the descriptor's own template adds — Go registers
+// the bare pointer it composed, never the wrapped form. An equality check
+// missed that wrapping entirely and let the injected handoff land in the
+// ledger as the user's own turn.
+func TestRegistry_Consume_RecognisesTheDocWrappedByTheProvidersOwnTemplate(t *testing.T) {
+	r := registry.New()
+	r.SetInjected("runner-1", "[Crowbar] call get_chat_log")
+
+	assert.True(t, r.Consume("runner-1", "<system-reminder>[Crowbar] call get_chat_log</system-reminder>"))
+}
+
 func TestRegistry_Consume_IsScopedToItsRunner(t *testing.T) {
 	r := registry.New()
 	r.SetInjected("runner-1", "blob")

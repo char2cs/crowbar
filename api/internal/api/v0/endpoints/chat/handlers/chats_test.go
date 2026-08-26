@@ -145,6 +145,10 @@ type configurableListGetUsecase struct {
 	// cannot answer" verdict, keyed by chat id. A chat absent from the map is not
 	// waiting, which is the answer for every chat unless a test says otherwise.
 	terminalWait map[string]domain.AgentTerminalWait
+
+	// hasLiveAPIConn is HasLiveAPIConnection's canned answer for every runner —
+	// false (no live api connection) unless a test says otherwise.
+	hasLiveAPIConn bool
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -267,6 +271,28 @@ func (configurableListGetUsecase) StopChat(
 	_ string,
 ) error {
 	return nil
+}
+
+func (configurableListGetUsecase) SwitchToTerminal(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (configurableListGetUsecase) SwitchToNative(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+func (configurableListGetUsecase) AttachedTerminalSession(_ string) (string, bool) {
+	return "", false
+}
+
+func (u *configurableListGetUsecase) HasLiveAPIConnection(_ string) bool {
+	return u.hasLiveAPIConn
 }
 
 func (configurableListGetUsecase) AssembleHandoff(
@@ -457,6 +483,45 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 	assert.Equal(t, "run-1", envelope.Data[0].LiveRunnerID)
 	assert.Equal(t, "term-1", envelope.Data[0].TerminalSessionID)
 	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "the live runner's provider wins over the history")
+}
+
+// TestList_LiveAPIConnectionBlanksTheCompanionPTY proves chatRuntime itself (not
+// just the DTO function) calls HasLiveAPIConnection and threads its result through:
+// a live runner with a live api connection reports NO terminal session, even though
+// its own TerminalSession field is set — that value is the disconnected companion
+// PTY every api-transport spawn still forks alongside a live connection, never a
+// real view for the frontend to attach to.
+func TestList_LiveAPIConnectionBlanksTheCompanionPTY(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
+		liveRunners: map[string]engineagents.Runner{
+			"c1": {
+				ID:              "run-1",
+				WorkspaceID:     "ws1",
+				ProviderID:      "codex",
+				TerminalSession: "term-1",
+				CurrentChatID:   "c1",
+			},
+		},
+		hasLiveAPIConn: true,
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []chatRow `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 1)
+	assert.Equal(t, "run-1", envelope.Data[0].LiveRunnerID)
+	assert.Empty(t, envelope.Data[0].TerminalSessionID, "the companion PTY must never be reported as a view")
 }
 
 // TestList_ChatWithNoRunnerEverIsEmpty proves a chat that has NEVER had a runner —

@@ -139,15 +139,25 @@ func (h *Handlers) chatRuntime(
 		return dto.ChatRuntime{}, err
 	}
 
+	var attachedSessionID string
+	var hasLiveAPIConn bool
+	if live != nil {
+		attachedSessionID, _ = h.runners.AttachedTerminalSession(live.ID)
+		hasLiveAPIConn = h.runners.HasLiveAPIConnection(live.ID)
+	}
+
 	// TerminalWait is a plain in-memory read of the detector's standing answer,
 	// and it takes no ctx and returns no error for that reason: it never touches a
 	// repository, a provider or a PTY on the request path. A daemon whose detector
 	// is not running answers the zero verdict, which is the same answer every chat
-	// gave before this existed.
+	// gave before this existed. AttachedTerminalSession and HasLiveAPIConnection are
+	// the same kind of read.
 	return dto.ChatRuntime{
-		LiveRunner:    live,
-		Conversations: convs,
-		TerminalWait:  h.runners.TerminalWait(chatID),
+		LiveRunner:           live,
+		Conversations:        convs,
+		TerminalWait:         h.runners.TerminalWait(chatID),
+		AttachedSessionID:    attachedSessionID,
+		HasLiveAPIConnection: hasLiveAPIConn,
 	}, nil
 }
 

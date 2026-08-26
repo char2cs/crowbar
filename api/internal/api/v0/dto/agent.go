@@ -33,6 +33,16 @@ type ChatRuntime struct {
 	// value — not waiting — is both the common case and the answer for every
 	// provider that declares no such prompts.
 	TerminalWait domain.AgentTerminalWait
+
+	// AttachedSessionID is the terminal session the runner's native view IS
+	// right now, set only between a SwitchToTerminal and its matching
+	// SwitchToNative. Empty otherwise — never a fact this chat's aggregate
+	// stores, same reasoning as TerminalWait.
+	AttachedSessionID string
+
+	// HasLiveAPIConnection is whether the runner has an ACTIVE api-transport
+	// connection right now — see AgentChatDTOFrom's own use.
+	HasLiveAPIConnection bool
 }
 
 // AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
@@ -150,6 +160,20 @@ func AgentChatDTOFrom(
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
+		switch {
+		// A live native-view session overrides the runner's own — it is what the
+		// user switched to, not the redundant hooks-only PTY an api-transport
+		// spawn still forks alongside it (a separate, known gap).
+		case rt.AttachedSessionID != "":
+			out.TerminalSessionID = rt.AttachedSessionID
+		case rt.HasLiveAPIConnection:
+			// The runner's own TerminalSession IS the disconnected companion PTY
+			// while a live api connection is up — never a view to hand the
+			// frontend. Confirmed live: reporting it let a user type into an
+			// unrelated codex session and have it silently promoted into its own
+			// new chat the moment it announced itself (MoveToNew, move.go).
+			out.TerminalSessionID = ""
+		}
 	}
 	out.TerminalWait = TerminalWaitDTOFrom(rt.TerminalWait)
 	return out

@@ -95,8 +95,8 @@ func (rs *Runners) SubmitPrompt(
 
 	runnerID, err := rs.spawnRunner(
 		ctx, chatID, chat.WorkspaceID, live.ProviderID, replacementRunnerID,
-		delivery.resumeSteps, delivery.promptSteps, "", 0,
-		delivery.resuming, delivery.launchSessionID, false, text,
+		delivery.resumeSteps, delivery.promptSteps, delivery.conversation, 0,
+		delivery.contextResuming, delivery.launchSessionID, false, text,
 	)
 	if err != nil {
 		if errors.Is(err, engineterminal.ErrCommandNotFound) {
@@ -169,7 +169,6 @@ func (rs *Runners) submitPromptOverAPI(
 	worktree, text string,
 ) (domain.AgentPromptSubmission, bool, error) {
 	if _, ok := rs.apiConns.get(live.ID); !ok {
-		slog.InfoContext(ctx, "DIAG2: no live apiConn found", "runner_id", live.ID)
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 
@@ -189,16 +188,13 @@ func (rs *Runners) submitPromptOverAPI(
 		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
 	}
 
-	usedSession, ok, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, text)
-	slog.InfoContext(ctx, "DIAG2: pushPromptOverAPI returned", "runner_id", live.ID,
-		"used_session", usedSession, "ok", ok, "err", fmt.Sprint(pushErr))
+	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, text)
 	if pushErr != nil {
 		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "api push", pushErr,
 		)
 	}
 	submission, err := rs.commitPromptSpawn(ctx, journalDir, clientRequestID, textHash, live.ID)
-	slog.InfoContext(ctx, "DIAG2: commitPromptSpawn returned", "runner_id", live.ID, "err", fmt.Sprint(err))
 	return submission, true, err
 }
 
@@ -378,6 +374,42 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return steps
 }
 
+// apiOwnsResume reports whether resuming d's session is applyAPITransport's
+// job (codex.yaml's prompt.resume: thread/resume), never the redundant
+// hooks-only PTY's (see codex.yaml's own comment on subagent_pre for why that
+// PTY exists at all). Handing that SAME session id to the PTY too — as a
+// native `resume {id}` argv, or as the resume context pointer, which for a
+// provider whose only resume channel is a user message IS a prompt the PTY
+// will act on — makes it a SECOND writer on a thread the api connection
+// already holds. codex enforces one writer per thread (a thread-writer-lock
+// file, confirmed on disk — the same constraint the header comment documents
+// for --remote attach): confirmed live, the native `resume {id}` case exits
+// immediately (exit code 1), onRunnerExit reconciles the whole runner as
+// dead, and the switch that looked like it succeeded silently reverts.
+// Confirmed live also: WITHOUT the id but WITH the pointer, the PTY no longer
+// collides — it just answers the pointer itself, as its own genuine first
+// turn, and that reply lands on this chat as a second, disconnected "codex"
+// conversation the api connection knows nothing about. So both must be
+// withheld from this PTY, not just the id: with neither, it starts idle (like
+// today's already-accepted fresh-spawn "own unrelated conversation" gap) and
+// never announces anything for resumableConversation to trip over.
+//
+// The api connection resuming silently, with no gap handed to it either, is
+// the SAME known gap this leaves in place: codex.yaml declares an inject: at:
+// context step (thread/inject_items) for exactly this, and nothing calls it
+// yet. Recorded, not silently papered over — see the mixed-transport design
+// spec.
+func apiOwnsResume(d engineagents.Agent) bool {
+	return d.TransportFor("prompt") == "api" && !d.Capabilities().Hotswap
+}
+
+func nativeResumeSteps(d engineagents.Agent, sessionID string) []engineagents.InjectStep {
+	if apiOwnsResume(d) {
+		return nil
+	}
+	return resumeInjectionSteps(d, sessionID)
+}
+
 func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmission {
 	return domain.AgentPromptSubmission{
 		RunnerID:          record.RunnerID,
@@ -390,6 +422,15 @@ type promptDelivery struct {
 	resumeSteps     []engineagents.InjectStep
 	launchSessionID string
 	resuming        bool
+	// conversation and contextResuming carry a virgin-restart handoff: a native
+	// session that has never itself recorded a turn holds no history for
+	// --resume to restore, so restarting it to deliver its first real message
+	// is this provider's first turn in the chat, not a gap since one it never
+	// had. Both stay empty/false on every other path, where the mechanical
+	// resuming above is already the right content signal too — see
+	// resolvePromptDelivery.
+	conversation    string
+	contextResuming bool
 }
 
 func (rs *Runners) resolvePromptDelivery(
@@ -413,14 +454,47 @@ func (rs *Runners) resolvePromptDelivery(
 	if err := rs.RequirePromptRestart(ctx, chatID, live, descriptor); err != nil {
 		return promptDelivery{}, err
 	}
-	out := promptDelivery{promptSteps: promptSteps, resuming: resuming}
+
+	// A named native session that has never itself recorded a turn has nothing
+	// on disk for --resume to restore, and no native session at all is, a
+	// fortiori, exactly as new — either way this restart is this provider's
+	// FIRST real turn in the chat, not a gap since one it never had. Computed
+	// before the resuming/not-resuming split below, and BEFORE any early
+	// return, so both outcomes of resumeTarget get the same treatment: the
+	// live bug this fixes reached here with resuming=false (resumeTarget's own
+	// "not yet resumable" branch), not just the resuming=true branch. Same
+	// test resumableConversation already uses for the switch path (see
+	// switch.go), applied here for the restart-to-deliver path.
+	everTurned := false
+	if nativeSessionID != "" {
+		_, found, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, nativeSessionID)
+		if err != nil {
+			return promptDelivery{}, fmt.Errorf("agent: submit prompt: check native session history: %w", err)
+		}
+		everTurned = found
+	}
+
+	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
+	if !everTurned {
+		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, false, time.Time{})
+		if err != nil {
+			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
+		}
+		out.conversation = conversation
+		out.contextResuming = false
+	}
 	if !resuming {
 		return out, nil
 	}
-	out.resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
-	if len(out.resumeSteps) == 0 {
+	// Unsupported is judged against the FULL native mapping, never the
+	// api-transport-suppressed one below: a provider with no resume arg at
+	// all cannot deliver this message any way, but one whose api connection
+	// resumes it instead (nativeResumeSteps) is not that case merely because
+	// its PTY carries no positional args.
+	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
+	out.resumeSteps = nativeResumeSteps(descriptor, nativeSessionID)
 	out.launchSessionID = nativeSessionID
 	return out, nil
 }

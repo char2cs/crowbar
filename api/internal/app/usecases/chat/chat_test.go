@@ -906,98 +906,121 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// resumeCodexWithGap drives the one path where Crowbar's own context document comes
-// back at it as a user prompt: codex switched away and then BACK. A resumed codex
-// cannot be reached through any config channel (verified against 0.139.0), so the gap
-// is delivered as a positional — which IS codex's first user message, and which its
-// user-prompt hook duly reports. Returns the new codex runner and the exact document it
-// was spawned with.
-func resumeCodexWithGap(t *testing.T, f testFixture) (chatID, codexRunnerID, injected string) {
+// resumeClaudeWithGap drives the one path where Crowbar's own context document comes
+// back at it as a user prompt: claude switched away and then BACK. A resumed
+// hooks-transport CLI cannot be reached through any config channel (verified against
+// 0.139.0), so the gap is delivered as a positional — which IS claude's first user
+// message, and which its user-prompt hook duly reports. Returns the new claude runner
+// and the exact document it was spawned with.
+//
+// claude, not codex: codex is api-transport and non-hotswap, so ITS OWN resume happens
+// over the api connection (applyAPITransport's thread/resume), and the redundant
+// hooks-only PTY spawnRunner still forks alongside it must never ALSO be handed this
+// pointer — apiOwnsResume (prompts.go) withholds it there for exactly that reason (a
+// second, disconnected "codex" conversation would otherwise answer it, confirmed live).
+// claude has no such competing connection: its PTY IS the conversation, so this
+// mechanism is still its live, correct delivery path.
+func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, injected string) {
 	t.Helper()
 
-	chatID, codexRunner := f.spawn(t, "codex")
-	f.announce(t, codexRunner, "sid-codex")
-	turn(t, f, codexRunner, "codex", "codex said this before leaving")
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude")
+	turn(t, f, claudeRunner, "claude", "claude said this before leaving")
 
-	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
-	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
+	// codex's turn_stop maps threadId/turn.items[type=agentMessage].text (see
+	// codex.yaml), NOT the flat last_assistant_message shape turn() builds for
+	// claude — using turn() here would silently extract an empty message.
+	f.announce(t, codexRunner, "sid-codex-away")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-away",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
 
-	codexRunnerID, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	claudeRunnerID, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
 
 	argv := f.term.calls[2].argv
 	injected = argv[len(argv)-1]
 
-	// A POINTER, not a transcript: Crowbar already holds the conversation, and
-	// pasting it into the chat is a wall of text the user scrolls past on every
-	// switch. The pointer names the chat and the tool that reads it, so an agent
-	// fetches exactly as much as it needs.
-	require.Contains(t, injected, "[Crowbar]", "the resumed codex must be handed the pointer as a positional: %v", argv)
-	require.Contains(t, injected, "get_chat_log", "the pointer must name the tool that reads the record: %q", injected)
-	require.Contains(t, injected, chatID, "the pointer must name the chat to read: %q", injected)
-	require.NotContains(t, injected, "claude spoke while codex was away",
-		"the pointer must NOT carry the transcript — that is the wall of text it replaces")
-	return chatID, codexRunnerID, injected
+	// The real gap, not a pointer asking the model to go fetch it: a
+	// get_chat_log pointer relies on the model choosing to call a tool from a
+	// context reminder, and that bet did not hold up live — claude regularly
+	// never called it (see claude.yaml's resume_context_inject for the fuller
+	// account). Handing the actual conversation removes that dependency.
+	require.Contains(t, injected, "codex spoke while claude was away",
+		"the resumed claude must be handed the real gap, not a pointer to fetch later: %v", argv)
+	require.NotContains(t, injected, "claude said this before leaving",
+		"a provider resumed into its own conversation must not be re-fed its own earlier turns")
+	require.True(t, strings.HasPrefix(injected, "<system-reminder>") && strings.HasSuffix(injected, "</system-reminder>"),
+		"the gap must be wrapped as trusted context, not delivered as a bare user turn: %q", injected)
+	return chatID, claudeRunnerID, injected
 }
 
-// TestResumeCodex_InjectedPointer_IsNotRecordedAsAUserTurn: the pointer Crowbar hands a
-// resumed codex comes straight back through its user-prompt hook — that is Crowbar's own
+// TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn: the pointer Crowbar hands a
+// resumed claude comes straight back through its user-prompt hook — that is Crowbar's own
 // message echoing, not something the user said. Recording it would put Crowbar's
 // plumbing into the conversation the next handoff is built from.
-func TestResumeCodex_InjectedPointer_IsNotRecordedAsAUserTurn(t *testing.T) {
+func TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, codexRunner, injected := resumeCodexWithGap(t, f)
+	chatID, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "user_prompt",
+	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": injected})))
 	f.wait()
 
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
 	require.NoError(t, err)
 
-	assert.NotContains(t, handoff, "[Crowbar]",
-		"Crowbar's injected pointer must never be recorded as a user turn:\n%s", handoff)
-	assert.Contains(t, handoff, "claude spoke while codex was away", "the real conversation is still recorded")
-	assert.Contains(t, handoff, "codex said this before leaving")
+	assert.NotContains(t, handoff, "WHILE YOU WERE AWAY",
+		"Crowbar's injected context document must never be recorded as a user turn:\n%s", handoff)
+	assert.Contains(t, handoff, "codex spoke while claude was away", "the real conversation is still recorded")
+	assert.Contains(t, handoff, "claude said this before leaving")
 }
 
-// TestResumeCodex_InjectedPointer_StillOpensTheTurn: suppressing the echo from the
+// TestResumeClaude_InjectedPointer_StillOpensTheTurn: suppressing the echo from the
 // LEDGER must not suppress the turn itself — the CLI really is answering it, so the chat
 // must read as Working (the workspace spinner overlay depends on it).
-func TestResumeCodex_InjectedPointer_StillOpensTheTurn(t *testing.T) {
+func TestResumeClaude_InjectedPointer_StillOpensTheTurn(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, codexRunner, injected := resumeCodexWithGap(t, f)
+	chatID, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "user_prompt",
+	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": injected})))
 	f.wait()
 
 	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the gap: the chat must read as working")
 }
 
-// TestResumeCodex_UserRetypesThePointer_IsRecorded: the suppression is one-shot and
+// TestResumeClaude_UserRetypesThePointer_IsRecorded: the suppression is one-shot and
 // scoped to the runner the message was injected into, so a user who genuinely sends that
 // same text later is still recorded — the guard must never become a permanent content
 // filter.
-func TestResumeCodex_UserRetypesThePointer_IsRecorded(t *testing.T) {
+func TestResumeClaude_UserRetypesThePointer_IsRecorded(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, codexRunner, injected := resumeCodexWithGap(t, f)
+	chatID, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
 	for range 2 {
-		require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "user_prompt",
+		require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
 			mustJSON(t, map[string]any{"prompt": injected})))
 		f.wait()
 	}
 
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, 1, strings.Count(handoff, "[Crowbar]"),
+	assert.Equal(t, 1, strings.Count(handoff, "WHILE YOU WERE AWAY"),
 		"the FIRST echo is dropped; a second, genuinely user-sent copy is recorded:\n%s", handoff)
 }
 
@@ -1007,17 +1030,17 @@ func TestResumeCodex_UserRetypesThePointer_IsRecorded(t *testing.T) {
 func TestRunnerExit_ForgetsTheInjectedContext(t *testing.T) {
 	f := newFixture(t)
 
-	_, codexRunner, injected := resumeCodexWithGap(t, f)
+	_, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
 	// Precondition: the guard is armed — Crowbar's own document is recognised as an echo.
-	require.True(t, f.engine.WasInjected(codexRunner, injected))
+	require.True(t, f.engine.WasInjected(claudeRunner, injected))
 
 	// Re-arm it (the match above consumed it), then kill the PTY.
-	f.engine.RecordInjection(codexRunner, injected)
-	f.term.exit(t, f.runner(t, codexRunner).TerminalSession)
+	f.engine.RecordInjection(claudeRunner, injected)
+	f.term.exit(t, f.runner(t, claudeRunner).TerminalSession)
 	f.wait()
 
-	assert.False(t, f.engine.WasInjected(codexRunner, injected),
+	assert.False(t, f.engine.WasInjected(claudeRunner, injected),
 		"a dead runner's injected context must be forgotten")
 }
 

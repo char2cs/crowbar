@@ -74,6 +74,31 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
+	// SwitchToTerminal hands the chat's live turn over to its provider's own
+	// native view — idle-only, for a provider whose descriptor declares attach
+	// without hotswap. Returns the new terminal session id.
+	SwitchToTerminal(
+		ctx context.Context,
+		chatID string,
+	) (string, error)
+
+	// SwitchToNative reverses SwitchToTerminal. A chat with nothing attached is
+	// a no-op.
+	SwitchToNative(
+		ctx context.Context,
+		chatID string,
+	) error
+
+	// AttachedTerminalSession answers, for a live runner, which terminal session
+	// IS its native view right now — set only between a SwitchToTerminal and its
+	// matching SwitchToNative. A plain in-memory read, like TerminalWait: no ctx,
+	// no error, and false for a runner with nothing attached.
+	AttachedTerminalSession(runnerID string) (string, bool)
+
+	// HasLiveAPIConnection reports whether a runner has an ACTIVE api-transport
+	// connection right now — see chatRuntime's own use (handlers/chats.go).
+	HasLiveAPIConnection(runnerID string) bool
+
 	// ShutdownAPIConnections kills every live api-transport connection this
 	// daemon still holds. It is the shutdown-time counterpart to
 	// ReconcileRunnersOnBoot: that call cleans up the PREVIOUS run's dead
@@ -285,12 +310,6 @@ func (u *Usecase) SlashCatalog(
 	return u.runners.SlashCatalog(ctx, chatID)
 }
 
-// ShutdownAPIConnections kills every live api-transport connection this
-// daemon still holds.
-func (u *Usecase) ShutdownAPIConnections() {
-	u.runners.Shutdown()
-}
-
 // LiveRunnerForChat returns the CLI currently placed on the chat.
 func (u *Usecase) LiveRunnerForChat(
 	ctx context.Context,
@@ -320,6 +339,35 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
 	return u.runners.Compact(ctx, chatID)
+}
+
+// SwitchToTerminal hands the chat's live turn over to its provider's own
+// native view.
+func (u *Usecase) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
+	return u.runners.SwitchToTerminal(ctx, chatID)
+}
+
+// SwitchToNative reverses SwitchToTerminal.
+func (u *Usecase) SwitchToNative(ctx context.Context, chatID string) error {
+	return u.runners.SwitchToNative(ctx, chatID)
+}
+
+// AttachedTerminalSession answers which terminal session IS a runner's
+// native view right now, if it has one.
+func (u *Usecase) AttachedTerminalSession(runnerID string) (string, bool) {
+	return u.runners.AttachedTerminalSession(runnerID)
+}
+
+// HasLiveAPIConnection reports whether a runner has a live api-transport
+// connection right now.
+func (u *Usecase) HasLiveAPIConnection(runnerID string) bool {
+	return u.runners.HasLiveAPIConnection(runnerID)
+}
+
+// ShutdownAPIConnections kills every live api-transport connection this
+// daemon still holds.
+func (u *Usecase) ShutdownAPIConnections() {
+	u.runners.Shutdown()
 }
 
 // TerminalWait reports whether the chat's CLI is parked on a modal its own
