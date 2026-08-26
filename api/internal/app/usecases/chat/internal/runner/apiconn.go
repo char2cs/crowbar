@@ -94,6 +94,30 @@ func (r *apiConnRegistry) drop(runnerID string) {
 	}
 }
 
+// closeAll drops every connection this registry holds. This is the ONLY path
+// that reaches apiConnRegistry at daemon shutdown: individual runners are
+// already torn down at retire, provider switch, spawn-failure rollback, and
+// PTY-exit, but nothing on the shutdown chain (engine.Container.Close only
+// knows PTYs and LSP servers; apiConnRegistry lives a layer below that) ever
+// visits the ones still live when the daemon exits. Without this, every
+// `serve` process a mixed-transport provider forked outlives the daemon that
+// spawned it.
+//
+// Snapshots the ids under the lock, then calls drop per id with the lock
+// released — drop takes its own lock, so holding r.mu across those calls
+// would deadlock.
+func (r *apiConnRegistry) closeAll() {
+	r.mu.Lock()
+	ids := make([]string, 0, len(r.byRun))
+	for id := range r.byRun {
+		ids = append(ids, id)
+	}
+	r.mu.Unlock()
+	for _, id := range ids {
+		r.drop(id)
+	}
+}
+
 // apiSocketPath derives a short path under the OS temp dir, keyed by a hash of
 // runnerID — mirroring internal/core/gateway/transports.overrideSocketPath's own
 // convention. It must be short and NEVER under a Crowbar worktree: macOS's
@@ -266,6 +290,15 @@ func (rs *Runners) pumpAPIConn(
 			}
 		}
 	}()
+}
+
+// Shutdown kills every live api-transport connection this daemon still holds.
+// Nothing else on the shutdown path reaches these: engine.Container.Close()
+// only knows about PTYs and LSP servers, and this registry lives one layer
+// below that. Called once, at daemon shutdown — see ShutdownAPIConnections
+// in the chat usecase and shutdownAgentRunners in app/container.go.
+func (rs *Runners) Shutdown() {
+	rs.apiConns.closeAll()
 }
 
 // pushPromptOverAPI delivers text to runnerID's live api connection, if it has

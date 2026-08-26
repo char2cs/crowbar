@@ -137,6 +137,30 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	reg.drop("runner-1")
 }
 
+func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
+	reg := newAPIConnRegistry()
+	cmd1 := exec.Command("sleep", "5")
+	require.NoError(t, cmd1.Start())
+	cmd2 := exec.Command("sleep", "5")
+	require.NoError(t, cmd2.Start())
+
+	reg.set("runner-1", &apiconn{serveCmd: cmd1})
+	reg.set("runner-2", &apiconn{serveCmd: cmd2})
+	reg.closeAll()
+
+	require.Eventually(t, func() bool {
+		return cmd1.Process.Signal(os.Signal(nil)) != nil || cmd1.Wait() != nil
+	}, 2*time.Second, 20*time.Millisecond, "process %d should have been killed", cmd1.Process.Pid)
+	require.Eventually(t, func() bool {
+		return cmd2.Process.Signal(os.Signal(nil)) != nil || cmd2.Wait() != nil
+	}, 2*time.Second, 20*time.Millisecond, "process %d should have been killed", cmd2.Process.Pid)
+
+	_, ok := reg.get("runner-1")
+	assert.False(t, ok)
+	_, ok = reg.get("runner-2")
+	assert.False(t, ok)
+}
+
 // fakeWSServer starts an in-process WebSocket server on a unix socket, exactly
 // mirroring wsrpc/apidriver's own test helpers — used here to build a REAL
 // *engineagents.APIConn (via agent.StartAPIConn) without forking a subprocess,

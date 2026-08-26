@@ -74,6 +74,13 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
+	// ShutdownAPIConnections kills every live api-transport connection this
+	// daemon still holds. It is the shutdown-time counterpart to
+	// ReconcileRunnersOnBoot: that call cleans up the PREVIOUS run's dead
+	// rows on the way up, this one kills THIS run's live processes on the way
+	// down — neither path reaches the other's targets.
+	ShutdownAPIConnections()
+
 	// LiveRunnerForChat returns the runner currently placed on a chat.
 	LiveRunnerForChat(
 		ctx context.Context,
@@ -276,6 +283,12 @@ func (u *Usecase) SlashCatalog(
 	chatID string,
 ) (engineagents.SlashCatalog, error) {
 	return u.runners.SlashCatalog(ctx, chatID)
+}
+
+// ShutdownAPIConnections kills every live api-transport connection this
+// daemon still holds.
+func (u *Usecase) ShutdownAPIConnections() {
+	u.runners.Shutdown()
 }
 
 // LiveRunnerForChat returns the CLI currently placed on the chat.

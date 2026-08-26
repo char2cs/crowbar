@@ -330,6 +330,7 @@ func (c *Container) quiesceTerminal(
 // runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
 // are released promptly.
 func (c *Container) Close() {
+	shutdownAgentRunners(c.Usecases)
 	c.Realtime.Close()
 }
 
@@ -656,6 +657,18 @@ func reconcileAgentRunners(
 	if err := ucs.AgentRunner.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
 	}
+}
+
+// shutdownAgentRunners kills every live api-transport connection before the
+// daemon exits. It is the shutdown-time mirror of reconcileAgentRunners:
+// nothing else in Close's chain (engine.Container.Close, Realtime.Close)
+// reaches this registry, so without this call every codex-style serve
+// process outlives the daemon that spawned it.
+func shutdownAgentRunners(ucs *usecases.Container) {
+	if ucs.AgentRunner == nil {
+		return
+	}
+	ucs.AgentRunner.ShutdownAPIConnections()
 }
 
 func sweepCallback(
