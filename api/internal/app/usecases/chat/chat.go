@@ -176,8 +176,8 @@ type Usecase struct {
 	// guarded rather than assumed.
 	tools agenttools.Deps
 
-	// The four components. Each owns one responsibility, and the delegating
-	// methods in this file and the other four are the whole of what reaches them.
+	// The five components. Each owns one responsibility, and the delegating
+	// methods in this file and the other five are the whole of what reaches them.
 	conversations *conversation.Conversations
 	turns         *turn.Turns
 	runners       *runner.Runners
