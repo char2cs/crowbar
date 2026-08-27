@@ -25,6 +25,7 @@ import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspac
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
 import { ChatPresentationSetting } from './chat-presentation-setting'
+import { DefaultPermissionLevelSetting } from './default-permission-level-setting'
 import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
 import {
@@ -196,6 +197,7 @@ export const ProvidersSettings = () => {
             session and login.
           </p>
         </div>
+        <DefaultPermissionLevelSetting />
         {/* THREE STATES, NOT ONE SENTENCE. "No agents available." is a claim
             about the MACHINE, and it was being shown for two situations that
             assert nothing of the kind: a fetch still in flight, and a fetch that

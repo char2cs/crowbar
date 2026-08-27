@@ -16,15 +16,25 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { updateProviderPreferencesFn, listProvidersFn, toastErrorFn } = vi.hoisted(() => ({
+const {
+  updateProviderPreferencesFn,
+  listProvidersFn,
+  toastErrorFn,
+  getDefaultPermissionLevelFn,
+  updateDefaultPermissionLevelFn,
+} = vi.hoisted(() => ({
   updateProviderPreferencesFn: vi.fn(),
   listProvidersFn: vi.fn(),
   toastErrorFn: vi.fn(),
+  getDefaultPermissionLevelFn: vi.fn(),
+  updateDefaultPermissionLevelFn: vi.fn(),
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
+  getDefaultPermissionLevel: (...a: unknown[]) => getDefaultPermissionLevelFn(...a),
+  updateDefaultPermissionLevel: (...a: unknown[]) => updateDefaultPermissionLevelFn(...a),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -123,6 +133,8 @@ beforeEach(() => {
   updateProviderPreferencesFn.mockReset()
   listProvidersFn.mockReset()
   toastErrorFn.mockReset()
+  getDefaultPermissionLevelFn.mockReset().mockResolvedValue('guarded')
+  updateDefaultPermissionLevelFn.mockReset()
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })
 })
 
@@ -689,6 +701,100 @@ describe('ProvidersSettings', () => {
       await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
       expect(enabledById()).toEqual({ codex: true })
       expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
+    })
+  })
+
+  // ── Default permission level ────────────────────────────────────────
+  // A backend-synced setting (not the localStorage `updateSetting` path the
+  // rest of this tab's siblings use for chat presentation): the daemon reads
+  // it the moment a chat starts, so this row talks straight to
+  // GET/PUT /v0/settings/chat/permission-level.
+  //
+  // The trigger shows the raw value ('guarded', not 'Guarded') until the
+  // popup has been opened at least once — same base-ui quirk documented in
+  // appearance-settings.test.tsx's Color Theme picker — so assertions on the
+  // closed trigger check the raw PermissionLevel string.
+  //
+  // base-ui's Select popup keeps every item mounted (for measurement) but
+  // marks the whole popup `inert` — `pointer-events: none` — until `open`
+  // has actually propagated, one tick behind the trigger's own click. A
+  // click landing inside that window is a real no-op in the browser too, so
+  // the test waits for the popup to become interactive rather than papering
+  // over it with a raw DOM event that would pass even against a dead menu.
+  async function selectPermissionLevelOption(user: ReturnType<typeof userEvent.setup>, value: string) {
+    await user.click(screen.getByTestId('default-permission-level-trigger'))
+    const option = await screen.findByTestId(`default-permission-level-option-${value}`)
+    await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
+    await user.click(option)
+  }
+
+  describe('the default permission level', () => {
+    it('offers Guarded, Trusted and Full Auto', async () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      const user = userEvent.setup()
+      render(<ProvidersSettings />)
+
+      await user.click(screen.getByTestId('default-permission-level-trigger'))
+
+      const options = screen
+        .getAllByTestId(/^default-permission-level-option-/)
+        .map((el) => el.textContent)
+      expect(options).toEqual(['Guarded', 'Trusted', 'Full Auto'])
+    })
+
+    it('reflects whatever the backend returned on mount', async () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      getDefaultPermissionLevelFn.mockResolvedValue('trusted')
+
+      render(<ProvidersSettings />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+          'trusted',
+        ),
+      )
+    })
+
+    it('selecting Guarded PUTs it and updates the trigger', async () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      getDefaultPermissionLevelFn.mockResolvedValue('full-auto')
+      updateDefaultPermissionLevelFn.mockResolvedValue('guarded')
+      const user = userEvent.setup()
+
+      render(<ProvidersSettings />)
+      await waitFor(() =>
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+          'full-auto',
+        ),
+      )
+
+      await selectPermissionLevelOption(user, 'guarded')
+
+      expect(updateDefaultPermissionLevelFn).toHaveBeenCalledWith('guarded')
+      await waitFor(() =>
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+          'guarded',
+        ),
+      )
+    })
+
+    it('rolls back and toasts when the write fails', async () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      getDefaultPermissionLevelFn.mockResolvedValue('guarded')
+      updateDefaultPermissionLevelFn.mockRejectedValue(new Error('daemon is down'))
+      const user = userEvent.setup()
+
+      render(<ProvidersSettings />)
+      await waitFor(() =>
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+          'guarded',
+        ),
+      )
+
+      await selectPermissionLevelOption(user, 'trusted')
+
+      await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
+      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded')
     })
   })
 })

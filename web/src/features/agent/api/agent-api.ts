@@ -750,6 +750,26 @@ export async function updateProviderPreferences(
   return (raw ?? []).map(mapProvider)
 }
 
+/** How much of a new chat's tool-call approval is answered automatically —
+ *  the daemon's global default, applied the moment a chat starts. */
+export type PermissionLevel = 'guarded' | 'trusted' | 'full-auto'
+
+export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
+  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
+  return res.level
+}
+
+export async function updateDefaultPermissionLevel(
+  level: PermissionLevel,
+): Promise<PermissionLevel> {
+  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  })
+  return res.level
+}
+
 // ── Writes ──────────────────────────────────────────────────────────
 /**
  * Start a chat, optionally UNDER `parentId` — a chat (making the new one a

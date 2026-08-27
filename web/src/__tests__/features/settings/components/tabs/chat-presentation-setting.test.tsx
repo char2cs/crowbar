@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/features/agent/api/agent-api', () => ({
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),
+  getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
+  updateDefaultPermissionLevel: vi.fn(),
 }))
 
 // jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching

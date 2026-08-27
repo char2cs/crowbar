@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/features/agent/api/agent-api', () => ({
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),
+  getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
+  updateDefaultPermissionLevel: vi.fn(),
 }))
 
 import SettingsDialog from '@/features/settings/components/settings-dialog'
