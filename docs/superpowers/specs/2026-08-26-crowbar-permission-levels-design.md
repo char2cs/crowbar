@@ -209,14 +209,21 @@ required for this feature).
 
 Two surfaces:
 
-- **Settings**: a new "Default permission level" control (Guarded / Trusted / Full Auto),
-  persisted globally, shipping with `Full Auto` selected out of the box.
+- **Settings → Agents tab** (`web/src/features/settings/components/tabs/providers-settings.tsx`,
+  the `ProvidersSettings` component — internally still `id: 'providers'` in
+  `settings-tab-items.ts:32`, only the label was renamed to "Agents"). A new "Default permission
+  level" `Select` (Guarded / Trusted / Full Auto), persisted globally, shipping with `Full Auto`
+  selected out of the box. Follows the existing select-in-a-`SettingRow` pattern already used
+  elsewhere in settings (e.g. `editor-settings.tsx:122-146`'s "Render Whitespace" control) rather
+  than introducing a new control style — either as its own row inside the tab's existing
+  `Section title="Agents"` (line 185), or as a small sibling component the way
+  `ChatPresentationSetting` (`chat-presentation-setting.tsx`) is its own file for the tab's
+  separate "Chat" section.
 - **Per-chat switcher**: near the existing approve/deny UI, scoped to the active chat, initialized
   from the current global default and independently changeable for that chat only.
 
-Exact component/file placement in both cases is left to the implementation plan — this spec
-doesn't assume knowledge of the current settings dialog or answer-prompt UI's file structure
-beyond what's already been verified above.
+Exact component placement for the per-chat switcher (the settings-side placement is now settled
+above) is left to the implementation plan.
 
 ## 7. Safety floor underneath all of this
 
