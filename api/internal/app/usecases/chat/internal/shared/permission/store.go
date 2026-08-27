@@ -26,7 +26,9 @@ func (s *Store) Set(
 	s.levels[chatID] = level
 }
 
-func (s *Store) Get(chatID string) Level {
+func (s *Store) Get(
+	chatID string,
+) Level {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if level, ok := s.levels[chatID]; ok {
@@ -35,7 +37,9 @@ func (s *Store) Get(chatID string) Level {
 	return Guarded
 }
 
-func (s *Store) Forget(chatID string) {
+func (s *Store) Forget(
+	chatID string,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.levels, chatID)
