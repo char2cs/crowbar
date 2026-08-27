@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -249,18 +250,21 @@ type shared struct {
 	pendingHooks *inflight.Hooks
 	// answers is the desk of relays parked on a human decision.
 	answers *answerdesk.Desk
+	// permissionLevels is the per-chat trust dial an auto-resolve decision reads.
+	permissionLevels *permission.Store
 }
 
 // New builds the chat usecase and every component behind it.
 func New(d Deps) *Usecase {
 	sh := shared{
-		telemetry:    telemetry.New(),
-		work:         inflight.NewWork(),
-		spawns:       inflight.NewGate(),
-		turns:        inflight.NewTurns(),
-		turnStarts:   inflight.NewGate(),
-		pendingHooks: inflight.NewHooks(),
-		answers:      answerdesk.New(answerdesk.DefaultRetention, d.Activity),
+		telemetry:        telemetry.New(),
+		work:             inflight.NewWork(),
+		spawns:           inflight.NewGate(),
+		turns:            inflight.NewTurns(),
+		turnStarts:       inflight.NewGate(),
+		pendingHooks:     inflight.NewHooks(),
+		answers:          answerdesk.New(answerdesk.DefaultRetention, d.Activity),
+		permissionLevels: permission.New(),
 	}
 	u := &Usecase{
 		chats:       d.Chats,
@@ -321,6 +325,9 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		TurnStarts:    sh.turnStarts,
 		PendingHooks:  sh.pendingHooks,
 		Answers:       sh.answers,
+
+		PermissionLevels: sh.permissionLevels,
+
 		Conversations: u.conversations,
 	})
 	u.runners = runner.New(runner.Deps{

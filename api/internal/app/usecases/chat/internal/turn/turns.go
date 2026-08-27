@@ -15,6 +15,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
@@ -56,7 +57,8 @@ type Turns struct {
 	// lives here rather than inside the delivery journal.
 	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
-	answers *answerdesk.Desk
+	answers          *answerdesk.Desk
+	permissionLevels *permission.Store
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook and for the prompt
@@ -90,6 +92,8 @@ type Deps struct {
 	PendingHooks  *inflight.Hooks
 	Answers       *answerdesk.Desk
 
+	PermissionLevels *permission.Store
+
 	Conversations Conversations
 }
 
@@ -110,12 +114,13 @@ func New(d Deps) *Turns {
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
-		messages:       stream.New(),
-		hookDeliveries: agentjournal.NewHookDeliveries(),
-		hookGates:      inflight.NewGate(),
-		pendingHooks:   d.PendingHooks,
-		answers:        d.Answers,
-		conversations:  d.Conversations,
+		messages:         stream.New(),
+		hookDeliveries:   agentjournal.NewHookDeliveries(),
+		hookGates:        inflight.NewGate(),
+		pendingHooks:     d.PendingHooks,
+		answers:          d.Answers,
+		permissionLevels: d.PermissionLevels,
+		conversations:    d.Conversations,
 	}
 }
 
