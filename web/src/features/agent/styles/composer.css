@@ -37,6 +37,27 @@
      same mistake). The dock stays genuinely colourless; only the pill and
      the chips paint anything, each with its own opaque surface. */
 }
+/* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
+   chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —
+   there is nothing to declare here for that part, an inline style beats a
+   class for a one-shot transform driven by a measured pixel value. This is
+   the OTHER half: the underbar stays invisible for exactly as long as
+   `data-arriving` is on the dock, then transitions in on its own once that
+   attribute is lifted (the JS removes it the instant the slide's own
+   `transitionend` fires — see the same file). `[data-arriving]`, not
+   `[data-arriving='true']`: the attribute is either present for the ONE
+   render that plays the animation, or absent for every other mount, so the
+   value never needs reading. */
+.agent-chat .dock .underbar {
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+.agent-chat .dock[data-arriving] .underbar {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
 /* The dissolve: text passing under the dock gets progressively BLURRED and
    faded — pure distortion, no colour of its own, so it reads as glass rather
    than a tinted panel. Opacity lives on the transcript's own text (.scroll,
@@ -734,12 +755,25 @@
 }
 
 /* A prompt occupies the whole dock slot: what is asked reads down the page, and
-   the bar underneath is the question itself with its controls. */
+   the bar underneath is the question itself with its controls. One box, not a
+   card sitting above a separate pill — .asks carries the same growing-box
+   geometry the composer itself uses (.pill.multi's own radius, since this is
+   never a one-line case), and the nested bar gives up its own box to become a
+   plain bottom row inside it. */
 .agent-chat .asks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  border-radius: 18px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  padding: 12px 14px;
 }
 .agent-chat .asks .pill.asking {
   margin: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: auto;
 }

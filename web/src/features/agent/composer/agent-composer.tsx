@@ -5,7 +5,10 @@ import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
-import { resolveComposerState } from '@/features/agent/composer/lib/composer-state'
+import {
+  resolveComposerState,
+  type ComposerRevival,
+} from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { cn } from '@/lib/utils'
 
@@ -18,8 +21,12 @@ interface AgentComposerProps {
   live: boolean
   working: boolean
   compacting: boolean
+  /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
+  sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
+  /** The pane's own revive attempt, for a chat that is not live. */
+  revival?: ComposerRevival
   haltedMessage?: string
   haltedResetsAt?: string
   canStop: boolean
@@ -33,6 +40,8 @@ interface AgentComposerProps {
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void
+  /** The manual retry for a revive that already gave up. */
+  onRevive?: () => void
   /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
   draftSeed: number
   /** The text that seed carries — see the note on `seed` in the view. */
@@ -50,6 +59,7 @@ interface AgentComposerProps {
 export function AgentComposer(props: AgentComposerProps) {
   const state = resolveComposerState({
     live: props.live,
+    revival: props.revival,
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
     compacting: props.compacting,
@@ -65,6 +75,7 @@ export function AgentComposer(props: AgentComposerProps) {
           reason={state.reason}
           message={state.message}
           onOpenTerminal={props.onOpenTerminal}
+          onRevive={props.onRevive}
         />
       )
     case 'choice':
@@ -109,6 +120,7 @@ export function AgentComposer(props: AgentComposerProps) {
             hasText={props.draft.trim().length > 0}
             working={props.working}
             canStop={props.canStop}
+            sending={props.sending}
             onSend={props.onSend}
             onStop={props.onStop}
           />

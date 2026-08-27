@@ -34,14 +34,21 @@ export function WorkingLine({ activity, working, since }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
 
+  // Compaction rides the same interruption channel as a permission wait, but
+  // it isn't blocked on a PERSON — it's the CLI's own housekeeping, and it's a
+  // specific, known operation rather than the vague busywork the rotating
+  // verb list exists for. Fixed at "Compacting" instead.
+  const interruption = blockedOn(activity)
+  const compacting = interruption?.kind === 'compaction'
+
   useEffect(() => {
-    if (!working) {
+    if (!working || compacting) {
       setTick(0)
       return
     }
     const timer = window.setInterval(() => setTick((n) => n + 1), VERB_ROTATION_MS)
     return () => window.clearInterval(timer)
-  }, [working])
+  }, [working, compacting])
 
   useEffect(() => {
     if (!working || !since) {
@@ -61,16 +68,18 @@ export function WorkingLine({ activity, working, since }: WorkingLineProps) {
   // voice contradicting the first — which is exactly how a blocked agent came to
   // look busy. Quiet for a prompt nobody can answer too: the fact that the
   // answer has to happen in a terminal does not make this a turn in flight.
-  const blocked = pendingChoices(activity).length > 0 || blockedOn(activity) !== null
+  // Compaction is the one interruption kind that doesn't apply here.
+  const blocked = pendingChoices(activity).length > 0 || (interruption !== null && !compacting)
   if (!working || blocked) return null
-  const tools = runningTools(activity)
+  // Compaction isn't a tool call — nothing to enumerate under it.
+  const tools = compacting ? [] : runningTools(activity)
 
   return (
     <div className="activity" data-testid="agent-activity-strip">
       <div className="hd">
         <FlickerSpinner className="size-4" />
         <span>
-          <b className="verb">{verbAt(tick)}…</b>
+          <b className="verb">{compacting ? 'Compacting' : verbAt(tick)}…</b>
           {elapsed > 0 && <span className="dim"> · {elapsed}s</span>}
         </span>
       </div>

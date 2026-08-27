@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, Ref } from 'react'
 import {
-  compactChat,
   stopChat,
   type AgentChatMessage,
   type AgentPromptResult,
@@ -13,11 +12,16 @@ import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persiste
 import { blockedOn } from '@/features/agent/lib/agent-activity'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
+import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
-import { AgentEmptyDocument } from '@/features/agent/chat/agent-empty-document'
+import {
+  AgentEmptyDocument,
+  type AgentEmptyDocumentHandle,
+} from '@/features/agent/chat/agent-empty-document'
+import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
@@ -49,6 +53,10 @@ export interface AgentChatViewProps {
   /** Increments for every lifecycle frame, including a batched fast turn. */
   turnRevision: number
   live: boolean
+  /** The pane's own revive attempt, for a chat that is not live. */
+  revival?: ComposerRevival
+  /** The manual retry for a revive that already gave up. */
+  onRevive?: () => void
   /** False while the native terminal presentation is selected. */
   active: boolean
   /** False for a retained, hidden tab. Network polling pauses in that state. */
@@ -70,6 +78,10 @@ export interface AgentChatViewProps {
   onQueueCountChange?: (count: number) => void
   onCancelableQueueCountChange?: (count: number) => void
   onDeliveryPendingChange?: (pending: boolean) => void
+  /** Nothing has ever been said in this chat yet — `AgentEmptyDocument` is
+   *  standing in for the dock, so the composer (and anything that lives only
+   *  inside it, like a reviving/idle signpost) does not exist to be read. */
+  onBlankChange?: (blank: boolean) => void
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
@@ -108,6 +120,8 @@ export function AgentChatView({
   working,
   turnRevision,
   live,
+  revival,
+  onRevive,
   active,
   visible,
   onOpenTerminal,
@@ -123,6 +137,7 @@ export function AgentChatView({
   onQueueCountChange,
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
+  onBlankChange,
   model,
   effort,
   onSelectionChange,
@@ -151,6 +166,12 @@ export function AgentChatView({
   // wrong the moment anybody typed a second line.
   const [dockHeight, setDockHeight] = useState(0)
   const dockObserver = useRef<ResizeObserver | null>(null)
+  // The empty document's own handle, read exactly once — at the instant of the
+  // first send — so the arrival slide has something to arrive FROM. A ref, not
+  // state: nothing ever renders off it, and it must survive the very unmount
+  // (blank -> dock) that makes it useful.
+  const emptyDocRef = useRef<AgentEmptyDocumentHandle>(null)
+  const arrivalOriginRef = useRef<DOMRect | null>(null)
   // A ref CALLBACK, not a ref + effect: the dock is unmounted entirely on the
   // blank surface, and a callback is told about that directly instead of the
   // effect needing to depend on a branch decided further down the component.
@@ -160,6 +181,11 @@ export function AgentChatView({
       setDockHeight(0)
       return
     }
+    // Consumed at most once per mount, and only when a first send just fired —
+    // an already-populated chat that renders the dock straight away never sets
+    // this, so `playArrival` no-ops for every ordinary open.
+    playArrival(node, arrivalOriginRef.current)
+    arrivalOriginRef.current = null
     const report = () => setDockHeight(node.getBoundingClientRect().height)
     report()
     const observer = new ResizeObserver(report)
@@ -281,6 +307,22 @@ export function AgentChatView({
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
   const halted = haltedBy(ledger.messages)
+  // Nothing has landed past the first turn yet: no earlier history to page in,
+  // and every message loaded so far (there may be none — the prompt can be
+  // dispatched before its own user message reaches the ledger) shares that
+  // turn's own id. Read at the moment Stop is pressed, to decide whether doing
+  // so is interrupting turn ONE specifically — see stopFirstTurnLate in the
+  // design doc's own prototype naming.
+  const firstMessageTurnId = ledger.messages[0]?.turnId
+  const stillFirstTurn =
+    !ledger.hasOlder &&
+    (firstMessageTurnId === undefined ||
+      ledger.messages.every((message) => message.turnId === firstMessageTurnId))
+  const [firstTurnInterrupted, setFirstTurnInterrupted] = useState(false)
+  const stopFirstTurnAware = () => {
+    if (stillFirstTurn) setFirstTurnInterrupted(true)
+    void stopChat(wsId, chatId)
+  }
 
   const updateDraft = (value: string) => {
     setDraft(value)
@@ -298,6 +340,13 @@ export function AgentChatView({
       setComposerError(result.error)
       return
     }
+    // Only ever meaningful for the chat's FIRST send: `blank` reads the render
+    // this handler is still running in, before the queue push that is about to
+    // flip it. A later send has no empty document mounted to read a handle off
+    // — `emptyDocRef.current` is already null by then — so this is naturally a
+    // no-op for every send after the first, with nothing here needing to know
+    // which send it is.
+    if (blank) arrivalOriginRef.current = emptyDocRef.current?.getHandleRect() ?? null
     seedDraft('')
     setComposerError('')
     slash.reset()
@@ -359,6 +408,7 @@ export function AgentChatView({
   // beginning of a conversation, and so is a failed load worth retrying.
   const nothingYet = ledger.messages.length === 0 && queue.length === 0
   const blank = !ledger.error && nothingYet
+  useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
   // WHICH SURFACE IS NOT KNOWN UNTIL THE FIRST PAGE LANDS, and guessing shows the
   // wrong one: an empty ledger that has not answered yet is indistinguishable
   // from a chat with history, so picking either paints a composer the reader then
@@ -392,7 +442,10 @@ export function AgentChatView({
       queue={queue}
       providers={providers}
       activity={activity}
-      working={working && !compacting}
+      // WorkingLine itself now carves compaction out of its own "blocked on a
+      // person" check — excluding it here too used to be the only thing
+      // silencing it, and would make that carve-out unreachable.
+      working={working}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}
@@ -407,6 +460,7 @@ export function AgentChatView({
       }
       compactionBefore={compactionBefore}
       suppressSequence={halted?.sequence}
+      firstTurnInterrupted={firstTurnInterrupted}
     />
   )
 
@@ -422,6 +476,7 @@ export function AgentChatView({
     return (
       <section className="agent-chat chat" aria-label="Agent chat">
         <AgentEmptyDocument
+          ref={emptyDocRef}
           draft={seed.text}
           draftSeed={seed.n}
           onDraftChange={updateDraft}
@@ -471,8 +526,10 @@ export function AgentChatView({
           activity={activity}
           providerLabel={providerLabel}
           live={live}
+          revival={revival}
           working={working}
           compacting={compacting}
+          sending={prompts.deliveryPending}
           submitUnavailable={submitUnavailable}
           terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
           haltedMessage={halted?.text}
@@ -485,8 +542,9 @@ export function AgentChatView({
           onHeightChange={setFieldHeight}
           onKeyDown={handleKeyDown}
           onSend={enqueueDraft}
-          onStop={() => void stopChat(wsId, chatId)}
+          onStop={stopFirstTurnAware}
           onOpenTerminal={onOpenTerminal}
+          onRevive={onRevive}
           draftSeed={seed.n}
           seedText={seed.text}
         />
@@ -502,10 +560,7 @@ export function AgentChatView({
           telemetry={telemetry}
           presentation={presentation}
           splitEnabled={splitEnabled && provider?.hotswap === true}
-          compacting={compacting}
-          working={working}
           queued={queue.length}
-          onCompact={() => void compactChat(wsId, chatId)}
           onSelectionChange={onSelectionChange}
           onSelectPresentation={onSelectPresentation}
           showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}

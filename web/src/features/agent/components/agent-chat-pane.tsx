@@ -33,6 +33,7 @@ import {
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
+import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
 import {
   AgentTerminalSurface,
   type TerminalAttachment,
@@ -265,6 +266,12 @@ export function AgentChatPane({
   const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
   const [promptReplacing, setPromptReplacing] = useState(false)
   const [deliveryPending, setDeliveryPending] = useState(false)
+  // Starts true (fail open): until the view reports otherwise, the safer guess
+  // is "the composer may not exist yet" — the cost of a stray frame of this
+  // pane's own reviving/idle banner sitting beside a composer that turns out to
+  // exist too is nothing; the cost of the other guess is the gap this exists
+  // to close, silently, on a brand-new chat.
+  const [chatBlank, setChatBlank] = useState(true)
   const chatViewRef = useRef<AgentChatViewHandle>(null)
   // `pending` while the chat list is still in flight is DERIVED, not written by
   // the attach effect below. Dormancy is unknowable until the list lands, so
@@ -273,6 +280,23 @@ export function AgentChatPane({
   // spawning and attaching CLIs, and a `known` flip no longer costs an extra
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
+
+  // The composer's own words for `attachment`, refined past the plain `live`
+  // boolean it gets alongside this — but only on the chat side of the gate.
+  // Both surfaces stay mounted (see the dormancy note by the split container
+  // below), and the terminal surface carries its OWN copy of this same
+  // reviving/idle treatment, gated the mirror-image way. Without this check
+  // BOTH copies would sit in the document at once — a visible duplicate in
+  // split, and one hidden behind `display:none` and just as duplicate to
+  // anything that reads the DOM instead of looking at it.
+  const revival: ComposerRevival | undefined =
+    presentation === 'terminal'
+      ? undefined
+      : attachment.state === 'reviving'
+        ? { state: 'reviving', message: attachment.message }
+        : attachment.state === 'idle'
+          ? { state: 'idle', reason: attachment.reason }
+          : undefined
 
   // The session this pane currently WANTS attached, readable from a callback that
   // must not re-identify on every attach. handleSessionGone compares against it.
@@ -955,6 +979,8 @@ export function AgentChatPane({
               working={working}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
+              revival={revival}
+              onRevive={() => void revive()}
               // In split the chat is genuinely in front of the user, so it is
               // genuinely active: it dispatches its queue, refreshes its catalog
               // and answers the barrier exactly as it does on its own.
@@ -1008,22 +1034,31 @@ export function AgentChatPane({
               onQueueCountChange={setQueuedPromptCount}
               onCancelableQueueCountChange={setCancelablePromptCount}
               onDeliveryPendingChange={setDeliveryPending}
+              onBlankChange={setChatBlank}
             />
 
-            {/* Mirrors the terminal half's gate below. Both halves state the same
-                thing about the same runner, so exactly one of them is in the
-                document at a time — except in split, where each half speaks for
-                itself. Without the gate the chat's copy stayed mounted behind a
-                display:none surface, which is invisible to a reader and a
-                genuine duplicate to anything that reads the DOM. */}
-
-            {presentation !== 'terminal' && attachment.state === 'reviving' && (
+            {/* The composer's OWN reviving/idle signpost (`revival`, above) is
+                the normal home for these now — but it lives inside the dock,
+                and the dock does not exist on a blank chat (AgentEmptyDocument
+                stands in for it there). A CLI dying before its first turn ever
+                lands is not a rare edge of that: it is the ordinary shape of
+                "opened a chat, picked a provider, the provider never came up."
+                Proven wrong once already for terminal_wait below (dropping it
+                outright broke `agent-chat-pane-terminal-wait.test.tsx`), and
+                the same test-first check for reviving/idle
+                (agent-chat-pane.test.tsx, "…for a chat with no messages yet")
+                found the identical gap — so this is the fallback for exactly
+                the window `chatBlank` covers, not a second copy of the
+                composer's own signpost: `revival` above is already `undefined`
+                whenever `chatBlank` would make this render, because
+                `AgentChatView` never got far enough to read it. */}
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
               <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
                 <FlickerSpinner className="size-4 text-foreground" />
                 {attachment.message}
               </div>
             )}
-            {presentation !== 'terminal' && attachment.state === 'idle' && (
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
               <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
                 <p className="min-w-0 text-muted-foreground">
                   {attachment.reason === 'failed'
@@ -1043,13 +1078,6 @@ export function AgentChatPane({
               </div>
             )}
             {waiting && (
-              // The pane's own overlay slot, the one `reviving` and `idle` use —
-              // this is the same class of statement as those two, about the chat
-              // rather than about anything in the transcript.
-              //
-              // The opaque bg is load-bearing under it: the warning card is a
-              // TINT, and tinting the messages behind it would make both
-              // unreadable.
               <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
                 <AgentTerminalWaitBanner
                   kind={waitKind ?? ''}

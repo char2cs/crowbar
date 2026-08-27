@@ -7,6 +7,11 @@
   padding: 4px 0;
   font-size: 14px;
   color: var(--muted-foreground);
+  /* Glued to the tail of whatever line came before it — the sent user text, or
+     the agent's own streamed reply — rather than reading as a new block a full
+     `.stream` gap (18px) below it. Leaves ~4px before this element's own
+     padding, not flush against it. */
+  margin-top: -14px;
 }
 .agent-chat .activity .hd {
   display: flex;

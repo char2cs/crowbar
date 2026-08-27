@@ -542,6 +542,45 @@ describe('AgentChatPane', () => {
       err.mockRestore()
     })
 
+    // THE TERMINAL_WAIT LESSON, applied to the OTHER two: a blank chat (nothing
+    // ever said yet) never mounts AgentChatView's dock at all — AgentEmptyDocument
+    // renders instead — so a reviving/idle-failed signpost that lives ONLY in the
+    // composer would be silently missing for exactly the chat most likely to hit
+    // it (a CLI that dies before its very first turn ever lands). Proven with a
+    // real assertion, not by inspection — see the terminal_wait suite for why that
+    // distinction matters.
+    it('still shows the failure message and Resume for a chat with no messages yet', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      // The blank surface is genuinely up — this is not accidentally exercising
+      // the non-blank path.
+      expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
+      err.mockRestore()
+    })
+
+    it('still shows the reviving spinner for a chat with no messages yet', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
+      expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+    })
+
     it('fails honestly when the revived CLI dies on startup (resumed, but nothing on the chat)', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' }))) // resumed → still nobody there

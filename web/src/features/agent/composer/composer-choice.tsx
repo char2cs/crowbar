@@ -40,6 +40,10 @@ type CardState = {
    *  click. The server is right and this view is stale, so the controls come down
    *  at once instead of waiting up to a poll to stop lying. */
   gateClosed: boolean
+  /** A 400: this provider's relay does not accept THIS shape of answer for this
+   *  prompt. Retrying the same controls would only produce the same 400 — the
+   *  terminal is the one place left that can still answer it. */
+  unsupportedHere: boolean
 }
 
 function freshCard(choiceId: string): CardState {
@@ -51,6 +55,7 @@ function freshCard(choiceId: string): CardState {
     sent: false,
     error: '',
     gateClosed: false,
+    unsupportedHere: false,
   }
 }
 
@@ -81,6 +86,12 @@ function freshCard(choiceId: string): CardState {
  *     — claude's "and stop asking about this directory" — has no declared answer
  *     template, so it is written down as a note rather than drawn as a button that
  *     would fail.
+ *
+ *  5. Nothing here explains WHY Crowbar can't act — a permission card is not an
+ *     incident report. Whatever the reason (a suggestion with no answer template,
+ *     a form only the terminal can fill, a gate that closed, a shape the relay
+ *     just 400'd on), the bar offers the one place that still works: a Terminal
+ *     button in the same row as its other controls, not a paragraph about it.
  */
 export function ComposerChoice({
   wsId,
@@ -127,6 +138,13 @@ export function ComposerChoice({
   // for a prompt whose only options are ones Crowbar declines to send, and an
   // empty row of buttons would be a control surface that answers nothing.
   const canAnswerHere = answerable && (questions.length > 0 || controls.length > 0)
+  // Unanswerable for any reason, or answerable but just 400'd on the shape sent —
+  // either way the normal controls would only repeat the same dead end, so the
+  // bar shows nothing but the one thing that still works.
+  const terminalOnly = !canAnswerHere || card.unsupportedHere
+  // Answerable, but with something the terminal covers and this card cannot: a
+  // form Crowbar can't compose, or suggestions with no declared answer shape.
+  const needsTerminal = isForm || suggestions.length > 0
   const busy = card.sending || card.sent
 
   const send = async (optionIds: string[]) => {
@@ -142,6 +160,7 @@ export function ComposerChoice({
         sending: false,
         error: answerErrorMessage(failure),
         gateClosed: failure instanceof ApiError && failure.status === 409,
+        unsupportedHere: failure instanceof ApiError && failure.status === 400,
       })
     }
   }
@@ -171,27 +190,8 @@ export function ComposerChoice({
           }
         />
       )}
-      {canAnswerHere && suggestions.length > 0 && (
-        <ChoiceSuggestions options={suggestions} onOpenTerminal={onOpenTerminal} />
-      )}
-      {canAnswerHere && isForm && (
-        <p className="text-muted-foreground text-xs" data-testid="agent-choice-form-note">
-          Filling this form in has to be done in the terminal — Crowbar cannot compose the answer it
-          is asking for.
-        </p>
-      )}
-      {!canAnswerHere && (
-        <ChoiceReadOnly
-          options={choice.options}
-          questions={questions}
-          note={
-            answerable
-              ? `Crowbar has no answer it can send for this one — ${providerLabel} is asking at its own terminal, and that is where it has to be decided.`
-              : `Answer this in the terminal — ${providerLabel} is asking there, and nothing sent from here would reach it.`
-          }
-          onOpenTerminal={onOpenTerminal}
-        />
-      )}
+      {canAnswerHere && suggestions.length > 0 && <ChoiceSuggestions options={suggestions} />}
+      {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
 
       {/* ── the bar itself ── */}
       <div className="pill asking">
@@ -213,32 +213,43 @@ export function ComposerChoice({
             </span>
           )}
         </span>
-        {canAnswerHere && (
+        {(onOpenTerminal || !terminalOnly) && (
           <span className="acts">
-            {questions.length > 0 ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={
-                  busy ||
-                  !questions.every((question) => (card.byQuestion[question.id] ?? []).length > 0)
-                }
-                onClick={() => void send(flatPicks(questions, card.byQuestion))}
-              >
-                {questions.length > 1 ? 'Send answers' : 'Send answer'}
-              </Button>
+            {terminalOnly ? (
+              onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />
             ) : (
-              <ChoiceButtons
-                options={controls}
-                busy={busy}
-                onPick={(option) => void send([option.id])}
-              />
+              <>
+                {needsTerminal && onOpenTerminal && (
+                  <TerminalLink onOpenTerminal={onOpenTerminal} />
+                )}
+                {questions.length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      busy ||
+                      !questions.every(
+                        (question) => (card.byQuestion[question.id] ?? []).length > 0,
+                      )
+                    }
+                    onClick={() => void send(flatPicks(questions, card.byQuestion))}
+                  >
+                    {questions.length > 1 ? 'Send answers' : 'Send answer'}
+                  </Button>
+                ) : (
+                  <ChoiceButtons
+                    options={controls}
+                    busy={busy}
+                    onPick={(option) => void send([option.id])}
+                  />
+                )}
+              </>
             )}
           </span>
         )}
       </div>
 
-      {card.error && (
+      {card.error && !terminalOnly && (
         <p className="text-destructive text-xs" role="alert" data-testid="agent-choice-error">
           {card.error}
         </p>
@@ -454,80 +465,56 @@ function ChoiceButtons({
  *  (`addRules`), so it read as a real choice spelled in a language nobody outside
  *  the CLI's source uses. There is no declared answer template for a suggestion,
  *  so pressing one could only ever produce a 400; a note cannot be pressed, which
- *  is how that failure stops being reachable from here at all. */
-function ChoiceSuggestions({
-  options,
-  onOpenTerminal,
-}: {
-  options: AgentChoiceOption[]
-  onOpenTerminal?: () => void
-}) {
+ *  is how that failure stops being reachable from here at all. Why Crowbar can't
+ *  send them isn't said here either — the Terminal button in the bar below is the
+ *  answer to that, for this reason and every other one. */
+function ChoiceSuggestions({ options }: { options: AgentChoiceOption[] }) {
   return (
-    <div className="flex flex-col gap-1" data-testid="agent-choice-suggestions">
-      <p className="text-muted-foreground text-xs">
-        {options.length > 1
-          ? 'Crowbar cannot send the broader permissions this provider also offered:'
-          : 'Crowbar cannot send the broader permission this provider also offered:'}
-      </p>
-      <ul className="flex flex-col gap-0.5 text-xs">
-        {options.map((option) => (
-          <li key={option.id} className="min-w-0 text-muted-foreground">
-            {optionLabel(option)}
-            {option.description ? ` — ${option.description}` : ''}
-          </li>
-        ))}
-      </ul>
-      <p className="text-muted-foreground text-xs">
-        It declares no shape for them, and one narrowed to a plain allow would grant something else.
-        The terminal can do it.
-      </p>
-      {onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />}
-    </div>
+    <ul className="flex flex-col gap-0.5 text-xs" data-testid="agent-choice-suggestions">
+      {options.map((option) => (
+        <li key={option.id} className="min-w-0 text-muted-foreground">
+          {optionLabel(option)}
+          {option.description ? ` — ${option.description}` : ''}
+        </li>
+      ))}
+    </ul>
   )
 }
 
-/** A prompt nobody here can answer: pending, but with no relay holding the gate.
+/** A prompt nobody here can answer: pending, but with no relay holding the gate,
+ *  or a relay that just closed one.
  *
  *  It is still the whole question — what is being asked and what the answers are —
- *  because the CLI genuinely IS asking it. It just says where. */
+ *  because the CLI genuinely IS asking it. Where to answer it is the bar's job
+ *  below, not this list's: it draws the Terminal button whenever there's nothing
+ *  else it can offer. */
 function ChoiceReadOnly({
   options,
   questions,
-  note,
-  onOpenTerminal,
 }: {
   options: AgentChoiceOption[]
   questions: AgentChoiceQuestion[]
-  note: string
-  onOpenTerminal?: () => void
 }) {
   // Every option the prompt holds, wherever it lives, because the reader is being
   // shown what the CLI is asking rather than anything they can act on.
   const listed: AgentChoiceOption[] = [...options, ...questions.flatMap((q) => q.options)]
+  if (listed.length === 0) return null
   return (
-    <div className="flex flex-col gap-1">
-      {listed.length > 0 && (
-        <ul className="flex flex-col gap-0.5 text-xs" data-testid="agent-choice-options-readonly">
-          {listed.map((option) => (
-            <li key={option.id} className="truncate text-muted-foreground">
-              {optionLabel(option)}
-              {option.description ? ` — ${option.description}` : ''}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="text-xs" data-testid="agent-choice-terminal-note">
-        {note}
-      </p>
-      {onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />}
-    </div>
+    <ul className="flex flex-col gap-0.5 text-xs" data-testid="agent-choice-options-readonly">
+      {listed.map((option) => (
+        <li key={option.id} className="truncate text-muted-foreground">
+          {optionLabel(option)}
+          {option.description ? ` — ${option.description}` : ''}
+        </li>
+      ))}
+    </ul>
   )
 }
 
 function TerminalLink({ onOpenTerminal }: { onOpenTerminal: () => void }) {
   return (
-    <Button className="self-start" size="xs" variant="ghost" onClick={onOpenTerminal}>
-      <TerminalIcon /> Open the terminal
+    <Button size="sm" variant="outline" onClick={onOpenTerminal}>
+      <TerminalIcon /> Terminal
     </Button>
   )
 }
@@ -578,18 +565,11 @@ function optionLabel(option: AgentChoiceOption): string {
 /**
  * Say what the server said, in the user's terms.
  *
- * 409 is the one that matters most: the prompt is no longer answerable from here,
- * which is an ordinary outcome (somebody typed at the terminal, or the relay's
- * budget ran out) and not a bug to hide behind a retry.
+ * A 409 (the gate closed) or a 400 (the shape isn't one this relay accepts) are
+ * ordinary outcomes, not bugs to explain — `gateClosed`/`unsupportedHere` already
+ * turn those into a Terminal button instead of a retry, so this text is never
+ * shown for either. What's left here is whatever else actually went wrong.
  */
 function answerErrorMessage(failure: unknown): string {
-  if (failure instanceof ApiError) {
-    if (failure.status === 409) {
-      return 'This can no longer be answered from Crowbar — answer it in the terminal.'
-    }
-    if (failure.status === 400) {
-      return `This provider cannot be answered that way from here: ${failure.message}`
-    }
-  }
   return failure instanceof Error ? failure.message : String(failure)
 }

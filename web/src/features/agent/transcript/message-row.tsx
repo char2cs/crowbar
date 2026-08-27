@@ -36,25 +36,40 @@ function MessageRowComponent({
   message,
   showProvider,
   providers,
+  firstTurn = false,
 }: {
   message: AgentChatMessage
   showProvider: boolean
   providers: AgentProvider[]
+  /** This is the chat's very first turn — kept in the empty document's own
+   *  typography rather than switched to a bubble the instant it is sent. Only
+   *  ever true for a `user` message; see `agent-transcript.tsx` for how the
+   *  ABSOLUTE first turn is told apart from merely the first one loaded. */
+  firstTurn?: boolean
 }) {
   const user = message.role === 'user'
   const assistant = message.role === 'assistant'
   const harness = message.role === 'harness'
   const notice = message.role === 'notice'
+  const frozen = user && firstTurn
   // A sent message keeps the shape of the box it was typed in: stadium while it
   // fits on one line, 18px once it wraps.
   const multi = message.text.length > 60 || message.text.includes('\n')
+  // A harness payload can run well past one line — a subagent completion
+  // report carries several attributes plus a multi-line body. Collapse those
+  // behind the same <details> pattern ChoiceSchema already uses for a
+  // permission card's JSON Schema, rather than letting it push the rest of
+  // the turn down. Length/line-count only — this has no idea what the
+  // payload means, only how big it is.
+  const bigHarness = harness && (message.text.length > 160 || message.text.split('\n').length > 3)
 
   return (
     <article
-      className={cn('row', user && 'me')}
+      className={cn('row', user && !frozen && 'me')}
       data-sequence={message.sequence}
       data-testid={`agent-message-${message.sequence}`}
       data-role={message.role}
+      data-first-turn={frozen ? 'true' : undefined}
     >
       <div
         // A notice is a live announcement, not prose — the reader may already be
@@ -62,8 +77,9 @@ function MessageRowComponent({
         // here that anybody needs told about.
         role={notice ? 'alert' : undefined}
         className={cn(
-          user && 'bubble',
-          user && multi && 'multi',
+          user && !frozen && 'bubble',
+          user && !frozen && multi && 'multi',
+          frozen && 'frozen',
           harness && 'harness',
           notice && 'notice',
           assistant && 'assistant',
@@ -86,12 +102,26 @@ function MessageRowComponent({
           // it is sent — the same table, the same fenced block, two appearances
           // one line apart.
           <MarkdownMessage className="break-words">{message.text}</MarkdownMessage>
+        ) : harness ? (
+          // Verbatim, in <code> — it's markup (`<task-notification>` is an HTML
+          // tag to a markdown parser, which would swallow the row whole), and
+          // literal machine text reads as data, not prose, whichever provider's
+          // harness produced it. Never parsed for meaning: reading `status=`, or
+          // picking a label from the tag name, would mean this renderer learning
+          // one provider's own wire vocabulary.
+          bigHarness ? (
+            <details>
+              <summary>Show payload</summary>
+              <pre>
+                <code>{message.text}</code>
+              </pre>
+            </details>
+          ) : (
+            <code>{message.text}</code>
+          )
         ) : (
-          // Verbatim for the two roles nobody in the conversation typed, and for
-          // opposite reasons. A harness payload is MARKUP — `<task-notification>`
-          // is an HTML tag to a markdown parser, which would swallow the row
-          // whole — and a notice is the provider's exact sentence, which is the
-          // one thing about it worth showing.
+          // Verbatim for the one role left: a notice is the provider's exact
+          // sentence, which is the one thing about it worth showing.
           <span>{message.text}</span>
         )}
         {/* Provenance, not a headline: what the CLI ITSELF said it ran this turn

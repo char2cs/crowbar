@@ -76,6 +76,8 @@ describe('ComposerChoice that can be answered', () => {
     draw()
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('true')
+    // A plain permission has nothing the terminal covers and this card doesn't.
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
     await waitFor(() =>
@@ -145,17 +147,18 @@ describe('ComposerChoice that can be answered', () => {
 describe('ComposerChoice that cannot be answered from here', () => {
   // pending && !answerable is a REAL question — the CLI is asking it at its own
   // terminal — so it is drawn in full, with nothing on it that would reach nobody.
-  it('draws the whole question read-only, and says where to answer it', () => {
+  // Why it can't be answered here isn't said — the bar just offers the one thing
+  // that still works, and only when there's a handler to make that button real.
+  it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
     draw({ answerable: false })
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('false')
     expect(screen.getByText('Run Bash?')).toBeInTheDocument()
     expect(screen.getByTestId('agent-choice-options-readonly')).toHaveTextContent('Allow')
-    expect(screen.getByTestId('agent-choice-terminal-note')).toHaveTextContent(
-      'Answer this in the terminal',
-    )
+    expect(screen.queryByTestId('agent-choice-terminal-note')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
     expect(screen.queryByTestId('agent-choice-options')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
   })
 
   it('offers the terminal when the chat can open one', () => {
@@ -171,44 +174,100 @@ describe('ComposerChoice that cannot be answered from here', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Open the terminal/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
+  })
+
+  // options/questions can both be empty for an unanswerable prompt (a form
+  // nobody can fill and nothing else asked) — there is nothing to list, and the
+  // read-only view draws nothing rather than an empty box.
+  it('renders nothing above the bar when there is nothing to list', () => {
+    draw({ kind: 'elicitation', options: [], answerable: false })
+
+    expect(screen.queryByTestId('agent-choice-options-readonly')).toBeNull()
   })
 })
 
 describe('ComposerChoice failures', () => {
   // The backend declares no answer template for claude's permission_suggestions,
-  // so a 400 is the honest outcome and it is SAID rather than retried away.
-  it('surfaces a 400 in the provider’s own terms', async () => {
+  // so a 400 means retrying the same controls would only repeat it. The controls
+  // come down and the one thing left is the place an answer can still land —
+  // not a paragraph explaining why this one couldn't.
+  it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
+    answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
+    const onOpenTerminal = vi.fn()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={NO_ACTIVITY}
+        choice={choice()}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
+    // The prompt is still open — the CLI never got an answer.
+    expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
+  })
+
+  it('leaves no action at all after an unsupported shape with nowhere to redirect to', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     draw()
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
-        'this provider cannot express that answer',
-      ),
-    )
-    // The prompt is still open — the CLI never got an answer.
-    expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
+    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
   })
 
   // 409 means the relay let go between the poll and the click. The controls come
   // down at once rather than lying until the next read.
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
+    const onOpenTerminal = vi.fn()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={NO_ACTIVITY}
+        choice={choice()}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-options-readonly')).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+  })
+
+  // A failure that is neither a closed gate nor an unsupported shape is not one
+  // the bar has a structural answer for — it stays on screen, in the server's
+  // own words, and the controls stay up because retrying might just work.
+  it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
+    answerChoiceFn.mockRejectedValue(new Error('network blip'))
     draw()
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
     await waitFor(() =>
-      expect(screen.getByTestId('agent-choice-terminal-note')).toBeInTheDocument(),
+      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent('network blip'),
     )
-    expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
-      'can no longer be answered from Crowbar',
-    )
-    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
   })
 })
 
@@ -218,7 +277,7 @@ describe('ComposerChoice suggestions', () => {
   // declared answer template for a suggestion, so pressing one could only ever
   // produce a 400. A note cannot be pressed, which is how that failure stops being
   // reachable from the UI at all.
-  it('writes suggestions down as a note, with nothing on them to press', () => {
+  it('writes suggestions down as a plain list, with nothing on them to press', () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
@@ -229,13 +288,49 @@ describe('ComposerChoice suggestions', () => {
 
     const suggestions = screen.getByTestId('agent-choice-suggestions')
     expect(suggestions).toHaveTextContent('Add a permanent rule for this')
-    expect(suggestions).toHaveTextContent('Crowbar cannot send the broader permission')
-    expect(suggestions).toHaveTextContent('The terminal can do it')
-    // Nothing inside the note is interactive — not enabled, not disabled, absent.
+    // Nothing inside the list is interactive — not enabled, not disabled, absent.
     expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
     expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
     // The two real answers are untouched by it.
     expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  // The reason Crowbar can't send a suggestion isn't written down any more — the
+  // Terminal button beside Allow/Deny is the answer to that, when there's a
+  // handler to make it real.
+  it('offers a terminal button in the bar alongside the real controls', () => {
+    const onOpenTerminal = vi.fn()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={NO_ACTIVITY}
+        choice={choice({
+          options: [
+            { id: 'allow', kind: 'allow', label: 'Allow' },
+            { id: 'deny', kind: 'deny', label: 'Deny' },
+            { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+          ],
+        })}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(onOpenTerminal).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  it('does not offer a terminal button without a handler to open one', () => {
+    draw({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+      ],
+    })
+
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
   })
 
   // The backend never sends a raw provider type name any more, but a stale poll
@@ -433,15 +528,35 @@ describe('ComposerChoice elicitation', () => {
   // An accept means handing back a filled-in form built from the provider's own
   // schema. Crowbar cannot compose that, so it does not offer a button that would
   // send an empty one — it ships the two verbs it CAN mean and says so.
-  it('offers decline and cancel only, and says a form answer needs the terminal', () => {
+  it('offers decline and cancel only, with no accept button for a form Crowbar cannot fill', () => {
     draw(elicitation)
 
     expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
-    expect(screen.getByTestId('agent-choice-form-note')).toHaveTextContent(
-      'has to be done in the terminal',
+    expect(screen.queryByTestId('agent-choice-form-note')).toBeNull()
+    // No handler was given to open one, so nothing offers to.
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
+  })
+
+  // Why a form needs the terminal isn't written down any more — the Terminal
+  // button sits right beside Decline/Cancel in the same row.
+  it('offers a terminal button alongside decline and cancel when the chat can open one', () => {
+    const onOpenTerminal = vi.fn()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={NO_ACTIVITY}
+        choice={choice(elicitation)}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+      />,
     )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(onOpenTerminal).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Decline' })).toBeEnabled()
   })
 
   // A prompt with no options is answered with the PROVIDER's own verb: the id is

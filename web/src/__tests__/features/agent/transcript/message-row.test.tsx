@@ -49,6 +49,115 @@ describe('MessageRow', () => {
     expect(container.querySelector('.row.me')).not.toBeNull()
   })
 
+  // A sent message keeps the shape of the box it was typed in: stadium while it
+  // fits on one line, 18px once it wraps.
+  it('switches the bubble to the wrapped radius once it grows past one line', () => {
+    const { container } = row('user', 'a'.repeat(61))
+    expect(container.querySelector('.bubble.multi')).not.toBeNull()
+  })
+
+  it('switches the bubble to the wrapped radius on an explicit newline, whatever the length', () => {
+    const { container } = row('user', 'short\nmessage')
+    expect(container.querySelector('.bubble.multi')).not.toBeNull()
+  })
+
+  it('keeps the stadium radius for a short one-line message', () => {
+    const { container } = row('user', 'hi')
+    expect(container.querySelector('.bubble.multi')).toBeNull()
+  })
+
+  // A harness payload can run well past one line — collapsed behind the same
+  // <details> pattern ChoiceSchema already uses, rather than pushing the rest
+  // of the turn down.
+  it('shows a short harness payload inline, uncollapsed', () => {
+    row('harness', 'short payload')
+    expect(screen.getByText('short payload').closest('details')).toBeNull()
+    expect(screen.getByText('short payload').closest('code')).not.toBeNull()
+  })
+
+  it('collapses a long harness payload behind Show payload', () => {
+    const long = 'x'.repeat(161)
+    row('harness', long)
+    const details = screen.getByText(long).closest('details')
+    expect(details).not.toBeNull()
+    expect(screen.getByText('Show payload').tagName).toBe('SUMMARY')
+  })
+
+  it('collapses a harness payload with several lines even under the length threshold', () => {
+    const { container } = row('harness', 'one\ntwo\nthree\nfour')
+    expect(container.querySelector('details')).not.toBeNull()
+  })
+
+  // The chat's very first turn keeps the empty document's own typography rather
+  // than switching to a bubble the instant it is sent.
+  describe('the first turn', () => {
+    function firstTurnRow(text: string) {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 0,
+        role: 'user',
+        providerId: 'claude',
+        text,
+        at: '2026-08-24T00:00:00Z',
+      }
+      return render(
+        <MessageRow message={message} showProvider={false} providers={providers} firstTurn />,
+      )
+    }
+
+    it('renders as a frozen document, not a bubble', () => {
+      const { container } = firstTurnRow('describe the change')
+      expect(container.querySelector('.frozen')).not.toBeNull()
+      expect(container.querySelector('.bubble')).toBeNull()
+      // Full width — no right alignment.
+      expect(container.querySelector('.row.me')).toBeNull()
+    })
+
+    it('marks itself for anything reading the DOM directly', () => {
+      const { container } = firstTurnRow('describe the change')
+      expect(container.querySelector('[data-first-turn="true"]')).not.toBeNull()
+    })
+
+    it('still renders through the same markdown pipeline as every other message', () => {
+      firstTurnRow('the **descriptor** decides')
+      expect(screen.getByText('descriptor').closest('strong')).not.toBeNull()
+    })
+
+    it('does not freeze a non-first user message', () => {
+      const message: AgentChatMessage = {
+        turnId: 't2',
+        sequence: 5,
+        role: 'user',
+        providerId: 'claude',
+        text: 'a later message',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(
+        <MessageRow message={message} showProvider={false} providers={providers} />,
+      )
+      expect(container.querySelector('.bubble')).not.toBeNull()
+      expect(container.querySelector('.frozen')).toBeNull()
+    })
+
+    // firstTurn only ever means anything for the user's own words — a role
+    // nobody types is never "the first turn" in the sense this is drawing.
+    it('is a no-op on a role other than user', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 0,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'hi',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(
+        <MessageRow message={message} showProvider={false} providers={providers} firstTurn />,
+      )
+      expect(container.querySelector('.frozen')).toBeNull()
+      expect(container.querySelector('.assistant')).not.toBeNull()
+    })
+  })
+
   // The two roles nobody in the conversation typed stay VERBATIM, for opposite
   // reasons. A harness payload is markup: `<task-notification>` is an HTML tag to
   // a markdown parser, and rendering it swallows the row whole.

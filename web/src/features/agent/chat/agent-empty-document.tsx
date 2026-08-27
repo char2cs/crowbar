@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
@@ -37,6 +37,15 @@ function caretRect(range: Range): DOMRect | null {
   return rect.height ? rect : null
 }
 
+export interface AgentEmptyDocumentHandle {
+  /** The handle's own on-screen rect at this instant — read once, at the
+   *  moment of the first send, to anchor the composer's arrival animation to
+   *  wherever the eye already was. `null` before the first layout pass, or off
+   *  a stale/unmounted node — a caller that gets it treats that as "nothing to
+   *  arrive from" and skips the animation rather than guessing a position. */
+  getHandleRect: () => DOMRect | null
+}
+
 export interface AgentEmptyDocumentProps {
   /** The draft to OPEN with. The box owns its text after that. */
   draft: string
@@ -51,6 +60,7 @@ export interface AgentEmptyDocumentProps {
   working: boolean
   canStop: boolean
   onStop: () => void
+  ref?: Ref<AgentEmptyDocumentHandle>
 }
 
 /**
@@ -80,9 +90,18 @@ export function AgentEmptyDocument({
   working,
   canStop,
   onStop,
+  ref,
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getHandleRect: () => handleRef.current?.getBoundingClientRect() ?? null,
+    }),
+    [],
+  )
 
   const place = useCallback(() => {
     const doc = docRef.current

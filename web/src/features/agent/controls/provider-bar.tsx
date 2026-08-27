@@ -1,5 +1,3 @@
-import { Button } from '@/components/ui/button'
-import { CompactIcon } from '@/features/agent/shared/agent-icons'
 import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-api'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
@@ -33,13 +31,8 @@ interface ProviderBarProps {
    * The pane's strip carries it on the other two surfaces.
    */
   showSwitcher?: boolean
-  /** A compaction is running right now. */
-  compacting?: boolean
-  /** A turn is in flight, which withdraws the compact gesture. */
-  working?: boolean
   /** Prompts waiting behind the running turn. 0 draws nothing. */
   queued?: number
-  onCompact?: () => void
 }
 
 /**
@@ -72,10 +65,7 @@ export function ProviderBar({
   onSelectionChange,
   onSelectPresentation,
   showSwitcher,
-  compacting,
-  working,
   queued = 0,
-  onCompact,
 }: ProviderBarProps) {
   return (
     <div className="underbar">
@@ -103,33 +93,6 @@ export function ProviderBar({
       {/* Right: what this chat has SPENT, and the one gesture that spends less. */}
       <div className="right">
         {queued > 0 && <span>{queued} queued</span>}
-        {/* Compaction is the provider's, not Crowbar's — Crowbar cannot compact
-            anything itself, it can only ask. Absent entirely for a provider that
-            declares no gesture, which is the house rule and not a special case.
-            Absent again while a turn is in flight: there is nothing to compact
-            between a prompt and its answer, and a live turn is not a moment to
-            offer restarting the context. */}
-        {provider?.compaction &&
-          onCompact &&
-          (compacting ? (
-            <span className="chip off" aria-live="polite">
-              <CompactIcon size={12} />
-              Compacting
-            </span>
-          ) : (
-            !working && (
-              <Button
-                size="xs"
-                variant="ghost"
-                aria-label="Compact this conversation"
-                tooltip="Compact the context now"
-                onClick={onCompact}
-              >
-                <CompactIcon />
-                Compact
-              </Button>
-            )
-          ))}
         <AgentContextGauge telemetry={telemetry} />
       </div>
     </div>

@@ -6,12 +6,15 @@ import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persist
 import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 
-const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn } = vi.hoisted(() => ({
-  listMessagesFn: vi.fn(),
-  submitPromptFn: vi.fn(),
-  slashCatalogFn: vi.fn(),
-  setSelectionFn: vi.fn(),
-}))
+const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
+  () => ({
+    listMessagesFn: vi.fn(),
+    submitPromptFn: vi.fn(),
+    slashCatalogFn: vi.fn(),
+    setSelectionFn: vi.fn(),
+    stopChatFn: vi.fn(),
+  }),
+)
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
@@ -19,6 +22,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
   setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
   listChatActivity: (...args: unknown[]) => activityFn(...args),
+  stopChat: (...args: unknown[]) => stopChatFn(...args),
 }))
 
 // The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
@@ -208,6 +212,8 @@ beforeEach(() => {
   slashCatalogFn.mockReset()
   setSelectionFn.mockReset()
   setSelectionFn.mockResolvedValue(undefined)
+  stopChatFn.mockReset()
+  stopChatFn.mockResolvedValue(undefined)
   listMessagesFn.mockImplementation(
     (_wsId: string, _chatId: string, options: { after?: number; before?: number }) => {
       if (options.before !== undefined) return Promise.resolve(page(olderMessages))
@@ -1294,6 +1300,74 @@ describe('AgentChatView surface hotswap', () => {
 
     const terminalTab = await screen.findByRole('tab', { name: 'Terminal' })
     expect(terminalTab).not.toBeDisabled()
+  })
+})
+
+// Design doc §5: "stop during the first turn" — split on whether the prompt
+// had actually dispatched yet.
+describe('AgentChatView first-turn stop', () => {
+  // PRE-dispatch. The design doc names `prompts.remove` / `cancelUnsentPrompts`
+  // as the mechanism this already goes through — QueuedRow's own Edit button
+  // (prompts.remove + restore the draft) does exactly that, with nothing new
+  // to build: a true undo, because nothing was ever recorded anywhere.
+  it('reverses to the editable empty document, draft restored, when the first prompt is edited back before dispatch', async () => {
+    setup({ working: true })
+    await enterPrompt('the whole plan')
+    expect(screen.getByTestId('queued-prompt')).toHaveAttribute('data-state', 'queued')
+    expect(submitPromptFn).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued prompt' }))
+
+    expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
+    expect(await composer()).toHaveValue('the whole plan')
+  })
+
+  // POST-dispatch. The frozen document stays exactly where it is — no snap
+  // back to blank, which would misreport a chat the backend still has a real,
+  // resumable turn recorded against — and the interruption is recorded LOCALLY
+  // (stopChat leaves nothing in the ledger to read this back from; see
+  // interrupted-divider.tsx), surfacing once the turn actually goes idle.
+  it('keeps the frozen document and marks where the first turn was stopped, once it actually goes idle', async () => {
+    const view = setup({ working: false })
+    await enterPrompt('build the feature')
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+    incrementalMessages = [message(1, 'user', 'build the feature')]
+    view.rerenderProps({ working: true })
+    await screen.findByTestId('agent-message-1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    expect(stopChatFn).toHaveBeenCalledWith('w1', 'c1')
+    // Still (nominally) working — the marker waits for the real idle edge
+    // rather than assuming the click already succeeded.
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+    expect(screen.queryByTestId('agent-empty-document')).not.toBeInTheDocument()
+
+    view.rerenderProps({ working: false })
+
+    expect(await screen.findByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+    // The frozen document is untouched by any of this.
+    expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-first-turn', 'true')
+    expect(screen.queryByTestId('agent-empty-document')).not.toBeInTheDocument()
+  })
+
+  // Scoped to the FIRST turn specifically, per the design doc's own section
+  // title — stopping a LATER turn must not paint the same local marker.
+  it('does not mark a later turn’s stop as a first-turn interruption', async () => {
+    initialMessages = [message(1, 'user', 'first turn'), message(2, 'assistant', 'first reply')]
+    const view = setup({ working: false })
+    await enterPrompt('second turn')
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+    incrementalMessages = [message(3, 'user', 'second turn')]
+    view.rerenderProps({ working: true })
+    await screen.findByTestId('agent-message-3')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    view.rerenderProps({ working: false })
+    await act(async () => Promise.resolve())
+
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 })
 

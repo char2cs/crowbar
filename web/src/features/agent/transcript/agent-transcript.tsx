@@ -8,6 +8,8 @@ import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
+import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
+import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { AgentTurnTools, groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
@@ -30,6 +32,11 @@ interface AgentTranscriptProps {
    *  BETWEEN two messages, so the message that follows it is the only one that
    *  identifies it unambiguously. */
   compactionBefore?: Record<number, 'manual' | 'auto' | string>
+  /** A person stopped the chat's first turn after it had already dispatched.
+   *  LOCAL for this session only — see interrupted-divider.tsx for why. Drawn
+   *  once the turn has actually gone idle, in the same slot the working line
+   *  just vacated, never alongside it. */
+  firstTurnInterrupted?: boolean
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -74,6 +81,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [props.activity.toolCalls],
   )
   const providerLabelSeqs = useMemo(() => providerLabelSequences(messages), [messages])
+  // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
+  // paging in more history must not retroactively unfreeze a message that was
+  // never actually the beginning of the conversation. Only meaningful once
+  // there is nothing earlier to page in.
+  const firstTurnSequence = !props.hasOlder ? messages[0]?.sequence : undefined
 
   return (
     <div
@@ -127,11 +139,15 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                 <MessageRow
                   message={message}
                   providers={props.providers}
-                  showProvider={message.role === 'assistant' && providerLabelSeqs.has(message.sequence)}
+                  showProvider={
+                    message.role === 'assistant' && providerLabelSeqs.has(message.sequence)
+                  }
+                  firstTurn={message.sequence === firstTurnSequence}
                 />
                 {message.role === 'assistant' && (
                   <AgentTurnTools callsByTurn={callsByTurn} turnId={message.turnId ?? ''} />
                 )}
+                {message.sequence === firstTurnSequence && <FirstTurnDivider />}
               </>
             )}
           </div>
@@ -154,6 +170,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             onOpenTerminal={props.onOpenTerminal}
           />
         ))}
+        {props.firstTurnInterrupted && !props.working && <InterruptedDivider />}
         <WorkingLine
           activity={props.activity}
           working={props.working}

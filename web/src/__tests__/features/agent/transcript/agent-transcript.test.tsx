@@ -3,6 +3,31 @@ import { describe, expect, it } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 
+function draw(
+  messages: AgentChatMessage[],
+  overrides: Partial<Parameters<typeof AgentTranscript>[0]> = {},
+) {
+  return render(
+    <AgentTranscript
+      messages={messages}
+      queue={[]}
+      providers={[]}
+      activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+      working={false}
+      loading={false}
+      error={null}
+      hasOlder={false}
+      onLoadOlder={() => {}}
+      onRetryLoad={() => {}}
+      onOpenTerminal={() => {}}
+      onEditPrompt={() => {}}
+      onCancelPrompt={() => {}}
+      onRetryPrompt={() => {}}
+      {...overrides}
+    />,
+  )
+}
+
 describe('AgentTranscript provider labels', () => {
   it('shows the provider label on the first assistant message and on a provider change, not on consecutive same-provider replies', () => {
     const messages: AgentChatMessage[] = [
@@ -35,5 +60,79 @@ describe('AgentTranscript provider labels', () => {
     expect(rows[1].querySelector('.meta')).not.toBeNull()
     expect(rows[2].querySelector('.meta')).toBeNull()
     expect(rows[3].querySelector('.meta')).not.toBeNull()
+  })
+})
+
+describe('AgentTranscript first-turn framing', () => {
+  it('freezes the oldest loaded message when there is nothing earlier to page in', () => {
+    draw([
+      { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+      { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'reply', at: '' },
+    ])
+
+    expect(screen.getByTestId('agent-message-0')).toHaveAttribute('data-first-turn', 'true')
+    expect(screen.getByTestId('agent-message-1')).not.toHaveAttribute('data-first-turn')
+  })
+
+  // The true first message is not always the first one ON SCREEN — paging in
+  // older history must not make the CURRENT oldest-loaded message look frozen
+  // when it never was the beginning of the conversation.
+  it('does not freeze the oldest LOADED message when older history exists', () => {
+    draw(
+      [
+        {
+          turnId: 't5',
+          sequence: 5,
+          role: 'user',
+          providerId: '',
+          text: 'not actually first',
+          at: '',
+        },
+      ],
+      { hasOlder: true },
+    )
+
+    expect(screen.getByTestId('agent-message-5')).not.toHaveAttribute('data-first-turn')
+  })
+
+  it('draws the plain hairline right after the frozen turn, with no reply yet', () => {
+    draw([{ turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' }])
+
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+  })
+
+  it('draws no hairline at all once older history exists and nothing is frozen', () => {
+    draw([{ turnId: 't5', sequence: 5, role: 'user', providerId: '', text: 'not first', at: '' }], {
+      hasOlder: true,
+    })
+
+    expect(screen.queryByTestId('agent-first-turn-divider')).toBeNull()
+  })
+})
+
+describe('AgentTranscript interrupted marker', () => {
+  const oneFrozenTurn = [
+    { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
+  ]
+
+  it('draws it once the turn has actually gone idle', () => {
+    draw(oneFrozenTurn, { firstTurnInterrupted: true, working: false })
+
+    expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+  })
+
+  // The working line and the marker say opposite things about the same
+  // instant — never both on screen, and the spinner's own disappearance is
+  // what hands off to it, not a separate timer.
+  it('does not draw it while the turn still reads as working', () => {
+    draw(oneFrozenTurn, { firstTurnInterrupted: true, working: true })
+
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+  })
+
+  it('draws nothing when the first turn was never interrupted', () => {
+    draw(oneFrozenTurn, { firstTurnInterrupted: false, working: false })
+
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 })

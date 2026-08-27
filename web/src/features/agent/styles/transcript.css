@@ -107,23 +107,58 @@
    component. That is what makes the state transition (queued → sent)
    invisible: nothing about the box's own geometry changes, only the border
    and background swap out from under it. Dashed because it is not in the
-   record yet; solid + warning once it needs attention. */
-.agent-chat .bubble.pending {
+   record yet; solid + warning once it needs attention.
+   QueuedRow renders <article class="queued"> straight into .stream with
+   .txt/.err/.acts as flat children, not wrapped in .row.me + .bubble — so
+   .txt IS the bubble here (same geometry, state-mutated by the ancestor's
+   .multi/.bad rather than its own classes), and .acts renders as a plain
+   row BELOW it, outside the pill, since actions are controls, not content. */
+.agent-chat .queued {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: flex-end;
+  min-width: 0;
+  max-width: 88%;
+}
+.agent-chat .queued .txt {
+  display: block;
+  max-width: 100%;
+  font-size: 14px;
+  border-radius: 9999px;
   border: 1px dashed var(--input);
   background: color-mix(in oklch, var(--muted) 50%, transparent);
+  padding: 9px 18px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
-.agent-chat .bubble.bad {
+.agent-chat .queued.multi .txt {
+  border-radius: 18px;
+  padding: 10px 16px;
+}
+.agent-chat .queued.bad .txt {
+  --pattern-fg: color-mix(in oklch, var(--foreground) 6%, transparent);
   border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent);
-  background: color-mix(in oklch, var(--warning) 8%, transparent);
+  background-color: color-mix(in oklch, var(--warning) 8%, transparent);
+  background-image: repeating-linear-gradient(
+    315deg,
+    var(--pattern-fg) 0,
+    var(--pattern-fg) 1px,
+    transparent 0,
+    transparent 50%
+  );
+  background-size: 6px 6px;
 }
-.agent-chat .pending-err {
-  margin: 6px 0 0;
-  font-size: var(--ui-text-xs);
-  color: var(--warning-foreground);
+/* Not shown — the warning-tinted pill + hatch already flags "something's
+   wrong" on sight, and the retry button's own tooltip still carries the
+   why on hover. QueuedRow still renders the span when item.error is set;
+   only its visibility changed here. */
+.agent-chat .queued .err {
+  display: none;
 }
-.agent-chat .pending-acts {
+.agent-chat .queued .acts {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
   margin-top: 6px;
 }
@@ -132,6 +167,24 @@
    the stadium the composer's box turns into. */
 .agent-chat .bubble .agent-prose,
 .agent-chat .bubble .agent-prose .slate-p {
+  line-height: inherit;
+}
+
+/* The chat's very first turn, kept in the empty document's own hand instead of
+   switching to a bubble the instant it is sent — the "it's a document" framing
+   the chat opened with doesn't earn a different shape just because the words
+   moved rows. Values match `.doc` (composer.css) exactly: this is the same
+   typography, continued, not a look-alike. Every turn after the first is an
+   ordinary bubble — see agent-transcript.tsx for how "first" is decided. */
+.agent-chat .frozen {
+  width: 100%;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--foreground);
+}
+.agent-chat .frozen .agent-prose,
+.agent-chat .frozen .agent-prose .slate-p {
+  font-size: inherit;
   line-height: inherit;
 }
 
@@ -261,6 +314,38 @@
   background: var(--muted);
 }
 
+/* The payload itself: literal machine text, not prose, so it gets the same
+   monospace/muted treatment .agent-prose code uses for markdown code spans —
+   the card and the "not by you" disclaimer above it are untouched. A long
+   payload collapses behind the same <details> pattern ChoiceSchema already
+   uses for a permission card's JSON Schema (composer.css) instead of pushing
+   the rest of the turn down. */
+.agent-chat .harness code {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.agent-chat .harness summary {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat .harness details pre {
+  margin-top: 4px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+  padding: 8px;
+}
+.agent-chat .harness details pre code {
+  background: none;
+}
+
 .agent-chat .harness,
 .agent-chat .notice {
   width: 100%;
@@ -313,10 +398,22 @@
   color: var(--muted-foreground);
   font-size: var(--ui-text-xs);
 }
+/* A wavy hairline instead of a flat one — the shape lives in a repeating SVG
+   mask (alpha only), painted by a real background-color, so it themes for
+   free instead of needing a light/dark SVG pair. */
 .agent-chat .divider .ln {
   flex: 1;
-  height: 1px;
-  background: var(--border);
+  height: 9px;
+  background: none;
+  background-color: var(--border);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='9' viewBox='0 0 20 9'%3E%3Cpath d='M0 4.5 Q5 0.5 10 4.5 T20 4.5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='9' viewBox='0 0 20 9'%3E%3Cpath d='M0 4.5 Q5 0.5 10 4.5 T20 4.5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+  -webkit-mask-size: 20px 9px;
+  mask-size: 20px 9px;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 .agent-chat .divider .tag {
   display: inline-flex;

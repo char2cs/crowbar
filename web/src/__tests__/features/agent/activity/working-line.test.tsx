@@ -144,4 +144,31 @@ describe('WorkingLine', () => {
     render(<WorkingLine working activity={activity({ choices: [choice({ pending: false })] })} />)
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
   })
+
+  // Compaction rides the same interruption channel as a permission wait, but
+  // it isn't blocked on a PERSON — unlike every other interruption kind above,
+  // it keeps the working line instead of going quiet.
+  it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
+      />,
+    )
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  })
+
+  it('names no tools while compacting — there is nothing to enumerate', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({
+          interruptions: [interruption({ kind: 'compaction' })],
+          toolCalls: [tool()],
+        })}
+      />,
+    )
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
 })

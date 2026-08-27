@@ -26,7 +26,12 @@ interface AgentTerminalWaitBannerProps {
  *  It NEVER guesses. A kind Crowbar recognises gets a sentence naming the prompt;
  *  anything else — including a kind minted by a newer daemon than this client —
  *  falls back to saying only that input is wanted, which is all that is actually
- *  known. */
+ *  known.
+ *
+ *  STAYS a pane-level overlay rather than moving into the composer alongside
+ *  dormant/unsupported: the composer is unreachable for a chat with no messages
+ *  yet, and a workspace-trust prompt is disproportionately a FIRST-TURN event —
+ *  see the note where this renders in agent-chat-pane.tsx. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,

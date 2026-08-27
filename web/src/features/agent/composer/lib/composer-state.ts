@@ -24,9 +24,22 @@ export type SignpostReason =
   | 'unsupported'
   /** The CLI is blocked on a prompt that reaches the daemon through no hook. */
   | 'terminal_wait'
+  /** Crowbar's own revive is in flight, unasked. */
+  | 'reviving'
+  /** A revive was tried (automatically, or by hand) and there is nothing left on
+   *  the other end of the box until a person tries again. */
+  | 'idle'
+
+/** The pane's own revive attempt for a chat that is not live — richer than the
+ *  collapsed `live` boolean, which cannot tell "still resolving" from "actively
+ *  resuming" from "gave up; needs a person". Undefined for a chat whose
+ *  liveness has not even been read back yet. */
+export type ComposerRevival =
+  { state: 'reviving'; message: string } | { state: 'idle'; reason: 'exited' | 'failed' }
 
 export interface ComposerInputs {
   live: boolean
+  revival?: ComposerRevival
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
   compacting: boolean
@@ -54,6 +67,8 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
  * person can act on right now":
  *
  *  1. `dormant`      — no runner exists; nothing else is even reachable
+ *                      (refined into `reviving`/`idle` by `revival`, when the
+ *                      pane can say more than just "not live")
  *  2. `unsupported`  — this provider will never take a typed prompt
  *  3. `terminal_wait`— the CLI is blocked where only its terminal can reach
  *  4. `unanswerable` — a question whose answer cannot be delivered from here
@@ -66,9 +81,22 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
  * dialog, because that is the one a person can actually do something about.
  */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
-  const { live, submitUnavailable, terminalWait, compacting, activity } = inputs
+  const { live, revival, submitUnavailable, terminalWait, compacting, activity } = inputs
 
   if (!live) {
+    if (revival?.state === 'reviving') {
+      return { kind: 'signpost', reason: 'reviving', message: revival.message }
+    }
+    if (revival?.state === 'idle') {
+      return {
+        kind: 'signpost',
+        reason: 'idle',
+        message:
+          revival.reason === 'failed'
+            ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+            : 'This agent has exited. Resume it to pick the conversation up where you left off.',
+      }
+    }
     return {
       kind: 'signpost',
       reason: 'dormant',
