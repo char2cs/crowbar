@@ -27,7 +27,7 @@ const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{ value: PermissionLevel; label: s
  * the localStorage `updateSetting` path — the daemon applies it the moment a
  * new chat starts, so it talks straight to GET/PUT
  * /v0/settings/chat/permission-level, optimistic-set-then-reconcile like
- * `commit()` above.
+ * `ProvidersSettings`'s own `commit()`.
  */
 export function DefaultPermissionLevelSetting() {
   const [level, setLevel] = useState<PermissionLevel>('guarded')
@@ -45,10 +45,9 @@ export function DefaultPermissionLevelSetting() {
   const handleChange = useCallback(
     (value: PermissionLevel | null) => {
       if (!value) return
-      const next = value
       const previous = level
-      setLevel(next)
-      void updateDefaultPermissionLevel(next).catch(() => {
+      setLevel(value)
+      void updateDefaultPermissionLevel(value).catch(() => {
         setLevel(previous)
         toast.error(
           'Could not save permission level',
