@@ -108,4 +108,6 @@ func Register(
 	wsScoped.GET("/chats/ws", wsHandle)
 
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
+	settingsRG.GET("/settings/chat/permission-level", h.GetDefaultPermissionLevel)
+	settingsRG.PUT("/settings/chat/permission-level", h.PutDefaultPermissionLevel)
 }

@@ -25,6 +25,7 @@ type GORMStores struct {
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
+	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
 }
 
 func newGORMStores(
@@ -58,6 +59,10 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent provider preference store: %w", err)
 	}
+	permissionDefault, err := storesqlite.NewFromDB[domain.AgentPermissionDefault, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: agent permission default store: %w", err)
+	}
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
@@ -66,5 +71,6 @@ func newGORMStores(
 		TerminalProfiles:         profiles,
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,
+		AgentPermissionDefault:   permissionDefault,
 	}, nil
 }

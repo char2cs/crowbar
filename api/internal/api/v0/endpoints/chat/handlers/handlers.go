@@ -311,6 +311,16 @@ type ProviderUsecase interface {
 		token string,
 		message []byte,
 	) ([]byte, bool, error)
+
+	// DefaultPermissionLevel and SetDefaultPermissionLevel back
+	// GET/PUT /v0/settings/chat/permission-level.
+	DefaultPermissionLevel(
+		ctx context.Context,
+	) (agentusecase.PermissionLevel, error)
+	SetDefaultPermissionLevel(
+		ctx context.Context,
+		level agentusecase.PermissionLevel,
+	) error
 }
 
 // ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder

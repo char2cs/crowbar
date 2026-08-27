@@ -147,6 +147,11 @@ type fakeAgentUsecase struct {
 	replaceErr    error
 	replaceCalls  [][]domain.AgentProviderPreference
 
+	defaultLevel         agentusecase.PermissionLevel
+	defaultLevelErr      error
+	setDefaultLevelCalls []agentusecase.PermissionLevel
+	setDefaultLevelErr   error
+
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
 	// first. The zero value (an empty domain.Chat, WorkspaceID "") makes
@@ -440,6 +445,23 @@ func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 		return nil, f.replaceErr
 	}
 	return f.replaceResult, nil
+}
+
+func (f *fakeAgentUsecase) DefaultPermissionLevel(
+	_ context.Context,
+) (agentusecase.PermissionLevel, error) {
+	return f.defaultLevel, f.defaultLevelErr
+}
+
+func (f *fakeAgentUsecase) SetDefaultPermissionLevel(
+	_ context.Context,
+	level agentusecase.PermissionLevel,
+) error {
+	if f.setDefaultLevelErr != nil {
+		return f.setDefaultLevelErr
+	}
+	f.setDefaultLevelCalls = append(f.setDefaultLevelCalls, level)
+	return nil
 }
 
 func (f *fakeAgentUsecase) ReadActivity(

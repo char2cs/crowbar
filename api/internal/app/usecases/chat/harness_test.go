@@ -1026,6 +1026,8 @@ func newFixtureUsing(
 	engine := engineagents.New()
 	providerPrefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
+	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")
+	require.NoError(t, err)
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
@@ -1061,17 +1063,18 @@ func newFixtureUsing(
 	folders := mocks.NewAgentChatFolderStore()
 	lineage := tree.NewLineage(folders, usedChats)
 	u := agentusecase.New(agentusecase.Deps{
-		Chats:         usedChats,
-		Runners:       usedRunners,
-		Activity:      usedActivity,
-		Agents:        engine,
-		Terminal:      term,
-		Workspace:     ws,
-		Lineage:       lineage,
-		ProviderPrefs: providerPrefs,
-		Home:          homeFn,
-		Installed:     probe,
-		Minter:        minter,
+		Chats:           usedChats,
+		Runners:         usedRunners,
+		Activity:        usedActivity,
+		Agents:          engine,
+		Terminal:        term,
+		Workspace:       ws,
+		Lineage:         lineage,
+		ProviderPrefs:   providerPrefs,
+		PermissionPrefs: permissionPrefs,
+		Home:            homeFn,
+		Installed:       probe,
+		Minter:          minter,
 		Tools: agenttools.Deps{
 			Resolver:        resolver,
 			ChatReads:       chatReader,

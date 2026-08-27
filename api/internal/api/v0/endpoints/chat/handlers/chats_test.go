@@ -345,6 +345,19 @@ func (configurableListGetUsecase) ReplaceProviderPreferences(
 	return nil, nil
 }
 
+func (configurableListGetUsecase) DefaultPermissionLevel(
+	_ context.Context,
+) (agentusecase.PermissionLevel, error) {
+	return agentusecase.PermissionFullAuto, nil
+}
+
+func (configurableListGetUsecase) SetDefaultPermissionLevel(
+	_ context.Context,
+	_ agentusecase.PermissionLevel,
+) error {
+	return nil
+}
+
 // TestList_Success proves List reads the :wsId path param (Task 3: nested
 // under .../workspaces/:wsId/chats), forwards it to
 // ListChatsByWorkspace, and returns every chat as wire DTOs.

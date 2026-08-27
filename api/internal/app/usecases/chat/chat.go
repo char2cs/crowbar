@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -181,6 +182,7 @@ type Usecase struct {
 	turns         *turn.Turns
 	runners       *runner.Runners
 	providers     *provider.Providers
+	defaultLevel  *defaultlevel.DefaultLevel
 }
 
 // Deps is everything the chat usecase is built over: the three stores it reads
@@ -205,6 +207,9 @@ type Deps struct {
 	Lineage ChatLineage
 	// ProviderPrefs is the global (per user/machine) provider priority+enabled table.
 	ProviderPrefs store.Store[domain.AgentProviderPreference, string]
+	// PermissionPrefs is the global default permission level a new chat is
+	// seeded with.
+	PermissionPrefs store.Store[domain.AgentPermissionDefault, string]
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
 	Home func() (string, error)
@@ -300,6 +305,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Minter:    d.Minter,
 		Tools:     u.tools,
 	})
+	u.defaultLevel = defaultlevel.New(defaultlevel.Deps{Prefs: d.PermissionPrefs})
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:     d.Chats,
 		Runners:   d.Runners,

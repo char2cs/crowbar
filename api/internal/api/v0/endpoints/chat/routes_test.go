@@ -292,6 +292,19 @@ func (stubUsecase) ReplaceProviderPreferences(
 	return nil, nil
 }
 
+func (stubUsecase) DefaultPermissionLevel(
+	_ context.Context,
+) (agentusecase.PermissionLevel, error) {
+	return agentusecase.PermissionFullAuto, nil
+}
+
+func (stubUsecase) SetDefaultPermissionLevel(
+	_ context.Context,
+	_ agentusecase.PermissionLevel,
+) error {
+	return nil
+}
+
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
 // under the workspace-scoped group (Task 3: .../workspaces/:wsId/agent/...),
 // including the WS upgrade route delegating to the supplied handler.
@@ -334,6 +347,8 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/providers"},
 		{http.MethodGet, base + "/chats/ws"},
 		{http.MethodPut, "/v0/settings/chat/providers"},
+		{http.MethodGet, "/v0/settings/chat/permission-level"},
+		{http.MethodPut, "/v0/settings/chat/permission-level"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

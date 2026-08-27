@@ -34,6 +34,7 @@ type GORMStores struct {
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
+	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
 }
 
 // Container holds every application usecase, composing the aggregate
@@ -255,15 +256,16 @@ func newAgentWiring(
 		return agentWiring{}, err
 	}
 	chat := agentusecase.New(agentusecase.Deps{
-		Chats:         repos.AgentChat,
-		Runners:       repos.AgentRunner,
-		Activity:      repos.AgentActivity,
-		Agents:        engines.Agents,
-		Terminal:      engines.Terminal,
-		Workspace:     wsReader,
-		Lineage:       lineage,
-		ProviderPrefs: gormStores.AgentProviderPreferences,
-		Home:          crowbarHome,
+		Chats:           repos.AgentChat,
+		Runners:         repos.AgentRunner,
+		Activity:        repos.AgentActivity,
+		Agents:          engines.Agents,
+		Terminal:        engines.Terminal,
+		Workspace:       wsReader,
+		Lineage:         lineage,
+		ProviderPrefs:   gormStores.AgentProviderPreferences,
+		PermissionPrefs: gormStores.AgentPermissionDefault,
+		Home:            crowbarHome,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter: minter,

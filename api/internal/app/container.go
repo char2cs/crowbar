@@ -427,6 +427,7 @@ func toUsecaseStores(
 		TerminalProfiles:         gormStores.TerminalProfiles,
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
+		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
 	}
 }
 
