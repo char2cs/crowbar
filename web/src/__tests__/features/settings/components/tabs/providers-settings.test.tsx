@@ -796,5 +796,45 @@ describe('ProvidersSettings', () => {
       await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
       expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded')
     })
+
+    // THE RACE: a user who changes their mind before the first PUT settles.
+    // The first write's eventual rejection must not roll back a SECOND,
+    // already-successful selection — and must not toast for a write that is
+    // no longer current.
+    it('keeps the later selection when an earlier, now-stale write rejects after a later one resolves', async () => {
+      seedProviders([provider('codex', 'Codex', true, true)])
+      getDefaultPermissionLevelFn.mockResolvedValue('guarded')
+      const first = deferred<string>()
+      const second = deferred<string>()
+      updateDefaultPermissionLevelFn
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+      const user = userEvent.setup()
+
+      render(<ProvidersSettings />)
+      await waitFor(() =>
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+          'guarded',
+        ),
+      )
+
+      // Two picks made before either round trip has answered.
+      await selectPermissionLevelOption(user, 'trusted')
+      await selectPermissionLevelOption(user, 'full-auto')
+
+      // The SECOND, newer write resolves first…
+      await act(async () => {
+        second.resolve('full-auto')
+      })
+      // …and the FIRST, now-stale write rejects after it.
+      await act(async () => {
+        first.reject(new Error('daemon is down'))
+      })
+
+      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
+        'full-auto',
+      )
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
   })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getDefaultPermissionLevel,
   updateDefaultPermissionLevel,
@@ -42,12 +42,22 @@ export function DefaultPermissionLevelSetting() {
     }
   }, [])
 
+  // Scoped to THIS component's own sequence of writes — not
+  // agent-providers-store's generation counter, which arbitrates several call
+  // sites sharing one array. Here there is one writer, but that writer can
+  // still fire twice before the first PUT settles (pick Trusted, then Full
+  // Auto before Trusted's response lands): without a fence, a late rejection
+  // for the first pick would rewind the second, already-successful one.
+  const writeGeneration = useRef(0)
+
   const handleChange = useCallback(
     (value: PermissionLevel | null) => {
       if (!value) return
       const previous = level
+      const generation = ++writeGeneration.current
       setLevel(value)
       void updateDefaultPermissionLevel(value).catch(() => {
+        if (writeGeneration.current !== generation) return // superseded by a later pick
         setLevel(previous)
         toast.error(
           'Could not save permission level',
