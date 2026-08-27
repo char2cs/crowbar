@@ -142,6 +142,10 @@ events:
     reply:
       allow: '{"decision":"approved"}'
       deny:  '{"decision":"denied","message":{reason_json}}'
+    risk:
+      standard: [shell, apply_patch]
+      internal: ["mcp__crowbar__*"]
+      # anything else is sensitive by default.
 
   elicitation:
     ask: mcpServer/elicitation/request

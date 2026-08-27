@@ -151,6 +151,12 @@ events:
       allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+    risk:
+      read-only: [Read, Grep, Glob, NotebookRead]
+      standard:  [Edit, Write, MultiEdit, NotebookEdit, Bash]
+      internal:  ["mcp__crowbar__*"]
+      # anything else (WebFetch, WebSearch, unrecognized future tools, ...) is
+      # sensitive by default — see models.RiskSensitive.
 
   elicitation:
     ask: Elicitation
