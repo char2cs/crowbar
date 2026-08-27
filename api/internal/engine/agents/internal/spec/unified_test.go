@@ -22,6 +22,7 @@ func v3() *spec.Descriptor {
 			"permission": {
 				Ask: "PermissionRequest", TimeoutSeconds: 270, AnswersInto: "answers",
 				Reply: map[string]string{"allow": "{}"},
+				Risk:  map[string][]string{"standard": {"Bash"}},
 			},
 			"observed_only": {Ask: "Watched", Answerable: &no, Map: map[string]string{}},
 			"compact_start": {Out: "prompt", Send: map[string]string{"text": "/compact"}},
@@ -42,6 +43,17 @@ func TestEventFields_ReadsTheEventTable(t *testing.T) {
 
 // Outbound events are things Crowbar SENDS. Listing them as observations would make
 // Capabilities claim the provider reports something it does not.
+func TestEventRisk_ReadsTheEventTable(t *testing.T) {
+	d := v3()
+	r, ok := d.EventRisk("permission")
+	if !ok || len(r["standard"]) != 1 || r["standard"][0] != "Bash" {
+		t.Errorf("EventRisk = (%v,%v)", r, ok)
+	}
+	if _, ok := d.EventRisk("never_declared"); ok {
+		t.Error("an undeclared event must report false, same as EventFields")
+	}
+}
+
 func TestDeclaredEvents_ExcludesOutboundAndIsSorted(t *testing.T) {
 	got := v3().DeclaredEvents()
 	want := []string{"observed_only", "permission", "session_start"}

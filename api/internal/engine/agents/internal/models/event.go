@@ -103,6 +103,7 @@ type ChoicePrompt struct {
 	PromptID string
 
 	ToolName string
+	Risk     RiskTier
 
 	Title string
 
