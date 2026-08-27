@@ -23,6 +23,11 @@ tier, Crowbar answers "allow" itself, instantly, using the exact same rendering 
 path a human's click uses today — so the CLI still only ever hears from Crowbar, and the chat
 transcript still shows exactly what happened, just without the click.
 
+**The shipped default is `full-auto`**, set globally in Crowbar's own Settings and editable there.
+This is called out deliberately: it means a brand-new chat asks the user nothing at all unless
+they've gone into Settings and turned it down. That's a real, visible product decision — not an
+incidental default — and it's recorded as one in §4.
+
 One structural fix rides along: Crowbar's own background tool calls (the MCP tools it injects into
 a session, not anything the user asked for) run inside a pane with nobody present to answer a
 modal. Codex already special-cases this with a CLI flag; Claude has no equivalent today and may be
@@ -177,11 +182,17 @@ quick check at implementation time, not a redesign risk: confirming `t.activity`
 same answer-recording method `u.activity.AnswerChoice(...)` calls, so the ledger write looks
 identical whether a human or the policy made the call.
 
-**Session state.** `PermissionLevel` is scoped per-chat, defaults to `guarded`, and does not
-persist — a new chat always starts guarded. This is in-memory state on `Turns`, the same shape as
-the existing `telemetry` map (`t.telemetry.Set(chat.ID, report)` / `t.Telemetry(chatID)` in
-`observation.go:229-235`) — no new durable store, no workspace-store involvement. A new use-case
-method sets the level for a chat; the frontend calls it when the user flips the switcher.
+**Session state, in two layers.** The *default* level is a single global, persisted setting —
+`full-auto` out of the box — editable from Crowbar's Settings, per project convention living in
+`features/settings/` on the frontend with whatever small backend store already backs other global
+settings. A chat's `PermissionLevel` is seeded from that default the moment the chat is created.
+
+From there, the level is per-chat, in-memory state on `Turns` — the same shape as the existing
+`telemetry` map (`t.telemetry.Set(chat.ID, report)` / `t.Telemetry(chatID)` in
+`observation.go:229-235`) — no new durable store beyond the one global default value. A new
+use-case method sets the level for a chat; the frontend calls it when the user flips the per-chat
+switcher (§6), which starts at whatever the global default currently is and can be overridden for
+that chat only, without touching the global setting.
 
 ## 5. The `internal` exemption is not part of the level dial
 
@@ -196,10 +207,16 @@ required for this feature).
 
 ## 6. Frontend
 
-A level switcher (Guarded / Trusted / Full Auto) near the existing approve/deny UI, scoped to the
-active chat, defaulting to Guarded on every new chat. Exact component/file placement is left to the
-implementation plan — this spec doesn't assume knowledge of the current answer-prompt UI's file
-structure beyond what's already been verified above.
+Two surfaces:
+
+- **Settings**: a new "Default permission level" control (Guarded / Trusted / Full Auto),
+  persisted globally, shipping with `Full Auto` selected out of the box.
+- **Per-chat switcher**: near the existing approve/deny UI, scoped to the active chat, initialized
+  from the current global default and independently changeable for that chat only.
+
+Exact component/file placement in both cases is left to the implementation plan — this spec
+doesn't assume knowledge of the current settings dialog or answer-prompt UI's file structure
+beyond what's already been verified above.
 
 ## 7. Safety floor underneath all of this
 
@@ -211,15 +228,24 @@ structure beyond what's already been verified above.
 - `full-auto` is a per-chat, explicit, reversible opt-in — never a default, never persisted past
   the chat's lifetime.
 
-## 8. Flagged decisions for review
+## 8. Decisions
 
-1. **Elicitation stays always-held, out of scope for this policy** (§2). Confirm you're fine
-   deferring it — it's a materially different problem (synthesizing content, not just allow/deny).
-2. **Codex's existing `default_tools_approval_mode="approve"` CLI flag**: leave it in place as
+1. **Elicitation stays always-held, out of scope for this policy** (§2). Confirmed — users still
+   decide these themselves regardless of `PermissionLevel`, since answering one means
+   synthesizing content, not just allow/deny.
+2. **Default permission level is `full-auto`, set in Settings** (§4, §6). Confirmed, as a
+   deliberate and visible default rather than an incidental one.
+
+Still open, for review:
+
+3. **Codex's existing `default_tools_approval_mode="approve"` CLI flag**: leave it in place as
    redundant defense-in-depth once the engine-level `internal` exemption ships, or remove it as
    dead weight. Either is safe; recommend leaving it for now and revisiting in a later cleanup.
-3. **Unclassified tool names default to `sensitive`** (§2) — the conservative choice. Confirm this
-   is the desired failure mode rather than, say, defaulting new tools to `standard`.
+4. **Unclassified tool names default to `sensitive`** (§2) — the conservative choice, and the more
+   consequential one now that new chats start at `full-auto`: a misclassified or unrecognized tool
+   still gets auto-approved at `full-auto` regardless of tier, since `full-auto` clears every tier.
+   The `sensitive` default only matters at `trusted` or below. Confirm this failure mode is still
+   what you want.
 
 ## 9. Testing plan
 
@@ -236,8 +262,9 @@ structure beyond what's already been verified above.
   Crowbar's own MCP-server pattern resolves automatically under Claude at `guarded` — this is the
   parity fix, and it needs its own named regression test per project convention, not just coverage
   incidental to the matrix test above.
-- **Session-default test**: a freshly opened chat's `PermissionLevel` is `guarded` before any
-  switcher interaction.
+- **Default-seeding test**: a freshly opened chat's `PermissionLevel` matches the current global
+  Settings default (out of the box, `full-auto`) before any per-chat switcher interaction; changing
+  the global default does not retroactively change an already-open chat's level.
 - Live verification per project convention: after green tests, exercise `guarded` → `trusted` →
   `full-auto` in a real chat via `make dev-desktop` against both a Claude and a Codex session, and
   confirm the transcript shows policy-approved entries distinctly from human-approved ones.
@@ -245,8 +272,8 @@ structure beyond what's already been verified above.
 ## 10. Out of scope / deferred
 
 - **Per-rule "always allow this" learning** (mentioned during design discussion as a natural
-  follow-on): grows an allowlist from individual human clicks instead of a blanket per-chat level.
+  follow-on): grows an allowlist from individual human clicks instead of a blanket level.
   Not built here; the same `openChoice` insertion point this spec adds is what it would plug into.
-- **Workspace-level persistence of a chosen level**: explicitly rejected in favor of per-chat/session
-  scope resetting to `guarded` every time (see §4).
-- **Elicitation auto-answering**: see flagged decision §8.1.
+- **Workspace-level persistence of a per-chat override**: rejected — only the global default
+  (§4) persists; a chat's own override is in-memory and dies with the chat.
+- **Elicitation auto-answering**: decided against, see §8.1.
