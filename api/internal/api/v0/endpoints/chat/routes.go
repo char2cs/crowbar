@@ -83,6 +83,7 @@ func Register(
 	wsScoped.GET("/chats/:id/activity/:toolId/payload", h.ToolPayload)
 	wsScoped.GET("/chats/:id/choices", h.Choices)
 	wsScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
+	wsScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)
 	wsScoped.GET("/chats/:id/telemetry", h.Telemetry)
 	wsScoped.GET("/chats/:id/slash-catalog", h.SlashCatalog)
 	wsScoped.POST("/chats/:id/switch", h.Switch)

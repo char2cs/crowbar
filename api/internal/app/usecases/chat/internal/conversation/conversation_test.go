@@ -17,6 +17,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -104,6 +105,9 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Home:      func() (string, error) { return home, nil },
 		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
+
+		PermissionLevels:       permission.New(),
+		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Guarded, nil },
 	})
 	conversations.SetRunners(retired)
 
@@ -411,6 +415,71 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	require.Len(t, turns, 2)
 	assert.Contains(t, turns[1].Text, "parent-1",
 		"the note names what the thread reads, in the thread's own log")
+}
+
+func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
+	t.Parallel()
+	chats, _ := newChatStore(t)
+	runners, _ := newRunnerStore(t)
+	activity, _ := newActivityStore(t)
+	home := t.TempDir()
+	levels := permission.New()
+
+	conversations := conversation.New(conversation.Deps{
+		Chats:     chats,
+		Runners:   runners,
+		Activity:  activity,
+		Telemetry: telemetry.New(),
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
+		Lineage:   stubLineage{},
+		Home:      func() (string, error) { return home, nil },
+		Work:      inflight.NewWork(),
+		Spawns:    inflight.NewGate(),
+
+		PermissionLevels:       levels,
+		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Trusted, nil },
+	})
+
+	chatID, err := conversations.MintChat(t.Context(), "ws-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, permission.Trusted, levels.Get(chatID))
+}
+
+func TestMintChat_ChangingTheGlobalDefaultDoesNotRetroactivelyChangeAnAlreadyOpenChat(t *testing.T) {
+	t.Parallel()
+	chats, _ := newChatStore(t)
+	runners, _ := newRunnerStore(t)
+	activity, _ := newActivityStore(t)
+	home := t.TempDir()
+	levels := permission.New()
+	current := permission.Guarded
+
+	conversations := conversation.New(conversation.Deps{
+		Chats:     chats,
+		Runners:   runners,
+		Activity:  activity,
+		Telemetry: telemetry.New(),
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
+		Lineage:   stubLineage{},
+		Home:      func() (string, error) { return home, nil },
+		Work:      inflight.NewWork(),
+		Spawns:    inflight.NewGate(),
+
+		PermissionLevels:       levels,
+		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return current, nil },
+	})
+
+	chatID, err := conversations.MintChat(t.Context(), "ws-1")
+	require.NoError(t, err)
+	require.Equal(t, permission.Guarded, levels.Get(chatID))
+
+	current = permission.FullAuto // the global default changes AFTER this chat was minted
+
+	assert.Equal(t, permission.Guarded, levels.Get(chatID),
+		"an already-open chat's level must not drift when the global default later changes")
 }
 
 // title reads the chat's projected title, settling the read model first. The

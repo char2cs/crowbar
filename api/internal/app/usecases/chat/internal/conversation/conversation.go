@@ -24,6 +24,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -63,6 +64,15 @@ type Conversations struct {
 	// the descriptor catalog a chat's model/effort selection is validated against.
 	home func() (string, error)
 	work *inflight.Work
+	// permissionLevels is the per-chat trust dial a newly minted chat is seeded
+	// into, from the global default at the moment of creation (see
+	// defaultPermissionLevel).
+	permissionLevels *permission.Store
+	// defaultPermissionLevel resolves the current global default at mint time.
+	// It's a closure, not a direct usecase reference, the same way home is a
+	// closure — this package must not import the chat usecase package it lives
+	// inside of.
+	defaultPermissionLevel func(ctx context.Context) (permission.Level, error)
 	// spawns is the per-chat gate the USER-INITIATED spawn paths share. PurgeChat
 	// takes it for the same reason they do — a delete racing a switch would
 	// otherwise start a CLI onto a chat that has just been forgotten.
@@ -87,6 +97,13 @@ type Deps struct {
 
 	Work   *inflight.Work
 	Spawns *inflight.Gate
+
+	PermissionLevels *permission.Store
+	// DefaultPermissionLevel resolves the current global default at the
+	// moment a chat is minted. It's a closure, not a direct usecase
+	// reference, the same way Home is a closure — conversation must not
+	// import the chat usecase package it lives inside of.
+	DefaultPermissionLevel func(ctx context.Context) (permission.Level, error)
 }
 
 // New builds the chat record. The runner port is bound separately, by SetRunners.
@@ -102,6 +119,9 @@ func New(d Deps) *Conversations {
 		home:        d.Home,
 		work:        d.Work,
 		spawns:      d.Spawns,
+
+		permissionLevels:       d.PermissionLevels,
+		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}
 }
 
@@ -261,6 +281,12 @@ func (c *Conversations) MintChat(
 		return "", fmt.Errorf("agent: mint chat: %w", err)
 	}
 	c.work.Set(chatID, created.Working)
+	// A default-level read failure is swallowed here, not propagated: the chat
+	// must still get created even if the lookup has trouble. permission.Store's
+	// own Guarded fallback is the safety net for a chat never seeded here.
+	if level, err := c.defaultPermissionLevel(ctx); err == nil {
+		c.permissionLevels.Set(chatID, level)
+	}
 	return chatID, nil
 }
 

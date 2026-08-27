@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -69,6 +70,16 @@ type AnswerUsecase interface {
 		chatID string,
 		choices []domain.ActivityChoice,
 	) []string
+
+	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
+	// lifetime, independent of the global default (see
+	// ProviderUsecase.DefaultPermissionLevel). Refuses a level outside the
+	// closed set with apperr.ErrInvalidArgument.
+	SetChatPermissionLevel(
+		ctx context.Context,
+		chatID string,
+		level permission.Level,
+	) error
 }
 
 var _ AnswerUsecase = (*Usecase)(nil)

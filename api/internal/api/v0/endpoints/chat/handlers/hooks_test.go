@@ -169,9 +169,13 @@ type fakeAgentUsecase struct {
 	pendingErr    error
 	pendingCalls  []string
 
-	answerable    []string
-	answerCalls   []answerCall
-	answerErr     error
+	answerable  []string
+	answerCalls []answerCall
+	answerErr   error
+
+	setChatPermissionLevelCalls []setChatPermissionLevelCall
+	setChatPermissionLevelErr   error
+
 	pendingAnswer agentusecase.PendingAnswer
 	pendingAwait  bool
 	awaitAnswer   agentusecase.HookAnswer
@@ -517,6 +521,24 @@ func (f *fakeAgentUsecase) AwaitAnswer(
 func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, deliveryID string) error {
 	f.abandonCalls = append(f.abandonCalls, deliveryID)
 	return f.abandonErr
+}
+
+func (f *fakeAgentUsecase) SetChatPermissionLevel(
+	_ context.Context,
+	chatID string,
+	level agentusecase.PermissionLevel,
+) error {
+	f.setChatPermissionLevelCalls = append(f.setChatPermissionLevelCalls,
+		setChatPermissionLevelCall{chatID: chatID, level: level})
+	return f.setChatPermissionLevelErr
+}
+
+// setChatPermissionLevelCall records one SetChatPermissionLevel forwarding, so
+// a test can assert the id and level a client sent are what reached the
+// usecase unchanged.
+type setChatPermissionLevelCall struct {
+	chatID string
+	level  agentusecase.PermissionLevel
 }
 
 // answerCall records one AnswerChoice, so a handler test can assert that what a

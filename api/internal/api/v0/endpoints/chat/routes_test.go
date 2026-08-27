@@ -338,6 +338,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
 		{http.MethodDelete, base + "/chats/c1"},
+		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},
 		{http.MethodPost, base + "/chats/folders"},
 		{http.MethodPatch, base + "/chats/folders/f1"},
@@ -435,6 +436,12 @@ func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer
 }
 
 func (stubUsecase) AbandonAnswer(context.Context, string) error { return nil }
+
+func (stubUsecase) SetChatPermissionLevel(
+	context.Context, string, agentusecase.PermissionLevel,
+) error {
+	return nil
+}
 
 func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false

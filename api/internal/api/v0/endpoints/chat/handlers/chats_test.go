@@ -1001,6 +1001,12 @@ func (configurableListGetUsecase) AwaitAnswer(
 
 func (configurableListGetUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
+func (configurableListGetUsecase) SetChatPermissionLevel(
+	context.Context, string, agentusecase.PermissionLevel,
+) error {
+	return nil
+}
+
 func (configurableListGetUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
 }

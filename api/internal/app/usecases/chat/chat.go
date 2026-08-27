@@ -168,6 +168,9 @@ type Usecase struct {
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
 	answers *answerdesk.Desk
+	// permissionLevels is the per-chat trust dial SetChatPermissionLevel writes
+	// directly — the same pointer Task 4 wired into turn.Deps.
+	permissionLevels *permission.Store
 	// tools is the agent-facing capability surface. It is kept after construction
 	// for one reason: its Chats, ChatLogs, Lineage and ToolAccess ports are this
 	// type's own methods, so New is the only thing that can fill them, and a nil
@@ -272,13 +275,14 @@ func New(d Deps) *Usecase {
 		permissionLevels: permission.New(),
 	}
 	u := &Usecase{
-		chats:       d.Chats,
-		runnerStore: d.Runners,
-		activity:    d.Activity,
-		agents:      d.Agents,
-		ws:          d.Workspace,
-		answers:     sh.answers,
-		tools:       d.Tools,
+		chats:            d.Chats,
+		runnerStore:      d.Runners,
+		activity:         d.Activity,
+		agents:           d.Agents,
+		ws:               d.Workspace,
+		answers:          sh.answers,
+		permissionLevels: sh.permissionLevels,
+		tools:            d.Tools,
 	}
 	// The tool surface's four self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -317,6 +321,9 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Home:      d.Home,
 		Work:      sh.work,
 		Spawns:    sh.spawns,
+
+		PermissionLevels:       sh.permissionLevels,
+		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
 	u.turns = turn.New(turn.Deps{
 		Chats:         d.Chats,

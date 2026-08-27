@@ -276,6 +276,16 @@ type AnswerUsecase interface {
 		ctx context.Context,
 		deliveryID string,
 	) error
+
+	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
+	// lifetime, independent of the global default (see
+	// ProviderUsecase.DefaultPermissionLevel). Refuses a level outside the
+	// closed set with apperr.ErrInvalidArgument (→ 400).
+	SetChatPermissionLevel(
+		ctx context.Context,
+		chatID string,
+		level agentusecase.PermissionLevel,
+	) error
 }
 
 // ProviderUsecase is the global provider table and the MCP transport the vendor
