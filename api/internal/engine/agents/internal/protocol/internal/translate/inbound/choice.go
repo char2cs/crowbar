@@ -67,7 +67,10 @@ func permissionChoice(
 // declares for it. Unmatched — including every name when the descriptor
 // declares no risk: block — is models.RiskSensitive: the table is a safe
 // allowlist, never a denylist.
-func classifyRisk(risk map[string][]string, toolName string) models.RiskTier {
+func classifyRisk(
+	risk map[string][]string,
+	toolName string,
+) models.RiskTier {
 	switch {
 	case matchesAny(risk[string(models.RiskInternal)], toolName):
 		return models.RiskInternal
@@ -80,7 +83,10 @@ func classifyRisk(risk map[string][]string, toolName string) models.RiskTier {
 	}
 }
 
-func matchesAny(patterns []string, toolName string) bool {
+func matchesAny(
+	patterns []string,
+	toolName string,
+) bool {
 	for _, pattern := range patterns {
 		if matchesPattern(pattern, toolName) {
 			return true
