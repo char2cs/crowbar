@@ -297,6 +297,44 @@ func TestPurgeChat_OfAnUnknownChatFails(t *testing.T) {
 	assert.Empty(t, f.retired.all(), "nothing was retired for a chat that never existed")
 }
 
+// A purged chat's in-memory permission level must not survive it — a level
+// left behind under a chat id nothing else references any more would still
+// answer permissionLevels.Get if that id were ever reused.
+func TestPurgeChat_ForgetsThePermissionLevel(t *testing.T) {
+	t.Parallel()
+	chats, _ := newChatStore(t)
+	runners, _ := newRunnerStore(t)
+	activity, _ := newActivityStore(t)
+	home := t.TempDir()
+	levels := permission.New()
+
+	conversations := conversation.New(conversation.Deps{
+		Chats:     chats,
+		Runners:   runners,
+		Activity:  activity,
+		Telemetry: telemetry.New(),
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
+		Lineage:   stubLineage{},
+		Home:      func() (string, error) { return home, nil },
+		Work:      inflight.NewWork(),
+		Spawns:    inflight.NewGate(),
+
+		PermissionLevels:       levels,
+		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Trusted, nil },
+	})
+	conversations.SetRunners(&retiredRunners{})
+
+	chatID, err := conversations.MintChat(t.Context(), "ws-1")
+	require.NoError(t, err)
+	require.Equal(t, permission.Trusted, levels.Get(chatID))
+
+	require.NoError(t, conversations.PurgeChat(t.Context(), chatID))
+
+	assert.Equal(t, permission.Guarded, levels.Get(chatID),
+		"a purged chat's level must be forgotten, not left to answer a reused id")
+}
+
 func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
 	t.Parallel()
 

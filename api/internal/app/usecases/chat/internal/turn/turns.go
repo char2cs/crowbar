@@ -10,6 +10,8 @@
 package turn
 
 import (
+	"context"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
@@ -59,6 +61,13 @@ type Turns struct {
 	// answers is the desk a provider prompt parks a blocked hook relay on.
 	answers          *answerdesk.Desk
 	permissionLevels *permission.Store
+	// defaultPermissionLevel resolves the current global default, the same
+	// closure conversation.Deps.DefaultPermissionLevel is. autoApproveIfPolicy
+	// falls back to it for a chat permissionLevels has never seen — a daemon
+	// restart wipes that in-memory store, and its own hardcoded Guarded floor
+	// would otherwise silently outlive the global default for every chat that
+	// predates the restart.
+	defaultPermissionLevel func(ctx context.Context) (permission.Level, error)
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook and for the prompt
@@ -93,6 +102,9 @@ type Deps struct {
 	Answers       *answerdesk.Desk
 
 	PermissionLevels *permission.Store
+	// DefaultPermissionLevel resolves the current global default. See
+	// Turns.defaultPermissionLevel.
+	DefaultPermissionLevel func(ctx context.Context) (permission.Level, error)
 
 	Conversations Conversations
 }
@@ -120,7 +132,10 @@ func New(d Deps) *Turns {
 		pendingHooks:     d.PendingHooks,
 		answers:          d.Answers,
 		permissionLevels: d.PermissionLevels,
-		conversations:    d.Conversations,
+
+		defaultPermissionLevel: d.DefaultPermissionLevel,
+
+		conversations: d.Conversations,
 	}
 }
 

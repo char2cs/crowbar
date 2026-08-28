@@ -44,3 +44,21 @@ func (s *Store) Forget(
 	defer s.mu.Unlock()
 	delete(s.levels, chatID)
 }
+
+// GetOrDefault returns chatID's level if one was ever explicitly Set (normally
+// at chat creation), or fallback otherwise. Used where an unseen chat should
+// keep honouring whatever the global default currently is — a daemon restart
+// wipes this in-memory store, and a restarted chat re-reading the hardcoded
+// Guarded floor forever would silently undo the shipped default for every
+// chat that predates the restart.
+func (s *Store) GetOrDefault(
+	chatID string,
+	fallback Level,
+) Level {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if level, ok := s.levels[chatID]; ok {
+		return level
+	}
+	return fallback
+}

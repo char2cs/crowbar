@@ -25,3 +25,14 @@ func TestStore_ForgetReturnsToTheDefault(t *testing.T) {
 	s.Forget("chat-1")
 	assert.Equal(t, permission.Guarded, s.Get("chat-1"))
 }
+
+func TestStore_GetOrDefaultUsesTheFallbackForAnUnseenChat(t *testing.T) {
+	s := permission.New()
+	assert.Equal(t, permission.FullAuto, s.GetOrDefault("never-set", permission.FullAuto))
+}
+
+func TestStore_GetOrDefaultPrefersAnExplicitlySetLevelOverTheFallback(t *testing.T) {
+	s := permission.New()
+	s.Set("chat-1", permission.Guarded)
+	assert.Equal(t, permission.Guarded, s.GetOrDefault("chat-1", permission.FullAuto))
+}

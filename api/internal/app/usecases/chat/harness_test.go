@@ -20,6 +20,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -1028,6 +1029,17 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")
 	require.NoError(t, err)
+	// Pinned to Guarded, not left at the shipped full-auto default: SpawnChat
+	// (this fixture's own chat-creation path, below) creates its chat directly
+	// rather than through conversation.Conversations.MintChat, so it never runs
+	// MintChat's own permission-level seeding — a gap outside this fix wave's
+	// scope (see the final report). Leaving the row unset here would make every
+	// spawned chat inherit the shipped full-auto default through Fix 2's
+	// restart-safe fallback, silently auto-approving the permission prompts the
+	// rest of this package's tests hold for a human on purpose.
+	require.NoError(t, permissionPrefs.Save(context.Background(), domain.AgentPermissionDefault{
+		ID: domain.DefaultPermissionLevelKey, Level: string(permission.Guarded),
+	}))
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }

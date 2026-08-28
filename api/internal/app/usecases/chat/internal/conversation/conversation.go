@@ -215,6 +215,7 @@ func (c *Conversations) PurgeLocked(
 			"chat_id", chatID, "err", err)
 	}
 	c.telemetry.Forget(chatID)
+	c.permissionLevels.Forget(chatID)
 
 	// Drop the chat's conversation history. It is append-only and outlives the
 	// process, so nothing else ever removes it — and a conversation still pointing

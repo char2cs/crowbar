@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -146,14 +147,27 @@ func newChoiceTestTurns(
 	t *testing.T,
 ) (*Turns, *fakeChoiceActivity) {
 	t.Helper()
+	return newChoiceTestTurnsWithDefault(t, nil)
+}
+
+// newChoiceTestTurnsWithDefault is newChoiceTestTurns plus a caller-supplied
+// DefaultPermissionLevel closure, for the tests that exercise the fallback a
+// chat permissionLevels has never seen falls back to. A nil closure behaves
+// exactly like newChoiceTestTurns always did.
+func newChoiceTestTurnsWithDefault(
+	t *testing.T,
+	defaultLevel func(ctx context.Context) (permission.Level, error),
+) (*Turns, *fakeChoiceActivity) {
+	t.Helper()
 	activity := &fakeChoiceActivity{}
 	turns := New(Deps{
-		Chats:            raceChats{},
-		Activity:         activity,
-		Agents:           agents.New(),
-		Answers:          answerdesk.New(answerdesk.DefaultRetention, nil),
-		PermissionLevels: permission.New(),
-		Home:             func() (string, error) { return t.TempDir(), nil },
+		Chats:                  raceChats{},
+		Activity:               activity,
+		Agents:                 agents.New(),
+		Answers:                answerdesk.New(answerdesk.DefaultRetention, nil),
+		PermissionLevels:       permission.New(),
+		DefaultPermissionLevel: defaultLevel,
+		Home:                   func() (string, error) { return t.TempDir(), nil },
 	})
 	return turns, activity
 }
@@ -223,6 +237,57 @@ func TestOpenChoice_GuardedLevelHoldsASensitiveTierPromptForAHuman(t *testing.T)
 	_, held := turns.answers.ByChoiceID(id)
 	assert.True(t, held, "guarded must still hold a sensitive-tier prompt for a human, unchanged")
 	assert.Empty(t, activity.answered, "nothing must be auto-decided while the prompt is held")
+}
+
+// TestOpenChoice_ARestartWipedChatFallsBackToTheCurrentGlobalDefault is Fix 2:
+// permissionLevels is in-memory and a daemon restart wipes it, so a chat that
+// predates the restart must keep honouring whatever the global default
+// CURRENTLY is, not the hardcoded Guarded floor Store.Get falls back to on
+// its own.
+func TestOpenChoice_ARestartWipedChatFallsBackToTheCurrentGlobalDefault(t *testing.T) {
+	turns, activity := newChoiceTestTurnsWithDefault(t, func(context.Context) (permission.Level, error) {
+		return permission.FullAuto, nil
+	})
+	// No Set call: this chat is exactly what a restart leaves behind — one
+	// permissionLevels has never seen.
+	ctx := inflight.WithDeliveryID(context.Background(), "delivery-3")
+	agent, err := turns.agents.Get(ctx, t.TempDir(), "claude")
+	require.NoError(t, err)
+	runner := agents.Runner{ID: "r1", ProviderID: "claude", CurrentChatID: "chat-3"}
+	ev := permissionChoiceEvent("Bash", agents.RiskStandard)
+
+	err = turns.handleObservation(ctx, runner, agent, ev, []byte(`{}`))
+
+	require.NoError(t, err)
+	id := choiceID("chat-3", ev.Choice)
+	_, held := turns.answers.ByChoiceID(id)
+	assert.False(t, held,
+		"an unseen chat must honour the CURRENT global default (full-auto), not fall back to guarded")
+	require.Len(t, activity.answered, 1)
+	assert.True(t, activity.answered[0].auto)
+}
+
+// TestOpenChoice_ADefaultLevelLookupFailureDegradesToGuarded proves the
+// closure's own failure can never block or crash the hook it decorates — the
+// same "a best-effort lookup must never break the main path" convention used
+// throughout this feature.
+func TestOpenChoice_ADefaultLevelLookupFailureDegradesToGuarded(t *testing.T) {
+	turns, activity := newChoiceTestTurnsWithDefault(t, func(context.Context) (permission.Level, error) {
+		return "", errors.New("boom")
+	})
+	ctx := inflight.WithDeliveryID(context.Background(), "delivery-4")
+	agent, err := turns.agents.Get(ctx, t.TempDir(), "claude")
+	require.NoError(t, err)
+	runner := agents.Runner{ID: "r1", ProviderID: "claude", CurrentChatID: "chat-4"}
+	ev := permissionChoiceEvent("Bash", agents.RiskStandard)
+
+	err = turns.handleObservation(ctx, runner, agent, ev, []byte(`{}`))
+
+	require.NoError(t, err)
+	id := choiceID("chat-4", ev.Choice)
+	_, held := turns.answers.ByChoiceID(id)
+	assert.True(t, held, "a failed default-level lookup must degrade to guarded, never auto-approve blind")
+	assert.Empty(t, activity.answered)
 }
 
 // TestRegression_CrowbarsOwnMCPToolCallNeverHoldsForAHumanOnAnyProvider is the

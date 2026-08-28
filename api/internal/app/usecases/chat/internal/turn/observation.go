@@ -119,7 +119,7 @@ func (t *Turns) autoApproveIfPolicy(
 	if ev.Choice == nil || ev.Choice.Kind != engineagents.ChoiceToolPermission {
 		return
 	}
-	level := t.permissionLevels.Get(chatID)
+	level := t.permissionLevels.GetOrDefault(chatID, t.currentDefaultLevel(ctx))
 	if !permission.AutoApprove(level, ev.Choice.Risk) {
 		return
 	}
@@ -146,6 +146,22 @@ func (t *Turns) autoApproveIfPolicy(
 		return
 	}
 	t.answers.Resolve(slot, stdout)
+}
+
+// currentDefaultLevel resolves the global default for a chat permissionLevels
+// has never seen, e.g. a pre-restart chat whose in-memory Set was wiped. A nil
+// closure or a failed lookup both fall back to permission.Guarded rather than
+// blocking the auto-approve path — a best-effort lookup must never stall the
+// hook it decorates.
+func (t *Turns) currentDefaultLevel(ctx context.Context) permission.Level {
+	if t.defaultPermissionLevel == nil {
+		return permission.Guarded
+	}
+	level, err := t.defaultPermissionLevel(ctx)
+	if err != nil {
+		return permission.Guarded
+	}
+	return level
 }
 
 func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {

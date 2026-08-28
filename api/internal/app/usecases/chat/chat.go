@@ -339,7 +339,8 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		PendingHooks:  sh.pendingHooks,
 		Answers:       sh.answers,
 
-		PermissionLevels: sh.permissionLevels,
+		PermissionLevels:       sh.permissionLevels,
+		DefaultPermissionLevel: u.DefaultPermissionLevel,
 
 		Conversations: u.conversations,
 	})
