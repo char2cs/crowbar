@@ -37,7 +37,7 @@ spawn:
   # Every tool call routes through a hook, and Crowbar's own permission
   # level answers most of them in milliseconds — so the pane still feels
   # hands-off, but nothing runs on the CLI's own say-so.
-  args: ["--permission-mode", "default"]
+  args: ["--permission-mode", "manual"]
 
 session:
   resume: { arg: "--resume {id}" }

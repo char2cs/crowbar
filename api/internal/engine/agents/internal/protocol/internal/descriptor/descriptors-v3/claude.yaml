@@ -187,15 +187,18 @@ spawn:
   interactive_required: true
   # Crowbar wraps the INTERACTIVE TUI. -p/--print would make it headless.
   forbid_flags: ["-p", "--print"]
-  # default, not auto: auto's own heuristics silently ran Read/Write/Edit
+  # manual, not auto: auto's own heuristics silently ran Read/Write/Edit
   # with no PermissionRequest hook at all, even under Crowbar's guarded
-  # level — the CLI decided, not us. Live-verified (2.1.250): default hooks
+  # level — the CLI decided, not us. Live-verified (2.1.250): manual hooks
   # every tool call including read-only ones, and Crowbar's own
   # PermissionLevel answers each in ~1ms under trusted/full-auto, so the
   # pane still feels hands-off — it just now shows a decision was made
-  # instead of the CLI deciding silently. NOT bypassPermissions/dontAsk —
-  # those skip every check.
-  args: ["--permission-mode", "default"]
+  # instead of the CLI deciding silently. `--help` lists this CLI's own
+  # ask-first mode as manual, not default — an undocumented "default" also
+  # works today (tested through 2.1.250) but is a hidden alias with no
+  # promise of staying one, so this uses the documented name instead.
+  # NOT bypassPermissions/dontAsk — those skip every check.
+  args: ["--permission-mode", "manual"]
   env:
     # Unset, or a claude spawned by Crowbar believes it is a nested child session.
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]

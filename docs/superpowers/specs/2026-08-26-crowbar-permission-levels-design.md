@@ -303,10 +303,19 @@ Driving a real Claude CLI through every level found the feature was dead code in
 `claude.yaml`'s pre-existing `--permission-mode auto` spawn flag (carried over from before this
 plan, untouched by any of the 8 tasks) let the CLI's own heuristics silently decide Read/Write/
 Edit/Bash/WebFetch with no `PermissionRequest` hook at all — even under `guarded`, which is
-supposed to hold everything for a human. Fixed by switching to `--permission-mode default`
-(commit `a45f7930`); live-reverified guarded holds, trusted/full-auto auto-approve in ~1ms with
-the real tool executing, and read-only tools now route through the same hook but resolve fast
-enough to add no perceptible latency.
+supposed to hold everything for a human. Fixed by switching to `--permission-mode manual`
+(commits `a45f7930`, later moved off an undocumented `default` alias onto this CLI's own
+documented ask-first mode; see the descriptor's own comment); live-reverified guarded holds,
+trusted/full-auto auto-approve in ~1ms with the real tool executing, and read-only tools now
+route through the same hook but resolve fast enough to add no perceptible latency.
+
+A follow-up review of that fix found a second, real defect it exposed rather than caused:
+`observation.go`'s HookPermission case opens both a choice AND an interruption per gated call,
+but only the choice was ever resolved — the interruption lived until turn-close, so a turn with
+more than `domain.MaxOpenPerTurn` (64) gated calls (trivially reachable now that virtually every
+tool call is gated, where under the old `auto` mode almost none were) silently dropped every
+choice past the cap. Fixed by resolving the paired interruption alongside the choice on both the
+auto-approve and human-answer paths (commit `7fb802c8`).
 
 Codex has the identical defect shape (in-workspace writes bypass the hook under `guarded` too,
 because `--sandbox workspace-write` permits them at the OS level and `--ask-for-approval
