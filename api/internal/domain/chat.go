@@ -19,6 +19,7 @@ import "time"
 // write that bricked a chat unrepresentable.
 type Chat struct {
 	ID          string    `json:"id"`
+	Type        ChatType  `json:"type"`
 	WorkspaceID string    `json:"workspaceId"`
 	Title       string    `json:"title"`
 	TitleLocked bool      `json:"titleLocked"`

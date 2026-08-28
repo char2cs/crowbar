@@ -15,3 +15,10 @@ func TestAgentChat_ZeroValueIsInactiveNotWorking(t *testing.T) {
 		t.Fatal("zero-value AgentChat must have no open turn")
 	}
 }
+
+func TestChat_HasType(t *testing.T) {
+	c := domain.Chat{Type: domain.ChatTypeBranch}
+	if c.Type != domain.ChatTypeBranch {
+		t.Fatalf("Type not settable/readable")
+	}
+}
