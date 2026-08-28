@@ -505,6 +505,7 @@ export function AgentChatView({
           ref={emptyDocRef}
           draft={seed.text}
           draftSeed={seed.n}
+          hasText={draft.trim().length > 0}
           onDraftChange={updateDraft}
           onSubmit={enqueueDraft}
           onKeyDown={handleKeyDown}

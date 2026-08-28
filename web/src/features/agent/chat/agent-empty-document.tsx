@@ -52,6 +52,10 @@ export interface AgentEmptyDocumentProps {
   draft: string
   /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
   draftSeed: number
+  /** Whether the box currently holds text — tracked live from the box's own
+   *  onChange, unlike `draft`, which only carries what it was last OPENED
+   *  with and goes stale the moment a person types for real. */
+  hasText: boolean
   onDraftChange: (value: string) => void
   onSubmit: () => void
   /** The chat's own key handling — Enter, Tab, arrows, Escape. */
@@ -86,6 +90,7 @@ export interface AgentEmptyDocumentProps {
 export function AgentEmptyDocument({
   draft,
   draftSeed,
+  hasText,
   onDraftChange,
   onSubmit,
   onKeyDown,
@@ -140,7 +145,7 @@ export function AgentEmptyDocument({
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [place])
 
-  const empty = draft.trim() === ''
+  const empty = !hasText
   // STOPPING WINS EVEN WITH TEXT IN THE DOCUMENT — see composer-handle.tsx's
   // own note. A person typing while a turn is already running (a background
   // handoff, say — this surface can render before anything shows up in the

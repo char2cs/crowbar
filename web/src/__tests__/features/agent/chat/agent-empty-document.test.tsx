@@ -21,6 +21,7 @@ function draw(overrides: Partial<Parameters<typeof AgentEmptyDocument>[0]> = {})
       ref={ref}
       draft=""
       draftSeed={0}
+      hasText={false}
       onDraftChange={vi.fn()}
       onSubmit={vi.fn()}
       onKeyDown={vi.fn()}
@@ -64,7 +65,7 @@ describe('AgentEmptyDocument stop control', () => {
   // the instant a person started writing.
   it('stops a running turn even with text already in the document', () => {
     const onStop = vi.fn()
-    draw({ draft: 'a follow-up thought', working: true, canStop: true, onStop })
+    draw({ draft: 'a follow-up thought', hasText: true, working: true, canStop: true, onStop })
 
     const button = screen.getByRole('button', { name: 'Stop this turn' })
     expect(button).toBeEnabled()
@@ -75,7 +76,7 @@ describe('AgentEmptyDocument stop control', () => {
 
   it('sends the document when there is no running turn to stop', () => {
     const onSubmit = vi.fn()
-    draw({ draft: 'the whole plan', onSubmit })
+    draw({ draft: 'the whole plan', hasText: true, onSubmit })
 
     const button = screen.getByRole('button', { name: 'Send prompt' })
     expect(button).toBeEnabled()
@@ -91,6 +92,31 @@ describe('AgentEmptyDocument stop control', () => {
 // a MutationObserver on the real button: the dock's spinner appears and
 // disappears cleanly; this surface's button never once changed class before
 // being replaced.
+// REGRESSION: `draft` only carries what the box was last OPENED with — a
+// remount seed, not what's actually typed. The send button used to derive
+// its enabled/disabled state from THAT prop directly, so on a chat's first
+// message (this surface) the button stayed permanently disabled and stuck
+// in its muted "off" styling through an entire ordinary send, because
+// nothing ever pushes real keystrokes back into the seed. `hasText`, tracked
+// live from the box's own onChange, is what the button must key off instead.
+describe('AgentEmptyDocument hasText tracking', () => {
+  it('stays disabled while the seed still holds stale text but nothing was actually typed', () => {
+    draw({ draft: 'text pushed in from outside', hasText: false })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeDisabled()
+    expect(button.className).toMatch(/\boff\b/)
+  })
+
+  it('enables once real typing is reported via hasText, even though the seed itself is empty', () => {
+    draw({ draft: '', hasText: true })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeEnabled()
+    expect(button.className).not.toMatch(/\boff\b/)
+  })
+})
+
 describe('AgentEmptyDocument sending state', () => {
   it('shows a sending spinner once dispatched but not yet proven delivered, same as the dock composer', () => {
     const { container } = draw({ sending: true })
