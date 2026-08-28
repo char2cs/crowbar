@@ -108,6 +108,63 @@ describe('AgentTranscript first-turn framing', () => {
 
     expect(screen.queryByTestId('agent-first-turn-divider')).toBeNull()
   })
+
+  // The assistant's answer to the frozen turn keeps its larger size too —
+  // see message-row.tsx's own note on `firstReply`.
+  it('marks the assistant message that answers the frozen turn, and no other', () => {
+    draw([
+      { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+      { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'reply', at: '' },
+      { turnId: 't2', sequence: 2, role: 'user', providerId: '', text: 'follow-up', at: '' },
+      {
+        turnId: 't2',
+        sequence: 3,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'second reply',
+        at: '',
+      },
+    ])
+
+    expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-first-reply', 'true')
+    expect(screen.getByTestId('agent-message-3')).not.toHaveAttribute('data-first-reply')
+  })
+
+  it('does not mark anything when a harness message sits between the frozen turn and the reply', () => {
+    draw([
+      { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+      { turnId: 't1', sequence: 1, role: 'harness', providerId: 'claude', text: 'note', at: '' },
+      { turnId: 't1', sequence: 2, role: 'assistant', providerId: 'claude', text: 'reply', at: '' },
+    ])
+
+    // The harness row between them is never a candidate; the reply is still
+    // the first assistant message after the frozen turn.
+    expect(screen.getByTestId('agent-message-2')).toHaveAttribute('data-first-reply', 'true')
+  })
+
+  it('marks nothing when there is no reply yet', () => {
+    draw([{ turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' }])
+
+    expect(screen.queryByTestId('[data-first-reply]')).toBeNull()
+  })
+
+  it('marks nothing when older history exists, even if the oldest loaded message is an assistant reply', () => {
+    draw(
+      [
+        {
+          turnId: 't1',
+          sequence: 5,
+          role: 'assistant',
+          providerId: 'claude',
+          text: 'not actually the first reply',
+          at: '',
+        },
+      ],
+      { hasOlder: true },
+    )
+
+    expect(screen.getByTestId('agent-message-5')).not.toHaveAttribute('data-first-reply')
+  })
 })
 
 describe('AgentTranscript interrupted marker', () => {

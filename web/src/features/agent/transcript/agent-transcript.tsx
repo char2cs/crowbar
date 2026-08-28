@@ -88,6 +88,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   // never actually the beginning of the conversation. Only meaningful once
   // there is nothing earlier to page in.
   const firstTurnSequence = !props.hasOlder ? messages[0]?.sequence : undefined
+  // The assistant's answer to that frozen turn — kept in the same larger
+  // hand rather than dropping to ordinary reply prose the instant the turn
+  // ends. Tied to `firstTurnSequence` existing at all, not merely to being
+  // the first assistant message loaded — same reasoning as above.
+  const firstReplySequence =
+    firstTurnSequence !== undefined
+      ? messages.find((m) => m.role === 'assistant' && m.sequence > firstTurnSequence)?.sequence
+      : undefined
 
   return (
     <div
@@ -146,6 +154,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     message.role === 'assistant' && providerLabelSeqs.has(message.sequence)
                   }
                   firstTurn={message.sequence === firstTurnSequence}
+                  firstReply={message.sequence === firstReplySequence}
                 />
                 {message.role === 'assistant' && (
                   <AgentTurnTools callsByTurn={callsByTurn} turnId={message.turnId ?? ''} />

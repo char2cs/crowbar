@@ -158,6 +158,70 @@ describe('MessageRow', () => {
     })
   })
 
+  // The assistant's answer to the frozen first turn keeps that same larger
+  // hand rather than dropping to ordinary reply prose the instant the turn
+  // is over.
+  describe('the first reply', () => {
+    function firstReplyRow(text: string) {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text,
+        at: '2026-08-24T00:00:00Z',
+      }
+      return render(
+        <MessageRow message={message} showProvider={false} providers={providers} firstReply />,
+      )
+    }
+
+    it('keeps the frozen document size on top of its ordinary assistant styling', () => {
+      const { container } = firstReplyRow('the reply')
+      expect(container.querySelector('.assistant.frozen')).not.toBeNull()
+    })
+
+    it('marks itself for anything reading the DOM directly', () => {
+      const { container } = firstReplyRow('the reply')
+      expect(container.querySelector('[data-first-reply="true"]')).not.toBeNull()
+    })
+
+    it('does not mark a later assistant reply', () => {
+      const message: AgentChatMessage = {
+        turnId: 't2',
+        sequence: 5,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a later reply',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(
+        <MessageRow message={message} showProvider={false} providers={providers} />,
+      )
+      expect(container.querySelector('.frozen')).toBeNull()
+      expect(container.querySelector('[data-first-reply]')).toBeNull()
+    })
+
+    // firstReply only ever means anything for the assistant's own words — a
+    // role that never answers a turn is never "the first reply" in the
+    // sense this is drawing.
+    it('is a no-op on a role other than assistant', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: 'claude',
+        text: 'a later user message',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(
+        <MessageRow message={message} showProvider={false} providers={providers} firstReply />,
+      )
+      expect(container.querySelector('.frozen')).toBeNull()
+      expect(container.querySelector('.bubble')).not.toBeNull()
+    })
+  })
+
   // The two roles nobody in the conversation typed stay VERBATIM, for opposite
   // reasons. A harness payload is markup: `<task-notification>` is an HTML tag to
   // a markdown parser, and rendering it swallows the row whole.

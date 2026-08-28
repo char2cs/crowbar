@@ -37,6 +37,7 @@ function MessageRowComponent({
   showProvider,
   providers,
   firstTurn = false,
+  firstReply = false,
 }: {
   message: AgentChatMessage
   showProvider: boolean
@@ -46,12 +47,19 @@ function MessageRowComponent({
    *  ever true for a `user` message; see `agent-transcript.tsx` for how the
    *  ABSOLUTE first turn is told apart from merely the first one loaded. */
   firstTurn?: boolean
+  /** The assistant's answer to the frozen first turn — kept at the frozen
+   *  document's own larger size rather than dropping to ordinary reply
+   *  prose the instant the turn is over. Only ever true for an `assistant`
+   *  message; see `agent-transcript.tsx` for how it is told apart from
+   *  merely being the first assistant message loaded. */
+  firstReply?: boolean
 }) {
   const user = message.role === 'user'
   const assistant = message.role === 'assistant'
   const harness = message.role === 'harness'
   const notice = message.role === 'notice'
   const frozen = user && firstTurn
+  const frozenReply = assistant && firstReply
   // A sent message keeps the shape of the box it was typed in: stadium while it
   // fits on one line, 18px once it wraps.
   const multi = message.text.length > 60 || message.text.includes('\n')
@@ -70,6 +78,7 @@ function MessageRowComponent({
       data-testid={`agent-message-${message.sequence}`}
       data-role={message.role}
       data-first-turn={frozen ? 'true' : undefined}
+      data-first-reply={frozenReply ? 'true' : undefined}
     >
       <div
         // A notice is a live announcement, not prose — the reader may already be
@@ -83,6 +92,7 @@ function MessageRowComponent({
           harness && 'harness',
           notice && 'notice',
           assistant && 'assistant',
+          frozenReply && 'frozen',
           !user && !harness && !notice && !assistant && 'assistant',
         )}
       >
