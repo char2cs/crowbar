@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
+import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
@@ -59,6 +60,8 @@ export interface AgentEmptyDocumentProps {
   controls: ReactNode
   working: boolean
   canStop: boolean
+  /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
+  sending: boolean
   onStop: () => void
   ref?: Ref<AgentEmptyDocumentHandle>
 }
@@ -89,6 +92,7 @@ export function AgentEmptyDocument({
   controls,
   working,
   canStop,
+  sending,
   onStop,
   ref,
 }: AgentEmptyDocumentProps) {
@@ -137,7 +141,17 @@ export function AgentEmptyDocument({
   }, [place])
 
   const empty = draft.trim() === ''
-  const stopping = empty && working && canStop
+  // STOPPING WINS EVEN WITH TEXT IN THE DOCUMENT — see composer-handle.tsx's
+  // own note. A person typing while a turn is already running (a background
+  // handoff, say — this surface can render before anything shows up in the
+  // ledger) must not lose their only way to interrupt it just because they
+  // started writing.
+  const stopping = working && canStop
+  // SENDING gets the same feedback composer-handle.tsx gives every later
+  // message — this box owns only the FIRST one, but its own dispatch waits on
+  // the identical round trip and used to show nothing at all for it.
+  const sendingVisual = !stopping && empty && sending
+  const idle = !stopping && !sendingVisual && empty
 
   return (
     <div className="docwrap" data-testid="agent-empty-document">
@@ -160,13 +174,19 @@ export function AgentEmptyDocument({
             <span className="side">
               <button
                 type="button"
-                className={cn('send', stopping && 'halt', empty && !stopping && 'off')}
-                disabled={empty && !stopping}
-                aria-label={stopping ? 'Stop this turn' : 'Send prompt'}
-                title={stopping ? 'Stop this turn — Esc' : 'Send — Enter'}
+                className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
+                disabled={idle || sendingVisual}
+                aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
+                title={stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'}
                 onClick={stopping ? onStop : onSubmit}
               >
-                {stopping ? <StopIcon size={16} /> : <UpIcon size={16} />}
+                {stopping ? (
+                  <StopIcon size={16} />
+                ) : sendingVisual ? (
+                  <FlickerSpinner className="size-4" />
+                ) : (
+                  <UpIcon size={16} />
+                )}
               </button>
             </span>
           </div>

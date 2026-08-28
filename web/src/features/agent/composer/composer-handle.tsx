@@ -21,11 +21,13 @@ interface ComposerHandleProps {
 /**
  * The circle at the end of the last line.
  *
- * It is a SEND button whenever there is something to send. With an empty box and
- * a turn in flight it becomes the stop control, because that is the only thing
- * left to do to a running turn — and because a permanently disabled send circle
- * wastes the one affordance a person's hand is already on. Between those two it
- * can also be SENDING: the draft clears the instant a prompt queues, well before
+ * STOP WINS whenever a turn is actually stoppable, text in the box or not.
+ * Typing a follow-up while a turn runs is exactly the case "Queue a message…"
+ * invites — and a box that hides the only way to interrupt the turn the moment
+ * there's a character in it leaves nothing to click: Enter still queues that
+ * text regardless of what this button shows, so nothing typed is lost by
+ * letting the button read as Stop instead. Between idle and stopping it can
+ * also be SENDING: the draft clears the instant a prompt queues, well before
  * the server has proven delivery, and with no distinct look here that gap reads
  * as the click having done nothing.
  */
@@ -38,11 +40,9 @@ export function ComposerHandle({
   onSend,
   onStop,
 }: ComposerHandleProps) {
-  const stopping = !hasText && working && canStop
-  // Stopping wins when both apply: a real interrupt is worth more than a spinner
-  // that only says something is in flight.
-  const sendingVisual = !hasText && !stopping && sending
-  const idle = !hasText && !stopping && !sendingVisual
+  const stopping = working && canStop
+  const sendingVisual = !stopping && !hasText && sending
+  const idle = !stopping && !sendingVisual && !hasText
 
   return (
     <div className="handle" style={{ transform: `translateY(${handleOffset(fieldHeight)}px)` }}>

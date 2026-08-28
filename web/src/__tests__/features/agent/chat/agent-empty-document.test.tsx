@@ -1,5 +1,5 @@
 import { createElement, createRef } from 'react'
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AgentEmptyDocument,
@@ -27,6 +27,7 @@ function draw(overrides: Partial<Parameters<typeof AgentEmptyDocument>[0]> = {})
       controls={null}
       working={false}
       canStop={false}
+      sending={false}
       onStop={vi.fn()}
       {...overrides}
     />,
@@ -52,5 +53,58 @@ describe('AgentEmptyDocument handle', () => {
     unmount()
 
     expect(ref.current).toBeNull()
+  })
+})
+
+describe('AgentEmptyDocument stop control', () => {
+  // REGRESSION: this surface hand-duplicates composer-handle.tsx's own
+  // send/stop button, and used to gate `stopping` on the document being
+  // empty the same way — hiding the only way to interrupt a turn already
+  // running (a background handoff can start one before anything is typed)
+  // the instant a person started writing.
+  it('stops a running turn even with text already in the document', () => {
+    const onStop = vi.fn()
+    draw({ draft: 'a follow-up thought', working: true, canStop: true, onStop })
+
+    const button = screen.getByRole('button', { name: 'Stop this turn' })
+    expect(button).toBeEnabled()
+    expect(button.className).toMatch(/\bhalt\b/)
+    fireEvent.click(button)
+    expect(onStop).toHaveBeenCalled()
+  })
+
+  it('sends the document when there is no running turn to stop', () => {
+    const onSubmit = vi.fn()
+    draw({ draft: 'the whole plan', onSubmit })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    expect(onSubmit).toHaveBeenCalled()
+  })
+})
+
+// REGRESSION: this surface's send button hand-duplicates composer-handle.tsx's
+// own, but had no `sending` state at all — the FIRST message in a chat clears
+// the document and shows nothing while its own dispatch is in flight, where
+// every later message (composer-handle.tsx) gets a spinner. Live-verified via
+// a MutationObserver on the real button: the dock's spinner appears and
+// disappears cleanly; this surface's button never once changed class before
+// being replaced.
+describe('AgentEmptyDocument sending state', () => {
+  it('shows a sending spinner once dispatched but not yet proven delivered, same as the dock composer', () => {
+    const { container } = draw({ sending: true })
+
+    const button = screen.getByRole('button', { name: 'Sending' })
+    expect(button).toBeDisabled()
+    expect(button.className).toMatch(/\boff\b/)
+    expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
+  })
+
+  it('prefers the stop control over the sending spinner when both apply', () => {
+    draw({ working: true, canStop: true, sending: true })
+
+    expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 })

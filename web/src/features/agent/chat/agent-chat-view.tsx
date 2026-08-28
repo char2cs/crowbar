@@ -495,6 +495,7 @@ export function AgentChatView({
           controls={selectionCluster}
           working={working}
           canStop={live}
+          sending={prompts.deliveryPending}
           onStop={() => void stopChat(wsId, chatId)}
         />
         {composerError && (

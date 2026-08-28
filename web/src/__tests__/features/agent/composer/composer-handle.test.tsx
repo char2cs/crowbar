@@ -32,10 +32,24 @@ describe('ComposerHandle', () => {
     expect(onSend).toHaveBeenCalled()
   })
 
-  it('sends when there is text even mid-turn or mid-delivery', () => {
-    // hasText overrides everything else — the box always sends what is typed
-    // into it now, whatever else is going on.
-    draw({ hasText: true, working: true, canStop: true, sending: true })
+  // REGRESSION: the button used to hide the ONLY way to stop a running turn
+  // the instant there was a character in the box — a person who started
+  // typing a follow-up while a turn ran had no way left to interrupt it, not
+  // even Escape (agent-chat-view.tsx wires no such fallback). Enter still
+  // queues whatever is typed regardless of what this button shows, so nothing
+  // is lost by having it read Stop here instead of Send.
+  it('stops a running turn even with text in the box', () => {
+    const { onStop } = draw({ hasText: true, working: true, canStop: true })
+
+    const button = screen.getByRole('button', { name: 'Stop this turn' })
+    expect(button).toBeEnabled()
+    expect(button.className).toMatch(/\bhalt\b/)
+    fireEvent.click(button)
+    expect(onStop).toHaveBeenCalled()
+  })
+
+  it('sends text even mid-delivery, when there is no running turn to stop', () => {
+    draw({ hasText: true, sending: true })
 
     expect(screen.getByRole('button', { name: 'Send prompt' })).toBeEnabled()
     expect(screen.queryByRole('status')).toBeNull()
