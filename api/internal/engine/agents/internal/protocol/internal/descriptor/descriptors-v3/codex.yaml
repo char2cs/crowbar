@@ -306,6 +306,14 @@ spawn:
   # codex has no single "auto" switch: workspace-write + on-request is its
   # equivalent — it works inside the workspace and escalates only to step outside.
   # NOT --dangerously-bypass-approvals-and-sandbox, which drops the sandbox.
+  #
+  # KNOWN GAP, not fixable here: 0.149.1's --ask-for-approval accepts only
+  # on-request/never (confirmed via `codex --help`; no `default`/`untrusted`
+  # exists at this flag). on-request only escalates to a PermissionRequest
+  # hook when the model steps outside the sandbox, so Crowbar's own
+  # PermissionLevel — guarded included — never sees an ordinary in-workspace
+  # write; the sandbox silently allows it first. Unlike Claude, there is no
+  # broader-coverage value to switch to on this CLI today.
   args:
     - "--dangerously-bypass-hook-trust"
     - "--sandbox"
