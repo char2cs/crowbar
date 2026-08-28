@@ -402,11 +402,13 @@ func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
 }
 
 // TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption proves
-// record's interruption resolve is scoped to Event == HookPermission — an
-// elicitation's interruption carries a different Kind and id scheme, and
-// resolving it under a permission choice's own PermissionInterruptionID
-// would name an interruption that was never opened, exactly the
-// phantom-row defect a live review found in the human-answer path.
+// record's interruption resolve is scoped to Event == HookPermission —
+// production elicitation choices pair under the identical id scheme (see
+// PermissionInterruptionID's own doc comment), but resolving one from here
+// is out of scope regardless, the same way answers.go's human-answer path
+// scopes itself. This fixture's own elicitation slot never has a matching
+// interruption opened at all, so a wrongly-unscoped resolve here would name
+// one nothing ever created.
 func TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption(t *testing.T) {
 	t.Parallel()
 

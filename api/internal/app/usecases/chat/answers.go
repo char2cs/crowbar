@@ -186,9 +186,12 @@ func (u *Usecase) AnswerChoice(
 	// AskUserQuestion arrives on HookPermission too (a tool call, not a
 	// separate event) and shares the exact same interruption id scheme, so
 	// answering one must close it here same as a plain tool_permission
-	// choice does. An elicitation's own interruption has a different id
-	// scheme entirely (see answerdesk.Desk.record's own doc comment, which
-	// scopes itself the identical way) and must never be touched from here.
+	// choice does. An elicitation's own interruption pairs under this same
+	// scheme too — handleObservation mints it the identical way — but this
+	// scope (HookPermission-only) leaves it unresolved by an answer: a
+	// pre-existing gap, unrelated to any pairing defect, that this chain
+	// never set out to close. answerdesk.Desk.record scopes itself the
+	// identical way, for the identical reason.
 	if slot.Event == engineagents.HookPermission {
 		u.resolvePermissionInterruption(ctx, chatID, choiceID)
 	}
