@@ -57,6 +57,8 @@ func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 
 func (stubTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
 
+func (stubTurns) RecordStop(context.Context, string) error { return nil }
+
 func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
 
 func (stubTurns) MatchTerminalPrompt(

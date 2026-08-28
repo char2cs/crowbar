@@ -260,6 +260,35 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 	return chat.Working, nil
 }
 
+// RecordStop notes that a person cut chatID's in-flight turn short — the
+// counterpart of compaction's HookCompactPre/Post pair (observation.go), but
+// Crowbar's own doing rather than a translated provider hook: nothing on the
+// wire announces "a human clicked Stop", so this is the one place that fact
+// can be recorded at all. Opened and resolved in the same call, back to back,
+// because unlike compaction there is no later event to close it on — Crowbar
+// already knows the full story the instant it decides to stop the CLI.
+//
+// A no-op when the chat is idle: StopChat is also what closing a chat TAB
+// calls, and quitting an already-quiet CLI is not an interruption of anything.
+func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
+	if len(t.turns.Inflight(chatID)) == 0 {
+		return nil
+	}
+	now := time.Now()
+	id := "interrupt-" + fallbackID()
+	if err := t.activity.Interrupt(
+		ctx, chatID, id, engineagents.InterruptStopped, "", now,
+	); err != nil {
+		return fmt.Errorf("agent: record stop: interrupt: %w", err)
+	}
+	if err := t.activity.ResolveInterruption(
+		ctx, chatID, id, engineagents.InterruptStopped, "", now,
+	); err != nil {
+		return fmt.Errorf("agent: record stop: resolve interruption: %w", err)
+	}
+	return nil
+}
+
 func deriveTitle(prompt string) string {
 	for _, line := range strings.Split(prompt, "\n") {
 		line = strings.TrimSpace(line)

@@ -361,6 +361,14 @@ func (rs *Runners) StopChat(
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
+	// Recorded BEFORE either teardown path runs, while the turn this is about is
+	// still the one in flight: interruptTurn's async send and retire's kill both
+	// race the CLI's own last words, and neither is a moment to still be asking
+	// "was a turn actually running" from. A closed chat tab also calls StopChat —
+	// RecordStop itself is the no-op guard for that case, not this call site.
+	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
+		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
+	}
 	if rs.interruptTurn(ctx, live) {
 		return nil
 	}

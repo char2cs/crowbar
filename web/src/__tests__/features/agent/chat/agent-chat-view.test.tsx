@@ -1304,7 +1304,10 @@ describe('AgentChatView surface hotswap', () => {
 })
 
 // Design doc §5: "stop during the first turn" — split on whether the prompt
-// had actually dispatched yet.
+// had actually dispatched yet. The interruption itself is now a REAL backend
+// activity record (turn.RecordStop), read back the same way a compaction
+// boundary is — see the "stopped turn divider" describe block below for the
+// sequence-anchored positioning that replaced the old local-only marker.
 describe('AgentChatView first-turn stop', () => {
   // PRE-dispatch. The design doc names `prompts.remove` / `cancelUnsentPrompts`
   // as the mechanism this already goes through — QueuedRow's own Edit button
@@ -1324,10 +1327,8 @@ describe('AgentChatView first-turn stop', () => {
 
   // POST-dispatch. The frozen document stays exactly where it is — no snap
   // back to blank, which would misreport a chat the backend still has a real,
-  // resumable turn recorded against — and the interruption is recorded LOCALLY
-  // (stopChat leaves nothing in the ledger to read this back from; see
-  // interrupted-divider.tsx), surfacing once the turn actually goes idle.
-  it('keeps the frozen document and marks where the first turn was stopped, once it actually goes idle', async () => {
+  // resumable turn recorded against.
+  it('keeps the frozen document in place across a stop', async () => {
     const view = setup({ working: false })
     await enterPrompt('build the feature')
     await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
@@ -1338,36 +1339,108 @@ describe('AgentChatView first-turn stop', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
     expect(stopChatFn).toHaveBeenCalledWith('w1', 'c1')
-    // Still (nominally) working — the marker waits for the real idle edge
-    // rather than assuming the click already succeeded.
-    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
     expect(screen.queryByTestId('agent-empty-document')).not.toBeInTheDocument()
 
     view.rerenderProps({ working: false })
+    await act(async () => Promise.resolve())
 
-    expect(await screen.findByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
-    // The frozen document is untouched by any of this.
     expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-first-turn', 'true')
     expect(screen.queryByTestId('agent-empty-document')).not.toBeInTheDocument()
   })
+})
 
-  // Scoped to the FIRST turn specifically, per the design doc's own section
-  // title — stopping a LATER turn must not paint the same local marker.
-  it('does not mark a later turn’s stop as a first-turn interruption', async () => {
+// REGRESSION: the marker used to be LOCAL session state
+// (firstTurnInterrupted), scoped to the first turn and pinned to "the end of
+// the transcript" — so it drew nothing for a later turn's stop, and it kept
+// sliding down under every message sent after the one it was supposed to
+// mark. It is now a real, sequence-anchored `stopped` activity interruption
+// (turn.RecordStop), positioned the exact same way a compaction boundary is.
+describe('AgentChatView stopped turn divider', () => {
+  const stoppedAt = (seq: number) => ({
+    ...emptyActivity,
+    interruptions: [
+      {
+        id: `stop-${seq}`,
+        turnId: '',
+        seq,
+        kind: 'stopped' as const,
+        detail: '',
+        at: '2026-08-16T00:00:00Z',
+        resolvedAt: '2026-08-16T00:00:01Z',
+      },
+    ],
+  })
+
+  it('marks where the turn was stopped, once it actually goes idle', async () => {
+    const view = setup({ working: false })
+    await enterPrompt('build the feature')
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+    incrementalMessages = [message(1, 'user', 'build the feature')]
+    view.rerenderProps({ working: true })
+    await screen.findByTestId('agent-message-1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    // Still (nominally) working — the marker waits for the real idle edge
+    // rather than assuming the click already succeeded.
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+
+    // The falling edge's own activity re-read is what would bring this back
+    // from the real daemon; the mock stands in for that here.
+    activityFn.mockResolvedValue(stoppedAt(1))
+    view.rerenderProps({ working: false })
+
+    expect(await screen.findByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+  })
+
+  // Stopping a LATER turn is marked too — unlike the old first-turn-only
+  // local state, this is the same architecture a mid-conversation compaction
+  // already uses, and a compaction is never scoped to "only the first turn".
+  it('marks a later turn’s stop too, anchored above the message that follows it', async () => {
     initialMessages = [message(1, 'user', 'first turn'), message(2, 'assistant', 'first reply')]
+    activityFn.mockResolvedValue(stoppedAt(3))
     const view = setup({ working: false })
     await enterPrompt('second turn')
     await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
-    incrementalMessages = [message(3, 'user', 'second turn')]
+    incrementalMessages = [message(3, 'user', 'second turn'), message(4, 'assistant', 'third turn reply')]
+    view.rerenderProps({ working: false, turnRevision: 2 })
+    await screen.findByText('third turn reply')
+
+    // Anchored above message 4 — the first one after the stop at seq 3 — not
+    // trailing the whole transcript, and not absent just because it was not
+    // the first turn.
+    const divider = await screen.findByTestId('agent-interrupted-divider')
+    const later = screen.getByText('third turn reply')
+    expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('does not move once a later message actually follows the stop', async () => {
+    const view = setup({ working: false })
+    await enterPrompt('build the feature')
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+    incrementalMessages = [message(1, 'user', 'build the feature')]
     view.rerenderProps({ working: true })
-    await screen.findByTestId('agent-message-3')
+    await screen.findByTestId('agent-message-1')
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+    activityFn.mockResolvedValue(stoppedAt(1))
     view.rerenderProps({ working: false })
-    await act(async () => Promise.resolve())
+    await screen.findByTestId('agent-interrupted-divider')
 
-    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+    // Send and receive a SECOND message. The old, purely-local marker had no
+    // sequence to anchor to and simply kept rendering after the newest thing
+    // on screen — this one must hand off to a fixed position instead.
+    incrementalMessages = [message(2, 'user', 'a second message')]
+    view.rerenderProps({ working: true, turnRevision: 2 })
+    await screen.findByText('a second message')
+    view.rerenderProps({ working: false })
+
+    const divider = await screen.findByTestId('agent-interrupted-divider')
+    expect(screen.getAllByTestId('agent-interrupted-divider')).toHaveLength(1)
+    const later = screen.getByText('a second message')
+    expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 

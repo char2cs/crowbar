@@ -32,11 +32,13 @@ interface AgentTranscriptProps {
    *  BETWEEN two messages, so the message that follows it is the only one that
    *  identifies it unambiguously. */
   compactionBefore?: Record<number, 'manual' | 'auto' | string>
-  /** A person stopped the chat's first turn after it had already dispatched.
-   *  LOCAL for this session only — see interrupted-divider.tsx for why. Drawn
-   *  once the turn has actually gone idle, in the same slot the working line
-   *  just vacated, never alongside it. */
-  firstTurnInterrupted?: boolean
+  /** A stopped turn, keyed the same way compactionBefore is: by the sequence of
+   *  the first message AFTER it, the row the divider draws above. */
+  interruptedBefore?: Record<number, true>
+  /** The most recent stop with no later message loaded yet — nothing to key it
+   *  before, so it draws once the turn has actually gone idle, in the same slot
+   *  the working line just vacated, never alongside it. */
+  trailingInterruption?: boolean
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -136,6 +138,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                 {props.compactionBefore?.[message.sequence] && (
                   <CompactionDivider trigger={props.compactionBefore[message.sequence]} />
                 )}
+                {props.interruptedBefore?.[message.sequence] && <InterruptedDivider />}
                 <MessageRow
                   message={message}
                   providers={props.providers}
@@ -170,7 +173,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             onOpenTerminal={props.onOpenTerminal}
           />
         ))}
-        {props.firstTurnInterrupted && !props.working && <InterruptedDivider />}
+        {props.trailingInterruption && !props.working && <InterruptedDivider />}
         <WorkingLine
           activity={props.activity}
           working={props.working}

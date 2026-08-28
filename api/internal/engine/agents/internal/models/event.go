@@ -72,6 +72,11 @@ const (
 	InterruptNotification = "notification"
 	InterruptElicitation  = "elicitation"
 	InterruptCompaction   = "compaction"
+	// InterruptStopped is Crowbar's own doing, not a provider hook: recorded when
+	// a person cuts an in-flight turn short, so the transcript can draw the same
+	// kind of durable, sequence-anchored divider a compaction gets instead of a
+	// client-side guess about what it just clicked.
+	InterruptStopped = "stopped"
 )
 
 type InterruptEvent struct {

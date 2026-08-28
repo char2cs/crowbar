@@ -90,6 +90,7 @@ const (
 	InterruptNotification = models.InterruptNotification
 	InterruptElicitation  = models.InterruptElicitation
 	InterruptCompaction   = models.InterruptCompaction
+	InterruptStopped      = models.InterruptStopped
 )
 
 const (

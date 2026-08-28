@@ -93,6 +93,12 @@ type Turns interface {
 		ctx context.Context,
 		chatID string,
 	) (bool, error)
+	// RecordStop notes, durably, that a person cut chatID's in-flight turn
+	// short. A no-op when the chat is idle.
+	RecordStop(
+		ctx context.Context,
+		chatID string,
+	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
 	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
 

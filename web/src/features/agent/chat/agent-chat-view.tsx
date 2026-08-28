@@ -307,22 +307,31 @@ export function AgentChatView({
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
   const halted = haltedBy(ledger.messages)
-  // Nothing has landed past the first turn yet: no earlier history to page in,
-  // and every message loaded so far (there may be none — the prompt can be
-  // dispatched before its own user message reaches the ledger) shares that
-  // turn's own id. Read at the moment Stop is pressed, to decide whether doing
-  // so is interrupting turn ONE specifically — see stopFirstTurnLate in the
-  // design doc's own prototype naming.
-  const firstMessageTurnId = ledger.messages[0]?.turnId
-  const stillFirstTurn =
-    !ledger.hasOlder &&
-    (firstMessageTurnId === undefined ||
-      ledger.messages.every((message) => message.turnId === firstMessageTurnId))
-  const [firstTurnInterrupted, setFirstTurnInterrupted] = useState(false)
-  const stopFirstTurnAware = () => {
-    if (stillFirstTurn) setFirstTurnInterrupted(true)
-    void stopChat(wsId, chatId)
-  }
+  // A stopped turn, positioned the exact same way a compaction is: a real,
+  // sequence-anchored activity record (turn.RecordStop, backend-side), not
+  // this session's own memory of having clicked Stop. That is what keeps it
+  // from drifting — the old client-local version pinned itself to "the end of
+  // the transcript" and every later message pushed it along.
+  const stoppedInterruptions = useMemo(
+    () => activity.interruptions.filter((interruption) => interruption.kind === 'stopped'),
+    [activity.interruptions],
+  )
+  const interruptedBefore = useMemo(() => {
+    const marks: Record<number, true> = {}
+    for (const interruption of stoppedInterruptions) {
+      const next = ledger.messages.find((m) => m.sequence > interruption.seq)
+      if (next) marks[next.sequence] = true
+    }
+    return marks
+  }, [stoppedInterruptions, ledger.messages])
+  // The most recent stop with nothing after it yet: there is no next message to
+  // anchor before, so this is the one case the divider still draws at the foot
+  // of the transcript — exactly where the working line it replaced just was.
+  const trailingInterruption = useMemo(() => {
+    if (stoppedInterruptions.length === 0) return false
+    const latest = stoppedInterruptions.reduce((a, b) => (b.seq > a.seq ? b : a))
+    return !ledger.messages.some((m) => m.sequence > latest.seq)
+  }, [stoppedInterruptions, ledger.messages])
 
   const updateDraft = (value: string) => {
     setDraft(value)
@@ -460,7 +469,8 @@ export function AgentChatView({
       }
       compactionBefore={compactionBefore}
       suppressSequence={halted?.sequence}
-      firstTurnInterrupted={firstTurnInterrupted}
+      interruptedBefore={interruptedBefore}
+      trailingInterruption={trailingInterruption}
     />
   )
 
@@ -542,7 +552,7 @@ export function AgentChatView({
           onHeightChange={setFieldHeight}
           onKeyDown={handleKeyDown}
           onSend={enqueueDraft}
-          onStop={stopFirstTurnAware}
+          onStop={() => void stopChat(wsId, chatId)}
           onOpenTerminal={onOpenTerminal}
           onRevive={onRevive}
           draftSeed={seed.n}

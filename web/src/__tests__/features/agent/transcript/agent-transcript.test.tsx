@@ -115,8 +115,8 @@ describe('AgentTranscript interrupted marker', () => {
     { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
   ]
 
-  it('draws it once the turn has actually gone idle', () => {
-    draw(oneFrozenTurn, { firstTurnInterrupted: true, working: false })
+  it('draws the trailing marker once the turn has actually gone idle, with nothing after it yet', () => {
+    draw(oneFrozenTurn, { trailingInterruption: true, working: false })
 
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
@@ -124,15 +124,35 @@ describe('AgentTranscript interrupted marker', () => {
   // The working line and the marker say opposite things about the same
   // instant — never both on screen, and the spinner's own disappearance is
   // what hands off to it, not a separate timer.
-  it('does not draw it while the turn still reads as working', () => {
-    draw(oneFrozenTurn, { firstTurnInterrupted: true, working: true })
+  it('does not draw the trailing marker while the turn still reads as working', () => {
+    draw(oneFrozenTurn, { trailingInterruption: true, working: true })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 
-  it('draws nothing when the first turn was never interrupted', () => {
-    draw(oneFrozenTurn, { firstTurnInterrupted: false, working: false })
+  it('draws nothing when nothing was interrupted', () => {
+    draw(oneFrozenTurn, { trailingInterruption: false, working: false })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+  })
+
+  // REGRESSION: once a message actually follows the stop, the marker must hand
+  // off to that FIXED position and stop trailing the transcript — the bug was
+  // a marker that kept re-anchoring itself to "the end", drifting down every
+  // time something new was said after the stop.
+  it('draws anchored above the first message that follows the stop, not trailing, once one exists', () => {
+    const messages = [
+      { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
+      { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'after the stop', at: '' },
+    ]
+    draw(messages, {
+      interruptedBefore: { 1: true },
+      trailingInterruption: false,
+      working: false,
+    })
+
+    const divider = screen.getByTestId('agent-interrupted-divider')
+    const later = screen.getByText('after the stop')
+    expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

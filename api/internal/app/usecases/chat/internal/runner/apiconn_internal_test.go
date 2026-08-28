@@ -38,6 +38,8 @@ func (noopTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 
 func (noopTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
 
+func (noopTurns) RecordStop(context.Context, string) error { return nil }
+
 func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
 
 func (noopTurns) MatchTerminalPrompt(
