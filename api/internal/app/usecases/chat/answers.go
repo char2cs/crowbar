@@ -182,7 +182,14 @@ func (u *Usecase) AnswerChoice(
 	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
-	if choice.Kind == engineagents.ChoiceToolPermission {
+	// Scoped by the HOOK the relay arrived on, not the choice's own kind:
+	// AskUserQuestion arrives on HookPermission too (a tool call, not a
+	// separate event) and shares the exact same interruption id scheme, so
+	// answering one must close it here same as a plain tool_permission
+	// choice does. An elicitation's own interruption has a different id
+	// scheme entirely (see answerdesk.Desk.record's own doc comment, which
+	// scopes itself the identical way) and must never be touched from here.
+	if slot.Event == engineagents.HookPermission {
 		u.resolvePermissionInterruption(ctx, chatID, choiceID)
 	}
 	u.answers.Resolve(slot, stdout)

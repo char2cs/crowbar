@@ -401,13 +401,12 @@ func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
 			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
 }
 
-// TestLedger_AnAnswerableQuestionsInterruptionIsNotClosedByADeadRunner proves
-// record's interruption resolve is scoped to HookPermission the same way the
-// auto-approve and human-answer paths scope theirs to ChoiceToolPermission —
-// an elicitation's interruption carries a different Kind, and resolving it
-// under Event: HookPermission's own PermissionInterruptionID would name an
-// interruption that was never opened, exactly the phantom-row defect a live
-// review found in the human-answer path before this fix.
+// TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption proves
+// record's interruption resolve is scoped to Event == HookPermission — an
+// elicitation's interruption carries a different Kind and id scheme, and
+// resolving it under a permission choice's own PermissionInterruptionID
+// would name an interruption that was never opened, exactly the
+// phantom-row defect a live review found in the human-answer path.
 func TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption(t *testing.T) {
 	t.Parallel()
 

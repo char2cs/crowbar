@@ -52,14 +52,11 @@ func (t *Turns) handleObservation(
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation, engineagents.HookCompactPre:
-		// The choice id is minted ONCE here and threaded through to both the
-		// interruption and openChoice, rather than each computing its own —
-		// two independent calls to choiceID/interruptionID each draw their
-		// own fallbackID() when PromptID is empty (Codex's own permission
-		// mapping never sets one), producing two DIFFERENT ids for what
-		// should be the same pair, so resolvePermissionInterruption's
-		// prefix-swap named an interruption that never existed. See
-		// TestRegression_ACodexPermissionWithNoPromptIDStillPairsItsChoice.
+		// Minted ONCE, threaded to both calls below — two independent
+		// choiceID/interruptionID draws each mint their own fallbackID()
+		// when PromptID is empty (Codex's own mapping never sets one),
+		// pairing a choice with an interruption that was never opened. See
+		// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption.
 		cid := ""
 		if ev.Choice != nil {
 			cid = choiceID(chat.ID, ev.Choice)
@@ -176,13 +173,10 @@ func (t *Turns) autoApproveIfPolicy(
 
 // resolvePermissionInterruption closes the notification banner a permission
 // choice opened, freeing its slot in the turn's MaxOpenPerTurn budget the
-// moment the choice is decided. Left open until turn-close, a long turn's
-// gated tool calls each leak one — trivially reachable once every
-// standard/sensitive-tier call routes through a real ask (see
-// --permission-mode default), where under the old silent-approval mode it
-// almost never was. Best-effort: the interruption banner is cosmetic:
-// ResolveInterruption also synthesizes a closed record for an id it has
-// never seen, so this cannot itself explain a "no longer pending" failure.
+// moment the choice is decided — left open until turn-close, a long turn's
+// gated tool calls each leak one. Best-effort: ResolveInterruption also
+// synthesizes a closed record for an id it has never seen, so this cannot
+// itself explain a "no longer pending" failure.
 func (t *Turns) resolvePermissionInterruption(
 	ctx context.Context,
 	chatID string,

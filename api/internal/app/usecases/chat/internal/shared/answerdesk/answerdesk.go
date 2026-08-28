@@ -52,14 +52,17 @@ const (
 	DefaultRetention = time.Minute
 )
 
-// PermissionInterruptionID derives a permission choice's paired interruption
-// id from the choice id alone — the two are minted from the same
-// "chatID-promptID-toolName" key under different prefixes (see
-// turn/observation.go's choiceID/interruptionID, the one place that pair is
-// actually opened), so every caller that only ever sees the choice id —
-// the human answer path (chat.Usecase.AnswerChoice) and this desk's own
-// record, both a package away from where the pair was opened — derives the
-// same interrupt id from it rather than re-deriving or guessing one.
+// PermissionInterruptionID derives a choice's paired interruption id from the
+// choice id alone, by a prefix swap — both are minted from the exact same
+// key in turn/observation.go's handleObservation, the one place the pair is
+// actually opened, for every choice kind (tool_permission, AskUserQuestion,
+// elicitation alike). Every caller that only ever sees the choice id — the
+// human answer path (chat.Usecase.AnswerChoice) and this desk's own record,
+// both a package away from where the pair was opened — derives the same
+// interrupt id from it rather than re-deriving or guessing one; each then
+// scopes itself to the choice kinds it actually means to resolve (see their
+// own doc comments), since deriving a well-formed id here says nothing about
+// whether resolving it is that caller's to do.
 func PermissionInterruptionID(choiceID string) string {
 	const prefix = "choice-"
 	if !strings.HasPrefix(choiceID, prefix) {

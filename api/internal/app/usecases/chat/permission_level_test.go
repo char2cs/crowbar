@@ -197,5 +197,14 @@ func TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption(
 	require.Len(t, all.Choices, gatedCalls, "every gated call must have opened its own choice")
 	for _, c := range all.Choices {
 		assert.True(t, c.AutoApproved, "choice %s must have auto-approved, not been dropped", c.ID)
+		assert.Equal(t, domain.ChoiceResolutionAnswered, c.Resolution,
+			"choice %s must resolve as answered, not linger unresolved past the turn", c.ID)
+	}
+	require.Len(t, all.Interruptions, gatedCalls,
+		"every gated call must have opened its own interruption too, not just its choice")
+	for _, i := range all.Interruptions {
+		assert.NotNil(t, i.ResolvedAt,
+			"interruption %s must have closed alongside its choice, not been left stranded "+
+				"under an id nothing ever resolves", i.ID)
 	}
 }

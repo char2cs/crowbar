@@ -174,6 +174,42 @@ func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing
 			"against MaxOpenPerTurn for the rest of the turn")
 }
 
+// TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption is the
+// AskUserQuestion half of the same fix: AskUserQuestion is a TOOL, not a
+// separate event — it arrives on HookPermission exactly like a plain
+// tool_permission choice does (see claude.yaml's own comment on this), so
+// its interruption shares the identical id scheme and must close the same
+// way. A live review of 56db1f38 caught an earlier version of this fix
+// scoping the guard by choice.Kind == ChoiceToolPermission instead of the
+// hook the relay actually arrived on — which happened to also exclude
+// this case, since a question's own Kind is ChoiceKindQuestion, not
+// ChoiceToolPermission.
+func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
+	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Interruptions, 1, "the question must have opened its own interruption")
+	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
+
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(
+		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil,
+	))
+	f.wait()
+	<-printed
+
+	all, err = f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Interruptions, 1)
+	assert.NotNil(t, all.Interruptions[0].ResolvedAt,
+		"answering a question must close its own interruption banner too, same as a plain "+
+			"permission choice does — both arrive on the same hook")
+}
+
 func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
