@@ -239,8 +239,12 @@ func truncate(s string, limit int) string {
 	return s[:cut]
 }
 
+// OpenChoice uses sendWait, not send: a caller that immediately follows this
+// with AnswerChoice for the same choice (auto-approve) must see it durably
+// settled first, or AnswerChoice's Validate reads a state where the choice
+// never opened and rejects it as no longer pending.
 func (r *eventSourced) OpenChoice(ctx context.Context, in ChoiceInput) error {
-	return r.send(ctx, commands.OpenChoice{
+	return r.sendWait(ctx, commands.OpenChoice{
 		ChatID: in.ChatID, ChoiceID: in.ChoiceID, Kind: in.Kind,
 		PromptID: in.PromptID, ToolName: in.ToolName,
 		Title: in.Title, Question: in.Question, Mode: in.Mode, Multi: in.Multi,
