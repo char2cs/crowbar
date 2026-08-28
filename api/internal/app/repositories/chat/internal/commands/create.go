@@ -18,6 +18,7 @@ import (
 type Create struct {
 	ID          string
 	WorkspaceID string
+	Type        domain.ChatType
 	Now         time.Time
 }
 
@@ -32,13 +33,26 @@ func (c Create) Validate(current *domain.Chat) error {
 	if c.ID == "" || c.WorkspaceID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)
 	}
+	if !validChatType(c.Type) {
+		return fmt.Errorf("create agent chat: invalid type: %w", asynxModels.ErrValidation)
+	}
 	return nil
+}
+
+func validChatType(t domain.ChatType) bool {
+	switch t {
+	case domain.ChatTypeChat, domain.ChatTypeBranch, domain.ChatTypeFolder, domain.ChatTypeWorkflow:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 	return domain.Chat{
 		ID:             c.ID,
 		WorkspaceID:    c.WorkspaceID,
+		Type:           c.Type,
 		CreatedAt:      c.Now,
 		LastActivityAt: c.Now,
 	}
