@@ -79,7 +79,13 @@ func (t *Turns) openChoice(
 	}
 	chatID := chat.ID
 	id := choiceID(chatID, ev.Choice)
-	note(ctx, "choice opened", t.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
+	// A choice never durably opened in the ledger must never be held for a
+	// human or auto-approved: both paths would act on a choice the ledger
+	// never recorded, and the provider's own AnswerChoice call would reject
+	// it as no longer pending. Falling through here leaves the CLI's own
+	// native prompt as the only path, same as holdForAnswer's own silent
+	// fallback for every other unanswerable-from-Crowbar reason.
+	if err := t.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
 		ChatID:   chatID,
 		ChoiceID: id,
 		Kind:     ev.Choice.Kind,
@@ -94,7 +100,10 @@ func (t *Turns) openChoice(
 		Questions: choiceQuestions(ev.Choice.Questions),
 		Schema:    string(ev.Choice.Schema),
 		Now:       now,
-	}))
+	}); err != nil {
+		note(ctx, "choice opened", err)
+		return
+	}
 
 	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 	t.autoApproveIfPolicy(ctx, chatID, id, ev, agent)

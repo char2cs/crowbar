@@ -104,8 +104,9 @@ func (r *streamRacer) finished() bool {
 // packages.
 type fakeChoiceActivity struct {
 	agentactivity.EventStore
-	mu       sync.Mutex
-	answered []answeredChoice
+	mu            sync.Mutex
+	answered      []answeredChoice
+	openChoiceErr error
 }
 
 type answeredChoice struct {
@@ -121,7 +122,7 @@ func (f *fakeChoiceActivity) Interrupt(
 }
 
 func (f *fakeChoiceActivity) OpenChoice(context.Context, agentactivity.ChoiceInput) error {
-	return nil
+	return f.openChoiceErr
 }
 
 func (f *fakeChoiceActivity) AnswerChoice(
@@ -319,4 +320,31 @@ func TestRegression_CrowbarsOwnMCPToolCallNeverHoldsForAHumanOnAnyProvider(t *te
 				"the prompt must be auto-decided through the real render-and-resolve path, not merely never held")
 		})
 	}
+}
+
+// TestOpenChoice_ANeverDurablyOpenedChoiceIsNeitherHeldNorAutoApproved covers
+// the case where OpenChoice itself fails to commit: since the choice was
+// never durably recorded, neither the human hold nor the auto-approve path
+// may run for it — both would operate on a choice the ledger never opened.
+// FullAuto is used deliberately, so a still-present bug would auto-approve
+// and prove this test catches the real defect rather than an unrelated
+// reason nothing happened.
+func TestOpenChoice_ANeverDurablyOpenedChoiceIsNeitherHeldNorAutoApproved(t *testing.T) {
+	turns, activity := newChoiceTestTurns(t)
+	activity.openChoiceErr = errors.New("boom")
+	turns.permissionLevels.Set("chat-5", permission.FullAuto)
+	ctx := inflight.WithDeliveryID(context.Background(), "delivery-5")
+	agent, err := turns.agents.Get(ctx, t.TempDir(), "claude")
+	require.NoError(t, err)
+	runner := agents.Runner{ID: "r1", ProviderID: "claude", CurrentChatID: "chat-5"}
+	ev := permissionChoiceEvent("Bash", agents.RiskStandard)
+
+	err = turns.handleObservation(ctx, runner, agent, ev, []byte(`{}`))
+
+	require.NoError(t, err, "a ledger-open failure must not propagate as a hook-ingestion failure")
+	id := choiceID("chat-5", ev.Choice)
+	_, held := turns.answers.ByChoiceID(id)
+	assert.False(t, held, "a choice that never durably opened must never be held for a human either")
+	assert.Empty(t, activity.answered,
+		"a choice that never durably opened must never be auto-approved")
 }
