@@ -153,7 +153,9 @@ func (t *Turns) autoApproveIfPolicy(
 // closure or a failed lookup both fall back to permission.Guarded rather than
 // blocking the auto-approve path — a best-effort lookup must never stall the
 // hook it decorates.
-func (t *Turns) currentDefaultLevel(ctx context.Context) permission.Level {
+func (t *Turns) currentDefaultLevel(
+	ctx context.Context,
+) permission.Level {
 	if t.defaultPermissionLevel == nil {
 		return permission.Guarded
 	}
