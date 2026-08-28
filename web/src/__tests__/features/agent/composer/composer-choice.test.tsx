@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
@@ -6,15 +7,30 @@ import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 import { ApiError } from '@/lib/api'
 
-const { answerChoiceFn } = vi.hoisted(() => ({ answerChoiceFn: vi.fn() }))
+const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
+  answerChoiceFn: vi.fn(),
+  setChatPermissionLevelFn: vi.fn(),
+}))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
+  setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
 }))
+
+// jsdom has no PointerEvent constructor; base-ui's Select opens/commits via
+// PointerEvent, same quirk documented in providers-settings.test.tsx's own
+// permission-level picker.
+if (typeof window.PointerEvent !== 'function') {
+  class PointerEventShim extends MouseEvent {}
+  // @ts-expect-error install the shim onto the jsdom window
+  window.PointerEvent = PointerEventShim
+}
 
 beforeEach(() => {
   answerChoiceFn.mockReset()
   answerChoiceFn.mockResolvedValue(undefined)
+  setChatPermissionLevelFn.mockReset()
+  setChatPermissionLevelFn.mockResolvedValue(undefined)
 })
 
 function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
@@ -575,5 +591,51 @@ describe('ComposerChoice elicitation', () => {
     draw(elicitation)
 
     expect(screen.getByTestId('agent-choice-schema')).toHaveTextContent('"target"')
+  })
+})
+
+// The per-chat permission-level dial (Task 8): a quick way to raise or lower
+// how much of THIS chat's tool-call approval is answered automatically, sitting
+// beside whatever answer controls are already showing.
+describe('ComposerChoice permission-level switcher', () => {
+  async function pickLevel(user: ReturnType<typeof userEvent.setup>, value: string) {
+    await user.click(screen.getByTestId('chat-permission-level-trigger'))
+    const option = await screen.findByTestId(`chat-permission-level-option-${value}`)
+    await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
+    await user.click(option)
+  }
+
+  it('sits beside the answer controls on a real, answerable prompt', () => {
+    draw()
+
+    expect(screen.getByTestId('chat-permission-level-trigger')).toBeInTheDocument()
+  })
+
+  // terminalOnly: nothing here can answer it, so a dial for THIS chat's future
+  // approvals has no controls to sit beside and does not appear either.
+  it('does not appear when the prompt cannot be answered from here', () => {
+    draw({ answerable: false })
+
+    expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
+  })
+
+  // There is no per-chat GET, only the per-chat PUT — so the dial never claims
+  // to know what level the chat is already running under (the same rule
+  // AgentModelPicker's own "Provider default" row follows). It starts unset.
+  it('starts on no level, never guessing at one the backend cannot report', () => {
+    draw()
+
+    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
+      'Permission level',
+    )
+  })
+
+  it('picking a level PUTs it for this chat', async () => {
+    const user = userEvent.setup()
+    draw()
+
+    await pickLevel(user, 'trusted')
+
+    expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'trusted')
   })
 })

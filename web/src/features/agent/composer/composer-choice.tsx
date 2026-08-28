@@ -12,6 +12,7 @@ import {
   type AgentChoiceQuestion,
 } from '@/features/agent/api/agent-api'
 import { choiceDetail, choiceQuestions, describeChoice } from '@/features/agent/lib/agent-activity'
+import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
 import { ApiError } from '@/lib/api'
 
 // The verbs an elicitation is answered with. They are the PROVIDER's own words
@@ -243,6 +244,7 @@ export function ComposerChoice({
                     onPick={(option) => void send([option.id])}
                   />
                 )}
+                <PermissionLevelSwitcher wsId={wsId} chatId={chatId} />
               </>
             )}
           </span>

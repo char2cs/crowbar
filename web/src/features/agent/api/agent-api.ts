@@ -775,6 +775,21 @@ export async function updateDefaultPermissionLevel(
   return res.level
 }
 
+/** Override ONE chat's own approval level, independent of the global default
+ *  above. Write-only — there is no GET for a single chat's level, so a caller
+ *  has nothing to reconcile against and must not pretend otherwise. */
+export async function setChatPermissionLevel(
+  wsId: string,
+  chatId: string,
+  level: PermissionLevel,
+): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/permission-level`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  })
+}
+
 // ── Writes ──────────────────────────────────────────────────────────
 /**
  * Start a chat, optionally UNDER `parentId` — a chat (making the new one a
