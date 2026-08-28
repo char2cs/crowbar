@@ -17,6 +17,11 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
   updateDefaultPermissionLevel: vi.fn(),
+  PERMISSION_LEVEL_OPTIONS: [
+    { value: 'guarded', label: 'Guarded' },
+    { value: 'trusted', label: 'Trusted' },
+    { value: 'full-auto', label: 'Full Auto' },
+  ],
 }))
 
 // jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching

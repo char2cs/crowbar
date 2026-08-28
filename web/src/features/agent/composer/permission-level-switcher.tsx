@@ -1,5 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
-import { setChatPermissionLevel, type PermissionLevel } from '@/features/agent/api/agent-api'
+import {
+  PERMISSION_LEVEL_OPTIONS,
+  setChatPermissionLevel,
+  type PermissionLevel,
+} from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   Select,
@@ -8,12 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-
-const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{ value: PermissionLevel; label: string }> = [
-  { value: 'guarded', label: 'Guarded' },
-  { value: 'trusted', label: 'Trusted' },
-  { value: 'full-auto', label: 'Full Auto' },
-]
 
 // This control's own memory of its last CONFIRMED pick, per chat — not a
 // fabricated read of backend truth, just this component's state surviving a

@@ -35,6 +35,11 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   getDefaultPermissionLevel: (...a: unknown[]) => getDefaultPermissionLevelFn(...a),
   updateDefaultPermissionLevel: (...a: unknown[]) => updateDefaultPermissionLevelFn(...a),
+  PERMISSION_LEVEL_OPTIONS: [
+    { value: 'guarded', label: 'Guarded' },
+    { value: 'trusted', label: 'Trusted' },
+    { value: 'full-auto', label: 'Full Auto' },
+  ],
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getDefaultPermissionLevel,
+  PERMISSION_LEVEL_OPTIONS,
   updateDefaultPermissionLevel,
 } from '@/features/agent/api/agent-api'
 import type { PermissionLevel } from '@/features/agent/api/agent-api'
@@ -15,12 +16,6 @@ import {
 import { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 
-const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{ value: PermissionLevel; label: string }> = [
-  { value: 'guarded', label: 'Guarded' },
-  { value: 'trusted', label: 'Trusted' },
-  { value: 'full-auto', label: 'Full Auto' },
-]
-
 /**
  * How much of a new chat's tool-call approval Crowbar answers automatically.
  * Unlike the rest of this tab's rows, this one is backend-owned rather than
@@ -34,9 +29,17 @@ export function DefaultPermissionLevelSetting() {
 
   useEffect(() => {
     let cancelled = false
-    void getDefaultPermissionLevel().then((resolved) => {
-      if (!cancelled) setLevel(resolved)
-    })
+    void getDefaultPermissionLevel()
+      .then((resolved) => {
+        if (!cancelled) setLevel(resolved)
+      })
+      .catch(() => {
+        if (cancelled) return
+        toast.error(
+          'Could not load permission level',
+          'Crowbar could not reach the daemon — try again.',
+        )
+      })
     return () => {
       cancelled = true
     }

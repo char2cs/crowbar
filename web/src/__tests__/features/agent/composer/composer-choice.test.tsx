@@ -15,6 +15,11 @@ const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
 vi.mock('@/features/agent/api/agent-api', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
+  PERMISSION_LEVEL_OPTIONS: [
+    { value: 'guarded', label: 'Guarded' },
+    { value: 'trusted', label: 'Trusted' },
+    { value: 'full-auto', label: 'Full Auto' },
+  ],
 }))
 
 // jsdom has no PointerEvent constructor; base-ui's Select opens/commits via

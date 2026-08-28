@@ -37,3 +37,21 @@ func TestAutoApprove(t *testing.T) {
 		})
 	}
 }
+
+func TestValid(t *testing.T) {
+	cases := []struct {
+		level permission.Level
+		want  bool
+	}{
+		{permission.Guarded, true},
+		{permission.Trusted, true},
+		{permission.FullAuto, true},
+		{permission.Level("yolo"), false},
+		{permission.Level(""), false},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.level), func(t *testing.T) {
+			assert.Equal(t, tc.want, permission.Valid(tc.level))
+		})
+	}
+}

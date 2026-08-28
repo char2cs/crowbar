@@ -13,16 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// valid is the closed set Set accepts. Anything else — a typo, a future level
-// not yet shipped — is rejected rather than silently stored, so Get can never
-// hand a chat-seeding caller a Level permission.AutoApprove doesn't know how
-// to interpret.
-var valid = map[permission.Level]bool{
-	permission.Guarded:  true,
-	permission.Trusted:  true,
-	permission.FullAuto: true,
-}
-
 type DefaultLevel struct {
 	prefs store.Store[domain.AgentPermissionDefault, string]
 }
@@ -59,7 +49,7 @@ func (d *DefaultLevel) Set(
 	ctx context.Context,
 	level permission.Level,
 ) error {
-	if !valid[level] {
+	if !permission.Valid(level) {
 		return fmt.Errorf("%w: unknown permission level %q", apperr.ErrInvalidArgument, level)
 	}
 	if err := d.prefs.Save(ctx, domain.AgentPermissionDefault{

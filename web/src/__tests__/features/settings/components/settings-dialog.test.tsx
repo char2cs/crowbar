@@ -21,6 +21,11 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
   updateDefaultPermissionLevel: vi.fn(),
+  PERMISSION_LEVEL_OPTIONS: [
+    { value: 'guarded', label: 'Guarded' },
+    { value: 'trusted', label: 'Trusted' },
+    { value: 'full-auto', label: 'Full Auto' },
+  ],
 }))
 
 import SettingsDialog from '@/features/settings/components/settings-dialog'

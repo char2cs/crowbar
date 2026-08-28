@@ -40,3 +40,17 @@ func AutoApprove(
 		return false
 	}
 }
+
+// Valid reports whether level is one of the three levels this feature knows
+// about — Guarded, Trusted, FullAuto — and nothing else (a typo, a future
+// level not yet shipped).
+func Valid(
+	level Level,
+) bool {
+	switch level {
+	case Guarded, Trusted, FullAuto:
+		return true
+	default:
+		return false
+	}
+}

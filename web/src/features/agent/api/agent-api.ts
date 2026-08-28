@@ -762,6 +762,17 @@ export async function updateProviderPreferences(
  *  the daemon's global default, applied the moment a chat starts. */
 export type PermissionLevel = 'guarded' | 'trusted' | 'full-auto'
 
+/** The three levels' {value, label} pairs, shared by the Settings default-level
+ *  row and the per-chat switcher so the two pickers can never drift apart. */
+export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
+  value: PermissionLevel
+  label: string
+}> = [
+  { value: 'guarded', label: 'Guarded' },
+  { value: 'trusted', label: 'Trusted' },
+  { value: 'full-auto', label: 'Full Auto' },
+]
+
 export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
   const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
   return res.level
