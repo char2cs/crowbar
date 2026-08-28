@@ -367,6 +367,22 @@ export function AgentChatView({
     setComposerError('')
   }
 
+  // REGRESSION, live-verified: stopping a turn mid-GENERATION (as opposed to
+  // mid-tool-call) can make the CLI exit outright rather than resume idle —
+  // `live` drops, the composer swaps to its dormant signpost, and reattaching
+  // remounts the field from `seed`, not from `draft`. Before Stop could fire
+  // with text still in the box (see composer-handle.tsx), that remount always
+  // found an EMPTY seed and nothing was lost. Now it can find a STALE one —
+  // seeding wins, so whatever was mid-remount silently overwrote what the
+  // person had just typed, and `draft` (never told about any of this) was left
+  // pointing at text the box no longer held. Re-seeding with the box's own
+  // current text here means a remount forced by any of this has the right
+  // text to come back with, keeping `draft` and the box in agreement either way.
+  const handleStop = () => {
+    seedDraft(draft)
+    void stopChat(wsId, chatId)
+  }
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     seedDraft(slash.accept(item))
   }
@@ -496,7 +512,7 @@ export function AgentChatView({
           working={working}
           canStop={live}
           sending={prompts.deliveryPending}
-          onStop={() => void stopChat(wsId, chatId)}
+          onStop={handleStop}
         />
         {composerError && (
           <p className="meta" role="alert">
@@ -553,7 +569,7 @@ export function AgentChatView({
           onHeightChange={setFieldHeight}
           onKeyDown={handleKeyDown}
           onSend={enqueueDraft}
-          onStop={() => void stopChat(wsId, chatId)}
+          onStop={handleStop}
           onOpenTerminal={onOpenTerminal}
           onRevive={onRevive}
           draftSeed={seed.n}

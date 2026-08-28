@@ -1347,6 +1347,40 @@ describe('AgentChatView first-turn stop', () => {
     expect(screen.getByTestId('agent-message-1')).toHaveAttribute('data-first-turn', 'true')
     expect(screen.queryByTestId('agent-empty-document')).not.toBeInTheDocument()
   })
+
+  // REGRESSION, live-verified against the running app: stopping mid-generation
+  // can make the CLI exit outright (not just pause), which drops `live` and
+  // remounts the field from the pane's own pushed-in seed (`seedText`, driving
+  // `initialValue` on the REAL, uncontrolled editor — see agent-chat-view.tsx's
+  // `seed`) rather than from `draft`. Before Stop could fire with text still in
+  // the box (composer-handle.tsx), that seed was always already "" at send
+  // time, so a remount finding it stale was invisible. Now it can hold a real
+  // follow-up, and a remount finding a STALE (pre-typing) seed there would
+  // silently drop it — visibly, on the real editor; this harness's mocked
+  // textarea can't lose text across a remount the way the real one does, so
+  // the regression this proves is narrower: the remount `handleStop` forces
+  // must carry the CURRENT text as its `initialValue`, not whatever the seed
+  // last held before the follow-up was typed.
+  it('seeds a stop-triggered remount with the just-typed follow-up, not a stale value', async () => {
+    const view = setup({ working: false })
+    await enterPrompt('build the feature')
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+    incrementalMessages = [message(1, 'user', 'build the feature')]
+    view.rerenderProps({ working: true })
+    await screen.findByTestId('agent-message-1')
+
+    const inputBefore = await composer()
+    fireEvent.change(inputBefore, { target: { value: 'wait, also check the date' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this turn' }))
+
+    // seedDraft always bumps draftSeed, forcing the (uncontrolled) editor to
+    // remount even though nothing external pushed a genuinely new value — the
+    // assertion that matters is what that fresh instance mounts holding.
+    const inputAfter = await composer()
+    expect(inputAfter).not.toBe(inputBefore)
+    expect(inputAfter).toHaveValue('wait, also check the date')
+  })
 })
 
 // REGRESSION: the marker used to be LOCAL session state
