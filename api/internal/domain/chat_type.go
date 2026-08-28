@@ -6,5 +6,7 @@ type ChatType string
 
 const (
 	ChatTypeChat     ChatType = "chat"
+	ChatTypeBranch   ChatType = "branch"
+	ChatTypeFolder   ChatType = "folder"
 	ChatTypeWorkflow ChatType = "workflow"
 )
