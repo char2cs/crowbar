@@ -536,12 +536,22 @@
 }
 
 /* ── the row under the pill ────────────────────────────── */
+/* `.left`'s cluster (`.selpos`) is deliberately `flex: none` — it reads as one
+   control and must not fracture internally — so it cannot shrink to make room.
+   Wrapping the ROW instead of the cluster is what keeps a narrow pane from
+   forcing that overflow into `.right`'s space: once there's no room for both,
+   `.right` drops to its own line instead of the two colliding. `overflow:
+   hidden` is the backstop for when `.selpos` alone still doesn't fit even its
+   own dedicated line — clipped, not spilling past the dock into whatever
+   sits beside it. */
 .agent-chat .underbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 12px;
   padding: 8px 0 0;
+  overflow: hidden;
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
 }
@@ -551,11 +561,19 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+  /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
+     fit moves to the next line whole, it doesn't fold in place. */
+  white-space: nowrap;
 }
 /* Optical alignment: the leading chip's glyph, not its box, lines up with the
    pill's text. */
 .agent-chat .underbar .left {
   margin-left: -7px;
+}
+/* On its own wrapped line, `.right` has no sibling for `space-between` to push
+   against — the auto margin is what still pins it to the row's right edge. */
+.agent-chat .underbar .right {
+  margin-left: auto;
 }
 
 /* The selection cluster: model, effort and the view switcher read as ONE

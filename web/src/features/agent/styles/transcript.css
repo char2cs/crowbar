@@ -173,13 +173,15 @@
 /* The chat's very first turn, kept in the empty document's own hand instead of
    switching to a bubble the instant it is sent — the "it's a document" framing
    the chat opened with doesn't earn a different shape just because the words
-   moved rows. Values match `.doc` (composer.css) exactly: this is the same
-   typography, continued, not a look-alike. Every turn after the first is an
-   ordinary bubble — see agent-transcript.tsx for how "first" is decided. */
+   moved rows. Only the SHAPE carries over (full-width, no bubble chrome); the
+   type size matches every other turn in the conversation — a reader should
+   never be able to tell where the frozen turn ends by the text getting
+   smaller. Every turn after the first is an ordinary bubble — see
+   agent-transcript.tsx for how "first" is decided. */
 .agent-chat .frozen {
   width: 100%;
-  font-size: 16px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--foreground);
 }
 .agent-chat .frozen .agent-prose,
