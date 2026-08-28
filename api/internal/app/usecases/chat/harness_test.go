@@ -955,7 +955,16 @@ func newRunnerStore(
 
 func newFixture(t *testing.T) testFixture {
 	t.Helper()
-	f, _, _ := newFixtureUsing(t, nil, nil)
+	f, _, _ := newFixtureUsing(t, nil, nil, "")
+	return f
+}
+
+// newFixtureWithPermissionDefault is newFixture with the fixture's pinned global
+// permission default overridden — for the one test that needs a chat spawned at
+// something other than Guarded.
+func newFixtureWithPermissionDefault(t *testing.T, level permission.Level) testFixture {
+	t.Helper()
+	f, _, _ := newFixtureUsing(t, nil, nil, level)
 	return f
 }
 
@@ -968,16 +977,20 @@ func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore, *fakeRunnerStor
 	f, _, _ := newFixtureUsing(t,
 		func(real agentchat.EventStore) agentchat.EventStore { cs.EventStore = real; return cs },
 		func(real agentrunner.EventStore) agentrunner.EventStore { rs.EventStore = real; return rs },
+		"",
 	)
 	return f, cs, rs
 }
 
 // newFixtureUsing builds a fixture; wrapChats/wrapRunners (if non-nil) adapt the real
-// stores into the stores the usecase is built over.
+// stores into the stores the usecase is built over. permissionDefault seeds the
+// global permission-level preference the fixture starts with; the empty value
+// means "use the package's own pinned default" (permission.Guarded — see below).
 func newFixtureUsing(
 	t *testing.T,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
+	permissionDefault permission.Level,
 	wrapActivity ...func(agentactivity.EventStore) agentactivity.EventStore,
 ) (testFixture, agentchat.EventStore, agentrunner.EventStore) {
 	t.Helper()
@@ -1029,16 +1042,19 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")
 	require.NoError(t, err)
-	// Pinned to Guarded, not left at the shipped full-auto default: SpawnChat
-	// (this fixture's own chat-creation path, below) creates its chat directly
-	// rather than through conversation.Conversations.MintChat, so it never runs
-	// MintChat's own permission-level seeding — a gap outside this fix wave's
-	// scope (see the final report). Leaving the row unset here would make every
-	// spawned chat inherit the shipped full-auto default through Fix 2's
-	// restart-safe fallback, silently auto-approving the permission prompts the
-	// rest of this package's tests hold for a human on purpose.
+	// Pinned to Guarded by default, not left at the shipped full-auto default:
+	// SpawnChat now seeds a spawned chat's level from whatever this global
+	// default currently is (mirroring MintChat's own seed), so leaving this at
+	// full-auto would silently auto-approve the permission prompts the rest of
+	// this package's ~20 other tests hold for a human on purpose. permissionDefault
+	// overrides the pin for the one test that needs a chat seeded at something
+	// other than Guarded.
+	pinnedDefault := permissionDefault
+	if pinnedDefault == "" {
+		pinnedDefault = permission.Guarded
+	}
 	require.NoError(t, permissionPrefs.Save(context.Background(), domain.AgentPermissionDefault{
-		ID: domain.DefaultPermissionLevelKey, Level: string(permission.Guarded),
+		ID: domain.DefaultPermissionLevelKey, Level: string(pinnedDefault),
 	}))
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }
@@ -1185,7 +1201,7 @@ func (f *faultActivity) Turns(
 func newActivityFaultFixture(t *testing.T) (testFixture, *faultActivity) {
 	t.Helper()
 	fa := &faultActivity{}
-	f, _, _ := newFixtureUsing(t, nil, nil, func(real agentactivity.EventStore) agentactivity.EventStore {
+	f, _, _ := newFixtureUsing(t, nil, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
 		fa.EventStore = real
 		return fa
 	})
@@ -1267,7 +1283,7 @@ func (f *faultWriteActivity) AnswerChoice(
 func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {
 	t.Helper()
 	fa := &faultWriteActivity{}
-	f, _, _ := newFixtureUsing(t, nil, nil, func(real agentactivity.EventStore) agentactivity.EventStore {
+	f, _, _ := newFixtureUsing(t, nil, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
 		fa.EventStore = real
 		return fa
 	})

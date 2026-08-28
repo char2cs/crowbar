@@ -1058,6 +1058,7 @@ func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.
 			return orderedChats{EventStore: real, log: log}
 		},
 		nil,
+		"",
 		func(real agentactivity.EventStore) agentactivity.EventStore {
 			return orderedActivity{EventStore: real, log: log}
 		},

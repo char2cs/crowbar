@@ -255,6 +255,7 @@ func (rs *Runners) recordRunner(
 				fmt.Errorf("agent: spawn runner: create chat: %w", err))
 		}
 		rs.work.Set(chatID, created.Working)
+		rs.seedPermissionLevel(ctx, chatID)
 	}
 	if _, err := rs.runnerStore.Start(ctx, agentrunner.StartInput{
 		RunnerID:        runnerID,
@@ -288,6 +289,22 @@ func (rs *Runners) recordRunner(
 	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
 	rs.retireOthersOn(ctx, chatID, runnerID)
 	return nil
+}
+
+// seedPermissionLevel mirrors conversation.Conversations.MintChat's own seed:
+// SpawnChat is the OTHER chat-creation path, and cannot call MintChat itself
+// (it pre-generates chatID before the row exists). A read failure is
+// swallowed, not propagated — permission.Store's own Guarded fallback covers
+// a chat never seeded here.
+func (rs *Runners) seedPermissionLevel(
+	ctx context.Context,
+	chatID string,
+) {
+	level, err := rs.defaultPermissionLevel(ctx)
+	if err != nil {
+		return
+	}
+	rs.permissionLevels.Set(chatID, level)
 }
 
 func (rs *Runners) mintRunnerToken(runnerID string) string {
