@@ -113,11 +113,20 @@ safe allowlist, not a denylist: a new tool version Crowbar hasn't been taught ab
 conservative case, never the most permissive.
 
 **Elicitation events are out of scope for this policy and always hold for a human**, regardless of
-level (`internal` still applies if the elicitation's `mcp_server` is Crowbar's own). Unlike a
-tool-permission allow/deny, an elicitation's `accept` reply must carry actual content matching a
-schema — there's no safe way for Crowbar to synthesize that automatically, and the user's original
-complaint was about tool-call approval, not answering forms on the agent's behalf. Flagged for
-your review in §8; this can be revisited later without touching the tool-permission design at all.
+level. Unlike a tool-permission allow/deny, an elicitation's `accept` reply must carry actual
+content matching a schema — there's no safe way for Crowbar to synthesize that automatically, and
+the user's original complaint was about tool-call approval, not answering forms on the agent's
+behalf. Flagged for your review in §8; this can be revisited later without touching the
+tool-permission design at all.
+
+**Implementation status (as shipped):** the `internal` carve-out described above for an
+elicitation whose `mcp_server` is Crowbar's own was NOT built — `autoApproveIfPolicy`'s gate is
+`Kind != ChoiceToolPermission`, which excludes every elicitation unconditionally, including one
+from Crowbar's own server. This is currently latent, not a live bug: Crowbar's own injected MCP
+server issues only plain tool calls today, never an elicitation, so the excluded case cannot
+actually occur. Recorded here as a known, deliberately deferred gap rather than silently dropped —
+if Crowbar's own server ever gains an elicitation-issuing tool, this carve-out needs to be built
+before that tool can work at any level, including `full-auto`.
 
 ## 3. Descriptor changes — a classification table, not a mode switch
 
@@ -273,8 +282,20 @@ Still open, for review:
   Settings default (out of the box, `full-auto`) before any per-chat switcher interaction; changing
   the global default does not retroactively change an already-open chat's level.
 - Live verification per project convention: after green tests, exercise `guarded` → `trusted` →
-  `full-auto` in a real chat via `make dev-desktop` against both a Claude and a Codex session, and
-  confirm the transcript shows policy-approved entries distinctly from human-approved ones.
+  `full-auto` in a real chat via `make dev-desktop` against both a Claude and a Codex session.
+  Confirm the ledger records `AutoApproved: true`/`false` correctly for each decision (a final
+  whole-branch review found the two answer paths originally shared one code path with no way to
+  tell them apart at all; a fix wave added the `AutoApproved` field to the activity ledger and its
+  API/DTO — visually surfacing that distinction in the transcript UI is a separate, deferred
+  follow-up, so this check is at the ledger/API layer, not yet the rendered chat).
+- **Codex-specific checks**, added after the final review found Codex's own risk classification
+  has no passing test today (its one direct test predates this plan and is already failing for an
+  unrelated, pre-existing reason): a Codex session at `trusted` with a real `shell` tool call
+  auto-approves (proves `tool_name` extraction from Codex's real payload shape actually feeds the
+  classifier, not just the hand-built test fixture); a Crowbar-own MCP tool call on Codex at
+  `guarded` (the strictest level) still auto-approves (proves the `RiskInternal` parity fix
+  genuinely fires from Codex's real payload, not only masked by the pre-existing
+  `default_tools_approval_mode="approve"` CLI flag doing the work underneath it).
 
 ## 10. Out of scope / deferred
 
@@ -284,3 +305,15 @@ Still open, for review:
 - **Workspace-level persistence of a per-chat override**: rejected — only the global default
   (§4) persists; a chat's own override is in-memory and dies with the chat.
 - **Elicitation auto-answering**: decided against, see §8.1.
+- **Frontend surfacing of `AutoApproved`**: the activity ledger and its API/DTO now carry a real
+  `AutoApproved` fact per resolved choice (added in the final-review fix wave — see §9), but no
+  chat-transcript UI reads or displays it yet. The backend truth existing was the substantive part
+  of the original ask; deciding where and how to show it visually is a scoped follow-up.
+- **Per-chat switcher reachability at `full-auto`**: the switcher (§6) only renders next to a
+  *pending* permission prompt, but at the shipped `full-auto` default, tool-permission prompts
+  auto-resolve server-side before the client ever sees them — so the dial is effectively invisible
+  under the very default the product ships with, reachable only for the elicitation/question
+  prompts it doesn't govern. This is a real product placement question (a persistent, always-visible
+  home for the control — e.g. a chat header or chat settings surface — versus the current
+  transient, prompt-adjacent one), not a code defect, and is left for a follow-up design decision
+  rather than resolved here.
