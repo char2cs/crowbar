@@ -70,4 +70,9 @@ type Runners interface {
 		ctx context.Context,
 		chat domain.Chat,
 	) error
+	// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
+	// connection right now. ingestResolvedHook reads this to recognize a hooks
+	// delivery of an event the descriptor declares api-owned — see its own
+	// comment for why that combination means the delivery is a redundant echo.
+	HasLiveAPIConnection(runnerID string) bool
 }

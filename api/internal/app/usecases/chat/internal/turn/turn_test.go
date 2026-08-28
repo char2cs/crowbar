@@ -194,3 +194,62 @@ func (stubRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, e
 		CurrentChatID: "chat-1",
 	}, nil
 }
+
+// codexRunnerStore is stubRunnerStore for a codex runner instead of claude's —
+// TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent needs a provider
+// whose descriptor actually declares an api transport.
+type codexRunnerStore struct {
+	agentrunner.EventStore
+}
+
+func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
+	return engineagents.Runner{
+		ID:            id,
+		ProviderID:    "codex",
+		WorkspaceID:   "ws-1",
+		CurrentChatID: "chat-1",
+	}, nil
+}
+
+// liveAPIRunners answers only HasLiveAPIConnection — every other Runners
+// method embeds turn.Runners and panics if reached, which is deliberate: this
+// test's whole point is that a redundant hooks delivery must return before
+// touching any of them.
+type liveAPIRunners struct {
+	turn.Runners
+	live bool
+}
+
+func (r liveAPIRunners) HasLiveAPIConnection(string) bool { return r.live }
+
+// TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent guards the bug
+// reported live 2026-08-28: while working with codex, some turns went missing
+// mid-stream and then all reappeared at once when the turn finished. Every
+// api-transport spawn also forks a real, hooks-wired companion PTY on the SAME
+// session (attach.go's own "known gap"), and that PTY's hooks fire the
+// descriptor's full hook set regardless of what TransportFor declares — so it
+// echoes turn_stop a live api connection already reported. This turn_stop hook
+// carries a runner_id whose chat this fixture wires no Chats/Activity/
+// Conversations for at all: if the redundant delivery is not recognized and
+// dropped BEFORE closeTurnFromStop runs, the call panics on a nil port instead
+// of returning cleanly.
+func TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	turns := turn.New(turn.Deps{
+		Runners:      codexRunnerStore{},
+		Agents:       engineagents.New(),
+		Workspace:    stubWorkspace{home: home},
+		Home:         func() (string, error) { return home, nil },
+		PendingHooks: inflight.NewHooks(),
+		Telemetry:    telemetry.New(),
+		Work:         inflight.NewWork(),
+	})
+	turns.SetRunners(liveAPIRunners{live: true})
+
+	err := turns.IngestHook(t.Context(), "runner-1", "codex", "turn_stop",
+		[]byte(`{"session_id":"s1","last_assistant_message":"the reply"}`))
+
+	require.NoError(t, err)
+}
