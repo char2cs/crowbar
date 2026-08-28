@@ -100,6 +100,7 @@ func (rs *Runners) moveToNewChat(
 		return fmt.Errorf("agent: ingest hook: mint chat: %w", err)
 	}
 	rs.work.Set(newChatID, created.Working)
+	rs.seedPermissionLevel(ctx, newChatID)
 	if _, err := rs.runnerStore.Move(ctx, runner.ID, newChatID, sessionID, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to new chat: %w", err)
 	}
