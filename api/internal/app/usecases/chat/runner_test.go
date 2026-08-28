@@ -3018,12 +3018,14 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
 	assert.Equal(t, []string{
-		"created",      // SpawnChat
-		"title_set",    // user_prompt: derived title
-		"turn_started", // user_prompt: StartTurn
-		"turn_stopped", // turn_stop: StopTurn
-		"created",      // /clear: the minted chat
-		"deleted",      // PurgeChat (asynx Forget's OnForget)
+		"created",              // SpawnChat
+		"permission_level_set", // SpawnChat: seeded from the global default
+		"title_set",            // user_prompt: derived title
+		"turn_started",         // user_prompt: StartTurn
+		"turn_stopped",         // turn_stop: StopTurn
+		"created",              // /clear: the minted chat
+		"permission_level_set", // /clear: seeded from the global default
+		"deleted",              // PurgeChat (asynx Forget's OnForget)
 	}, f.bcKinds(t))
 
 	assert.Equal(t, []string{
@@ -3114,7 +3116,7 @@ func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing
 			assert.Empty(t, runnerID)
 			f.wait()
 
-			assert.Equal(t, []string{"created", "deleted"}, f.bcKinds(t),
+			assert.Equal(t, []string{"created", "permission_level_set", "deleted"}, f.bcKinds(t),
 				"the chat was written and then taken back out — not merely never written")
 
 			var born string

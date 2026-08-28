@@ -32,8 +32,23 @@ const lastPickedLevel = new Map<string, PermissionLevel>()
  * it never shows a value the backend cannot actually confirm. It starts from
  * whatever THIS control last confirmed for this chat (see `lastPickedLevel`),
  * or unset if it has never been touched.
+ *
+ * `availableLevels` is the SAME "absent capability, absent UI" rule
+ * AgentModelPicker applies to models/efforts: a level the current provider
+ * does not declare is not merely disabled here, it is not offered at all —
+ * the server rejects an explicit pick of one just as firmly. Undefined or
+ * empty (provider not yet resolved, or a provider declaring none) hides the
+ * whole control rather than offering three options two of which would 400.
  */
-export function PermissionLevelSwitcher({ wsId, chatId }: { wsId: string; chatId: string }) {
+export function PermissionLevelSwitcher({
+  wsId,
+  chatId,
+  availableLevels,
+}: {
+  wsId: string
+  chatId: string
+  availableLevels?: PermissionLevel[]
+}) {
   const [level, setLevel] = useState<PermissionLevel | ''>(() => lastPickedLevel.get(chatId) ?? '')
   // Fences overlapping writes the same way DefaultPermissionLevelSetting does:
   // a late settlement from an earlier pick must not roll back, or cache, over
@@ -63,6 +78,11 @@ export function PermissionLevelSwitcher({ wsId, chatId }: { wsId: string; chatId
     [level, wsId, chatId],
   )
 
+  const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => availableLevels?.includes(opt.value))
+  // Absent capability, absent UI — the same rule AgentModelPicker follows for
+  // a provider declaring no catalogue at all.
+  if (options.length === 0) return null
+
   return (
     <Select value={level} onValueChange={handleChange}>
       <SelectTrigger
@@ -74,7 +94,7 @@ export function PermissionLevelSwitcher({ wsId, chatId }: { wsId: string; chatId
         <SelectValue placeholder="Permission level" />
       </SelectTrigger>
       <SelectContent>
-        {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+        {options.map((opt) => (
           <SelectItem
             key={opt.value}
             value={opt.value}

@@ -29,6 +29,11 @@ type Descriptor struct {
 	Model  *ModelSpec  `yaml:"model"`
 	Effort *EffortSpec `yaml:"effort"`
 
+	// PermissionLevels is separate from the top-level "permission" event key
+	// (events.permission, the PermissionRequest hook mapping) — this one
+	// declares spawn-time behavior, that one declares an in-conversation ask.
+	PermissionLevels *PermissionSpec `yaml:"permission_levels"`
+
 	Telemetry *TelemetrySpec `yaml:"telemetry"`
 
 	TerminalPrompts []TerminalPromptSpec `yaml:"terminal_prompts"`

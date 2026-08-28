@@ -9,7 +9,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -27,7 +26,7 @@ func TestGet_UnsetFallsBackToFullAuto(t *testing.T) {
 	level, err := table.Get(t.Context())
 
 	require.NoError(t, err)
-	assert.Equal(t, permission.FullAuto, level,
+	assert.Equal(t, "full-auto", level,
 		"the shipped default is full-auto until a user has ever changed it in Settings")
 }
 
@@ -35,18 +34,18 @@ func TestSet_ThenGetRoundTrips(t *testing.T) {
 	t.Parallel()
 	table := newTable(t)
 
-	require.NoError(t, table.Set(t.Context(), permission.Guarded))
+	require.NoError(t, table.Set(t.Context(), "guarded"))
 	level, err := table.Get(t.Context())
 
 	require.NoError(t, err)
-	assert.Equal(t, permission.Guarded, level)
+	assert.Equal(t, "guarded", level)
 }
 
 func TestSet_RejectsAnUnknownLevel(t *testing.T) {
 	t.Parallel()
 	table := newTable(t)
 
-	err := table.Set(t.Context(), permission.Level("yolo"))
+	err := table.Set(t.Context(), "yolo")
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 }

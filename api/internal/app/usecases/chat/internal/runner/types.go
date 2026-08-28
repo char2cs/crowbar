@@ -58,6 +58,14 @@ type Conversations interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	// SeedPermissionLevel durably writes the current global default onto a
+	// freshly created chat — see Conversations.MintChat's own use of this,
+	// which SpawnChat and moveToNewChat mirror since neither can call
+	// MintChat itself (both pre-generate chatID before the row exists).
+	SeedPermissionLevel(
+		ctx context.Context,
+		chatID string,
+	)
 }
 
 // Turns is what the CLI lifecycle needs from the hook ingress: the turn a switch

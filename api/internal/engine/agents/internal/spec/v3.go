@@ -69,14 +69,6 @@ type EventSpec struct {
 	Send map[string]string `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
 	Reply map[string]string `yaml:"reply"`
-	// Risk classifies this event's tool calls into engineagents.RiskTier
-	// buckets, keyed by tier name ("read-only", "standard", "sensitive",
-	// "internal") to a list of tool-name patterns (a trailing "*" matches a
-	// prefix; anything else must match exactly). Only meaningful for the
-	// permission event today. A tool matching no pattern in any bucket, or a
-	// descriptor declaring no risk: block at all, classifies as "sensitive" —
-	// see models.RiskSensitive.
-	Risk map[string][]string `yaml:"risk"`
 	// Answerable false marks an ask: event Crowbar can SEE but not answer — the
 	// provider declares no response template, so the human answers in the terminal
 	// instead. Declared rather than inferred from an empty reply: "no templates" and

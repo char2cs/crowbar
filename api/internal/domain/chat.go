@@ -41,6 +41,15 @@ type Chat struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 
+	// PermissionLevel is the SAME sticky-choice/gap-drives-restart pattern as
+	// Model/Effort above (AgentRunner.LaunchPermissionLevel is its own
+	// LaunchModel/LaunchEffort), for Crowbar's own guarded/trusted/full-auto
+	// dial. It differs from Model/Effort in one way: empty is NOT "the
+	// provider's own default" here — a chat is always seeded with a real
+	// level at creation, so empty only ever means "not seeded yet," a
+	// transient state no chat a client can see should be in.
+	PermissionLevel string `json:"permissionLevel,omitempty"`
+
 	// ParentID is the row this chat hangs off in the Chats tree: another chat, a
 	// folder, or "" at the panel root. It is the ONLY record of the relationship
 	// — no badge, no stored fork point — because the relationship is live rather

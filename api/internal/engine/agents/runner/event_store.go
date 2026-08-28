@@ -56,9 +56,10 @@ type StartInput struct {
 	// argv. They are recorded because they cannot be recovered afterwards: the
 	// CLIs expose no readable current model, so an unrecorded spawn is a process
 	// whose selection nobody can ever name again.
-	LaunchModel  string
-	LaunchEffort string
-	Now          time.Time
+	LaunchModel           string
+	LaunchEffort          string
+	LaunchPermissionLevel string
+	Now                   time.Time
 }
 
 // EventStore is the asynx-backed AgentRunner aggregate repository.
@@ -314,15 +315,16 @@ func (r *eventSourced) Start(
 	in StartInput,
 ) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Start{
-		RunnerID:        in.RunnerID,
-		WorkspaceID:     in.WorkspaceID,
-		ProviderID:      in.ProviderID,
-		TerminalSession: in.TerminalSession,
-		ChatID:          in.ChatID,
-		LaunchSessionID: in.LaunchSessionID,
-		LaunchModel:     in.LaunchModel,
-		LaunchEffort:    in.LaunchEffort,
-		Now:             in.Now,
+		RunnerID:              in.RunnerID,
+		WorkspaceID:           in.WorkspaceID,
+		ProviderID:            in.ProviderID,
+		TerminalSession:       in.TerminalSession,
+		ChatID:                in.ChatID,
+		LaunchSessionID:       in.LaunchSessionID,
+		LaunchModel:           in.LaunchModel,
+		LaunchEffort:          in.LaunchEffort,
+		LaunchPermissionLevel: in.LaunchPermissionLevel,
+		Now:                   in.Now,
 	})
 	if err != nil {
 		return agents.Runner{}, fmt.Errorf("agentrunner: start: %w", err)

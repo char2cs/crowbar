@@ -88,6 +88,7 @@ function draw(overrides: Partial<AgentChoice> = {}, detail = '') {
       activity={gating}
       choice={subject}
       providerLabel="Claude"
+      permissionLevels={['guarded', 'trusted', 'full-auto']}
     />,
   )
 }
@@ -639,6 +640,43 @@ describe('ComposerChoice permission-level switcher', () => {
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
 
+  // Absent capability, absent UI — the same rule AgentModelPicker follows for
+  // a provider declaring no model/effort catalogue. A level the CURRENT
+  // provider does not declare is not offered at all, so offering none of the
+  // three unconditionally would put up a control the write would 400 on.
+  it('does not appear for a provider whose descriptor declares no levels', () => {
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        choice={choice()}
+        activity={NO_ACTIVITY}
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
+  })
+
+  it('offers only the levels this provider actually declares', async () => {
+    const user = userEvent.setup()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        choice={choice()}
+        activity={NO_ACTIVITY}
+        providerLabel="Codex"
+        permissionLevels={['trusted', 'full-auto']}
+      />,
+    )
+
+    await user.click(screen.getByTestId('chat-permission-level-trigger'))
+    expect(await screen.findByTestId('chat-permission-level-option-trusted')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-permission-level-option-full-auto')).toBeInTheDocument()
+    expect(screen.queryByTestId('chat-permission-level-option-guarded')).toBeNull()
+  })
+
   // There is no per-chat GET, only the per-chat PUT — so the dial never claims
   // to know what level the chat is already running under (the same rule
   // AgentModelPicker's own "Provider default" row follows). It starts unset.
@@ -674,6 +712,7 @@ describe('ComposerChoice permission-level switcher', () => {
         choice={choice()}
         activity={NO_ACTIVITY}
         providerLabel="Claude"
+        permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
     )
 
@@ -693,6 +732,7 @@ describe('ComposerChoice permission-level switcher', () => {
         choice={choice()}
         activity={NO_ACTIVITY}
         providerLabel="Claude"
+        permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
     )
     expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('full-auto')
@@ -707,6 +747,7 @@ describe('ComposerChoice permission-level switcher', () => {
         choice={choice({ id: 'k2' })}
         activity={NO_ACTIVITY}
         providerLabel="Claude"
+        permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
     )
     expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(

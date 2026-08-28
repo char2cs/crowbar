@@ -96,6 +96,11 @@ func (rs *Runners) renderSpawnContext(
 		// that would read them are not rendered at all in that case.
 		Model:  in.selection.Model,
 		Effort: in.selection.Effort,
+		// The resolved permission level's own named values, already looked
+		// up by the caller against the SAME descriptor SpawnPlan renders
+		// against — see spawn.go's own comment on why the lookup happens
+		// there, not here.
+		PermissionVars: in.permissionVars,
 		// Templated against by an api-transport descriptor's serve/attach argv
 		// ({socket}). A short path under the OS temp dir, never under the
 		// worktree — macOS's sun_path is a hard 104 bytes (see

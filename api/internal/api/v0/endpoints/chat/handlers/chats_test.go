@@ -347,13 +347,13 @@ func (configurableListGetUsecase) ReplaceProviderPreferences(
 
 func (configurableListGetUsecase) DefaultPermissionLevel(
 	_ context.Context,
-) (agentusecase.PermissionLevel, error) {
+) (string, error) {
 	return agentusecase.PermissionFullAuto, nil
 }
 
 func (configurableListGetUsecase) SetDefaultPermissionLevel(
 	_ context.Context,
-	_ agentusecase.PermissionLevel,
+	_ string,
 ) error {
 	return nil
 }
@@ -1002,7 +1002,7 @@ func (configurableListGetUsecase) AwaitAnswer(
 func (configurableListGetUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) SetChatPermissionLevel(
-	context.Context, string, agentusecase.PermissionLevel,
+	context.Context, string, string,
 ) error {
 	return nil
 }

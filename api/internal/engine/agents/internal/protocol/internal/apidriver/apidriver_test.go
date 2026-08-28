@@ -209,11 +209,15 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 	require.NoError(t, err)
 	defer drv.Close()
 
-	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
+	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "", "cwd": "/work",
+		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
+	})
 	require.NoError(t, err)
 	require.Equal(t, "t-123", out["session_id"])
 	require.Contains(t, (*seen)[0], `"cwd":"/work"`)
 	require.Contains(t, (*seen)[0], `"sandbox":"workspace-write"`)
+	require.Contains(t, (*seen)[0], `"approvalPolicy":"on-request"`)
 }
 
 // TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstructions

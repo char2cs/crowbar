@@ -1,12 +1,8 @@
 package descriptor_test
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -180,34 +176,4 @@ func TestCheckProtocolVersion_NoRangeAcceptsAnything(t *testing.T) {
 	if err := descriptor.CheckProtocolVersion(d, "99.0"); err != nil {
 		t.Fatalf("no declared range must accept any version: %v", err)
 	}
-}
-
-// loadDescriptor loads a real embedded descriptor by ID, used for validating
-// that the shipped YAML declares all required fields.
-func loadDescriptor(t *testing.T, id string) *spec.Descriptor {
-	t.Helper()
-	d, err := descriptor.Resolve(context.Background(), "", id)
-	if err != nil {
-		t.Fatalf("Resolve %q: %v", id, err)
-	}
-	return d
-}
-
-func TestClaudeDescriptor_ClassifiesKnownToolsIntoRiskTiers(t *testing.T) {
-	d := loadDescriptor(t, "claude")
-
-	risk, ok := d.EventRisk("permission")
-	require.True(t, ok)
-	assert.Contains(t, risk["read-only"], "Read")
-	assert.Contains(t, risk["standard"], "Bash")
-	assert.Contains(t, risk["internal"], "mcp__crowbar__*")
-}
-
-func TestCodexDescriptor_ClassifiesKnownToolsIntoRiskTiers(t *testing.T) {
-	d := loadDescriptor(t, "codex")
-
-	risk, ok := d.EventRisk("permission")
-	require.True(t, ok)
-	assert.Contains(t, risk["standard"], "shell")
-	assert.Contains(t, risk["internal"], "mcp__crowbar__*")
 }

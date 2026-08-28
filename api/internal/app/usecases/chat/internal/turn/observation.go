@@ -10,7 +10,6 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -119,94 +118,6 @@ func (t *Turns) openChoice(
 	}
 
 	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
-	t.autoApproveIfPolicy(ctx, chatID, id, ev, agent)
-}
-
-// autoApproveIfPolicy resolves a just-opened choice immediately when the
-// chat's permission level clears the prompt's risk tier, using the exact
-// render-and-resolve sequence a human's Allow click uses — so even under
-// full-auto, the transcript shows a decision was made, not silence.
-//
-// Only a plain tool-permission prompt (Kind == ChoiceToolPermission) is ever
-// eligible: a question prompt (AskUserQuestion) has no Allow option to pick,
-// and an elicitation is out of scope by design (see the spec) — both carry no
-// meaningful Risk tier and must fall through to the human hold untouched.
-func (t *Turns) autoApproveIfPolicy(
-	ctx context.Context,
-	chatID string,
-	choiceID string,
-	ev engineagents.CanonicalEvent,
-	agent engineagents.Agent,
-) {
-	if ev.Choice == nil || ev.Choice.Kind != engineagents.ChoiceToolPermission {
-		return
-	}
-	level := t.permissionLevels.GetOrDefault(chatID, t.currentDefaultLevel(ctx))
-	if !permission.AutoApprove(level, ev.Choice.Risk) {
-		return
-	}
-	slot, held := t.answers.ByChoiceID(choiceID)
-	if !held {
-		return
-	}
-	// Same safety property the human path enforces in AnswerChoice
-	// (chat/answers.go): a provider that cannot express "allow" for this
-	// event must never have one manufactured for it.
-	if !slot.Keys.Accepts(domain.ChoiceOptionAllow) {
-		return
-	}
-	decision := engineagents.AnswerDecision{Key: domain.ChoiceOptionAllow}
-	stdout, err := agent.RenderAnswer(slot.Event, slot.Raw, decision)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: permission: auto-approve: render", "err", err, "choice_id", choiceID)
-		return
-	}
-	if err := t.activity.AnswerChoice(
-		ctx, chatID, choiceID, []string{domain.ChoiceOptionAllow}, true, time.Now(),
-	); err != nil {
-		slog.WarnContext(ctx, "agent: permission: auto-approve: ledger", "err", err, "choice_id", choiceID)
-		return
-	}
-	t.resolvePermissionInterruption(ctx, chatID, choiceID)
-	t.answers.Resolve(slot, stdout)
-}
-
-// resolvePermissionInterruption closes the notification banner a permission
-// choice opened, freeing its slot in the turn's MaxOpenPerTurn budget the
-// moment the choice is decided — left open until turn-close, a long turn's
-// gated tool calls each leak one. Best-effort: ResolveInterruption also
-// synthesizes a closed record for an id it has never seen, so this cannot
-// itself explain a "no longer pending" failure.
-func (t *Turns) resolvePermissionInterruption(
-	ctx context.Context,
-	chatID string,
-	choiceID string,
-) {
-	id := answerdesk.PermissionInterruptionID(choiceID)
-	if id == "" {
-		return
-	}
-	note(ctx, "permission interruption resolved", t.activity.ResolveInterruption(
-		ctx, chatID, id, engineagents.InterruptPermission, "", time.Now(),
-	))
-}
-
-// currentDefaultLevel resolves the global default for a chat permissionLevels
-// has never seen, e.g. a pre-restart chat whose in-memory Set was wiped. A nil
-// closure or a failed lookup both fall back to permission.Guarded rather than
-// blocking the auto-approve path — a best-effort lookup must never stall the
-// hook it decorates.
-func (t *Turns) currentDefaultLevel(
-	ctx context.Context,
-) permission.Level {
-	if t.defaultPermissionLevel == nil {
-		return permission.Guarded
-	}
-	level, err := t.defaultPermissionLevel(ctx)
-	if err != nil {
-		return permission.Guarded
-	}
-	return level
 }
 
 func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {

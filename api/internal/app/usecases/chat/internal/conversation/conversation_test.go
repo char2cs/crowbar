@@ -17,7 +17,6 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -106,8 +105,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
-		PermissionLevels:       permission.New(),
-		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Guarded, nil },
+		DefaultPermissionLevel: func(context.Context) (string, error) { return "guarded", nil },
 	})
 	conversations.SetRunners(retired)
 
@@ -297,44 +295,6 @@ func TestPurgeChat_OfAnUnknownChatFails(t *testing.T) {
 	assert.Empty(t, f.retired.all(), "nothing was retired for a chat that never existed")
 }
 
-// A purged chat's in-memory permission level must not survive it — a level
-// left behind under a chat id nothing else references any more would still
-// answer permissionLevels.Get if that id were ever reused.
-func TestPurgeChat_ForgetsThePermissionLevel(t *testing.T) {
-	t.Parallel()
-	chats, _ := newChatStore(t)
-	runners, _ := newRunnerStore(t)
-	activity, _ := newActivityStore(t)
-	home := t.TempDir()
-	levels := permission.New()
-
-	conversations := conversation.New(conversation.Deps{
-		Chats:     chats,
-		Runners:   runners,
-		Activity:  activity,
-		Telemetry: telemetry.New(),
-		Agents:    engineagents.New(),
-		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
-		Lineage:   stubLineage{},
-		Home:      func() (string, error) { return home, nil },
-		Work:      inflight.NewWork(),
-		Spawns:    inflight.NewGate(),
-
-		PermissionLevels:       levels,
-		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Trusted, nil },
-	})
-	conversations.SetRunners(&retiredRunners{})
-
-	chatID, err := conversations.MintChat(t.Context(), "ws-1")
-	require.NoError(t, err)
-	require.Equal(t, permission.Trusted, levels.Get(chatID))
-
-	require.NoError(t, conversations.PurgeChat(t.Context(), chatID))
-
-	assert.Equal(t, permission.Guarded, levels.Get(chatID),
-		"a purged chat's level must be forgotten, not left to answer a reused id")
-}
-
 func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
 	t.Parallel()
 
@@ -457,11 +417,10 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 
 func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	t.Parallel()
-	chats, _ := newChatStore(t)
+	chats, waitChats := newChatStore(t)
 	runners, _ := newRunnerStore(t)
 	activity, _ := newActivityStore(t)
 	home := t.TempDir()
-	levels := permission.New()
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
@@ -475,24 +434,25 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
-		PermissionLevels:       levels,
-		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return permission.Trusted, nil },
+		DefaultPermissionLevel: func(context.Context) (string, error) { return "trusted", nil },
 	})
 
 	chatID, err := conversations.MintChat(t.Context(), "ws-1")
-
 	require.NoError(t, err)
-	assert.Equal(t, permission.Trusted, levels.Get(chatID))
+	waitChats()
+
+	chat, err := conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "trusted", chat.PermissionLevel)
 }
 
 func TestMintChat_ChangingTheGlobalDefaultDoesNotRetroactivelyChangeAnAlreadyOpenChat(t *testing.T) {
 	t.Parallel()
-	chats, _ := newChatStore(t)
+	chats, waitChats := newChatStore(t)
 	runners, _ := newRunnerStore(t)
 	activity, _ := newActivityStore(t)
 	home := t.TempDir()
-	levels := permission.New()
-	current := permission.Guarded
+	current := "guarded"
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
@@ -506,17 +466,21 @@ func TestMintChat_ChangingTheGlobalDefaultDoesNotRetroactivelyChangeAnAlreadyOpe
 		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
-		PermissionLevels:       levels,
-		DefaultPermissionLevel: func(context.Context) (permission.Level, error) { return current, nil },
+		DefaultPermissionLevel: func(context.Context) (string, error) { return current, nil },
 	})
 
 	chatID, err := conversations.MintChat(t.Context(), "ws-1")
 	require.NoError(t, err)
-	require.Equal(t, permission.Guarded, levels.Get(chatID))
+	waitChats()
+	chat, err := conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	require.Equal(t, "guarded", chat.PermissionLevel)
 
-	current = permission.FullAuto // the global default changes AFTER this chat was minted
+	current = "full-auto" // the global default changes AFTER this chat was minted
 
-	assert.Equal(t, permission.Guarded, levels.Get(chatID),
+	chat, err = conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "guarded", chat.PermissionLevel,
 		"an already-open chat's level must not drift when the global default later changes")
 }
 

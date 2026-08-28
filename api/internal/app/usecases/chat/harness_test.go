@@ -20,7 +20,6 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -960,9 +959,9 @@ func newFixture(t *testing.T) testFixture {
 }
 
 // newFixtureWithPermissionDefault is newFixture with the fixture's pinned global
-// permission default overridden — for the one test that needs a chat spawned at
-// something other than Guarded.
-func newFixtureWithPermissionDefault(t *testing.T, level permission.Level) testFixture {
+// permission default overridden — for the tests that need a chat spawned at
+// something other than guarded.
+func newFixtureWithPermissionDefault(t *testing.T, level string) testFixture {
 	t.Helper()
 	f, _, _ := newFixtureUsing(t, nil, nil, level)
 	return f
@@ -985,12 +984,12 @@ func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore, *fakeRunnerStor
 // newFixtureUsing builds a fixture; wrapChats/wrapRunners (if non-nil) adapt the real
 // stores into the stores the usecase is built over. permissionDefault seeds the
 // global permission-level preference the fixture starts with; the empty value
-// means "use the package's own pinned default" (permission.Guarded — see below).
+// means "use the package's own pinned default" ("guarded" — see below).
 func newFixtureUsing(
 	t *testing.T,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
-	permissionDefault permission.Level,
+	permissionDefault string,
 	wrapActivity ...func(agentactivity.EventStore) agentactivity.EventStore,
 ) (testFixture, agentchat.EventStore, agentrunner.EventStore) {
 	t.Helper()
@@ -1042,19 +1041,18 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")
 	require.NoError(t, err)
-	// Pinned to Guarded by default, not left at the shipped full-auto default:
-	// SpawnChat now seeds a spawned chat's level from whatever this global
-	// default currently is (mirroring MintChat's own seed), so leaving this at
-	// full-auto would silently auto-approve the permission prompts the rest of
-	// this package's ~20 other tests hold for a human on purpose. permissionDefault
-	// overrides the pin for the one test that needs a chat seeded at something
-	// other than Guarded.
+	// Pinned to guarded by default, not left at the shipped full-auto default:
+	// SpawnChat seeds a spawned chat's level from whatever this global default
+	// currently is (mirroring MintChat's own seed), and this package's tests
+	// assert on that seeded value directly. permissionDefault overrides the
+	// pin for the tests that need a chat seeded at something other than
+	// guarded.
 	pinnedDefault := permissionDefault
 	if pinnedDefault == "" {
-		pinnedDefault = permission.Guarded
+		pinnedDefault = "guarded"
 	}
 	require.NoError(t, permissionPrefs.Save(context.Background(), domain.AgentPermissionDefault{
-		ID: domain.DefaultPermissionLevelKey, Level: string(pinnedDefault),
+		ID: domain.DefaultPermissionLevelKey, Level: pinnedDefault,
 	}))
 	connected := map[string]bool{}
 	homeFn := func() (string, error) { return home, nil }

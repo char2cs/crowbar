@@ -14,7 +14,6 @@
 package runner
 
 import (
-	"context"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
@@ -24,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -62,14 +60,7 @@ type Runners struct {
 	// minter issues the per-runner token an MCP call is authenticated by.
 	minter *agenttools.TokenMinter
 	// answers is the desk a dead runner's blocked relays are released from.
-	answers          *answerdesk.Desk
-	permissionLevels *permission.Store
-	// defaultPermissionLevel resolves the current global default, the same
-	// closure conversation.Deps.DefaultPermissionLevel is. recordRunner seeds a
-	// freshly created chat from it, mirroring conversation.Conversations.MintChat
-	// — SpawnChat cannot call MintChat itself (it pre-generates chatID before the
-	// row exists), so the same three-line seed is duplicated here instead.
-	defaultPermissionLevel func(ctx context.Context) (permission.Level, error)
+	answers *answerdesk.Desk
 	// apiConns holds each runner's api-transport connection (serve process +
 	// driver), for a mixed-transport provider. Empty for a hooks-only one.
 	apiConns *apiConnRegistry
@@ -116,11 +107,6 @@ type Deps struct {
 	Minter        *agenttools.TokenMinter
 	Answers       *answerdesk.Desk
 
-	PermissionLevels *permission.Store
-	// DefaultPermissionLevel resolves the current global default. See
-	// Runners.defaultPermissionLevel.
-	DefaultPermissionLevel func(ctx context.Context) (permission.Level, error)
-
 	Conversations Conversations
 	Providers     Providers
 }
@@ -149,9 +135,6 @@ func New(d Deps) *Runners {
 		answers:      d.Answers,
 		apiConns:     newAPIConnRegistry(),
 		attached:     newAttachRegistry(),
-
-		permissionLevels:       d.PermissionLevels,
-		defaultPermissionLevel: d.DefaultPermissionLevel,
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

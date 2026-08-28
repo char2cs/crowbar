@@ -10,14 +10,11 @@
 package turn
 
 import (
-	"context"
-
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
@@ -59,15 +56,7 @@ type Turns struct {
 	// lives here rather than inside the delivery journal.
 	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
-	answers          *answerdesk.Desk
-	permissionLevels *permission.Store
-	// defaultPermissionLevel resolves the current global default, the same
-	// closure conversation.Deps.DefaultPermissionLevel is. autoApproveIfPolicy
-	// falls back to it for a chat permissionLevels has never seen — a daemon
-	// restart wipes that in-memory store, and its own hardcoded Guarded floor
-	// would otherwise silently outlive the global default for every chat that
-	// predates the restart.
-	defaultPermissionLevel func(ctx context.Context) (permission.Level, error)
+	answers *answerdesk.Desk
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook and for the prompt
@@ -101,11 +90,6 @@ type Deps struct {
 	PendingHooks  *inflight.Hooks
 	Answers       *answerdesk.Desk
 
-	PermissionLevels *permission.Store
-	// DefaultPermissionLevel resolves the current global default. See
-	// Turns.defaultPermissionLevel.
-	DefaultPermissionLevel func(ctx context.Context) (permission.Level, error)
-
 	Conversations Conversations
 }
 
@@ -126,14 +110,11 @@ func New(d Deps) *Turns {
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
-		messages:         stream.New(),
-		hookDeliveries:   agentjournal.NewHookDeliveries(),
-		hookGates:        inflight.NewGate(),
-		pendingHooks:     d.PendingHooks,
-		answers:          d.Answers,
-		permissionLevels: d.PermissionLevels,
-
-		defaultPermissionLevel: d.DefaultPermissionLevel,
+		messages:       stream.New(),
+		hookDeliveries: agentjournal.NewHookDeliveries(),
+		hookGates:      inflight.NewGate(),
+		pendingHooks:   d.PendingHooks,
+		answers:        d.Answers,
 
 		conversations: d.Conversations,
 	}

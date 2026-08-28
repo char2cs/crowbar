@@ -164,7 +164,12 @@ events:
     # transport-agnostic) — optional because it is only ever consumed by a
     # Fresh step establishing a brand-new session; a Resume step reloads a
     # session that already has its own history and has nothing to fold in.
-    optional: [session_id, cwd, context]
+    #
+    # permission.* is the current chat's permission level's own named values
+    # (TemplateCtx.PermissionVars) — a FAMILY, not fixed names, because what
+    # a level needs to say is each provider's own business (codex's sandbox/
+    # approvalPolicy; a future provider's own words for the same idea).
+    optional: [session_id, cwd, context, "permission.*"]
 
   interrupt:
     direction: out

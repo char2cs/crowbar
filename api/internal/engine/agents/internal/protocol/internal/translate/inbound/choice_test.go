@@ -382,66 +382,6 @@ func mergeMap(base, extra map[string]string) map[string]string {
 	return out
 }
 
-func TestParse_PermissionClassifiesRiskFromTheDescriptorsTable(t *testing.T) {
-	risk := map[string][]string{
-		"read-only": {"Read", "Grep"},
-		"standard":  {"Bash", "Edit"},
-		"internal":  {"mcp__crowbar__*"},
-	}
-	d := descriptorWithRisk(permissionMap(), risk)
-
-	cases := []struct {
-		name     string
-		toolName string
-		want     models.RiskTier
-	}{
-		{"read-only tool", "Read", models.RiskReadOnly},
-		{"standard tool", "Bash", models.RiskStandard},
-		{"crowbar's own mcp tool matches the wildcard", "mcp__crowbar__post_review_comment", models.RiskInternal},
-		{"unclassified tool defaults to sensitive", "WebFetch", models.RiskSensitive},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			payload := []byte(`{"session_id":"s1","prompt_id":"p1","tool_name":"` + tc.toolName + `"}`)
-			ev, err := inbound.Parse(d, spec.HookPermission, payload)
-			require.NoError(t, err)
-			require.NotNil(t, ev.Choice)
-			assert.Equal(t, tc.want, ev.Choice.Risk)
-		})
-	}
-}
-
-func TestParse_PermissionWithNoRiskTableDefaultsEverythingToSensitive(t *testing.T) {
-	d := descriptorWithRisk(permissionMap(), nil)
-
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(`{"prompt_id":"p1","tool_name":"Bash"}`))
-
-	require.NoError(t, err)
-	require.NotNil(t, ev.Choice)
-	assert.Equal(t, models.RiskSensitive, ev.Choice.Risk,
-		"a descriptor that declares no risk: table must never grant an implicit auto-approve")
-}
-
-func TestParse_QuestionChoiceCarriesNoRiskTier(t *testing.T) {
-	d := descriptorWithRisk(permissionMap(), map[string][]string{"standard": {"AskUserQuestion"}})
-
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(threeQuestionPayload))
-
-	require.NoError(t, err)
-	require.NotNil(t, ev.Choice)
-	assert.Equal(t, models.ChoiceQuestion, ev.Choice.Kind)
-	assert.Empty(t, ev.Choice.Risk,
-		"a question prompt has no allow/deny to auto-resolve, so it must never carry a risk tier")
-}
-
-func descriptorWithRisk(fields map[string]string, risk map[string][]string) *spec.Descriptor {
-	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
-		spec.HookPermission: {In: spec.HookPermission, Map: fields, Risk: risk},
-	}}
-	d.Runtime.Hooks.Format = "json"
-	return d
-}
-
 func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	options := make([]string, 0, 100)

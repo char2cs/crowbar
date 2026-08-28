@@ -15,19 +15,6 @@ func (d *Descriptor) EventFields(canonical string) (map[string]string, bool) {
 	return e.Map, true
 }
 
-// EventRisk returns the risk-tier classification table for an event, and
-// whether the provider declares the event at all — same key-presence
-// contract as EventFields. A declared event with no risk: block returns a
-// nil map, which classifyRisk (translate/inbound/choice.go) treats as
-// "everything is sensitive", never as "everything is allowed".
-func (d *Descriptor) EventRisk(canonical string) (map[string][]string, bool) {
-	e, ok := d.Events[canonical]
-	if !ok {
-		return nil, false
-	}
-	return e.Risk, true
-}
-
 // DeclaredEvents lists every canonical event the provider observes, sorted.
 func (d *Descriptor) DeclaredEvents() []string {
 	var out []string

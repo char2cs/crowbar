@@ -77,7 +77,6 @@ func TestAgent_SpawnPlanRendersAnExecutableLaunch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, plan.Executable)
-	assert.Contains(t, plan.Argv, "--permission-mode")
 	assert.Equal(t, ctx.Cwd, plan.Cwd)
 	require.NotNil(t, plan.Cleanup)
 	plan.Cleanup()

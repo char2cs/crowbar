@@ -130,19 +130,20 @@ func (p *Providers) ResolveProviders(
 		display := d.Display()
 		caps := d.Capabilities()
 		out = append(out, domain.AgentProvider{
-			ID:           d.ID(),
-			DisplayName:  display.Name,
-			Icon:         display.Icon,
-			Connected:    p.installed(d),
-			Enabled:      !pref.Disabled,
-			MCPEnabled:   !pref.MCPDisabled,
-			Compaction:   caps.Compaction,
-			ModelSelect:  caps.ModelSelect,
-			EffortSelect: caps.EffortSelect,
-			Hotswap:      caps.Hotswap,
-			HasTerminal:  caps.HasTerminal,
-			Models:       d.Models(),
-			Efforts:      resolveEfforts(d),
+			ID:               d.ID(),
+			DisplayName:      display.Name,
+			Icon:             display.Icon,
+			Connected:        p.installed(d),
+			Enabled:          !pref.Disabled,
+			MCPEnabled:       !pref.MCPDisabled,
+			Compaction:       caps.Compaction,
+			ModelSelect:      caps.ModelSelect,
+			EffortSelect:     caps.EffortSelect,
+			Hotswap:          caps.Hotswap,
+			HasTerminal:      caps.HasTerminal,
+			Models:           d.Models(),
+			Efforts:          resolveEfforts(d),
+			PermissionLevels: d.PermissionLevels(),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {

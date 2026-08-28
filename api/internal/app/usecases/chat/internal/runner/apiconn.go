@@ -225,7 +225,7 @@ func (rs *Runners) applyAPITransport(
 	if !ok {
 		return
 	}
-	established, err := conn.driver.EstablishSession(ctx, "prompt", map[string]string{
+	values := map[string]string{
 		"session_id": tctx.Session,
 		"cwd":        tctx.Cwd,
 		// Same tctx.Context a restart_tui spawn's ContextSteps would fold into
@@ -236,7 +236,18 @@ func (rs *Runners) applyAPITransport(
 		// unconditionally is a no-op on that branch — resumeContext below is
 		// how the SAME document still reaches a resumed thread.
 		"context": tctx.Context,
-	})
+	}
+	// permission.<key>, the SAME family a restart_tui spawn's own
+	// permission_levels.apply pass_arg steps render from tctx.PermissionVars
+	// via TemplateCtx.Replacer() — Fresh's thread/start send: tree references
+	// these as {permission.sandbox}/{permission.approvalPolicy} (codex.yaml),
+	// so a fresh api-transport session must resolve them from the same
+	// source, or a codex chat spawned over this channel launches with an
+	// EMPTY sandbox/approvalPolicy regardless of the chat's own dial.
+	for k, v := range tctx.PermissionVars {
+		values["permission."+k] = v
+	}
+	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
 		rs.apiConns.drop(runnerID)

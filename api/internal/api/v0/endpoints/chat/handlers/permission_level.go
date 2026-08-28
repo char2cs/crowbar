@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 // SetChatPermissionLevel handles
@@ -25,7 +24,7 @@ func (h *Handlers) SetChatPermissionLevel(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	err := h.answers.SetChatPermissionLevel(ctx.Request.Context(), chat.ID, agentusecase.PermissionLevel(body.Level))
+	err := h.answers.SetChatPermissionLevel(ctx.Request.Context(), chat.ID, body.Level)
 	if err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)

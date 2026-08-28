@@ -42,6 +42,15 @@ type TemplateCtx struct {
 	// attach's argv can point at the SAME conversation `prompt`'s turn/start
 	// acts on rather than a disconnected one of its own.
 	Session string
+
+	// PermissionVars is the current chat's permission level's own named
+	// values, exactly as its descriptor's permission_levels.<level>.vars
+	// declared them — opaque to Go. Referenced as {permission.<key>}, the
+	// same dotted-family shape as suggestion_label.* (see vocabulary.yaml's
+	// own permission.* entry), for a transport (codex's thread/start) whose
+	// spawn-time behavior is a request field, not an argv flag Apply's
+	// pass_arg can reach.
+	PermissionVars map[string]string
 }
 
 func (c TemplateCtx) ScopeFlags() string {
@@ -53,7 +62,7 @@ func (c TemplateCtx) ScopeFlags() string {
 }
 
 func (c TemplateCtx) Replacer() *strings.Replacer {
-	return strings.NewReplacer(
+	pairs := []string{
 		"{scope_flags}", c.ScopeFlags(),
 		"{tmp}", c.Tmp,
 		"{id}", c.ID,
@@ -76,5 +85,9 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{workspace_id}", c.WorkspaceID,
 		"{socket}", c.Socket,
 		"{session_id}", c.Session,
-	)
+	}
+	for k, v := range c.PermissionVars {
+		pairs = append(pairs, "{permission."+k+"}", v)
+	}
+	return strings.NewReplacer(pairs...)
 }

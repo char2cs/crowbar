@@ -1,33 +1,28 @@
 package chat
 
-import (
-	"context"
+import "context"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
-)
-
-// PermissionLevel is the trust dial permission.Level names, re-exported here
-// so callers outside this feature — the HTTP handlers — can name it without
-// reaching past this feature's internal package boundary.
-type PermissionLevel = permission.Level
-
+// Crowbar's own guarded/trusted/full-auto names — plain strings, not a
+// dedicated type, matching Model/Effort. What a specific PROVIDER means by
+// each one is that provider's own descriptor's business (permission_levels
+// in its own YAML); Go carries the name through unexamined.
 const (
-	PermissionGuarded  = permission.Guarded
-	PermissionTrusted  = permission.Trusted
-	PermissionFullAuto = permission.FullAuto
+	PermissionGuarded  = "guarded"
+	PermissionTrusted  = "trusted"
+	PermissionFullAuto = "full-auto"
 )
 
 // DefaultPermissionLevel is the level a newly created chat is seeded with.
 func (u *Usecase) DefaultPermissionLevel(
 	ctx context.Context,
-) (permission.Level, error) {
+) (string, error) {
 	return u.defaultLevel.Get(ctx)
 }
 
 // SetDefaultPermissionLevel overwrites the global default.
 func (u *Usecase) SetDefaultPermissionLevel(
 	ctx context.Context,
-	level permission.Level,
+	level string,
 ) error {
 	return u.defaultLevel.Set(ctx, level)
 }

@@ -279,12 +279,12 @@ type AnswerUsecase interface {
 
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see
-	// ProviderUsecase.DefaultPermissionLevel). Refuses a level outside the
-	// closed set with apperr.ErrInvalidArgument (→ 400).
+	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
+	// current provider does not declare, with apperr.ErrInvalidArgument (→ 400).
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
-		level agentusecase.PermissionLevel,
+		level string,
 	) error
 }
 
@@ -326,10 +326,10 @@ type ProviderUsecase interface {
 	// GET/PUT /v0/settings/chat/permission-level.
 	DefaultPermissionLevel(
 		ctx context.Context,
-	) (agentusecase.PermissionLevel, error)
+	) (string, error)
 	SetDefaultPermissionLevel(
 		ctx context.Context,
-		level agentusecase.PermissionLevel,
+		level string,
 	) error
 }
 

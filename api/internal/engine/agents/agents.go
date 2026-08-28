@@ -48,6 +48,17 @@ type Agent interface {
 
 	Efforts(model string) []string
 
+	// PermissionLevels reports which of Crowbar's own guarded/trusted/
+	// full-auto names this provider can actually reach. A level absent here
+	// must never be offered for this provider — never clamped to one that is.
+	PermissionLevels() []string
+
+	// PermissionVars is level's own named values for a transport that needs
+	// them as request data rather than as an argv flag — see
+	// spec.PermissionLevelSpec's own doc comment. Empty for a level this
+	// provider doesn't declare.
+	PermissionVars(level string) map[string]string
+
 	SelectionSteps(sel Selection) []InjectStep
 
 	SelectionRestart(launched, desired Selection) bool
@@ -195,6 +206,14 @@ func (a *agent) Models() []string {
 
 func (a *agent) Efforts(model string) []string {
 	return selection.Efforts(a.spec, model)
+}
+
+func (a *agent) PermissionLevels() []string {
+	return selection.PermissionLevels(a.spec)
+}
+
+func (a *agent) PermissionVars(level string) map[string]string {
+	return selection.PermissionVars(a.spec, level)
 }
 
 func (a *agent) SelectionSteps(sel Selection) []InjectStep {

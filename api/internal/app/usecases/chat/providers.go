@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -48,12 +47,12 @@ type ProviderUsecase interface {
 	// DefaultPermissionLevel is the level a newly created chat is seeded with.
 	DefaultPermissionLevel(
 		ctx context.Context,
-	) (permission.Level, error)
+	) (string, error)
 
 	// SetDefaultPermissionLevel overwrites the global default.
 	SetDefaultPermissionLevel(
 		ctx context.Context,
-		level permission.Level,
+		level string,
 	) error
 }
 

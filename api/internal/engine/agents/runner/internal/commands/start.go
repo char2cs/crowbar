@@ -12,15 +12,16 @@ import (
 // Start records a freshly-spawned CLI. No conversation is bound yet — the
 // provider announces one via its session hook, which lands as BindSession.
 type Start struct {
-	RunnerID        string
-	WorkspaceID     string
-	ProviderID      string
-	TerminalSession string
-	ChatID          string
-	LaunchSessionID string
-	LaunchModel     string
-	LaunchEffort    string
-	Now             time.Time
+	RunnerID              string
+	WorkspaceID           string
+	ProviderID            string
+	TerminalSession       string
+	ChatID                string
+	LaunchSessionID       string
+	LaunchModel           string
+	LaunchEffort          string
+	LaunchPermissionLevel string
+	Now                   time.Time
 }
 
 func (c Start) AggregateID() string  { return c.RunnerID }
@@ -46,14 +47,15 @@ func (c Start) Validate(current *agents.Runner) error {
 
 func (c Start) EmitEvent(_ *agents.Runner) agents.Runner {
 	return agents.Runner{
-		ID:              c.RunnerID,
-		WorkspaceID:     c.WorkspaceID,
-		ProviderID:      c.ProviderID,
-		TerminalSession: c.TerminalSession,
-		CurrentChatID:   c.ChatID,
-		LaunchSessionID: c.LaunchSessionID,
-		LaunchModel:     c.LaunchModel,
-		LaunchEffort:    c.LaunchEffort,
-		StartedAt:       c.Now,
+		ID:                    c.RunnerID,
+		WorkspaceID:           c.WorkspaceID,
+		ProviderID:            c.ProviderID,
+		TerminalSession:       c.TerminalSession,
+		CurrentChatID:         c.ChatID,
+		LaunchSessionID:       c.LaunchSessionID,
+		LaunchModel:           c.LaunchModel,
+		LaunchEffort:          c.LaunchEffort,
+		LaunchPermissionLevel: c.LaunchPermissionLevel,
+		StartedAt:             c.Now,
 	}
 }

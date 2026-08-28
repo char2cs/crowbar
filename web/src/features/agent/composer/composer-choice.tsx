@@ -10,6 +10,7 @@ import {
   type AgentChoice,
   type AgentChoiceOption,
   type AgentChoiceQuestion,
+  type PermissionLevel,
 } from '@/features/agent/api/agent-api'
 import { choiceDetail, choiceQuestions, describeChoice } from '@/features/agent/lib/agent-activity'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
@@ -100,6 +101,7 @@ export function ComposerChoice({
   activity,
   choice,
   providerLabel,
+  permissionLevels,
   onOpenTerminal,
 }: {
   wsId: string
@@ -109,6 +111,9 @@ export function ComposerChoice({
   activity: AgentActivity
   choice: AgentChoice
   providerLabel: string
+  /** This chat's current provider's own declared levels — see
+   *  PermissionLevelSwitcher's own doc for why an absent/empty list hides it. */
+  permissionLevels?: PermissionLevel[]
   onOpenTerminal?: () => void
 }) {
   const detail = choiceDetail(activity, choice)
@@ -244,7 +249,11 @@ export function ComposerChoice({
                     onPick={(option) => void send([option.id])}
                   />
                 )}
-                <PermissionLevelSwitcher wsId={wsId} chatId={chatId} />
+                <PermissionLevelSwitcher
+                  wsId={wsId}
+                  chatId={chatId}
+                  availableLevels={permissionLevels}
+                />
               </>
             )}
           </span>

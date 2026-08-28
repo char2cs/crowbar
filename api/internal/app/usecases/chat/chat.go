@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -168,9 +167,6 @@ type Usecase struct {
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
 	answers *answerdesk.Desk
-	// permissionLevels is the per-chat trust dial SetChatPermissionLevel writes
-	// directly — the same pointer Task 4 wired into turn.Deps.
-	permissionLevels *permission.Store
 	// tools is the agent-facing capability surface. It is kept after construction
 	// for one reason: its Chats, ChatLogs, Lineage and ToolAccess ports are this
 	// type's own methods, so New is the only thing that can fill them, and a nil
@@ -258,31 +254,27 @@ type shared struct {
 	pendingHooks *inflight.Hooks
 	// answers is the desk of relays parked on a human decision.
 	answers *answerdesk.Desk
-	// permissionLevels is the per-chat trust dial an auto-resolve decision reads.
-	permissionLevels *permission.Store
 }
 
 // New builds the chat usecase and every component behind it.
 func New(d Deps) *Usecase {
 	sh := shared{
-		telemetry:        telemetry.New(),
-		work:             inflight.NewWork(),
-		spawns:           inflight.NewGate(),
-		turns:            inflight.NewTurns(),
-		turnStarts:       inflight.NewGate(),
-		pendingHooks:     inflight.NewHooks(),
-		answers:          answerdesk.New(answerdesk.DefaultRetention, d.Activity),
-		permissionLevels: permission.New(),
+		telemetry:    telemetry.New(),
+		work:         inflight.NewWork(),
+		spawns:       inflight.NewGate(),
+		turns:        inflight.NewTurns(),
+		turnStarts:   inflight.NewGate(),
+		pendingHooks: inflight.NewHooks(),
+		answers:      answerdesk.New(answerdesk.DefaultRetention, d.Activity),
 	}
 	u := &Usecase{
-		chats:            d.Chats,
-		runnerStore:      d.Runners,
-		activity:         d.Activity,
-		agents:           d.Agents,
-		ws:               d.Workspace,
-		answers:          sh.answers,
-		permissionLevels: sh.permissionLevels,
-		tools:            d.Tools,
+		chats:       d.Chats,
+		runnerStore: d.Runners,
+		activity:    d.Activity,
+		agents:      d.Agents,
+		ws:          d.Workspace,
+		answers:     sh.answers,
+		tools:       d.Tools,
 	}
 	// The tool surface's four self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -322,7 +314,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Work:      sh.work,
 		Spawns:    sh.spawns,
 
-		PermissionLevels:       sh.permissionLevels,
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
 	u.turns = turn.New(turn.Deps{
@@ -339,29 +330,24 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		PendingHooks:  sh.pendingHooks,
 		Answers:       sh.answers,
 
-		PermissionLevels:       sh.permissionLevels,
-		DefaultPermissionLevel: u.DefaultPermissionLevel,
-
 		Conversations: u.conversations,
 	})
 	u.runners = runner.New(runner.Deps{
-		Chats:                  d.Chats,
-		Runners:                d.Runners,
-		Activity:               d.Activity,
-		Agents:                 d.Agents,
-		Terminal:               d.Terminal,
-		Workspace:              d.Workspace,
-		Spawns:                 sh.spawns,
-		InflightTurns:          sh.turns,
-		TurnStarts:             sh.turnStarts,
-		Work:                   sh.work,
-		PendingHooks:           sh.pendingHooks,
-		Minter:                 d.Minter,
-		Answers:                sh.answers,
-		PermissionLevels:       sh.permissionLevels,
-		DefaultPermissionLevel: u.DefaultPermissionLevel,
-		Conversations:          u.conversations,
-		Providers:              u.providers,
+		Chats:         d.Chats,
+		Runners:       d.Runners,
+		Activity:      d.Activity,
+		Agents:        d.Agents,
+		Terminal:      d.Terminal,
+		Workspace:     d.Workspace,
+		Spawns:        sh.spawns,
+		InflightTurns: sh.turns,
+		TurnStarts:    sh.turnStarts,
+		Work:          sh.work,
+		PendingHooks:  sh.pendingHooks,
+		Minter:        d.Minter,
+		Answers:       sh.answers,
+		Conversations: u.conversations,
+		Providers:     u.providers,
 	})
 	// The three edges that can only close once both sides exist: a purge retires
 	// the CLIs on the chat (and a failed spawn discards the chat it minted), a hook

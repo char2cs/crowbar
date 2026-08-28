@@ -294,13 +294,13 @@ func (stubUsecase) ReplaceProviderPreferences(
 
 func (stubUsecase) DefaultPermissionLevel(
 	_ context.Context,
-) (agentusecase.PermissionLevel, error) {
+) (string, error) {
 	return agentusecase.PermissionFullAuto, nil
 }
 
 func (stubUsecase) SetDefaultPermissionLevel(
 	_ context.Context,
-	_ agentusecase.PermissionLevel,
+	_ string,
 ) error {
 	return nil
 }
@@ -438,7 +438,7 @@ func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer
 func (stubUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
 func (stubUsecase) SetChatPermissionLevel(
-	context.Context, string, agentusecase.PermissionLevel,
+	context.Context, string, string,
 ) error {
 	return nil
 }

@@ -2,7 +2,6 @@ package inbound
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
@@ -34,7 +33,6 @@ func declaresChoice(fields map[string]string) bool {
 
 func permissionChoice(
 	fields map[string]string,
-	risk map[string][]string,
 	decoded map[string]any,
 ) *models.ChoicePrompt {
 	if !declaresChoice(fields) {
@@ -51,7 +49,6 @@ func permissionChoice(
 		Kind:     models.ChoiceToolPermission,
 		PromptID: promptID,
 		ToolName: toolName,
-		Risk:     classifyRisk(risk, toolName),
 		Title:    toolName,
 
 		Options: []models.ChoiceOption{
@@ -61,48 +58,6 @@ func permissionChoice(
 	}
 	prompt.Options = append(prompt.Options, suggestionOptions(fields, decoded)...)
 	return prompt
-}
-
-// classifyRisk maps toolName to the tier the descriptor's own risk: table
-// declares for it. Unmatched — including every name when the descriptor
-// declares no risk: block — is models.RiskSensitive: the table is a safe
-// allowlist, never a denylist.
-func classifyRisk(
-	risk map[string][]string,
-	toolName string,
-) models.RiskTier {
-	switch {
-	case matchesAny(risk[string(models.RiskInternal)], toolName):
-		return models.RiskInternal
-	case matchesAny(risk[string(models.RiskReadOnly)], toolName):
-		return models.RiskReadOnly
-	case matchesAny(risk[string(models.RiskStandard)], toolName):
-		return models.RiskStandard
-	default:
-		return models.RiskSensitive
-	}
-}
-
-func matchesAny(
-	patterns []string,
-	toolName string,
-) bool {
-	for _, pattern := range patterns {
-		if matchesPattern(pattern, toolName) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesPattern supports one wildcard shape — a trailing "*" — which is all
-// Crowbar's own MCP tool names need (they share one "mcp__crowbar__" prefix).
-// Anything else must match the provider's tool name exactly.
-func matchesPattern(pattern, toolName string) bool {
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(toolName, strings.TrimSuffix(pattern, "*"))
-	}
-	return pattern == toolName
 }
 
 func questionChoice(

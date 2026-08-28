@@ -332,8 +332,10 @@ type AgentChoiceDTO struct {
 	// have proceeded (someone answered at the terminal), or abandoned with the turn.
 	Resolution string `json:"resolution,omitempty"`
 	// AutoApproved says WHO answered it when Resolution is "answered": policy
-	// (true) or a human's own click (false). Never omitted — false is a common,
-	// meaningful answer here, not an absence.
+	// (true) or a human's own click (false) — currently always false, since
+	// Crowbar no longer decides permissions itself (see
+	// domain.ActivityChoice.AutoApproved). Never omitted — false is a real
+	// answer here, not an absence.
 	AutoApproved bool `json:"autoApproved"`
 }
 
@@ -561,6 +563,11 @@ type AgentProviderDTO struct {
 	EffortSelect bool                `json:"effortSelect"`
 	Models       []string            `json:"models,omitempty"`
 	Efforts      map[string][]string `json:"efforts,omitempty"`
+
+	// PermissionLevels mirrors Models/Efforts' own "omitted, not empty" rule:
+	// absent says this provider's picker offers nothing, where an empty array
+	// would not. See domain.AgentProvider.PermissionLevels.
+	PermissionLevels []string `json:"permissionLevels,omitempty"`
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket

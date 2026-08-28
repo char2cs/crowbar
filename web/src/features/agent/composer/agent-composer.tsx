@@ -1,5 +1,9 @@
 import type { KeyboardEvent } from 'react'
-import type { AgentActivity, AgentTerminalWait } from '@/features/agent/api/agent-api'
+import type {
+  AgentActivity,
+  AgentTerminalWait,
+  PermissionLevel,
+} from '@/features/agent/api/agent-api'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
@@ -17,6 +21,9 @@ interface AgentComposerProps {
   chatId: string
   activity: AgentActivity
   providerLabel: string
+  /** This chat's current provider's own declared levels, for the permission
+   *  switcher a permission choice offers. Undefined/empty hides the switcher. */
+  permissionLevels?: PermissionLevel[]
 
   live: boolean
   working: boolean
@@ -86,6 +93,7 @@ export function AgentComposer(props: AgentComposerProps) {
           activity={props.activity}
           choice={state.choice}
           providerLabel={props.providerLabel}
+          permissionLevels={props.permissionLevels}
           onOpenTerminal={props.onOpenTerminal}
         />
       )

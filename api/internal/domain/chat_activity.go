@@ -183,9 +183,12 @@ type ActivityChoice struct {
 	At         time.Time  `json:"at"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 	Resolution string     `json:"resolution,omitempty"`
-	// AutoApproved is true when Resolution == ChoiceResolutionAnswered because a
-	// permission policy decided it, not a human's own click — see
-	// permission.AutoApprove. Meaningless on any other Resolution.
+	// AutoApproved distinguished a policy-decided answer from a human's own
+	// click. Crowbar no longer decides permissions itself — every provider's
+	// own native mode does (PermissionLevel), so every answer that reaches
+	// here is a human's — and this is currently always false. Kept on the
+	// wire rather than removed outright: a client reading it still gets a
+	// truthful answer, just a constant one.
 	AutoApproved bool `json:"autoApproved,omitempty"`
 }
 

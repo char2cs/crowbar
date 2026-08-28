@@ -64,6 +64,10 @@ type Runner struct {
 	// both register as a change.
 	LaunchModel  string `json:"launchModel,omitempty"`
 	LaunchEffort string `json:"launchEffort,omitempty"`
+	// LaunchPermissionLevel is the same persisted-launch-intent fact as
+	// LaunchModel/LaunchEffort above, for Crowbar's own permission level —
+	// never empty for a chat that has ever been seeded, unlike Model/Effort.
+	LaunchPermissionLevel string `json:"launchPermissionLevel,omitempty"`
 	// CurrentSessionResumable is Crowbar's provider-neutral knowledge that the
 	// current binding names an existing native conversation. handleSessionStart
 	// derives it solely from append-only session history, including a user-issued

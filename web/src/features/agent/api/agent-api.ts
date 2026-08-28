@@ -273,6 +273,14 @@ export interface AgentProvider {
    * is ABSENT from the map, and absent means: draw no effort picker.
    */
   efforts?: Record<string, string[]>
+  /**
+   * Which of Crowbar's own guarded/trusted/full-auto levels this provider's
+   * descriptor actually declares, least to most permissive. A level absent
+   * here is not offered for this provider AT ALL — the server rejects an
+   * explicit pick of it — never a value to grey out or silently substitute.
+   * Absent/empty means this provider's picker offers nothing.
+   */
+  permissionLevels?: PermissionLevel[]
 }
 
 /** One row of the global provider preference set: an id and both of its NEGATIVE
@@ -409,11 +417,7 @@ export interface AgentSubagent {
 }
 
 export type InterruptionKind =
-  | 'permission'
-  | 'notification'
-  | 'elicitation'
-  | 'compaction'
-  | 'stopped'
+  'permission' | 'notification' | 'elicitation' | 'compaction' | 'stopped'
 
 /** The agent blocked on, or interrupted by, something outside the turn. These
  *  are what make an apparently frozen agent legible. */
@@ -733,6 +737,7 @@ function mapProvider(p: AgentProvider): AgentProvider {
     hotswap: p.hotswap ?? false,
     models: p.models ?? [],
     efforts: p.efforts ?? {},
+    permissionLevels: p.permissionLevels ?? [],
   }
 }
 

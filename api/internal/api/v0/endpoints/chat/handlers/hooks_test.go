@@ -147,9 +147,9 @@ type fakeAgentUsecase struct {
 	replaceErr    error
 	replaceCalls  [][]domain.AgentProviderPreference
 
-	defaultLevel         agentusecase.PermissionLevel
+	defaultLevel         string
 	defaultLevelErr      error
-	setDefaultLevelCalls []agentusecase.PermissionLevel
+	setDefaultLevelCalls []string
 	setDefaultLevelErr   error
 
 	// getChat/getChatErr configure GetChat, the call every
@@ -453,13 +453,13 @@ func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 
 func (f *fakeAgentUsecase) DefaultPermissionLevel(
 	_ context.Context,
-) (agentusecase.PermissionLevel, error) {
+) (string, error) {
 	return f.defaultLevel, f.defaultLevelErr
 }
 
 func (f *fakeAgentUsecase) SetDefaultPermissionLevel(
 	_ context.Context,
-	level agentusecase.PermissionLevel,
+	level string,
 ) error {
 	if f.setDefaultLevelErr != nil {
 		return f.setDefaultLevelErr
@@ -526,7 +526,7 @@ func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, deliveryID string) e
 func (f *fakeAgentUsecase) SetChatPermissionLevel(
 	_ context.Context,
 	chatID string,
-	level agentusecase.PermissionLevel,
+	level string,
 ) error {
 	f.setChatPermissionLevelCalls = append(f.setChatPermissionLevelCalls,
 		setChatPermissionLevelCall{chatID: chatID, level: level})
@@ -538,7 +538,7 @@ func (f *fakeAgentUsecase) SetChatPermissionLevel(
 // usecase unchanged.
 type setChatPermissionLevelCall struct {
 	chatID string
-	level  agentusecase.PermissionLevel
+	level  string
 }
 
 // answerCall records one AnswerChoice, so a handler test can assert that what a

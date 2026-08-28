@@ -58,4 +58,12 @@ type AgentProvider struct {
 	// exist" where an empty array would not.
 	Models  []string
 	Efforts map[string][]string
+
+	// PermissionLevels is which of Crowbar's own guarded/trusted/full-auto
+	// names this provider's descriptor actually declares (its own
+	// permission_levels.levels keys) — the same "a level not offered is
+	// absent, never clamped" rule SetChatPermissionLevel enforces server-side,
+	// surfaced here so a client can offer only what a write would accept. Nil
+	// for a provider that declares none, same convention as Models/Efforts.
+	PermissionLevels []string
 }

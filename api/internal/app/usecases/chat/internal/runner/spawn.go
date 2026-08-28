@@ -100,6 +100,16 @@ func (rs *Runners) spawnRunner(
 	// business knowing that.
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
+	// Resolved against THIS provider, never the chat's own raw stored intent
+	// directly: a level the provider does not declare is not offered for it
+	// at all (an explicit SetChatPermissionLevel already refuses one), but
+	// the chat's own durable choice — the global default it was seeded
+	// with, or an earlier provider's own valid pick — can still name one
+	// this provider cannot reach, and a spawn must run under SOMETHING
+	// rather than fail. Never written back: the chat's own stored intent is
+	// untouched, so switching providers again resolves fresh each time.
+	sel.PermissionLevel = resolvePermissionLevel(descriptor.PermissionLevels(), sel.PermissionLevel)
+
 	tctx, inject := rs.renderSpawnContext(spawnContext{
 		chatID:          chatID,
 		workspaceID:     workspaceID,
@@ -117,6 +127,7 @@ func (rs *Runners) spawnRunner(
 		gapTurns:        gapTurns,
 		resuming:        resuming,
 		selection:       sel,
+		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
 	})
 
 	steps := buildSpawnSteps(descriptor, resuming, inject, sel, extraSteps, finalSteps)
@@ -269,7 +280,11 @@ func (rs *Runners) recordRunner(
 		// CLI is running: nothing can ask the process later.
 		LaunchModel:  sel.Model,
 		LaunchEffort: sel.Effort,
-		Now:          now,
+		// The RESOLVED level — after resolvePermissionLevel's clamp, not the
+		// chat's own raw stored intent — because this is a record of what
+		// actually got launched, the same fact LaunchModel/LaunchEffort are.
+		LaunchPermissionLevel: sel.PermissionLevel,
+		Now:                   now,
 	}); err != nil {
 		return rs.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 			fmt.Errorf("agent: spawn runner: start runner: %w", err))
@@ -289,22 +304,6 @@ func (rs *Runners) recordRunner(
 	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
 	rs.retireOthersOn(ctx, chatID, runnerID)
 	return nil
-}
-
-// seedPermissionLevel mirrors conversation.Conversations.MintChat's own seed:
-// SpawnChat is the OTHER chat-creation path, and cannot call MintChat itself
-// (it pre-generates chatID before the row exists). A read failure is
-// swallowed, not propagated — permission.Store's own Guarded fallback covers
-// a chat never seeded here.
-func (rs *Runners) seedPermissionLevel(
-	ctx context.Context,
-	chatID string,
-) {
-	level, err := rs.defaultPermissionLevel(ctx)
-	if err != nil {
-		return
-	}
-	rs.permissionLevels.Set(chatID, level)
 }
 
 func (rs *Runners) mintRunnerToken(runnerID string) string {
@@ -339,6 +338,10 @@ type spawnContext struct {
 	gapTurns      int
 	resuming      bool
 	selection     engineagents.Selection
+	// permissionVars is the resolved permission level's own named values
+	// (see spec.PermissionLevelSpec's own doc comment) — nil for a provider
+	// that declares none.
+	permissionVars map[string]string
 
 	// launchSessionID is the prior session/thread id to resume, if any — the
 	// SAME value hooks-transport's own resume argv already carries, and what

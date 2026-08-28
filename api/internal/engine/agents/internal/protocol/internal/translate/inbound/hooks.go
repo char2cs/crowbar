@@ -54,8 +54,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf("%w: %q on %q", ErrUndeclaredEvent, canonical, d.ID)
 	}
-	risk, _ := d.EventRisk(canonical)
-	return build(canonical, fields, risk, decoded), nil
+	return build(canonical, fields, decoded), nil
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -84,7 +83,6 @@ func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool)
 func build(
 	canonical string,
 	fields map[string]string,
-	risk map[string][]string,
 	decoded map[string]any,
 ) models.CanonicalEvent {
 	get := func(name string) string { return firstNonEmpty(decoded, fields[name]) }
@@ -111,7 +109,7 @@ func build(
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptNotification, Detail: ev.Message}
 	case spec.HookPermission:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptPermission, Detail: ev.Message}
-		ev.Choice = permissionChoice(fields, risk, decoded)
+		ev.Choice = permissionChoice(fields, decoded)
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)

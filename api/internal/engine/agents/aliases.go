@@ -25,7 +25,6 @@ type (
 	SubagentEvent  = models.SubagentEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
-	RiskTier       = models.RiskTier
 	PromptQuestion = models.PromptQuestion
 	ChoiceOption   = models.ChoiceOption
 
@@ -104,13 +103,6 @@ const (
 	ChoiceOptionAllow      = models.ChoiceOptionAllow
 	ChoiceOptionDeny       = models.ChoiceOptionDeny
 	ChoiceOptionSuggestion = models.ChoiceOptionSuggestion
-)
-
-const (
-	RiskReadOnly  = models.RiskReadOnly
-	RiskStandard  = models.RiskStandard
-	RiskSensitive = models.RiskSensitive
-	RiskInternal  = models.RiskInternal
 )
 
 const (

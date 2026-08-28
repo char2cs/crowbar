@@ -553,6 +553,7 @@ export function AgentChatView({
           chatId={chatId}
           activity={activity}
           providerLabel={providerLabel}
+          permissionLevels={provider?.permissionLevels}
           live={live}
           revival={revival}
           working={working}

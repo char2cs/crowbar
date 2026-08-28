@@ -51,6 +51,31 @@ func (c *Conversations) validateSelection(
 	return nil
 }
 
+// SetChatPermissionLevel pins the chat's own guarded/trusted/full-auto
+// override, refusing a level the chat's CURRENT provider does not declare —
+// never clamping to a neighboring one, per the same "if a provider can't
+// reach a level, it is not offered" rule the switcher's own options list
+// enforces. A provider that later replaces this one may accept a level this
+// one refused; nothing here freezes the choice against a future switch.
+func (c *Conversations) SetChatPermissionLevel(
+	ctx context.Context,
+	chatID string,
+	level string,
+) error {
+	agent, err := c.chatAgent(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if !contains(agent.PermissionLevels(), level) {
+		return fmt.Errorf("agent: set chat permission level: %q declares no level %q: %w",
+			agent.ID(), level, apperr.ErrInvalidArgument)
+	}
+	if _, err := c.chats.SetPermissionLevel(ctx, chatID, level); err != nil {
+		return fmt.Errorf("agent: set chat permission level: save: %w", err)
+	}
+	return nil
+}
+
 func (c *Conversations) chatAgent(
 	ctx context.Context,
 	chatID string,
@@ -92,19 +117,35 @@ func (c *Conversations) ChatProviderID(
 	return last.ProviderID, nil
 }
 
+// ChatSelection reads what a chat WANTS to run its provider as. minting=true
+// is for a chat that has no row yet (mid-mint, its runner's argv already
+// being rendered): Model/Effort correctly read as "the provider's own
+// default" (their own always-valid empty state), but PermissionLevel has no
+// such reading — a spawn with none at all would run whatever the provider's
+// own untouched default turns out to be, exactly the ungoverned behavior
+// this feature exists to replace. So minting resolves the CURRENT global
+// default directly, falling back to guarded (never full-auto) on a lookup
+// failure — the one place this package still knows that name, because
+// nothing durable exists yet to read it from.
 func (c *Conversations) ChatSelection(
 	ctx context.Context,
 	chatID string,
 	minting bool,
 ) (engineagents.Selection, error) {
 	if minting {
-		return engineagents.Selection{}, nil
+		level, err := c.defaultPermissionLevel(ctx)
+		if err != nil {
+			level = "guarded"
+		}
+		return engineagents.Selection{PermissionLevel: level}, nil
 	}
 	chat, err := c.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return engineagents.Selection{}, fmt.Errorf("agent: chat selection: %w", err)
 	}
-	return engineagents.Selection{Model: chat.Model, Effort: chat.Effort}, nil
+	return engineagents.Selection{
+		Model: chat.Model, Effort: chat.Effort, PermissionLevel: chat.PermissionLevel,
+	}, nil
 }
 
 func contains(values []string, want string) bool {

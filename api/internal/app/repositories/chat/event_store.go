@@ -128,6 +128,16 @@ type EventStore interface {
 		model string,
 		effort string,
 	) (domain.Chat, error)
+	// SetPermissionLevel writes the chat's sticky guarded/trusted/full-auto
+	// choice — the same durable, next-spawn-reads-it fact SetSelection writes
+	// for Model/Effort, on the same ordinary async Send path for the same
+	// reason: the prompt path's restart decision reads it through LoadChat,
+	// never the read model.
+	SetPermissionLevel(
+		ctx context.Context,
+		chatID string,
+		level string,
+	) (domain.Chat, error)
 	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
 	// off and its dense index within that sibling space.
 	//
@@ -367,6 +377,18 @@ func (r *eventSourced) SetSelection(
 	evt, err := r.sendWithOCC(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set selection: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetPermissionLevel(
+	ctx context.Context,
+	chatID string,
+	level string,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
 	}
 	return evt.Aggregate, nil
 }
