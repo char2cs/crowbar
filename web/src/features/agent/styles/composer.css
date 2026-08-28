@@ -536,14 +536,11 @@
 }
 
 /* ── the row under the pill ────────────────────────────── */
-/* `.left`'s cluster (`.selpos`) is deliberately `flex: none` — it reads as one
-   control and must not fracture internally — so it cannot shrink to make room.
-   Wrapping the ROW instead of the cluster is what keeps a narrow pane from
-   forcing that overflow into `.right`'s space: once there's no room for both,
-   `.right` drops to its own line instead of the two colliding. `overflow:
-   hidden` is the backstop for when `.selpos` alone still doesn't fit even its
-   own dedicated line — clipped, not spilling past the dock into whatever
-   sits beside it. */
+/* Wrapping the ROW is what keeps a narrow pane from forcing `.left`'s
+   overflow into `.right`'s space: once there's no room for both, `.right`
+   drops to its own line instead of the two colliding. `overflow: hidden` is
+   a last-resort backstop, not the mechanism — see `.selpos` below for the
+   part that actually keeps `.left` itself from needing it. */
 .agent-chat .underbar {
   display: flex;
   flex-wrap: wrap;
@@ -574,6 +571,19 @@
    against — the auto margin is what still pins it to the row's right edge. */
 .agent-chat .underbar .right {
   margin-left: auto;
+}
+/* The identity cluster reads as one control everywhere ELSE it's drawn (the
+   blank document's floating handle keeps the general `.agent-chat-pane
+   .selpos` rule, `flex: none`, below), but the underbar is the one place it
+   sits beside another group competing for the same row. Letting it shrink
+   and wrap internally here means the view switcher (last in the cluster,
+   least essential) drops to its own line when there's no room, instead of
+   forcing the whole cluster to hold its full width and spill past the dock. */
+.agent-chat .underbar .selpos {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 /* The selection cluster: model, effort and the view switcher read as ONE
