@@ -658,6 +658,7 @@ func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing
 	require.NoError(t, err)
 	require.Len(t, all.Choices, 1)
 	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
+	assert.False(t, all.Choices[0].AutoApproved, "a human's own click must never be tagged auto")
 }
 
 func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {

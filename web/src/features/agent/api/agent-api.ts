@@ -505,6 +505,9 @@ export interface AgentChoice {
   /** How it stopped pending: `answered` here, `proceeded` at the terminal, or
    *  `abandoned` with the turn. */
   resolution?: string
+  /** Who answered it when `resolution` is `answered`: policy (`true`) or a
+   *  human's own click (`false`). */
+  autoApproved?: boolean
 }
 
 export interface AgentActivity {

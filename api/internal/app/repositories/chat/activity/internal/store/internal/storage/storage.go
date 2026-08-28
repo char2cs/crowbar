@@ -81,6 +81,7 @@ func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
 		Title: c.Title, Question: c.Question, Mode: c.Mode, Multi: c.Multi,
 		Options: options, Questions: questions, Schema: c.Schema,
 		At: c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
+		AutoApproved: c.AutoApproved,
 	})
 }
 

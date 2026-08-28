@@ -1244,12 +1244,12 @@ func (f *faultWriteActivity) ResolveChoice(ctx context.Context, chatID, choiceID
 }
 
 func (f *faultWriteActivity) AnswerChoice(
-	ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time,
+	ctx context.Context, chatID, choiceID string, optionIDs []string, auto bool, now time.Time,
 ) error {
 	if f.writeErr != nil {
 		return f.writeErr
 	}
-	return f.EventStore.AnswerChoice(ctx, chatID, choiceID, optionIDs, now)
+	return f.EventStore.AnswerChoice(ctx, chatID, choiceID, optionIDs, auto, now)
 }
 
 func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {

@@ -146,6 +146,22 @@ func TestAnswerChoice_AnswerOfAVanishedPromptEmitsNoDelta(t *testing.T) {
 	assert.Equal(t, state.Seq+1, got.Seq)
 }
 
+func TestAnswerChoice_TagsAutoApprovalSeparatelyFromAHumanClick(t *testing.T) {
+	human := pendingPermission(t)
+	humanAnswered := commands.AnswerChoice{
+		ChatID: chat, ChoiceID: "c1", OptionIDs: []string{"allow"}, Now: now,
+	}.EmitEvent(&human)
+	require.NotNil(t, humanAnswered.Last.Choice)
+	assert.False(t, humanAnswered.Last.Choice.AutoApproved, "a human's click leaves Auto at its zero value")
+
+	auto := pendingPermission(t)
+	autoAnswered := commands.AnswerChoice{
+		ChatID: chat, ChoiceID: "c1", OptionIDs: []string{"allow"}, Auto: true, Now: now,
+	}.EmitEvent(&auto)
+	require.NotNil(t, autoAnswered.Last.Choice)
+	assert.True(t, autoAnswered.Last.Choice.AutoApproved, "a policy decision must be recorded as such")
+}
+
 func TestAnswerChoice_Identity(t *testing.T) {
 	cmd := answerCmd("allow")
 	assert.Equal(t, chat, cmd.AggregateID())

@@ -91,9 +91,10 @@ type ChoiceRow struct {
 	Questions string `gorm:"column:questions"`
 	Schema    string `gorm:"column:schema"`
 
-	At         time.Time  `gorm:"column:at"`
-	ResolvedAt *time.Time `gorm:"column:resolved_at;index"`
-	Resolution string     `gorm:"column:resolution"`
+	At           time.Time  `gorm:"column:at"`
+	ResolvedAt   *time.Time `gorm:"column:resolved_at;index"`
+	Resolution   string     `gorm:"column:resolution"`
+	AutoApproved bool       `gorm:"column:auto_approved"`
 }
 
 func (ChoiceRow) TableName() string { return "agent_choices" }

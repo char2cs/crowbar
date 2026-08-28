@@ -110,6 +110,7 @@ type fakeChoiceActivity struct {
 type answeredChoice struct {
 	chatID, choiceID string
 	optionIDs        []string
+	auto             bool
 }
 
 func (f *fakeChoiceActivity) Interrupt(
@@ -123,11 +124,13 @@ func (f *fakeChoiceActivity) OpenChoice(context.Context, agentactivity.ChoiceInp
 }
 
 func (f *fakeChoiceActivity) AnswerChoice(
-	_ context.Context, chatID, choiceID string, optionIDs []string, _ time.Time,
+	_ context.Context, chatID, choiceID string, optionIDs []string, auto bool, _ time.Time,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.answered = append(f.answered, answeredChoice{chatID: chatID, choiceID: choiceID, optionIDs: optionIDs})
+	f.answered = append(f.answered, answeredChoice{
+		chatID: chatID, choiceID: choiceID, optionIDs: optionIDs, auto: auto,
+	})
 	return nil
 }
 
@@ -200,6 +203,8 @@ func TestOpenChoice_TrustedLevelAutoApprovesAStandardTierPromptWithNoHumanHold(t
 	require.Len(t, activity.answered, 1)
 	assert.Equal(t, []string{domain.ChoiceOptionAllow}, activity.answered[0].optionIDs,
 		"the recorded decision must be indistinguishable from a human's own Allow click")
+	assert.True(t, activity.answered[0].auto,
+		"the ledger write must be tagged as policy-approved, not a human's own click")
 }
 
 func TestOpenChoice_GuardedLevelHoldsASensitiveTierPromptForAHuman(t *testing.T) {

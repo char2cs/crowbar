@@ -183,6 +183,10 @@ type ActivityChoice struct {
 	At         time.Time  `json:"at"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 	Resolution string     `json:"resolution,omitempty"`
+	// AutoApproved is true when Resolution == ChoiceResolutionAnswered because a
+	// permission policy decided it, not a human's own click — see
+	// permission.AutoApprove. Meaningless on any other Resolution.
+	AutoApproved bool `json:"autoApproved,omitempty"`
 }
 
 type ActivityChoiceQuestion struct {

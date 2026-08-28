@@ -13,7 +13,10 @@ type AnswerChoice struct {
 	ChatID    string
 	ChoiceID  string
 	OptionIDs []string
-	Now       time.Time
+	// Auto is true when policy resolved this prompt, false when a human clicked
+	// it — the fact that lets the transcript tell the two apart.
+	Auto bool
+	Now  time.Time
 }
 
 func (c AnswerChoice) AggregateID() string  { return c.ChatID }
@@ -59,6 +62,7 @@ func (c AnswerChoice) EmitEvent(current *domain.ChatActivity) domain.ChatActivit
 	}
 	item.ResolvedAt = at(c.Now)
 	item.Resolution = domain.ChoiceResolutionAnswered
+	item.AutoApproved = c.Auto
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaChoice, Choice: &item,
 	}

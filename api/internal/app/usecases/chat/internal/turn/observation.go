@@ -140,7 +140,7 @@ func (t *Turns) autoApproveIfPolicy(
 		return
 	}
 	if err := t.activity.AnswerChoice(
-		ctx, chatID, choiceID, []string{domain.ChoiceOptionAllow}, time.Now(),
+		ctx, chatID, choiceID, []string{domain.ChoiceOptionAllow}, true, time.Now(),
 	); err != nil {
 		slog.WarnContext(ctx, "agent: permission: auto-approve: ledger", "err", err, "choice_id", choiceID)
 		return

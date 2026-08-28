@@ -331,6 +331,10 @@ type AgentChoiceDTO struct {
 	// Resolution says HOW it stopped pending — answered through Crowbar, observed to
 	// have proceeded (someone answered at the terminal), or abandoned with the turn.
 	Resolution string `json:"resolution,omitempty"`
+	// AutoApproved says WHO answered it when Resolution is "answered": policy
+	// (true) or a human's own click (false). Never omitted — false is a common,
+	// meaningful answer here, not an absence.
+	AutoApproved bool `json:"autoApproved"`
 }
 
 // AgentHookAckDTO is the daemon's reply to a relay that has just delivered a

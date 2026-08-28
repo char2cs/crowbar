@@ -94,7 +94,7 @@ type EventStore interface {
 
 	ResolveChoice(ctx context.Context, chatID, choiceID, resolution string, now time.Time) error
 
-	AnswerChoice(ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time) error
+	AnswerChoice(ctx context.Context, chatID, choiceID string, optionIDs []string, auto bool, now time.Time) error
 
 	Turns(ctx context.Context, chatID string, after, before int64, limit int) ([]domain.ActivityTurn, error)
 
@@ -257,10 +257,10 @@ func (r *eventSourced) ResolveChoice(
 }
 
 func (r *eventSourced) AnswerChoice(
-	ctx context.Context, chatID, choiceID string, optionIDs []string, now time.Time,
+	ctx context.Context, chatID, choiceID string, optionIDs []string, auto bool, now time.Time,
 ) error {
 	return r.send(ctx, commands.AnswerChoice{
-		ChatID: chatID, ChoiceID: choiceID, OptionIDs: optionIDs, Now: now,
+		ChatID: chatID, ChoiceID: choiceID, OptionIDs: optionIDs, Auto: auto, Now: now,
 	})
 }
 

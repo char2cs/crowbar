@@ -178,7 +178,7 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, time.Now()); err != nil {
+	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
 	u.answers.Resolve(slot, stdout)

@@ -305,6 +305,7 @@ func (r ChoiceRow) domain() domain.ActivityChoice {
 		Questions: decodeList[domain.ActivityChoiceQuestion](r.Questions),
 		Schema:    r.Schema,
 		At:        r.At, ResolvedAt: r.ResolvedAt, Resolution: r.Resolution,
+		AutoApproved: r.AutoApproved,
 	}
 }
 
