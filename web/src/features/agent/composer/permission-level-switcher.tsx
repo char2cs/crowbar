@@ -15,20 +15,31 @@ const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{ value: PermissionLevel; label: s
   { value: 'full-auto', label: 'Full Auto' },
 ]
 
+// This control's own memory of its last CONFIRMED pick, per chat — not a
+// fabricated read of backend truth, just this component's state surviving a
+// remount. `ComposerChoice` is unkeyed in the composer's switch and
+// `resolveComposerState` cycles it out of and back into 'choice' between
+// distinct prompts in the same chat, which remounts this component (and would
+// otherwise reset it to unset) moments after a real pick. `chatId` itself
+// never changes on a live instance — the chat pane above it remounts wholesale
+// on chat switch — so this needs no invalidation beyond the module's lifetime.
+const lastPickedLevel = new Map<string, PermissionLevel>()
+
 /**
  * A quick, write-only dial for THIS chat's own approval level, sitting beside
  * whatever answer controls the current prompt already offers.
  *
  * There is no GET for a single chat's level (only the global default has
  * one), so — same rule AgentModelPicker's "Provider default" row follows —
- * it never shows a value the backend cannot actually confirm. It starts
- * unset and only ever shows what THIS control has itself picked.
+ * it never shows a value the backend cannot actually confirm. It starts from
+ * whatever THIS control last confirmed for this chat (see `lastPickedLevel`),
+ * or unset if it has never been touched.
  */
 export function PermissionLevelSwitcher({ wsId, chatId }: { wsId: string; chatId: string }) {
-  const [level, setLevel] = useState<PermissionLevel | ''>('')
+  const [level, setLevel] = useState<PermissionLevel | ''>(() => lastPickedLevel.get(chatId) ?? '')
   // Fences overlapping writes the same way DefaultPermissionLevelSetting does:
-  // a late rejection from an earlier pick must not roll back a later one that
-  // already succeeded.
+  // a late settlement from an earlier pick must not roll back, or cache, over
+  // a later one that already landed.
   const writeGeneration = useRef(0)
 
   const handleChange = useCallback(
@@ -37,14 +48,19 @@ export function PermissionLevelSwitcher({ wsId, chatId }: { wsId: string; chatId
       const previous = level
       const generation = ++writeGeneration.current
       setLevel(value)
-      void setChatPermissionLevel(wsId, chatId, value).catch(() => {
-        if (writeGeneration.current !== generation) return
-        setLevel(previous)
-        toast.error(
-          'Could not set permission level',
-          'Crowbar could not reach the daemon — try again.',
-        )
-      })
+      setChatPermissionLevel(wsId, chatId, value)
+        .then(() => {
+          if (writeGeneration.current !== generation) return // superseded by a later pick
+          lastPickedLevel.set(chatId, value)
+        })
+        .catch(() => {
+          if (writeGeneration.current !== generation) return
+          setLevel(previous)
+          toast.error(
+            'Could not set permission level',
+            'Crowbar could not reach the daemon — try again.',
+          )
+        })
     },
     [level, wsId, chatId],
   )

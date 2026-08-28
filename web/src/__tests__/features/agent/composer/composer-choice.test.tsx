@@ -612,10 +612,25 @@ describe('ComposerChoice permission-level switcher', () => {
   })
 
   // terminalOnly: nothing here can answer it, so a dial for THIS chat's future
-  // approvals has no controls to sit beside and does not appear either.
+  // approvals has no controls to sit beside and does not appear either. A real
+  // `onOpenTerminal` is required to even reach the terminalOnly branch — with
+  // none given, `.acts` renders nothing at all (see the pre-existing "offers
+  // the terminal when the chat can open one" test above), which would make
+  // this assertion pass for the wrong reason.
   it('does not appear when the prompt cannot be answered from here', () => {
-    draw({ answerable: false })
+    const onOpenTerminal = vi.fn()
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        choice={choice({ answerable: false })}
+        activity={NO_ACTIVITY}
+        providerLabel="Claude"
+        onOpenTerminal={onOpenTerminal}
+      />,
+    )
 
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
 
@@ -637,5 +652,60 @@ describe('ComposerChoice permission-level switcher', () => {
     await pickLevel(user, 'trusted')
 
     expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'trusted')
+  })
+
+  // `ComposerChoice` is unkeyed in the composer's own switch, and
+  // `resolveComposerState` cycles it out of and back into 'choice' between
+  // distinct prompts within the same chat — remounting this control (and
+  // resetting a plain useState) moments after a real pick. It has to survive
+  // that remount without pretending to read backend truth: it remembers only
+  // what IT last confirmed, per chat.
+  it('remembers its own last confirmed pick across a remount of the same chat, keyed per chat', async () => {
+    const user = userEvent.setup()
+    const first = render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="persist-1"
+        choice={choice()}
+        activity={NO_ACTIVITY}
+        providerLabel="Claude"
+      />,
+    )
+
+    await pickLevel(user, 'full-auto')
+    await waitFor(() =>
+      expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'persist-1', 'full-auto'),
+    )
+    first.unmount()
+
+    // A fresh mount for the SAME chat — exactly the remount the unkeyed
+    // switch produces mid-chat — shows the last CONFIRMED pick, not the
+    // placeholder.
+    const second = render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="persist-1"
+        choice={choice()}
+        activity={NO_ACTIVITY}
+        providerLabel="Claude"
+      />,
+    )
+    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('full-auto')
+    second.unmount()
+
+    // A DIFFERENT chat's entry is keyed separately and still starts unset —
+    // the cache is per chat, not a single global last-pick.
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="persist-2"
+        choice={choice({ id: 'k2' })}
+        activity={NO_ACTIVITY}
+        providerLabel="Claude"
+      />,
+    )
+    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
+      'Permission level',
+    )
   })
 })
