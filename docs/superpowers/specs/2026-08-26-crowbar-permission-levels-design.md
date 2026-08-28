@@ -297,6 +297,24 @@ Still open, for review:
   genuinely fires from Codex's real payload, not only masked by the pre-existing
   `default_tools_approval_mode="approve"` CLI flag doing the work underneath it).
 
+### 9.1 Live verification — actual outcome
+
+Driving a real Claude CLI through every level found the feature was dead code in practice:
+`claude.yaml`'s pre-existing `--permission-mode auto` spawn flag (carried over from before this
+plan, untouched by any of the 8 tasks) let the CLI's own heuristics silently decide Read/Write/
+Edit/Bash/WebFetch with no `PermissionRequest` hook at all — even under `guarded`, which is
+supposed to hold everything for a human. Fixed by switching to `--permission-mode default`
+(commit `a45f7930`); live-reverified guarded holds, trusted/full-auto auto-approve in ~1ms with
+the real tool executing, and read-only tools now route through the same hook but resolve fast
+enough to add no perceptible latency.
+
+Codex has the identical defect shape (in-workspace writes bypass the hook under `guarded` too,
+because `--sandbox workspace-write` permits them at the OS level and `--ask-for-approval
+on-request` only escalates when stepping *outside* the sandbox) — but there is no fix available
+today: `codex --help` on 0.149.1 confirms `--ask-for-approval` accepts only `on-request`/`never`,
+no broader-coverage value exists to switch to. This moves from "no passing test yet" (as
+originally scoped above) to a confirmed, currently-unfixable CLI limitation — see §10.
+
 ## 10. Out of scope / deferred
 
 - **Per-rule "always allow this" learning** (mentioned during design discussion as a natural
@@ -317,3 +335,9 @@ Still open, for review:
   home for the control — e.g. a chat header or chat settings surface — versus the current
   transient, prompt-adjacent one), not a code defect, and is left for a follow-up design decision
   rather than resolved here.
+- **Codex full coverage**: unlike Claude, Crowbar's `PermissionLevel` engine can only ever see
+  the subset of Codex tool calls that Codex's own `on-request` approval policy chooses to escalate
+  (crossing outside the `workspace-write` sandbox) — routine in-workspace writes/edits/shell calls
+  bypass the hook entirely, at every level including `guarded`, and there is no CLI flag on
+  0.149.1 to change that (see §9.1). Revisit if a future Codex release adds a broader-coverage
+  approval policy; there is nothing to build on Crowbar's side until then.
