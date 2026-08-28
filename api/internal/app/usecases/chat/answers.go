@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -183,7 +182,9 @@ func (u *Usecase) AnswerChoice(
 	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
-	u.resolvePermissionInterruption(ctx, chatID, choiceID)
+	if choice.Kind == engineagents.ChoiceToolPermission {
+		u.resolvePermissionInterruption(ctx, chatID, choiceID)
+	}
 	u.answers.Resolve(slot, stdout)
 	return nil
 }
@@ -199,7 +200,7 @@ func (u *Usecase) resolvePermissionInterruption(
 	chatID string,
 	choiceID string,
 ) {
-	id := turn.PermissionInterruptionID(choiceID)
+	id := answerdesk.PermissionInterruptionID(choiceID)
 	if id == "" {
 		return
 	}

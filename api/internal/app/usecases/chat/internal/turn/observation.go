@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -53,11 +52,27 @@ func (t *Turns) handleObservation(
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation, engineagents.HookCompactPre:
+		// The choice id is minted ONCE here and threaded through to both the
+		// interruption and openChoice, rather than each computing its own —
+		// two independent calls to choiceID/interruptionID each draw their
+		// own fallbackID() when PromptID is empty (Codex's own permission
+		// mapping never sets one), producing two DIFFERENT ids for what
+		// should be the same pair, so resolvePermissionInterruption's
+		// prefix-swap named an interruption that never existed. See
+		// TestRegression_ACodexPermissionWithNoPromptIDStillPairsItsChoice.
+		cid := ""
+		if ev.Choice != nil {
+			cid = choiceID(chat.ID, ev.Choice)
+		}
+		iid := answerdesk.PermissionInterruptionID(cid)
+		if iid == "" {
+			iid = interruptionID(chat.ID, ev)
+		}
 		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 
-		t.openChoice(ctx, chat, runner, agent, ev, raw, now)
+		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 	case engineagents.HookCompactPost:
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
@@ -72,6 +87,7 @@ func (t *Turns) openChoice(
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
+	id string,
 	raw []byte,
 	now time.Time,
 ) {
@@ -79,7 +95,6 @@ func (t *Turns) openChoice(
 		return
 	}
 	chatID := chat.ID
-	id := choiceID(chatID, ev.Choice)
 	// A choice never durably opened in the ledger must never be held for a
 	// human or auto-approved: both paths would act on a choice the ledger
 	// never recorded, and the provider's own AnswerChoice call would reject
@@ -173,7 +188,7 @@ func (t *Turns) resolvePermissionInterruption(
 	chatID string,
 	choiceID string,
 ) {
-	id := PermissionInterruptionID(choiceID)
+	id := answerdesk.PermissionInterruptionID(choiceID)
 	if id == "" {
 		return
 	}
@@ -218,17 +233,6 @@ func promptCorrelationKey(chatID string, prompt *engineagents.ChoicePrompt) stri
 		return chatID + "-" + prompt.PromptID
 	}
 	return chatID + "-" + prompt.PromptID + "-" + prompt.ToolName
-}
-
-// PermissionInterruptionID derives a permission choice's paired interruption
-// id from the choice id alone, for the human answer path
-// (chat.Usecase.AnswerChoice) which only ever sees the choice id.
-func PermissionInterruptionID(choiceID string) string {
-	const prefix = "choice-"
-	if !strings.HasPrefix(choiceID, prefix) {
-		return ""
-	}
-	return "interrupt-" + strings.TrimPrefix(choiceID, prefix)
 }
 
 func choiceQuestions(in []engineagents.PromptQuestion) []domain.ActivityChoiceQuestion {

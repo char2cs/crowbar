@@ -233,7 +233,7 @@ func TestOpenChoice_TrustedLevelAutoApprovesAStandardTierPromptWithNoHumanHold(t
 	require.Len(t, activity.resolvedInterruptions, 1,
 		"auto-approving the choice must also resolve its paired interruption — left open, it "+
 			"keeps counting against MaxOpenPerTurn for the rest of the turn")
-	assert.Equal(t, PermissionInterruptionID(id), activity.resolvedInterruptions[0],
+	assert.Equal(t, answerdesk.PermissionInterruptionID(id), activity.resolvedInterruptions[0],
 		"the resolved interruption id must be the one this exact choice opened, not a stray one")
 }
 

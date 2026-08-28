@@ -161,3 +161,41 @@ func TestRegression_ManyAutoApprovedPermissionsInOneTurnNeverHitMaxOpenPerTurn(t
 			"choice %s must resolve as answered, not linger unresolved past the turn", c.ID)
 	}
 }
+
+// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption
+// reproduces the gap a live review of 7fb802c8 found: Codex's own
+// permission mapping (descriptors-v3/codex.yaml) never sets prompt_id, so
+// choiceID and interruptionID each fell through to their OWN independent
+// fallbackID() draw when computed separately — two DIFFERENT ids for what
+// should be the same pair, so the auto-approve path's interruption resolve
+// named an interruption that was never opened, and the choice/interruption
+// pair never actually shrank back to baseline. This payload has no
+// prompt_id at all (Claude's own descriptor would too, if asked the same
+// way), reproducing the same shape without needing a live Codex session:
+// the fix must mint ONE id per gated call and thread it through both the
+// interruption and the choice, not derive two independently.
+func TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption(t *testing.T) {
+	const gatedCalls = 70
+	f := newFixtureWithPermissionDefault(t, permission.Trusted)
+	chatID, runnerID := f.spawn(t, "claude")
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+
+	for range gatedCalls {
+		payload := permissionPayload()
+		delete(payload, "prompt_id")
+		_ = deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+	}
+
+	pending := pendingChoices(t, f, chatID)
+	assert.Empty(t, pending,
+		"every one of %d gated calls must auto-approve at Trusted even with no prompt_id at "+
+			"all — none may be left stranded because its choice and interruption were paired "+
+			"under two DIFFERENT ids", gatedCalls)
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Choices, gatedCalls, "every gated call must have opened its own choice")
+	for _, c := range all.Choices {
+		assert.True(t, c.AutoApproved, "choice %s must have auto-approved, not been dropped", c.ID)
+	}
+}

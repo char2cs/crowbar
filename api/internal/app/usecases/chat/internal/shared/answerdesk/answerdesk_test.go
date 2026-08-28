@@ -22,11 +22,12 @@ func fixture(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 
 // recordingLedger is the conversation record the desk writes each outcome back
 // to. Nothing else in these tests needs a store, so it is the whole of the
-// production shape: one call, remembered.
+// production shape: two calls, each remembered.
 type recordingLedger struct {
-	mu       sync.Mutex
-	resolved []resolution
-	err      error
+	mu                    sync.Mutex
+	resolved              []resolution
+	resolvedInterruptions []string
+	err                   error
 }
 
 type resolution struct{ chatID, choiceID, verdict string }
@@ -42,10 +43,27 @@ func (l *recordingLedger) ResolveChoice(
 	return l.err
 }
 
+func (l *recordingLedger) ResolveInterruption(
+	_ context.Context,
+	_, id, _, _ string,
+	_ time.Time,
+) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.resolvedInterruptions = append(l.resolvedInterruptions, id)
+	return nil
+}
+
 func (l *recordingLedger) all() []resolution {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]resolution(nil), l.resolved...)
+}
+
+func (l *recordingLedger) allResolvedInterruptions() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.resolvedInterruptions...)
 }
 
 func withLedger(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
@@ -365,6 +383,9 @@ func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 
 	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionProceeded}}, ledger.all(),
 		"an undecided prompt is being resolved by the provider's own UI")
+	assert.Equal(t, []string{"interrupt-1"}, ledger.allResolvedInterruptions(),
+		"a permission choice resolved elsewhere must also close its own interruption banner — "+
+			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
 }
 
 func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
@@ -375,6 +396,35 @@ func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
 	d.ReleaseRunner(context.Background(), "runner-1")
 
 	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAbandoned}}, ledger.all())
+	assert.Equal(t, []string{"interrupt-1"}, ledger.allResolvedInterruptions(),
+		"a dead runner's own permission choice must also close its interruption banner — "+
+			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
+}
+
+// TestLedger_AnAnswerableQuestionsInterruptionIsNotClosedByADeadRunner proves
+// record's interruption resolve is scoped to HookPermission the same way the
+// auto-approve and human-answer paths scope theirs to ChoiceToolPermission —
+// an elicitation's interruption carries a different Kind, and resolving it
+// under Event: HookPermission's own PermissionInterruptionID would name an
+// interruption that was never opened, exactly the phantom-row defect a live
+// review found in the human-answer path before this fix.
+func TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption(t *testing.T) {
+	t.Parallel()
+
+	ledger := &recordingLedger{}
+	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
+	d.Hold("delivery-1", answerdesk.Prompt{
+		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
+		Event: engineagents.HookElicitation,
+		Keys:  engineagents.AnswerCapability{Wait: time.Minute, Keys: []string{"accept"}},
+	})
+
+	d.ReleaseRunner(context.Background(), "runner-1")
+
+	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAbandoned}}, ledger.all())
+	assert.Empty(t, ledger.allResolvedInterruptions(),
+		"an elicitation's own interruption has a different kind and id scheme — "+
+			"record must never guess one for it")
 }
 
 func TestLedger_AnsweredRelaysAreNotClosedAgainByADeadRunner(t *testing.T) {

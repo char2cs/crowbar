@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Ledger is the conversation record a prompt's outcome is written back to. The
@@ -25,6 +27,15 @@ type Ledger interface {
 	ResolveChoice(
 		ctx context.Context,
 		chatID, choiceID, resolution string,
+		now time.Time,
+	) error
+	// ResolveInterruption closes the notification banner a permission choice
+	// opened alongside it (see record's own doc comment) — required so a
+	// relay released without an answer doesn't leave that banner counting
+	// against the turn's domain.MaxOpenPerTurn for the rest of the turn.
+	ResolveInterruption(
+		ctx context.Context,
+		chatID, id, kind, detail string,
 		now time.Time,
 	) error
 }
@@ -40,6 +51,22 @@ const (
 	// poll; past it the answer is stale and the provider has moved on.
 	DefaultRetention = time.Minute
 )
+
+// PermissionInterruptionID derives a permission choice's paired interruption
+// id from the choice id alone — the two are minted from the same
+// "chatID-promptID-toolName" key under different prefixes (see
+// turn/observation.go's choiceID/interruptionID, the one place that pair is
+// actually opened), so every caller that only ever sees the choice id —
+// the human answer path (chat.Usecase.AnswerChoice) and this desk's own
+// record, both a package away from where the pair was opened — derives the
+// same interrupt id from it rather than re-deriving or guessing one.
+func PermissionInterruptionID(choiceID string) string {
+	const prefix = "choice-"
+	if !strings.HasPrefix(choiceID, prefix) {
+		return ""
+	}
+	return "interrupt-" + strings.TrimPrefix(choiceID, prefix)
+}
 
 // Wait clamps a provider's declared answer budget: absent or negative falls back,
 // absurd is capped, anything sane is honoured.
@@ -240,6 +267,14 @@ func (d *Desk) releaseRunner(runnerID string) []*Slot {
 // returned: the relay has already been released, and refusing to admit that
 // because a write failed would leave the CLI blocked on a person who can no
 // longer answer.
+//
+// A permission-sourced slot (Event == HookPermission — the same hook both a
+// plain tool_permission choice and an AskUserQuestion arrive on) also closes
+// its paired interruption here: released without an answer is still decided,
+// and leaving that interruption open until turn-close would keep counting it
+// against domain.MaxOpenPerTurn for the rest of the turn, same as an
+// answered one left unresolved would. Best-effort, same as the choice write
+// above — the banner is cosmetic.
 func (d *Desk) record(
 	ctx context.Context,
 	slot *Slot,
@@ -253,6 +288,17 @@ func (d *Desk) record(
 	if err != nil && !errors.Is(err, context.Canceled) {
 		slog.WarnContext(ctx, what,
 			"chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)
+	}
+	if slot.Event != engineagents.HookPermission {
+		return
+	}
+	if id := PermissionInterruptionID(slot.ChoiceID); id != "" {
+		if err := d.ledger.ResolveInterruption(
+			ctx, slot.ChatID, id, engineagents.InterruptPermission, "", time.Now(),
+		); err != nil && !errors.Is(err, context.Canceled) {
+			slog.WarnContext(ctx, what+": interruption",
+				"chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)
+		}
 	}
 }
 
