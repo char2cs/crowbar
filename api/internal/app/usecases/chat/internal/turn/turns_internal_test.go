@@ -97,16 +97,17 @@ func (r *streamRacer) finished() bool {
 }
 
 // fakeChoiceActivity is a minimal agentactivity.EventStore recording only the
-// three calls the permission/auto-approve path makes — Interrupt, OpenChoice,
-// AnswerChoice — mirroring the embed-and-override shape harness_test.go's own
-// faultWriteActivity uses one package over, but scoped to this package's own
-// narrower needs rather than importing that internal test type across
-// packages.
+// four calls the permission/auto-approve path makes — Interrupt, OpenChoice,
+// AnswerChoice, ResolveInterruption — mirroring the embed-and-override shape
+// harness_test.go's own faultWriteActivity uses one package over, but scoped
+// to this package's own narrower needs rather than importing that internal
+// test type across packages.
 type fakeChoiceActivity struct {
 	agentactivity.EventStore
-	mu            sync.Mutex
-	answered      []answeredChoice
-	openChoiceErr error
+	mu                    sync.Mutex
+	answered              []answeredChoice
+	resolvedInterruptions []string
+	openChoiceErr         error
 }
 
 type answeredChoice struct {
@@ -133,6 +134,15 @@ func (f *fakeChoiceActivity) AnswerChoice(
 	f.answered = append(f.answered, answeredChoice{
 		chatID: chatID, choiceID: choiceID, optionIDs: optionIDs, auto: auto,
 	})
+	return nil
+}
+
+func (f *fakeChoiceActivity) ResolveInterruption(
+	_ context.Context, _, id, _, _ string, _ time.Time,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resolvedInterruptions = append(f.resolvedInterruptions, id)
 	return nil
 }
 
@@ -220,6 +230,11 @@ func TestOpenChoice_TrustedLevelAutoApprovesAStandardTierPromptWithNoHumanHold(t
 		"the recorded decision must be indistinguishable from a human's own Allow click")
 	assert.True(t, activity.answered[0].auto,
 		"the ledger write must be tagged as policy-approved, not a human's own click")
+	require.Len(t, activity.resolvedInterruptions, 1,
+		"auto-approving the choice must also resolve its paired interruption — left open, it "+
+			"keeps counting against MaxOpenPerTurn for the rest of the turn")
+	assert.Equal(t, PermissionInterruptionID(id), activity.resolvedInterruptions[0],
+		"the resolved interruption id must be the one this exact choice opened, not a stray one")
 }
 
 func TestOpenChoice_GuardedLevelHoldsASensitiveTierPromptForAHuman(t *testing.T) {

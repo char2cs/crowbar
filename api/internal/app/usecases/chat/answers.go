@@ -3,11 +3,13 @@ package chat
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/permission"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -181,8 +183,32 @@ func (u *Usecase) AnswerChoice(
 	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
+	u.resolvePermissionInterruption(ctx, chatID, choiceID)
 	u.answers.Resolve(slot, stdout)
 	return nil
+}
+
+// resolvePermissionInterruption mirrors turn.Turns' own auto-approve path
+// (see its doc comment): closes the notification banner a permission choice
+// opened, so a long turn's human-decided prompts don't count against
+// MaxOpenPerTurn any longer than the choice itself does. Best-effort — the
+// banner is cosmetic, and a failure here must never turn a successful
+// decision into an error the person answering never asked for.
+func (u *Usecase) resolvePermissionInterruption(
+	ctx context.Context,
+	chatID string,
+	choiceID string,
+) {
+	id := turn.PermissionInterruptionID(choiceID)
+	if id == "" {
+		return
+	}
+	if err := u.activity.ResolveInterruption(
+		ctx, chatID, id, engineagents.InterruptPermission, "", time.Now(),
+	); err != nil {
+		slog.WarnContext(ctx, "agent: answer choice: permission interruption resolved",
+			"err", err, "choice_id", choiceID)
+	}
 }
 
 // pendingChoice finds the still-open question by id. A prompt the CLI has already

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -154,7 +155,31 @@ func (t *Turns) autoApproveIfPolicy(
 		slog.WarnContext(ctx, "agent: permission: auto-approve: ledger", "err", err, "choice_id", choiceID)
 		return
 	}
+	t.resolvePermissionInterruption(ctx, chatID, choiceID)
 	t.answers.Resolve(slot, stdout)
+}
+
+// resolvePermissionInterruption closes the notification banner a permission
+// choice opened, freeing its slot in the turn's MaxOpenPerTurn budget the
+// moment the choice is decided. Left open until turn-close, a long turn's
+// gated tool calls each leak one — trivially reachable once every
+// standard/sensitive-tier call routes through a real ask (see
+// --permission-mode default), where under the old silent-approval mode it
+// almost never was. Best-effort: the interruption banner is cosmetic:
+// ResolveInterruption also synthesizes a closed record for an id it has
+// never seen, so this cannot itself explain a "no longer pending" failure.
+func (t *Turns) resolvePermissionInterruption(
+	ctx context.Context,
+	chatID string,
+	choiceID string,
+) {
+	id := PermissionInterruptionID(choiceID)
+	if id == "" {
+		return
+	}
+	note(ctx, "permission interruption resolved", t.activity.ResolveInterruption(
+		ctx, chatID, id, engineagents.InterruptPermission, "", time.Now(),
+	))
 }
 
 // currentDefaultLevel resolves the global default for a chat permissionLevels
@@ -176,13 +201,34 @@ func (t *Turns) currentDefaultLevel(
 }
 
 func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
-	if prompt.PromptID == "" {
-		return "choice-" + fallbackID()
+	if key := promptCorrelationKey(chatID, prompt); key != "" {
+		return "choice-" + key
+	}
+	return "choice-" + fallbackID()
+}
+
+// promptCorrelationKey is the "chatID-promptID-toolName" suffix choiceID and
+// a permission's interruptionID both derive from, so a permission choice's
+// paired interruption is a prefix swap away, never a second lookup.
+func promptCorrelationKey(chatID string, prompt *engineagents.ChoicePrompt) string {
+	if prompt == nil || prompt.PromptID == "" {
+		return ""
 	}
 	if prompt.ToolName == "" {
-		return "choice-" + chatID + "-" + prompt.PromptID
+		return chatID + "-" + prompt.PromptID
 	}
-	return "choice-" + chatID + "-" + prompt.PromptID + "-" + prompt.ToolName
+	return chatID + "-" + prompt.PromptID + "-" + prompt.ToolName
+}
+
+// PermissionInterruptionID derives a permission choice's paired interruption
+// id from the choice id alone, for the human answer path
+// (chat.Usecase.AnswerChoice) which only ever sees the choice id.
+func PermissionInterruptionID(choiceID string) string {
+	const prefix = "choice-"
+	if !strings.HasPrefix(choiceID, prefix) {
+		return ""
+	}
+	return "interrupt-" + strings.TrimPrefix(choiceID, prefix)
 }
 
 func choiceQuestions(in []engineagents.PromptQuestion) []domain.ActivityChoiceQuestion {
@@ -255,6 +301,11 @@ func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
 	}
 	if kind == engineagents.InterruptCompaction {
 		return "interrupt-" + chatID + "-" + kind
+	}
+	if kind == engineagents.InterruptPermission {
+		if key := promptCorrelationKey(chatID, ev.Choice); key != "" {
+			return "interrupt-" + key
+		}
 	}
 	return "interrupt-" + fallbackID()
 }

@@ -142,6 +142,38 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
+// TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption is the
+// human-path half of the fix for a live-review finding on a45f7930: a
+// permission choice and the interruption banner it opens (observation.go's
+// HookPermission case) were only ever paired going in — resolving the
+// choice left the interruption open until turn-close, so it kept counting
+// against domain.MaxOpenPerTurn for the rest of the turn. See
+// TestRegression_ManyAutoApprovedPermissionsInOneTurnNeverHitMaxOpenPerTurn
+// (permission_level_test.go) for the auto-approve half of the same fix.
+func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+
+	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Interruptions, 1, "the permission must have opened its own interruption")
+	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
+
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
+	f.wait()
+	<-printed
+
+	all, err = f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all.Interruptions, 1)
+	assert.NotNil(t, all.Interruptions[0].ResolvedAt,
+		"a human's own Allow/Deny must close the permission's interruption banner too, "+
+			"not just its choice — otherwise it lingers until turn-close, still counting "+
+			"against MaxOpenPerTurn for the rest of the turn")
+}
+
 func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
