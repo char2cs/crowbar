@@ -10,6 +10,11 @@
  * commit is one `setTimeout`, so there is nothing here that needs real time to
  * pass. jsdom runs no animations, which is precisely why the timer and the bar
  * are two separate things: the bar is what you see, the timer is what fires.
+ *
+ * Driven through `SidebarTreePanel` rather than the old `WorkspaceTree`
+ * (Task 8 retired it): the panel renders `RemovalTray` itself, exactly as
+ * `WorkspaceTree` used to, so a held row is proven to disappear from a REAL
+ * tree and not just from the tray's own list.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -58,7 +63,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { WorkspaceTree } from '@/components/layout/workspace-tree'
+import { SidebarTreePanel } from '@/components/layout/sidebar-tree-panel'
 import { planRemoval } from '@/components/layout/removal-plan'
 import type { DragSubject } from '@/components/layout/drop-rules'
 import type { Project } from '@/lib/types'
@@ -86,13 +91,11 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
   ...over,
 })
 
+// SidebarRow carries no id-bearing attribute yet (Part D's drag wiring adds
+// one) — read the tree back by the labels it draws, in document order, which
+// is exactly the hierarchical order the tree renders in.
 const rows = () =>
-  Array.from(document.querySelectorAll('[data-ws-drop], [data-folder-drop], [data-repo-drop]')).map(
-    (el) =>
-      el.getAttribute('data-ws-drop') ??
-      el.getAttribute('data-folder-drop') ??
-      el.getAttribute('data-repo-drop'),
-  )
+  Array.from(document.querySelectorAll('[role="treeitem"]')).map((el) => el.textContent?.trim())
 
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
 function hold(...subjects: DragSubject[]) {
@@ -132,17 +135,17 @@ afterEach(() => {
 
 describe('holding a row', () => {
   it('takes the row and its subtree off screen without deleting anything', () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
-    expect(rows()).toEqual(['r1', 'b', 'f1'])
+    expect(rows()).toEqual(['crowbar', 'beta', 'spikes'])
     expect(deleteWorkspace).not.toHaveBeenCalled()
     expect(screen.getByText('Removing')).toBeInTheDocument()
   })
 
   it('draws the row as an ordinary row, with a hairline draining under it', () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
@@ -159,7 +162,7 @@ describe('holding a row', () => {
     // A branch is a git ref and reads in mono; a folder name is prose and does
     // not. Changing typeface on the way into the tray would read as a different
     // kind of thing at the one moment the user is deciding whether to keep it.
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     expect(trayRow().querySelector('span.font-mono')).not.toBeNull()
@@ -175,7 +178,7 @@ describe('holding a row', () => {
 
 describe('the countdown', () => {
   it('deletes when the hairline has drained, and only the root of the subtree', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -192,7 +195,7 @@ describe('the countdown', () => {
   })
 
   it('deletes a folder through the folder endpoint, which reparents its children', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'folder', id: 'f1', repoId: 'r1' })
 
     await act(async () => {
@@ -211,7 +214,7 @@ describe('the countdown', () => {
  */
 describe('the seconds, in figures', () => {
   it('starts at the full eight and counts down with the hairline', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     expect(secs()).toBe('8')
@@ -231,7 +234,7 @@ describe('the seconds, in figures', () => {
   // waiting to be deleted may repaint the sidebar thirty times a second — nor
   // once a second, which is what a numeral held in state would cost.
   it('costs NOTHING to count — the figures are written, not rendered', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     renders.count = 0
 
@@ -244,7 +247,7 @@ describe('the seconds, in figures', () => {
   })
 
   it('runs out into the removal itself', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -256,7 +259,7 @@ describe('the seconds, in figures', () => {
   })
 
   it('shows no clock on a repo, which waits on an answer instead', () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
 
     hold({ kind: 'repo', id: 'r1' })
 
@@ -271,7 +274,7 @@ describe('the route the removal leaves behind', () => {
   // the app had already broken.
   it('stays put while the row is only being held', async () => {
     router.pathname = '/ide/p1/r1/kid'
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
@@ -283,7 +286,7 @@ describe('the route the removal leaves behind', () => {
 
   it('falls back to the parent once the delete has fired', async () => {
     router.pathname = '/ide/p1/r1/kid'
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'kid', repoId: 'r1' })
 
     await act(async () => {
@@ -298,7 +301,7 @@ describe('the route the removal leaves behind', () => {
 
   it('leaves a workspace that was not in what went alone', async () => {
     router.pathname = '/ide/p1/r1/b'
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -311,12 +314,12 @@ describe('the route the removal leaves behind', () => {
 
 describe('cancelling', () => {
   it('puts the row and its whole subtree back, with nothing sent', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     fireEvent.click(screen.getByLabelText('Keep alpha'))
 
-    expect(rows()).toEqual(['r1', 'a', 'kid', 'b', 'f1'])
+    expect(rows()).toEqual(['crowbar', 'alpha', 'alpha/one', 'beta', 'spikes'])
     await act(async () => {
       vi.advanceTimersByTime(20000)
     })
@@ -326,7 +329,7 @@ describe('cancelling', () => {
 
 describe('a repo, which takes every worktree under it', () => {
   it('waits on an answer instead of running a clock', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     expect(rows()).toEqual([])
@@ -339,12 +342,12 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('gives the repo and its contents back on Cancel', () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     fireEvent.click(screen.getByText('Cancel'))
 
-    expect(rows()).toEqual(['r1', 'a', 'kid', 'b', 'f1'])
+    expect(rows()).toEqual(['crowbar', 'alpha', 'alpha/one', 'beta', 'spikes'])
     expect(deleteRepo).not.toHaveBeenCalled()
   })
 
@@ -352,7 +355,7 @@ describe('a repo, which takes every worktree under it', () => {
     // Eight seconds of undo is not a proportionate safety net for every worktree
     // in a repo, so this row never ran a clock — and pressing Remove opens a
     // dialog that spells the cascade out rather than sending the delete.
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -364,7 +367,7 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('removes it once the confirmation is accepted', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -378,7 +381,7 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('deletes nothing when the confirmation is dismissed, and keeps the row held', async () => {
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -408,7 +411,7 @@ describe('a page that ends mid-drain', () => {
     // HMR update, or quitting — used to drop the intent silently. The row had
     // already been hidden, so it LOOKED deleted, and the next boot read it
     // straight back off the daemon.
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     expect(deleteWorkspace).not.toHaveBeenCalled()
 
@@ -427,7 +430,7 @@ describe('a page that ends mid-drain', () => {
     // A repo (and a project) sits in the tray with no clock, waiting on an
     // explicit confirmation. An unload is not that answer, and these are the two
     // removals that cascade — so the safe direction is to drop them.
-    render(<WorkspaceTree />)
+    render(<SidebarTreePanel />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
