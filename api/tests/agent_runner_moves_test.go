@@ -235,7 +235,7 @@ func TestRegression_ResumeIntoOccupiedChat_DoesNotBrickSource(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 
@@ -338,7 +338,7 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 
@@ -471,7 +471,7 @@ func TestRegression_HookAfterMove_DoesNotPolluteTheChatItLeft(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 	ctx := context.Background()
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
@@ -544,7 +544,7 @@ func TestRegression_ClearMintsChat_KeepsSamePTY(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 
@@ -633,7 +633,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 	ctx := context.Background()
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
@@ -651,6 +651,11 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	const privateText = "something private"
 	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
 	frames.awaitChat(doomed, "turn_started")
+	// Close the turn before the delete below: invariant 9 (2026-08-28 addendum §2)
+	// refuses to delete a WORKING row unconditionally, and this test is about what
+	// survives a delete, not about that refusal (pinned separately).
+	postAgentHook(t, h, ws, doomedRunner, "turn_stop", `{"last_assistant_message":"noted"}`)
+	frames.awaitChat(doomed, "turn_stopped")
 	h.Quiesce()
 
 	// The PROVIDER's own session store, where a vendor CLI actually keeps its
@@ -748,7 +753,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 

@@ -116,11 +116,13 @@ func createStubChat(t *testing.T, h *harness, imported importedRepo, provider st
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": provider}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": provider, "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
 }
@@ -132,7 +134,7 @@ func postProviderHook(
 	provider, segID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": provider, "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }
@@ -149,7 +151,7 @@ func readRecordedMessages(t *testing.T, h *harness, imported importedRepo, chatI
 	var page struct {
 		Items []recordedMessage `json:"items"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
 	return page.Items
 }
 
@@ -217,7 +219,7 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 			TurnID string `json:"turnId"`
 		} `json:"toolCalls"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/activity", &activity)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
 	require.Len(t, activity.ToolCalls, 1, "the tool call must be recorded exactly once")
 	assert.Equal(t, messages[2].TurnID, activity.ToolCalls[0].TurnID,
 		"the tool call ran in the segment that ended with the second message, and must attach to it")
@@ -267,7 +269,7 @@ func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *test
 	// Subscribe BEFORE the chat exists, then take its own `created` frame as the
 	// barrier proving this connection is registered — a frame broadcast before the
 	// subscriber attached is a frame no amount of waiting recovers.
-	conn := h.dial(wsBase(imported) + "/chats/ws")
+	conn := h.dial(repoBase(imported) + "/chats/ws")
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 	chatFrame := func(kind string) func(map[string]any) bool {
 		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }

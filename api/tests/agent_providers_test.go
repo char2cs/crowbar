@@ -23,7 +23,7 @@ func TestRegression_AgentProvidersEndpoint(t *testing.T) {
 		DisplayName string `json:"displayName"`
 		Icon        string `json:"icon"`
 	}
-	h.get(wsBase(imported)+"/chats/providers", &providers)
+	h.get(repoBase(imported)+"/chats/providers", &providers)
 
 	ids := map[string]bool{}
 	for _, p := range providers {
@@ -68,19 +68,19 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 		ID      string `json:"id"`
 		Enabled bool   `json:"enabled"`
 	}
-	h.get(wsBase(imported)+"/chats/providers", &providers)
+	h.get(repoBase(imported)+"/chats/providers", &providers)
 	require.Contains(t, providerEnabled(providers), "livestub",
 		"the disabled provider is still enumerated, which is why hiding it was never enough")
 	assert.False(t, providerEnabled(providers)["livestub"], "and it is reported as switched off")
 	assert.True(t, providerEnabled(providers)["claude"],
 		"an untouched provider stays enabled, so the flag above is a real value")
 
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats",
-		map[string]string{"provider": "livestub"}, http.StatusBadRequest)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID}, http.StatusBadRequest)
 	_ = resp.Body.Close()
 
 	var chats []agentChatDTO
-	h.get(wsBase(imported)+"/chats", &chats)
+	h.get(repoBase(imported)+"/chats", &chats)
 	assert.Empty(t, chats, "a refused spawn must not leave a chat behind")
 
 	// Re-enabling it makes the very same request work, so the guard is the
@@ -89,8 +89,8 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats",
-		map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "an enabled provider must still spawn")
 }
 

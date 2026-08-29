@@ -132,7 +132,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	root := createAgentChat(t, h, ws)
 	child := createAgentChat(t, h, ws)
@@ -171,7 +171,7 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	outer := createChatFolder(t, h, base, "outer", "")
 	inner := createChatFolder(t, h, base, "inner", outer.ID)
@@ -208,7 +208,7 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	outer := createChatFolder(t, h, base, "outer", "")
 	inner := createChatFolder(t, h, base, "inner", outer.ID)
@@ -245,9 +245,10 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 
 // A CHAT parent is still refused across workspaces: a thread's parent is what
 // it READS, so accepting one from a workspace the user is not in would let an
-// agent inherit context — and, addressed through the wrong workspace, the
-// chat is not merely refused, it is invisible, because answering anything else
-// would confirm a row the caller may not touch exists.
+// agent inherit context. That refusal is decided from the MOVED chat's own
+// actual workspace (checkChatContainer), so it survives Task 17's route
+// rescope unchanged even though the repo-scoped mount no longer names a
+// workspace in the URL at all.
 //
 // A FOLDER parent is not refused this way any more. A folder carries no
 // workspace of its own now (2026-08-23 unified-sidebar-design §3.1) — it is a
@@ -258,36 +259,55 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 // (Chats.ListChats's own doc comment), not this task's storage retype. This
 // test pins today's honest, permissive behaviour so a future tightening is a
 // conscious assertion change here, not a silently discovered regression.
+//
+// Addressing a chat by id alone (Task 17, model spec §5.1) also retires the
+// third case this test used to pin: a chat is no longer invisible merely
+// because the URL used to reach it names a different repo/workspace. The
+// repo-scoped mount has no :wsId segment to compare against, so
+// requireChatInWorkspace's cross-workspace 404 only ever fires at the HOME
+// mount now (RequireHomeWorkspace's injected :wsId) — pinned separately by
+// TestAgentREST_Scope. Here, writing chat B's own placement through repo A's
+// URL is legitimate access to a row addressed by id, not a probe into
+// something the caller may not touch, and this test now pins THAT.
 func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
 
-	foreignFolder := createChatFolder(t, h, wsBase(b), "elsewhere", "")
+	foreignFolder := createChatFolder(t, h, repoBase(b), "elsewhere", "")
 	foreignChat := createAgentChat(t, h, b)
 
 	// Filing a new folder under another repo's folder, or under another
 	// workspace's chat, is accepted — the repo boundary is not enforced yet.
-	created := createChatFolder(t, h, wsBase(a), "spikes", foreignFolder.ID)
+	created := createChatFolder(t, h, repoBase(a), "spikes", foreignFolder.ID)
 	assert.Equal(t, foreignFolder.ID, created.ParentID)
-	createChatFolder(t, h, wsBase(a), "spikes-2", foreignChat)
+	createChatFolder(t, h, repoBase(a), "spikes-2", foreignChat)
 
 	// A CHAT thread is still refused across workspaces: this boundary is
-	// unchanged by the retype, since a chat still carries a workspace.
+	// unchanged by the retype, since a chat still carries a workspace and the
+	// refusal is decided from the MOVED chat's own workspace, never the URL.
 	own := createAgentChat(t, h, a)
-	msg := h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+own+"/placement",
+	msg := h.mutationError(http.MethodPatch, repoBase(a)+"/chats/"+own+"/placement",
 		map[string]string{"parentId": foreignChat}, http.StatusConflict)
 	assert.Contains(t, msg, "workspace")
 
-	// Renaming a folder addressed through a DIFFERENT workspace's URL now
-	// succeeds too: a folder is addressed by id alone, not id-within-workspace.
-	h.patch(wsBase(a)+"/chats/folders/"+foreignFolder.ID, map[string]any{"name": "renamed"}, nil)
+	// Renaming a folder addressed through a DIFFERENT repo's URL now succeeds
+	// too: a folder is addressed by id alone, not id-within-workspace.
+	h.patch(repoBase(a)+"/chats/folders/"+foreignFolder.ID, map[string]any{"name": "renamed"}, nil)
 
-	// A chat addressed through the wrong workspace is still invisible: this
-	// guard lives on the chat side (loadChat) and is untouched by the retype.
-	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+foreignChat+"/placement",
-		map[string]any{"order": 0}, http.StatusNotFound)
+	// A chat addressed through a DIFFERENT repo's URL is now reachable and
+	// mutable, not invisible: the repo-scoped mount has no workspace segment
+	// left to be wrong about, so reparenting chat B through repo A's URL is
+	// ordinary access to a row addressed by id, and it actually lands.
+	placed := placeChat(t, h, repoBase(a), foreignChat, map[string]any{"parentId": foreignFolder.ID})
+	assert.Equal(t, foreignFolder.ID, placed.Chat.ParentID,
+		"the reparent, addressed through the other repo's mount, actually landed")
+
+	var reread agentChatDetail
+	h.get(repoBase(b)+"/chats/"+foreignChat, &reread)
+	assert.Equal(t, foreignFolder.ID, reread.ParentID,
+		"and is visible back through the chat's own repo mount too")
 }
 
 // Sibling order is a dense index chats and folders SHARE, rebuilt on every move.
@@ -298,7 +318,7 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	chat := createAgentChat(t, h, ws)
 	first := createChatFolder(t, h, base, "a", "")
@@ -373,18 +393,26 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 }
 
 // A folder mutation has no aggregate projection to ride, so the handler
-// broadcasts it — on the SAME workspace-scoped socket the chats use, because one
-// gesture writes both kinds and two feeds would have to be kept in order.
+// broadcasts it — on the SAME repo-scoped socket the chats use (Task 17), because
+// one gesture writes both kinds and two feeds would have to be kept in order.
+//
+// The frame's workspaceId is empty here, not ws.workspaceID: a folder carries no
+// workspace of its own (2026-08-23 unified-sidebar-design §3.1), and the
+// repo-scoped mount has no :wsId path segment to source one from either — only
+// the home mount's injected :wsId (RequireHomeWorkspace) ever stamps one on a
+// folder frame, which is a scoping convenience for that one mount, not a fact
+// about the folder.
 func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
 	h := newHarness(t)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := dialAgentWS(t, h, base+"/chats/ws")
 
 	folder := createChatFolder(t, h, base, "spikes", "")
 	created := waitForFolderFrame(t, frames, folder.ID, "folder_created")
-	assert.Equal(t, ws.workspaceID, created["workspaceId"])
+	assert.Empty(t, created["workspaceId"],
+		"a folder carries no workspace of its own, and the repo-scoped mount has no :wsId to stamp one from")
 
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	waitForFolderFrame(t, frames, folder.ID, "folder_updated")

@@ -48,39 +48,45 @@ func dialAgentWS(
 	return frames
 }
 
-// TestAgentWS_WorkspaceIsolation proves the agent-chat lifecycle WebSocket is
-// scoped per workspace (Task 3, agentChatDef's wsId Filter): a subscriber of
-// workspace A's feed receives A's own "created" frame and never workspace B's,
-// even though B's chat (and its own "created" frame, positively proven on B's
-// own connection) was created first.
-func TestAgentWS_WorkspaceIsolation(t *testing.T) {
+// TestAgentWS_HomeMountIsolation proves the agent-chat lifecycle WebSocket's
+// HOME mount is still scoped per project after Task 17's route rescope
+// (RequireHomeWorkspace's injected :wsId feeds the SAME agentChatDef wsId
+// Filter this test pinned before): a subscriber of project A's home feed
+// receives A's own "created" frame and never project B's, even though B's
+// chat (and its own "created" frame, positively proven on B's own connection)
+// was created first. Task 17 only moved this invariant's ADDRESS — it used to
+// be pinned at a workspace-scoped mount that no longer exists for chats — it
+// did not touch the guard itself.
+func TestAgentWS_HomeMountIsolation(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 
-	a := importWritableWorkspace(t, h)
-	b := importWritableWorkspace(t, h)
+	projA := importProject(t, h)
+	projB := importProject(t, h)
+	homeA := "/v0/projects/" + projA.projectID + "/home"
+	homeB := "/v0/projects/" + projB.projectID + "/home"
 
-	framesA := dialAgentWS(t, h, wsBase(a)+"/chats/ws")
-	framesB := dialAgentWS(t, h, wsBase(b)+"/chats/ws")
+	framesA := dialAgentWS(t, h, homeA+"/chats/ws")
+	framesB := dialAgentWS(t, h, homeB+"/chats/ws")
 
 	// Create B's chat FIRST and require ITS OWN connection to observe the
 	// "created" frame before A's chat is ever created: this is a real,
 	// positive proof the event actually fired and reached the WS layer — not
-	// an assumption — so that if the wsId filter were broken (matching every
-	// workspace), B's already-fired frame would be the very first thing
+	// an assumption — so that if the home wsId filter were broken (matching
+	// every project), B's already-fired frame would be the very first thing
 	// connA's channel delivers below.
 	var chatB struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(b)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatB)
+	h.post(homeB+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatB)
 	require.NotEmpty(t, chatB.ID)
 
 	select {
 	case f := <-framesB:
 		require.Equal(t, "created", f["kind"])
-		require.Equal(t, chatB.ID, f["chatId"], "workspace B's own connection must see its own chat's created frame")
+		require.Equal(t, chatB.ID, f["chatId"], "project B's own home connection must see its own chat's created frame")
 	case <-t.Context().Done():
-		t.Fatal("timed out waiting for workspace B's own created frame")
+		t.Fatal("timed out waiting for project B's own created frame")
 	}
 
 	// Now create A's chat. connA's channel is read for the first time here:
@@ -91,15 +97,62 @@ func TestAgentWS_WorkspaceIsolation(t *testing.T) {
 	var chatA struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(a)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatA)
+	h.post(homeA+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chatA)
 	require.NotEmpty(t, chatA.ID)
 
 	select {
 	case f := <-framesA:
 		assert.Equal(t, "created", f["kind"])
-		assert.Equal(t, chatA.ID, f["chatId"], "workspace-A subscriber must never see workspace B's chat")
-		assert.Equal(t, a.workspaceID, f["workspaceId"])
+		assert.Equal(t, chatA.ID, f["chatId"], "project A's home subscriber must never see project B's chat")
 	case <-t.Context().Done():
-		t.Fatal("timed out waiting for workspace A's created frame")
+		t.Fatal("timed out waiting for project A's created frame")
 	}
+}
+
+// TestAgentWS_RepoScopedSpansEveryWorkspace proves the repo-scoped mount's WS
+// is deliberately NOT scoped per workspace after Task 17: the route carries no
+// :wsId path segment, so agentChatDef's wsId Filter has no value anywhere to
+// resolve and degrades to "matches everything" — the same behaviour
+// ws/filter_test.go's TestBuildPredicate_DeclaredFilterWithNoValueAnywhere-
+// MatchesAll pins at the unit level, exercised here end to end. ONE subscriber
+// of a repo's feed therefore sees a "created" frame for a chat born in EITHER
+// of that repo's own workspaces.
+//
+// This replaces the isolation TestAgentWS_WorkspaceIsolation used to pin at
+// this exact mount before the rescope: the model spec's own §5.1 relaxation
+// ("chats are addressed by id alone now") means there is no workspace edge
+// left here to keep two subscribers apart, so the honest invariant to pin is
+// that they are NOT kept apart, on purpose.
+func TestAgentWS_RepoScopedSpansEveryWorkspace(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+
+	imported := importProject(t, h)
+	mainWS := imported.workspaceID
+	otherWS := createChildWorkspace(t, h, repoBase(imported), "feature/other", mainWS)
+	h.Quiesce()
+
+	frames := dialAgentWS(t, h, repoBase(imported)+"/chats/ws")
+
+	var chatMain struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": mainWS},
+		http.StatusCreated, &chatMain)
+	require.NotEmpty(t, chatMain.ID)
+	// waitForChatFrame drains past any OTHER frame kind (e.g. the create's own
+	// permission_level_set) on the way to the one this asserts on — the repo
+	// mount is unfiltered, so it carries every chat's traffic, not just "created".
+	waitForChatFrame(t, frames, chatMain.ID, "created")
+
+	var chatOther struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": otherWS},
+		http.StatusCreated, &chatOther)
+	require.NotEmpty(t, chatOther.ID)
+
+	waitForChatFrame(t, frames, chatOther.ID, "created")
 }

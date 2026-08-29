@@ -35,14 +35,14 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	h.Quiesce()
 
 	// Close the tab: stop the CLI, keep the chat.
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
 	// The chat is DORMANT — its CLI was terminated and no runner points at it — but it
 	// is STILL THERE (a 200, not the Delete route's 404), with its bound conversation
 	// retained. That is exactly the state ResumeChat consumes.
-	post := getAgentChat(t, h, wsBase(imported), chatID)
+	post := getAgentChat(t, h, repoBase(imported), chatID)
 	assert.Empty(t, post.LiveRunnerID,
 		"closing a chat tab must terminate its live CLI: the chat is dormant, with no runner to attach to")
 	assert.Equal(t, []string{"sess-stop-1"}, post.sessionIDs(),
@@ -50,7 +50,7 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 
 	// And it still appears in List — a close is not a delete.
 	var list []agentChatDTO
-	h.get(wsBase(imported)+"/chats", &list)
+	h.get(repoBase(imported)+"/chats", &list)
 	var found bool
 	for _, c := range list {
 		if c.ID == chatID {

@@ -88,17 +88,19 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
 	conn := h.dial(repoBase + "/workspaces")
 
 	// user_prompt opens the turn.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "user_prompt",
 		"payload_raw": `{"prompt":"hi"}`,
 	}, http.StatusAccepted).Body.Close()
@@ -109,7 +111,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "turn_stop",
 		"payload_raw": `{"last_assistant_message":"done"}`,
 	}, http.StatusAccepted).Body.Close()
@@ -137,16 +139,18 @@ func createLiveStubChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
 }
 
-// postAgentHook fires one in-PTY hook callback at the workspace's agent mount.
+// postAgentHook fires one in-PTY hook callback at the repo-scoped agent mount.
 func postAgentHook(
 	t *testing.T,
 	h *harness,
@@ -154,7 +158,7 @@ func postAgentHook(
 	segID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }

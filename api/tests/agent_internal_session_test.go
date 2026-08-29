@@ -57,11 +57,13 @@ func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID,
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "memstub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "memstub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
 }
@@ -74,7 +76,7 @@ func postMemStubHook(
 	runnerID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": runnerID, "provider": "memstub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }
@@ -136,7 +138,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 
@@ -231,7 +233,7 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		resp := h.raw(http.MethodPost, wsBase(ws)+"/chats/hooks", map[string]string{
+		resp := h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
 			"segment_id": runner, "provider": "memstub", "event": ev.event, "payload_raw": ev.payload,
 		}, http.StatusAccepted)
 		_ = resp.Body.Close()

@@ -69,12 +69,12 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	h := newHarness(t)
 	writeAnswerStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
-	base := wsBase(imported)
+	base := repoBase(imported)
 
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/chats", map[string]string{"provider": "answerstub"},
+	h.post(base+"/chats", map[string]string{"provider": "answerstub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	h.Quiesce()
 	segID := getAgentChat(t, h, base, created.ID).LiveRunnerID
