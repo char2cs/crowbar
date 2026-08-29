@@ -17,18 +17,9 @@ import (
 // its whole subtree. Each test drives the real HTTP surface, so a rule that only
 // ever existed in the frontend would fail here.
 //
-// Every test below is currently SKIPPED. A folder is now minted through the
-// real, event-sourced chat repository (2026-08-23 unified-sidebar-design
-// §3.1/§7 stage 1), and that repository's Create command still requires
-// WorkspaceID (stage 2 — "WorkspaceID becomes optional and mutable" — has not
-// landed). A folder is created with no workspace by design, so every
-// POST .../chats/folders in this file 422s at the first create, confirmed by
-// actually running the suite (`go test -tags integration ./tests/ -run
-// TestRegression_Chat`). This is not a bug introduced by the retype: it is the
-// model's own sequencing, and Task 5/stage 2 is what unblocks it. Un-skip once
-// that lands.
-const skipUntilWorkspaceIDOptional = "blocked until stage 2 (WorkspaceID becomes optional) lands: " +
-	"folder Create has no workspace by design and 422s against today's Create.Validate"
+// The tests below were unblocked by Task 5, which made WorkspaceID optional
+// in the Create command. A folder is created with no workspace by design, and
+// the Create command now supports this.
 
 // agentChatFolderDTO mirrors the WIRE SHAPE a folder route answers with today:
 // dto.AgentChatDTO (api/internal/api/v0/dto/agent.go), not the deleted
@@ -138,8 +129,6 @@ func chatIDs(
 // deleted folder promotes its children, would leave conversations whose entire
 // premise has been erased and which no drag can restore.
 func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
@@ -179,8 +168,6 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 // holds no conversation, so the chats filed under it outlive it. Deleting them
 // would destroy work the user only meant to unfile.
 func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
@@ -218,8 +205,6 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 // inside its own subtree is a context walk that never reaches the root. Refused
 // server-side, before any write.
 func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
@@ -274,8 +259,6 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 // test pins today's honest, permissive behaviour so a future tightening is a
 // conscious assertion change here, not a silently discovered regression.
 func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	a := importWritableWorkspace(t, h)
@@ -312,8 +295,6 @@ func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 // renumber moved have to come back on the response, or every other client cache
 // holds stale orders until it reconnects.
 func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
@@ -357,8 +338,6 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 // exactly the surface that most needs folders — and exactly the one a single
 // mount would have left without them.
 func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
@@ -397,8 +376,6 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 // broadcasts it — on the SAME workspace-scoped socket the chats use, because one
 // gesture writes both kinds and two feeds would have to be kept in order.
 func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
-	t.Skip(skipUntilWorkspaceIDOptional)
-
 	h := newHarness(t)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)

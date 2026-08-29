@@ -30,7 +30,7 @@ func (c Create) Validate(current *domain.Chat) error {
 	if current != nil {
 		return fmt.Errorf("create agent chat: exists: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.WorkspaceID == "" {
+	if c.ID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)
 	}
 	if !validChatType(c.Type) {

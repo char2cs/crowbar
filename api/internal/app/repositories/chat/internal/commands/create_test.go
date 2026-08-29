@@ -27,3 +27,10 @@ func TestCreate_Validate_AcceptsEachKnownType(t *testing.T) {
 		}
 	}
 }
+
+func TestCreate_Validate_AllowsEmptyWorkspaceID(t *testing.T) {
+	c := commands.Create{ID: "chat-1", Type: domain.ChatTypeChat}
+	if err := c.Validate(nil); err != nil {
+		t.Fatalf("a bubble chat must be creatable with no workspace: %v", err)
+	}
+}
