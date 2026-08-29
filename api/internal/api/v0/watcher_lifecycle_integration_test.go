@@ -118,7 +118,6 @@ type fileProbe struct {
 
 func (fileProbe) PushProject(_ dto.ProjectDTO)                 {}
 func (fileProbe) PushRepo(_ dto.RepoDTO)                       {}
-func (fileProbe) PushFolder(_ dto.FolderDTO)                   {}
 func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
 func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}

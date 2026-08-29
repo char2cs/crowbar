@@ -224,8 +224,6 @@ type workspaceDTO struct {
 	Branch          string `json:"branch"`
 	ParentID        string `json:"parentId"`
 	ForkPointSha    string `json:"forkPointSha"`
-	FolderID        string `json:"folderId"`
-	Order           int    `json:"order"`
 	IsDefault       bool   `json:"isDefault"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`

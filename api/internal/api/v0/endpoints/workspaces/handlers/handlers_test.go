@@ -10,9 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -271,66 +270,96 @@ func newRouter(
 	return r
 }
 
-// fakePlacer records the sidebar placement the PATCH handler asked for and
-// returns canned results. `folders` is the repo's folder list the create path
-// resolves a folderId against.
-type fakePlacer struct {
-	placed       domain.Workspace
-	shifted      []domain.Folder
-	folders      []domain.Folder
-	listErr      error
-	err          error
-	gotWS        string
-	gotIn        folder.PlaceInput
-	calls        int
-	nextSlot     int
-	nextSlotErr  error
-	gotContainer string
+// folderFrame is one call the handler made to the folder broadcast: the
+// folder-typed chat row's id, the workspace scope, and the frame kind —
+// mirroring the Chats panel's own AgentChatFolder frame, which carries no row
+// (a client re-reads folders on one).
+type folderFrame struct {
+	folderID    string
+	workspaceID string
+	kind        string
 }
 
-func (f *fakePlacer) PlaceWorkspace(
+// fakePlacer records the sidebar placement the PATCH/Create handlers asked
+// for, and doubles as the ChatResolver that finds the chat row a workspace id
+// owns: every workspace-owning row is a chat row (Stage 1's taxonomy), and
+// PlaceChat is addressed by chat id, never by workspace id. ownedChatID
+// defaults to the workspace id itself when unset, and ownedNotFound makes the
+// resolve fail as if the workspace had no owning row yet (the real, disclosed
+// gap until Stage 5's CreateChild/Promote unification lands).
+type fakePlacer struct {
+	ownedChatID   string
+	ownedNotFound bool
+	ownedErr      error
+
+	placed  domain.Chat
+	shifted []domain.Chat
+	err     error
+	gotWS   string
+	gotChat string
+	gotIn   agentusecase.PlaceInput
+	calls   int
+	// placeCalled and resolveCalled, when non-nil, are closed the instant
+	// PlaceChat/ListChatsByWorkspace are invoked — the real signal a caller
+	// blocks on rather than guessing with a sleep, for the best-effort placement
+	// Create's async closure runs after CreateChild.
+	placeCalled   chan struct{}
+	resolveCalled chan struct{}
+}
+
+func (f *fakePlacer) ListChatsByWorkspace(
 	_ context.Context,
-	_ string,
-	_ string,
-	wsID string,
-	in folder.PlaceInput,
-) (domain.Workspace, []domain.Folder, error) {
+	workspaceID string,
+) ([]domain.Chat, error) {
+	if f.resolveCalled != nil {
+		close(f.resolveCalled)
+	}
+	if f.ownedErr != nil {
+		return nil, f.ownedErr
+	}
+	if f.ownedNotFound {
+		return nil, nil
+	}
+	id := f.ownedChatID
+	if id == "" {
+		id = workspaceID
+	}
+	return []domain.Chat{{ID: id, WorkspaceID: workspaceID, Type: domain.ChatTypeChat}}, nil
+}
+
+func (f *fakePlacer) PlaceChat(
+	_ context.Context,
+	workspaceID string,
+	chatID string,
+	in agentusecase.PlaceInput,
+) (domain.Chat, []domain.Chat, error) {
 	f.calls++
-	f.gotWS = wsID
+	f.gotWS = workspaceID
+	f.gotChat = chatID
 	f.gotIn = in
+	if f.placeCalled != nil {
+		close(f.placeCalled)
+	}
 	return f.placed, f.shifted, f.err
 }
 
-func (f *fakePlacer) ListInRepo(
-	_ context.Context,
-	_ string,
-	_ string,
-) ([]domain.Folder, error) {
-	return f.folders, f.listErr
-}
-
-func (f *fakePlacer) NextSlot(
-	_ context.Context,
-	_ string,
-	_ string,
-	container string,
-) (int, error) {
-	f.gotContainer = container
-	return f.nextSlot, f.nextSlotErr
-}
-
-// newRouterWithPlacer additionally wires the sidebar placer and captures the
-// folder frames the PATCH handler fans out.
+// newRouterWithPlacer additionally wires the sidebar placer/chat-resolver and
+// captures the folder frames the PATCH/Create handlers fan out. placer doubles
+// as both ports (see fakePlacer); a nil placer leaves both unwired, matching
+// production's degrade-rather-than-panic behaviour.
 func newRouterWithPlacer(
 	reader workspacehandlers.Reader,
 	hierarchy workspacehandlers.Hierarchy,
 	repos workspacehandlers.Repos,
 	placer workspacehandlers.Placer,
-) (*gin.Engine, *fakePlacer, *[]dto.FolderDTO) {
-	frames := &[]dto.FolderDTO{}
+) (*gin.Engine, *fakePlacer, *[]folderFrame) {
+	frames := &[]folderFrame{}
 	r := gin.New()
+	chats, _ := placer.(workspacehandlers.ChatResolver)
 	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{}, fakeWork{}).
-		WithPlacer(placer, func(d dto.FolderDTO) { *frames = append(*frames, d) })
+		WithPlacer(placer, chats, func(folderID, workspaceID, kind string) {
+			*frames = append(*frames, folderFrame{folderID: folderID, workspaceID: workspaceID, kind: kind})
+		})
 	// Mount under the hierarchical repo-scoped prefix so the handlers read
 	// :projectId/:repoId/:wsId from the path, mirroring the production router.
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")

@@ -44,17 +44,11 @@ type WorkspaceDTO struct {
 	// an imported one is not). The client reconstructs the "checked out
 	// elsewhere" reason from it; absent on healthy workspaces.
 	HeldByPath string `json:"heldByPath,omitempty"`
-	// FolderID is the sidebar folder this workspace is filed under, set only on a
-	// fork root; a forked child inherits its folder from its fork ancestor and
-	// renders under it. Never a fork parent — that is ParentID.
-	FolderID string `json:"folderId,omitempty"`
-	// Order is the row's dense index within its sibling space, which it shares
-	// with the folders at that level.
-	Order int `json:"order"`
-	// CreatedAt is carried so a client can reproduce the server's ordering
-	// exactly. Order alone is not enough: rows a user has never dragged all hold
-	// 0, and without this tiebreak a client merging its cache would show them in
-	// whatever order the map happened to yield, reshuffling on every frame.
+	// CreatedAt is the tiebreak the list sorts undragged rows by: placement no
+	// longer lives on this resource at all (it is the row's own chat-row
+	// ParentID/Order in the unified sidebar tree — see
+	// usecases/chat/internal/tree), so a client merging its cache falls back to
+	// creation order rather than whatever the map happened to yield.
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -90,8 +84,6 @@ func WorkspaceDTOFrom(
 		PRTargetBranch:  w.PRTargetBranch,
 		LocalPath:       w.WorktreePath,
 		HeldByPath:      w.HeldByPath,
-		FolderID:        w.FolderID,
-		Order:           w.Order,
 		CreatedAt:       w.CreatedAt,
 	}
 }
@@ -133,19 +125,14 @@ func WorkspaceDTOList(
 	return dtos
 }
 
-// compareWorkspaceDTOs orders workspaces by their dense sibling index, then by
-// creation time, then by id. Order is only meaningful within one sibling space,
-// so the flat list is every level's sequence interleaved; the client groups by
-// parent and reads each group in this order. The created-at tiebreak is what
-// keeps a level nobody has dragged yet — every row still holding 0 — in creation
-// order rather than jittering.
+// compareWorkspaceDTOs orders workspaces by creation time, then by id. Sidebar
+// placement no longer lives on this resource (see WorkspaceDTO.CreatedAt), so
+// creation order is the whole ordering this list can offer on its own; the
+// row's real tree position comes from its own chat row.
 func compareWorkspaceDTOs(
 	a WorkspaceDTO,
 	b WorkspaceDTO,
 ) int {
-	if a.Order != b.Order {
-		return a.Order - b.Order
-	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Compare(b.CreatedAt)
 	}

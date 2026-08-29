@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -82,29 +82,32 @@ func TestPatch_RefusalsMapToConflict(t *testing.T) {
 }
 
 // A drag is a placement, and it carries no branch — the old branch-is-required
-// rule would have 400'd every one of them.
+// rule would have 400'd every one of them. The row's own chat id is resolved
+// from the workspace id and addressed on PlaceChat — never the workspace id
+// itself, per the unified tree's contract.
 func TestPatch_PlacementNeedsNoBranch(t *testing.T) {
-	placer := &fakePlacer{placed: domain.Workspace{ID: "w1", FolderID: "f1", Order: 2}}
+	placer := &fakePlacer{ownedChatID: "chat-1", placed: domain.Chat{ID: "chat-1"}}
 	r, got, frames := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, placer)
 
 	rec := do(r, http.MethodPatch, patchPath(), `{"folderId":"f1","order":2}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "w1", got.gotWS)
-	require.NotNil(t, got.gotIn.FolderID)
-	assert.Equal(t, "f1", *got.gotIn.FolderID)
+	assert.Equal(t, "chat-1", got.gotChat, "the placement is addressed by the owning chat row, not the workspace id")
+	require.NotNil(t, got.gotIn.ParentID)
+	assert.Equal(t, "f1", *got.gotIn.ParentID)
 	require.NotNil(t, got.gotIn.Order)
 	assert.Equal(t, 2, *got.gotIn.Order)
 	assert.Empty(t, *frames, "no folder was renumbered, so nothing to fan out")
 }
 
-// A placement renumbers the level, and the folders at that level are a plain
-// GORM row with no projection to ride — so this handler has to fan them out
-// itself or their orders stay stale in every client cache.
+// A placement renumbers the level, and the folder-typed rows at that level are
+// a plain GORM row with no projection to ride — so this handler has to fan
+// them out itself or their orders stay stale in every client cache.
 func TestPatch_BroadcastsTheFoldersAPlacementRenumbered(t *testing.T) {
 	placer := &fakePlacer{
-		placed:  domain.Workspace{ID: "w1"},
-		shifted: []domain.Folder{{ID: "f1", Order: 1}},
+		placed:  domain.Chat{ID: "w1"},
+		shifted: []domain.Chat{{ID: "f1", Type: domain.ChatTypeFolder, Order: 1}},
 	}
 	r, _, frames := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, placer)
 
@@ -112,34 +115,49 @@ func TestPatch_BroadcastsTheFoldersAPlacementRenumbered(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, *frames, 1)
-	assert.Equal(t, "f1", (*frames)[0].ID)
-	assert.Equal(t, 1, (*frames)[0].Order)
+	assert.Equal(t, "f1", (*frames)[0].folderID)
+	assert.Equal(t, "w1", (*frames)[0].workspaceID)
+	assert.Equal(t, "folder_updated", (*frames)[0].kind)
 }
 
 // An explicit empty folderId is a move back to the repo ROOT, and must be
 // distinguishable from an absent one.
 func TestPatch_EmptyFolderMeansTheRepoRoot(t *testing.T) {
-	placer := &fakePlacer{placed: domain.Workspace{ID: "w1"}}
+	placer := &fakePlacer{placed: domain.Chat{ID: "w1"}}
 	r, got, _ := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, placer)
 
 	rec := do(r, http.MethodPatch, patchPath(), `{"folderId":""}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotNil(t, got.gotIn.FolderID)
-	assert.Equal(t, "", *got.gotIn.FolderID)
+	require.NotNil(t, got.gotIn.ParentID)
+	assert.Equal(t, "", *got.gotIn.ParentID)
 }
 
 // The invariant the spec names explicitly: a move that would separate a
-// workspace from its fork parent is refused server-side, and reaches the user as
-// a 409 rather than a 500.
-func TestPatch_ForkChainSplitIsAConflict(t *testing.T) {
-	placer := &fakePlacer{err: folder.ErrForkChainSplit}
+// workspace's row from a legal position in the tree is refused server-side,
+// and reaches the user as a 409 rather than a 500.
+func TestPatch_CycleIsAConflict(t *testing.T) {
+	placer := &fakePlacer{err: agentusecase.ErrTreeCycle}
 	r, _, frames := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, placer)
 
 	rec := do(r, http.MethodPatch, patchPath(), `{"folderId":"f1"}`)
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Empty(t, *frames)
+}
+
+// A workspace created before the tree unification landed a backing chat row
+// (Stage 5's CreateChild/Promote) has nothing to place. This is the disclosed,
+// real, temporary gap: the migrated placement path only works once a workspace
+// owns a chat row, and today's CreateChild does not mint one yet.
+func TestPatch_NoOwningChatRow_404(t *testing.T) {
+	placer := &fakePlacer{ownedNotFound: true}
+	r, _, _ := newRouterWithPlacer(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, placer)
+
+	rec := do(r, http.MethodPatch, patchPath(), `{"folderId":"f1"}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Zero(t, placer.calls, "PlaceChat must never run without a resolved chat id")
 }
 
 // A branch-only PATCH must not reach the placer at all, so a rename never

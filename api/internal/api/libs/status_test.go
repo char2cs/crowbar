@@ -13,7 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -110,23 +110,18 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
-			name:   "folder cycle",
-			err:    folder.ErrFolderCycle,
+			name:   "unified tree cycle",
+			err:    agentusecase.ErrTreeCycle,
 			status: http.StatusConflict,
 		},
 		{
-			name:   "folder cross repo",
-			err:    folder.ErrFolderCrossRepo,
+			name:   "unified tree cross workspace",
+			err:    agentusecase.ErrTreeCrossWorkspace,
 			status: http.StatusConflict,
 		},
 		{
-			name:   "folder splits a fork chain",
-			err:    folder.ErrForkChainSplit,
-			status: http.StatusConflict,
-		},
-		{
-			name:   "folder name required",
-			err:    folder.ErrFolderNameRequired,
+			name:   "unified tree name required",
+			err:    agentusecase.ErrTreeNameRequired,
 			status: http.StatusBadRequest,
 		},
 		{
@@ -307,24 +302,23 @@ func TestStatusAndMessage_FailedDependencyIs424(t *testing.T) {
 	assert.Contains(t, msg, "exited during startup")
 }
 
-// Every sentinel below reaches this mapper WRAPPED — the folder usecase always
+// Every sentinel below reaches this mapper WRAPPED — the tree usecase always
 // annotates with the ids involved — so a chain that only matched the bare value
 // would fall through to a generic 500 in production while the table above stayed
 // green.
-func TestStatusAndMessage_WrappedFolderSentinels(t *testing.T) {
+func TestStatusAndMessage_WrappedTreeSentinels(t *testing.T) {
 	cases := []struct {
 		name   string
 		err    error
 		status int
 	}{
-		{"cycle", folder.ErrFolderCycle, http.StatusConflict},
-		{"cross repo", folder.ErrFolderCrossRepo, http.StatusConflict},
-		{"fork chain split", folder.ErrForkChainSplit, http.StatusConflict},
-		{"name required", folder.ErrFolderNameRequired, http.StatusBadRequest},
+		{"cycle", agentusecase.ErrTreeCycle, http.StatusConflict},
+		{"cross workspace", agentusecase.ErrTreeCrossWorkspace, http.StatusConflict},
+		{"name required", agentusecase.ErrTreeNameRequired, http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			status, msg := libs.StatusAndMessage(fmt.Errorf("folder: move f1: %w", tc.err))
+			status, msg := libs.StatusAndMessage(fmt.Errorf("agent chat folder: move f1: %w", tc.err))
 			assert.Equal(t, tc.status, status)
 			assert.Contains(t, msg, "f1")
 		})

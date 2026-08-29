@@ -95,29 +95,6 @@ func repoSnapshot(
 	}
 }
 
-// folderSnapshot builds the Folders snapshot-on-subscribe source (03 §1a) as
-// wire DTOs, scoped to the project+repo parsed from the connecting client's
-// subscription prefix ("p/r/..."). It goes through the SAME FolderDTOList the
-// REST list handler uses, so a client's snapshot and its refetch can never
-// disagree about order. A scope without a repo segment yields nothing: folders
-// are repo-scoped, and a project-level subscription would otherwise have to scan
-// every repo in the install to answer. A failed list degrades to a nil snapshot.
-func folderSnapshot(
-	appContainer *app.Container,
-) func(scope string) []dto.FolderDTO {
-	return func(scope string) []dto.FolderDTO {
-		projectID, repoID := parseRepoScope(scope)
-		if projectID == "" || repoID == "" {
-			return nil
-		}
-		rows, err := appContainer.Usecases.Folder.ListInRepo(context.Background(), projectID, repoID)
-		if err != nil {
-			return nil
-		}
-		return dto.FolderDTOList(rows)
-	}
-}
-
 // scopeReposToProject filters rows to those under the given projectID. An empty
 // projectID matches every repo, so a list-level scope keeps the full set.
 func scopeReposToProject(

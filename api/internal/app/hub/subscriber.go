@@ -17,9 +17,6 @@ type Subscriber interface {
 	PushRepo(
 		r dto.RepoDTO,
 	)
-	PushFolder(
-		f dto.FolderDTO,
-	)
 	PushWorkspace(
 		w dto.WorkspaceDTO,
 	)

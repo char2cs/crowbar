@@ -30,7 +30,6 @@ import (
 type Container struct {
 	projects   *ws.Broadcaster[dto.ProjectDTO]
 	repos      *ws.Broadcaster[dto.RepoDTO]
-	folders    *ws.Broadcaster[dto.FolderDTO]
 	workspaces *ws.Broadcaster[dto.WorkspaceDTO]
 	threads    *ws.Broadcaster[dto.ThreadDTO]
 	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
@@ -63,7 +62,6 @@ func New(
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
-		folders:    ws.NewBroadcaster(foldersDef(appContainer)),
 		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
@@ -251,13 +249,6 @@ func (c *Container) PushRepo(
 	c.repos.Push(r)
 }
 
-// PushFolder implements hub.Subscriber.
-func (c *Container) PushFolder(
-	f dto.FolderDTO,
-) {
-	c.folders.Push(f)
-}
-
 // PushWorkspace implements hub.Subscriber.
 func (c *Container) PushWorkspace(
 	w dto.WorkspaceDTO,
@@ -436,24 +427,6 @@ func reposDef(
 		Namespace: func(d dto.RepoDTO) string { return d.ProjectID + "/" + d.ID },
 		Serialize: func(d dto.RepoDTO) ([]byte, error) { return json.Marshal(d) },
 		Snapshot:  repoSnapshot(appContainer),
-	}
-}
-
-// foldersDef serves the Folders topic. Its hierarchical namespace is
-// projectID/repoID/ID, mirroring reposDef one level down, so a repo-scoped
-// subscription ("p/r") receives every folder in that repo (spec §5). The
-// snapshot is repo-scoped from the client's subscription prefix and reads the
-// folders table directly — folders ride path A (a plain GORM row broadcast by
-// its own handler), so there is no projection between the write and the frame.
-func foldersDef(
-	appContainer *app.Container,
-) ws.StreamDef[dto.FolderDTO] {
-	return ws.StreamDef[dto.FolderDTO]{
-		Namespace: func(d dto.FolderDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
-		},
-		Serialize: func(d dto.FolderDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  folderSnapshot(appContainer),
 	}
 }
 

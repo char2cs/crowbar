@@ -38,18 +38,13 @@ const maxOCCAttempts = 16
 
 // CreateInput carries the fields needed to create a workspace.
 type CreateInput struct {
-	ID           string
-	RepoID       string
-	ProjectID    string
-	Branch       string
-	WorktreePath string
-	ForkPointSha string
-	ParentID     string
-	// FolderID is the sidebar folder the new row is filed under, "" for the
-	// repo root. Placement only — see commands.CreateWorkspace.
-	FolderID string
-	// Order is the row's slot among its siblings. See commands.CreateWorkspace.
-	Order         int
+	ID            string
+	RepoID        string
+	ProjectID     string
+	Branch        string
+	WorktreePath  string
+	ForkPointSha  string
+	ParentID      string
 	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
 	IsDefault     bool
@@ -164,15 +159,6 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 		parentID string,
-	) (domain.Workspace, error)
-	// SetPlacement writes the sidebar placement — the folder the workspace is
-	// filed under and its dense index within that sibling space — leaving the
-	// fork lineage (ParentID/ForkPointSha) untouched.
-	SetPlacement(
-		ctx context.Context,
-		id string,
-		folderID string,
-		order int,
 	) (domain.Workspace, error)
 	// SetProject re-points the workspace at the project that now owns its
 	// repository, for a repo moved between projects. It moves no worktree.
@@ -471,8 +457,6 @@ func (w *workspace) Create(
 		WorktreePath:  in.WorktreePath,
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
-		FolderID:      in.FolderID,
-		Order:         in.Order,
 		Protected:     in.Protected,
 		IsDefault:     in.IsDefault,
 		MergeStrategy: in.MergeStrategy,
@@ -607,10 +591,10 @@ func (w *workspace) Reparent(
 	now time.Time,
 ) (domain.Workspace, error) {
 	evt, err := w.sendWithOCC(ctx, commands.Reparent{
-		ID:           id,
-		ParentID:     parentID,
-		ForkPointSha: forkPointSha,
-		Now:          now,
+		ID:              id,
+		NewForkParentID: parentID,
+		ForkPointSha:    forkPointSha,
+		Now:             now,
 	})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: reparent: %w", err)
@@ -699,19 +683,6 @@ func (w *workspace) SetParentFromPR(
 	evt, err := w.sendWithOCC(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (w *workspace) SetPlacement(
-	ctx context.Context,
-	id string,
-	folderID string,
-	order int,
-) (domain.Workspace, error) {
-	evt, err := w.sendWithOCC(ctx, commands.SetPlacement{ID: id, FolderID: folderID, Order: order})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: set placement: %w", err)
 	}
 	return evt.Aggregate, nil
 }

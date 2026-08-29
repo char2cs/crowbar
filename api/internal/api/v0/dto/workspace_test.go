@@ -182,34 +182,32 @@ func TestWorkspaceDTOList(
 }
 
 // The list is ordered by the converter itself, which is what makes the REST list
-// and the WS snapshot — the two callers — incapable of disagreeing about the
-// sidebar order. Rows a user has never dragged all carry order 0, so the
-// created-at tiebreak is what stops them jittering between requests.
-func TestWorkspaceDTOList_OrdersByIndexThenCreatedAt(
+// and the WS snapshot — the two callers — incapable of disagreeing about
+// ordering. Placement no longer lives on this resource at all (it is the row's
+// own chat row in the unified sidebar tree), so creation time is the whole
+// ordering the list has left to offer on its own.
+func TestWorkspaceDTOList_OrdersByCreatedAt(
 	t *testing.T,
 ) {
 	got := dto.WorkspaceDTOList([]domain.Workspace{
-		{ID: "c", Order: 2, CreatedAt: time.Unix(1, 0).UTC()},
+		{ID: "c", CreatedAt: time.Unix(1, 0).UTC()},
 		{ID: "b", CreatedAt: time.Unix(3, 0).UTC()},
 		{ID: "a", CreatedAt: time.Unix(2, 0).UTC()},
 	}, noElig)
 	require.Len(t, got, 3)
-	assert.Equal(t, []string{"a", "b", "c"}, []string{got[0].ID, got[1].ID, got[2].ID})
-	assert.Equal(t, 2, got[2].Order, "the order reaches the wire")
+	assert.Equal(t, []string{"c", "a", "b"}, []string{got[0].ID, got[1].ID, got[2].ID})
 }
 
-// TestWorkspaceDTOFrom_MapsSidebarPlacement pins that the folder edge and the
-// dense index survive the conversion, and that the folder is NEVER confused with
-// the fork parent — three git paths resolve ParentID back to a workspace.
-func TestWorkspaceDTOFrom_MapsSidebarPlacement(
+// TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage pins that ParentID
+// stays the fork lineage alone — three git paths resolve it back to a
+// workspace — now that FolderID/Order are gone from the resource entirely.
+func TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage(
 	t *testing.T,
 ) {
 	got := dto.WorkspaceDTOFrom(domain.Workspace{
-		ID: "w1", ParentID: "", FolderID: "f1", Order: 4,
+		ID: "w1", ParentID: "",
 	}, workspace.MergeEligibility{})
 
-	assert.Equal(t, "f1", got.FolderID)
-	assert.Equal(t, 4, got.Order)
 	assert.Empty(t, got.ParentID, "a folder id must never leak into the fork lineage")
 }
 

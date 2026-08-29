@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -42,7 +42,8 @@ type reparentRequest struct {
 //
 // FolderID is never a fork parent. Re-parenting a fork is a git operation with
 // its own endpoint (POST .../reparent) because it rebases; filing a row into a
-// folder moves nothing on disk.
+// folder writes only the workspace's own chat row's ParentID, moving nothing on
+// disk.
 type patchRequest struct {
 	Branch   *string `json:"branch"`
 	FolderID *string `json:"folderId"`
@@ -77,24 +78,49 @@ func (h *Handlers) Patch(
 		libs.WriteMutationOK(c, http.StatusOK, id)
 		return
 	}
-	if h.placer == nil {
+	if h.placer == nil || h.chats == nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "workspace placement unavailable")
 		return
 	}
-	_, shifted, err := h.placer.PlaceWorkspace(
+	chatID, err := h.resolveOwningChat(c.Request.Context(), id)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	_, shifted, err := h.placer.PlaceChat(
 		c.Request.Context(),
-		c.Param("projectId"),
-		c.Param("repoId"),
 		id,
-		folder.PlaceInput{FolderID: body.FolderID, Order: body.Order},
+		chatID,
+		agentusecase.PlaceInput{ParentID: body.FolderID, Order: body.Order},
 	)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	h.broadcastFolders(shifted)
+	h.broadcastFolders(id, shifted)
 	libs.WriteMutationOK(c, http.StatusOK, id)
+}
+
+// resolveOwningChat finds the chat row a workspace id owns: every
+// workspace-owning row is a chat row (Stage 1's taxonomy), and the unified
+// tree's placement command is addressed by chat id, never by workspace id. A
+// workspace with no owning row yet (Stage 5's CreateChild/Promote unification
+// has not landed) has nothing to place, and is reported not-found rather than
+// silently filed nowhere.
+func (h *Handlers) resolveOwningChat(
+	ctx context.Context,
+	wsID string,
+) (string, error) {
+	rows, err := h.chats.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		return "", fmt.Errorf("workspaces: resolve owning chat for %s: %w", wsID, err)
+	}
+	if len(rows) == 0 {
+		return "", fmt.Errorf("workspaces: %s owns no chat row yet: %w", wsID, apperr.ErrNotFound)
+	}
+	return rows[0].ID, nil
 }
 
 // applyRename runs the branch half of the PATCH, writing the error response and
@@ -119,15 +145,18 @@ func (h *Handlers) applyRename(
 	return nil
 }
 
-// broadcastFolders delivers the folder rows a placement renumbered. The
-// workspace rows it touched need no such handling — every one is an aggregate
-// write, and the hub projection broadcasts each on the way through — but folders
-// are a plain GORM row whose only fan-out is this call.
+// broadcastFolders delivers the folder-typed chat rows a placement renumbered,
+// scoped to the workspace the placement request named. The chat rows it also
+// touched need no such handling — every one is an aggregate write, and the
+// Chats-panel hub projection broadcasts each on the way through — but a
+// folder-typed row is a plain GORM row whose only fan-out is this call, exactly
+// as the Chats panel's own AgentChatFolder handlers already broadcast it.
 func (h *Handlers) broadcastFolders(
-	rows []domain.Folder,
+	workspaceID string,
+	rows []domain.Chat,
 ) {
 	for _, row := range rows {
-		h.broadcastFolder(dto.FolderDTOFrom(row))
+		h.broadcastFolder(row.ID, workspaceID, "folder_updated")
 	}
 }
 

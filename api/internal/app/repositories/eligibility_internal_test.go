@@ -42,7 +42,6 @@ type discardHub struct {
 
 func (h *discardHub) BroadcastProject(_ dto.ProjectDTO)                 {}
 func (h *discardHub) BroadcastRepo(_ dto.RepoDTO)                       {}
-func (h *discardHub) BroadcastFolder(_ dto.FolderDTO)                   {}
 func (h *discardHub) BroadcastWorkspace(w dto.WorkspaceDTO)             { h.last = w }
 func (h *discardHub) BroadcastThread(_ dto.ThreadDTO)                   {}
 func (h *discardHub) BroadcastTerminalSession(_ dto.TerminalSessionDTO) {}

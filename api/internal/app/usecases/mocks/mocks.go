@@ -171,9 +171,9 @@ func (s *RepositoryStore) FindWhere(
 	return rows, nil
 }
 
-// WorkspacePlacements is a fake project.WorkspaceRelocator and folder.Workspaces:
-// it holds the workspace rows a repo or folder move has to carry along, and
-// records the placement writes made against them.
+// WorkspacePlacements is a fake project.WorkspaceRelocator: it holds the
+// workspace rows a repo move has to carry along, and records the writes made
+// against them.
 type WorkspacePlacements struct {
 	Rows    []domain.Workspace
 	ListErr error
@@ -202,25 +202,6 @@ func (s *WorkspacePlacements) ListInRepo(
 	return rows, nil
 }
 
-func (s *WorkspacePlacements) SetPlacement(
-	ctx context.Context,
-	id string,
-	folderID string,
-	order int,
-) (domain.Workspace, error) {
-	if s.SetErr != nil {
-		return domain.Workspace{}, s.SetErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			s.Rows[i].FolderID = folderID
-			s.Rows[i].Order = order
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Workspace{}, nil
-}
-
 func (s *WorkspacePlacements) SetProject(
 	ctx context.Context,
 	id string,
@@ -236,96 +217,6 @@ func (s *WorkspacePlacements) SetProject(
 		}
 	}
 	return domain.Workspace{}, nil
-}
-
-// FolderStore is a fake folder.Store backed by an in-memory slice.
-//
-// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
-// cross-repo classification path resolves a single row by key after the
-// repo-scoped list has already succeeded, and collapsing the two would make that
-// branch unreachable.
-type FolderStore struct {
-	Rows         []domain.Folder
-	SaveErr      error
-	FindErr      error
-	FindByKeyErr error
-}
-
-// NewFolderStore returns an empty FolderStore.
-func NewFolderStore() *FolderStore {
-	return &FolderStore{}
-}
-
-func (s *FolderStore) FindByKey(
-	ctx context.Context,
-	id string,
-) (*domain.Folder, error) {
-	if s.FindByKeyErr != nil {
-		return nil, s.FindByKeyErr
-	}
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			row := s.Rows[i]
-			return &row, nil
-		}
-	}
-	return nil, nil
-}
-
-// FindWhere mirrors the real store's prototype-scoped query over the fields the
-// folder usecase actually narrows by.
-func (s *FolderStore) FindWhere(
-	ctx context.Context,
-	match domain.Folder,
-) ([]domain.Folder, error) {
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	rows := make([]domain.Folder, 0, len(s.Rows))
-	for _, f := range s.Rows {
-		if match.ProjectID != "" && f.ProjectID != match.ProjectID {
-			continue
-		}
-		if match.RepoID != "" && f.RepoID != match.RepoID {
-			continue
-		}
-		rows = append(rows, f)
-	}
-	return rows, nil
-}
-
-func (s *FolderStore) Save(
-	ctx context.Context,
-	folder domain.Folder,
-) error {
-	if s.SaveErr != nil {
-		return s.SaveErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == folder.ID {
-			s.Rows[i] = folder
-			return nil
-		}
-	}
-	s.Rows = append(s.Rows, folder)
-	return nil
-}
-
-func (s *FolderStore) Delete(
-	ctx context.Context,
-	id string,
-) error {
-	kept := s.Rows[:0]
-	for _, f := range s.Rows {
-		if f.ID != id {
-			kept = append(kept, f)
-		}
-	}
-	s.Rows = kept
-	return nil
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.

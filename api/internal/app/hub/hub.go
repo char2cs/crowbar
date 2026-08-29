@@ -51,20 +51,6 @@ func (h *Hub) BroadcastRepo(
 	}
 }
 
-// BroadcastFolder fans a FolderDTO out to every subscriber (spec §5). Folders
-// are a plain GORM row with no aggregate projection to ride, so the mutating
-// handler calls this directly after the save — the same path the repo icon
-// mutations already take.
-func (h *Hub) BroadcastFolder(
-	f dto.FolderDTO,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushFolder(f)
-	}
-}
-
 // BroadcastWorkspace fans a WorkspaceDTO out to every subscriber (spec §5). The
 // merge-eligibility overlay is resolved by the producer before this call.
 func (h *Hub) BroadcastWorkspace(

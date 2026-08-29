@@ -18,12 +18,19 @@ const (
 // Workspace is the git-worktree aggregate; the single source of truth for the
 // sidebar row (00 §5.3). Mutated only through Asynx commands.
 type Workspace struct {
-	ID             string                  `json:"id"`
-	RepoID         string                  `json:"repoId"`
-	ProjectID      string                  `json:"projectId"`
-	Branch         string                  `json:"branch"`
-	WorktreePath   string                  `json:"worktreePath"`
-	ForkPointSha   string                  `json:"forkPointSha"`
+	ID           string `json:"id"`
+	RepoID       string `json:"repoId"`
+	ProjectID    string `json:"projectId"`
+	Branch       string `json:"branch"`
+	WorktreePath string `json:"worktreePath"`
+	ForkPointSha string `json:"forkPointSha"`
+	// ParentID is the fork parent's workspace id — never authored directly. It is
+	// a maintained PROJECTION of the sidebar forest's fork-parent walk
+	// (usecases/chat/internal/tree.ForkParentID), recomputed onto this field
+	// whenever the chat aggregate's own placement changes (see the workspace
+	// repository's Reparent command). The three consumers that resolve it back to
+	// a workspace — merge eligibility, the diff base, the reparent leaf guard —
+	// read it exactly as before; only how it gets WRITTEN changed.
 	ParentID       string                  `json:"parentId,omitempty"`
 	Status         WorkspaceStatus         `json:"status,omitempty"`
 	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`
@@ -77,24 +84,4 @@ type Workspace struct {
 	// does. Both survive provider polls, which is the entire point: a user who
 	// unlocked main must not find it locked again a minute later.
 	LockOverride *bool `json:"lockOverride,omitempty"`
-	// FolderID is the sidebar Folder this workspace has been filed under, or ""
-	// for the repo root. It is DELIBERATELY not ParentID: that field is the fork
-	// lineage, and three things resolve it back to a workspace (merge
-	// eligibility, the diff base, the reparent leaf guard), so a folder id in
-	// there is a silent corruption rather than an error.
-	//
-	// A fork child may carry one when the folder belongs to the same visible
-	// fork-parent space. This keeps organisation independent from lineage without
-	// letting a folder visually split the chain; incompatible moves are refused
-	// server-side, and Reparent clears the field. Old persisted records without
-	// this field replay as "" (the read model is a JSON blob), exactly as Kind
-	// documents above.
-	FolderID string `json:"folderId,omitempty"`
-	// Order is this row's dense index within its sibling space — the fork
-	// parent's children, or the folder/repo root it is filed under. Folders share
-	// that space, so both kinds sort on this one field. Rows a user has never
-	// ordered all carry 0 and fall back to the CreatedAt tiebreak, which is
-	// creation order; the first drag at a level renumbers it densely from
-	// whatever was on screen.
-	Order int `json:"order"`
 }

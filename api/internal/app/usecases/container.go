@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -29,7 +28,6 @@ import (
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
-	Folders                  store.ScopedStore[domain.Folder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -42,7 +40,6 @@ type Container struct {
 	Project       project.Usecase
 	ProjectImport project.ImportUsecase
 	ProjectDelete project.DeleteUsecase
-	Folder        folder.Usecase
 	Workspace     workspace.Usecase
 	File          file.Usecase
 	Git           git.Usecase
@@ -123,10 +120,6 @@ func New(
 		gormStores.Repositories,
 		repos.Workspace,
 	)
-	folderUsecase := folder.New(
-		gormStores.Folders,
-		repos.Workspace,
-	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
 		engines.Git,
@@ -187,7 +180,6 @@ func New(
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,
 		ProjectDelete:        projectDelete,
-		Folder:               folderUsecase,
 		Workspace:            workspaceUsecase,
 		File:                 fileUsecase,
 		Git:                  gitUsecase,

@@ -8,41 +8,35 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Placer is the sidebar-folder surface the handlers need: file a workspace under
-// a folder and reorder it among its siblings, and read a repo's folders so a
-// create can resolve the one it is filed into. It lives in the folder usecase
-// because folders and workspaces share one sibling space, so placing either has
-// to renumber both.
+// Placer is the unified sidebar-tree surface the handlers need: a
+// workspace-owning row's folder placement is just that row's Chat.ParentID,
+// moved through the same command Task 4's chat/folder rows already use — see
+// ChatResolver for how the handlers find the chat row a workspace id owns.
 type Placer interface {
-	PlaceWorkspace(
+	PlaceChat(
 		ctx context.Context,
-		projectID string,
-		repoID string,
-		wsID string,
-		in folder.PlaceInput,
-	) (domain.Workspace, []domain.Folder, error)
-	// ListInRepo returns one repo's folders. Scoped to (project, repo), so
-	// membership answers both "does this folder exist" and "is it ours".
-	ListInRepo(
+		workspaceID string,
+		chatID string,
+		in agentusecase.PlaceInput,
+	) (domain.Chat, []domain.Chat, error)
+}
+
+// ChatResolver resolves the chat row a workspace id owns, so a workspace's own
+// folder-placement request can be addressed to that row: every workspace-owning
+// row is a chat row (Stage 1's taxonomy), and Placer.PlaceChat is addressed by
+// chat id, never by workspace id.
+type ChatResolver interface {
+	ListChatsByWorkspace(
 		ctx context.Context,
-		projectID string,
-		repoID string,
-	) ([]domain.Folder, error)
-	// NextSlot returns the index a row joining container would take.
-	NextSlot(
-		ctx context.Context,
-		projectID string,
-		repoID string,
-		container string,
-	) (int, error)
+		workspaceID string,
+	) ([]domain.Chat, error)
 }
 
 // Reader is the workspace read surface the handlers need: list every workspace
@@ -208,11 +202,13 @@ type Handlers struct {
 	working    WorkSignal
 	remote     RemoteRefs
 	placer     Placer
-	// broadcastFolder delivers the FOLDER rows a placement renumbered. Folders
-	// are a plain GORM row with no projection to ride, so this handler fans them
-	// out itself; the workspace rows it touches broadcast through the aggregate's
-	// hub projection like every other workspace write.
-	broadcastFolder func(dto.FolderDTO)
+	chats      ChatResolver
+	// broadcastFolder delivers the folder-typed chat rows a placement renumbered
+	// — folderID, the workspace scope, and the frame kind — mirroring the Chats
+	// panel's own AgentChatFolder broadcast, since a workspace-owning row's
+	// placement now writes the very same chat row those folders share a sibling
+	// space with.
+	broadcastFolder func(folderID string, workspaceID string, kind string)
 	// async tracks the detached runAsync ops so callers can block on their real
 	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
 	async sync.WaitGroup
@@ -234,20 +230,25 @@ func New(
 		repos:           repos,
 		lastErrors:      lastErrors,
 		working:         working,
-		broadcastFolder: func(dto.FolderDTO) {},
+		broadcastFolder: func(string, string, string) {},
 	}
 }
 
-// WithPlacer wires the sidebar-placement usecase and the folder broadcast the
-// PATCH handler needs. A nil placer leaves placement unavailable (the handler
-// answers 500), matching WithRemoteRefs' degrade-rather-than-panic wiring; a nil
-// broadcast degrades to a no-op.
+// WithPlacer wires the sidebar-placement usecase, the chat-row resolver, and
+// the folder broadcast the PATCH and Create handlers need. A nil placer or
+// resolver leaves placement unavailable (the handler answers 500), matching
+// WithRemoteRefs' degrade-rather-than-panic wiring; a nil broadcast degrades to
+// a no-op.
 func (h *Handlers) WithPlacer(
 	placer Placer,
-	broadcast func(dto.FolderDTO),
+	chats ChatResolver,
+	broadcast func(folderID string, workspaceID string, kind string),
 ) *Handlers {
 	if placer != nil {
 		h.placer = placer
+	}
+	if chats != nil {
+		h.chats = chats
 	}
 	if broadcast != nil {
 		h.broadcastFolder = broadcast

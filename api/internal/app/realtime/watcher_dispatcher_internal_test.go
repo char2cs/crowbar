@@ -35,7 +35,6 @@ func newCapturingSubscriber() *capturingSubscriber {
 
 func (s *capturingSubscriber) PushProject(_ dto.ProjectDTO)                 {}
 func (s *capturingSubscriber) PushRepo(_ dto.RepoDTO)                       {}
-func (s *capturingSubscriber) PushFolder(_ dto.FolderDTO)                   {}
 func (s *capturingSubscriber) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (s *capturingSubscriber) PushThread(_ dto.ThreadDTO)                   {}
 func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
