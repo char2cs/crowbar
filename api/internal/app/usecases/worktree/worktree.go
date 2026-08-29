@@ -26,10 +26,11 @@ import (
 // CreateChildInput carries the fields needed to create a worktree-backed child.
 //
 // RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch are only REQUIRED when
-// ParentID is empty (nothing to inherit from). A caller that leaves them
-// blank and supplies ParentID gets them resolved from the parent workspace's
-// own repo instead (model spec §4.1) — the caller-supplied path stays exactly
-// as it works today.
+// ParentID is empty (nothing to inherit from). A caller that leaves BOTH
+// RepoID and RepoPath blank and supplies ParentID gets them resolved from the
+// parent workspace's own repo instead (model spec §4.1); a caller that
+// already knows its own repo — even a path-less one — keeps today's
+// explicit-create behavior exactly as it works now.
 type CreateChildInput struct {
 	RepoID       string
 	ProjectID    string
@@ -300,15 +301,15 @@ func (u *worktreeUsecase) CreateChild(
 // (model spec §4.1): an explicit CreateChildInput.OwnWorktree always wins;
 // otherwise it inherits whether the parent itself owns a worktree.
 //
-// A caller that already supplies RepoPath keeps today's explicit-create
-// behavior untouched — the parent lookup only runs for the new bare-ParentID
-// calling convention, so a caller with no parent to resolve against (or one
-// that already knows its own repo) never pays for it.
+// The parent lookup only runs when BOTH RepoID and RepoPath are blank — a
+// caller that already knows its own repo (including one whose repo is
+// path-less, e.g. the HTTP create route) keeps today's explicit-create
+// behavior untouched rather than having it silently swapped for the parent's.
 func (u *worktreeUsecase) resolveInherited(
 	ctx context.Context,
 	in CreateChildInput,
 ) (CreateChildInput, bool, error) {
-	if in.RepoPath != "" || in.ParentID == "" {
+	if in.RepoID != "" || in.RepoPath != "" || in.ParentID == "" {
 		return in, ownWorktreeOrDefault(in, in.RepoPath != ""), nil
 	}
 	parent, err := u.workspaces.Get(ctx, in.ParentID)
