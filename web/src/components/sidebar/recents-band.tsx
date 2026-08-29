@@ -5,16 +5,12 @@ import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { ROW_ACTIVE, ROW_SUB_ACTION_HOVER } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
 
-export type RecentsEntryState = 'live' | 'working' | 'set' | 'dormant'
-
-export interface RecentsEntry {
-  /** Keyed by the view's identity, not by state — §5.6. */
-  id: string
-  /** One chat id for a lone entry, 2+ for a set. */
-  chatIds: string[]
-  state: RecentsEntryState
-}
+// Re-exported for existing importers — the type itself lives in
+// features/panes/types/recents-entry.ts so pane-slice.ts (a store) can hold
+// `dormantArrangements: RecentsEntry[]` without importing from components/.
+export type { RecentsEntry, RecentsEntryState }
 
 interface RecentsBandProps {
   entries: RecentsEntry[]

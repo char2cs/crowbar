@@ -226,13 +226,11 @@ describe('pane-slice bottomRoot routing', () => {
   })
 
   it('getPaneByEditorTabId finds a tab in bottomRoot', () => {
-    store
-      .getState()
-      .paneActions.addEditorTabToPane(BOTTOM_PANE_ID, {
-        id: 'tab-bottom',
-        type: 'terminal',
-        name: 'sh',
-      })
+    store.getState().paneActions.addEditorTabToPane(BOTTOM_PANE_ID, {
+      id: 'tab-bottom',
+      type: 'terminal',
+      name: 'sh',
+    })
     const pane = store.getState().paneActions.getPaneByEditorTabId('tab-bottom')
     expect(pane).not.toBeNull()
     expect(pane?.id).toBe(BOTTOM_PANE_ID)
@@ -282,9 +280,11 @@ describe('pane-slice — setPaneChat', () => {
   it('clearing the chat leaves editorTabIds untouched', () => {
     const store = makeStore()
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store
-      .getState()
-      .paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'file-1', type: 'editor', name: 'foo.ts' })
+    store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'file-1',
+      type: 'editor',
+      name: 'foo.ts',
+    })
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
     const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
     expect(pane?.chatId).toBeNull()
@@ -462,7 +462,11 @@ describe('pane-slice — activateEditorTabInPane only activates something the pa
   it('ignores a tab that lives in a different pane', () => {
     const actions = makeStore().getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-elsewhere', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, {
+      id: 'tab-elsewhere',
+      type: 'editor',
+      name: 'b.ts',
+    })
 
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-elsewhere')
 
@@ -528,5 +532,100 @@ describe('pane-slice — closePane merges editor tabs, leaves chat untouched', (
     actions.closePane(splitId)
 
     expect(actions.getPaneById(ROOT_PANE_ID)?.chatId).toBeNull()
+  })
+})
+
+// Regression: closing a layout's sole leaf under its own canonical id (the
+// common single-pane-workspace case) used to create a fresh empty PaneGroup
+// at `fallbackId` and then immediately `delete` it again, because `paneId`
+// and `fallbackId` are the same string here. `getPaneById` returned undefined
+// afterward instead of the empty stage — see closePane's `else` branch.
+describe('pane-slice — closing the sole root/bottom pane empties it, never deletes it', () => {
+  it('closing the sole root pane leaves an empty PaneGroup at ROOT_PANE_ID', () => {
+    const actions = makeStore().getState().paneActions
+    actions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    actions.closePane(ROOT_PANE_ID)
+
+    const root = actions.getPaneById(ROOT_PANE_ID)
+    expect(root).not.toBeNull()
+    expect(root?.chatId).toBeNull()
+    expect(root?.editorTabIds).toEqual([])
+  })
+
+  it('closing the sole bottom pane leaves an empty PaneGroup at BOTTOM_PANE_ID', () => {
+    const actions = makeStore().getState().paneActions
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh' })
+
+    actions.closePane(BOTTOM_PANE_ID)
+
+    const bottom = actions.getPaneById(BOTTOM_PANE_ID)
+    expect(bottom).not.toBeNull()
+    expect(bottom?.editorTabIds).toEqual([])
+  })
+
+  it('re-collapsing to a non-canonical sole leaf still empties the canonical id, not the stale one', () => {
+    const actions = makeStore().getState().paneActions
+    const splitId = actions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    actions.closePane(ROOT_PANE_ID) // leaves splitId as the tree's sole leaf
+
+    actions.closePane(splitId)
+
+    expect(actions.getPaneById(ROOT_PANE_ID)).not.toBeNull()
+    expect(actions.getPaneById(splitId)).toBeNull()
+  })
+})
+
+// Spec §5.5: "the view dies, the row does not." dormantArrangements is what
+// makes an idle close undoable; a chat the daemon is still working relies on
+// agentChats.working alone and must not also get a dormant record.
+//
+// Isolated PaneSlice store carrying just enough of `agentChats.working` to
+// exercise this — same pattern as `makeStoreWithBuffers` above, avoiding a
+// full `createWorkspaceStore` (whose merged-slice `setState` type doesn't
+// accept a void-returning immer callback here — a pre-existing tsc trap
+// unrelated to this test).
+function makeStoreWithWorking(working: Record<string, boolean>) {
+  return createStore<PaneSlice & { agentChats: { working: Record<string, boolean> } }>()(
+    immer((set, get) => ({
+      ...createPaneSlice(...([set, get, {}] as unknown as Parameters<typeof createPaneSlice>)),
+      agentChats: { working },
+    })),
+  )
+}
+
+describe('pane-slice — dormantArrangements (spec §5.5)', () => {
+  it('closing a pane holding an idle chat remembers it as dormant', () => {
+    const store = makeStoreWithWorking({})
+    const paneId = ROOT_PANE_ID
+    store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.closePane(paneId)
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: paneId, chatIds: ['chat-1'], state: 'dormant' },
+    ])
+  })
+
+  it('closing a pane holding a WORKING chat does not add a dormant record', () => {
+    const store = makeStoreWithWorking({ 'chat-1': true })
+    const paneId = ROOT_PANE_ID
+    store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.closePane(paneId)
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('closing a chatless pane adds no dormant record', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('is a no-op (never throws) on a bare pane-slice store with no agentChats', () => {
+    const actions = makeStore().getState().paneActions
+    actions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    expect(() => actions.closePane(ROOT_PANE_ID)).not.toThrow()
   })
 })

@@ -10,6 +10,7 @@ import type {
   SplitDirection,
   SplitPlacement,
 } from '@/features/panes/types/pane'
+import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 import {
   createLeaf,
   splitLayout,
@@ -64,6 +65,10 @@ export interface PaneSlice {
   activePaneId: string
   mostRecentActivePaneIds: string[]
   fullscreenPaneId: string | null
+  /** Closed-but-idle views, remembered so the close is undoable — spec §5.5.
+   *  A chat the daemon is still working keeps its row via `agentChats.working`
+   *  alone; only an idle close needs to be remembered here. */
+  dormantArrangements: RecentsEntry[]
   paneActions: PaneActions
 }
 
@@ -133,6 +138,7 @@ export const createPaneSlice: StateCreator<
     activePaneId: ROOT_PANE_ID,
     mostRecentActivePaneIds: [ROOT_PANE_ID],
     fullscreenPaneId: null,
+    dormantArrangements: [],
 
     paneActions: {
       splitPane(paneId, direction, bufferId?, placement = 'after') {
@@ -162,6 +168,19 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           const key = getLayoutKey(state, paneId)
           const closingPane = state.panes[paneId]
+
+          // Spec §5.5: "the view dies, the row does not." A chat the daemon is
+          // still working keeps its "working, no view" row off `agentChats.working`
+          // alone — nothing to remember yet. An idle chat's view is gone for good
+          // unless we remember it here, so the close stays undoable.
+          if (closingPane?.chatId && !state.agentChats?.working?.[closingPane.chatId]) {
+            state.dormantArrangements.push({
+              id: paneId,
+              chatIds: [closingPane.chatId],
+              state: 'dormant',
+            })
+          }
+
           const result = closeLayout(state[key], paneId)
           if (result !== null) {
             state[key] = normalizeLayout(result)
@@ -192,13 +211,18 @@ export const createPaneSlice: StateCreator<
               }
             }
             if (state.activePaneId === paneId) state.activePaneId = fallbackId
+            delete state.panes[paneId]
           } else {
             const fallbackId = key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID
+            // `paneId` IS `fallbackId` when it was the tree's sole leaf under its
+            // own canonical id (the common single-pane-workspace case) — deleting
+            // unconditionally below would wipe the fresh empty group this just
+            // made. Only a paneId distinct from the fallback is stale.
+            if (paneId !== fallbackId) delete state.panes[paneId]
             state.panes[fallbackId] = key === 'rootLayout' ? makeRootLeaf() : makeBottomLeaf()
             state[key] = createLeaf(fallbackId)
             if (state.activePaneId === paneId) state.activePaneId = ROOT_PANE_ID
           }
-          delete state.panes[paneId]
           state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
             (id) => id !== paneId,
           )
