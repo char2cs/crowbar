@@ -327,7 +327,7 @@ func seedSiblingChat(
 
 	chatID := uuid.NewString()
 	_, err := h.app.Repositories.AgentChat.Create(ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: ws.ID, Now: time.Now().UTC(),
+		ID: chatID, WorkspaceID: ws.ID, Type: domain.ChatTypeChat, Now: time.Now().UTC(),
 	})
 	require.NoError(t, err, "create the sibling chat")
 	require.NoError(t,

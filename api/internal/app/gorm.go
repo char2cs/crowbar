@@ -15,13 +15,14 @@ import (
 // Folders is typed as the wider ScopedStore because every folder read in a
 // request path is repo-scoped: the sidebar wants one repo's rows, and a
 // whole-table FindAll would grow with the install rather than with the request.
-// AgentChatFolders is scoped for the same reason one level down: the Chats panel
-// wants ONE workspace's folders, and every install has many workspaces.
+//
+// The Chats panel's own folder table is gone: a folder there is now a
+// domain.Chat row (Type == ChatTypeFolder), read and written through the same
+// asynx-backed chat repository a conversation row uses, not a GORM store.
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
-	AgentChatFolders         store.ScopedStore[domain.ChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -43,10 +44,6 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: folder store: %w", err)
 	}
-	chatFolders, err := storesqlite.NewFromDB[domain.ChatFolder, string](db)
-	if err != nil {
-		return nil, fmt.Errorf("app: agent chat folder store: %w", err)
-	}
 	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: terminal profile store: %w", err)
@@ -67,7 +64,6 @@ func newGORMStores(
 		Projects:                 projects,
 		Repositories:             repos,
 		Folders:                  folders,
-		AgentChatFolders:         chatFolders,
 		TerminalProfiles:         profiles,
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,

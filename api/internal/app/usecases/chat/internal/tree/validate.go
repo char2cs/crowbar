@@ -3,14 +3,59 @@ package tree
 import (
 	"context"
 	"fmt"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The three checks every move passes before anything is written.
+// The checks every move passes before anything is written. Folder ops
+// (repo-wide, no workspace of their own) and chat ops (workspace-scoped) carry
+// different container rules, so each gets its own pair below.
 
-// checkMove refuses a move onto a container that does not exist in the
-// workspace, belongs to another workspace, or lies inside the moved row's own
-// subtree.
-func (u *chatFolderUsecase) checkMove(
+// checkFolderMove refuses a move onto a container that does not exist, or lies
+// inside the moved row's own subtree.
+func (u *chatFolderUsecase) checkFolderMove(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	id string,
+	destination string,
+) error {
+	if destination == id {
+		return fmt.Errorf("agent chat folder: move %s onto itself: %w", id, ErrCycle)
+	}
+	if err := u.checkFolderContainer(ctx, snapshot, destination); err != nil {
+		return err
+	}
+	if snapshot.plan.Reaches(destination, id) {
+		return fmt.Errorf("agent chat folder: move %s under %s: %w", id, destination, ErrCycle)
+	}
+	return nil
+}
+
+// checkFolderContainer validates a folder's parent id: "" is the panel root,
+// and anything else must be a row that exists. A folder carries no workspace of
+// its own, so there is no boundary left to check a parent against here — that
+// enforcement is the repo-forest walk stage 3 adds, not this task's storage
+// retype.
+func (u *chatFolderUsecase) checkFolderContainer(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	parentID string,
+) error {
+	if parentID == "" {
+		return nil
+	}
+	if snapshot.row(parentID) != nil {
+		return nil
+	}
+	if _, err := u.chats.Get(ctx, parentID); err != nil {
+		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
+	}
+	return nil
+}
+
+// checkChatMove refuses a chat move onto a container that does not exist,
+// belongs to another workspace, or lies inside the moved chat's own subtree.
+func (u *chatFolderUsecase) checkChatMove(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	workspaceID string,
@@ -20,7 +65,7 @@ func (u *chatFolderUsecase) checkMove(
 	if destination == id {
 		return fmt.Errorf("agent chat folder: move %s onto itself: %w", id, ErrCycle)
 	}
-	if err := u.checkContainer(ctx, snapshot, workspaceID, destination); err != nil {
+	if err := u.checkChatContainer(ctx, snapshot, workspaceID, destination); err != nil {
 		return err
 	}
 	if snapshot.plan.Reaches(destination, id) {
@@ -29,11 +74,12 @@ func (u *chatFolderUsecase) checkMove(
 	return nil
 }
 
-// checkContainer validates a parent id: "" is the panel root, and anything else
-// must be one of this workspace's folders or chats. A row that exists under a
+// checkChatContainer validates a chat's parent id: "" is the panel root, a
+// FOLDER is accepted unconditionally (it carries no workspace to conflict
+// with), and a CHAT must belong to workspaceID. A row that resolves to a
 // DIFFERENT workspace is reported as a cross-workspace edge rather than as a
 // missing row, because the two are fixed in different ways.
-func (u *chatFolderUsecase) checkContainer(
+func (u *chatFolderUsecase) checkChatContainer(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	workspaceID string,
@@ -42,44 +88,37 @@ func (u *chatFolderUsecase) checkContainer(
 	if parentID == "" {
 		return nil
 	}
-	if snapshot.folder(parentID) != nil || snapshot.chat(parentID) != nil {
-		return nil
+	if row := snapshot.row(parentID); row != nil {
+		return checkParentKind(*row, workspaceID, parentID)
 	}
-	elsewhere, err := u.folders.FindByKey(ctx, parentID)
-	if err != nil {
-		return fmt.Errorf("agent chat folder: resolve parent %s: %w", parentID, err)
-	}
-	if elsewhere != nil {
-		return fmt.Errorf("agent chat folder: parent %s is in another workspace: %w", parentID, ErrCrossWorkspace)
-	}
-	return u.checkChatContainer(ctx, workspaceID, parentID)
-}
-
-// checkChatContainer resolves a parent id the workspace's own rows did not
-// answer for against the CHAT aggregate, which is keyed globally. A chat in
-// another workspace is a cross-workspace edge; a lookup that fails is surfaced
-// as it came, so a read failure reaches the caller as one rather than as a
-// confident "no such row" the user would go looking for.
-//
-// A chat that resolves to THIS workspace is accepted rather than refused, and
-// that case is real: the keyed read heals the chat read model for the one id it
-// was asked about, while the workspace list only heals a model that is entirely
-// empty — so the authoritative answer here can name a row the snapshot's list
-// did not carry. Refusing it would reject a drop onto a chat the user can see.
-func (u *chatFolderUsecase) checkChatContainer(
-	ctx context.Context,
-	workspaceID string,
-	parentID string,
-) error {
-	chat, err := u.chats.GetChat(ctx, parentID)
+	row, err := u.chats.Get(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
 	}
-	if chat.WorkspaceID == workspaceID {
+	return checkParentKind(row, workspaceID, parentID)
+}
+
+// checkParentKind is the second half of checkChatContainer, split out because
+// both the snapshot-membership path and the keyed-lookup fallback answer the
+// same question about the row once they have it.
+//
+// The keyed read heals the chat read model for the one id it was asked about;
+// the workspace list only heals a model that is entirely empty — so the
+// authoritative answer here can name a row the snapshot's list did not carry.
+// Refusing it would reject a drop onto a chat the user can see.
+func checkParentKind(
+	row domain.Chat,
+	workspaceID string,
+	parentID string,
+) error {
+	if row.Type == domain.ChatTypeFolder {
+		return nil
+	}
+	if row.WorkspaceID == workspaceID {
 		return nil
 	}
 	return fmt.Errorf(
 		"agent chat folder: parent %s belongs to workspace %s, not %s: %w",
-		parentID, chat.WorkspaceID, workspaceID, ErrCrossWorkspace,
+		parentID, row.WorkspaceID, workspaceID, ErrCrossWorkspace,
 	)
 }

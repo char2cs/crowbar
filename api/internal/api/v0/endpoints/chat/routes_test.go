@@ -47,43 +47,40 @@ func (stubChatTree) CreateChat(
 	return "c1", "run-1", nil
 }
 
-func (stubChatTree) ListInWorkspace(
+func (stubChatTree) ListInRepo(
 	_ context.Context,
 	_ string,
-) ([]domain.ChatFolder, error) {
+) ([]domain.Chat, error) {
 	return nil, nil
 }
 
 func (stubChatTree) Create(
 	_ context.Context,
 	_ agentusecase.CreateInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
-	return domain.ChatFolder{}, nil, nil
+) (domain.Chat, []domain.Chat, error) {
+	return domain.Chat{}, nil, nil
 }
 
 func (stubChatTree) Rename(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ string,
-) (domain.ChatFolder, error) {
-	return domain.ChatFolder{}, nil
+) (domain.Chat, error) {
+	return domain.Chat{}, nil
 }
 
 func (stubChatTree) Move(
 	_ context.Context,
 	_ string,
-	_ string,
 	_ agentusecase.MoveInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
-	return domain.ChatFolder{}, nil, nil
+) (domain.Chat, []domain.Chat, error) {
+	return domain.Chat{}, nil, nil
 }
 
 func (stubChatTree) Delete(
 	_ context.Context,
 	_ string,
-	_ string,
-) ([]domain.ChatFolder, error) {
+) ([]domain.Chat, error) {
 	return nil, nil
 }
 
@@ -92,7 +89,7 @@ func (stubChatTree) PlaceChat(
 	_ string,
 	_ string,
 	_ agentusecase.PlaceInput,
-) (domain.Chat, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	return domain.Chat{}, nil, nil
 }
 

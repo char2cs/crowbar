@@ -30,7 +30,6 @@ type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
-	AgentChatFolders         store.ScopedStore[domain.ChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
@@ -244,13 +243,15 @@ func newAgentWiring(
 	if err != nil {
 		return agentWiring{}, fmt.Errorf("usecases: new container: %w", err)
 	}
-	// The Chats-panel lineage read, built FIRST and from the two stores directly.
-	// The spawn path needs it to tell a thread which chats it reads, and it is
-	// deliberately not taken off the tree usecase, which already holds the chat
-	// usecase for the delete cascade and would close a construction cycle if that
-	// usecase reached back into it. (The tool surface needs the same answer and
-	// gets it from the chat usecase, which re-exposes this as Ancestors.)
-	lineage := agentusecase.NewChatLineage(gormStores.AgentChatFolders, repos.AgentChat)
+	// The Chats-panel lineage read, built FIRST and from the chat repository
+	// directly — folder rows and conversation rows are one table now, so one
+	// store answers it. The spawn path needs it to tell a thread which chats it
+	// reads, and it is deliberately not taken off the tree usecase, which already
+	// holds the chat usecase for the delete cascade and would close a
+	// construction cycle if that usecase reached back into it. (The tool surface
+	// needs the same answer and gets it from the chat usecase, which re-exposes
+	// this as Ancestors.)
+	lineage := agentusecase.NewChatLineage(repos.AgentChat)
 	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast)
 	if err != nil {
 		return agentWiring{}, err
@@ -271,7 +272,7 @@ func newAgentWiring(
 		Minter: minter,
 		Tools:  toolDeps,
 	})
-	chatTree := agentusecase.NewTree(gormStores.AgentChatFolders, repos.AgentChat, chat)
+	chatTree := agentusecase.NewTree(repos.AgentChat, chat)
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,

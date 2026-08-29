@@ -39,9 +39,9 @@ func (u *chatFolderUsecase) CreateChat(
 }
 
 // checkNewChatParent refuses a destination a new chat cannot be born into, BEFORE
-// anything is minted: a row this workspace does not hold, or one belonging to
-// another. It is the same guard a move makes, minus the cycle test — a chat that
-// does not exist yet cannot be inside its own subtree.
+// anything is minted: a row that does not exist, or a CHAT belonging to another
+// workspace. It is the same guard a move makes, minus the cycle test — a chat
+// that does not exist yet cannot be inside its own subtree.
 //
 // It runs first so the ordinary failure costs nothing. Leaving it to PlaceChat
 // would mint a chat, broadcast it, refuse the placement and then purge it again,
@@ -51,11 +51,11 @@ func (u *chatFolderUsecase) checkNewChatParent(
 	workspaceID string,
 	parentID string,
 ) error {
-	snapshot, err := u.snapshot(ctx, workspaceID)
+	snapshot, err := u.workspaceSnapshot(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	return u.checkContainer(ctx, snapshot, workspaceID, parentID)
+	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID)
 }
 
 // discard takes a just-minted chat back out when the create failed after minting
@@ -83,12 +83,12 @@ func (u *chatFolderUsecase) PlaceChat(
 	workspaceID string,
 	chatID string,
 	in PlaceInput,
-) (domain.Chat, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.snapshotAround(ctx, workspaceID, current)
+	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
@@ -96,7 +96,7 @@ func (u *chatFolderUsecase) PlaceChat(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
+	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the
@@ -109,7 +109,7 @@ func (u *chatFolderUsecase) PlaceChat(
 		return domain.Chat{}, nil, err
 	}
 	u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
-	return *snapshot.placedChat(chatID), written, nil
+	return *snapshot.placedRow(chatID), written, nil
 }
 
 // noteNewAncestors writes the move into the chat's own conversation when, and
@@ -162,7 +162,7 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err != nil {
 		return ChatDeletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", chatID, err)
 	}
-	snapshot, err := u.snapshotAround(ctx, current.WorkspaceID, current)
+	snapshot, err := u.workspaceSnapshotAround(ctx, current.WorkspaceID, current)
 	if err != nil {
 		return ChatDeletion{}, err
 	}
@@ -193,22 +193,22 @@ func (u *chatFolderUsecase) purgeAll(
 		if err := u.agent.PurgeChat(ctx, id); err != nil {
 			return fmt.Errorf("agent chat folder: purge chat %s: %w", id, err)
 		}
-		snapshot.dropChat(id)
+		snapshot.drop(id)
 	}
 	return nil
 }
 
-// removeAll deletes each folder caught inside a purged subtree. They are removed
-// rather than promoted because the level that would have held them is gone: a
-// folder whose only reason to exist was ordering one chat's threads has nothing
-// left to order.
+// removeAll erases each folder caught inside a purged subtree. Forget, not
+// PurgeChat: they are removed rather than promoted because the level that would
+// have held them is gone, and a folder never had a runner or a ledger for the
+// agent usecase to tear down in the first place.
 func (u *chatFolderUsecase) removeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
 	for _, id := range ids {
-		if err := u.folders.Delete(ctx, id); err != nil {
+		if err := u.chats.Forget(ctx, id); err != nil {
 			return fmt.Errorf("agent chat folder: delete %s: %w", id, err)
 		}
 		snapshot.drop(id)

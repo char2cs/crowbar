@@ -16,24 +16,23 @@ import (
 // serving the pre-write list. Planning from a single snapshot removes the race
 // rather than papering over it with a barrier.
 
-// load resolves a folder and refuses one belonging to another workspace, which
-// is a NOT-FOUND rather than a cross-workspace refusal: the caller addressed a
-// row that does not exist in the scope it asked in, and any other answer would
-// confirm the existence of a row it may not touch. The check lives here rather
-// than in the handler so every caller shares one rule.
+// load resolves a FOLDER row by id, log-folded so it is never stale. A row this
+// call names that turns out to be a CHAT is refused as not-found: from this
+// API's own vocabulary that id simply does not name a folder, and any other
+// answer would let a rename or a delete reach a conversation through the wrong
+// door.
 func (u *chatFolderUsecase) load(
 	ctx context.Context,
-	workspaceID string,
 	id string,
-) (domain.ChatFolder, error) {
-	row, err := u.folders.FindByKey(ctx, id)
+) (domain.Chat, error) {
+	row, err := u.chats.LoadChat(ctx, id)
 	if err != nil {
-		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: get %s: %w", id, err)
+		return domain.Chat{}, fmt.Errorf("agent chat folder: get %s: %w", id, err)
 	}
-	if row == nil || row.WorkspaceID != workspaceID {
-		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+	if row.Type != domain.ChatTypeFolder {
+		return domain.Chat{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
-	return *row, nil
+	return row, nil
 }
 
 // loadChat resolves a chat and refuses one anchored to another workspace. It is
@@ -63,18 +62,47 @@ func (u *chatFolderUsecase) loadChat(
 	return chat, nil
 }
 
-// snapshot reads one workspace's folders and chats as of a single moment. Both
-// reads are workspace-scoped: the folder query is pushed down to SQL, and the
-// chat read model serves the workspace slice natively.
-func (u *chatFolderUsecase) snapshot(
+// globalSnapshot reads every row the daemon knows — the whole forest folder CRUD
+// plans against, since a folder carries no workspace of its own to scope a
+// narrower read by.
+func (u *chatFolderUsecase) globalSnapshot(
+	ctx context.Context,
+) (*treeSnapshot, error) {
+	return u.globalSnapshotAround(ctx, domain.Chat{})
+}
+
+// globalSnapshotAround is globalSnapshot with the SUBJECT's row corrected from
+// the log fold the caller already holds — see corrected.
+func (u *chatFolderUsecase) globalSnapshotAround(
+	ctx context.Context,
+	subject domain.Chat,
+) (*treeSnapshot, error) {
+	rows, err := u.chats.ListChats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
+	}
+	return newTreeSnapshot(corrected(rows, subject)), nil
+}
+
+// workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
+// single moment — the read chat placement plans against.
+//
+// Folders are read unscoped because they carry no workspace of their own (see
+// the package doc): the two kinds still share one sibling space in the panel,
+// so a chat's densify must see the folders interleaved with it or a folder
+// sitting in that same level goes unrenumbered. Reading every folder in the
+// daemon to renumber one workspace's level is over-broad — the real boundary
+// is stage 3's walk — but the alternative, missing a folder the densify must
+// touch, corrupts the very order this snapshot exists to keep dense.
+func (u *chatFolderUsecase) workspaceSnapshot(
 	ctx context.Context,
 	workspaceID string,
 ) (*treeSnapshot, error) {
-	return u.snapshotAround(ctx, workspaceID, domain.Chat{})
+	return u.workspaceSnapshotAround(ctx, workspaceID, domain.Chat{})
 }
 
-// snapshotAround is the same read with the SUBJECT's row corrected from the log
-// fold the caller already holds.
+// workspaceSnapshotAround is the same read with the SUBJECT's row corrected from
+// the log fold the caller already holds.
 //
 // The rest of the list is read to renumber levels, and the projection is right
 // enough for that. The subject is different in kind: the plan compares its
@@ -86,20 +114,25 @@ func (u *chatFolderUsecase) snapshot(
 // A subject the list does not carry is appended, not skipped: a chat is minted
 // and placed in one breath, long before the projection lists it, and a plan
 // without it would discard the very placement that makes it a thread.
-func (u *chatFolderUsecase) snapshotAround(
+func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
 	subject domain.Chat,
 ) (*treeSnapshot, error) {
-	folders, err := u.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: workspaceID})
-	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: snapshot: folders: %w", err)
-	}
-	chats, err := u.chats.ListByWorkspace(ctx, workspaceID)
+	rows, err := u.chats.ListByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
 	}
-	return newTreeSnapshot(folders, corrected(chats, subject)), nil
+	all, err := u.chats.ListChats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent chat folder: snapshot: folders: %w", err)
+	}
+	for _, row := range all {
+		if row.Type == domain.ChatTypeFolder {
+			rows = append(rows, row)
+		}
+	}
+	return newTreeSnapshot(corrected(rows, subject)), nil
 }
 
 // corrected replaces the projected row for subject with the log-folded one, or
@@ -121,70 +154,66 @@ func corrected(
 }
 
 // persist writes exactly the rows the plan touched and returns the FOLDER rows
-// among them, which the caller has to broadcast itself. The chat rows need no
-// such handling: their write is an aggregate command, so the hub projection
-// broadcasts each one on the way through.
+// among them, which the caller has to broadcast itself. The CHAT rows still
+// need no such handling: their write is an aggregate command, so the hub
+// projection broadcasts each one on the way through — true of a folder row's
+// write now too, but the wire contract this feeds is a folder-only list, so a
+// densified chat sibling stays reported through its own channel instead of
+// this one.
 func (u *chatFolderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
-) ([]domain.ChatFolder, error) {
+) ([]domain.Chat, error) {
 	ids := snapshot.plan.Dirty()
-	written := make([]domain.ChatFolder, 0, len(ids))
+	written := make([]domain.Chat, 0, len(ids))
 	for _, id := range ids {
 		row, err := u.writeRow(ctx, snapshot, id)
 		if err != nil {
 			return nil, err
 		}
-		if row != nil {
+		if row != nil && row.Type == domain.ChatTypeFolder {
 			written = append(written, *row)
 		}
 	}
 	return written, nil
 }
 
-// writeRow saves one row the plan touched, sending a CHAT down whichever command
-// matches what the plan actually decided about it: a re-parented chat has its
+// writeRow saves one row the plan touched, sending it down whichever command
+// matches what the plan actually decided about it: a re-parented row has its
 // placement written whole, a merely renumbered one has its index written and
 // nothing else. A densify can therefore never restate a parent — and every
 // parent in the snapshot came from the projection, one of them being stale being
 // a routine consequence of the write before this one, not a rare interleaving.
-//
-// Folders need neither: they are read and written through the same synchronous
-// table, so a folder read back after a folder write is already current.
 func (u *chatFolderUsecase) writeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	id string,
-) (*domain.ChatFolder, error) {
-	if row := snapshot.placedFolder(id); row != nil {
-		if err := u.folders.Save(ctx, *row); err != nil {
-			return nil, fmt.Errorf("agent chat folder: save %s: %w", id, err)
-		}
-		return row, nil
-	}
-	row := snapshot.placedChat(id)
+) (*domain.Chat, error) {
+	row := snapshot.placedRow(id)
 	if row == nil {
 		return nil, nil
 	}
 	if !snapshot.plan.Reparented(id) {
-		if _, err := u.chats.SetOrder(ctx, id, row.Order); err != nil {
-			return nil, fmt.Errorf("agent chat folder: order chat %s: %w", id, err)
+		updated, err := u.chats.SetOrder(ctx, id, row.Order)
+		if err != nil {
+			return nil, fmt.Errorf("agent chat folder: order %s: %w", id, err)
 		}
-		return nil, nil
+		return &updated, nil
 	}
-	if _, err := u.chats.SetPlacement(ctx, id, row.ParentID, row.Order); err != nil {
-		return nil, fmt.Errorf("agent chat folder: place chat %s: %w", id, err)
+	updated, err := u.chats.SetPlacement(ctx, id, row.ParentID, row.Order)
+	if err != nil {
+		return nil, fmt.Errorf("agent chat folder: place %s: %w", id, err)
 	}
-	return nil, nil
+	return &updated, nil
 }
 
 // without drops the subject row from a written set, leaving the collateral the
 // caller broadcasts alongside it.
 func without(
-	rows []domain.ChatFolder,
+	rows []domain.Chat,
 	id string,
-) []domain.ChatFolder {
-	out := make([]domain.ChatFolder, 0, len(rows))
+) []domain.Chat {
+	out := make([]domain.Chat, 0, len(rows))
 	for _, row := range rows {
 		if row.ID != id {
 			out = append(out, row)

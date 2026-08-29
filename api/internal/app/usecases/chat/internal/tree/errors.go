@@ -11,12 +11,11 @@ import "errors"
 // write, so the tree is never briefly cyclic. Handlers map it to 409.
 var ErrCycle = errors.New("usecases: a chat or folder cannot be moved inside itself")
 
-// ErrCrossWorkspace is returned when a row's parent belongs to a different
-// workspace. Chats and their folders are workspace-scoped: the panel renders one
-// workspace's tree, so a cross-workspace edge is a row that is simply never
-// drawn — and for a chat it would additionally mean reading turns from a
-// workspace the user is not in. Handlers map it to 409.
-var ErrCrossWorkspace = errors.New("usecases: a chat or folder and its parent must be in the same workspace")
+// ErrCrossWorkspace is returned when a CHAT's parent belongs to a different
+// workspace. A folder carries no workspace and so can never trigger it — only a
+// row threading under another CHAT can. A cross-workspace thread would mean
+// reading turns from a workspace the user is not in. Handlers map it to 409.
+var ErrCrossWorkspace = errors.New("usecases: a chat and its chat parent must be in the same workspace")
 
 // ErrNameRequired is returned when a create or rename supplies a blank name. A
 // nameless folder is an unlabelled box the user cannot tell apart from any

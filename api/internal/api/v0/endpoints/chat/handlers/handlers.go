@@ -341,31 +341,28 @@ type ProviderUsecase interface {
 // this panel is not one chat: a chat's children are THREADS of it, so they go
 // with it. Only something holding the tree can know which chats those are.
 type ChatTreeUsecase interface {
-	ListInWorkspace(
+	ListInRepo(
 		ctx context.Context,
-		workspaceID string,
-	) ([]domain.ChatFolder, error)
+		repoID string,
+	) ([]domain.Chat, error)
 	Create(
 		ctx context.Context,
 		in agentusecase.CreateInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	Rename(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		name string,
-	) (domain.ChatFolder, error)
+	) (domain.Chat, error)
 	Move(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		in agentusecase.MoveInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	Delete(
 		ctx context.Context,
-		workspaceID string,
 		id string,
-	) ([]domain.ChatFolder, error)
+	) ([]domain.Chat, error)
 	// CreateChat mints a chat, places it under parentID (a chat, a folder, or "" for
 	// the panel root) and starts providerID's CLI on it — in that order, so a chat
 	// created as a THREAD carries the parent edge before its first CLI exists and is
@@ -382,7 +379,7 @@ type ChatTreeUsecase interface {
 		workspaceID string,
 		chatID string,
 		in agentusecase.PlaceInput,
-	) (domain.Chat, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	DeleteChat(
 		ctx context.Context,
 		chatID string,

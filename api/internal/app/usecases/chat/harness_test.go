@@ -23,7 +23,6 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -359,9 +358,10 @@ func (f *fakeWorkspace) AgentChatsDir(
 // the call happened at all, and for which id.
 type fakeChatStore struct {
 	agentchat.EventStore
-	failGetChat   error
-	failCreate    error
-	failListChats error
+	failGetChat         error
+	failCreate          error
+	failListChats       error
+	failListByWorkspace error
 	// failSetSelection / failLoadChat arm the two writes-and-reads the model and
 	// effort selection travels through, so the "a spawn whose selection cannot be
 	// read must fail before it forks" paths are reachable from a test.
@@ -477,6 +477,16 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.Chat, error) {
 		return nil, s.failListChats
 	}
 	return s.EventStore.ListChats(ctx)
+}
+
+// ListByWorkspace is what the lineage resolver reads a spawn's ancestors
+// through — folder rows and chat rows share this one list now — so this is
+// the seam a test arms to prove a lineage read failure fails the spawn.
+func (s *fakeChatStore) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Chat, error) {
+	if s.failListByWorkspace != nil {
+		return nil, s.failListByWorkspace
+	}
+	return s.EventStore.ListByWorkspace(ctx, workspaceID)
 }
 
 // fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate, and
@@ -622,9 +632,6 @@ type testFixture struct {
 	// minter is the SAME token minter the usecase's MCP seam verifies against, so
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
-	// folders is the in-memory chat-folder table the lineage resolver reads, so a
-	// test can file a thread inside folders and prove the walk steps through them.
-	folders *mocks.AgentChatFolderStore
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -1082,12 +1089,12 @@ func newFixtureUsing(
 		chatReader,
 		fixtureWorkspaceLister{},
 	)
-	// The REAL lineage resolver, over the same chat store and an in-memory folder
-	// table, so a threaded chat in this package resolves its ancestors exactly the
-	// way production does — folders and all. A stub here would have let the walk
-	// and the spawn path agree with each other while both were wrong.
-	folders := mocks.NewAgentChatFolderStore()
-	lineage := tree.NewLineage(folders, usedChats)
+	// The REAL lineage resolver, over the same chat store folder rows and
+	// conversation rows now share, so a threaded chat in this package resolves
+	// its ancestors exactly the way production does — folders and all. A stub
+	// here would have let the walk and the spawn path agree with each other
+	// while both were wrong.
+	lineage := tree.NewLineage(usedChats)
 	u := agentusecase.New(agentusecase.Deps{
 		Chats:           usedChats,
 		Runners:         usedRunners,
@@ -1132,7 +1139,6 @@ func newFixtureUsing(
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
-		folders:       folders,
 	}
 	return f, realChats, realRunners
 }

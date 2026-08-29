@@ -1,22 +1,30 @@
-// Package tree owns the Chats panel's tree: the AgentChatFolder rows
-// a user files chats into, where each chat hangs, and the dense sibling order
-// the two kinds SHARE — they interleave at every level and sort on one Order
+// Package tree owns the sidebar forest's organisation layer: the FOLDER rows a
+// user files chats into, where each row hangs, and the dense sibling order
+// every row kind SHARES — they interleave at every level and sort on one Order
 // field within one ParentID.
 //
+// A folder is no longer its own table. `domain.Folder` (the old sidebar tree)
+// and `domain.ChatFolder` (the old Chats-panel tree) have folded into one row —
+// a `domain.Chat` whose Type is ChatTypeFolder — so every operation here reads
+// and writes through the same chat repository a conversation row does.
+//
 // Its two deletes are deliberately opposite, and the asymmetry is the whole
-// domain rule. Deleting a FOLDER promotes what it held to the folder's own
-// parent: a folder holds no conversation, so the chats outlive it. Deleting a
-// CHAT takes its entire subtree: a thread exists to CONTINUE its parent — it
-// reads that parent's turns — so leaving it behind would strand it reading a
-// context that no longer exists.
+// domain rule, unchanged by the retype. Deleting a FOLDER promotes what it held
+// to the folder's own parent: a folder holds no conversation, so the chats
+// outlive it. Deleting a CHAT-typed row takes its entire subtree: a thread
+// exists to CONTINUE its parent — it reads that parent's turns — so leaving it
+// behind would strand it reading a context that no longer exists.
 //
 // Nothing here reasons about processes. A chat's runner, its PTY and its ledger
 // belong to the agent usecase; this one moves rows and, for the cascade, asks
-// that usecase to erase each chat it has decided must go.
+// that usecase to erase each CHAT-typed row it has decided must go. A deleted
+// FOLDER is erased directly through the chat repository instead (Chats.Forget)
+// — it never had a runner or a ledger to tear down, so routing it through the
+// agent usecase would be pure cost.
 //
-// Every operation reads the workspace's rows ONCE, plans the whole change in
-// memory, and then writes only the rows that actually moved. That is not merely
-// an optimisation: the chat read model is an asynchronous projection, so a
+// Every operation reads its rows ONCE, plans the whole change in memory, and
+// then writes only the rows that actually moved. That is not merely an
+// optimisation: the chat read model is an asynchronous projection, so a
 // re-read taken between a write and the renumber that follows it can still be
 // serving the pre-write list. Planning from a single snapshot removes the race
 // rather than papering over it with a barrier.
@@ -25,145 +33,179 @@ package tree
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 type chatFolderUsecase struct {
-	folders Store
-	chats   Chats
-	agent   Agent
+	chats Chats
+	agent Agent
 }
 
-// New builds the chat-folder usecase over the folders table, the chat row
-// repository, and the agent usecase behind everything a chat is besides a row.
+// New builds the tree usecase over the chat row repository and the agent
+// usecase behind everything a chat is besides a row.
 //
-// The chat handle is required because the two row kinds share one sibling space:
-// renumbering a level without it would leave folders and chats holding
-// independent, colliding indices. The agent handle is required in both
-// directions — this usecase decides which chats a delete takes and which chat a
-// create is born under, and the agent usecase is the only thing that knows how to
-// erase one, mint one, or start a CLI on one.
+// The agent handle is required in both directions — this usecase decides which
+// chats a delete takes and which chat a create is born under, and the agent
+// usecase is the only thing that knows how to erase one, mint one, or start a
+// CLI on one.
 func New(
-	folders Store,
 	chats Chats,
 	agent Agent,
 ) Usecase {
-	return &chatFolderUsecase{folders: folders, chats: chats, agent: agent}
+	return &chatFolderUsecase{chats: chats, agent: agent}
 }
 
-func (u *chatFolderUsecase) ListInWorkspace(
+func (u *chatFolderUsecase) ListInRepo(
 	ctx context.Context,
-	workspaceID string,
-) ([]domain.ChatFolder, error) {
-	rows, err := u.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: workspaceID})
+	repoID string,
+) ([]domain.Chat, error) {
+	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: list in workspace: %w", err)
+		return nil, fmt.Errorf("agent chat folder: list in repo: %w", err)
 	}
-	return rows, nil
+	out := make([]domain.Chat, 0, len(rows))
+	for _, row := range rows {
+		if row.Type == domain.ChatTypeFolder {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (u *chatFolderUsecase) Create(
 	ctx context.Context,
 	in CreateInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	name, err := cleanName(in.Name)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.snapshot(ctx, in.WorkspaceID)
+	snapshot, err := u.globalSnapshot(ctx)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
-	if cErr := u.checkContainer(ctx, snapshot, in.WorkspaceID, in.ParentID); cErr != nil {
-		return domain.ChatFolder{}, nil, cErr
+	if cErr := u.checkFolderContainer(ctx, snapshot, in.ParentID); cErr != nil {
+		return domain.Chat{}, nil, cErr
 	}
 	id := in.ID
 	if id == "" {
 		id = uuid.NewString()
 	}
+	minted, err := u.chats.Create(ctx, agentchat.CreateInput{
+		ID:   id,
+		Type: domain.ChatTypeFolder,
+		Now:  time.Now(),
+	})
+	if err != nil {
+		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
+	}
+	titled, err := u.chats.SetTitle(ctx, id, name, "user")
+	if err != nil {
+		return domain.Chat{}, nil, u.discardFolder(ctx, id,
+			fmt.Errorf("agent chat folder: create %s: name: %w", id, err))
+	}
 	target := snapshot.plan.NextSlot(in.ParentID)
-	snapshot.add(domain.ChatFolder{
-		ID:          id,
-		WorkspaceID: in.WorkspaceID,
-		ParentID:    in.ParentID,
-		Name:        name,
-		Order:       target,
+	snapshot.add(domain.Chat{
+		ID:        id,
+		Type:      domain.ChatTypeFolder,
+		Title:     titled.Title,
+		ParentID:  in.ParentID,
+		Order:     target,
+		CreatedAt: minted.CreatedAt,
 	})
 	snapshot.plan.Reorder(in.ParentID, id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
-	return *snapshot.placedFolder(id), without(written, id), nil
+	return *snapshot.placedRow(id), without(written, id), nil
+}
+
+// discardFolder takes a just-minted folder back out when the create failed
+// after minting it, and hands back the failure that caused it. The purge is
+// best-effort and NEVER replaces the cause, mirroring chats.go's discard for
+// the same reason: the user is told what actually failed.
+func (u *chatFolderUsecase) discardFolder(
+	ctx context.Context,
+	id string,
+	cause error,
+) error {
+	if err := u.chats.Forget(ctx, id); err != nil {
+		return fmt.Errorf("%w (and cleanup failed: %v)", cause, err)
+	}
+	return cause
 }
 
 func (u *chatFolderUsecase) Rename(
 	ctx context.Context,
-	workspaceID string,
 	id string,
 	name string,
-) (domain.ChatFolder, error) {
+) (domain.Chat, error) {
 	clean, err := cleanName(name)
 	if err != nil {
-		return domain.ChatFolder{}, err
+		return domain.Chat{}, err
 	}
-	current, err := u.load(ctx, workspaceID, id)
+	if _, err := u.load(ctx, id); err != nil {
+		return domain.Chat{}, err
+	}
+	renamed, err := u.chats.SetTitle(ctx, id, clean, "user")
 	if err != nil {
-		return domain.ChatFolder{}, err
+		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: save: %w", id, err)
 	}
-	current.Name = clean
-	if err := u.folders.Save(ctx, current); err != nil {
-		return domain.ChatFolder{}, fmt.Errorf("agent chat folder: rename %s: save: %w", id, err)
-	}
-	return current, nil
+	return renamed, nil
 }
 
 func (u *chatFolderUsecase) Move(
 	ctx context.Context,
-	workspaceID string,
 	id string,
 	in MoveInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
-	current, err := u.load(ctx, workspaceID, id)
+) (domain.Chat, []domain.Chat, error) {
+	current, err := u.load(ctx, id)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.snapshot(ctx, current.WorkspaceID)
+	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkMove(ctx, snapshot, current.WorkspaceID, id, destination); mErr != nil {
-		return domain.ChatFolder{}, nil, mErr
+	if mErr := u.checkFolderMove(ctx, snapshot, id, destination); mErr != nil {
+		return domain.Chat{}, nil, mErr
 	}
-	u.replace(snapshot, id, current.ParentID, destination, in.Order)
+	target := placementTarget(in.Order, snapshot, current.ParentID, destination, id)
+	snapshot.plan.SetParent(id, destination)
+	snapshot.plan.Reorder(destination, id, target)
+	if destination != current.ParentID {
+		snapshot.plan.Reorder(current.ParentID, "", -1)
+	}
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
-		return domain.ChatFolder{}, nil, err
+		return domain.Chat{}, nil, err
 	}
-	return *snapshot.placedFolder(id), without(written, id), nil
+	return *snapshot.placedRow(id), without(written, id), nil
 }
 
 func (u *chatFolderUsecase) Delete(
 	ctx context.Context,
-	workspaceID string,
 	id string,
-) ([]domain.ChatFolder, error) {
-	current, err := u.load(ctx, workspaceID, id)
+) ([]domain.Chat, error) {
+	current, err := u.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := u.snapshot(ctx, current.WorkspaceID)
+	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
 		return nil, err
 	}
-	if err := u.folders.Delete(ctx, id); err != nil {
+	if err := u.chats.Forget(ctx, id); err != nil {
 		return nil, fmt.Errorf("agent chat folder: delete %s: %w", id, err)
 	}
 	snapshot.plan.Reparent(id, current.ParentID)

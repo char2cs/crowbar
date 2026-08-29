@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -523,7 +524,10 @@ func thread(
 	f.wait()
 }
 
-// file puts a folder row in the workspace's chat-folder table.
+// file puts a folder row in the tree: a Chat row of Type folder, minted then
+// placed exactly like the tree usecase's own Create does. It carries a
+// workspace only because the aggregate's Create command still requires one
+// (Stage 2 removes that); the lineage walk itself never looks at it.
 func file(
 	t *testing.T,
 	f testFixture,
@@ -531,9 +535,13 @@ func file(
 	parentID string,
 ) {
 	t.Helper()
-	require.NoError(t, f.folders.Save(f.ctx, domain.ChatFolder{
-		ID: id, WorkspaceID: "ws1", ParentID: parentID, Name: id,
-	}))
+	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
+		ID: id, WorkspaceID: "ws1", Type: domain.ChatTypeFolder, Now: time.Now(),
+	})
+	require.NoError(t, err)
+	_, err = f.chats.SetPlacement(f.ctx, id, parentID, 0)
+	require.NoError(t, err)
+	f.wait()
 }
 
 // lineageBlock returns the configured thread_lineage prompt with the ids filled
@@ -641,12 +649,12 @@ func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 // believing itself standalone would then do the whole task without the context
 // it exists to continue, and nothing anywhere would say so.
 func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
-	f := newFixture(t)
+	f, cs, _ := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
 	threadID, _ := f.spawn(t, "claude")
 	thread(t, f, threadID, parentID)
-	f.folders.FindErr = errors.New("folder table unreadable")
+	cs.failListByWorkspace = errors.New("folder table unreadable")
 
 	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude")
 	require.ErrorContains(t, err, "folder table unreadable")
@@ -657,8 +665,8 @@ func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 // aggregate is written after the CLI is live — so that spawn resolves no lineage
 // at all rather than failing on a chat that does not exist.
 func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
-	f := newFixture(t)
-	f.folders.FindErr = errors.New("folder table unreadable")
+	f, cs, _ := newFaultFixture(t)
+	cs.failListByWorkspace = errors.New("folder table unreadable")
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
 	require.NoError(t, err)

@@ -19,7 +19,7 @@ import (
 // starting, and a plain new chat must be created in exactly the order it always
 // was.
 func TestCreateChat_AtTheRootTakesTheUnplacedSpawn(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
 	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "")
@@ -39,7 +39,7 @@ func TestCreateChat_AtTheRootTakesTheUnplacedSpawn(t *testing.T) {
 // after the start. The end state is identical either way, which is exactly why
 // asserting the end state would prove nothing.
 func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
@@ -57,8 +57,8 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 
 // A folder parent is "new chat in this folder" and takes the identical path.
 func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
-	seedFolder(folders, "spikes", "")
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "spikes", "")
 	chats.NextID = "c-new"
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "spikes")
@@ -69,7 +69,7 @@ func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
 // A new chat lands at the END of its parent's sibling space, the same rule a new
 // folder follows — the placement usecase's own, not a second copy of it.
 func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
 	chats.NextID = "c-new"
@@ -84,7 +84,7 @@ func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
 // suppressed by the ledger being empty, which is the agent usecase's call — here
 // we only prove the create routes through the same PlaceChat every drag does.
 func TestCreateChat_StillGoesThroughThePlacementPath(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
@@ -97,7 +97,7 @@ func TestCreateChat_StillGoesThroughThePlacementPath(t *testing.T) {
 // Minting first and cleaning up afterwards would make a create and a delete out
 // of every mistyped id.
 func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "nowhere")
@@ -107,21 +107,21 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 	assert.Empty(t, chats.Spawned)
 }
 
-// A row in ANOTHER workspace is the cross-workspace refusal, not a not-found: a
-// chat parent is what the row READS, so accepting it would let a new agent
-// inherit context from a workspace the user is not in.
-func TestCreateChat_RefusesAParentInAnotherWorkspace(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
-	folders.Rows = append(folders.Rows, domain.ChatFolder{ID: "f-other", WorkspaceID: "ws-2"})
+// A folder carries no workspace of its own, so it is always an acceptable
+// parent — unlike a CHAT parent, which still enforces the workspace boundary
+// below. Enforcing a repo boundary on folders too is stage 3's walk.
+func TestCreateChat_AcceptsAFolderParentRegardlessOfProvenance(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "f-other", "")
+	chats.NextID = "c-new"
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other")
-	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
-	assert.Empty(t, chats.Minted)
+	assert.NoError(t, err)
 }
 
 // A chat parent in another workspace is refused the same way.
 func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other")
@@ -130,8 +130,8 @@ func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 }
 
 func TestCreateChat_SurfacesASnapshotFailure(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
-	folders.FindErr = errors.New("folders down")
+	chats, uc := newUsecase(t)
+	chats.ListErr = errors.New("folders down")
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
 	assert.ErrorContains(t, err, "folders down")
@@ -139,7 +139,7 @@ func TestCreateChat_SurfacesASnapshotFailure(t *testing.T) {
 }
 
 func TestCreateChat_SurfacesAMintFailure(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.MintErr = errors.New("mint down")
 
@@ -151,7 +151,7 @@ func TestCreateChat_SurfacesAMintFailure(t *testing.T) {
 // A create the user was told FAILED must not leave a chat behind. Everything past
 // the mint therefore takes the chat back out again.
 func TestCreateChat_TakesTheChatBackOutWhenThePlacementFails(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 	chats.SetErr = errors.New("placement down")
@@ -163,7 +163,7 @@ func TestCreateChat_TakesTheChatBackOutWhenThePlacementFails(t *testing.T) {
 }
 
 func TestCreateChat_TakesTheChatBackOutWhenTheCLIFailsToStart(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 	chats.StartErr = errors.New("claude is not installed")
@@ -177,7 +177,7 @@ func TestCreateChat_TakesTheChatBackOutWhenTheCLIFailsToStart(t *testing.T) {
 // a chat, and THAT is what failed. Reporting the cleanup's error instead would
 // name a failure they cannot act on and hide the one they can.
 func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 	chats.StartErr = errors.New("claude is not installed")
@@ -193,7 +193,7 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 // carries the lineage rather than a bare "you moved", because the record is what
 // a reader believes afterwards.
 func TestPlaceChat_RecordsTheNewLineageInTheChatsOwnConversation(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 
@@ -207,7 +207,7 @@ func TestPlaceChat_RecordsTheNewLineageInTheChatsOwnConversation(t *testing.T) {
 // The chain, nearest first — a chat dropped under a thread inherits that
 // thread's ancestors too, and the record has to name all of them.
 func TestPlaceChat_RecordsTheWholeChainNearestFirst(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
 	seedChat(chats, "c3", 3)
@@ -223,11 +223,11 @@ func TestPlaceChat_RecordsTheWholeChainNearestFirst(t *testing.T) {
 // folders are transparent, so the record names the chat above the folder and
 // never the folder.
 func TestPlaceChat_AFolderInsideAChatStillRecordsTheChat(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
-	seedFolder(folders, "outer", "c1")
-	seedFolder(folders, "inner", "outer")
+	seedFolder(chats, "outer", "c1")
+	seedFolder(chats, "inner", "outer")
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2",
 		tree.PlaceInput{ParentID: name("inner")})
@@ -240,10 +240,10 @@ func TestPlaceChat_AFolderInsideAChatStillRecordsTheChat(t *testing.T) {
 // parent leaves it reading exactly what it read a moment ago, and announcing a
 // context change there would be announcing one that did not happen.
 func TestPlaceChat_FilingAThreadUnderItsOwnParentRecordsNothing(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
-	seedFolder(folders, "notes", "c1")
+	seedFolder(chats, "notes", "c1")
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2",
 		tree.PlaceInput{ParentID: name("notes")})
@@ -256,7 +256,7 @@ func TestPlaceChat_FilingAThreadUnderItsOwnParentRecordsNothing(t *testing.T) {
 // reads is answered by its next spawn resolving an empty lineage — there is no
 // new context to date the start of.
 func TestPlaceChat_MovingAThreadBackToTheRootRecordsNothing(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
 
@@ -269,7 +269,7 @@ func TestPlaceChat_MovingAThreadBackToTheRootRecordsNothing(t *testing.T) {
 
 // A pure reorder is not a lineage change either.
 func TestPlaceChat_AReorderRecordsNothing(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 
@@ -284,7 +284,7 @@ func TestPlaceChat_AReorderRecordsNothing(t *testing.T) {
 // fails must not report the move as failed. The relationship rides on ParentID;
 // what is lost is the line in the record, not the behaviour it describes.
 func TestPlaceChat_AFailedNoteDoesNotFailTheMove(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 	chats.NoteErr = errors.New("ledger unwritable")
@@ -309,7 +309,7 @@ func TestPlaceChat_AFailedNoteDoesNotFailTheMove(t *testing.T) {
 // just filed under another chat return to the panel root, and its next session
 // came up with no lineage at all.
 func TestPlaceChat_ARenumberCannotUndoTheMoveBeforeIt(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "parent", 1)
 	seedThread(chats, "moved", "parent", 2)
@@ -332,7 +332,7 @@ func TestPlaceChat_ARenumberCannotUndoTheMoveBeforeIt(t *testing.T) {
 // densify, every row the plan did not re-parent is written through the
 // index-only command.
 func TestPlaceChat_OnlyTheMovedRowIsWrittenAsAPlacement(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
@@ -354,7 +354,7 @@ func TestPlaceChat_OnlyTheMovedRowIsWrittenAsAPlacement(t *testing.T) {
 // move. A chat filed under another chat a moment ago was still listed at the
 // root, so "keep it where it is" resolved to the root and dragged it out.
 func TestPlaceChat_AReorderKeepsTheParentTheLogHasNotTheProjectedOne(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "parent", 1)
 	seedThread(chats, "t1", "parent", 2)
@@ -373,7 +373,7 @@ func TestPlaceChat_AReorderKeepsTheParentTheLogHasNotTheProjectedOne(t *testing.
 // A create is a move too: the chat is minted at the root and placed under its
 // parent, so it must be written as a placement or the thread is born unthreaded.
 func TestCreateChat_TheNewChatIsWrittenAsAPlacement(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
@@ -387,7 +387,7 @@ func TestCreateChat_TheNewChatIsWrittenAsAPlacement(t *testing.T) {
 // A move whose subject the projection has not caught up on still densifies the
 // level it is actually leaving, because the origin is read from the log too.
 func TestPlaceChat_TheLevelLeftBehindIsTheOneTheLogNames(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "parent", 1)
 	seedThread(chats, "t1", "parent", 2)
@@ -405,7 +405,7 @@ func TestPlaceChat_TheLevelLeftBehindIsTheOneTheLogNames(t *testing.T) {
 // A chat the projection is behind on is still refused as a container for itself,
 // because the cycle guard runs over the plan and the plan holds the subject.
 func TestPlaceChat_StillRefusesAChatUnderItself(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	staleAt(chats, "c1", "", 0, 1)
 
@@ -417,7 +417,7 @@ func TestPlaceChat_StillRefusesAChatUnderItself(t *testing.T) {
 // The subject is resolved through the log fold, so a failure there is the
 // failure a caller sees — not a silent fall back to the projected row.
 func TestPlaceChat_SurfacesASubjectLoadFailure(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	chats.LoadErr = errNoLog
 
@@ -429,7 +429,7 @@ func TestPlaceChat_SurfacesASubjectLoadFailure(t *testing.T) {
 // A chat's parent IS its context lineage, so this write legitimately turns a
 // standalone chat into a thread of another and back.
 func TestPlaceChat_RewritesLineage(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
@@ -448,10 +448,10 @@ func TestPlaceChat_RewritesLineage(t *testing.T) {
 // Chats and folders share one level, so a chat drop renumbers the folders in it
 // and those rows have to come back for broadcast.
 func TestPlaceChat_ReturnsTheFoldersItShifted(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "c1", 1)
-	folder, _, err := uc.Create(ctx, tree.CreateInput{WorkspaceID: workspaceID, Name: "spikes"})
+	folder, _, err := uc.Create(ctx, tree.CreateInput{RepoID: repoID, Name: "spikes"})
 	require.NoError(t, err)
 	require.Equal(t, 1, folder.Order)
 
@@ -463,7 +463,7 @@ func TestPlaceChat_ReturnsTheFoldersItShifted(t *testing.T) {
 }
 
 func TestPlaceChat_WithNothingRequestedKeepsThePlacement(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
@@ -474,7 +474,7 @@ func TestPlaceChat_WithNothingRequestedKeepsThePlacement(t *testing.T) {
 }
 
 func TestPlaceChat_RefusesAChatOntoItself(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1",
@@ -485,7 +485,7 @@ func TestPlaceChat_RefusesAChatOntoItself(t *testing.T) {
 // A chat inside its own subtree is worse than unreachable: its context walk
 // would never terminate at the root.
 func TestPlaceChat_RefusesAMoveIntoItsOwnThread(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedThread(chats, "c2", "c1", 2)
 
@@ -495,7 +495,7 @@ func TestPlaceChat_RefusesAMoveIntoItsOwnThread(t *testing.T) {
 }
 
 func TestPlaceChat_RefusesAChatFromAnotherWorkspace(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c-other", tree.PlaceInput{})
@@ -503,16 +503,16 @@ func TestPlaceChat_RefusesAChatFromAnotherWorkspace(t *testing.T) {
 }
 
 func TestPlaceChat_RefusesAnUnknownChat(t *testing.T) {
-	_, _, uc := newUsecase(t)
+	_, uc := newUsecase(t)
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "nowhere", tree.PlaceInput{})
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestPlaceChat_SurfacesASnapshotFailure(t *testing.T) {
-	folders, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
-	folders.FindErr = errors.New("boom")
+	chats.ListErr = errors.New("boom")
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{})
 	assert.ErrorContains(t, err, "boom")
@@ -521,7 +521,7 @@ func TestPlaceChat_SurfacesASnapshotFailure(t *testing.T) {
 // A reorder inside one level writes indices and no parents, so the write it can
 // fail on is the renumber — for the subject as much as for the rows it passed.
 func TestPlaceChat_SurfacesARenumberWriteFailure(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 	chats.OrderErr = errors.New("aggregate down")
@@ -532,7 +532,7 @@ func TestPlaceChat_SurfacesARenumberWriteFailure(t *testing.T) {
 }
 
 func TestPlaceChat_SurfacesAPlacementWriteFailure(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 	chats.SetErr = errors.New("aggregate down")

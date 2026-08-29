@@ -7,27 +7,25 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Resolver reads a chat's lineage out of the stores. It is a read service with
+// Resolver reads a chat's lineage out of the store. It is a read service with
 // no writes and no aggregate of its own, which is what lets both the spawn path
 // (what a thread must be told to read) and the tool surface (what a chat may not
 // read) share one answer instead of each deriving their own.
 type Resolver struct {
-	folders Folders
-	chats   Chats
+	chats Chats
 }
 
-// New builds the resolver over the chat-folder table and the chat repository.
+// New builds the resolver over the chat repository.
 //
 // It is deliberately assembled BEFORE the agent usecase rather than hung off the
 // Chats-panel tree usecase, which owns the same edges: that usecase already
 // holds the agent usecase (a chat delete cascades through it), so reaching back
-// the other way for a read would close a construction cycle around two stores
+// the other way for a read would close a construction cycle around a store
 // either of them can simply read.
 func New(
-	folders Folders,
 	chats Chats,
 ) *Resolver {
-	return &Resolver{folders: folders, chats: chats}
+	return &Resolver{chats: chats}
 }
 
 // Ancestors returns chatID's CHAT ancestors, nearest parent first, with folders
@@ -69,9 +67,9 @@ func (r *Resolver) Ancestors(
 	), nil
 }
 
-// lookups reads the workspace's whole Chats tree once and folds it into the two
-// maps Walk asks about: every row's container, and which of those rows are
-// chats.
+// lookups reads the workspace's whole tree once and folds it into the two maps
+// Walk asks about: every row's container, and which of those rows are CHAT-typed
+// (as against a folder, which the walk steps straight through).
 //
 // The subject chat is stamped in LAST, over whatever the list said about it. The
 // list is a projection and can still be serving the placement this chat had
@@ -82,24 +80,17 @@ func (r *Resolver) lookups(
 	ctx context.Context,
 	chat domain.Chat,
 ) (map[string]string, map[string]bool, error) {
-	folders, err := r.folders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: chat.WorkspaceID})
-	if err != nil {
-		return nil, nil, fmt.Errorf("chat lineage: folders: %w", err)
-	}
 	rows, err := r.chats.ListByWorkspace(ctx, chat.WorkspaceID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("chat lineage: chats: %w", err)
 	}
-	parents := make(map[string]string, len(folders)+len(rows)+1)
+	parents := make(map[string]string, len(rows)+1)
 	chats := make(map[string]bool, len(rows)+1)
-	for _, folder := range folders {
-		parents[folder.ID] = folder.ParentID
-	}
 	for _, row := range rows {
 		parents[row.ID] = row.ParentID
-		chats[row.ID] = true
+		chats[row.ID] = row.Type == domain.ChatTypeChat
 	}
 	parents[chat.ID] = chat.ParentID
-	chats[chat.ID] = true
+	chats[chat.ID] = chat.Type == domain.ChatTypeChat
 	return parents, chats, nil
 }

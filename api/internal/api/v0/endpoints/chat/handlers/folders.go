@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"slices"
+	"strings"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
@@ -45,16 +47,21 @@ type placeChatRequest struct {
 // single drop renumbers a whole level; a client told only about the row it
 // dragged holds stale orders for every sibling until its next reconnect, and
 // draws them in the wrong sequence in the meantime.
+//
+// Both ride AgentChatDTO now: a folder is a Chat row like any other (Type ==
+// "folder"), so its wire shape is the same one a conversation's placement
+// already carries — see PlaceChat below, which has rendered rows this way all
+// along.
 type folderResponse struct {
-	Folder  dto.AgentChatFolderDTO   `json:"folder"`
-	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+	Folder  dto.AgentChatDTO   `json:"folder"`
+	Shifted []dto.AgentChatDTO `json:"shifted"`
 }
 
 // deleteFolderResponse is the body of DELETE .../chats/folders/:folderId. There
 // is no folder to return — it is gone — but the rows its children's promotion
 // renumbered still have to reach the caller.
 type deleteFolderResponse struct {
-	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+	Shifted []dto.AgentChatDTO `json:"shifted"`
 }
 
 // placeChatResponse is the body of PATCH .../chats/:id/placement: the
@@ -62,29 +69,59 @@ type deleteFolderResponse struct {
 // alongside it are absent on purpose — their write is an aggregate command, so
 // each one has already announced itself on the Chats socket.
 type placeChatResponse struct {
-	Chat    dto.AgentChatDTO         `json:"chat"`
-	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+	Chat    dto.AgentChatDTO   `json:"chat"`
+	Shifted []dto.AgentChatDTO `json:"shifted"`
 }
 
-// ListFolders handles GET .../chats/folders, returning the workspace's chat
-// folders as AgentChatFolderDTO[] in panel order. It is the read a reconnect
-// reseeds from: the Chats socket carries no snapshot, so this list is the only
-// full answer there is.
+// folderDTOList renders folder-typed Chat rows through the same converter a
+// conversation's placement already uses, with the zero ChatRuntime: a folder
+// never has a runner, so every derived field is honestly empty rather than
+// omitted.
+//
+// The sort lives HERE, in the converter every read goes through, because a
+// client that got one order from the list and another from a reseed would
+// watch its panel reshuffle on every reconnect. Order is only meaningful
+// WITHIN a parent, so the list is not a single ordered sequence — it is every
+// level's sequence, interleaved; the client groups by parentId and reads each
+// group in this order.
+func folderDTOList(
+	rows []domain.Chat,
+) []dto.AgentChatDTO {
+	out := make([]dto.AgentChatDTO, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, dto.AgentChatDTOFrom(row, dto.ChatRuntime{}))
+	}
+	slices.SortFunc(out, compareFolderDTOs)
+	return out
+}
+
+func compareFolderDTOs(
+	a dto.AgentChatDTO,
+	b dto.AgentChatDTO,
+) int {
+	if a.Order != b.Order {
+		return a.Order - b.Order
+	}
+	return strings.Compare(a.ID, b.ID)
+}
+
+// ListFolders handles GET .../chats/folders, returning the repo's folders in
+// panel order. It is the read a reconnect reseeds from: the Chats socket
+// carries no snapshot, so this list is the only full answer there is.
 func (h *Handlers) ListFolders(
 	ctx *gin.Context,
 ) {
-	rows, err := h.folders.ListInWorkspace(ctx.Request.Context(), ctx.Param("wsId"))
+	rows, err := h.folders.ListInRepo(ctx.Request.Context(), ctx.Param("repoId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	libs.WriteQueryOK(ctx, dto.AgentChatFolderDTOList(rows))
+	libs.WriteQueryOK(ctx, folderDTOList(rows))
 }
 
-// CreateFolder handles POST .../chats/folders. The URL scope is authoritative: a
-// body-supplied workspace would let a POST against one workspace create a folder
-// in another, so none is accepted.
+// CreateFolder handles POST .../chats/folders. The URL scope names the repo the
+// new folder is created in.
 func (h *Handlers) CreateFolder(
 	ctx *gin.Context,
 ) {
@@ -95,9 +132,9 @@ func (h *Handlers) CreateFolder(
 	}
 	wsID := ctx.Param("wsId")
 	created, shifted, err := h.folders.Create(ctx.Request.Context(), agentusecase.CreateInput{
-		WorkspaceID: wsID,
-		ParentID:    body.ParentID,
-		Name:        body.Name,
+		RepoID:   ctx.Param("repoId"),
+		ParentID: body.ParentID,
+		Name:     body.Name,
 	})
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -105,10 +142,10 @@ func (h *Handlers) CreateFolder(
 		return
 	}
 	h.announceFolders(wsID, shifted, "folder_updated")
-	h.announceFolders(wsID, []domain.ChatFolder{created}, "folder_created")
+	h.announceFolders(wsID, []domain.Chat{created}, "folder_created")
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, folderResponse{
-		Folder:  dto.AgentChatFolderDTOFrom(created),
-		Shifted: dto.AgentChatFolderDTOList(shifted),
+		Folder:  dto.AgentChatDTOFrom(created, dto.ChatRuntime{}),
+		Shifted: folderDTOList(shifted),
 	})
 }
 
@@ -124,7 +161,7 @@ func (h *Handlers) PatchFolder(
 		return
 	}
 	wsID := ctx.Param("wsId")
-	updated, shifted, err := h.applyFolderPatch(ctx.Request.Context(), wsID, ctx.Param("folderId"), body)
+	updated, shifted, err := h.applyFolderPatch(ctx.Request.Context(), ctx.Param("folderId"), body)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -132,8 +169,8 @@ func (h *Handlers) PatchFolder(
 	}
 	h.announceFolders(wsID, append(shifted, updated), "folder_updated")
 	libs.WriteQueryOK(ctx, folderResponse{
-		Folder:  dto.AgentChatFolderDTOFrom(updated),
-		Shifted: dto.AgentChatFolderDTOList(shifted),
+		Folder:  dto.AgentChatDTOFrom(updated, dto.ChatRuntime{}),
+		Shifted: folderDTOList(shifted),
 	})
 }
 
@@ -142,16 +179,15 @@ func (h *Handlers) PatchFolder(
 // job here is to return the row's real state.
 func (h *Handlers) applyFolderPatch(
 	ctx context.Context,
-	wsID string,
 	id string,
 	body patchFolderRequest,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	if body.Name != nil {
-		if _, err := h.folders.Rename(ctx, wsID, id, *body.Name); err != nil {
-			return domain.ChatFolder{}, nil, err
+		if _, err := h.folders.Rename(ctx, id, *body.Name); err != nil {
+			return domain.Chat{}, nil, err
 		}
 	}
-	return h.folders.Move(ctx, wsID, id, agentusecase.MoveInput{ParentID: body.ParentID, Order: body.Order})
+	return h.folders.Move(ctx, id, agentusecase.MoveInput{ParentID: body.ParentID, Order: body.Order})
 }
 
 // DeleteFolder handles DELETE .../chats/folders/:folderId. What the folder held
@@ -164,7 +200,7 @@ func (h *Handlers) DeleteFolder(
 ) {
 	wsID := ctx.Param("wsId")
 	id := ctx.Param("folderId")
-	promoted, err := h.folders.Delete(ctx.Request.Context(), wsID, id)
+	promoted, err := h.folders.Delete(ctx.Request.Context(), id)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -172,7 +208,7 @@ func (h *Handlers) DeleteFolder(
 	}
 	h.announceFolders(wsID, promoted, "folder_updated")
 	h.broadcastFolder(id, wsID, "folder_deleted")
-	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: dto.AgentChatFolderDTOList(promoted)})
+	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: folderDTOList(promoted)})
 }
 
 // PlaceChat handles PATCH .../chats/:id/placement: where the chat hangs in
@@ -208,7 +244,7 @@ func (h *Handlers) PlaceChat(
 	}
 	libs.WriteQueryOK(ctx, placeChatResponse{
 		Chat:    dto.AgentChatDTOFrom(placed, rt),
-		Shifted: dto.AgentChatFolderDTOList(shifted),
+		Shifted: folderDTOList(shifted),
 	})
 }
 
@@ -218,7 +254,7 @@ func (h *Handlers) PlaceChat(
 // dragged would hold stale orders for its siblings until the next reconnect.
 func (h *Handlers) announceFolders(
 	wsID string,
-	rows []domain.ChatFolder,
+	rows []domain.Chat,
 	kind string,
 ) {
 	for _, row := range rows {

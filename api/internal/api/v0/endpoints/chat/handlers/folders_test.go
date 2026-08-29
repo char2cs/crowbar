@@ -21,21 +21,21 @@ import (
 // fakeChatTree records each call and returns canned results, so the handlers'
 // HTTP contract can be pinned without a store.
 type fakeChatTree struct {
-	list     []domain.ChatFolder
-	created  domain.ChatFolder
-	renamed  domain.ChatFolder
-	moved    domain.ChatFolder
+	list     []domain.Chat
+	created  domain.Chat
+	renamed  domain.Chat
+	moved    domain.Chat
 	placed   domain.Chat
-	shifted  []domain.ChatFolder
+	shifted  []domain.Chat
 	deletion agentusecase.ChatDeletion
 	err      error
 
 	gotCreate  agentusecase.CreateInput
 	gotMove    agentusecase.MoveInput
 	gotPlace   agentusecase.PlaceInput
-	gotScopes  []string
+	gotRepoID  string
 	gotRename  string
-	gotDelete  string
+	gotID      string
 	gotPlaceID string
 	gotCreate2 createChatCall
 	gotPurge   string
@@ -43,53 +43,49 @@ type fakeChatTree struct {
 	moves      int
 }
 
-func (f *fakeChatTree) ListInWorkspace(
+func (f *fakeChatTree) ListInRepo(
 	_ context.Context,
-	workspaceID string,
-) ([]domain.ChatFolder, error) {
-	f.gotScopes = append(f.gotScopes, workspaceID)
+	repoID string,
+) ([]domain.Chat, error) {
+	f.gotRepoID = repoID
 	return f.list, f.err
 }
 
 func (f *fakeChatTree) Create(
 	_ context.Context,
 	in agentusecase.CreateInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	f.gotCreate = in
 	return f.created, f.shifted, f.err
 }
 
 func (f *fakeChatTree) Rename(
 	_ context.Context,
-	workspaceID string,
-	_ string,
+	id string,
 	name string,
-) (domain.ChatFolder, error) {
+) (domain.Chat, error) {
 	f.renames++
-	f.gotScopes = append(f.gotScopes, workspaceID)
+	f.gotID = id
 	f.gotRename = name
 	return f.renamed, f.err
 }
 
 func (f *fakeChatTree) Move(
 	_ context.Context,
-	workspaceID string,
-	_ string,
+	id string,
 	in agentusecase.MoveInput,
-) (domain.ChatFolder, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
 	f.moves++
-	f.gotScopes = append(f.gotScopes, workspaceID)
+	f.gotID = id
 	f.gotMove = in
 	return f.moved, f.shifted, f.err
 }
 
 func (f *fakeChatTree) Delete(
 	_ context.Context,
-	workspaceID string,
 	id string,
-) ([]domain.ChatFolder, error) {
-	f.gotScopes = append(f.gotScopes, workspaceID)
-	f.gotDelete = id
+) ([]domain.Chat, error) {
+	f.gotID = id
 	return f.shifted, f.err
 }
 
@@ -118,8 +114,8 @@ func (f *fakeChatTree) PlaceChat(
 	workspaceID string,
 	chatID string,
 	in agentusecase.PlaceInput,
-) (domain.Chat, []domain.ChatFolder, error) {
-	f.gotScopes = append(f.gotScopes, workspaceID)
+) (domain.Chat, []domain.Chat, error) {
+	f.gotID = workspaceID
 	f.gotPlaceID = chatID
 	f.gotPlace = in
 	return f.placed, f.shifted, f.err
@@ -192,19 +188,28 @@ func newFolderHandlersWith(
 	})
 }
 
-// The URL scope is authoritative: a POST against one workspace must never
-// create a folder in another, so the body carries no workspace at all.
+// folderParams sets both :repoId (what the folder CRUD verbs scope by) and
+// :wsId (what the broadcast callback still names), mirroring the real router's
+// nesting where both are always present together.
+func folderParams(
+	extra ...gin.Param,
+) gin.Params {
+	return append(gin.Params{{Key: "repoId", Value: "r1"}, {Key: "wsId", Value: "ws-1"}}, extra...)
+}
+
+// The URL scope is authoritative: a POST against one repo must never create a
+// folder in another, so the body carries no repo at all.
 func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
-	tree := &fakeChatTree{created: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "spikes"}}
+	tree := &fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "spikes"}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders",
-		[]byte(`{"name":"spikes","parentId":"c1","workspaceId":"evil"}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+		[]byte(`{"name":"spikes","parentId":"c1","repoId":"evil"}`))
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, "ws-1", tree.gotCreate.WorkspaceID)
+	assert.Equal(t, "r1", tree.gotCreate.RepoID)
 	assert.Equal(t, "c1", tree.gotCreate.ParentID)
 	require.Len(t, frames, 1)
 	assert.Equal(t, folderFrame{folderID: "f1", workspaceID: "ws-1", kind: "folder_created"}, frames[0])
@@ -214,12 +219,12 @@ func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 // too — otherwise their orders stay stale until the next reconnect.
 func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
 	tree := &fakeChatTree{
-		created: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1"},
-		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 0}},
+		created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder},
+		shifted: []domain.Chat{{ID: "f0", Type: domain.ChatTypeFolder, Order: 0}},
 	}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
 
@@ -237,7 +242,7 @@ func TestCreateFolder_SurfacesTheUsecaseRefusal(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":" "}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
 
@@ -249,40 +254,40 @@ func TestCreateFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).CreateFolder(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, tree.gotCreate.WorkspaceID, "a malformed body must not reach the usecase")
+	assert.Empty(t, tree.gotCreate.RepoID, "a malformed body must not reach the usecase")
 }
 
-func TestListFolders_ScopesToTheURLWorkspace(t *testing.T) {
-	tree := &fakeChatTree{list: []domain.ChatFolder{
-		{ID: "b", WorkspaceID: "ws-1", Order: 1},
-		{ID: "a", WorkspaceID: "ws-1", Order: 0},
+func TestListFolders_ScopesToTheURLRepo(t *testing.T) {
+	tree := &fakeChatTree{list: []domain.Chat{
+		{ID: "b", Type: domain.ChatTypeFolder, Order: 1},
+		{ID: "a", Type: domain.ChatTypeFolder, Order: 0},
 	}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).ListFolders(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var env struct {
-		Data []dto.AgentChatFolderDTO `json:"data"`
+		Data []dto.AgentChatDTO `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	require.Len(t, env.Data, 2)
 	assert.Equal(t, "a", env.Data[0].ID, "the list handler serves panel order")
-	assert.Equal(t, []string{"ws-1"}, tree.gotScopes)
+	assert.Equal(t, "r1", tree.gotRepoID)
 }
 
 func TestListFolders_SurfacesAStoreError(t *testing.T) {
 	tree := &fakeChatTree{err: apperr.ErrNotFound}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	newFolderHandlers(tree, &frames).ListFolders(ctx)
 
@@ -291,11 +296,11 @@ func TestListFolders_SurfacesAStoreError(t *testing.T) {
 
 // A drag that renames AND moves must land as one answer, not two half-states.
 func TestPatchFolder_RenameThenMove(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Name: "new", Order: 2}}
+	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new", Order: 2}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1",
 		[]byte(`{"name":"new","parentId":"c1","order":2}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -314,10 +319,10 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 // A PATCH that reorders within one parent carries no parentId, and the nil must
 // reach the usecase as "leave it where it is" rather than "move it to the root".
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1", Order: 1}}
+	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Order: 1}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"order":1}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -331,10 +336,10 @@ func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 // An explicit empty parentId is a MOVE TO THE PANEL ROOT, and must be
 // distinguishable from an absent one.
 func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
-	tree := &fakeChatTree{moved: domain.ChatFolder{ID: "f1", WorkspaceID: "ws-1"}}
+	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":""}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -349,7 +354,7 @@ func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":" ","order":0}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -363,7 +368,7 @@ func TestPatchFolder_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":"f2"}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -375,7 +380,7 @@ func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).PatchFolder(ctx)
 
@@ -386,15 +391,15 @@ func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 // The promoted rows are what stop a folder's children vanishing with it; the
 // tombstone frame is what makes the client drop the folder itself.
 func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
-	tree := &fakeChatTree{shifted: []domain.ChatFolder{{ID: "child", WorkspaceID: "ws-1"}}}
+	tree := &fakeChatTree{shifted: []domain.Chat{{ID: "child", Type: domain.ChatTypeFolder}}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "f1", tree.gotDelete)
+	assert.Equal(t, "f1", tree.gotID)
 	require.Len(t, frames, 2)
 	assert.Equal(t, folderFrame{folderID: "child", workspaceID: "ws-1", kind: "folder_updated"}, frames[0])
 	assert.Equal(t, folderFrame{folderID: "f1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[1])
@@ -404,7 +409,7 @@ func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 	tree := &fakeChatTree{err: apperr.ErrNotFound}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "folderId", Value: "f1"}}
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
 	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
 
@@ -442,7 +447,7 @@ func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	tree := &fakeChatTree{
 		placed:  domain.Chat{ID: "c2", WorkspaceID: "ws-1"},
-		shifted: []domain.ChatFolder{{ID: "f0", WorkspaceID: "ws-1", Order: 1}},
+		shifted: []domain.Chat{{ID: "f0", Type: domain.ChatTypeFolder, Order: 1}},
 	}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"order":0}`))
@@ -453,7 +458,7 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var env struct {
 		Data struct {
-			Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+			Shifted []dto.AgentChatDTO `json:"shifted"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
@@ -492,9 +497,9 @@ func TestPlaceChat_MalformedBodyIs400(t *testing.T) {
 func TestNew_NilFolderBroadcastDegradesToNoop(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	h := handlers.New(uc, uc, uc, uc, uc,
-		&fakeChatTree{created: domain.ChatFolder{ID: "f1"}}, nil)
+		&fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder}}, nil)
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+	ctx.Params = folderParams()
 
 	assert.NotPanics(t, func() { h.CreateFolder(ctx) })
 	assert.Equal(t, http.StatusCreated, rec.Code)
@@ -504,14 +509,14 @@ func decodeFolderResponse(
 	t *testing.T,
 	raw []byte,
 ) struct {
-	Folder  dto.AgentChatFolderDTO   `json:"folder"`
-	Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+	Folder  dto.AgentChatDTO   `json:"folder"`
+	Shifted []dto.AgentChatDTO `json:"shifted"`
 } {
 	t.Helper()
 	var env struct {
 		Data struct {
-			Folder  dto.AgentChatFolderDTO   `json:"folder"`
-			Shifted []dto.AgentChatFolderDTO `json:"shifted"`
+			Folder  dto.AgentChatDTO   `json:"folder"`
+			Shifted []dto.AgentChatDTO `json:"shifted"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &env))

@@ -59,7 +59,7 @@ type (
 	ToolWorkspaceLister = tools.WorkspaceLister
 )
 
-// The Chats panel's tree, re-exported.
+// The sidebar forest's tree, re-exported.
 //
 // The tree is a separate usecase with its own routes, but it is part of THIS
 // feature: it moves chat rows, and its chat delete cascades into the chat
@@ -68,9 +68,8 @@ type (
 	// TreeUsecase is the folder/placement surface the /folders routes are served
 	// off.
 	TreeUsecase = tree.Usecase
-	// TreeStore is the chat-folder table the tree persists into.
-	TreeStore = tree.Store
-	// TreeChats is the chat-aggregate surface the tree reads and re-places.
+	// TreeChats is the chat-aggregate surface the tree reads and re-places —
+	// folder rows and conversation rows are the same table now.
 	TreeChats = tree.Chats
 	// TreeAgent is what the tree asks to erase each chat a cascade decided must go.
 	TreeAgent = tree.Agent
@@ -107,16 +106,16 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// NewTree builds the Chats panel's tree usecase.
-func NewTree(folders TreeStore, chats TreeChats, agent TreeAgent) TreeUsecase {
-	return tree.New(folders, chats, agent)
+// NewTree builds the sidebar forest's tree usecase.
+func NewTree(chats TreeChats, agent TreeAgent) TreeUsecase {
+	return tree.New(chats, agent)
 }
 
-// NewChatLineage builds the lineage reader over the chat-folder table and the
-// chat repository. It is built BEFORE the chat usecase and handed to it, because
-// the tree usecase that owns the same edges holds the chat usecase in turn.
-func NewChatLineage(folders TreeStore, chats TreeChats) ChatLineage {
-	return tree.NewLineage(folders, chats)
+// NewChatLineage builds the lineage reader over the chat repository. It is
+// built BEFORE the chat usecase and handed to it, because the tree usecase
+// that owns the same edges holds the chat usecase in turn.
+func NewChatLineage(chats TreeChats) ChatLineage {
+	return tree.NewLineage(chats)
 }
 
 // The seams this feature reaches the rest of the daemon through, re-exported so

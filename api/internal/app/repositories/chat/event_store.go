@@ -37,12 +37,13 @@ type (
 	ChatEvent = store.ChatEvent
 )
 
-// CreateInput seeds a new AgentChat: identity, workspace, clock. It carries no
-// segment/provider/terminal because the chat does not own the CLI talking to it
-// — that is the runner (runner.Start), a separate aggregate.
+// CreateInput seeds a new AgentChat: identity, kind, workspace, clock. It
+// carries no segment/provider/terminal because the chat does not own the CLI
+// talking to it — that is the runner (runner.Start), a separate aggregate.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
+	Type        domain.ChatType
 	Now         time.Time
 }
 
@@ -205,6 +206,13 @@ type EventStore interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// Get is GetChat under the name the unified sidebar forest's tree usecase
+	// asks by: a row is a row, folder or chat, and that usecase reads by id
+	// alone.
+	Get(
+		ctx context.Context,
+		id string,
+	) (domain.Chat, error)
 	ListChats(
 		ctx context.Context,
 	) ([]domain.Chat, error)
@@ -310,6 +318,7 @@ func (r *eventSourced) Create(
 	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
 		ID:          in.ID,
 		WorkspaceID: in.WorkspaceID,
+		Type:        in.Type,
 		Now:         in.Now,
 	})
 	if err != nil {
@@ -450,6 +459,13 @@ func (r *eventSourced) GetChat(
 		return domain.Chat{}, fmt.Errorf("agentchat: get chat: %w", mapNotFound(err))
 	}
 	return chat, nil
+}
+
+func (r *eventSourced) Get(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	return r.GetChat(ctx, id)
 }
 
 func (r *eventSourced) ListChats(

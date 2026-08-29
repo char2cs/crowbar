@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -259,6 +260,7 @@ func (rs *Runners) recordRunner(
 		created, err := rs.chats.Create(ctx, agentchat.CreateInput{
 			ID:          chatID,
 			WorkspaceID: workspaceID,
+			Type:        domain.ChatTypeChat,
 			Now:         now,
 		})
 		if err != nil {

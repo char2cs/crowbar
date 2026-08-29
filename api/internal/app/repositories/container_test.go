@@ -578,6 +578,7 @@ func createAgentChat(
 	_, err := chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: wsID,
+		Type:        domain.ChatTypeChat,
 		Now:         time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)

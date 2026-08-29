@@ -269,6 +269,7 @@ func (c *Conversations) MintChat(
 	created, err := c.chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: workspaceID,
+		Type:        domain.ChatTypeChat,
 		Now:         time.Now(),
 	})
 	if err != nil {

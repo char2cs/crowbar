@@ -3,52 +3,58 @@ package tree
 import (
 	"context"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // The tree's ports and the shapes its writes take.
 
-type Store interface {
-	FindByKey(
-		ctx context.Context,
-		id string,
-	) (*domain.ChatFolder, error)
-	FindWhere(
-		ctx context.Context,
-		match domain.ChatFolder,
-	) ([]domain.ChatFolder, error)
-	Save(
-		ctx context.Context,
-		folder domain.ChatFolder,
-	) error
-	Delete(
-		ctx context.Context,
-		id string,
-	) error
-}
-
-// Chats is the chat-aggregate surface this usecase needs. It reads the
-// workspace's chats because chats and folders share one sibling space, and it
-// writes placement — which for a chat is lineage, not decoration.
+// Chats is the chat-aggregate surface this usecase needs. Folder rows and
+// conversation rows are the SAME aggregate now (Chat.Type distinguishes them),
+// so one port serves both: what used to be a separate ChatFolder table's
+// Create/FindByKey/FindWhere/Save/Delete is now these same Create/Get/List/
+// SetTitle/SetPlacement/SetOrder/Forget calls, exactly as a conversation row
+// already used them.
 //
-// Both the reads and the writes split along one line: what an operation DECIDES
-// against what it merely carries. LoadChat folds the SUBJECT from the event log,
-// because its stored parent is what a move is planned against; ListByWorkspace
-// serves the projection, which is right for the rest of the level since that is
-// read to renumber and never to decide a parent from. SetPlacement writes the
-// row the caller moved, SetOrder every other row a densify touched.
+// Get and LoadChat answer different questions. Get serves the read-model
+// projection, right for rendering a list. LoadChat folds the chat directly
+// from the event log, so it is always current — the read a placement decision
+// must be taken on, never the projection: a chat read back straight after a
+// placement can still be serving the placement it had BEFORE.
 type Chats interface {
 	ListByWorkspace(
 		ctx context.Context,
 		workspaceID string,
 	) ([]domain.Chat, error)
-	GetChat(
+	// ListChats returns every row the daemon knows, across every workspace and
+	// repo. Folder CRUD plans against it because a folder carries no workspace
+	// of its own to scope a narrower read by — the repo boundary a real
+	// ListInRepo would enforce is a walk over ParentID that does not exist yet
+	// (stage 3); this task only retypes the storage.
+	ListChats(
+		ctx context.Context,
+	) ([]domain.Chat, error)
+	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
 	LoadChat(
 		ctx context.Context,
 		id string,
+	) (domain.Chat, error)
+	// Create mints a bare, unplaced row — a folder at the panel root — the same
+	// two-phase shape MintChat already uses: minted first, placed second, so a
+	// row that fails to place never sits half-created in a container it was
+	// never checked against.
+	Create(
+		ctx context.Context,
+		in agentchat.CreateInput,
+	) (domain.Chat, error)
+	SetTitle(
+		ctx context.Context,
+		chatID string,
+		title string,
+		source string,
 	) (domain.Chat, error)
 	SetPlacement(
 		ctx context.Context,
@@ -61,6 +67,13 @@ type Chats interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
+	// Forget erases a row outright. A folder holds no runner and no ledger, so
+	// this is the whole of what deleting one means — unlike Agent.PurgeChat,
+	// which also tears down the CLI and the conversation a CHAT row carries.
+	Forget(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 // Agent is the agent usecase as this one sees it: the collaborator that owns the
@@ -119,14 +132,15 @@ type Agent interface {
 	) error
 }
 
-// CreateInput carries the fields needed to create a chat folder. ParentID is a
+// CreateInput carries the fields needed to create a folder. ParentID is a
 // chat id, another folder's id, or "" for the panel root; the new folder is
-// appended at the end of that sibling space.
+// appended at the end of that sibling space. RepoID is carried rather than a
+// workspace id because a folder owns none — see the package doc.
 type CreateInput struct {
-	ID          string
-	WorkspaceID string
-	ParentID    string
-	Name        string
+	ID       string
+	RepoID   string
+	ParentID string
+	Name     string
 }
 
 // MoveInput is a partial folder placement change: a nil field is left as it is,
@@ -152,59 +166,56 @@ type PlaceInput struct {
 // Chats and Folders are the ids that no longer exist, deepest first. They are
 // returned rather than merely logged because each one has to reach every client:
 // a purged chat rides its own aggregate frame, but a folder caught inside the
-// subtree is a plain row with no projection to announce it, so the caller
-// broadcasts those itself.
+// subtree is now the same aggregate kind, and its erasure rides its own frame
+// too — this split is kept because the CALLER still needs to know which ids were
+// conversations (torn down through the agent usecase) versus organisation only.
 type ChatDeletion struct {
 	Chats   []string
 	Folders []string
-	Shifted []domain.ChatFolder
+	Shifted []domain.Chat
 }
 
-// Usecase owns Chats-panel folder CRUD, chat placement, and the dense sibling
-// order the two kinds share. Every mutation leaves the affected levels
-// renumbered 0..n-1.
+// Usecase owns the sidebar forest's folder CRUD, chat placement, and the dense
+// sibling order every row kind shares. Every mutation leaves the affected
+// levels renumbered 0..n-1.
 type Usecase interface {
-	// ListInWorkspace returns one workspace's chat folders.
-	ListInWorkspace(
+	// ListInRepo returns a repo's folder rows. See Chats.ListChats: the repo
+	// boundary itself is not yet enforced, only the row kind is filtered.
+	ListInRepo(
 		ctx context.Context,
-		workspaceID string,
-	) ([]domain.ChatFolder, error)
+		repoID string,
+	) ([]domain.Chat, error)
 	// Create appends a new folder to the end of its parent's sibling space and
-	// densifies that level. It returns the new folder plus every OTHER folder the
+	// densifies that level. It returns the new folder plus every OTHER row the
 	// densify shifted, so the caller broadcasts the whole change rather than one
 	// row of it — the shifted rows' orders are otherwise stale in every client
-	// cache until the next reconnect. Shifted CHAT rows need no such handling:
-	// their write is an aggregate command, and the hub projection broadcasts every
-	// one.
+	// cache until the next reconnect.
 	Create(
 		ctx context.Context,
 		in CreateInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// Rename sets a folder's display name, leaving its placement untouched.
 	Rename(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		name string,
-	) (domain.ChatFolder, error)
+	) (domain.Chat, error)
 	// Move re-parents and/or reorders a folder, densifying both the level it left
-	// and the level it joined. It returns the moved folder plus every other folder
+	// and the level it joined. It returns the moved folder plus every other row
 	// those two densifies shifted.
 	Move(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		in MoveInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// Delete removes a folder and PROMOTES what it held to the folder's own
 	// parent. It never cascades: a folder holds no conversation, so deleting the
 	// chats filed under it would destroy work the user only meant to unfile. It
-	// returns every folder row the promotion and densify wrote.
+	// returns every row the promotion and densify wrote.
 	Delete(
 		ctx context.Context,
-		workspaceID string,
 		id string,
-	) ([]domain.ChatFolder, error)
+	) ([]domain.Chat, error)
 	// CreateChat mints a chat, places it under parentID, and starts providerID's
 	// vendor CLI on it — in that order, which is the whole contract.
 	//
@@ -219,7 +230,7 @@ type Usecase interface {
 	// An empty parentID is a plain new chat at the panel root, passed straight
 	// through to the unplaced spawn and unchanged in every respect.
 	//
-	// A parentID naming nothing, or a row in another workspace, is refused BEFORE
+	// A parentID naming nothing, or a chat in another workspace, is refused BEFORE
 	// anything is minted or spawned, with the errors placement already returns. A
 	// failure after the mint takes the chat back out: a create the user was told
 	// failed must not leave a chat behind.
@@ -230,7 +241,7 @@ type Usecase interface {
 		parentID string,
 	) (chatID, runnerID string, err error)
 	// PlaceChat moves a chat within the tree and reorders it in its new level. It
-	// returns the placed chat plus every folder the densify shifted.
+	// returns the placed chat plus every row the densify shifted.
 	//
 	// A move that gives the chat a CHAT ancestor it did not have is also recorded
 	// in that chat's own conversation, because it takes effect from the move
@@ -245,7 +256,7 @@ type Usecase interface {
 		workspaceID string,
 		chatID string,
 		in PlaceInput,
-	) (domain.Chat, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// DeleteChat erases a chat AND EVERY DESCENDANT — every threaded chat below
 	// it, purged one aggregate at a time, and every folder caught inside that
 	// subtree.

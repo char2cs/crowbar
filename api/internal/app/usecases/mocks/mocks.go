@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -1125,103 +1126,12 @@ func (s *TerminalProfileStore) FindAll(
 	return s.Saved, nil
 }
 
-// AgentChatFolderStore is a fake chat-tree Store backed by an in-memory
-// slice.
-//
-// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
-// cross-workspace classification path resolves a single row by key after the
-// workspace-scoped list has already succeeded, and collapsing the two would make
-// that branch unreachable.
-type AgentChatFolderStore struct {
-	Rows         []domain.ChatFolder
-	SaveErr      error
-	FindErr      error
-	FindByKeyErr error
-	DeleteErr    error
-}
-
-// NewAgentChatFolderStore returns an empty AgentChatFolderStore.
-func NewAgentChatFolderStore() *AgentChatFolderStore {
-	return &AgentChatFolderStore{}
-}
-
-func (s *AgentChatFolderStore) FindByKey(
-	ctx context.Context,
-	id string,
-) (*domain.ChatFolder, error) {
-	if s.FindByKeyErr != nil {
-		return nil, s.FindByKeyErr
-	}
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			row := s.Rows[i]
-			return &row, nil
-		}
-	}
-	return nil, nil
-}
-
-// FindWhere mirrors the real store's prototype-scoped query over the field the
-// chat-folder usecase actually narrows by.
-func (s *AgentChatFolderStore) FindWhere(
-	ctx context.Context,
-	match domain.ChatFolder,
-) ([]domain.ChatFolder, error) {
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	rows := make([]domain.ChatFolder, 0, len(s.Rows))
-	for _, f := range s.Rows {
-		if match.WorkspaceID != "" && f.WorkspaceID != match.WorkspaceID {
-			continue
-		}
-		rows = append(rows, f)
-	}
-	return rows, nil
-}
-
-func (s *AgentChatFolderStore) Save(
-	ctx context.Context,
-	folder domain.ChatFolder,
-) error {
-	if s.SaveErr != nil {
-		return s.SaveErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == folder.ID {
-			s.Rows[i] = folder
-			return nil
-		}
-	}
-	s.Rows = append(s.Rows, folder)
-	return nil
-}
-
-func (s *AgentChatFolderStore) Delete(
-	ctx context.Context,
-	id string,
-) error {
-	if s.DeleteErr != nil {
-		return s.DeleteErr
-	}
-	kept := s.Rows[:0]
-	for _, f := range s.Rows {
-		if f.ID != id {
-			kept = append(kept, f)
-		}
-	}
-	s.Rows = kept
-	return nil
-}
-
 // AgentChatPlacements is a fake chat-tree Chats AND Agent:
-// it holds the chat rows a Chats-panel move has to carry along, records the
-// placement writes made against them, mints and starts the ones a create asks
-// for, erases the ones a cascade purges, and records the lineage notes a move
-// asks for.
+// it holds every row the sidebar forest carries — folders and conversations
+// alike, now the same aggregate — records the placement writes made against
+// them, mints and starts the ones a create asks for, erases the ones a
+// cascade purges or a folder delete forgets, and records the lineage notes a
+// move asks for.
 //
 // Purged is kept in call order, because the cascade's whole contract is that a
 // chat is erased only once every chat below it already has been.
@@ -1233,6 +1143,7 @@ func (s *AgentChatFolderStore) Delete(
 type AgentChatPlacements struct {
 	Rows      []domain.Chat
 	Purged    []string
+	Forgotten []string
 	Noted     []LineageNote
 	Spawned   []string
 	Minted    []string
@@ -1243,6 +1154,9 @@ type AgentChatPlacements struct {
 	SetErr    error
 	OrderErr  error
 	PurgeErr  error
+	ForgetErr error
+	CreateErr error
+	TitleErr  error
 	NoteErr   error
 	SpawnErr  error
 	MintErr   error
@@ -1254,8 +1168,8 @@ type AgentChatPlacements struct {
 	// must be unable to write a parent.
 	Placed  []PlacementWrite
 	Ordered []OrderWrite
-	// Stale is the PROJECTED placement of a chat — what ListByWorkspace and
-	// GetChat answer while the read model is behind the log. A placement write
+	// Stale is the PROJECTED placement of a chat — what ListByWorkspace, ListChats
+	// and Get answer while the read model is behind the log. A placement write
 	// returns as soon as the aggregate has it, so this is the daemon's ordinary
 	// state for the microseconds after every one, not an exotic interleaving.
 	Stale map[string]domain.Chat
@@ -1322,6 +1236,23 @@ func (s *AgentChatPlacements) ListByWorkspace(
 	return rows, nil
 }
 
+// ListChats answers every row the daemon knows — folders included, since they
+// are the same aggregate now — the read folder CRUD plans against.
+func (s *AgentChatPlacements) ListChats(
+	ctx context.Context,
+) ([]domain.Chat, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Chat, 0, len(s.Rows))
+	for _, c := range s.Rows {
+		if c.ID != s.MissingID {
+			rows = append(rows, s.projected(c))
+		}
+	}
+	return rows, nil
+}
+
 // projected answers with the row as the READ MODEL has it, which is the row
 // itself unless a test is holding the projection behind the log.
 func (s *AgentChatPlacements) projected(
@@ -1332,6 +1263,14 @@ func (s *AgentChatPlacements) projected(
 		return row
 	}
 	return stale
+}
+
+// Get is GetChat under the tree usecase's shorter name — see EventStore.Get.
+func (s *AgentChatPlacements) Get(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	return s.GetChat(ctx, id)
 }
 
 func (s *AgentChatPlacements) GetChat(
@@ -1408,6 +1347,58 @@ func (s *AgentChatPlacements) SetOrder(
 	return domain.Chat{}, nil
 }
 
+// Create mints a bare, unplaced row — the panel-root folder MintChat already
+// mints a bare, unplaced chat as.
+func (s *AgentChatPlacements) Create(
+	ctx context.Context,
+	in agentchat.CreateInput,
+) (domain.Chat, error) {
+	if s.CreateErr != nil {
+		return domain.Chat{}, s.CreateErr
+	}
+	row := domain.Chat{ID: in.ID, Type: in.Type, WorkspaceID: in.WorkspaceID, CreatedAt: in.Now}
+	s.Rows = append(s.Rows, row)
+	return row, nil
+}
+
+func (s *AgentChatPlacements) SetTitle(
+	ctx context.Context,
+	chatID string,
+	title string,
+	source string,
+) (domain.Chat, error) {
+	if s.TitleErr != nil {
+		return domain.Chat{}, s.TitleErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].Title = title
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Chat{}, apperr.ErrNotFound
+}
+
+// Forget erases a row outright — what a folder delete calls instead of
+// PurgeChat, since a folder never had a runner or a ledger to tear down.
+func (s *AgentChatPlacements) Forget(
+	ctx context.Context,
+	id string,
+) error {
+	if s.ForgetErr != nil {
+		return s.ForgetErr
+	}
+	s.Forgotten = append(s.Forgotten, id)
+	kept := s.Rows[:0]
+	for _, c := range s.Rows {
+		if c.ID != id {
+			kept = append(kept, c)
+		}
+	}
+	s.Rows = kept
+	return nil
+}
+
 func (s *AgentChatPlacements) PurgeChat(
 	ctx context.Context,
 	chatID string,
@@ -1448,7 +1439,7 @@ func (s *AgentChatPlacements) SpawnChat(
 	}
 	s.Spawned = append(s.Spawned, providerID)
 	id := s.NextID
-	s.Rows = append(s.Rows, domain.Chat{ID: id, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
 	return id, "runner-" + id, nil
 }
 
@@ -1460,7 +1451,7 @@ func (s *AgentChatPlacements) MintChat(
 		return "", s.MintErr
 	}
 	s.Minted = append(s.Minted, workspaceID)
-	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
 	return s.NextID, nil
 }
 

@@ -904,7 +904,7 @@ func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
 	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{
 		Chats:   []string{"c-2", "c-1"},
 		Folders: []string{"f-1"},
-		Shifted: []domain.ChatFolder{{ID: "f-0", WorkspaceID: "ws-1"}},
+		Shifted: []domain.Chat{{ID: "f-0", Type: domain.ChatTypeFolder}},
 	}}
 	var frames []folderFrame
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-1"}}
