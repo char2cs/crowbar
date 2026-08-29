@@ -120,6 +120,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
+			name:   "unified tree subtree working",
+			err:    agentusecase.ErrTreeSubtreeWorking,
+			status: http.StatusConflict,
+		},
+		{
 			name:   "unified tree name required",
 			err:    agentusecase.ErrTreeNameRequired,
 			status: http.StatusBadRequest,
@@ -314,6 +319,7 @@ func TestStatusAndMessage_WrappedTreeSentinels(t *testing.T) {
 	}{
 		{"cycle", agentusecase.ErrTreeCycle, http.StatusConflict},
 		{"cross workspace", agentusecase.ErrTreeCrossWorkspace, http.StatusConflict},
+		{"subtree working", agentusecase.ErrTreeSubtreeWorking, http.StatusConflict},
 		{"name required", agentusecase.ErrTreeNameRequired, http.StatusBadRequest},
 	}
 	for _, tc := range cases {

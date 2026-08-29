@@ -169,6 +169,9 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err != nil {
 		return ChatDeletion{}, err
 	}
+	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
+		return ChatDeletion{}, wErr
+	}
 	chats, folders := snapshot.subtree(chatID)
 	chats = append(chats, chatID)
 	if err := u.purgeAll(ctx, snapshot, chats); err != nil {

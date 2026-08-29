@@ -659,6 +659,37 @@ func TestDeleteChat_DensifiesTheLevelItLeft(t *testing.T) {
 	assert.Equal(t, 0, removed.Shifted[0].Order)
 }
 
+// A chat delete takes its whole subtree with it, so a working row anywhere
+// below the root refuses the whole delete — before a single row is purged.
+// The refusal has NO bypass: unlike a locked-branch refusal, a working chat
+// is never overridable here.
+func TestDeleteChat_RefusesWorkingSubtree(t *testing.T) {
+	chats, uc, work := newUsecaseWithWork(t)
+	ctx := context.Background()
+	seedChat(chats, "root", 1)
+	seedThread(chats, "child", "root", 2)
+	work.Set("child", true)
+
+	_, err := uc.DeleteChat(ctx, "root")
+	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
+	assert.Empty(t, chats.Purged, "nothing may be torn down once any row in the subtree refuses")
+}
+
+// A row working OUTSIDE the deleted subtree is none of this delete's business:
+// the guard only watches the rows the cascade is about to take.
+func TestDeleteChat_IdleSubtreeCascadesDespiteAWorkingBystander(t *testing.T) {
+	chats, uc, work := newUsecaseWithWork(t)
+	ctx := context.Background()
+	seedChat(chats, "root", 1)
+	seedThread(chats, "child", "root", 2)
+	seedChat(chats, "bystander", 3)
+	work.Set("bystander", true)
+
+	removed, err := uc.DeleteChat(ctx, "root")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"child", "root"}, removed.Chats)
+}
+
 func TestDeleteChat_RefusesAnUnknownChat(t *testing.T) {
 	_, uc := newUsecase(t)
 

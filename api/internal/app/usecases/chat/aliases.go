@@ -181,6 +181,9 @@ var (
 	// ErrTreeCrossWorkspace is a move whose destination belongs to another
 	// workspace.
 	ErrTreeCrossWorkspace = tree.ErrCrossWorkspace
+	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
+	// row in the subtree it takes is currently working.
+	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking
 )
 
 // Fanout shapes repository lifecycle announcements into frontend frames.

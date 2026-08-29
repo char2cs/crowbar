@@ -288,6 +288,10 @@ type Usecase interface {
 	// premise — the context above it — has been deleted, and no drag can restore
 	// what it used to read. The subtree goes deepest first so no intermediate
 	// state ever has a chat pointing at a parent that is already gone.
+	//
+	// It is refused with ErrSubtreeWorking if the chat or any row below it is
+	// currently working, checked BEFORE anything is purged. Unlike a locked
+	// workspace, this refusal has no confirm-and-override path.
 	DeleteChat(
 		ctx context.Context,
 		chatID string,

@@ -74,8 +74,11 @@ import (
 //     tree's placement sentinels
 //     (agentusecase.ErrTreeCycle, agentusecase.ErrTreeCrossWorkspace — a move
 //     that would make a row unreachable from the tree's root, or cross a
-//     workspace boundary; the sidebar's own workspace-into-folder feature and the
-//     Chats panel share this one tree and these same sentinels), and the git
+//     workspace boundary; agentusecase.ErrTreeSubtreeWorking — a move or
+//     delete refused because a row in the subtree it takes is currently
+//     working, with no confirm-and-override path; the sidebar's own
+//     workspace-into-folder feature and the Chats panel share this one tree
+//     and these same sentinels), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
 //     ErrHasChildren, ErrBranchAlreadyExists, ErrNonFastForward).
@@ -235,14 +238,17 @@ var conflictSentinels = []error{
 
 // isPlacementConflict reports whether err is one of the unified tree's
 // placement sentinels that map to HTTP 409: a move that would make a row
-// unreachable from the tree's root, or cross a workspace boundary. One tree now
-// serves both the sidebar's workspace-into-folder feature and the Chats panel,
-// so a refused drag is the same answer to the user either way.
+// unreachable from the tree's root, cross a workspace boundary, or take a
+// subtree with a currently-working row in it (a move or a delete alike — the
+// latter has no confirm-and-override path). One tree now serves both the
+// sidebar's workspace-into-folder feature and the Chats panel, so a refused
+// drag or delete is the same answer to the user either way.
 func isPlacementConflict(
 	err error,
 ) bool {
 	return errors.Is(err, agentusecase.ErrTreeCycle) ||
-		errors.Is(err, agentusecase.ErrTreeCrossWorkspace)
+		errors.Is(err, agentusecase.ErrTreeCrossWorkspace) ||
+		errors.Is(err, agentusecase.ErrTreeSubtreeWorking)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

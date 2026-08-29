@@ -1086,6 +1086,22 @@ func TestDelete_UsecaseError(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestDelete_RefusesWorkingSubtree proves the tree's unconditional working-row
+// refusal reaches the caller as 409, not the generic 500 an unmapped sentinel
+// would fall through to.
+func TestDelete_RefusesWorkingSubtree(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	var frames []folderFrame
+	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentusecase.ErrTreeSubtreeWorking}, &frames)
+
+	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.Delete(ctx)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
 func (configurableListGetUsecase) ReadActivity(
 	context.Context, string, int64, int,
 ) (agentusecase.ChatActivity, error) {
