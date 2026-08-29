@@ -164,12 +164,6 @@ func extraRoutes() []string {
 		// because a drag can do more than one of them at once. It rewrites the
 		// display name + its derived avatar and broadcasts the updated RepoDTO.
 		"PATCH " + repo,
-		// Folder CRUD: the sidebar's organisation layer (folders are repo-scoped
-		// and hold no worktree). The list GET dual-serves the Folders WS stream.
-		"GET " + repo + "/folders",
-		"POST " + repo + "/folders",
-		"PATCH " + repo + "/folders/:folderId",
-		"DELETE " + repo + "/folders/:folderId",
 		// The repo's open-PR head->base graph, the import dialog's parent hint.
 		"GET " + repo + "/pull-requests",
 		// Batch branch import: adopts a set of remote branches as managed
@@ -244,39 +238,45 @@ func extraRoutes() []string {
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
-		// Agentic-chat surface (00 agentic-engine spec §7): the workspace-scoped
-		// REST + lifecycle WS the FE Chats tab drives, nested under the workspace
-		// group (agent.Register).
-		"POST " + ws + "/chats",
-		"GET " + ws + "/chats",
-		"GET " + ws + "/chats/:id",
-		"POST " + ws + "/chats/:id/switch",
-		"POST " + ws + "/chats/:id/rename",
-		"GET " + ws + "/chats/:id/handoff",
-		"DELETE " + ws + "/chats/:id",
+		// Agentic-chat surface (00 agentic-engine spec §7, rescoped off the
+		// workspace group onto the repo group by Task 17 of the 2026-08-28
+		// sidebar backend plan: a chat's workspace is optional and mutable, so
+		// no chat route names one any more): the REST + lifecycle WS the FE
+		// Chats tab drives, nested under the repo group (chat.Register).
+		"POST " + repo + "/chats",
+		"GET " + repo + "/chats",
+		"GET " + repo + "/chats/:id",
+		"POST " + repo + "/chats/:id/switch",
+		"POST " + repo + "/chats/:id/rename",
+		"GET " + repo + "/chats/:id/handoff",
+		"DELETE " + repo + "/chats/:id",
+		// The chat's dry-run delete preview (backend addendum §1): the file
+		// count a confirm dialog names, summed across every workspace the
+		// subtree spans, before the caller commits to the delete above.
+		"GET " + repo + "/chats/:id/delete-preview",
 		// Chat placement: where a chat hangs in the Chats tree and where it sits
 		// among its siblings. A route of its own rather than a field on the chat
 		// PATCH-equivalents, because it writes something different in kind — a
 		// chat's parent IS its context lineage, so this is what turns a standalone
 		// chat into a THREAD of another and back.
-		"PATCH " + ws + "/chats/:id/placement",
-		// Chat folder CRUD: the Chats panel's organisation layer. Workspace-scoped,
+		"PATCH " + repo + "/chats/:id/placement",
+		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
 		// chat interleave at every level, which is why the placement route above and
 		// these four are the two halves of the same gesture.
-		"GET " + ws + "/chats/folders",
-		"POST " + ws + "/chats/folders",
-		"PATCH " + ws + "/chats/folders/:folderId",
-		"DELETE " + ws + "/chats/folders/:folderId",
-		"POST " + ws + "/chats/hooks",
-		"GET " + ws + "/chats/providers",
-		"GET " + ws + "/chats/ws",
+		"GET " + repo + "/chats/folders",
+		"POST " + repo + "/chats/folders",
+		"PATCH " + repo + "/chats/folders/:folderId",
+		"DELETE " + repo + "/chats/folders/:folderId",
+		"POST " + repo + "/chats/hooks",
+		"GET " + repo + "/chats/providers",
+		"GET " + repo + "/chats/ws",
 		// The runner model added resume and never declared it here, which is exactly
 		// the drift this audit exists to catch — it caught it. A chat whose CLI is gone
 		// is not gone: its ledger and its provider conversation both outlive the
 		// process, so a dormant chat can be handed a NEW runner that picks the
 		// conversation back up.
-		"POST " + ws + "/chats/:id/resume",
+		"POST " + repo + "/chats/:id/resume",
 		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
 		//   RUNNER because the CLI knows which process it is and never which chat it
 		//   currently sits on — the runner is what maps one to the other, and it keeps
@@ -288,38 +288,50 @@ func extraRoutes() []string {
 		//   Its runner-keyed sibling, .../runners/:segid/rename, is deliberately GONE.
 		//   It existed for a shell command the agent was asked to retype; titling is a
 		//   tool on this MCP surface now, and a second path competed with it.
-		"POST " + ws + "/chats/runners/:segid/mcp",
+		"POST " + repo + "/chats/runners/:segid/mcp",
 		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
-		"POST " + ws + "/chats/:id/stop",
-		"POST " + ws + "/chats/:id/compact",
+		"POST " + repo + "/chats/:id/stop",
+		"POST " + repo + "/chats/:id/compact",
+		// Two more ways a session on a chat can end without the chat itself
+		// going anywhere: forcing the CLI into (or back out of) the host
+		// terminal rather than the chat's own pane.
+		"POST " + repo + "/chats/:id/switch-to-terminal",
+		"POST " + repo + "/chats/:id/switch-to-native",
 		// The read surface the Chats tab polls: the activity feed, a tool call's
 		// full payload, open choices, message history, and provider telemetry.
-		"GET " + ws + "/chats/:id/activity",
-		"GET " + ws + "/chats/:id/activity/:toolId/payload",
-		"GET " + ws + "/chats/:id/choices",
-		"GET " + ws + "/chats/:id/messages",
-		"GET " + ws + "/chats/:id/telemetry",
+		"GET " + repo + "/chats/:id/activity",
+		"GET " + repo + "/chats/:id/activity/:toolId/payload",
+		"GET " + repo + "/chats/:id/choices",
+		"GET " + repo + "/chats/:id/messages",
+		"GET " + repo + "/chats/:id/telemetry",
 		// The provider's own slash-command list, so the composer can autocomplete
 		// commands the CLI itself defines.
-		"GET " + ws + "/chats/:id/slash-catalog",
-		// The chat's sticky model/reasoning-effort choice.
-		"PATCH " + ws + "/chats/:id/selection",
+		"GET " + repo + "/chats/:id/slash-catalog",
+		// The chat's sticky model/reasoning-effort choice, and its sticky
+		// permission-level dial (each provider's own native mode).
+		"PATCH " + repo + "/chats/:id/selection",
+		"PUT " + repo + "/chats/:id/permission-level",
 		// A human deciding a question the agent put to them mid-turn.
-		"POST " + ws + "/chats/:id/choices/:choiceId/answer",
+		"POST " + repo + "/chats/:id/choices/:choiceId/answer",
 		// Submitting the user's own text into the chat.
-		"POST " + ws + "/chats/:id/prompts",
+		"POST " + repo + "/chats/:id/prompts",
 		// The answer channel's other two legs (routes.go): the in-PTY relay parking
 		// alive while the provider's gate stays open, and what it reports when the
 		// provider decided at the terminal instead.
-		"POST " + ws + "/chats/hooks/await",
-		"POST " + ws + "/chats/hooks/abandon",
+		"POST " + repo + "/chats/hooks/await",
+		"POST " + repo + "/chats/hooks/abandon",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
-		// counterpart of the workspace-scoped enriched GET .../chats/providers.
+		// counterpart of the repo-scoped enriched GET .../chats/providers.
 		"PUT /v0/settings/chat/providers",
+		// The permission-level dial's own default, read and written the same way:
+		// a machine-level setting, not a per-chat one, so a chat with no sticky
+		// choice of its own falls back to this.
+		"GET /v0/settings/chat/permission-level",
+		"PUT /v0/settings/chat/permission-level",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
@@ -362,9 +374,17 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/rename",
 		"GET " + home + "/chats/:id/handoff",
 		"DELETE " + home + "/chats/:id",
+		// The home mount's own dry-run delete preview, for the same reason as
+		// the repo block's above.
+		"GET " + home + "/chats/:id/delete-preview",
 		"POST " + home + "/chats/hooks",
 		"GET " + home + "/chats/providers",
 		"GET " + home + "/chats/ws",
+		// The same two forced-terminal/native session moves, mounted here for
+		// the same reason as the rest of this block: a home chat's session
+		// behaves like any other chat's.
+		"POST " + home + "/chats/:id/switch-to-terminal",
+		"POST " + home + "/chats/:id/switch-to-native",
 		// The repo home hosts chats like any workspace, so it gets the runner model's
 		// resume too — same reason as the ws block above. A chat in the home is still a
 		// chat: its CLI can die and be resumed.
@@ -396,6 +416,7 @@ func extraRoutes() []string {
 		"GET " + home + "/chats/:id/telemetry",
 		"GET " + home + "/chats/:id/slash-catalog",
 		"PATCH " + home + "/chats/:id/selection",
+		"PUT " + home + "/chats/:id/permission-level",
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
 		// And the same answer-channel pair, for the same reason.
