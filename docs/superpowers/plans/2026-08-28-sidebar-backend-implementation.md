@@ -1726,6 +1726,164 @@ git commit -m "test(tree): integration coverage for the unified sidebar forest"
 
 ---
 
+## Stage 9 — Two gaps Task 21 found, too severe to leave as flags
+
+*Not in the model spec's own stage table. Added after Task 21's investigation
+surfaced two confirmed, unfixed defects severe enough that shipping the plan
+without closing them would leave the model non-functional in one case and
+regress a currently-shipping feature in the other. See the ledger's Task 21
+entry for the full evidence trail.*
+
+### Task 22: Bubble-chat spawn consults the ancestor cwd walk
+
+**Files:**
+- Modify: `api/internal/app/usecases/chat/internal/runner/spawn.go`,
+  `spawnplan.go` — wherever a runner's working directory is resolved from
+  `chat.WorkspaceID` directly today. Confirmed (Task 21): `spawnRunner`
+  takes `chat.WorkspaceID` verbatim, with no fallback, so `WorkspaceID == ""`
+  fails resolving a `WorktreeDir` and 500s
+  (`"spawn runner: worktree dir: ... aggregate not found"`).
+- Consumes: `tree.CwdWorkspaceID` (Task 8's ancestor walk — already built,
+  already the correct answer to "where does this row run," just never wired
+  into the actual spawn path).
+- Test: wherever `spawn_test.go`/`spawnplan_test.go` live today; a real,
+  non-fake-masked test is required — Task 21's own investigation found every
+  existing unit test masks this with a fake `WorktreeDir` that answers any
+  id including `""`, which is exactly how this went undetected through 21
+  tasks. At minimum, extend the sidebar-forest integration test Task 21 added
+  (`api/tests/regression_sidebar_forest_test.go`) to create a genuine bubble
+  (no `workspaceId`, parented under a worktree-owning row) and assert it
+  spawns successfully, running in the ancestor's worktree path — this is the
+  regression test that would have caught the gap.
+
+**Interfaces:**
+- Consumes: `tree.CwdWorkspaceID(t tree.Tree, chats map[string]domain.Chat, rowID string) (string, bool)`.
+- Produces: a working directory resolution path that falls back to the
+  ancestor walk whenever `chat.WorkspaceID == ""`, before failing.
+
+- [ ] **Step 1: Write the failing test** — a real HTTP create with no
+  `workspaceId`, parented under a worktree-owning row, must spawn
+  successfully and run in the ancestor's worktree:
+
+```go
+func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
+	h := newTestHarness(t)
+	repo, project := h.importRepo(t)
+	worktree := h.createAgentChat(t, project, repo, createAgentChatInput{Branch: "feature/anchor"})
+	bubble := h.createAgentChatUnder(t, project, repo, worktree.ID, createAgentChatInput{
+		// no WorkspaceID — this is the bubble
+	})
+	h.Quiesce(t, bubble.ID)
+	detail := h.getAgentChat(t, project, repo, bubble.ID)
+	if detail.Status == "error" {
+		t.Fatalf("bubble chat failed to spawn: %+v", detail)
+	}
+	// the runner's actual cwd must be the ancestor's worktree path, not empty/failed
+	if detail.RunnerCwd != worktree.WorktreePath {
+		t.Fatalf("want cwd %q, got %q", worktree.WorktreePath, detail.RunnerCwd)
+	}
+}
+```
+
+(Adapt field/helper names to whatever `regression_sidebar_forest_test.go`'s
+real fixtures are named — Task 21's own file is the reference for the real,
+current helper signatures; do not guess at ones that don't exist.)
+
+- [ ] **Step 2: Run, verify fail** — the 500 Task 21 already reproduced live.
+
+- [ ] **Step 3: Implement** — at the point `spawn.go`/`spawnplan.go` resolves
+  a cwd from `chat.WorkspaceID`, fall back to `tree.CwdWorkspaceID(tree,
+  chats, chatID)` when `chat.WorkspaceID == ""`, resolving the ancestor's
+  workspace instead. This requires the runner/spawn package to reach the
+  unified tree's walk — investigate the real wiring path first (this package
+  already sits inside `usecases/chat`, so `tree.CwdWorkspaceID` should be
+  directly importable, no cross-usecase question like Tasks 11/12/14/18/20
+  hit; confirm this before assuming it).
+
+- [ ] **Step 4: Run**
+
+Run: `cd api && go test -tags noEmbed ./internal/app/usecases/chat/... -v`
+Run: `cd api && go test -tags 'integration noEmbed' ./tests/... -run TestRegression_BubbleChatSpawnsInAncestorWorktree -v`
+Run: `cd api && go build -tags noEmbed ./...`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A api/internal/app/usecases/chat/internal/runner/ api/tests/
+git commit -m "fix(chat): bubble-chat spawn resolves cwd through the ancestor walk"
+```
+
+### Task 23: `agent-api.ts` follows the repo-scoped chat routes
+
+**Not a sidebar-redesign task — a required companion to Stage 7 landing at
+all.** The model spec's own text for stage 7 says the route rename "breaks
+every agent URL... frontend clients updated in the same commit." This plan
+split that across sessions; this task is where the debt comes due, before
+either plan's remaining work continues, so the currently-shipping app is
+never left broken.
+
+**Files:**
+- Modify: `web/src/features/agent/api/agent-api.ts` — every exported
+  function currently builds its URL via a `workspaceBase(wsId)`/`chatBase(wsId)`
+  helper that produces `.../workspaces/:wsId/chats/...`. Change the
+  non-home branch to build `.../repos/:repoId/chats/...` instead, matching
+  the backend's Stage 7 rescope (Task 17). The home-workspace branch (which
+  already routes through the still-live `/home` mount) is untouched.
+- Test: wherever this file's existing tests live (`__tests__/features/agent/api/agent-api.test.ts`
+  or similar — find the real path per this repo's CLAUDE.md convention:
+  tests mirror `web/src/features/agent/api/` under `web/src/__tests__/features/agent/api/`).
+
+**Interfaces:**
+- Consumes: nothing new — this is a URL-template change, not a new client
+  capability. The function signatures callers already use do not change.
+- Produces: the same functions, same signatures, pointed at the routes that
+  actually exist after Task 17.
+
+- [ ] **Step 1: Investigate** — read the current `agent-api.ts` in full,
+  find every place `workspaceBase`/`chatBase` (or whatever the real helper
+  is named today) builds a URL, and confirm which callers pass a real repo
+  id already available to them (most should — a workspace's repo is known
+  wherever a workspace id is known in this client) versus which would need a
+  new parameter threaded in.
+
+- [ ] **Step 2: Write the failing test** — a call for a non-home workspace
+  builds a `/repos/:repoId/chats/...` URL, not `/workspaces/:wsId/chats/...`:
+
+```ts
+it('builds the repo-scoped chat URL for a non-home workspace', () => {
+  const url = buildChatUrl({ workspaceId: 'ws-1', repoId: 'repo-1', isHome: false })
+  expect(url).toBe('/api/v0/repos/repo-1/chats')
+  expect(url).not.toContain('/workspaces/')
+})
+
+it('keeps the home mount unchanged', () => {
+  const url = buildChatUrl({ workspaceId: 'ws-home', repoId: '', isHome: true })
+  expect(url).toContain('/home/chats')
+})
+```
+
+(Match the real function/parameter names found in Step 1 — this sketch is
+illustrative of the two behaviors to prove, not literal.)
+
+- [ ] **Step 3: Run, verify fail**
+
+- [ ] **Step 4: Implement** the URL-building change for every exported
+  function in the file per Step 1's findings.
+
+- [ ] **Step 5: Run**
+
+Run: `bun test web/src/__tests__/features/agent/api/`
+Run: `bun tsc --noEmit`
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A web/src/features/agent/api/ web/src/__tests__/features/agent/api/
+git commit -m "fix(agent-api): follow the repo-scoped chat routes Task 17 shipped"
+```
+
+---
+
 ## Self-review notes (from writing this plan)
 
 - **Spec coverage:** every §6/§7 item in the model spec has a task above
