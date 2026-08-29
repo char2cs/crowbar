@@ -68,6 +68,19 @@ type Conversations interface {
 	)
 }
 
+// AncestorCwd answers where a workspace-less chat's CLI runs: the nearest
+// workspace-owning ancestor's id, or false when the row has none — the tree
+// usecase's own tree.CwdWorkspaceID ancestor walk (internal/tree, a peer this
+// package may not import; see aliases_test.go's layering rule).
+//
+// Declared here, by the consumer, so the two never import each other.
+type AncestorCwd interface {
+	ResolveCwdWorkspaceID(
+		ctx context.Context,
+		chatID string,
+	) (string, bool, error)
+}
+
 // Turns is what the CLI lifecycle needs from the hook ingress: the turn a switch
 // must not decapitate, the startup hooks a fresh runner buffered, and the screen
 // classifiers the terminal-wait sweep runs on.

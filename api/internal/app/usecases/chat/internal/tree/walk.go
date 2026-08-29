@@ -77,6 +77,42 @@ func ResolveForkParent(
 	return id, ok, nil
 }
 
+// ResolveCwdWorkspaceID is CwdWorkspaceID over a fresh read of every row the
+// daemon knows, for a caller with no snapshot of its own — the spawn path's
+// own read+build step, alongside ResolveForkParent's for Promote.
+//
+// rowID's own row is corrected from LoadChat's log fold before the walk runs,
+// exactly as globalSnapshotAround/workspaceSnapshotAround already do for a
+// placement plan (see corrected's own doc, plan.go): rowID is the row whatever
+// just placed it wrote a moment ago, so it is the one row ListChats' asynchronous
+// projection can still be serving the placement it had BEFORE — a spawn
+// following its own placement by microseconds needs the log-true answer, not a
+// snapshot that has not folded that write yet. Every row above rowID came from
+// an earlier, unrelated write and is read from the list safely.
+func ResolveCwdWorkspaceID(
+	ctx context.Context,
+	chats Chats,
+	rowID string,
+) (string, bool, error) {
+	subject, err := chats.LoadChat(ctx, rowID)
+	if err != nil {
+		return "", false, err
+	}
+	rows, err := chats.ListChats(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	rows = corrected(rows, subject)
+	nodes := make([]tree.Node, len(rows))
+	byID := make(map[string]domain.Chat, len(rows))
+	for i, row := range rows {
+		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		byID[row.ID] = row
+	}
+	id, ok := CwdWorkspaceID(tree.New(nodes), byID, rowID)
+	return id, ok, nil
+}
+
 // ChatLineage answers what rowID reads: its CHAT ancestors, nearest first,
 // stepping through every folder between them transparently. It is the same
 // traversal internal/lineage.Walk already runs for the tree's own placement

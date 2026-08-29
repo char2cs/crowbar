@@ -39,6 +39,16 @@ import (
 //     this suite (newThreadChat/newThreadChatUnder) already builds one —
 //     rather than a true bubble, which still nests it inside the folder's
 //     filed subtree the way the recipe intends.
+//
+//     FIXED by Task 22: StartRunner's spawn path now falls back to
+//     tree.CwdWorkspaceID's ancestor walk whenever chat.WorkspaceID == "",
+//     so a real bubble nested in a folder under a worktree-owning chat spawns
+//     and runs in that ancestor's worktree — see
+//     TestRegression_BubbleChatSpawnsInAncestorWorktree
+//     (regression_bubble_spawn_test.go). Left unreplaced here since it is not
+//     this test's own subject and the thread-based construction below still
+//     exercises every move/delete invariant this test is actually for.
+//
 //  2. Both delete verbs are pinned, but they still take different sets, which
 //     is a real distinction and not a departure: a folder delete PROMOTES its
 //     children (it does not take them — the opposite rule from a chat delete,

@@ -17,6 +17,11 @@ var errPromoteBoom = errors.New("promote: boom")
 // parent to promote from — and starts a live runner on it so Promote has a
 // current provider to respawn. It returns the bubble's id, its runner's id,
 // and the workspace-anchored chat it was threaded under.
+//
+// Placement happens BEFORE StartRunner, mirroring CreateChat's own required
+// order (mint, place, start): StartRunner's spawn path now resolves a bubble's
+// cwd through tree.CwdWorkspaceID's ancestor walk, which needs rootChatID
+// already on the bubble's own ParentID.
 func seedBubbleChat(
 	t *testing.T,
 	f testFixture,
@@ -27,9 +32,9 @@ func seedBubbleChat(
 
 	bubbleID, err := f.usecase.MintChat(f.ctx, "")
 	require.NoError(t, err)
-	runnerID, err = f.usecase.StartRunner(f.ctx, bubbleID, provider)
-	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
+	require.NoError(t, err)
+	runnerID, err = f.usecase.StartRunner(f.ctx, bubbleID, provider)
 	require.NoError(t, err)
 	f.wait()
 	return bubbleID, runnerID, rootChatID

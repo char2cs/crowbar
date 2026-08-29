@@ -83,7 +83,7 @@ func (rs *Runners) spawnRunner(
 	threads, sel := pre.threads, pre.selection
 	runnerID := newRunnerID(preallocatedRunnerID)
 
-	paths, err := rs.spawnPaths(ctx, workspaceID, runnerID, providerID)
+	paths, err := rs.spawnPaths(ctx, chatID, workspaceID, runnerID, providerID)
 	if err != nil {
 		return "", err
 	}

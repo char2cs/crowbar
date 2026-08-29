@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -352,6 +353,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
+		AncestorCwd:   cwdResolver{chats: d.Chats},
 		Home:          d.Home,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,
@@ -370,6 +372,22 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.conversations.SetRunners(u.runners)
 	u.turns.SetRunners(u.runners)
 	u.runners.SetTurns(u.turns)
+}
+
+// cwdResolver adapts the chat repository to runner.AncestorCwd over
+// tree.ResolveCwdWorkspaceID, so the runner component can resolve a bubble's
+// cwd without importing internal/tree directly — the two are peers
+// (aliases_test.go's layering rule), and this package is where they may both
+// be named.
+type cwdResolver struct {
+	chats agentchat.EventStore
+}
+
+func (r cwdResolver) ResolveCwdWorkspaceID(
+	ctx context.Context,
+	chatID string,
+) (string, bool, error) {
+	return tree.ResolveCwdWorkspaceID(ctx, r.chats, chatID)
 }
 
 // The chat record. A chat exists, and is readable, whether or not a CLI has ever

@@ -37,6 +37,10 @@ type Runners struct {
 	agents      engineagents.Agents
 	term        seam.TerminalCommander
 	ws          seam.WorkspaceReader
+	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
+	// walk — see AncestorCwd's own doc for why this is declared here rather
+	// than imported directly.
+	ancestorCwd AncestorCwd
 	// home is the app-config crowbar-home resolver, NOT a wsId lookup: it
 	// anchors each chat's own prompt-delivery journal (worktreepath.LedgerChatsDir),
 	// which must stay put regardless of the chat's WorkspaceID (see promptJournalDirFor).
@@ -102,6 +106,9 @@ type Deps struct {
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
+	// AncestorCwd resolves a bubble's cwd through the tree usecase's ancestor
+	// walk — see the AncestorCwd interface's own doc.
+	AncestorCwd AncestorCwd
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup — see the
 	// Runners.home field it fills.
 	Home func() (string, error)
@@ -128,6 +135,7 @@ func New(d Deps) *Runners {
 		agents:        d.Agents,
 		term:          d.Terminal,
 		ws:            d.Workspace,
+		ancestorCwd:   d.AncestorCwd,
 		home:          d.Home,
 		spawns:        d.Spawns,
 		inflightTurns: d.InflightTurns,
