@@ -755,7 +755,19 @@ git add api/internal/app/usecases/chat/internal/tree/
 git commit -m "feat(chat): the three walks — cwd, fork parent, chat lineage"
 ```
 
-### Task 9: `Workspace.ParentID` becomes a maintained projection; `FolderID`/`Order` deleted
+### Task 9: `Workspace.ParentID` becomes a maintained projection; `FolderID`/`Order` deleted; `usecases/folder` retires
+
+**Amended after Task 4** (see the backend plan's ledger,
+`.superpowers/sdd/2026-08-28-sidebar-backend-implementation/progress.md`):
+Task 4 found that `usecases/folder`/`domain.Folder`/`endpoints/folders`/
+`dto/folder.go`+`folder_test.go` could not be deleted then — they have real,
+live, unrelated callers (`endpoints/workspaces/handlers/{hierarchy.go,handlers.go}`'s
+`PATCH /workspaces/:wsId` → `folder.PlaceInput`, the sidebar's own
+workspace-into-folder filing feature; `internal/api/libs/status.go`'s error-status
+mapping for `folder.Err*`) that only this task can safely migrate, since it's
+the task that removes `Workspace.FolderID`/`Order` and has `tree.ForkParentID`
+(Task 8) available to resolve a folder's repo. This task's scope now includes
+that migration and the five-item deletion Task 4 deferred here.
 
 **Files:**
 - Modify: `api/internal/domain/workspace.go` — remove `FolderID`, `Order`
@@ -769,10 +781,33 @@ git commit -m "feat(chat): the three walks — cwd, fork parent, chat lineage"
   and its sidebar placement together" to "recompute the projection after the
   chat aggregate's placement changed" — it becomes internal machinery invoked
   by the chat-side move (Stage 4), not a directly authored write.
-- Test: `api/internal/app/repositories/workspace/internal/commands/reparent_test.go`
+- Modify: `api/internal/api/v0/endpoints/workspaces/handlers/{hierarchy.go,handlers.go}`
+  — `PATCH /workspaces/:wsId`'s folder-placement branch (`h.placer.PlaceWorkspace`,
+  typed `folder.PlaceInput`) is rewired onto the unified chat-tree placement
+  command instead — a workspace-owning row's folder placement is now just
+  that row's `Chat.ParentID`, set through the same placement path Task 4's
+  chat-typed rows already use.
+- Modify: `api/internal/api/libs/status.go` (+ its test) — drop the
+  `folder.ErrFolderCycle`/`ErrFolderCrossRepo`/`ErrForkChainSplit`/
+  `ErrFolderNameRequired` → HTTP-status mappings; the unified tree's own
+  error types (from Task 8/Task 4's `validate.go`) take their place wherever
+  an equivalent case still applies.
+- Delete: `api/internal/domain/folder.go`, `api/internal/app/usecases/folder/`
+  (whole package), `api/internal/api/v0/endpoints/folders/` (whole package),
+  `api/internal/api/v0/dto/folder.go`, `api/internal/api/v0/dto/folder_test.go`.
+  Before deleting, `grep -rl` every exported name from `usecases/folder`
+  and `domain.Folder` across `api/internal` one more time — Task 4's grep is
+  a snapshot from before this task's own migration step ran, not a guarantee
+  for this task's own diff.
+- Modify: `api/internal/app/usecases/container.go`, `api/internal/api/v0/router.go`
+  — remove `Usecases.Folder`/`endpoints/folders.Register` wiring.
+- Test: `api/internal/app/repositories/workspace/internal/commands/reparent_test.go`,
+  `api/internal/api/v0/endpoints/workspaces/handlers/hierarchy_test.go` (extend
+  for the rewired placement branch).
 
 **Interfaces:**
-- Consumes: `tree.ForkParentID` (Task 8).
+- Consumes: `tree.ForkParentID` (Task 8), the chat tree's placement command
+  (Task 4/Task 8's `usecases/chat/internal/tree`).
 - Produces: `Workspace.ParentID` stays readable by the three consumers the
   model spec names (merge eligibility, diff base, reparent leaf guard) —
   their call sites do not need to change, only how the field gets written
@@ -816,18 +851,38 @@ func TestReparent_ProjectsForkParentFromChatTree(t *testing.T) {
     from becomes Stage 4's move verb, which calls it *after* computing the new
     fork parent via `tree.ForkParentID`, not from a route handler directly.
 
+- [ ] **Step 3b: Migrate `endpoints/workspaces`'s folder-placement branch, then
+  delete `usecases/folder` and its four siblings**
+  - Rewire `PATCH /workspaces/:wsId`'s folder-placement branch in
+    `endpoints/workspaces/handlers/hierarchy.go` onto the chat tree's
+    placement command: a workspace-owning row's folder placement is the same
+    `Chat.ParentID` write Task 4's chat/folder rows already use, addressed by
+    the workspace's own chat-row id (every workspace-owning row IS a chat row
+    per Stage 1's taxonomy).
+  - Drop the four `folder.Err*` → HTTP-status mappings in
+    `internal/api/libs/status.go`; add equivalents for the unified tree's
+    error types only where a real case still exists (a bare rename, not new
+    error handling — the underlying failure modes didn't change, only which
+    package raises them).
+  - Re-run `grep -rl` for `usecases/folder`'s exported names and
+    `domain.Folder` across `api/internal`; once empty outside the package's
+    own files, delete `domain/folder.go`, `usecases/folder/` (whole package),
+    `endpoints/folders/` (whole package), `dto/folder.go`, `dto/folder_test.go`,
+    and their wiring in `usecases/container.go`/`router.go`.
+
 - [ ] **Step 4: Run**
 
-Run: `cd api && go test -tags noEmbed ./internal/app/repositories/workspace/... ./internal/domain/... -v`
+Run: `cd api && go test -tags noEmbed ./internal/app/repositories/workspace/... ./internal/api/v0/endpoints/workspaces/... ./internal/domain/... -v`
 Run: `cd api && go build -tags noEmbed ./...` (catches every now-stale
-`FolderID`/`Order` reference across the codebase — fix each compile error by
-deleting the reference, not by re-adding the field)
+`FolderID`/`Order` reference AND every reference to the deleted folder
+packages — fix each compile error by deleting the reference, not by
+re-adding what was removed)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A api/internal/domain/workspace.go api/internal/app/repositories/workspace/
-git commit -m "feat(workspace): ParentID becomes a projection; delete FolderID and Order"
+git add -A api/internal/domain/ api/internal/app/repositories/workspace/ api/internal/app/usecases/folder api/internal/api/v0/endpoints/workspaces/ api/internal/api/v0/endpoints/folders api/internal/api/v0/dto/folder.go api/internal/api/v0/dto/folder_test.go api/internal/api/libs/status.go api/internal/app/usecases/container.go api/internal/api/v0/router.go
+git commit -m "feat(workspace): ParentID becomes a projection; retire usecases/folder onto the unified tree"
 ```
 
 ---
