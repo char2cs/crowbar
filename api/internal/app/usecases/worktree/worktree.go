@@ -24,6 +24,12 @@ import (
 )
 
 // CreateChildInput carries the fields needed to create a worktree-backed child.
+//
+// RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch are only REQUIRED when
+// ParentID is empty (nothing to inherit from). A caller that leaves them
+// blank and supplies ParentID gets them resolved from the parent workspace's
+// own repo instead (model spec §4.1) — the caller-supplied path stays exactly
+// as it works today.
 type CreateChildInput struct {
 	RepoID       string
 	ProjectID    string
@@ -32,6 +38,11 @@ type CreateChildInput struct {
 	Branch       string
 	ParentID     string
 	ParentBranch string
+	// OwnWorktree overrides the taxonomy default rule ("the default is
+	// inherited from the parent", model spec §4.1): nil means "unset" — inherit
+	// whether the parent (ParentID) itself owns a worktree — while a set value
+	// (true or false) always wins.
+	OwnWorktree *bool
 	// ForceLocked overrides the provider-driven locked check and marks the
 	// workspace locked regardless of whether the branch is protected. Useful
 	// when the caller knows the workspace should be immutable (e.g. the repo's
@@ -178,9 +189,14 @@ func (u *worktreeUsecase) CreateChild(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
-	// Repos with no on-disk path (e.g. virtual/test repos) skip all git
-	// operations and create a workspace row directly.
-	if in.RepoPath == "" {
+	in, ownWorktree, err := u.resolveInherited(ctx, in)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	// Repos with no on-disk path (e.g. virtual/test repos), and a create that
+	// does not own a worktree (explicitly, or defaulted off a workspace-less
+	// parent), skip all git operations and create a workspace row directly.
+	if in.RepoPath == "" || !ownWorktree {
 		return u.workspaces.Create(ctx, workspace.CreateInput{
 			ID:        uuid.NewString(),
 			RepoID:    in.RepoID,
@@ -277,6 +293,50 @@ func (u *worktreeUsecase) CreateChild(
 		return domain.Workspace{}, err
 	}
 	return ws, nil
+}
+
+// resolveInherited fills a blank RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch
+// from the parent workspace's own repo, and reports the effective OwnWorktree
+// (model spec §4.1): an explicit CreateChildInput.OwnWorktree always wins;
+// otherwise it inherits whether the parent itself owns a worktree.
+//
+// A caller that already supplies RepoPath keeps today's explicit-create
+// behavior untouched — the parent lookup only runs for the new bare-ParentID
+// calling convention, so a caller with no parent to resolve against (or one
+// that already knows its own repo) never pays for it.
+func (u *worktreeUsecase) resolveInherited(
+	ctx context.Context,
+	in CreateChildInput,
+) (CreateChildInput, bool, error) {
+	if in.RepoPath != "" || in.ParentID == "" {
+		return in, ownWorktreeOrDefault(in, in.RepoPath != ""), nil
+	}
+	parent, err := u.workspaces.Get(ctx, in.ParentID)
+	if err != nil {
+		return in, false, fmt.Errorf("create child: get parent: %w", err)
+	}
+	in.RepoID = parent.RepoID
+	in.ProjectID = parent.ProjectID
+	in.ParentBranch = parent.Branch
+	repo, err := u.repos.FindByKey(ctx, parent.RepoID)
+	if err != nil {
+		return in, false, fmt.Errorf("create child: get parent repo: %w", err)
+	}
+	if repo != nil {
+		in.RepoPath = repo.Path
+		in.RemoteURL = repo.RemoteURL
+	}
+	return in, ownWorktreeOrDefault(in, parent.WorktreePath != ""), nil
+}
+
+func ownWorktreeOrDefault(
+	in CreateChildInput,
+	defaultValue bool,
+) bool {
+	if in.OwnWorktree != nil {
+		return *in.OwnWorktree
+	}
+	return defaultValue
 }
 
 // deriveWorktreePath returns the human-readable git worktree directory for a

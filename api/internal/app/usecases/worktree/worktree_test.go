@@ -1363,6 +1363,66 @@ func TestCreateChild_CrowbarHomeError(t *testing.T) {
 	assert.Empty(t, g.calls, "no git work runs when the home path cannot be resolved")
 }
 
+// TestCreateChild_DefaultsOwnWorktreeFromParent proves the taxonomy default
+// rule (model spec §4.1): a create that leaves OwnWorktree unset and RepoPath
+// blank inherits "owns a worktree" from a parent that itself has one — a
+// locked branch — resolving RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch
+// from that parent's own repo rather than requiring the caller to supply them.
+func TestCreateChild_DefaultsOwnWorktreeFromParent(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{
+				ID:           id,
+				RepoID:       "r1",
+				ProjectID:    "p1",
+				Branch:       "develop",
+				WorktreePath: "/repo/worktrees/develop",
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID, WorktreePath: in.WorktreePath}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", remoteURL: "https://github.com/test/repo.git"}, newNow(), fakeHome())
+
+	child, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		ParentID: "locked-parent",
+		Branch:   "feature/x",
+	})
+	require.NoError(t, err)
+	if child.WorktreePath == "" {
+		t.Fatalf("a child of a locked row must default to owning a worktree")
+	}
+}
+
+// TestCreateChild_BubbleUnderBubbleStaysBubble proves the same default rule's
+// other side: a parent that owns no worktree of its own (WorktreePath == "")
+// defaults its child to no worktree too, even when the child's repo resolves
+// to a real one — "false sets no WorkspaceID and does no git work at all".
+func TestCreateChild_BubbleUnderBubbleStaysBubble(t *testing.T) {
+	g := &fakeGit{}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1"}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID, RepoID: in.RepoID, ParentID: in.ParentID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", remoteURL: "https://github.com/test/repo.git"}, newNow(), fakeHome())
+
+	child, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		ParentID: "bubble-parent",
+	})
+	require.NoError(t, err)
+	if child.WorktreePath != "" {
+		t.Fatalf("a child of a workspace-less chat must default to no workspace")
+	}
+	assert.Equal(t, "r1", child.RepoID, "RepoID still resolves from the parent even though no worktree is created")
+	assert.Empty(t, g.calls, "no git work runs when the create does not own a worktree")
+}
+
 // --- MergeIntoParent ---
 
 func mergeWS(
