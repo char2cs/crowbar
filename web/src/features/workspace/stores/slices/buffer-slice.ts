@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
 import type {
   PaneContent,
-  OpenContentSpec,
+  OpenEditorTabSpec,
   EditorContent,
   BranchReviewContent,
   AgentChatContent,
@@ -47,7 +47,7 @@ const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
 // ── Actions ──────────────────────────────────────────────────────────
 
 export interface BufferActions {
-  openContent(spec: OpenContentSpec): string
+  openContent(spec: OpenEditorTabSpec): string
   /**
    * Open (or re-focus) the pane's New Tab. A pane holds at most ONE — a second
    * identical blank is clutter, not a feature — so this is idempotent per pane

@@ -1,11 +1,15 @@
 export interface PaneGroup {
   id: string
   type: 'group'
-  bufferIds: string[]
-  activeBufferId: string | null
-  mruBufferIds?: string[]
-  previewBufferId?: string | null
-  pinnedBufferIds?: string[]
+  /** The pane's one chat; null = the empty stage. */
+  chatId: string | null
+  /** The runner (vendor-CLI process) the chat is following, or null when dormant. */
+  runnerId: string | null
+  /** Everything the editor view holds: files, terminals, branch review — never chats or a "new tab" placeholder. */
+  editorTabIds: string[]
+  activeEditorTabId: string | null
+  /** Split toggle state — chat-only vs. chat+editor. */
+  editorOpen: boolean
   locked?: boolean
 }
 
