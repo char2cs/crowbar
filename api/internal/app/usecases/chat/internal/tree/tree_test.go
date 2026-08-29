@@ -675,6 +675,21 @@ func TestDeleteChat_RefusesWorkingSubtree(t *testing.T) {
 	assert.Empty(t, chats.Purged, "nothing may be torn down once any row in the subtree refuses")
 }
 
+// The most literal reading of "unconditional": the chat NAMED by the delete
+// is itself working, with no descendants at all. subtreeIDsOf's walk has to
+// include the root it is handed, or a leaf chat with a live turn could be
+// erased out from under it.
+func TestDeleteChat_RefusesTheNamedChatItselfWhenWorking(t *testing.T) {
+	chats, uc, work := newUsecaseWithWork(t)
+	ctx := context.Background()
+	seedChat(chats, "solo", 1)
+	work.Set("solo", true)
+
+	_, err := uc.DeleteChat(ctx, "solo")
+	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
+	assert.Empty(t, chats.Purged, "the working leaf itself must never be purged")
+}
+
 // A row working OUTSIDE the deleted subtree is none of this delete's business:
 // the guard only watches the rows the cascade is about to take.
 func TestDeleteChat_IdleSubtreeCascadesDespiteAWorkingBystander(t *testing.T) {
