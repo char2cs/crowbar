@@ -11,10 +11,11 @@
  * pass. jsdom runs no animations, which is precisely why the timer and the bar
  * are two separate things: the bar is what you see, the timer is what fires.
  *
- * Driven through `SidebarTreePanel` rather than the old `WorkspaceTree`
- * (Task 8 retired it): the panel renders `RemovalTray` itself, exactly as
- * `WorkspaceTree` used to, so a held row is proven to disappear from a REAL
- * tree and not just from the tray's own list.
+ * Driven through `SidebarTreeSurface` (Task 30) — SpaceScroller's real mount
+ * point, which now hoists `RemovalTray` above it exactly as `SidebarTreePanel`
+ * (Task 8, retired this task) rendered it inside the one flat tree before —
+ * so a held row is proven to disappear from a REAL tree and not just from
+ * the tray's own list.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -63,7 +64,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { SidebarTreePanel } from '@/components/layout/sidebar-tree-panel'
+import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { planRemoval } from '@/components/layout/removal-plan'
 import type { DragSubject } from '@/components/layout/drop-rules'
 import type { Project } from '@/lib/types'
@@ -73,6 +74,19 @@ const project: Project = {
   name: 'crowbar-project',
   path: '/p1',
   lastActivity: new Date(0),
+}
+
+/** SpaceScroller's real mount point, single-project (this suite's fixtures
+ *  only ever seed one) — the same wiring `ide-shell.tsx` gives
+ *  `SidebarTreeSurface` for real. */
+function TestSidebar() {
+  return (
+    <SidebarTreeSurface
+      projects={[project]}
+      activeProjectId={project.id}
+      onActiveProjectChange={() => {}}
+    />
+  )
 }
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
@@ -112,6 +126,10 @@ const secs = () => document.querySelector('[data-removal-secs]')?.textContent
 beforeEach(() => {
   vi.clearAllMocks()
   renders.count = 0
+  // jsdom does not implement scrollTo — SpaceScroller (mounted for real via
+  // SidebarTreeSurface as of Task 30) calls it to align its panel on every
+  // activeProjectId/projects change, including on mount.
+  HTMLElement.prototype.scrollTo = vi.fn()
   // NOT `shouldAdvanceTime`: the deadline is a wall-clock instant, so a fake
   // clock that also creeps with the real one turns "7999ms have passed" into a
   // race with however long the test itself took to get there.
@@ -135,7 +153,7 @@ afterEach(() => {
 
 describe('holding a row', () => {
   it('takes the row and its subtree off screen without deleting anything', () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
@@ -145,7 +163,7 @@ describe('holding a row', () => {
   })
 
   it('draws the row as an ordinary row, with a hairline draining under it', () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
@@ -162,7 +180,7 @@ describe('holding a row', () => {
     // A branch is a git ref and reads in mono; a folder name is prose and does
     // not. Changing typeface on the way into the tray would read as a different
     // kind of thing at the one moment the user is deciding whether to keep it.
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     expect(trayRow().querySelector('span.font-mono')).not.toBeNull()
@@ -178,7 +196,7 @@ describe('holding a row', () => {
 
 describe('the countdown', () => {
   it('deletes when the hairline has drained, and only the root of the subtree', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -195,7 +213,7 @@ describe('the countdown', () => {
   })
 
   it('deletes a folder through the folder endpoint, which reparents its children', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'folder', id: 'f1', repoId: 'r1' })
 
     await act(async () => {
@@ -214,7 +232,7 @@ describe('the countdown', () => {
  */
 describe('the seconds, in figures', () => {
   it('starts at the full eight and counts down with the hairline', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     expect(secs()).toBe('8')
@@ -234,7 +252,7 @@ describe('the seconds, in figures', () => {
   // waiting to be deleted may repaint the sidebar thirty times a second — nor
   // once a second, which is what a numeral held in state would cost.
   it('costs NOTHING to count — the figures are written, not rendered', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     renders.count = 0
 
@@ -247,7 +265,7 @@ describe('the seconds, in figures', () => {
   })
 
   it('runs out into the removal itself', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -259,7 +277,7 @@ describe('the seconds, in figures', () => {
   })
 
   it('shows no clock on a repo, which waits on an answer instead', () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
 
     hold({ kind: 'repo', id: 'r1' })
 
@@ -274,7 +292,7 @@ describe('the route the removal leaves behind', () => {
   // the app had already broken.
   it('stays put while the row is only being held', async () => {
     router.pathname = '/ide/p1/r1/kid'
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
@@ -286,7 +304,7 @@ describe('the route the removal leaves behind', () => {
 
   it('falls back to the parent once the delete has fired', async () => {
     router.pathname = '/ide/p1/r1/kid'
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'kid', repoId: 'r1' })
 
     await act(async () => {
@@ -301,7 +319,7 @@ describe('the route the removal leaves behind', () => {
 
   it('leaves a workspace that was not in what went alone', async () => {
     router.pathname = '/ide/p1/r1/b'
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     await act(async () => {
@@ -314,7 +332,7 @@ describe('the route the removal leaves behind', () => {
 
 describe('cancelling', () => {
   it('puts the row and its whole subtree back, with nothing sent', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     fireEvent.click(screen.getByLabelText('Keep alpha'))
@@ -329,7 +347,7 @@ describe('cancelling', () => {
 
 describe('a repo, which takes every worktree under it', () => {
   it('waits on an answer instead of running a clock', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     expect(rows()).toEqual([])
@@ -342,7 +360,7 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('gives the repo and its contents back on Cancel', () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     fireEvent.click(screen.getByText('Cancel'))
@@ -355,7 +373,7 @@ describe('a repo, which takes every worktree under it', () => {
     // Eight seconds of undo is not a proportionate safety net for every worktree
     // in a repo, so this row never ran a clock — and pressing Remove opens a
     // dialog that spells the cascade out rather than sending the delete.
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -367,7 +385,7 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('removes it once the confirmation is accepted', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -381,7 +399,7 @@ describe('a repo, which takes every worktree under it', () => {
   })
 
   it('deletes nothing when the confirmation is dismissed, and keeps the row held', async () => {
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
@@ -411,7 +429,7 @@ describe('a page that ends mid-drain', () => {
     // HMR update, or quitting — used to drop the intent silently. The row had
     // already been hidden, so it LOOKED deleted, and the next boot read it
     // straight back off the daemon.
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
     expect(deleteWorkspace).not.toHaveBeenCalled()
 
@@ -430,7 +448,7 @@ describe('a page that ends mid-drain', () => {
     // A repo (and a project) sits in the tray with no clock, waiting on an
     // explicit confirmation. An unload is not that answer, and these are the two
     // removals that cascade — so the safe direction is to drop them.
-    render(<SidebarTreePanel />)
+    render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {

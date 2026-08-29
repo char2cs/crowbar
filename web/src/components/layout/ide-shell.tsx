@@ -5,6 +5,7 @@ import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
+import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
@@ -102,9 +103,9 @@ export function IDEShell() {
   // active project, then to the project's own path (the home workspace root).
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   // Space marks (spec §4.1): same navigation the workspace switcher's own
-  // project-home rows already use (workspace-switcher.tsx's `select`) —
-  // there is no SpaceScroller mounted yet to hand this to (Part I), so this
-  // is the one real "switch to project" action the app has today.
+  // project-home rows already use (workspace-switcher.tsx's `select`).
+  // Shared verbatim with SidebarTreeSurface's SpaceScroller below
+  // (`onActiveProjectChange`) — one "switch to project" action, not two.
   const handleSelectProject = (projectId: string) => {
     void navigate({ to: '/ide/$projectId/home', params: { projectId } })
   }
@@ -139,6 +140,13 @@ export function IDEShell() {
           />
         )}
         {!hasNavScreen && <ContextPill />}
+        {!hasNavScreen && (
+          <SidebarTreeSurface
+            projects={allProjects}
+            activeProjectId={activeProjectIdFromRoute}
+            onActiveProjectChange={handleSelectProject}
+          />
+        )}
         <ErrorBoundary>
           <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
         </ErrorBoundary>

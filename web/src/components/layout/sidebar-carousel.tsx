@@ -14,11 +14,10 @@ import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 
 // 'workspaces' and 'chats' are both dropped: spec §6.1's card holds two
-// glyphs and nothing else, Files and Git. Part B's SidebarTree (mounted
-// today as SidebarTreePanel) and Part D's RecentsBand own the workspaces
-// surface directly rather than as a carousel panel — not yet wired to a
-// live mount point outside this carousel, a disclosed gap for whichever
-// task gives them one (see task-15-report.md).
+// glyphs and nothing else, Files and Git. Part B's SidebarTree and Part D's
+// RecentsBand own the workspaces surface directly, mounted via
+// `SpaceScroller` in `sidebar-tree-surface.tsx` (see task-30-report.md) —
+// above this carousel, not as one of its panels.
 // A persisted activeTab of 'workspaces'/'chats' from before this change
 // simply misses every entry here — TABS.indexOf returns -1, which every
 // effect below already treats as a no-op.

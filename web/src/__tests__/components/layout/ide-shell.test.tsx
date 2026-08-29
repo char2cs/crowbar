@@ -19,6 +19,9 @@ vi.mock('@/components/layout/sidebar-carousel', () => ({
 vi.mock('@/components/layout/sidebar-project-header', () => ({
   SidebarProjectHeader: () => <div data-testid="sidebar-project-header" />,
 }))
+vi.mock('@/components/layout/sidebar-tree-surface', () => ({
+  SidebarTreeSurface: () => <div data-testid="sidebar-tree-surface" />,
+}))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
 }))
@@ -69,6 +72,11 @@ describe('IDEShell', () => {
   it('renders SidebarCarousel', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
+  })
+
+  it("renders SidebarTreeSurface (SpaceScroller's real mount point) between the header and the carousel", () => {
+    render(<IDEShell />)
+    expect(screen.getByTestId('sidebar-tree-surface')).toBeInTheDocument()
   })
 
   it('renders Outlet when no workspace is active', () => {
