@@ -8,6 +8,9 @@ interface SpaceScrollerProps {
   activeProjectId: string
   onActiveProjectChange: (id: string) => void
   rowsForProject: (projectId: string) => SidebarRow[]
+  onOpen: (id: string) => void
+  onTrash: (id: string) => void
+  onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
 }
 
 /**
@@ -22,6 +25,9 @@ export function SpaceScroller({
   activeProjectId,
   onActiveProjectChange,
   rowsForProject,
+  onOpen,
+  onTrash,
+  onCreate,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
@@ -89,9 +95,9 @@ export function SpaceScroller({
         >
           <SidebarTree
             rows={rowsForProject(project.id)}
-            onOpen={() => {}}
-            onTrash={() => {}}
-            onCreate={() => {}}
+            onOpen={onOpen}
+            onTrash={onTrash}
+            onCreate={onCreate}
           />
         </div>
       ))}
