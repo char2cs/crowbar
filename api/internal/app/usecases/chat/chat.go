@@ -339,6 +339,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
+		Home:          d.Home,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,
 		TurnStarts:    sh.turnStarts,

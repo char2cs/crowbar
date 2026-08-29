@@ -192,8 +192,7 @@ func (c *Conversations) PurgeLocked(
 	ctx context.Context,
 	chatID string,
 ) error {
-	chat, err := c.chats.GetChat(ctx, chatID)
-	if err != nil {
+	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
 	if err := c.chats.Forget(ctx, chatID); err != nil {
@@ -229,22 +228,19 @@ func (c *Conversations) PurgeLocked(
 	// config out from under it was only ever an accident of the old layout. It goes when the
 	// PTY does (onExit), or at the next boot if the daemon died first.
 	//
-	// The removal is routed through RemoveUnderHome, which re-asserts the target is strictly
-	// under crowbar home, so even a poisoned chats dir can never reach the user's real
-	// repository.
-	chatsDir, err := c.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	// Resolved via c.home, NOT c.ws.AgentChatsDir(chat.WorkspaceID): this dir must match
+	// wherever the chat's own ledger actually lives (worktreepath.LedgerChatsDir), which is
+	// keyed by the chat's id alone because WorkspaceID is optional and mutable (spec §1.5) —
+	// a workspace lookup would error for a bubble and could target the wrong directory for a
+	// chat that has since been promoted. RemoveUnderHome re-asserts the target is strictly
+	// under crowbar home regardless.
+	home, err := c.home()
 	if err != nil {
-		slog.WarnContext(ctx, "agent: purge chat: resolve chats dir for reap (best-effort, continuing)",
+		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 		return nil
 	}
-	home, _, _, _, err := c.ws.WorktreeDir(ctx, chat.WorkspaceID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap guard (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-		return nil
-	}
-	worktreepath.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
+	worktreepath.RemoveUnderHome(ctx, home, filepath.Join(worktreepath.LedgerChatsDir(home), chatID))
 	return nil
 }
 

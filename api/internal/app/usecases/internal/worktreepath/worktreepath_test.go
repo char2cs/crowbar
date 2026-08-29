@@ -274,6 +274,18 @@ func TestHomeDefaultChatsDir_NoSlug(t *testing.T) {
 	}
 }
 
+// TestLedgerChatsDir_IgnoresWorkspaceEntirely pins spec §1.5: a chat's own
+// ledger root takes crowbar home and NOTHING else — no worktree path, no
+// workspace id — because WorkspaceID is optional and mutable and must never
+// move it.
+func TestLedgerChatsDir_IgnoresWorkspaceEntirely(t *testing.T) {
+	got := LedgerChatsDir("/home/.crowbar")
+	want := "/home/.crowbar/chats"
+	if got != want {
+		t.Fatalf("LedgerChatsDir = %q, want %q", got, want)
+	}
+}
+
 // TestUnderHome is the shared predicate the chats-dir seam uses to tell a
 // Crowbar-managed worktree (chats stay beside it) from an adopted checkout at the
 // user's real dir (chats reroot under home). Only a path STRICTLY nested under

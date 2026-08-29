@@ -452,16 +452,20 @@ func (r *agentWorkspaceReader) WorktreeDir(
 }
 
 // AgentChatsDir implements agentusecase.WorkspaceReader: it resolves the directory that
-// holds a workspace's agentic chat state, ALWAYS strictly under crowbar home.
+// holds a workspace's OWN agent-work state (per-spawn tmp dirs, the per-runner
+// hook-delivery journal), ALWAYS strictly under crowbar home. It is NOT where a
+// chat's own ledger lives — that is worktreepath.LedgerChatsDir, keyed by the
+// chat's id alone, because WorkspaceID is optional and mutable (spec §1.5) and
+// this lookup requires a resolvable workspace.
 //
 // For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir
 // is the sibling of the worktree (worktreepath.ChatsDir), reaped with the
 // workspace root on delete. For an ADOPTED CHECKOUT — the repo-home / project-home
 // whose WorktreePath is the user's REAL directory OUTSIDE home — the chats dir
 // reroots under home at <home>/projects/<projectId>/<slug>/default/chats
-// (worktreepath.HomeDefaultChatsDir), so a plaintext conversation ledger is never
-// written onto the user's filesystem beside their repository (Task 7). The Cwd is
-// unaffected: WorktreeDir still returns the adopted worktree unchanged.
+// (worktreepath.HomeDefaultChatsDir), so plaintext state is never written onto
+// the user's filesystem beside their repository. The Cwd is unaffected:
+// WorktreeDir still returns the adopted worktree unchanged.
 //
 // The discriminator is the under-home test, NOT the workspace Kind: the
 // chat-hosting repo-home is a Kind=git / IsDefault workspace (adoptRepoHome does

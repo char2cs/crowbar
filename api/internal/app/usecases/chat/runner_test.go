@@ -356,11 +356,16 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 
 	chatID, _ := f.spawn(t, "claude")
 
-	// A workspace-reader failure surfaces wrapped, not swallowed.
+	// A workspace-reader failure surfaces wrapped, not swallowed. It now
+	// surfaces at the preflight WorktreeDir read rather than the pending-prompt
+	// guard: that guard's journal dir no longer resolves a workspace at all
+	// (worktreepath.LedgerChatsDir, keyed by chat id — spec §1.5), so it clears
+	// before the switch reaches this failing read.
 	f.ws.err = errors.New("boom: workspace lookup")
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "chats dir")
+	assert.Contains(t, err.Error(), "preflight worktree dir")
+	assert.ErrorContains(t, err, "boom: workspace lookup")
 }
 
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
@@ -1340,7 +1345,7 @@ func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	live, liveErr := f.liveRunnerFor(t, chatID)
 	require.NoError(t, liveErr)
 	assert.Equal(t, runnerID, live.ID)
-	_, statErr := os.Stat(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests"))
+	_, statErr := os.Stat(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests"))
 	assert.ErrorIs(t, statErr, os.ErrNotExist, "validation must precede durable dispatch intent")
 }
 
@@ -1459,7 +1464,7 @@ func TestSubmitPrompt_ReplacementSpawnFailureStaysOutcomeUnknown(t *testing.T) {
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID)
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
 		"a non-command-not-found CreateCommand error may follow a successful fork")
-	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
+	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(record), `"state":"uncertain"`,
 		"returning outcome_unknown must release the durable dispatching barrier")
@@ -1524,7 +1529,7 @@ func TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe(t *testing.T
 func TestSubmitPrompt_JournalResultCommitFailureIsOutcomeUnknownAndDoesNotWedgeNewIDs(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
-	journalDir := filepath.Join(f.ws.chatsDir, chatID, "prompt-requests")
+	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
 	blockedDir := journalDir + ".blocked"
 	f.term.duringFork = func() {
 		require.NoError(t, os.Rename(journalDir, blockedDir))
@@ -1543,7 +1548,7 @@ func TestReconcileRunnersOnBoot_MarksBlankDispatchIntentUncertain(t *testing.T) 
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
 	requestID := uuid.NewString()
-	journalDir := filepath.Join(f.ws.chatsDir, chatID, "prompt-requests")
+	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
 	blockedDir := journalDir + ".blocked"
 	f.term.duringFork = func() {
 		require.NoError(t, os.Rename(journalDir, blockedDir))
@@ -1737,7 +1742,7 @@ func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *t
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "exit in commit gap", requestID)
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
+	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(record), `"state":"uncertain"`,
 		"the pre-journaled runner id lets onExit correlate before markSpawned")
@@ -2206,6 +2211,26 @@ func TestReconcileRunnersOnBoot_LeavesALiveRunnerAlone(t *testing.T) {
 func TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+}
+
+// TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep pins spec §1.5's
+// worst failure mode: before this fix, the prompt-journal boot sweep resolved every
+// chat's directory through AgentChatsDir(chat.WorkspaceID), which requires a
+// resolvable workspace row. A single chat with no workspace (a "bubble" — model spec
+// §3.1) would fail that lookup and abort reconciliation for EVERY chat, not just its
+// own — one unplaced chat bricking every other chat's boot recovery.
+func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing.T) {
+	f := newFixture(t)
+
+	bubbleID, err := f.usecase.MintChat(f.ctx, "")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx),
+		"a workspace-less chat must not fail the boot sweep for every chat")
+
+	_, err = f.usecase.GetChat(f.ctx, bubbleID)
+	require.NoError(t, err)
 }
 
 // ─── from stop_test.go ────────────────────────────────────────────────

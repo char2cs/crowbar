@@ -37,6 +37,10 @@ type Runners struct {
 	agents      engineagents.Agents
 	term        seam.TerminalCommander
 	ws          seam.WorkspaceReader
+	// home is the app-config crowbar-home resolver, NOT a wsId lookup: it
+	// anchors each chat's own prompt-delivery journal (worktreepath.LedgerChatsDir),
+	// which must stay put regardless of the chat's WorkspaceID (see promptJournalDirFor).
+	home func() (string, error)
 	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
 	// thing that can stop two concurrent switches putting two CLIs on one chat, and
 	// it is NEVER taken on the hook path.
@@ -98,6 +102,9 @@ type Deps struct {
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
+	// Home is the app-config crowbar-home resolver, NOT a wsId lookup — see the
+	// Runners.home field it fills.
+	Home func() (string, error)
 
 	Spawns        *inflight.Gate
 	InflightTurns *inflight.Turns
@@ -121,6 +128,7 @@ func New(d Deps) *Runners {
 		agents:        d.Agents,
 		term:          d.Terminal,
 		ws:            d.Workspace,
+		home:          d.Home,
 		spawns:        d.Spawns,
 		inflightTurns: d.InflightTurns,
 		turnStarts:    d.TurnStarts,

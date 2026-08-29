@@ -149,6 +149,22 @@ func RunnerDir(chatsDir, runnerID, provider string) string {
 	return filepath.Join(chatsDir, "runners", runnerID+"-"+provider)
 }
 
+// LedgerChatsDir returns crowbar home's chat-ledger root: the parent a chat's
+// own on-disk bookkeeping — the at-most-once prompt-delivery journal — is
+// joined with the chat's id under.
+//
+// It is deliberately never AgentChatsDir/ChatsDir, i.e. never a function of
+// WorkspaceID: that field is optional and mutable (a bubble chat has none
+// until promoted), and even a SET workspace's own directory can move under it
+// later (WorktreePath transitions blocked -> provisioned, or the workspace is
+// relocated) with WorkspaceID never changing at all. A derivation built from
+// either would move a ledger out from under a chat that is already writing to
+// it, or fail outright while WorkspaceID is empty (spec §1.5). Anchoring on
+// crowbar home instead is the one thing neither can perturb.
+func LedgerChatsDir(crowbarHome string) string {
+	return filepath.Join(crowbarHome, "chats")
+}
+
 // UnderHome reports whether path is strictly nested under crowbarHome — i.e. home
 // is a proper directory-boundary prefix of path. A blank path or home, home
 // itself, or a mere string-prefix sibling (…/.crowbar-other) is never under home.

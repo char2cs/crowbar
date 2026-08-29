@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -357,7 +358,10 @@ func TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges(t *testi
 }
 
 // TestPurgeChat_ReapsChatDirOnDisk: a standalone hard delete must remove the chat's
-// PLAINTEXT on-disk footprint (its handoff ledger), not only Forget the aggregate.
+// PLAINTEXT on-disk footprint (its prompt-delivery journal), not only Forget the
+// aggregate. The reap targets worktreepath.LedgerChatsDir — keyed by the chat's id
+// alone, not a workspace lookup (spec §1.5) — which is where SubmitPrompt et al.
+// actually write it (see TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown).
 //
 // It does NOT remove the runner's tmp dir, which is not the chat's to remove: that dir is
 // the config of a PROCESS that is still alive (we have asked it to quit, and a SIGTERM is
@@ -369,7 +373,7 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "claude")
 
-	chatDir := filepath.Join(f.ws.chatsDir, chatID)
+	chatDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID)
 	require.NoError(t, os.MkdirAll(chatDir, 0o700))
 	turn(t, f, runnerID, "claude", "a turn, so the chat has a conversation to purge")
 
@@ -387,45 +391,23 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir")
 }
 
-// TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if the
-// chat dir cannot be resolved, the aggregate is still Forgotten and PurgeChat returns
-// nil rather than failing a delete the user asked for.
+// TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if
+// crowbar home cannot be resolved, the aggregate is still Forgotten and PurgeChat
+// returns nil rather than failing a delete the user asked for.
+//
+// It faults f.homeErr, not f.ws.err: the reap no longer resolves a workspace at all
+// (worktreepath.LedgerChatsDir needs only crowbar home), which is the whole point —
+// a workspace-less chat's reap must not depend on a workspace lookup either.
 func TestPurgeChat_ReapFailure_StillPurges(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, _ := f.spawn(t, "claude")
-	f.ws.err = errors.New("boom: workspace lookup for reap")
+	*f.homeErr = errors.New("boom: crowbar home lookup for reap")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID), "a reap-path failure must not abort the purge")
 
 	_, err := f.usecase.GetChat(f.ctx, chatID)
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the aggregate is still Forgotten")
-}
-
-// TestPurgeChat_ReapRefusesChatsDirOutsideHome pins the removal-site backstop: if
-// AgentChatsDir ever resolves a chats dir OUTSIDE crowbar home — the scenario a crafted
-// repo RemoteSlug containing "../" creates, since filepath.Join collapses ".." and can
-// escape home — the hard-delete reap must REFUSE the os.RemoveAll rather than delete a
-// path on the user's real filesystem.
-func TestPurgeChat_ReapRefusesChatsDirOutsideHome(t *testing.T) {
-	f := newFixture(t)
-
-	// Stand in for a chats dir that escaped home (what a "../"-poisoned slug would
-	// yield): a directory that is NOT under f.ws.home.
-	escaped := t.TempDir()
-	f.ws.chatsDir = escaped
-
-	chatID, _ := f.spawn(t, "claude")
-
-	sentinel := filepath.Join(escaped, chatID, "sentinel")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sentinel), 0o755))
-	require.NoError(t, os.WriteFile(sentinel, []byte("x"), 0o600))
-
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
-
-	_, statErr := os.Stat(sentinel)
-	assert.NoError(t, statErr,
-		"a chats dir outside crowbar home must NEVER be removed by the purge reap")
 }
 
 // TestPurgeChat_UnknownChat_ReturnsWrappedError: PurgeChat on an id with no chat wraps

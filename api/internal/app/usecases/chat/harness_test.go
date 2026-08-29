@@ -615,11 +615,14 @@ type testFixture struct {
 	// waitFn drains both asynx dispatch queues and runs every projection handler
 	// (ax.WaitPublish), so a subsequent read observes all prior mutations with no
 	// polling and no timeouts.
-	waitFn   func()
-	term     *fakeCommander
-	bc       *fakeBroadcaster
-	rbc      *fakeRunnerBroadcaster
-	ws       *fakeWorkspace
+	waitFn func()
+	term   *fakeCommander
+	bc     *fakeBroadcaster
+	rbc    *fakeRunnerBroadcaster
+	ws     *fakeWorkspace
+	// homeErr faults the crowbar-home resolver (Home), independent of ws.err —
+	// see its construction in newFixtureUsing.
+	homeErr  *error
 	engine   engineagents.Agents
 	activity agentactivity.EventStore
 	// providerPrefs is the real sqlite preference store the usecase resolves
@@ -1062,7 +1065,17 @@ func newFixtureUsing(
 		ID: domain.DefaultPermissionLevelKey, Level: pinnedDefault,
 	}))
 	connected := map[string]bool{}
-	homeFn := func() (string, error) { return home, nil }
+	// homeErr lets a test fault the crowbar-home resolver itself (distinct from
+	// f.ws.err, which only faults workspace lookups): the chat ledger's own reap
+	// and journal-dir derivation go through Home directly, never through a
+	// workspace, so that is the one hook that can exercise their failure path.
+	homeErr := new(error)
+	homeFn := func() (string, error) {
+		if *homeErr != nil {
+			return "", *homeErr
+		}
+		return home, nil
+	}
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
 	// The tool surface is wired over the SAME real stores the rest of the fixture
 	// reads, so an MCP tool call lands in the aggregates every other test asserts
@@ -1134,6 +1147,7 @@ func newFixtureUsing(
 		bc:            bc,
 		rbc:           rbc,
 		ws:            ws,
+		homeErr:       homeErr,
 		engine:        engine,
 		activity:      realActivity,
 		providerPrefs: providerPrefs,

@@ -96,11 +96,10 @@ func (rs *Runners) ReconcilePendingPromptFromLedger(
 	ctx context.Context,
 	chat domain.Chat,
 ) error {
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	dir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
-		return fmt.Errorf("reconcile prompt acceptance: chats dir: %w", err)
+		return fmt.Errorf("reconcile prompt acceptance: journal dir: %w", err)
 	}
-	dir := rs.prompts.Dir(chatsDir, chat.ID)
 	record, found, err := rs.prompts.ActiveDelivery(dir)
 	if err != nil || !found {
 		return err
@@ -121,11 +120,10 @@ func (rs *Runners) ConfirmPromptAccepted(
 	runner engineagents.Runner,
 	text string,
 ) error {
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	dir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
-		return fmt.Errorf("prompt journal chats dir: %w", err)
+		return fmt.Errorf("prompt journal dir: %w", err)
 	}
-	dir := rs.prompts.Dir(chatsDir, chat.ID)
 	return rs.prompts.ConfirmAccepted(
 		dir, runner.ID, runner.ProviderID, agentjournal.PromptTextHash(text), time.Now(),
 	)
@@ -143,11 +141,10 @@ func (rs *Runners) reconcilePromptRunnerDeparture(
 	if err != nil {
 		return
 	}
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	dir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
 		return
 	}
-	dir := rs.prompts.Dir(chatsDir, chat.ID)
 	record, found, err := rs.prompts.ActiveForRunner(dir, runner.ID, runner.ProviderID)
 	if err != nil || !found {
 		return

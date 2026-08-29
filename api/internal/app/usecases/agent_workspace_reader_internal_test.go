@@ -204,3 +204,20 @@ func TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
 }
+
+// TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors documents
+// exactly why chat.WorkspaceID may never drive a chat's own ledger path (spec
+// §1.5): AgentChatsDir unconditionally resolves a workspace ROW, so a chat
+// with no workspace — WorkspaceID == "" — has no row to find at all, not merely
+// a "different" one. worktreepath.LedgerChatsDir (see the chat usecase's
+// promptJournalDirFor) exists precisely so a ledger's own path never runs
+// through this lookup.
+func TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors(t *testing.T) {
+	r := &agentWorkspaceReader{
+		workspaces:  fakeWorkspaceGetter{err: errors.New("workspace not found: \"\"")},
+		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
+	}
+
+	_, err := r.AgentChatsDir(context.Background(), "")
+	require.Error(t, err, "a chat with no workspace must not silently resolve SOME chats dir")
+}

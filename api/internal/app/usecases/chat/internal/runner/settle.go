@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 )
 
 func (rs *Runners) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
-	dir, err := rs.promptJournalDirFor(ctx, chatID)
+	dir, err := rs.promptJournalDirFor(chatID)
 	if err != nil {
 		return termwait.Delivery{}, false
 	}
@@ -29,7 +30,7 @@ func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string)
 	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		return false, fmt.Errorf("agent: settle prompt delivery: ledger evidence: %w", err)
 	}
-	dir, err := rs.promptJournalDirFor(ctx, chatID)
+	dir, err := rs.promptJournalDirFor(chatID)
 	if err != nil {
 		return false, err
 	}
@@ -48,14 +49,20 @@ func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string)
 	return true, nil
 }
 
-func (rs *Runners) promptJournalDirFor(ctx context.Context, chatID string) (string, error) {
-	chat, err := rs.chats.GetChat(ctx, chatID)
+// promptJournalDirFor returns the on-disk directory backing chatID's
+// at-most-once prompt-delivery journal.
+//
+// It is keyed by the chat's own id alone, never by a workspace lookup:
+// WorkspaceID is optional and mutable — a bubble chat has none until promoted,
+// and even a set workspace's own directory can move later (WorktreePath
+// transitions blocked -> provisioned) — so a derivation built from it would
+// either error while the field is empty or move the journal out from under a
+// chat still writing to it (spec §1.5). worktreepath.LedgerChatsDir is the one
+// anchor neither can perturb.
+func (rs *Runners) promptJournalDirFor(chatID string) (string, error) {
+	home, err := rs.home()
 	if err != nil {
-		return "", fmt.Errorf("agent: prompt journal dir: chat: %w", err)
+		return "", fmt.Errorf("agent: prompt journal dir: crowbar home: %w", err)
 	}
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
-	if err != nil {
-		return "", fmt.Errorf("agent: prompt journal dir: chats dir: %w", err)
-	}
-	return rs.prompts.Dir(chatsDir, chat.ID), nil
+	return rs.prompts.Dir(worktreepath.LedgerChatsDir(home), chatID), nil
 }
