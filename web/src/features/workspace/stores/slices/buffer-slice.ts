@@ -147,23 +147,6 @@ export const createBufferSlice: StateCreator<
   // the non-reactive handle Object.assign'd onto the store after slice creation.
   const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
 
-  /** A New Tab is a placeholder for "something will go here". The moment
-   *  something actually lands in `paneId` — a brand-new buffer, or an existing
-   *  one deduped into it — that placeholder has served its purpose: replace it
-   *  in place rather than leaving a blank tab sitting next to the thing it
-   *  produced. Two call sites in `openContent` share this (the brand-new-buffer
-   *  path and the dedup path that attaches an existing buffer to the active
-   *  pane) — NOT the dedup path that jumps focus to a pane elsewhere instead,
-   *  which lands nothing here and must leave `paneId`'s New Tab alone. */
-  const consumeNewTabInPane = (paneId: string): void => {
-    const staleNewTab = findNewTabInPane(get().buffers, get().paneActions.getPaneById(paneId))
-    if (!staleNewTab) return
-    get().paneActions.removeBufferFromPane(paneId, staleNewTab.id, true)
-    set((state) => {
-      state.buffers = state.buffers.filter((b) => b.id !== staleNewTab.id)
-    })
-  }
-
   return {
     buffers: [],
     closedBuffersHistory: [],

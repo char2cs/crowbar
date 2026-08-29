@@ -427,5 +427,99 @@ describe('buffer-slice', () => {
       // Second tab should now be uncloseable
       expect(store.getState().bufferActions.getBufferById(tabId2)?.isUncloseable).toBe(true)
     })
+
+    it('moveEditorTabToPane syncs isUncloseable on both source and destination panes', () => {
+      const store = createWorkspaceStore('ws-test')
+      const paneActions = store.getState().paneActions
+      // Create pane B (destination)
+      const paneBId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+      // Create four buffers: one staying in pane A, one to move from A to B, one already in B
+      const tabAStay = 'tab-a-stay'
+      const tabToMove = 'tab-to-move'
+      const tabBId = 'tab-b1'
+      store.setState((state) => {
+        state.buffers.push({
+          id: tabAStay,
+          type: 'editor',
+          path: '/test/file-a-stay.ts',
+          name: 'file-a-stay.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+          isUncloseable: false,
+        })
+        state.buffers.push({
+          id: tabToMove,
+          type: 'editor',
+          path: '/test/file-to-move.ts',
+          name: 'file-to-move.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+          isUncloseable: false,
+        })
+        state.buffers.push({
+          id: tabBId,
+          type: 'editor',
+          path: '/test/file-b1.ts',
+          name: 'file-b1.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+          isUncloseable: true,
+        })
+      })
+      // Setup: Pane A has 2 tabs (both not uncloseable initially)
+      paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabAStay,
+        type: 'editor',
+        name: 'file-a-stay.ts',
+      })
+      paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabToMove,
+        type: 'editor',
+        name: 'file-to-move.ts',
+      })
+      // Setup: Pane B has 1 tab (uncloseable)
+      paneActions.addEditorTabToPane(paneBId, {
+        id: tabBId,
+        type: 'editor',
+        name: 'file-b1.ts',
+      })
+      // Before move: pane A has 2 tabs (both closeable), pane B has 1 tab (uncloseable)
+      expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toHaveLength(2)
+      expect(store.getState().paneActions.getPaneById(paneBId)?.editorTabIds).toHaveLength(1)
+      expect(store.getState().bufferActions.getBufferById(tabBId)?.isUncloseable).toBe(true)
+      expect(store.getState().bufferActions.getBufferById(tabAStay)?.isUncloseable).toBe(false)
+      expect(store.getState().bufferActions.getBufferById(tabToMove)?.isUncloseable).toBe(false)
+      // Move tab from pane A to pane B
+      paneActions.moveEditorTabToPane(tabToMove, ROOT_PANE_ID, paneBId)
+      // After move: pane A has 1 tab, pane B has 2 tabs
+      expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toHaveLength(1)
+      expect(store.getState().paneActions.getPaneById(paneBId)?.editorTabIds).toHaveLength(2)
+      // Critical assertion: pane A's remaining tab (tabAStay) should now be uncloseable (it's sole)
+      const tabAStayAfter = store.getState().bufferActions.getBufferById(tabAStay)
+      expect(tabAStayAfter?.isUncloseable).toBe(true)
+      // Critical assertion: pane B's tabs should both be closeable (no longer sole)
+      const tabBAfter = store.getState().bufferActions.getBufferById(tabBId)
+      const tabMovedAfter = store.getState().bufferActions.getBufferById(tabToMove)
+      expect(tabBAfter?.isUncloseable).toBe(false)
+      expect(tabMovedAfter?.isUncloseable).toBe(false)
+    })
   })
 })
