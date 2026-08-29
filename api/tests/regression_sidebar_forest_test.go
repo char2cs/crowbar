@@ -39,17 +39,23 @@ import (
 //     this suite (newThreadChat/newThreadChatUnder) already builds one —
 //     rather than a true bubble, which still nests it inside the folder's
 //     filed subtree the way the recipe intends.
-//  2. The refusal is asserted on a CHAT delete, not a FOLDER delete: a folder
-//     delete PROMOTES its children (it does not take them — the opposite
-//     rule from a chat delete, see TestRegression_ChatFolderDeletePromotes-
-//     ItsChildren) and its usecase (tree.go's Delete) never calls
-//     guardNotWorking at all, unlike its own Move a few lines above in the
-//     same file — so today a folder delete silently promotes a WORKING chat
-//     filed under it instead of refusing. That is a real, reproducible gap in
-//     invariant 5/9's enforcement, flagged for the final whole-branch review;
-//     it is not something a test can honestly paper over by asserting a
-//     refusal that does not happen. The chat-delete cascade (DeleteChat) DOES
-//     enforce the guard correctly, which is what this test pins.
+//  2. Both delete verbs are pinned, but they still take different sets, which
+//     is a real distinction and not a departure: a folder delete PROMOTES its
+//     children (it does not take them — the opposite rule from a chat delete,
+//     see TestRegression_ChatFolderDeletePromotesItsChildren), while a chat
+//     delete cascades its whole subtree. tree.go's folder Delete used to never
+//     call guardNotWorking at all, unlike its own Move a few lines above in
+//     the same file, so a folder delete would have silently promoted a
+//     WORKING chat filed under it instead of refusing — a real gap in
+//     invariant 5/9's enforcement this same task found and closed (commit
+//     3a91c652, plus the unit test TestDelete_RefusesWorkingChild in
+//     tree_test.go). Both refusals are now asserted below over real HTTP: the
+//     folder delete refuses without promoting anything, and the chat delete
+//     refuses without cascading anything, each for the same working row.
+//     Only the chat delete's SUCCESS path takes the whole subtree once idle —
+//     the folder's own delete is never retried here because promoting rather
+//     than cascading is the correct, unchanged behavior for that verb, not
+//     something this test needs to complete.
 func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -103,17 +109,28 @@ func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
 	}, http.StatusAccepted).Body.Close()
 	h.Quiesce()
 
+	// The FOLDER delete guard, closed by this task's own tree.go fix: deleting
+	// the folder holding this same working subtree is refused too, before it
+	// ever promotes a single row — proving the fix end to end over real HTTP,
+	// not just at the usecase-test level.
+	folderMsg := h.mutationError(http.MethodDelete, base+"/chats/folders/"+sprint.ID, nil, http.StatusConflict)
+	assert.Contains(t, folderMsg, "working",
+		"a folder delete refuses a working row in its subtree exactly like a chat delete does")
+
 	msg := h.mutationError(http.MethodDelete, base+"/chats/"+parentChat, nil, http.StatusConflict)
 	assert.Contains(t, msg, "working",
 		"the refusal has to name why: a working row in the subtree refuses this verb unconditionally")
 
-	// The refused delete changed nothing: both chats and the folder are
+	// The refused deletes changed nothing: both chats and the folder are
 	// exactly where they were.
 	var stillParent, stillChild agentChatDetail
 	h.get(base+"/chats/"+parentChat, &stillParent)
 	h.get(base+"/chats/"+childChat, &stillChild)
 	assert.Equal(t, sprint.ID, stillParent.ParentID)
 	assert.Equal(t, parentChat, stillChild.ParentID)
+	rows = listChatFolders(t, h, base)
+	_, folderStillThere := chatFolderByID(rows, sprint.ID)
+	assert.True(t, folderStillThere, "the refused folder delete promoted nothing")
 
 	// Close the turn: the subtree is idle again, and the SAME delete now
 	// succeeds — taking parentChat AND the thread filed under it, the whole
