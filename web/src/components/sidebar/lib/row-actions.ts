@@ -1,5 +1,5 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { renameWorkspaceBranch, setWorkspaceLock, importBranches } from '@/lib/api'
+import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } from '@/lib/api'
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -65,17 +65,42 @@ export async function performRenameFolder(folderId: string, name: string): Promi
 }
 
 /**
+ * Fire a repo rename — the repo's own display name, not its checked-out
+ * branch. The project-home row IS the repo's default workspace (its own
+ * checkout); renaming that row names the repo, exactly as the deleted
+ * `repo-section.tsx`'s header row did ("Repo rename stays on the [repo
+ * name], not the branch") — it never called the branch-rename endpoint.
+ */
+export async function performRenameRepo(repoId: string, name: string): Promise<void> {
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
+  if (!repo?.projectId) return
+  if (repo.name === name) return
+  try {
+    await renameRepo(repo.projectId, repoId, name)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename repository')
+  }
+}
+
+/**
  * Rename whatever row `rowId` names.
  *
  * The sidebar has ONE rename gesture and one inline editor, so it needs one
  * place that knows a folder is not a branch. The id answers that on its own —
  * the two id spaces never overlap — which keeps the row itself from having to
  * carry a second, parallel rename path just to reach a different endpoint.
+ *
+ * A third id space joins those two here: the project-home row's id is a
+ * repo's `defaultWorkspaceId`, never a member of that repo's `workspaces`
+ * array (it's the header, not a tree row) — so it has to be checked before
+ * falling through to the branch-rename path, which would otherwise silently
+ * find no matching workspace and do nothing.
  */
 export function performRenameRow(rowId: string, name: string): Promise<void> {
-  const isFolder = useSidebarStore
-    .getState()
-    .repos.some((r) => r.folders?.some((f) => f.id === rowId))
+  const state = useSidebarStore.getState()
+  const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === rowId)
+  if (homeRepo) return performRenameRepo(homeRepo.id, name)
+  const isFolder = state.repos.some((r) => r.folders?.some((f) => f.id === rowId))
   return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(rowId, name)
 }
 

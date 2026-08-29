@@ -12,6 +12,7 @@ import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   renameWorkspaceBranch: vi.fn().mockResolvedValue(undefined),
+  renameRepo: vi.fn().mockResolvedValue(undefined),
   setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
   importBranches: vi.fn().mockResolvedValue(undefined),
 }))
@@ -55,6 +56,22 @@ describe('row-actions', () => {
       name: 'Fixes',
     })
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
+  })
+
+  // Fix round 1: the project-home row's id is `repo.defaultWorkspaceId`,
+  // never a member of `repo.workspaces` — renaming it has to name the REPO
+  // (matching the deleted repo-section.tsx's "Repo rename stays on the
+  // [repo name], not the branch"), not silently no-op through the
+  // branch-rename path.
+  it('renaming the project-home row calls renameRepo, not renameWorkspaceBranch', async () => {
+    await performRenameRow('ws-home', 'renamed-repo')
+    expect(api.renameRepo).toHaveBeenCalledWith('proj-1', 'repo-1', 'renamed-repo')
+    expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
+  })
+
+  it('renaming the project-home row to its current name is a no-op', async () => {
+    await performRenameRow('ws-home', 'repo')
+    expect(api.renameRepo).not.toHaveBeenCalled()
   })
 
   it('locking a workspace calls setWorkspaceLock with locked: true', async () => {

@@ -7,7 +7,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarRowContextMenuProps {
   treeRef: RefObject<HTMLElement | null>
-  /** Every visible row, to look up kind/ownsWorktree/parentId by id. */
+  /** Every visible row, to look up kind/parentId by id. */
   rows: SidebarRow[]
   /** Opens rename-dialog.tsx for the row. */
   onRename: (rowId: string) => void
@@ -80,7 +80,13 @@ export function SidebarRowContextMenu({
     },
   ]
 
-  if (row.ownsWorktree) {
+  // Lock/Unlock only for a real workspace branch row — NOT `row.ownsWorktree`,
+  // which is a "+"-button semantic (fork a workspace vs. start a thread) that
+  // a folder row also carries true (its own "+" always forks a branch). Nor
+  // the project-home row: it IS the repo's own checkout, the one branch that
+  // must stay put — the deleted row-menu-model.ts's own words, "handing it
+  // out for editing under the sidebar's rules is not what the lock is for."
+  if (row.kind === 'branch' && !isProjectHome) {
     items.push(
       locked
         ? {
