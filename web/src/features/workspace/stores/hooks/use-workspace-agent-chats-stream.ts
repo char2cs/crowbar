@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
-import { workspaceBase } from '@/lib/workspace-scope-url'
 import {
+  chatBase,
   listChats,
   getChat,
   listProviders,
@@ -63,7 +63,9 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
   return st.agentChats.providers.find((p) => p.id === providerId)?.displayName ?? 'The agent'
 }
 
-// One wire frame on the workspace-scoped agent feed. THREE vocabularies ride it:
+// One wire frame on the agent feed (chatBase(wsId)/ws — repo-scoped, or the
+// /home mount for a project-home workspace; see agent-api.ts's chatBase).
+// THREE vocabularies ride it:
 //
 //   CHAT frames    — created / turn_started / turn_stopped / title_set / session_bound /
 //                    deleted. About the conversation. They name no process.
@@ -159,7 +161,7 @@ interface AgentStreamEvent {
 }
 
 /**
- * Subscribe to the workspace-scoped agent WS while `wsId` is active. Seed via GET,
+ * Subscribe to the agent WS for `wsId`'s chat scope while it is active. Seed via GET,
  * subscribe, reseed on the {reconnected} sentinel, and route each frame:
  *
  *  CHAT frames
@@ -485,7 +487,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     void seedChats()
     void seedProviders()
 
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/chats/ws`, (frame) => {
+    const unsubscribe = wsManager.subscribe(`${chatBase(wsId)}/ws`, (frame) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.

@@ -4,6 +4,7 @@ import { renderHook } from '@testing-library/react'
 // Hoisted fakes — must be declared before any vi.mock calls.
 const {
   subscribe,
+  chatBaseFn,
   listChatsFn,
   getChatFn,
   listProvidersFn,
@@ -23,6 +24,7 @@ const {
   toastError,
 } = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
+  chatBaseFn: vi.fn(),
   listChatsFn: vi.fn(),
   getChatFn: vi.fn(),
   listProvidersFn: vi.fn(),
@@ -69,11 +71,14 @@ vi.mock('@/lib/ws/manager', () => ({
   wsManager: { subscribe, send: vi.fn() },
 }))
 
-vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (id: string) => `/v0/ws/${id}`,
-}))
-
+// chatBase is the real repo-scoped/home URL builder (agent-api.ts, Task 17 /
+// Task 23) — the hook must go through it, not re-derive the shape itself
+// (that drift is exactly what shipped a WS 404 for every non-home
+// workspace). Faked here rather than left real so the rest of this file's
+// ~90 tests stay agnostic of the URL shape; 'chats-scope-url-shape' below
+// asserts the hook composes `${chatBase(wsId)}/ws` and nothing else.
 vi.mock('@/features/agent/api/agent-api', () => ({
+  chatBase: (...a: unknown[]) => chatBaseFn(...a),
   listChats: (...a: unknown[]) => listChatsFn(...a),
   getChat: (...a: unknown[]) => getChatFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
@@ -153,9 +158,17 @@ function captureCb(callIndex = 0): (frame: Frame) => void {
   return call[1]
 }
 
+// Mirrors agent-api.ts's own chatBase branching (proven correct in its own
+// unit tests) so this file's URL-composition test exercises the real two
+// shapes without re-deriving them: 'ws-home' is a project-home workspace
+// (repoId ''), everything else carries a real repo.
+const fakeChatBase = (id: string) =>
+  id === 'ws-home' ? '/v0/projects/p1/home/chats' : '/v0/projects/p1/repos/r1/chats'
+
 beforeEach(() => {
   vi.clearAllMocks()
   subscribe.mockReturnValue(() => {})
+  chatBaseFn.mockImplementation(fakeChatBase)
   buffers = []
   panes = {}
   removeBufferFromPane.mockClear()
@@ -196,9 +209,34 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
-  it('subscribes to the workspace-scoped /chats/ws endpoint', () => {
+  it('subscribes to chatBase(wsId)/ws — the same repo-scoped base agent-api.ts REST calls use', () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    expect(subscribe).toHaveBeenCalledWith('/v0/ws/w1/chats/ws', expect.any(Function))
+    expect(chatBaseFn).toHaveBeenCalledWith('w1')
+    expect(subscribe).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      expect.any(Function),
+    )
+  })
+
+  // The gap this closes: the hook used to build `${workspaceBase(wsId)}/chats/ws`
+  // itself, independently of agent-api.ts's chatBase — so Task 17's rescope left
+  // this one WS subscription still dialing the removed `/workspaces/:wsId/chats/ws`
+  // route for every non-home workspace even after agent-api.ts's own REST calls
+  // were fixed. Going through chatBase means this can never drift from the REST
+  // routes again; chatBase's own branching is unit-tested in agent-api.test.ts.
+  it('builds the repo-scoped WS URL for a non-home workspace, and the unchanged home shape for a home one', () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    expect(subscribe).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      expect.any(Function),
+    )
+    expect((subscribe.mock.calls[0] as unknown as [string])[0]).not.toContain('/workspaces/')
+
+    renderHook(() => useWorkspaceAgentChatsStream('ws-home'))
+    expect(subscribe).toHaveBeenLastCalledWith(
+      '/v0/projects/p1/home/chats/ws',
+      expect.any(Function),
+    )
   })
 
   it('seeds chats + providers on mount and populates the slice', async () => {
@@ -1243,7 +1281,9 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(unsubW1).toHaveBeenCalledTimes(1)
     expect(subscribe).toHaveBeenCalledTimes(2)
-    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe('/v0/ws/w2/chats/ws')
+    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe(
+      '/v0/projects/p1/repos/r1/chats/ws',
+    )
   })
 })
 

@@ -10,7 +10,12 @@ import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-per
 // mount, since home has no repo. The {success,data} envelope is unwrapped by
 // apiFetch. Modelled on features/git/api/review-api.ts.
 
-function chatBase(wsId: string): string {
+// Exported so callers that build their OWN chat-scoped URL — the agent-chat
+// lifecycle WS subscription (use-workspace-agent-chats-stream.ts) is the one
+// today — derive the same repo-scoped/home branch this file's own routes do,
+// rather than re-deriving it (and drifting from it, as that hook's direct
+// `workspaceBase(wsId)/chats` build had, post Task 17).
+export function chatBase(wsId: string): string {
   const scope = getWorkspaceScope(wsId)
   // Null scope and a home workspace (repoId '') both fall back to
   // workspaceBase, which already resolves the /home shape and already throws
