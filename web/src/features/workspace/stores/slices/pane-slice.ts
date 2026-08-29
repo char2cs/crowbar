@@ -56,6 +56,11 @@ export interface PaneActions {
   navigateToPane(direction: 'left' | 'right' | 'up' | 'down'): void
   /** The one write path for what chat a pane holds. */
   setPaneChat(paneId: string, chatId: string | null, runnerId: string | null): void
+  /** Spec §5.4: the × on a DORMANT/SET (not-live) Recents entry — "forgets
+   *  the arrangement" rather than closing a pane, since there is none to
+   *  close. The symmetric removal to `closePane`'s own push onto
+   *  `dormantArrangements`. */
+  forgetDormantArrangement(entryId: string): void
 }
 
 export interface PaneSlice {
@@ -474,6 +479,12 @@ export const createPaneSlice: StateCreator<
           if (!pane) return
           pane.chatId = chatId
           pane.runnerId = runnerId
+        })
+      },
+
+      forgetDormantArrangement(entryId) {
+        set((state) => {
+          state.dormantArrangements = state.dormantArrangements.filter((e) => e.id !== entryId)
         })
       },
     },

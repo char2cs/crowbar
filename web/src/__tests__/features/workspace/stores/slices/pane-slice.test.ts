@@ -645,3 +645,28 @@ describe('pane-slice — dormantArrangements (spec §5.5)', () => {
     expect(() => actions.closePane(ROOT_PANE_ID)).not.toThrow()
   })
 })
+
+// Spec §5.4: "on a remembered one → forgets the arrangement." The symmetric
+// removal to the push `closePane` does above.
+describe('pane-slice — forgetDormantArrangement (spec §5.4)', () => {
+  it('removes the named arrangement, leaving the rest', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+
+    store.getState().paneActions.forgetDormantArrangement(ROOT_PANE_ID)
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('is a no-op for an id that names no arrangement', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    store.getState().paneActions.forgetDormantArrangement('no-such-entry')
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+  })
+})
