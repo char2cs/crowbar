@@ -60,6 +60,7 @@ export function SidebarRow({
       <div
         role="treeitem"
         tabIndex={0}
+        data-sidebar-row-id={row.id}
         {...dragProps}
         className={cn(ROW_BASE, ROW_INACTIVE, 'group pr-2.5')}
         onClick={() => onOpen(row.id)}
