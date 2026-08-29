@@ -296,20 +296,39 @@ func TestCreate_SurfacesATitleFailure(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.TitleErr = errors.New("title rejected")
 
-	_, _, err := uc.Create(context.Background(), tree.CreateInput{RepoID: repoID, Name: "spikes"})
+	_, _, err := uc.Create(context.Background(), tree.CreateInput{ID: "f-new", RepoID: repoID, Name: "spikes"})
 	assert.ErrorContains(t, err, "title rejected")
+	assert.Equal(t, []string{"f-new"}, chats.Forgotten, "the unnamed half-created folder must be discarded")
 }
 
 // A folder create renumbers the chats already at that level and moves none of
 // them, so the chat write it can fail on is the renumber.
+// A create that mints and names the folder successfully but fails during the
+// densify that follows must not leave that row behind: the user was told the
+// create failed, and CreateChat's own discard (chats.go) sets the precedent
+// this mirrors — the whole post-mint sequence is covered, not just naming.
 func TestCreate_SurfacesAChatRenumberFailure(t *testing.T) {
 	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
 	chats.OrderErr = errors.New("aggregate down")
 
-	_, _, err := uc.Create(context.Background(), tree.CreateInput{RepoID: repoID, Name: "spikes"})
+	_, _, err := uc.Create(context.Background(), tree.CreateInput{ID: "f-new", RepoID: repoID, Name: "spikes"})
 	assert.ErrorContains(t, err, "aggregate down")
+	assert.Equal(t, []string{"f-new"}, chats.Forgotten,
+		"a sibling renumber failure after the mint must still discard the half-created folder")
+}
+
+// The failure covered above is a SIBLING's renumber; this is the new folder's
+// OWN placement write failing instead — discard must cover both call shapes
+// persist can take.
+func TestCreate_DiscardsTheFolderWhenItsOwnPlacementWriteFails(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.SetErr = errors.New("wedged")
+
+	_, _, err := uc.Create(context.Background(), tree.CreateInput{ID: "f-new", RepoID: repoID, Name: "spikes"})
+	assert.ErrorContains(t, err, "wedged")
+	assert.Equal(t, []string{"f-new"}, chats.Forgotten)
 }
 
 // ListInRepo filters to folder-typed rows. It does not yet enforce a repo

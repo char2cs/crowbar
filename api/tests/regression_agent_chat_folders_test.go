@@ -30,12 +30,16 @@ import (
 const skipUntilWorkspaceIDOptional = "blocked until stage 2 (WorkspaceID becomes optional) lands: " +
 	"folder Create has no workspace by design and 422s against today's Create.Validate"
 
-// agentChatFolderDTO mirrors the AgentChatFolderDTO wire shape.
+// agentChatFolderDTO mirrors the WIRE SHAPE a folder route answers with today:
+// dto.AgentChatDTO (api/internal/api/v0/dto/agent.go), not the deleted
+// AgentChatFolderDTO — a folder is a domain.Chat row now (Type == "folder"),
+// rendered through the same converter a chat's own placement route already
+// used, so its display name rides the "title" field.
 type agentChatFolderDTO struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspaceId"`
 	ParentID    string `json:"parentId"`
-	Name        string `json:"name"`
+	Title       string `json:"title"`
 	Order       int    `json:"order"`
 }
 
@@ -370,7 +374,7 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	folder := createChatFolder(t, h, base, "spikes", "")
 	rows := listChatFolders(t, h, base)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "spikes", rows[0].Name)
+	assert.Equal(t, "spikes", rows[0].Title)
 
 	placed := placeChat(t, h, base, chat.ID, map[string]any{"parentId": folder.ID})
 	assert.Equal(t, folder.ID, placed.Chat.ParentID, "a home chat files into a home folder")
@@ -378,7 +382,7 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	renamed := listChatFolders(t, h, base)
 	require.Len(t, renamed, 1)
-	assert.Equal(t, "experiments", renamed[0].Name)
+	assert.Equal(t, "experiments", renamed[0].Title)
 
 	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
 	assert.Empty(t, listChatFolders(t, h, base))

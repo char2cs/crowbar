@@ -104,21 +104,40 @@ func (u *chatFolderUsecase) Create(
 	if err != nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
 	}
+	created, written, err := u.placeNewFolder(ctx, snapshot, id, name, in.ParentID, minted.CreatedAt)
+	if err != nil {
+		return domain.Chat{}, nil, u.discardFolder(ctx, id, err)
+	}
+	return created, written, nil
+}
+
+// placeNewFolder names and places a just-minted folder: everything Create does
+// AFTER the mint, kept in one function so a single discardFolder at its call
+// site covers every way it can fail — naming or the densify that follows it —
+// mirroring chats.go's CreateChat, whose discard likewise wraps its entire
+// post-mint sequence rather than only the first step of it.
+func (u *chatFolderUsecase) placeNewFolder(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	id string,
+	name string,
+	parentID string,
+	createdAt time.Time,
+) (domain.Chat, []domain.Chat, error) {
 	titled, err := u.chats.SetTitle(ctx, id, name, "user")
 	if err != nil {
-		return domain.Chat{}, nil, u.discardFolder(ctx, id,
-			fmt.Errorf("agent chat folder: create %s: name: %w", id, err))
+		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: name: %w", id, err)
 	}
-	target := snapshot.plan.NextSlot(in.ParentID)
+	target := snapshot.plan.NextSlot(parentID)
 	snapshot.add(domain.Chat{
 		ID:        id,
 		Type:      domain.ChatTypeFolder,
 		Title:     titled.Title,
-		ParentID:  in.ParentID,
+		ParentID:  parentID,
 		Order:     target,
-		CreatedAt: minted.CreatedAt,
+		CreatedAt: createdAt,
 	})
-	snapshot.plan.Reorder(in.ParentID, id, target)
+	snapshot.plan.Reorder(parentID, id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -180,12 +199,7 @@ func (u *chatFolderUsecase) Move(
 	if mErr := u.checkFolderMove(ctx, snapshot, id, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	target := placementTarget(in.Order, snapshot, current.ParentID, destination, id)
-	snapshot.plan.SetParent(id, destination)
-	snapshot.plan.Reorder(destination, id, target)
-	if destination != current.ParentID {
-		snapshot.plan.Reorder(current.ParentID, "", -1)
-	}
+	u.replace(snapshot, id, current.ParentID, destination, in.Order)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err
