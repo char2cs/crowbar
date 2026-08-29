@@ -43,7 +43,7 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
 
 // ── Base fields shared by every editor-tab content type ─────────────
 
-interface EditorTabBase {
+export interface EditorTabBase {
   id: string
   type: EditorTabContentType
   path?: string
