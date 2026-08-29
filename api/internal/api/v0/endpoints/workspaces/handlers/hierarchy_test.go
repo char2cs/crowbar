@@ -107,6 +107,96 @@ func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 	assert.Equal(t, "child", lastErrors.gotID)
 }
 
+// TestReparent_Returns202 asserts the fail-fast/good-path-async contract: a valid
+// reparent passes synchronous validation (body shape, workspace exists), returns
+// 202 with an empty body, and runs Reparent in the background. The reparented
+// workspace is delivered on the WebSocket stream (blackbox in W13), not in the
+// HTTP response.
+func TestReparent_Returns202(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{
+		reparented:   domain.Workspace{ID: "child", ParentID: "np"},
+		reparentDone: make(chan struct{}),
+	}
+	rec := do(
+		newRouter(reader, hierarchy, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
+		`{"newParentId":"np"}`,
+	)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+	waitClosed(t, hierarchy.reparentDone)
+	assert.Equal(t, "child", hierarchy.gotReparent)
+	assert.Equal(t, "np", hierarchy.gotNewParent)
+}
+
+func TestReparentBadJSON(
+	t *testing.T,
+) {
+	rec := do(
+		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
+		`{not-json`,
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestReparentMissingNewParent(
+	t *testing.T,
+) {
+	rec := do(
+		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
+		`{}`,
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestReparentMissingWorkspace_4xx asserts the synchronous existence check: a
+// reparent for an unknown workspace is rejected on the request path with a 4xx
+// before any 202 or background reparent.
+func TestReparentMissingWorkspace_4xx(
+	t *testing.T,
+) {
+	reader := &fakeReader{getErr: apperr.ErrNotFound}
+	hierarchy := &fakeHierarchy{}
+	rec := do(
+		newRouter(reader, hierarchy, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
+		`{"newParentId":"np"}`,
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, hierarchy.gotReparent, "reparent must not run when the workspace is missing")
+}
+
+// TestReparentAsyncErrorBroadcastsLastError asserts a background reparent failure
+// surfaces on the workspace entity via SetLastError, not on the HTTP response.
+func TestReparentAsyncErrorBroadcastsLastError(
+	t *testing.T,
+) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	hierarchy := &fakeHierarchy{reparentErr: workspace.ErrChildHasChildren}
+	r := gin.New()
+	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
+	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
+	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/reparent", `{"newParentId":"np"}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	// The SetLastError call IS the signal that the failed reparent surfaced on
+	// the entity; block on it rather than guessing at a duration.
+	<-lastErrors.called
+	assert.Equal(t, "child", lastErrors.gotID)
+}
+
 func TestRetryProvision_Returns202(t *testing.T) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	rec := do(

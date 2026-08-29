@@ -93,6 +93,14 @@ func (stubHierarchy) RebaseOntoParent(
 	return domain.Workspace{}, nil
 }
 
+func (stubHierarchy) Reparent(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (stubHierarchy) DeleteCascade(
 	_ context.Context,
 	_ string,
@@ -188,6 +196,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodPatch, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -196,62 +205,6 @@ func TestRegisterMountsRoutes(
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
 	assert.False(t, wsHit)
-}
-
-// TestWorkspaceRoutes_ReparentRemoved asserts the standalone reparent route is
-// gone: its git-lineage effect is now reached only through the hierarchy
-// usecase's guarded Reparent, never exposed as its own route.
-func TestWorkspaceRoutes_ReparentRemoved(
-	t *testing.T,
-) {
-	r := gin.New()
-	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
-	workspaces.Register(
-		repoScoped,
-		stubReader{},
-		stubHierarchy{},
-		stubRepos{},
-		stubLastErrors{},
-		stubWork{},
-		nil,
-		nil,
-		nil,
-		nil,
-		func(_ *gin.Context) {},
-		passthrough,
-	)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent", http.NoBody)
-	r.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestWorkspaceRoutes_NoRouteExposesReparent walks every route the workspaces
-// endpoint mounts and asserts none of them is reparent-shaped: the guarded
-// hierarchy.Reparent usecase method has no HTTP surface left at all, not
-// merely a renamed one.
-func TestWorkspaceRoutes_NoRouteExposesReparent(
-	t *testing.T,
-) {
-	r := gin.New()
-	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
-	workspaces.Register(
-		repoScoped,
-		stubReader{},
-		stubHierarchy{},
-		stubRepos{},
-		stubLastErrors{},
-		stubWork{},
-		nil,
-		nil,
-		nil,
-		nil,
-		func(_ *gin.Context) {},
-		passthrough,
-	)
-	for _, route := range r.Routes() {
-		assert.NotContains(t, route.Path, "reparent")
-	}
 }
 
 func (stubReader) SetLock(

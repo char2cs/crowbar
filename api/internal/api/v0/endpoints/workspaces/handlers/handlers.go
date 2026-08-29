@@ -1,6 +1,6 @@
 // Package handlers holds the gin handlers backing the workspaces endpoint: the
 // flat list and detail reads, worktree-backed create and cascade delete, and
-// the hierarchy operations (local merge-into-parent and rebase-onto-parent).
+// the hierarchy operations (local merge-into-parent and reparent).
 package handlers
 
 import (
@@ -74,8 +74,8 @@ type Reader interface {
 }
 
 // Hierarchy is the worktree-orchestration surface the handlers need: create a
-// worktree-backed child, cascade-delete a subtree, and run a local
-// child→parent merge (07).
+// worktree-backed child, cascade-delete a subtree, run a local child→parent
+// merge, and reparent a leaf child onto a new parent (07).
 type Hierarchy interface {
 	CreateChild(
 		ctx context.Context,
@@ -90,6 +90,11 @@ type Hierarchy interface {
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (workspace.MergeResult, error)
+	Reparent(
+		ctx context.Context,
+		childID string,
+		newParentID string,
+	) (domain.Workspace, error)
 	RebaseOntoParent(
 		ctx context.Context,
 		childID string,
