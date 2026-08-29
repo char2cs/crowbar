@@ -160,12 +160,19 @@ type configurableListGetUsecase struct {
 	chats     []domain.Chat
 	listErr   error
 	listWsIDs []string
-	// listChatsCalls counts List's global fallback (Task 17: no :wsId in the
-	// URL), which reuses chats/listErr exactly as ListChatsByWorkspace does.
-	listChatsCalls int
+	// listInRepoIDs records the repo ids List's repo-scoped branch forwarded
+	// (no :wsId in the URL), which reuses chats/listErr exactly as
+	// ListChatsByWorkspace does.
+	listInRepoIDs []string
 
 	chat   domain.Chat
 	getErr error
+
+	// promoted records the chat ids Promote was called with, and promoteErr is
+	// the refusal branch (an already-promoted chat, a bubble with no fork
+	// parent).
+	promoted   []string
+	promoteErr error
 
 	// liveRunners maps a chat id to the runner PLACED on it. A chat ABSENT from
 	// the map is DORMANT, and LiveRunnerForChat answers agentrunner.ErrNotFound —
@@ -230,10 +237,15 @@ func (u *configurableListGetUsecase) ListChatsByWorkspace(
 	return u.chats, nil
 }
 
-func (u *configurableListGetUsecase) ListChats(
+// ListChatsInRepo answers the repo-scoped list. It records the repo ids it was
+// asked for, because the whole point of the route's scoping is WHICH repo the
+// handler forwarded — a fixture that answered the same rows for every repo (as
+// the unscoped ListChats it replaced did) proves nothing about that.
+func (u *configurableListGetUsecase) ListChatsInRepo(
 	_ context.Context,
+	repoID string,
 ) ([]domain.Chat, error) {
-	u.listChatsCalls++
+	u.listInRepoIDs = append(u.listInRepoIDs, repoID)
 	if u.listErr != nil {
 		return nil, u.listErr
 	}
@@ -248,6 +260,22 @@ func (u *configurableListGetUsecase) GetChat(
 		return domain.Chat{}, u.getErr
 	}
 	return u.chat, nil
+}
+
+// Promote answers with the chat the fixture holds, its workspace slot filled by
+// promoted, so a handler test can tell a promotion apart from a plain read.
+func (u *configurableListGetUsecase) Promote(
+	_ context.Context,
+	chatID string,
+) (domain.Chat, error) {
+	if u.promoteErr != nil {
+		return domain.Chat{}, u.promoteErr
+	}
+	u.promoted = append(u.promoted, chatID)
+	out := u.chat
+	out.ID = chatID
+	out.WorkspaceID = "ws-promoted"
+	return out, nil
 }
 
 func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTerminalWait {
@@ -458,18 +486,18 @@ func TestList_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestList_NoPathWorkspace_FallsBackToListChats proves that at the repo-scoped
-// mount (Task 17: no :wsId path param) List reads the GLOBAL chat list rather
-// than ListChatsByWorkspace, and drops the folder-typed rows a real ListChats
-// read would also carry (ListFolders already serves those separately).
-func TestList_NoPathWorkspace_FallsBackToListChats(
+// TestList_NoPathWorkspace_ScopesToTheRepo proves that at the repo-scoped mount
+// (Task 17: no :wsId path param) List reads the chats of the REPO in the URL
+// rather than ListChatsByWorkspace — and that it forwards the :repoId it was
+// given, which is the whole of the scoping. It used to read the daemon-global
+// list here and serve every other repo's chats with it.
+func TestList_NoPathWorkspace_ScopesToTheRepo(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
 		chats: []domain.Chat{
 			{ID: "c1", WorkspaceID: "ws1"},
 			{ID: "c2", WorkspaceID: "ws2"},
-			{ID: "f1", Type: domain.ChatTypeFolder},
 		},
 	}
 	h := newChatHandlers(uc)
@@ -486,16 +514,17 @@ func TestList_NoPathWorkspace_FallsBackToListChats(
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 2, "the folder row must not ride the chats list")
+	require.Len(t, envelope.Data, 2)
 	assert.Equal(t, "c1", envelope.Data[0].ID)
 	assert.Equal(t, "c2", envelope.Data[1].ID)
 
-	assert.Equal(t, 1, uc.listChatsCalls)
+	assert.Equal(t, []string{"r1"}, uc.listInRepoIDs,
+		"the repo in the URL is what the list must be scoped to")
 	assert.Empty(t, uc.listWsIDs, "ListChatsByWorkspace must not run when no workspace is named")
 }
 
-// TestList_NoPathWorkspace_UsecaseError proves a ListChats failure on the
-// global-fallback branch surfaces as a mapped error, same as the
+// TestList_NoPathWorkspace_UsecaseError proves a ListChatsInRepo failure on the
+// repo-scoped branch surfaces as a mapped error, same as the
 // ListChatsByWorkspace branch.
 func TestList_NoPathWorkspace_UsecaseError(
 	t *testing.T,

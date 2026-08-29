@@ -579,12 +579,11 @@ type AgentProviderDTO struct {
 // same feed. It carries no snapshot; the stream is a bare event feed, not a
 // full-state resource stream. WorkspaceID rides along on the wire frame and
 // still scopes the home mount's feed (agentChatDef's wsId Filter, keyed off
-// its injected :wsId); the repo-scoped mount names no workspace in its URL, so
-// that Filter resolves inactive there (ws.BuildPredicate's documented
-// no-scoping-param fallback) and a client subscribed there sees every chat's
-// events unfiltered — a disclosed, pre-existing limitation (no chat row
-// carries its own repo id yet, matching ChatTreeUsecase.ListInRepo's own
-// caveat), not a new one Task 17 introduces.
+// its injected :wsId). The repo-scoped mount names no workspace in its URL, so
+// that Filter resolves inactive there and scopes nothing; what scopes it is
+// RepoID below, against the mount's own :repoId. Before RepoID existed the wsId
+// Filter was this stream's only scoping mechanism and a repo-scoped client
+// received every OTHER repo's chat events too.
 //
 // ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
 // has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
@@ -594,7 +593,18 @@ type AgentProviderDTO struct {
 type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`
-	Kind        string `json:"kind"`
+	// RepoID is the repo the frame's row actually runs in, resolved server-side
+	// from the row's own ground: its workspace when it has one, and — for a
+	// BUBBLE, which has none — the workspace its cwd walk lands on (model spec
+	// §3.2). It is what scopes the repo-scoped mount (agentChatDef's repoId
+	// Filter). It is on the frame because a row's repo is DERIVED, never
+	// stored, so the only place it can be answered is where the walk runs.
+	//
+	// EMPTY means "this row has no repo to be held to" — a folder row, or a
+	// bubble whose ancestry owns no workspace — and such a frame reaches every
+	// subscriber rather than none (see matchRepoOrUnscoped).
+	RepoID string `json:"repoId,omitempty"`
+	Kind   string `json:"kind"`
 	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
 	// the agent-RUNNER kinds (started/session_bound/moved/exited — see
 	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather

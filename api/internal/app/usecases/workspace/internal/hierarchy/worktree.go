@@ -1426,6 +1426,14 @@ func subtreeWorkspaceIDs(
 	return cascade.Plan(rootID, nodes)
 }
 
+// DeleteCascade erases rootID and every workspace below it. It refuses a
+// LOCKED root, and — by the same guardNotWorking Task 16 gave guardReparent —
+// a subtree that owns a currently-working chat (invariant 5/9: a move and a
+// delete take the same set, and neither may take a working row). Without that
+// second guard this verb was invariant 9's own bypass: it is what the live
+// DELETE .../workspaces/:wsId route and merge --deleteSource call, so a
+// subtree the Chats panel's delete would refuse could be erased whole through
+// the workspace door instead.
 func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,
@@ -1441,6 +1449,9 @@ func (u *hierarchyUsecase) DeleteCascade(
 	}
 	if root.Status == domain.WorkspaceStatusLocked {
 		return ErrWorkspaceLocked
+	}
+	if workingErr := u.guardNotWorking(ctx, rootID); workingErr != nil {
+		return workingErr
 	}
 	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {

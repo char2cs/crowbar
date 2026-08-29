@@ -116,6 +116,71 @@ func TestPromote_CreateWorkspaceFailure_AbortsBeforeSettingTheWorkspace(t *testi
 	assert.Empty(t, chat.WorkspaceID, "a failed create must leave the chat exactly as it was")
 }
 
+// TestPromote_SetWorkspaceFailure_DiscardsTheOrphanedWorkspace pins the first
+// of the two compensations. The workspace is minted BEFORE the row that would
+// own it, so a failure between the two leaves a real worktree on disk that no
+// row points at — unreachable from the sidebar forever, since the only way to
+// reach a workspace is through the row that owns it.
+//
+// It is taken back out rather than logged, matching tree.Create's discardFolder
+// and chats.go's CreateChat→discard: the failure the caller is told about is
+// always the one that actually happened, and the half-made thing goes.
+func TestPromote_SetWorkspaceFailure_DiscardsTheOrphanedWorkspace(t *testing.T) {
+	f, chats, _ := newFaultFixture(t)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+	chats.failSetWorkspace = errPromoteBoom
+
+	_, err := f.usecase.Promote(f.ctx, bubbleID)
+
+	require.ErrorIs(t, err, errPromoteBoom, "the caller is told the failure that happened")
+	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
+		"the workspace nothing came to own must be taken back out")
+	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID, "and the chat is the bubble it was")
+}
+
+// TestPromote_RespawnFailure_RollsTheWholePromotionBack pins the second. A
+// respawn that fails leaves the chat pointing at a brand-new worktree with no
+// CLI in it and no way to finish the move: Promote refuses an already-promoted
+// chat (ErrAlreadyPromoted), so a retry is impossible and the user is stuck
+// with a half-promoted row.
+//
+// Rolling back — clear the slot, then discard the workspace — puts the world
+// exactly where it was, which is discard's own philosophy: the retry the user
+// will make is the same call they just made.
+func TestPromote_RespawnFailure_RollsTheWholePromotionBack(t *testing.T) {
+	f := newFixture(t)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+	f.wait()
+	f.term.terminateErr = errors.New("boom: the outgoing CLI would not die")
+
+	_, err := f.usecase.Promote(f.ctx, bubbleID)
+
+	require.Error(t, err)
+	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID,
+		"a chat that could not be respawned is a bubble again, and Promote can be retried")
+	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
+		"the workspace the failed promotion made must not survive it")
+}
+
+// TestPromote_RespawnFailure_KeepsTheWorkspaceWhenTheSlotWillNotClear is the
+// ordering that makes the rollback safe rather than destructive: the workspace
+// is discarded only AFTER the row has stopped pointing at it. A clear that
+// fails must therefore leave the worktree exactly where it is — deleting it
+// under a row that still owns it would turn a failed promotion into a chat
+// anchored to a worktree that no longer exists.
+func TestPromote_RespawnFailure_KeepsTheWorkspaceWhenTheSlotWillNotClear(t *testing.T) {
+	f, chats, _ := newFaultFixture(t)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+	f.term.terminateErr = errors.New("boom: the outgoing CLI would not die")
+	chats.failClearWorkspace = errPromoteBoom
+
+	_, err := f.usecase.Promote(f.ctx, bubbleID)
+
+	require.Error(t, err)
+	assert.Empty(t, f.wt.discards(),
+		"a workspace a row still points at must never be deleted out from under it")
+}
+
 // TestPromote_AppendsThePromotionNote proves the model spec §4.2 ledger note:
 // appended AFTER the respawn, into the chat's own conversation, following the
 // same "[Crowbar] ..." convention lineageNoteText uses for a lineage change.

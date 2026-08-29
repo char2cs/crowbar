@@ -31,6 +31,35 @@ import (
 
 // ─── from switch_test.go ──────────────────────────────────────────────
 
+// TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble proves the
+// LAST call site that still resolved a cwd straight off chat.WorkspaceID. Its
+// preflight (switch.go) reads WorktreeDir before anything is torn down, to
+// resolve the incoming provider's descriptor — and for a bubble that read went
+// out with the empty id.
+//
+// It matters more now than when Task 22 fixed the spawn path: Promote respawns
+// through SwitchProvider, and a bubble is the only kind of chat Promote can be
+// called on at all, so this is on the promotion path by construction.
+//
+// The assertion is on worktreeDirIDs rather than lastWorkspaceID: the switch
+// resolves a cwd twice (this preflight, then the spawn), so the LAST id is
+// "ws1" whether or not the preflight was fixed. Only the whole call list tells
+// them apart, and fakeWorkspace answers "" as happily as any real id — which is
+// exactly how this survived a green suite.
+func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+	f.ws.worktreeDirIDs = nil
+
+	_, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NotEmpty(t, f.ws.worktreeDirIDs)
+	assert.NotContains(t, f.ws.worktreeDirIDs, "",
+		"every cwd a bubble's switch resolves must come from its workspace-owning ancestor")
+}
+
 func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) {
 	f := newFixture(t)
 

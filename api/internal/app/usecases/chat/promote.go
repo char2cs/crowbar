@@ -25,6 +25,16 @@ type WorktreeCreator interface {
 		ctx context.Context,
 		forkParentID string,
 	) (domain.Workspace, error)
+	// DiscardChildWorkspace takes a workspace CreateChildWorkspace has just
+	// minted back out, for a promotion that then failed. It is the compensating
+	// half of the verb above and belongs on the same port for that reason: the
+	// workspace exists before the row that would own it does, and the only way
+	// to reach a workspace is through that row, so a promotion abandoned in
+	// between leaves a real worktree on disk that nothing can ever name again.
+	DiscardChildWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) error
 }
 
 // ErrNoForkParent is returned when chatID has no ancestor carrying a
@@ -78,10 +88,12 @@ func (u *Usecase) Promote(
 		return domain.Chat{}, fmt.Errorf("promote: create workspace: %w", err)
 	}
 	if _, err := u.chats.SetWorkspace(ctx, chatID, ws.ID); err != nil {
-		return domain.Chat{}, fmt.Errorf("promote: set workspace: %w", err)
+		return domain.Chat{}, u.unpromote(ctx, chatID, ws.ID, false,
+			fmt.Errorf("promote: set workspace: %w", err))
 	}
 	if _, err := u.runners.SwitchProvider(ctx, chatID, providerID); err != nil {
-		return domain.Chat{}, fmt.Errorf("promote: respawn: %w", err)
+		return domain.Chat{}, u.unpromote(ctx, chatID, ws.ID, true,
+			fmt.Errorf("promote: respawn: %w", err))
 	}
 	// Best-effort, and deliberately AFTER the respawn: the incoming CLI's own
 	// handoff is assembled from the ledger as it stood BEFORE this note exists
@@ -92,6 +104,45 @@ func (u *Usecase) Promote(
 			"chat_id", chatID, "err", err)
 	}
 	return u.GetChat(ctx, chatID)
+}
+
+// unpromote takes a half-finished promotion back out and hands back the failure
+// that caused it, the same shape tree.Create's discardFolder and CreateChat's
+// discard already use for a create that failed after minting something.
+//
+// It rolls the WHOLE promotion back rather than leaving a chat sitting on a
+// worktree with no CLI in it: Promote refuses a chat that already has a
+// workspace (ErrAlreadyPromoted), so a half-promoted row cannot be retried —
+// the user would be stuck with it. Undoing both steps leaves the retry they
+// will make the same call they just made.
+//
+// slotFilled says whether the row was ever pointed at the workspace, and the
+// ORDER it forces is what makes this safe: the workspace is discarded only once
+// nothing owns it. A clear that fails therefore keeps the worktree, because
+// deleting it under a row that still names it would turn a failed promotion
+// into a chat anchored to a directory that is gone.
+//
+// Every step is best-effort and none of them replaces the cause. What failed is
+// the promotion, and that is what the caller is told.
+func (u *Usecase) unpromote(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+	slotFilled bool,
+	cause error,
+) error {
+	if slotFilled {
+		if _, err := u.chats.SetWorkspace(ctx, chatID, ""); err != nil {
+			slog.WarnContext(ctx, "agent: promote: roll back the workspace slot",
+				"chat_id", chatID, "workspace_id", workspaceID, "err", err)
+			return cause
+		}
+	}
+	if err := u.worktree.DiscardChildWorkspace(ctx, workspaceID); err != nil {
+		slog.WarnContext(ctx, "agent: promote: discard the workspace nothing came to own",
+			"chat_id", chatID, "workspace_id", workspaceID, "err", err)
+	}
+	return cause
 }
 
 // currentProviderID answers "the same provider" step 3 respawns as: whichever

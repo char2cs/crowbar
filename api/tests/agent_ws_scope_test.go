@@ -112,11 +112,12 @@ func TestAgentWS_HomeMountIsolation(t *testing.T) {
 // TestAgentWS_RepoScopedSpansEveryWorkspace proves the repo-scoped mount's WS
 // is deliberately NOT scoped per workspace after Task 17: the route carries no
 // :wsId path segment, so agentChatDef's wsId Filter has no value anywhere to
-// resolve and degrades to "matches everything" — the same behaviour
-// ws/filter_test.go's TestBuildPredicate_DeclaredFilterWithNoValueAnywhere-
-// MatchesAll pins at the unit level, exercised here end to end. ONE subscriber
-// of a repo's feed therefore sees a "created" frame for a chat born in EITHER
-// of that repo's own workspaces.
+// resolve and scopes nothing. What DOES scope the mount is the stream's
+// hierarchical namespace (projectId/repoId/workspaceId), prefix-matched against
+// the subscription's own projectId/repoId — so ONE subscriber of a repo's feed
+// sees a "created" frame for a chat born in EITHER of that repo's own
+// workspaces, and (TestAgentWS_RepoScopedNeverCarriesAnotherReposChats) none at
+// all from another repo.
 //
 // This replaces the isolation TestAgentWS_WorkspaceIsolation used to pin at
 // this exact mount before the rescope: the model spec's own §5.1 relaxation
@@ -155,4 +156,53 @@ func TestAgentWS_RepoScopedSpansEveryWorkspace(t *testing.T) {
 	require.NotEmpty(t, chatOther.ID)
 
 	waitForChatFrame(t, frames, chatOther.ID, "created")
+}
+
+// TestAgentWS_RepoScopedNeverCarriesAnotherReposChats is the negative half of
+// the test above, and the regression guard for the bug the two of them
+// together describe: while agentChatDef was FlatNamespace, the repo mount's
+// only scoping mechanism was a wsId Filter that resolves INACTIVE there, so a
+// repo-scoped subscriber received every OTHER repo's chat events too.
+//
+// It is structured exactly like TestAgentWS_HomeMountIsolation, and for the
+// same reason: repo B's chat is created FIRST and its own connection is
+// required to observe the frame, so the event is proved to have fired and
+// reached the WS layer. Only then is A's chat created, so if the scoping were
+// broken the first frame A's channel delivers would be B's — which makes
+// "the frame A received is A's" a real proof of isolation rather than a proof
+// that A eventually gets its own.
+func TestAgentWS_RepoScopedNeverCarriesAnotherReposChats(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+
+	repoA := importProject(t, h)
+	repoB := importProject(t, h)
+
+	framesA := dialAgentWS(t, h, repoBase(repoA)+"/chats/ws")
+	framesB := dialAgentWS(t, h, repoBase(repoB)+"/chats/ws")
+
+	var chatB struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(repoB)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": repoB.workspaceID},
+		http.StatusCreated, &chatB)
+	require.NotEmpty(t, chatB.ID)
+	waitForChatFrame(t, framesB, chatB.ID, "created")
+
+	var chatA struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(repoA)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": repoA.workspaceID},
+		http.StatusCreated, &chatA)
+	require.NotEmpty(t, chatA.ID)
+
+	select {
+	case f := <-framesA:
+		assert.Equal(t, chatA.ID, f["chatId"],
+			"a repo-scoped subscriber must never receive another repo's chat frames")
+	case <-t.Context().Done():
+		t.Fatal("timed out waiting for repo A's own frame")
+	}
 }

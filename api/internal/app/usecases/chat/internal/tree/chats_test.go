@@ -14,6 +14,62 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// TestDeleteChat_RefusesAFolderID pins the asymmetry this package's own doc
+// calls "the whole domain rule": deleting a CHAT cascades into its threads,
+// deleting a FOLDER promotes what it held. A folder id routed through the CHAT
+// verb — legal at the repo-scoped mount, where :wsId is absent and the
+// workspace comparison no longer separates the two — used to run the cascade,
+// erasing every chat filed in that folder. It is now refused as not-found,
+// mirroring plan.go's load() refusing a chat id through the FOLDER verb.
+func TestDeleteChat_RefusesAFolderID(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "spikes", "")
+	seedThread(chats, "c1", "spikes", 1)
+
+	_, err := uc.DeleteChat(context.Background(), "spikes")
+
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.Empty(t, chats.Purged, "a folder id must never reach the chat cascade")
+}
+
+// TestPlaceChat_RefusesAFolderID is the same guard on the placement half: a
+// folder moves through Move, which densifies its own level and broadcasts a
+// folder frame; PlaceChat would move it as a chat and announce nothing.
+func TestPlaceChat_RefusesAFolderID(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "spikes", "")
+	seedFolder(chats, "ideas", "")
+
+	_, _, err := uc.PlaceChat(context.Background(), "", "spikes", tree.PlaceInput{ParentID: name("ideas")})
+
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.Equal(t, "", folderRow(t, chats, "spikes").ParentID, "nothing may have moved")
+}
+
+// TestPlaceChat_ABubbleDoesNotSeeEveryFolderTwice pins the snapshot a BUBBLE
+// (WorkspaceID == "") plans against. workspaceSnapshotAround reads
+// ListByWorkspace and then appends every folder from ListChats, because a
+// folder carries no workspace of its own and would otherwise be missing from
+// the level a chat is densifying. For workspaceID == "" that first read ALREADY
+// returns every folder — they match the empty workspace exactly — so every
+// folder arrived twice and the plan counted a sibling space with twice the
+// rows it has. NextSlot is where that surfaces: the bubble lands past the end
+// of a level it should have joined at index 2.
+func TestPlaceChat_ABubbleDoesNotSeeEveryFolderTwice(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "f1", "")
+	seedFolder(chats, "f2", "")
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID: "b1", Type: domain.ChatTypeChat, ParentID: "f1",
+	})
+
+	_, _, err := uc.PlaceChat(context.Background(), "", "b1", tree.PlaceInput{ParentID: name("")})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, chatRow(t, chats, "b1").Order,
+		"the root holds two folders, so a bubble joining it takes slot 2")
+}
+
 // A chat with nowhere in particular to go takes the unplaced spawn, untouched.
 // There is no edge to write, so there is no gap to open between minting and
 // starting, and a plain new chat must be created in exactly the order it always

@@ -9,12 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Reparent projects the sidebar forest's fork-parent walk
-// (usecases/chat/internal/tree.ForkParentID) onto the workspace aggregate and
-// records the new fork point (07 §4). It is invoked as internal machinery by
-// the chat-side move, after that move has already recomputed the fork parent —
-// never as a directly authored write. The leaf-guard lives in the usecase; the
-// command only mutates fields.
+// Reparent writes a new fork parent and fork point onto the workspace
+// aggregate (07 §4). It IS a directly authored write: the live
+// POST .../workspaces/:wsId/reparent route reaches it through
+// hierarchy.Reparent, and RebaseOntoParent re-runs it for the same child. The
+// chat-side move does NOT: tree.Move and tree.PlaceChat write
+// domain.Chat.ParentID alone and never touch domain.Workspace.ParentID, so a
+// sidebar drag is organisation and this command is git lineage. The
+// leaf-guard lives in the usecase; the command only mutates fields.
 type Reparent struct {
 	ID              string
 	NewForkParentID string

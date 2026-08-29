@@ -72,16 +72,16 @@ func (h *Handlers) Create(
 // provider glyphs and attach a pane without a second round trip per row.
 //
 // A request that still names a workspace (the home mount's injected :wsId)
-// scopes to it exactly as before. Otherwise the repo boundary is not yet
-// enforced — the same disclosed limitation ChatTreeUsecase.ListInRepo already
-// carries for folders (no chat row carries its own repo id yet) — so every
-// conversation-typed row the daemon knows is returned.
+// scopes to it exactly as before. Otherwise it scopes to the REPO in the URL:
+// each row's owning workspace is resolved through the cwd walk and its repo
+// compared against :repoId, so a bubble is listed under the repo it actually
+// runs in and no chat from another repo is served at all.
 func (h *Handlers) List(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	chats, err := h.listChats(rctx, ctx.Param("wsId"))
+	chats, err := h.listChats(rctx, ctx.Param("wsId"), ctx.Param("repoId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -103,36 +103,27 @@ func (h *Handlers) List(
 }
 
 // listChats backs List: wsID scopes to ListChatsByWorkspace when the request
-// still names a workspace (the home mount's injected :wsId), otherwise it
-// falls back to the global ListChats, narrowed to conversations.
+// still names a workspace (the home mount's injected :wsId), otherwise repoID
+// scopes to ListChatsInRepo — the walk that resolves each row's owning
+// workspace and compares its repo against the one in the URL.
+//
+// A request naming NEITHER cannot happen on any mounted route (the repo group
+// always binds :repoId, the home group always injects :wsId), and is answered
+// with nothing rather than with every chat the daemon knows: an unscoped list
+// is what this route used to serve by accident, and it is not a scope any
+// caller should be able to ask for.
 func (h *Handlers) listChats(
 	ctx context.Context,
 	wsID string,
+	repoID string,
 ) ([]domain.Chat, error) {
 	if wsID != "" {
 		return h.chats.ListChatsByWorkspace(ctx, wsID)
 	}
-	all, err := h.chats.ListChats(ctx)
-	if err != nil {
-		return nil, err
+	if repoID == "" {
+		return nil, nil
 	}
-	return onlyConversations(all), nil
-}
-
-// onlyConversations narrows a global chat list to real conversations, dropping
-// the folder-typed rows List's own repo-scoped ListFolders already serves.
-// Branch/workflow rows pass through unfiltered, matching ListChatsByWorkspace's
-// existing behaviour (it forwards its store read raw).
-func onlyConversations(
-	rows []domain.Chat,
-) []domain.Chat {
-	out := make([]domain.Chat, 0, len(rows))
-	for _, row := range rows {
-		if row.Type != domain.ChatTypeFolder {
-			out = append(out, row)
-		}
-	}
-	return out
+	return h.chats.ListChatsInRepo(ctx, repoID)
 }
 
 // Get handles GET .../repos/:repoId/chats/:id, returning the chat with its
@@ -275,6 +266,47 @@ func (h *Handlers) Rename(
 		return
 	}
 	libs.WriteAccepted(ctx)
+}
+
+// Promote handles POST .../repos/:repoId/chats/:id/promote: fills a bubble's
+// empty workspace slot with a worktree forked from its resolved fork parent and
+// respawns its current provider there (model spec §4.2, wire contract §5.1).
+//
+// It responds with the promoted chat itself rather than an Accepted, because
+// the one thing the caller asked about — which workspace the row now owns — is
+// only knowable from the answer: the workspace is minted server-side, and the
+// row's own walks (ownsWorktree, workspaceId) change with it.
+//
+// It is a POST on the chat and not a PATCH of its workspaceId for the reason
+// the model spec gives promotion its own verb: this is not a field write. It
+// cuts a branch, adds a worktree, tears the running CLI down and brings a new
+// one up in the new directory — and it is one-way (§4.2, "a worktree is never
+// demoted"). 404s (via requireChatInWorkspace) on an unknown id; 409s on a
+// chat that already has one.
+func (h *Handlers) Promote(
+	ctx *gin.Context,
+) {
+	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+
+	promoted, err := h.chats.Promote(ctx.Request.Context(), id)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	rt, err := h.chatRuntime(ctx.Request.Context(), promoted.ID)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(promoted, rt))
 }
 
 // SetSelection handles PATCH .../repos/:repoId/chats/:id/selection:

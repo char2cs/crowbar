@@ -202,31 +202,46 @@ func TestContainer_PushFile_ReachesFilteredClient(t *testing.T) {
 }
 
 // TestContainer_PushAgentChat_ReachesFilteredClient proves PushAgentChat
-// reaches only subscribers of the agent-chat WebSocket whose :wsId matches
-// the frame's workspace (Task 3), mirroring
-// TestContainer_PushGit_ReachesFilteredClient's proof shape for gitDef.
+// reaches only subscribers whose subscription the frame's namespace falls
+// under, at the mount the routes actually carry today: the REPO-scoped
+// .../repos/:repoId/chats/ws, which binds no :wsId at all.
+//
+// It used to dial a workspace-scoped chat route Task 17 retired, and to lean on
+// agentChatDef's wsId Filter for the scoping. That Filter resolves inactive
+// where there is no :wsId, which is exactly why the stream has a repoId Filter
+// now — a repo-scoped subscriber is held to its own repo and a chat in ANOTHER
+// repo cannot reach it.
+//
+// The two workspaces are seeded for real, because the frame's repo is resolved
+// from the workspace record: a frame naming a workspace nothing can resolve has
+// no repo to be held to and reaches EVERY subscriber, which would make an
+// unseeded fixture prove the isolation backwards.
 func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "A", "p1", "r1", "", "")
+	seedWorkspace(t, a, "B", "p1", "r2", "", "")
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		"/v0/projects/:projectId/repos/:repoId/chats/ws",
 		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/chats/ws")
 	c.agentChats.WaitRegistered()
 
-	c.PushAgentChat("chat-in-b", "B", "bound", false)
+	c.PushAgentChat("chat-in-r2", "B", "bound", false)
 	c.PushAgentChat("chat-1", "A", "bound", false)
 
 	got := readJSON(t, conn)
-	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "chat-1", got["chatId"],
+		"a repo-scoped subscriber must never receive another repo's chat frames")
 	assert.Equal(t, "A", got["workspaceId"])
 	assert.Equal(t, "bound", got["kind"])
+	assert.Equal(t, "r1", got["repoId"])
 }
 
 // TestScopeWsID_PrefersPathThenQuery proves scopeWsID reads the :wsId path

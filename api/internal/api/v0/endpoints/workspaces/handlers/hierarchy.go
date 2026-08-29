@@ -245,13 +245,6 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 	return true, nil
 }
 
-// Reparent handles
-// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent. It
-// validates synchronously (body shape, newParentId present, workspace exists)
-// returning 4xx on failure; then it returns 202 and rebases the leaf child onto
-// the new parent in the background. The reparented workspace is delivered on the
-// workspace WebSocket stream via the repository's broadcast callback; a failure
-// surfaces as LastError on the entity (00 §4).
 // RebaseOntoParent handles
 // POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/rebase-onto-parent.
 // It is the user-initiated "finish the move" for a moved-but-conflicting child:
@@ -280,6 +273,13 @@ func (h *Handlers) RebaseOntoParent(
 	)
 }
 
+// Reparent handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent. It
+// validates synchronously (body shape, newParentId present, workspace exists)
+// returning 4xx on failure; then it returns 202 and rebases the leaf child onto
+// the new parent in the background. The reparented workspace is delivered on the
+// workspace WebSocket stream via the repository's broadcast callback; a failure
+// surfaces as LastError on the entity (00 §4).
 func (h *Handlers) Reparent(
 	c *gin.Context,
 ) {

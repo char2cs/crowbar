@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -157,6 +158,11 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
+// DeleteChat erases chatID and every chat threaded below it. A FOLDER id is
+// refused as not-found rather than served: the folder verb PROMOTES what it
+// held and this one CASCADES into it, so accepting a folder here would erase
+// every chat filed inside one on a route that only ever meant to delete a
+// conversation. See loadChat's own doc for the other half of the same guard.
 func (u *chatFolderUsecase) DeleteChat(
 	ctx context.Context,
 	chatID string,
@@ -164,6 +170,9 @@ func (u *chatFolderUsecase) DeleteChat(
 	current, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return ChatDeletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", chatID, err)
+	}
+	if current.Type == domain.ChatTypeFolder {
+		return ChatDeletion{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
 	}
 	snapshot, err := u.workspaceSnapshotAround(ctx, current.WorkspaceID, current)
 	if err != nil {

@@ -54,6 +54,12 @@ import (
 // writes something different in kind: a chat's parent IS its context lineage, so
 // this endpoint can turn a standalone chat into a thread of another and back.
 //
+// .../chats/:id/promote is the model spec's §4.2 verb: a bubble fills its empty
+// workspace slot and keeps everything else about itself. It is a POST rather
+// than a field on some PATCH because it is not a field write — it cuts a
+// branch, adds a worktree and respawns the CLI in it — and because it is
+// one-way: a worktree is never demoted, so there is no opposite value to send.
+//
 // .../chats/:id/delete-preview is DELETE's dry run: what an idle delete's
 // confirm dialog names before the user commits to it. id may be a chat or a
 // folder, and a folder's subtree can span more than one independent
@@ -103,6 +109,7 @@ func Register(
 	repoScoped.PATCH("/chats/:id/selection", h.SetSelection)
 	repoScoped.GET("/chats/:id/handoff", h.Handoff)
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
+	repoScoped.POST("/chats/:id/promote", h.Promote)
 	repoScoped.DELETE("/chats/:id", h.Delete)
 	repoScoped.GET("/chats/:id/delete-preview", h.DeletePreview)
 	repoScoped.GET("/chats/folders", h.ListFolders)

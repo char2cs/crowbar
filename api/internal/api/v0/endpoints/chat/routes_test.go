@@ -146,8 +146,9 @@ func (stubUsecase) ListChatsByWorkspace(
 	return nil, nil
 }
 
-func (stubUsecase) ListChats(
+func (stubUsecase) ListChatsInRepo(
 	_ context.Context,
+	_ string,
 ) ([]domain.Chat, error) {
 	return nil, nil
 }
@@ -287,6 +288,13 @@ func (stubUsecase) PurgeChat(
 	_ string,
 ) error {
 	return nil
+}
+
+func (stubUsecase) Promote(
+	_ context.Context,
+	chatID string,
+) (domain.Chat, error) {
+	return domain.Chat{ID: chatID, WorkspaceID: "ws-promoted"}, nil
 }
 
 func (stubUsecase) ResolveProviders(

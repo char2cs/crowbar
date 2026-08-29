@@ -137,12 +137,8 @@ func TestFilesDef_Lambdas(t *testing.T) {
 
 func TestAgentChatDef_Lambdas(t *testing.T) {
 	def := agentChatDef()
-	evt := dto.AgentChatEvent{ChatID: "c1", WorkspaceID: "w1", Kind: "bound"}
+	evt := dto.AgentChatEvent{ChatID: "c1", WorkspaceID: "w1", RepoID: "r1", Kind: "bound"}
 
-	// Scoped by workspace (Task 3), mirroring gitDef/filesDef: the namespace is
-	// the bare wsId and FlatNamespace opts out of the hierarchical
-	// projectId/repoId/wsId prefix-match, leaving the explicit Filter below as
-	// the sole scoping mechanism.
 	assert.Equal(t, "w1", def.Namespace(evt))
 	assert.True(t, def.FlatNamespace)
 
@@ -151,12 +147,33 @@ func TestAgentChatDef_Lambdas(t *testing.T) {
 	assert.Contains(t, string(data), "c1")
 	assert.Contains(t, string(data), "bound")
 
-	require.Len(t, def.Filters, 1)
+	// TWO filters: wsId narrows the HOME mount (RequireHomeWorkspace injects a
+	// :wsId for it to resolve), and repoId narrows the REPO mount, which binds
+	// no :wsId at all and was therefore scoped by nothing before repoId existed.
+	require.Len(t, def.Filters, 2)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "repoId", def.Filters[1].Param)
+	assert.Equal(t, "r1", def.Filters[1].Extract(evt))
 
 	// No snapshot: a freshly-connected client waits for the next lifecycle
 	// event rather than replaying a "current state".
 	assert.Nil(t, def.Snapshot(""))
+}
+
+// TestMatchRepoOrUnscoped_HoldsAKnownRepoAndLetsAnUnknownOneThrough pins the
+// asymmetry the repoId filter turns on, and the reason it is not ws.ExactMatch.
+//
+// A frame that KNOWS its repo is held to exactly that repo — that is the whole
+// fix. A frame that CANNOT know it reaches everyone, because half the rows on
+// this feed have no repo to be held to: a FOLDER carries neither a workspace
+// nor a repo id, and so does a bubble whose ancestry owns no workspace.
+// ExactMatch would drop those frames from every repo-scoped subscriber, which
+// silently kills the live folder feed the Chats panel repaints from.
+func TestMatchRepoOrUnscoped_HoldsAKnownRepoAndLetsAnUnknownOneThrough(t *testing.T) {
+	assert.True(t, matchRepoOrUnscoped("r1", "r1"), "a frame from this repo is delivered")
+	assert.False(t, matchRepoOrUnscoped("r1", "r2"), "a frame from another repo is not")
+	assert.True(t, matchRepoOrUnscoped("r1", ""), "a frame with no repo to be held to reaches everyone")
 }
 
 func TestLSPDef_Lambdas(t *testing.T) {

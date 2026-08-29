@@ -25,13 +25,15 @@ type ChatUsecase interface {
 		workspaceID string,
 	) ([]domain.Chat, error)
 
-	// ListChats returns every row the daemon knows, across every workspace and
-	// repo — List's fallback once a request no longer names a workspace (Task
-	// 17). It carries the same "repo boundary not yet enforced" limitation
-	// ChatTreeUsecase.ListInRepo already discloses for folders: a chat with no
-	// resolvable workspace in this repo is returned anyway rather than dropped.
-	ListChats(
+	// ListChatsInRepo returns every conversation-typed row whose cwd walk lands
+	// on a workspace in repoID — what List answers once a request no longer
+	// names a workspace (Task 17), and the enforcement of the repo boundary
+	// that fallback originally went without. A row with no resolvable workspace
+	// anywhere in its ancestry belongs to no repo, so it is dropped rather than
+	// returned into whichever repo happened to ask.
+	ListChatsInRepo(
 		ctx context.Context,
+		repoID string,
 	) ([]domain.Chat, error)
 
 	GetChat(
@@ -66,6 +68,18 @@ type ChatUsecase interface {
 		ctx context.Context,
 		chatID, model, effort string,
 	) error
+
+	// Promote fills a bubble's empty workspace slot: a worktree forked from the
+	// chat's resolved fork parent, with its current provider respawned into it
+	// (model spec §4.2). The chat keeps its id, title, placement and every turn
+	// it has taken. It refuses a chat that already has a workspace
+	// (ErrAlreadyPromoted), one with no workspace-owning ancestor to fork from
+	// (ErrNoForkParent), and one that has never had a provider to respawn as
+	// (ErrNothingToPromote).
+	Promote(
+		ctx context.Context,
+		chatID string,
+	) (domain.Chat, error)
 
 	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
 	// vendor CLI that was pointed at it. The chat is fully erased — gone from every

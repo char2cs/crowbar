@@ -24,13 +24,16 @@ type Workspace struct {
 	Branch       string `json:"branch"`
 	WorktreePath string `json:"worktreePath"`
 	ForkPointSha string `json:"forkPointSha"`
-	// ParentID is the fork parent's workspace id — never authored directly. It is
-	// a maintained PROJECTION of the sidebar forest's fork-parent walk
-	// (usecases/chat/internal/tree.ForkParentID), recomputed onto this field
-	// whenever the chat aggregate's own placement changes (see the workspace
-	// repository's Reparent command). The three consumers that resolve it back to
-	// a workspace — merge eligibility, the diff base, the reparent leaf guard —
-	// read it exactly as before; only how it gets WRITTEN changed.
+	// ParentID is the fork parent's workspace id. It is written at CREATION —
+	// where it is resolved once from the sidebar forest's fork-parent walk
+	// (usecases/chat/internal/tree.ForkParentID) — and afterwards only by the
+	// explicit git-lineage reparent route (POST .../workspaces/:wsId/reparent,
+	// the workspace repository's Reparent command, which RebaseOntoParent shares).
+	// It is NOT re-projected when a row moves in the chat tree: tree.Move and
+	// tree.PlaceChat write domain.Chat.ParentID and nothing else, so a sidebar
+	// drag changes organisation without changing git lineage. The three consumers
+	// that resolve it back to a workspace — merge eligibility, the diff base, the
+	// reparent leaf guard — read it exactly as they always have.
 	ParentID       string                  `json:"parentId,omitempty"`
 	Status         WorkspaceStatus         `json:"status,omitempty"`
 	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`

@@ -140,6 +140,10 @@ type fakeAgentUsecase struct {
 	purgeCalls []string
 	purgeErr   error
 
+	promoteCalls        []string
+	promoteErr          error
+	promotedWorkspaceID string
+
 	resolveProviders []domain.AgentProvider
 	resolveErr       error
 
@@ -267,8 +271,9 @@ func (f *fakeAgentUsecase) ListChatsByWorkspace(
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) ListChats(
+func (f *fakeAgentUsecase) ListChatsInRepo(
 	_ context.Context,
+	_ string,
 ) ([]domain.Chat, error) {
 	return nil, nil
 }
@@ -438,6 +443,17 @@ func (f *fakeAgentUsecase) PurgeChat(
 ) error {
 	f.purgeCalls = append(f.purgeCalls, chatID)
 	return f.purgeErr
+}
+
+func (f *fakeAgentUsecase) Promote(
+	_ context.Context,
+	chatID string,
+) (domain.Chat, error) {
+	f.promoteCalls = append(f.promoteCalls, chatID)
+	if f.promoteErr != nil {
+		return domain.Chat{}, f.promoteErr
+	}
+	return domain.Chat{ID: chatID, WorkspaceID: f.promotedWorkspaceID}, nil
 }
 
 func (f *fakeAgentUsecase) ResolveProviders(

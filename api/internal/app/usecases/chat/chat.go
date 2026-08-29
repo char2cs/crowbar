@@ -17,9 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -73,6 +71,20 @@ type ChatUsecase interface {
 		ctx context.Context,
 		workspaceID string,
 	) ([]domain.Chat, error)
+
+	// ListChatsInRepo returns every conversation-typed row whose cwd walk lands
+	// on a workspace in repoID — see repo_scope.go.
+	ListChatsInRepo(
+		ctx context.Context,
+		repoID string,
+	) ([]domain.Chat, error)
+
+	// CwdWorkspaceID answers where a row's CLI runs: the workspace of the
+	// nearest ancestor-or-self carrying one — see repo_scope.go.
+	CwdWorkspaceID(
+		ctx context.Context,
+		chatID string,
+	) (string, bool, error)
 
 	// GetChat reads one chat aggregate.
 	GetChat(
@@ -374,22 +386,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.runners.SetTurns(u.turns)
 }
 
-// cwdResolver adapts the chat repository to runner.AncestorCwd over
-// tree.ResolveCwdWorkspaceID, so the runner component can resolve a bubble's
-// cwd without importing internal/tree directly — the two are peers
-// (aliases_test.go's layering rule), and this package is where they may both
-// be named.
-type cwdResolver struct {
-	chats agentchat.EventStore
-}
-
-func (r cwdResolver) ResolveCwdWorkspaceID(
-	ctx context.Context,
-	chatID string,
-) (string, bool, error) {
-	return tree.ResolveCwdWorkspaceID(ctx, r.chats, chatID)
-}
-
 // The chat record. A chat exists, and is readable, whether or not a CLI has ever
 // run on it — everything here is answerable with no runner in sight.
 
@@ -500,19 +496,4 @@ func (u *Usecase) Ancestors(
 	chatID string,
 ) ([]string, error) {
 	return u.conversations.Ancestors(ctx, chatID)
-}
-
-// RemoveUnderHome deletes target only when it is strictly under crowbar home,
-// and never fails the caller.
-//
-// It is exported because the workspace-delete cascade reaps a chat's on-disk
-// footprint from the app layer, off the same path resolution and the same guard
-// PurgeChat uses — reimplementing either there is how a delete ends up pointed at
-// the user's real repository.
-func RemoveUnderHome(
-	ctx context.Context,
-	home string,
-	target string,
-) {
-	worktreepath.RemoveUnderHome(ctx, home, target)
 }

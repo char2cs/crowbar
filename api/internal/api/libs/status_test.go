@@ -110,6 +110,31 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
+			name:   "cross repo worktree move",
+			err:    workspace.ErrCrossRepoWorktreeMove,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "workspace working",
+			err:    workspace.ErrWorkspaceWorking,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "chat already promoted",
+			err:    agentusecase.ErrAlreadyPromoted,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "chat has no fork parent",
+			err:    agentusecase.ErrNoForkParent,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "chat has no provider to promote with",
+			err:    agentusecase.ErrNothingToPromote,
+			status: http.StatusConflict,
+		},
+		{
 			name:   "unified tree cycle",
 			err:    agentusecase.ErrTreeCycle,
 			status: http.StatusConflict,

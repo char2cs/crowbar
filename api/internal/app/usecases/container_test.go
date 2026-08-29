@@ -156,6 +156,7 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{
 		"set_chat_title",
+		"set_branch_name",
 		"list_review_threads",
 		"get_review_scope",
 		"post_review_comment",
@@ -187,7 +188,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 
 	minter, err := agentusecase.NewTokenMinter()
 	require.NoError(t, err)
-	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast)
+	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast, c.Workspace)
 	require.NoError(t, err)
 	deps.Chats = c.AgentChat
 	deps.ChatLogs = c.AgentChat
@@ -199,6 +200,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{
 		"set_chat_title",
+		"set_branch_name",
 		"list_review_threads",
 		"get_review_scope",
 		"post_review_comment",
@@ -243,17 +245,20 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	require.NoError(t, err)
 	review := stubReviewReaderForContainer{}
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast, stubBranchRenamer{})
 	require.Error(t, err, "no review reader")
 
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil)
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil, stubBranchRenamer{})
 	require.Error(t, err, "no thread broadcaster")
 
-	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast)
+	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.Error(t, err, "no token minter")
 
+	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, noopThreadBroadcast, nil)
+	require.Error(t, err, "no workspace usecase")
+
 	bare := &repositories.Container{}
-	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
+	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.Error(t, err, "no repository stores")
 }
 
@@ -261,6 +266,19 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 // the usecases container without the api layer, and what the fan-out DOES is proved
 // in the agenttools package; here it only has to be non-nil so the wiring is complete.
 func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
+
+// stubBranchRenamer stands in for the workspace usecase in the refusal test,
+// where every other port is deliberately nil in turn and this one only has to
+// be non-nil so the case under test is the one that fires.
+type stubBranchRenamer struct{}
+
+func (stubBranchRenamer) RenameBranch(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
 
 type stubReviewReaderForContainer struct{}
 

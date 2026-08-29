@@ -2097,6 +2097,59 @@ func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
+// TestDeleteCascade_RefusesAWorkingChat closes invariant 9's own "no bypass"
+// hole: DeleteCascade is the verb behind the live DELETE .../workspaces/:wsId
+// route (the sidebar's removal tray) and behind merge --deleteSource, and it
+// checked only WorkspaceStatusLocked — so a subtree the chat tree's own delete
+// would refuse could be erased whole through the workspace door instead. It
+// now takes the SAME guardNotWorking Task 16 built for guardReparent.
+func TestDeleteCascade_RefusesAWorkingChat(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
+		{ID: "child", ParentID: "root", RepoID: "r", Branch: "b-child", WorktreePath: "/wt/child"},
+	}
+	g := &fakeGit{}
+	ws := &fakeWorkspace{
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc.SetChatObserver(&fakeChatObserver{
+		chats:   []domain.Chat{{ID: "chat-1", WorkspaceID: "child"}},
+		working: map[string]bool{"chat-1": true},
+	})
+
+	err := uc.DeleteCascade(context.Background(), "root")
+
+	require.ErrorIs(t, err, hierarchy.ErrWorkspaceWorking)
+	assert.Empty(t, g.calls, "a refused cascade must reach no git verb at all")
+}
+
+// TestDeleteCascade_AllowsAnIdleChat proves the guard is not a blanket
+// refusal — a subtree whose chats are all idle deletes exactly as before.
+func TestDeleteCascade_AllowsAnIdleChat(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
+	}
+	g := &fakeGit{}
+	var deleted []string
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	uc.SetChatObserver(&fakeChatObserver{
+		chats:   []domain.Chat{{ID: "chat-1", WorkspaceID: "root"}},
+		working: map[string]bool{"chat-1": false},
+	})
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.Equal(t, []string{"root"}, deleted)
+}
+
 func TestDeleteCascade_ListError(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },

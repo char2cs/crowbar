@@ -70,7 +70,10 @@ import (
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
 //     ErrChildHasChildren, ErrWorkspaceWorking — a reparent refused over a
-//     workspace subtree that owns a currently-working chat), the unified
+//     workspace subtree that owns a currently-working chat,
+//     ErrCrossRepoWorktreeMove — a reparent of a worktree-owning row into
+//     another repo, which is a different checkout entirely, not a rebase
+//     target, model spec invariant 7), the unified
 //     tree's placement sentinels
 //     (agentusecase.ErrTreeCycle, agentusecase.ErrTreeCrossWorkspace — a move
 //     that would make a row unreachable from the tree's root, or cross a
@@ -234,6 +237,15 @@ var conflictSentinels = []error{
 	workspace.ErrRenameTargetExists,
 	workspace.ErrRenameUnmanagedWorkspace,
 	workspace.ErrWorkspaceWorking,
+	workspace.ErrCrossRepoWorktreeMove,
+	// Promotion's three refusals (model spec §4.2). Each says the row is not in
+	// a state where it can be promoted — already has a workspace, has no
+	// workspace-owning ancestor to fork from, has never had a provider to
+	// respawn as — rather than that the request was malformed, which is what
+	// puts them in this table and not the 400 one.
+	agentusecase.ErrAlreadyPromoted,
+	agentusecase.ErrNoForkParent,
+	agentusecase.ErrNothingToPromote,
 }
 
 // isPlacementConflict reports whether err is one of the unified tree's

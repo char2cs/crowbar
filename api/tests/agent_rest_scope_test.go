@@ -189,12 +189,18 @@ func createAgentChat(
 // a chat that belongs to a different project's home — proved here across TWO
 // projects, each addressed only through its own home mount.
 //
-// The repo-scoped mount's isolation is GONE by design: it has no :wsId path
-// segment at all, so List spans every workspace in the repo and Get resolves
-// any chat in it by id alone, regardless of which of the repo's OWN workspaces
-// the chat actually lives in — proved here with two workspaces of one repo,
-// each holding its own chat, both listed and both individually reachable
-// through the repo's single mount.
+// The repo-scoped mount's WORKSPACE isolation is GONE by design: it has no
+// :wsId path segment at all, so List spans every workspace in the repo and Get
+// resolves any chat in it by id alone, regardless of which of the repo's OWN
+// workspaces the chat actually lives in — proved here with two workspaces of
+// one repo, each holding its own chat, both listed and both individually
+// reachable through the repo's single mount.
+//
+// Its REPO isolation is not gone and never was: the list asserts, negatively,
+// that neither of the other projects' home chats appears in it. That assertion
+// is the one this test lacked while List fell back to the daemon-global chat
+// list, which is how a repo-scoped read serving every repo's chats passed here
+// unnoticed.
 func TestAgentREST_Scope(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -251,6 +257,15 @@ func TestAgentREST_Scope(t *testing.T) {
 	}
 	assert.True(t, ids[chatMain], "the repo-scoped list carries the main workspace's own chat")
 	assert.True(t, ids[chatOther], "and the repo's OTHER workspace's chat too — one list, whole repo")
+	// The negative half, and the one this test was missing: cross-WORKSPACE
+	// access inside a repo is legitimate, cross-REPO access never was. Both home
+	// chats above live in projects with no repo at all, and asserting only what
+	// the list DOES carry is exactly how the unfiltered fallback — every chat the
+	// daemon knew, served into whichever repo asked — survived a green suite.
+	assert.False(t, ids[homeChatA.ID],
+		"another project's home chat must not appear in this repo's list")
+	assert.False(t, ids[homeChatB.ID],
+		"nor the second project's — a repo-scoped list is scoped to the repo")
 
 	var gotMain agentChatDTO
 	h.get(base+"/chats/"+chatMain, &gotMain)

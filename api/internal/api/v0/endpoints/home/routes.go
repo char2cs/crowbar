@@ -140,6 +140,7 @@ func registerAgent(
 	home.PATCH("/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
 	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
+	home.POST("/chats/:id/promote", h.RequireHomeWorkspace, ah.Promote)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
 	home.GET("/chats/:id/delete-preview", h.RequireHomeWorkspace, ah.DeletePreview)
 	// Chat FOLDERS, mounted here for the reason the chats above are: the project

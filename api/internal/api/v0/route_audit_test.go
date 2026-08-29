@@ -260,6 +260,12 @@ func extraRoutes() []string {
 		// chat's parent IS its context lineage, so this is what turns a standalone
 		// chat into a THREAD of another and back.
 		"PATCH " + repo + "/chats/:id/placement",
+		// Promotion (model spec §4.2): a bubble fills its empty workspace slot,
+		// keeping its id, title, placement and every turn it has taken. It is a
+		// verb of its own rather than a field write because it cuts a branch,
+		// adds a worktree and respawns the CLI in it — and it is one-way, since
+		// a worktree is never demoted.
+		"POST " + repo + "/chats/:id/promote",
 		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
 		// chat interleave at every level, which is why the placement route above and
@@ -402,6 +408,10 @@ func extraRoutes() []string {
 		// worktree workspace, so the surface that most needs somewhere to put them
 		// is exactly the one a single mount would have left without folders.
 		"PATCH " + home + "/chats/:id/placement",
+		// Promotion re-mounted on the home group for the reason the whole block
+		// is: TestHomeMountsEveryAgentRoute holds the two tables in step, and a
+		// home chat is a chat.
+		"POST " + home + "/chats/:id/promote",
 		"GET " + home + "/chats/folders",
 		"POST " + home + "/chats/folders",
 		"PATCH " + home + "/chats/folders/:folderId",

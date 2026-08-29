@@ -40,6 +40,14 @@ func (u *chatFolderUsecase) load(
 // that does not exist in the scope it asked in, and answering otherwise would
 // tell it that a chat it may not touch exists.
 //
+// A FOLDER row reached through this door is refused the same way, mirroring
+// load() above: the chat verbs and the folder verbs apply opposite rules to the
+// subtree they take (a chat delete cascades, a folder delete promotes), so an id
+// arriving through the wrong verb must be told it names nothing rather than
+// quietly getting the other rule. The workspace comparison alone does not
+// separate them — a folder carries no workspace, so it matched the repo-scoped
+// mount's empty :wsId exactly.
+//
 // It reads the LOG FOLD: the ParentID it hands back is the origin the move is
 // planned against — the level to close up behind the row, and, for a reorder
 // naming no destination, the level being reordered within. A stale origin does
@@ -53,6 +61,9 @@ func (u *chatFolderUsecase) loadChat(
 	chat, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agent chat folder: get chat %s: %w", chatID, err)
+	}
+	if chat.Type == domain.ChatTypeFolder {
+		return domain.Chat{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
 	}
 	if chat.WorkspaceID != workspaceID {
 		return domain.Chat{}, fmt.Errorf(
@@ -114,6 +125,12 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 // A subject the list does not carry is appended, not skipped: a chat is minted
 // and placed in one breath, long before the projection lists it, and a plan
 // without it would discard the very placement that makes it a thread.
+//
+// The folder pass is SKIPPED for the empty workspace, which is a BUBBLE's own
+// scope (model spec §3.1: a chat with no workspace at all). A folder carries no
+// workspace either, so ListByWorkspace("") already returned every one of them —
+// appending them again put each folder in the plan twice, and a level counted
+// twice hands the next row a slot past the end of it (see NextSlot).
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
@@ -122,6 +139,9 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 	rows, err := u.chats.ListByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
+	}
+	if workspaceID == "" {
+		return newTreeSnapshot(corrected(rows, subject)), nil
 	}
 	all, err := u.chats.ListChats(ctx)
 	if err != nil {

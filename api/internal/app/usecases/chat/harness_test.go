@@ -331,6 +331,11 @@ type fakeWorkspace struct {
 	// workspace a caller actually resolved a bubble's cwd against; a test
 	// that needs that must read this field.
 	lastWorkspaceID string
+	// worktreeDirIDs records EVERY id WorktreeDir was called with, in order. A
+	// verb that resolves a cwd more than once (SwitchProvider: a preflight, then
+	// the spawn) can pass "" first and the ancestor's id second, which
+	// lastWorkspaceID alone cannot tell apart from resolving both correctly.
+	worktreeDirIDs []string
 }
 
 func (f *fakeWorkspace) WorktreeDir(
@@ -338,6 +343,7 @@ func (f *fakeWorkspace) WorktreeDir(
 	workspaceID string,
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
 	f.lastWorkspaceID = workspaceID
+	f.worktreeDirIDs = append(f.worktreeDirIDs, workspaceID)
 	if f.err != nil {
 		return "", "", "", "", f.err
 	}
@@ -364,6 +370,11 @@ type fakeWorktreeCreator struct {
 	forkedOn []string
 	nextID   int
 	err      error
+	// discarded records the workspaces a failed promotion took back out, in
+	// order. Without it a rollback that never ran and one that ran perfectly
+	// look identical from the chat's side.
+	discarded  []string
+	discardErr error
 }
 
 func (f *fakeWorktreeCreator) CreateChildWorkspace(
@@ -378,6 +389,22 @@ func (f *fakeWorktreeCreator) CreateChildWorkspace(
 	}
 	f.nextID++
 	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+func (f *fakeWorktreeCreator) DiscardChildWorkspace(
+	_ context.Context,
+	workspaceID string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discarded = append(f.discarded, workspaceID)
+	return f.discardErr
+}
+
+func (f *fakeWorktreeCreator) discards() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.discarded...)
 }
 
 func (f *fakeWorktreeCreator) calls() []string {
@@ -406,6 +433,13 @@ type fakeChatStore struct {
 	// read must fail before it forks" paths are reachable from a test.
 	failSetSelection error
 	failLoadChat     error
+	// failSetWorkspace arms the one write that fills a promoted chat's
+	// workspace slot, so the orphaned-workspace rollback is reachable.
+	// failClearWorkspace arms the SAME write in the other direction — the
+	// rollback's own first step — so the ordering that keeps the rollback safe
+	// (never delete a workspace a row still points at) is reachable too.
+	failSetWorkspace   error
+	failClearWorkspace error
 	// failLoadChatAfter lets that failure land on the Nth fold rather than the
 	// first: a spawn folds the chat twice — once for its lineage, once for its
 	// selection — so failing every fold can only ever prove the first.
@@ -502,6 +536,16 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.Chat, er
 	}
 	chat.ParentID = ""
 	return chat, nil
+}
+
+func (s *fakeChatStore) SetWorkspace(ctx context.Context, id, workspaceID string) (domain.Chat, error) {
+	if s.failSetWorkspace != nil && workspaceID != "" {
+		return domain.Chat{}, s.failSetWorkspace
+	}
+	if s.failClearWorkspace != nil && workspaceID == "" {
+		return domain.Chat{}, s.failClearWorkspace
+	}
+	return s.EventStore.SetWorkspace(ctx, id, workspaceID)
 }
 
 func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.Chat, error) {

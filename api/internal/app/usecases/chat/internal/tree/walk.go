@@ -38,6 +38,32 @@ func CwdWorkspaceID(
 	return "", false
 }
 
+// CwdWorkspaceIDs answers CwdWorkspaceID for EVERY row in one pass, keyed by
+// row id, omitting the rows whose walk resolves nothing — a true orphan, whose
+// whole ancestry owns no workspace.
+//
+// It exists so a caller asking the question of a whole list builds the forest
+// once instead of once per row. The walk itself is the same one; nothing here
+// re-implements it.
+func CwdWorkspaceIDs(
+	rows []domain.Chat,
+) map[string]string {
+	nodes := make([]tree.Node, len(rows))
+	byID := make(map[string]domain.Chat, len(rows))
+	for i, row := range rows {
+		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		byID[row.ID] = row
+	}
+	forest := tree.New(nodes)
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if id, ok := CwdWorkspaceID(forest, byID, row.ID); ok {
+			out[row.ID] = id
+		}
+	}
+	return out
+}
+
 // ForkParentID answers what a new branch under rowID forks from: the same
 // walk as CwdWorkspaceID, started one row up so rowID's own WorkspaceID is
 // never mistaken for what forks from it.

@@ -53,7 +53,17 @@ func (rs *Runners) switchProviderLocked(
 		// Resolve the target while the outgoing CLI is still alive. A missing or
 		// malformed provider descriptor is a deterministic planning failure, not a
 		// reason to destroy the user's current session and leave the chat dormant.
-		crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+		//
+		// Through cwdWorkspaceID, not chat.WorkspaceID: a BUBBLE carries none of
+		// its own and runs in its nearest workspace-owning ancestor's worktree
+		// (model spec §3.2) — the same fallback spawnPaths, promptTarget, Compact
+		// and SlashCatalog already take. Promote respawns through here, and a
+		// bubble is the only chat it can be called on.
+		cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chatID, chat.WorkspaceID)
+		if err != nil {
+			return "", err
+		}
+		crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: preflight worktree dir: %w", err)
 		}

@@ -58,6 +58,11 @@ type (
 	ToolRunnerReader    = tools.RunnerReader
 	ToolChatGetter      = tools.ChatGetter
 	ToolWorkspaceLister = tools.WorkspaceLister
+	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the
+	// workspace usecase. It is re-exported for the composition root's sake: the
+	// tool is withdrawn silently when it is nil, so the root has to be able to
+	// name the port it must refuse to start without.
+	ToolWorkspaceBranchRenamer = tools.WorkspaceBranchRenamer
 )
 
 // The sidebar forest's tree, re-exported.

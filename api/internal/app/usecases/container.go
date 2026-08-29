@@ -246,7 +246,7 @@ func newAgentWiring(
 	// needs the same answer and gets it from the chat usecase, which re-exposes
 	// this as Ancestors.)
 	lineage := agentusecase.NewChatLineage(repos.AgentChat)
-	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast)
+	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {
 		return agentWiring{}, err
 	}
@@ -322,6 +322,15 @@ func newProjectImport(
 // a thread out needs the wire DTO, and a usecase must not import the api layer's
 // wire types. See agentusecase.ToolThreadBroadcast.
 //
+// workspaces is the workspace usecase itself, which already satisfies
+// set_branch_name's narrow WorkspaceBranchRenamer port by name. It is a
+// parameter rather than something read off repos because renaming a branch is a
+// USECASE verb — a git ref rename plus one record write, with the locked/held
+// refusals in front of it — not a store write. It is in the refusal switch for
+// the reason every other port is: a nil here withdraws set_branch_name, and an
+// agent that cannot name its own branch leaves every generated provisional name
+// in place with nothing anywhere reporting why.
+//
 // ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
 // read (agentusecase.ToolChatLogReader) is implemented by the agent CHAT concern
 // (agentusecase.ChatUsecase.ReadChatLog), which does not exist yet at this point in
@@ -338,10 +347,13 @@ func newAgentToolDeps(
 	repos *repositories.Container,
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	workspaces agentusecase.ToolWorkspaceBranchRenamer,
 ) (agentusecase.ToolDeps, error) {
 	switch {
 	case minter == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
+	case workspaces == nil:
+		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no workspace usecase")
 	case repos.AgentRunner == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
 	case repos.AgentChat == nil:
@@ -363,6 +375,7 @@ func newAgentToolDeps(
 			chatReader,
 			repos.Workspace,
 		),
+		Workspaces:      workspaces,
 		Review:          review,
 		Threads:         repos.ReviewThread,
 		ThreadWrites:    repos.ReviewThread,
@@ -451,6 +464,19 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 		ParentID:    forkParentID,
 		OwnWorktree: &ownWorktree,
 	})
+}
+
+// DiscardChildWorkspace implements agentusecase.WorktreeCreator: it removes a
+// workspace a promotion minted and then could not finish, through the SAME
+// cascade a user-initiated workspace removal takes, so the worktree and the
+// branch go together and nothing is left half-reaped. The cascade's own guards
+// still apply — by the time this runs the chat has stopped pointing at the
+// workspace, so its working-chat guard sees an empty workspace and passes.
+func (w worktreeChildCreator) DiscardChildWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	return w.worktree.DeleteCascade(ctx, workspaceID)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader
