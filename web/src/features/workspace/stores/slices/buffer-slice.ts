@@ -108,6 +108,25 @@ function findNewTabInPane(
   return undefined
 }
 
+/** Sync the isUncloseable flag on editor tabs in a pane: the sole editor tab
+ *  becomes uncloseable; all others are closeable. Called whenever a pane's
+ *  editorTabIds change (add/remove/move operations). */
+export function syncSoleEditorTabCloseability(
+  state: { buffers?: PaneContent[]; panes?: Record<string, { editorTabIds: string[] }> },
+  paneId: string,
+): void {
+  const pane = state.panes?.[paneId]
+  if (!pane || !Array.isArray(state.buffers)) return
+  const sole = pane.editorTabIds.length === 1
+  // Index once: these are immer drafts, so the map holds the same draft
+  // objects and mutating through it still records the change.
+  const byId = new Map(state.buffers.map((b) => [b.id, b]))
+  for (const id of pane.editorTabIds) {
+    const buf = byId.get(id)
+    if (buf) buf.isUncloseable = sole
+  }
+}
+
 // ── Slice ────────────────────────────────────────────────────────────
 
 export interface BufferSlice {
@@ -210,9 +229,8 @@ export const createBufferSlice: StateCreator<
               return existing.id
             }
           }
-          // Unlike the jump-path above, something lands in the active pane here —
-          // see consumeNewTabInPane's doc comment for why that consumes it first.
-          consumeNewTabInPane(get().activePaneId)
+          // Unlike the jump-path above, something lands in the active pane here.
+          // In the new model, 'newTab' is no longer part of editor tabs, so no need to consume it.
           get().paneActions.addBufferToPane(get().activePaneId, existing.id, true)
           return existing.id
         }
@@ -378,9 +396,7 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.buffers.push(buf)
         })
-        // See consumeNewTabInPane's doc comment: a brand-new buffer landing here
-        // consumes the active pane's own New Tab.
-        consumeNewTabInPane(get().activePaneId)
+        // In the new model, 'newTab' is no longer part of editor tabs, so no need to consume it.
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
         if (spec.type === 'editor' && spec.isPreview) {
           get().paneActions.setPanePreviewBuffer(get().activePaneId, id)

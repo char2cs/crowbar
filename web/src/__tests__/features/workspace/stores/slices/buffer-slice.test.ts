@@ -5,6 +5,8 @@ import {
   createBufferSlice,
   type BufferSlice,
 } from '@/features/workspace/stores/slices/buffer-slice'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
 const { killTerminalSession } = vi.hoisted(() => ({
@@ -273,6 +275,157 @@ describe('buffer-slice', () => {
       // no buffer in store
       storeInst.getState().bufferActions.promotePreview('nonexistent-id')
       expect(paneActions.clearPreviewBufferEverywhere).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sole editor tab closeability', () => {
+    it('the sole editor tab in a pane is marked uncloseable', () => {
+      const store = createWorkspaceStore('ws-test')
+      const tabId = 'tab-sole'
+      // Create a buffer manually
+      store.setState((state) => {
+        state.buffers.push({
+          id: tabId,
+          type: 'editor',
+          path: '/test/foo.ts',
+          name: 'foo.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        })
+      })
+      // Add the tab to the pane
+      store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabId,
+        type: 'editor',
+        name: 'foo.ts',
+      })
+      // Verify the pane has this tab
+      const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+      expect(pane?.editorTabIds).toHaveLength(1)
+      // Verify the tab is marked uncloseable
+      const tab = store.getState().bufferActions.getBufferById(tabId)
+      expect(tab?.isUncloseable).toBe(true)
+    })
+
+    it('adding a second tab clears isUncloseable on both tabs', () => {
+      const store = createWorkspaceStore('ws-test')
+      const tabId1 = 'tab-1'
+      const tabId2 = 'tab-2'
+      // Create two buffers manually
+      store.setState((state) => {
+        state.buffers.push({
+          id: tabId1,
+          type: 'editor',
+          path: '/test/foo.ts',
+          name: 'foo.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        })
+        state.buffers.push({
+          id: tabId2,
+          type: 'editor',
+          path: '/test/bar.ts',
+          name: 'bar.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        })
+      })
+      // Add first tab
+      store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabId1,
+        type: 'editor',
+        name: 'foo.ts',
+      })
+      // Verify it's marked uncloseable
+      const tab1Before = store.getState().bufferActions.getBufferById(tabId1)
+      expect(tab1Before?.isUncloseable).toBe(true)
+      // Add second tab
+      store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabId2,
+        type: 'editor',
+        name: 'bar.ts',
+      })
+      // Verify pane has both tabs
+      const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+      expect(pane?.editorTabIds).toHaveLength(2)
+      // Verify both tabs are no longer uncloseable
+      const tab1After = store.getState().bufferActions.getBufferById(tabId1)
+      const tab2 = store.getState().bufferActions.getBufferById(tabId2)
+      expect(tab1After?.isUncloseable).toBe(false)
+      expect(tab2?.isUncloseable).toBe(false)
+    })
+
+    it('removing tabs down to one marks that tab as uncloseable again', () => {
+      const store = createWorkspaceStore('ws-test')
+      const tabId1 = 'tab-remove-1'
+      const tabId2 = 'tab-remove-2'
+      // Create two buffers manually
+      store.setState((state) => {
+        state.buffers.push({
+          id: tabId1,
+          type: 'editor',
+          path: '/test/foo.ts',
+          name: 'foo.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        })
+        state.buffers.push({
+          id: tabId2,
+          type: 'editor',
+          path: '/test/bar.ts',
+          name: 'bar.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        })
+      })
+      // Add two tabs
+      store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabId1,
+        type: 'editor',
+        name: 'foo.ts',
+      })
+      store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+        id: tabId2,
+        type: 'editor',
+        name: 'bar.ts',
+      })
+      // Both should be non-closeable
+      expect(store.getState().bufferActions.getBufferById(tabId1)?.isUncloseable).toBe(false)
+      expect(store.getState().bufferActions.getBufferById(tabId2)?.isUncloseable).toBe(false)
+      // Remove first tab
+      store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, tabId1)
+      // Second tab should now be uncloseable
+      expect(store.getState().bufferActions.getBufferById(tabId2)?.isUncloseable).toBe(true)
     })
   })
 })

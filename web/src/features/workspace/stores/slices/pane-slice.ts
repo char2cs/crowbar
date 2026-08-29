@@ -22,6 +22,7 @@ import {
   normalizeLayout,
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
+import { syncSoleEditorTabCloseability } from './buffer-slice'
 
 export interface PaneActions {
   splitPane(
@@ -241,6 +242,8 @@ export const createPaneSlice: StateCreator<
           if (!pane.editorTabIds.includes(tab.id)) pane.editorTabIds.push(tab.id)
           pane.activeEditorTabId = tab.id
           pane.editorOpen = true
+          // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
+          syncSoleEditorTabCloseability(state, paneId)
         })
       },
 
@@ -274,6 +277,8 @@ export const createPaneSlice: StateCreator<
             pane.activeEditorTabId = rightNeighbor ?? alive[alive.length - 1] ?? null
           }
           if (pane.editorTabIds.length === 0) pane.editorOpen = false
+          // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
+          syncSoleEditorTabCloseability(state, paneId)
         })
       },
 
@@ -297,6 +302,9 @@ export const createPaneSlice: StateCreator<
             toPaneId,
             ...state.mostRecentActivePaneIds.filter((id) => id !== toPaneId),
           ]
+          // Sync isUncloseable for both panes: the sole editor tab in each pane is uncloseable.
+          syncSoleEditorTabCloseability(state, fromPaneId)
+          syncSoleEditorTabCloseability(state, toPaneId)
         })
       },
 
