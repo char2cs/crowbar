@@ -97,4 +97,11 @@ describe('SidebarRow', () => {
     expect(onTrash).toHaveBeenCalledWith('row-1')
     expect(onOpen).not.toHaveBeenCalled()
   })
+
+  it('clicking the row body itself calls onOpen with the row id', () => {
+    const onOpen = vi.fn()
+    render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+    screen.getByRole('treeitem').click()
+    expect(onOpen).toHaveBeenCalledWith('row-1')
+  })
 })
