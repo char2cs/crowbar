@@ -190,6 +190,20 @@ type EventStore interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
+	// SetWorkspace fills a chat's WorkspaceID slot — a bubble gaining worktree
+	// ownership, or a thread being promoted (Promote, usecases/chat).
+	//
+	// It is on the SAME SendWait path as Create, not the ordinary async Send
+	// path every other setter above uses: Promote's very next act after this
+	// write is a provider switch that resolves the respawn cwd from GetChat's
+	// READ MODEL, and a Send here would leave a live window where that read
+	// still serves the OLD (empty) WorkspaceID — spawning the incoming CLI into
+	// the wrong directory. See Create's own doc for the same reasoning.
+	SetWorkspace(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) (domain.Chat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -434,6 +448,19 @@ func (r *eventSourced) SetOrder(
 	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+// SetWorkspace is deliberately on the SendWait path — see the interface doc.
+func (r *eventSourced) SetWorkspace(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+) (domain.Chat, error) {
+	evt, err := occSend(ctx, r.ax.SendWait, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
 	}
 	return evt.Aggregate, nil
 }

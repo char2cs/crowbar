@@ -415,6 +415,44 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 		"the note names what the thread reads, in the thread's own log")
 }
 
+func TestNotePromotion_WritesNothingIntoAChatThatHasNotSpoken(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1")
+	require.NoError(t, err)
+
+	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
+	f.settle()
+
+	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Empty(t, turns)
+}
+
+func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1")
+	require.NoError(t, err)
+	chat, err := f.conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.conversations.RecordTurn(
+		t.Context(), chat, "claude", "runner-1", "session-1", "user", "hello", "",
+	))
+	f.settle()
+
+	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
+	f.settle()
+
+	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
+	require.NoError(t, err)
+	require.Len(t, turns, 2)
+	assert.Contains(t, turns[1].Text, "promoted",
+		"the note describes the promotion, in the chat's own log")
+}
+
 func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	t.Parallel()
 	chats, waitChats := newChatStore(t)

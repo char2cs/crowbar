@@ -1,6 +1,8 @@
 package tree
 
 import (
+	"context"
+
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -49,6 +51,30 @@ func ForkParentID(
 		return "", false
 	}
 	return CwdWorkspaceID(t, chats, node.ParentID)
+}
+
+// ResolveForkParent is ForkParentID over a fresh read of every row the daemon
+// knows, rather than a plan a caller already has in memory. Promote is the one
+// caller that reaches this from OUTSIDE a placement operation — it has no
+// snapshot of its own to walk — so this is the read+build step every other
+// caller of ForkParentID gets for free from its own in-progress plan.
+func ResolveForkParent(
+	ctx context.Context,
+	chats Chats,
+	rowID string,
+) (string, bool, error) {
+	rows, err := chats.ListChats(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	nodes := make([]tree.Node, len(rows))
+	byID := make(map[string]domain.Chat, len(rows))
+	for i, row := range rows {
+		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		byID[row.ID] = row
+	}
+	id, ok := ForkParentID(tree.New(nodes), byID, rowID)
+	return id, ok, nil
 }
 
 // ChatLineage answers what rowID reads: its CHAT ancestors, nearest first,

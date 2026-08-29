@@ -130,6 +130,11 @@ type ChatUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (string, error)
+	// Promote fills a bubble's empty workspace slot (model spec §4.2, promote.go).
+	Promote(
+		ctx context.Context,
+		chatID string,
+	) (domain.Chat, error)
 }
 
 var _ ChatUsecase = (*Usecase)(nil)
@@ -163,6 +168,7 @@ type Usecase struct {
 	activity    agentactivity.EventStore
 	agents      engineagents.Agents
 	ws          WorkspaceReader
+	worktree    WorktreeCreator
 	// answers is the desk of relays currently BLOCKED on a human. It is in memory
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
@@ -206,6 +212,7 @@ type Deps struct {
 	// Workspace resolves the on-disk locations one workspace's agent work happens
 	// in. It is the only seam this feature has onto the workspace layer.
 	Workspace WorkspaceReader
+	Worktree  WorktreeCreator // Promote's seam onto the worktree hierarchy usecase
 	// Lineage answers "what does this chat read" at spawn time.
 	Lineage ChatLineage
 	// ProviderPrefs is the global (per user/machine) provider priority+enabled table.
@@ -277,6 +284,7 @@ func New(d Deps) *Usecase {
 		activity:    d.Activity,
 		agents:      d.Agents,
 		ws:          d.Workspace,
+		worktree:    d.Worktree,
 		answers:     sh.answers,
 		tools:       d.Tools,
 		work:        sh.work,

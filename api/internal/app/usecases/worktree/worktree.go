@@ -207,6 +207,18 @@ func (u *worktreeUsecase) CreateChild(
 			Protected: in.ForceLocked,
 		}, u.now())
 	}
+	// A spontaneous create (Promote is the first caller) leaves Branch blank: it
+	// has nothing of its own to name the branch, and the model spec puts naming
+	// here, server-side, precisely because only this side can collision-check
+	// against real refs (model spec §4.1). Every explicit-create caller already
+	// supplies its own Branch and never reaches this.
+	if in.Branch == "" {
+		branch, genErr := u.generateBranchName(ctx, in.RepoPath)
+		if genErr != nil {
+			return domain.Workspace{}, fmt.Errorf("create child: %w", genErr)
+		}
+		in.Branch = branch
+	}
 	// At most one MANAGED (non-default) workspace per (repo, branch). The default
 	// workspace (the imported repo folder) never counts — see branchWorkspaceExists.
 	exists, err := u.branchWorkspaceExists(ctx, in.RepoID, in.Branch)

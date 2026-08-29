@@ -259,6 +259,17 @@ type fakeGit struct {
 	// It is the client-disconnect seam: the rename tests use it to cancel the
 	// request context at the exact instant `git branch -m` has landed.
 	onBranchRenamed func()
+
+	branches    []gitdomain.Branch
+	branchesErr error
+}
+
+func (f *fakeGit) Branches(
+	_ context.Context,
+	repoPath string,
+) ([]gitdomain.Branch, error) {
+	f.record("Branches", repoPath)
+	return f.branches, f.branchesErr
 }
 
 func (f *fakeGit) WorktreeList(

@@ -172,7 +172,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, worktreeUsecase)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +225,7 @@ func newAgentWiring(
 	crowbarHome func() (string, error),
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	worktreeUsecase worktree.Usecase,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -255,6 +256,7 @@ func newAgentWiring(
 		Agents:          engines.Agents,
 		Terminal:        engines.Terminal,
 		Workspace:       wsReader,
+		Worktree:        worktreeChildCreator{worktree: worktreeUsecase},
 		Lineage:         lineage,
 		ProviderPrefs:   gormStores.AgentProviderPreferences,
 		PermissionPrefs: gormStores.AgentPermissionDefault,
@@ -391,6 +393,25 @@ func (r agentChatReader) ListChats(
 	ctx context.Context,
 ) ([]domain.Chat, error) {
 	return r.chats.ListChats(ctx)
+}
+
+// worktreeChildCreator adapts the worktree hierarchy usecase into the agent
+// usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
+// Promote names only the fork parent it forks from, and this fills in the rest
+// of worktree.CreateChildInput the way every other spontaneous create does —
+// leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
+// parent-inherited defaulting resolves them, and Branch blank so it generates
+// and collision-checks a provisional name (model spec §4.1).
+type worktreeChildCreator struct {
+	worktree worktree.Usecase
+}
+
+// CreateChildWorkspace implements agentusecase.WorktreeCreator.
+func (w worktreeChildCreator) CreateChildWorkspace(
+	ctx context.Context,
+	forkParentID string,
+) (domain.Workspace, error) {
+	return w.worktree.CreateChild(ctx, worktree.CreateChildInput{ParentID: forkParentID})
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

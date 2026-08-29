@@ -331,6 +331,39 @@ func lineageNoteText(
 		"rewrites nothing it has already read."
 }
 
+// NotePromotion records, in a chat's own conversation, that it has just been
+// promoted from a bubble into its own worktree — the model spec §4.2 ledger
+// note, following lineageNoteText's own convention: a "[Crowbar] ..." system
+// turn appended AFTER the respawn it describes, so the incoming CLI's own
+// handoff (assembled from the ledger BEFORE this call) never sees it.
+//
+// Like NoteThreadLineage, it writes nothing into a chat that has said nothing
+// yet — a chat with no ledger has nothing for the note to distinguish a
+// "before" from.
+func (c *Conversations) NotePromotion(
+	ctx context.Context,
+	chatID string,
+) error {
+	chat, err := c.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note promotion: chat: %w", err)
+	}
+	turns, err := c.ChatTurns(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note promotion: turns: %w", err)
+	}
+	if len(turns) == 0 {
+		return nil
+	}
+	return c.appendTurn(ctx, chat, lineageNoteProvider, "user", promotionNoteText())
+}
+
+func promotionNoteText() string {
+	return "[Crowbar] This chat was just promoted to its own git worktree. " +
+		"Everything above this line was said BEFORE the promotion, running with no worktree of its own; " +
+		"from this point on it runs in the new worktree the promotion created."
+}
+
 // Ancestors returns the CHAT ancestors of chatID, nearest parent first — what a
 // thread inherits, and the same answer the spawn path composes prior context
 // from. Folders are transparent to it: a thread filed two folders deep under a

@@ -32,6 +32,8 @@ type wiringActivity struct{ agentactivity.EventStore }
 
 type wiringWorkspace struct{ WorkspaceReader }
 
+type wiringWorktree struct{ WorktreeCreator }
+
 type wiringLineage struct{ ChatLineage }
 
 type wiringPrefs struct {
@@ -123,6 +125,7 @@ func newWiringFixture(t *testing.T) *Usecase {
 		Agents:        engineagents.New(),
 		Terminal:      screenReadingCommander{},
 		Workspace:     wiringWorkspace{},
+		Worktree:      wiringWorktree{},
 		Lineage:       wiringLineage{},
 		ProviderPrefs: wiringPrefs{},
 		Home:          func() (string, error) { return home, nil },

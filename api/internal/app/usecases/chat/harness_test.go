@@ -347,6 +347,37 @@ func (f *fakeWorkspace) AgentChatsDir(
 	return f.chatsDir, nil
 }
 
+// fakeWorktreeCreator is a thread-safe agentusecase.WorktreeCreator double:
+// CreateChildWorkspace records the fork parent id it was called with and hands
+// back a fresh workspace id, so Promote's tests can assert on both without a
+// real worktree usecase (git engine, repo store) in this package's fixture.
+type fakeWorktreeCreator struct {
+	mu       sync.Mutex
+	forkedOn []string
+	nextID   int
+	err      error
+}
+
+func (f *fakeWorktreeCreator) CreateChildWorkspace(
+	_ context.Context,
+	forkParentID string,
+) (domain.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forkedOn = append(f.forkedOn, forkParentID)
+	if f.err != nil {
+		return domain.Workspace{}, f.err
+	}
+	f.nextID++
+	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+func (f *fakeWorktreeCreator) calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.forkedOn...)
+}
+
 // fakeChatStore wraps a real agentchat.EventStore and lets a test force a chosen
 // mutation/read to fail, exercising the usecase's error-wrap guard clauses without
 // a fault-injecting database. A nil field delegates to the real store, so only the
@@ -620,6 +651,7 @@ type testFixture struct {
 	bc     *fakeBroadcaster
 	rbc    *fakeRunnerBroadcaster
 	ws     *fakeWorkspace
+	wt     *fakeWorktreeCreator
 	// homeErr faults the crowbar-home resolver (Home), independent of ws.err —
 	// see its construction in newFixtureUsing.
 	homeErr  *error
@@ -1093,6 +1125,7 @@ func newFixtureUsing(
 	// every caller of New faces, so wiring them here would just be re-doing what
 	// New itself is responsible for — which is exactly the wiring
 	// TestDispatchMCP_ListsTheChatTools exists to guard.
+	wt := &fakeWorktreeCreator{}
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	chatReader := fixtureChatReader{chats: usedChats}
@@ -1115,6 +1148,7 @@ func newFixtureUsing(
 		Agents:          engine,
 		Terminal:        term,
 		Workspace:       ws,
+		Worktree:        wt,
 		Lineage:         lineage,
 		ProviderPrefs:   providerPrefs,
 		PermissionPrefs: permissionPrefs,
@@ -1147,6 +1181,7 @@ func newFixtureUsing(
 		bc:            bc,
 		rbc:           rbc,
 		ws:            ws,
+		wt:            wt,
 		homeErr:       homeErr,
 		engine:        engine,
 		activity:      realActivity,

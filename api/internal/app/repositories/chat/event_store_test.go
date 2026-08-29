@@ -438,6 +438,36 @@ func TestSetOrder_RefusesAChatThatDoesNotExist(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel pins
+// SetWorkspace to the SendWait path, unlike every other setter in this file.
+//
+// It asserts on GetChat — the READ MODEL — with no explicit wait in between,
+// which only holds deterministically if the write actually blocks until the
+// projection folds (SendWait), mirroring TestAgentChat_CreateAndGetChat's own
+// proof for Create. Promote (usecases/chat) depends on exactly this: its next
+// act after this write is a provider switch that resolves the respawn cwd off
+// GetChat, and a Send here would leave a live window serving the OLD, empty
+// WorkspaceID.
+func TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel(t *testing.T) {
+	ctx, repo := newRepo(t)
+	createChat(t, ctx, repo, "c1", "", time.Now())
+
+	updated, err := repo.SetWorkspace(ctx, "c1", "ws-1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws-1", updated.WorkspaceID)
+
+	got, err := repo.GetChat(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws-1", got.WorkspaceID)
+}
+
+func TestSetWorkspace_RefusesAChatThatDoesNotExist(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.SetWorkspace(ctx, "no-such-chat", "ws-1")
+	assert.Error(t, err)
+}
+
 // A miss arrives as this package's own sentinel whichever read served it, so no
 // caller has to know that one folds from the log and the other reads a table.
 func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
