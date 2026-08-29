@@ -1,13 +1,24 @@
 import { API_BASE, apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
-// Workspace-scoped agentic-chat REST client. Routes nest under
-// workspaceBase(wsId)/chats (00 agentic-engine spec §2); the {success,data}
-// envelope is unwrapped by apiFetch. Modelled on features/git/api/review-api.ts.
+// Agentic-chat REST client. A chat is no longer addressed through its
+// workspace (Task 17 rescope, model spec §5.1): a non-home workspace's chats
+// nest under its REPO — .../projects/:p/repos/:r/chats — while a home
+// workspace still routes through the still-live workspaceBase(wsId)/home
+// mount, since home has no repo. The {success,data} envelope is unwrapped by
+// apiFetch. Modelled on features/git/api/review-api.ts.
 
 function chatBase(wsId: string): string {
-  return `${workspaceBase(wsId)}/chats`
+  const scope = getWorkspaceScope(wsId)
+  // Null scope and a home workspace (repoId '') both fall back to
+  // workspaceBase, which already resolves the /home shape and already throws
+  // on an unrecorded scope — no need to duplicate either behavior here.
+  if (!scope || !scope.repoId) return `${workspaceBase(wsId)}/chats`
+  const p = encodeURIComponent(scope.projectId)
+  const r = encodeURIComponent(scope.repoId)
+  return `/v0/projects/${p}/repos/${r}/chats`
 }
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────
