@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 func (rs *Runners) PendingDelivery(ctx context.Context, chatID string) (termwait.Delivery, bool) {
