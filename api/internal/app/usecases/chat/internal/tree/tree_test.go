@@ -570,6 +570,26 @@ func TestDelete_PromotesChildrenToTheFoldersOwnParent(t *testing.T) {
 	assert.Equal(t, []string{inner.ID}, ids, "the promoted folder rows come back for broadcast")
 }
 
+// A folder delete PROMOTES what it held, which still moves every row one level
+// up — and a working row does not move, unconditionally, whichever verb is
+// asking (backend addendum §2, invariant 9). This is the same refusal
+// TestMove_RefusesWorkingSubtree pins for Move, over the same guard, on the
+// verb that used to skip it.
+func TestDelete_RefusesWorkingChild(t *testing.T) {
+	chats, uc, work := newUsecaseWithWork(t)
+	ctx := context.Background()
+	outer, _, err := uc.Create(ctx, tree.CreateInput{RepoID: repoID, Name: "outer"})
+	require.NoError(t, err)
+	seedChat(chats, "c1", 1)
+	_, _, err = uc.PlaceChat(ctx, workspaceID, "c1", tree.PlaceInput{ParentID: name(outer.ID)})
+	require.NoError(t, err)
+	work.Set("c1", true)
+
+	_, err = uc.Delete(ctx, outer.ID)
+	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
+	assert.Equal(t, outer.ID, chatRow(t, chats, "c1").ParentID, "a refused delete promotes nothing")
+}
+
 func TestDelete_RefusesAnUnknownID(t *testing.T) {
 	_, uc := newUsecase(t)
 

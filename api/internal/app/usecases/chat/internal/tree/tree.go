@@ -235,6 +235,9 @@ func (u *chatFolderUsecase) Delete(
 	if err != nil {
 		return nil, err
 	}
+	if wErr := guardNotWorking(subtreeIDsOf(id, snapshot.rows), u.work); wErr != nil {
+		return nil, wErr
+	}
 	if err := u.chats.Forget(ctx, id); err != nil {
 		return nil, fmt.Errorf("agent chat folder: delete %s: %w", id, err)
 	}
