@@ -1639,45 +1639,57 @@ git add -A api/internal/app/usecases/chat/ api/internal/api/v0/endpoints/chat/
 git commit -m "feat(chat): delete takes the subtree, refuses a working row unconditionally"
 ```
 
-### Task 20: `endpoints/workspaces` loses `/reparent`; resource-only `Detail`
+### Task 20: `endpoints/workspaces` keeps `/reparent` — REVERSED after execution
 
-**Files:**
-- Modify: `api/internal/api/v0/endpoints/workspaces/routes.go` — remove
-  `POST /workspaces/:wsId/reparent` (its git-lineage effect now happens
-  inside the chat tree's move verb, Task 11, which calls the workspace
-  repository's `Reparent` command internally rather than exposing it as its
-  own route).
-- Test: update the route-list test to assert the route is gone.
+**Status: attempted, reverted.** See the backend plan's SDD ledger
+(`.superpowers/sdd/2026-08-28-sidebar-backend-implementation/progress.md`)
+for the full account. Recorded here so nobody re-attempts this task from the
+plan text alone without reading why it failed.
 
-- [ ] **Step 1: Write the failing test**
+**The premise this task was written on does not hold.** It assumed
+`POST /workspaces/:wsId/reparent`'s git-lineage effect "now happens inside
+the chat tree's move verb, Task 11." It does not: `tree.Move`/`PlaceChat`
+(Task 11) only ever write `domain.Chat.ParentID` (sidebar/folder placement)
+and structurally refuse to cross a workspace boundary
+(`checkChatContainer`/`ErrCrossWorkspace`). Neither calls the workspace
+repository's `Reparent` command or touches `domain.Workspace.ParentID`.
+`domain.Workspace.ParentID`'s own doc comment describes a projection that is
+only true at workspace-**creation** time (`Promote`/`CreateChild` resolving
+`tree.ForkParentID` once, at birth) — not an ongoing projection triggered by
+later moves. This plan never built a "moving a worktree-owning row triggers
+a rebase" verb; the model spec's §4.3 describes one, but no task in this
+21-task plan implements it (Task 17's own investigation independently
+confirmed this plan implements a route **rename** of the existing surface,
+not the model spec's full aspirational redesign).
 
-```go
-func TestWorkspaceRoutes_ReparentRemoved(t *testing.T) {
-	router := newTestRouter(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/v0/repos/repo-1/workspaces/ws-1/reparent", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("reparent must no longer be a standalone workspace route, got %d", rec.Code)
-	}
-}
-```
+**Consequence, discovered by the implementer before this reached review, not
+after:** removing the route leaves the guarded machinery
+(`hierarchyUsecase.Reparent`, `guardReparent`, `guardNotWorking` on it,
+`ErrWorkspaceWorking`) completely unreachable — not bypassed, just dead —
+and, far more importantly, **breaks a live, currently-shipped frontend
+feature with no replacement anywhere in either plan**:
+`web/src/lib/api/workspace.ts`'s `reparentWorkspace`, called from
+`workspace-tree-context.tsx`'s drag-and-drop `sendPlacement` (`case
+'reparent'`) — dragging a workspace row onto another to change its fork
+parent — hits exactly this route. No task in the frontend plan touches this
+caller either.
 
-- [ ] **Step 2: Run, verify fail** (route still exists today)
+**Reversed via `git revert` of the attempt's commit** (clean, `go build`/
+tests confirmed green afterward). The route stays, and it is **already
+safely guarded**: Task 16 added the working-chat check directly to
+`guardReparent` itself, independent of whether this specific route exists —
+so the original motivation for removing it (closing a window where a
+legacy path could reparent a working workspace unguarded) was already
+satisfied before this task ever ran. Removing the route bought nothing
+safety-wise and cost a live feature.
 
-- [ ] **Step 3: Remove the route registration and its handler** from
-  `endpoints/workspaces`.
-
-- [ ] **Step 4: Run**
-
-Run: `cd api && go test -tags noEmbed ./internal/api/... -v`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add -A api/internal/api/v0/endpoints/workspaces/
-git commit -m "feat(workspaces): remove the standalone reparent route, folded into chat placement"
-```
+**Real, unscoped follow-up for a future session**: building "moving a
+worktree-owning row is a rebase, orchestrated through the unified tree" —
+matching the model spec's actual §4.3 intent — is genuine new work (git
+rebase orchestration, conflict handling, a real replacement for the
+frontend's drag-and-drop reparent), not a rename. Flag prominently for the
+final whole-branch review. Do not attempt this route removal again until
+that replacement exists.
 
 ---
 
