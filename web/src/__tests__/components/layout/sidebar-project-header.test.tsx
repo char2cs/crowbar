@@ -1,6 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { Project } from '@/lib/types'
+
+function makeProject(id: string): Project {
+  return {
+    id,
+    name: id,
+    path: `/repos/${id}`,
+    lastActivity: new Date('2026-08-28T00:00:00Z'),
+  }
+}
 
 const toggleSidebar = vi.fn()
 vi.mock('@/components/ui/sidebar', () => ({
@@ -74,5 +84,35 @@ describe('SidebarProjectHeader', () => {
     expect(root.className).toContain('flex-row-reverse')
     // Traffic-light spacer is only reserved when the sidebar is on the left.
     expect(container.querySelector('.w-\\[52px\\]')).toBeNull()
+  })
+
+  it('renders one icon-only mark per project in the chrome middle', () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(<SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />)
+    expect(screen.getAllByTestId('space-mark')).toHaveLength(2)
+  })
+
+  it('the current space mark is full strength, others muted', () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(<SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />)
+    const marks = screen.getAllByTestId('space-mark')
+    expect(marks[0]).not.toHaveClass('opacity-60')
+    expect(marks[1]).toHaveClass('opacity-60')
+  })
+
+  it('clicking a mark calls onSelectProject with that project id', async () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    const onSelectProject = vi.fn()
+    render(
+      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={onSelectProject} />,
+    )
+    const marks = screen.getAllByTestId('space-mark')
+    await userEvent.click(marks[1])
+    expect(onSelectProject).toHaveBeenCalledWith('p2')
+  })
+
+  it('renders no marks and behaves as the bare spacer when no projects are given', () => {
+    render(<SidebarProjectHeader />)
+    expect(screen.queryAllByTestId('space-mark')).toHaveLength(0)
   })
 })

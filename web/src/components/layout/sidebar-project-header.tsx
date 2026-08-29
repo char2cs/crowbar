@@ -11,13 +11,34 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
+import { ProjectIconMark } from './project-icon-mark'
+import type { Project } from '@/lib/types'
+
+interface SidebarProjectHeaderProps {
+  /** Every open project. Defaults to none — the real mount point (IDEShell)
+   *  supplies the live list; omitted entirely the chrome middle stays the
+   *  bare spacer it was before space marks existed. */
+  projects?: Project[]
+  /** Spec §4.1: "the mark and panel are two views of one number" — this is the
+   *  SAME id SpaceScroller's own `activeProjectId` prop tracks, so a future
+   *  ancestor can lift one piece of state and hand it to both. */
+  activeProjectId?: string
+  /** Mirrors SpaceScroller's `onActiveProjectChange` shape (id in, nothing
+   *  out) so wiring this to that scroller later is a rename, not a rewrite. */
+  onSelectProject?: (id: string) => void
+}
 
 /**
- * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward /
+ * Sidebar top bar: a sidebar-toggle on the leading edge, one icon-only space
+ * mark per project in the dead middle (spec §4.1), and a back / forward /
  * settings cluster on the trailing edge. Mirrors when the sidebar sits on the
  * right. Back/forward reuse the editor jump navigation.
  */
-export function SidebarProjectHeader() {
+export function SidebarProjectHeader({
+  projects = [],
+  activeProjectId,
+  onSelectProject,
+}: SidebarProjectHeaderProps = {}) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -80,6 +101,35 @@ export function SidebarProjectHeader() {
     </div>
   )
 
+  // Spec §4.1: one icon-only mark per project, filling the dead middle
+  // between the toggle and the back/forward/settings cluster. The current
+  // space's mark is full strength; the rest sit muted. No labels, no counts,
+  // no close — a mark and nothing else. `justify-center` with an empty
+  // `projects` list degrades to exactly the old bare `flex-1` spacer.
+  const marks = (
+    <div className="flex min-w-0 flex-1 items-center justify-center gap-0.5">
+      {projects.map((project) => {
+        const isActive = project.id === activeProjectId
+        return (
+          <Button
+            key={project.id}
+            onClick={() => onSelectProject?.(project.id)}
+            variant="ghost"
+            size="icon-sm"
+            data-testid="space-mark"
+            aria-current={isActive || undefined}
+            className={cn('shrink-0 rounded-sm', !isActive && 'opacity-60')}
+            tooltip={project.name}
+            tooltipSide="bottom"
+            aria-label={project.name}
+          >
+            <ProjectIconMark project={project} size="md" />
+          </Button>
+        )
+      })}
+    </div>
+  )
+
   return (
     <div
       className={cn(
@@ -97,7 +147,7 @@ export function SidebarProjectHeader() {
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
       {toggle}
-      <div className="flex-1" />
+      {marks}
       {cluster}
     </div>
   )

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useRouterState } from '@tanstack/react-router'
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
@@ -37,6 +37,7 @@ import {
 export function IDEShell() {
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
+  const navigate = useNavigate()
   // Feeds the sidebar header's back/forward arrows. Mounted here rather than in
   // SidebarProjectHeader so history keeps accruing while the header is hidden
   // (nav screens) and survives the header unmounting.
@@ -101,6 +102,13 @@ export function IDEShell() {
   // For the home route there is no repoId, so fall back to any repo under the
   // active project, then to the project's own path (the home workspace root).
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+  // Space marks (spec §4.1): same navigation the workspace switcher's own
+  // project-home rows already use (workspace-switcher.tsx's `select`) —
+  // there is no SpaceScroller mounted yet to hand this to (Part I), so this
+  // is the one real "switch to project" action the app has today.
+  const handleSelectProject = (projectId: string) => {
+    void navigate({ to: '/ide/$projectId/home', params: { projectId } })
+  }
   const projectFallbackPath = homeRouteMatch
     ? (allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? '')
     : ''
@@ -124,7 +132,13 @@ export function IDEShell() {
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
       <div className="relative flex h-full flex-col overflow-hidden bg-transparent select-none">
-        {!hasNavScreen && <SidebarProjectHeader />}
+        {!hasNavScreen && (
+          <SidebarProjectHeader
+            projects={allProjects}
+            activeProjectId={activeProjectIdFromRoute}
+            onSelectProject={handleSelectProject}
+          />
+        )}
         {!hasNavScreen && <ContextPill />}
         {!hasNavScreen && <SidebarTabBar />}
         <ErrorBoundary>
