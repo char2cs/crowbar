@@ -2,7 +2,7 @@ import { X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { ROW_ACTIVE, ROW_SUB_ACTION_HOVER } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
@@ -12,11 +12,29 @@ import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/rec
 // `dormantArrangements: RecentsEntry[]` without importing from components/.
 export type { RecentsEntry, RecentsEntryState }
 
+/**
+ * A `RecentsEntry` tagged with the workspace whose store its chats live in.
+ *
+ * The band's per-chat lookups used to go through `useWorkspaceStoreContext`
+ * (an ambient `WorkspaceStoreContext.Provider`), which only exists inside
+ * the mounted `WorkspaceView` subtree — NOT the sidebar, which sits outside
+ * it entirely. That worked in this file's own tests only because they mock
+ * the hook away; mounted for real (this task), a project's Recents can span
+ * more than the active workspace (spec §4: "Recents is per space"), so there
+ * is no single ambient store to read from anyway. `useWorkspaceStoreById`
+ * (the same registry-by-id mechanism `merge-popover.tsx`/the git sidebar
+ * already use for the identical "no per-workspace context mounted here"
+ * problem) reads any workspace's store directly, keyed by this tag.
+ */
+export interface RecentsBandEntry extends RecentsEntry {
+  workspaceId: string
+}
+
 interface RecentsBandProps {
-  entries: RecentsEntry[]
-  onFocus: (entry: RecentsEntry) => void
+  entries: RecentsBandEntry[]
+  onFocus: (entry: RecentsBandEntry) => void
   /** No control renders for a 'working' entry — nothing calls this for one. */
-  onClose: (entry: RecentsEntry) => void
+  onClose: (entry: RecentsBandEntry) => void
 }
 
 // The close button sits OUTSIDE SidebarRow's own layout (absolute, over the
@@ -68,9 +86,9 @@ function RecentsEntryRow({
   onFocus,
   onClose,
 }: {
-  entry: RecentsEntry
-  onFocus: (entry: RecentsEntry) => void
-  onClose: (entry: RecentsEntry) => void
+  entry: RecentsBandEntry
+  onFocus: (entry: RecentsBandEntry) => void
+  onClose: (entry: RecentsBandEntry) => void
 }) {
   // §5.3/§5.6: chatIds.length decides the SHAPE — a shell around 2+ rows, or
   // a bare row for one. `state === 'live'` decides whether that shape is the
@@ -96,6 +114,7 @@ function RecentsEntryRow({
       {entry.chatIds.map((chatId) => (
         <RecentsMemberRow
           key={chatId}
+          workspaceId={entry.workspaceId}
           chatId={chatId}
           hasView={isLive}
           reserveClose={canClose}
@@ -123,11 +142,14 @@ function RecentsEntryRow({
 }
 
 function RecentsMemberRow({
+  workspaceId,
   chatId,
   hasView,
   reserveClose,
   onOpen,
 }: {
+  /** Which workspace's store owns this chat — see `RecentsBandEntry`. */
+  workspaceId: string
   chatId: string
   hasView: boolean
   /** Whether this entry's row(s) sit under an overlaid close control — reserve
@@ -136,11 +158,13 @@ function RecentsMemberRow({
   reserveClose: boolean
   onOpen: () => void
 }) {
-  const chat = useWorkspaceStoreContext((s) => s.agentChats.chats.find((c) => c.id === chatId))
+  const chat = useWorkspaceStoreById(workspaceId, (s) =>
+    s.agentChats.chats.find((c) => c.id === chatId),
+  )
   // Per-chat, narrow selector (copied verbatim from the tree's own pattern) —
   // the spinner rides the member wherever it lands (§5.6), independent of
   // which of the four band states its entry carries.
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
+  const working = useWorkspaceStoreById(workspaceId, (s) => s.agentChats.working[chatId] ?? false)
 
   if (!chat) return null
 
