@@ -64,8 +64,7 @@ export default {
     //     can reach a clean score while the rule is active (home.tsx:55 sampled).
     //   • Context modules co-locate their consumer hooks with the Provider — the
     //     canonical React pattern; splitting them would fragment a cohesive unit
-    //     for no runtime benefit (workspace-tree-context useWorkspaceTreeActions/
-    //     useWorkspaceTreeDrag, ui/sidebar useSidebar, ui/context-menu
+    //     for no runtime benefit (ui/sidebar useSidebar, ui/context-menu
     //     useContextMenu).
     //   • Primitive passthroughs / module singletons live with their component by
     //     design (ui/command CommandCreateHandle re-export, ui/toast toastManager/

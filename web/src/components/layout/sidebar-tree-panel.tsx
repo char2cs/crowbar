@@ -1,19 +1,24 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
+import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { useProjectDataStore, importProjectAndSync, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
+import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { applyPendingRemovals, planRemoval } from './removal-plan'
 import { RemovalTray } from './removal-tray'
+import { ROW_BASE } from './workspace-row-base'
 import { postWorkspace } from '@/lib/api'
 import { createChat } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DragSubject } from './drop-rules'
+import type { Project } from '@/lib/types'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
 interface ResolvedRow {
@@ -65,7 +70,10 @@ function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | null {
  * branch import have no home on `SidebarRow`'s four-prop surface yet (Parts
  * C/D/G/H build those back in) — this panel wires only what that surface
  * offers: opening a row, trashing one through the same removal tray the old
- * trees used, and creating a child.
+ * trees used, and creating a child. "New Project" is carried over as-is
+ * (it is the app's only entry point for a second project once past the
+ * zero-project /oobe screen) since it sits outside the tree/row surface
+ * entirely.
  */
 export function SidebarTreePanel() {
   const navigate = useNavigate()
@@ -73,6 +81,14 @@ export function SidebarTreePanel() {
   const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   const rows = useMemo(() => repos.flatMap(rowsFromRepo), [repos])
+  // The tree's only entry point for a SECOND project — carried over verbatim
+  // from the old workspace-tree.tsx, which was the app's only "New Project"
+  // surface once past the zero-project /oobe screen.
+  const [importProjectOpen, setImportProjectOpen] = useState(false)
+  const handleImportProject = useCallback((project: Project) => {
+    importProjectAndSync(project)
+    setImportProjectOpen(false)
+  }, [])
 
   const handleOpen = useCallback(
     (id: string) => {
@@ -120,20 +136,27 @@ export function SidebarTreePanel() {
       // name — SidebarRow's "+" has no naming step. The slug settles later
       // (an agent renames the branch); this bridge only mints it.
       const branch = `workspace-${crypto.randomUUID().slice(0, 8)}`
-      const placement =
-        subject.kind === 'folder'
-          ? { folderId: parentId }
-          : parentId === repo.defaultWorkspaceId
-            ? {}
-            : { parentId }
+      // Matches the old placementFor exactly: a folder is placement only, and
+      // every other row — the repo-home row included — is the FORK PARENT.
+      // The repo-home id is a real, correct parentId to send: dropping it
+      // (posting with no parentId at all) is what silently lost merge-back
+      // eligibility (MergeEligibility keys on ws.ParentID != "").
+      const placement = subject.kind === 'folder' ? { folderId: parentId } : { parentId }
       postWorkspace(projectId, repo.id, branch, placement).catch((err: unknown) => {
         toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
       })
       return
     }
 
-    // A thread needs a real workspace to run in — a folder names none.
-    if (subject.kind !== 'workspace') return
+    // A thread needs a real workspace to run in — a folder names none. Reachable
+    // only from an empty folder's affordance dropdown (its own "+" always makes
+    // a workspace, see above); the dropdown itself has no folder-vs-workspace
+    // split to hide this option behind, so say why instead of swallowing the
+    // click.
+    if (subject.kind !== 'workspace') {
+      toast.error('Start a thread from a workspace row — a folder has none to run it in')
+      return
+    }
     const wsId = parentId
     const store = getOrCreateWorkspaceStore(wsId)
     const provider = store.getState().agentChats.providers.find((p) => p.enabled)
@@ -152,8 +175,33 @@ export function SidebarTreePanel() {
           onTrash={handleTrash}
           onCreate={handleCreate}
         />
+
+        {/* One row closes the list — "New Project", carried over verbatim from
+            workspace-tree.tsx. Deliberately outside the tree component, same
+            reasoning as before: it is an action, not a row with a place in the
+            hierarchy. */}
+        <div className="px-1.5">
+          <button
+            type="button"
+            className={cn(
+              ROW_BASE,
+              'mx-0 w-full border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+            onClick={() => setImportProjectOpen(true)}
+          >
+            <span className="inline-flex size-5 shrink-0 items-center justify-center">
+              <Plus className="size-3.5" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left">New Project</span>
+          </button>
+        </div>
       </ScrollArea>
       <RemovalTray />
+      <ImportProjectModal
+        open={importProjectOpen}
+        onOpenChange={setImportProjectOpen}
+        onImport={handleImportProject}
+      />
     </div>
   )
 }

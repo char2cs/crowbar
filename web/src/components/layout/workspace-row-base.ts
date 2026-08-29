@@ -41,8 +41,9 @@ export const ADD_GLYPH_PATH = 'M8 3v10M3 8h10'
 // trailing slot, rotated 90° when open. It used to be copy-pasted at four call
 // sites, and the project row had drifted into a different gesture entirely (a
 // LEADING glyph that swapped to a chevron on hover), which made the one control
-// the tree repeats most often the one control it drew two ways. Render it
-// through RowDisclosureButton (row-disclosure-button.tsx), never by hand.
+// the tree repeats most often the one control it drew two ways. Drawn inline
+// off this one path — the unified SidebarRow (sidebar-row.tsx) is the sole
+// caller now, so there is only one call site left to keep in sync.
 export const DISCLOSURE_GLYPH_PATH = 'M6 3l5 5-5 5'
 
 // The fold-away control on a row that is holding others: a bar with a chevron
