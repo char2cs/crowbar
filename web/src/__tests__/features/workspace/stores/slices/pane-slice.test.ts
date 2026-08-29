@@ -533,13 +533,29 @@ describe('pane-slice — closePane merges editor tabs, leaves chat untouched', (
 
     expect(actions.getPaneById(ROOT_PANE_ID)?.chatId).toBeNull()
   })
+
+  // Spec §5.4's "empties rather than refuses" is for the true last pane only —
+  // a split sibling that closes while another pane still holds the screen has
+  // somewhere to go, so its row is deleted outright, not left behind empty.
+  it('deletes a closing split sibling outright — the empty-stage treatment is only for the last pane', () => {
+    const actions = makeStore().getState().paneActions
+    const splitId = actions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    actions.setPaneChat(splitId, 'chat-in-split', 'runner-1')
+
+    actions.closePane(splitId)
+
+    expect(actions.getPaneById(splitId)).toBeNull()
+    expect(actions.getPaneById(ROOT_PANE_ID)).not.toBeNull()
+  })
 })
 
 // Regression: closing a layout's sole leaf under its own canonical id (the
 // common single-pane-workspace case) used to create a fresh empty PaneGroup
 // at `fallbackId` and then immediately `delete` it again, because `paneId`
 // and `fallbackId` are the same string here. `getPaneById` returned undefined
-// afterward instead of the empty stage — see closePane's `else` branch.
+// afterward instead of the empty stage — see closePane's `else` branch. This
+// is also the exact scenario spec §5.4 requires ("closing the last pane
+// empties it rather than refusing") — the first test below IS that case.
 describe('pane-slice — closing the sole root/bottom pane empties it, never deletes it', () => {
   it('closing the sole root pane leaves an empty PaneGroup at ROOT_PANE_ID', () => {
     const actions = makeStore().getState().paneActions
