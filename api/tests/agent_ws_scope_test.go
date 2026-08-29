@@ -112,12 +112,13 @@ func TestAgentWS_HomeMountIsolation(t *testing.T) {
 // TestAgentWS_RepoScopedSpansEveryWorkspace proves the repo-scoped mount's WS
 // is deliberately NOT scoped per workspace after Task 17: the route carries no
 // :wsId path segment, so agentChatDef's wsId Filter has no value anywhere to
-// resolve and scopes nothing. What DOES scope the mount is the stream's
-// hierarchical namespace (projectId/repoId/workspaceId), prefix-matched against
-// the subscription's own projectId/repoId — so ONE subscriber of a repo's feed
-// sees a "created" frame for a chat born in EITHER of that repo's own
-// workspaces, and (TestAgentWS_RepoScopedNeverCarriesAnotherReposChats) none at
-// all from another repo.
+// resolve and scopes nothing. What DOES scope the mount is a separate repoId
+// Filter (agentChatDef stays FlatNamespace, matching every other feed in this
+// file), matched with matchRepoOrUnscoped against the frame's own resolved
+// RepoID — so ONE subscriber of a repo's feed sees a "created" frame for a
+// chat born in EITHER of that repo's own workspaces, and
+// (TestAgentWS_RepoScopedNeverCarriesAnotherReposChats) none at all from
+// another repo.
 //
 // This replaces the isolation TestAgentWS_WorkspaceIsolation used to pin at
 // this exact mount before the rescope: the model spec's own §5.1 relaxation
