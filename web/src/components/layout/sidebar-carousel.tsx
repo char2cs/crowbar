@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, Suspense } from 'react'
+import { useMatch } from '@tanstack/react-router'
+import { FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
-import { SidebarTreePanel } from './sidebar-tree-panel'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -10,12 +13,26 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 
-// 'chats' is dropped: Part B's SidebarTree (mounted below as SidebarTreePanel)
-// now covers what the Workspaces and Chats panels used to split between them.
-// A persisted activeTab of 'chats' from before this change simply misses
-// every entry here — TABS.indexOf returns -1, which every effect below
-// already treats as a no-op.
-const TABS: SidebarTab[] = ['workspaces', 'files', 'git']
+// 'workspaces' and 'chats' are both dropped: spec §6.1's card holds two
+// glyphs and nothing else, Files and Git. Part B's SidebarTree (mounted
+// today as SidebarTreePanel) and Part D's RecentsBand own the workspaces
+// surface directly rather than as a carousel panel — not yet wired to a
+// live mount point outside this carousel, a disclosed gap for whichever
+// task gives them one (see task-15-report.md).
+// A persisted activeTab of 'workspaces'/'chats' from before this change
+// simply misses every entry here — TABS.indexOf returns -1, which every
+// effect below already treats as a no-op.
+const TABS: SidebarTab[] = ['files', 'git']
+
+// The head's two glyphs (spec §6.1). Icon only, in TABS order.
+const HEAD_TABS: {
+  tab: SidebarTab
+  label: string
+  Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }>
+}[] = [
+  { tab: 'files', label: 'Files', Icon: FolderOpen },
+  { tab: 'git', label: 'Git', Icon: GitBranch },
+]
 
 interface SidebarCarouselProps {
   activeWorkspaceRepoPath: string
@@ -55,6 +72,17 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
   const armUserGesture = () => {
     isUserGesture.current = true
   }
+
+  // Git has no meaning without a repo, and the project-home route has no
+  // active workspace — carried over verbatim from the old SidebarTabBar,
+  // which is retired now that the head lives here (spec §6.1).
+  const isHomeRoute = Boolean(useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false }))
+  useEffect(() => {
+    if (isHomeRoute && activeTab === 'git') {
+      setActiveTab('files')
+    }
+  }, [isHomeRoute, activeTab, setActiveTab])
+  const visibleHeadTabs = isHomeRoute ? HEAD_TABS.filter((t) => t.tab !== 'git') : HEAD_TABS
 
   // Re-align scroll when the container is resized (sidebar separator drag,
   // sidebar collapse/expand, window resize). Each
@@ -101,6 +129,33 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
 
   return (
     <NavStack>
+      {/* The head (spec §6.1): underline variant, icon only, no labels, no
+          divider. justify-start overrides the base tabs list's w-fit
+          justify-center — the fold control that belongs on ml-auto here has
+          no live home to relocate from today (see task-15-report.md), so
+          this head reserves the layout but renders no fold affordance yet. */}
+      <div className="flex shrink-0 items-center px-2 py-1">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SidebarTab)}>
+          <TabsList variant="underline" data-testid="tabs-underline" className="justify-start">
+            {visibleHeadTabs.map(({ tab, label, Icon }) => {
+              const isActive = activeTab === tab
+              return (
+                <TabsTab
+                  key={tab}
+                  value={tab}
+                  aria-label={label}
+                  className={cn(
+                    'h-7 flex-none justify-center px-2.5',
+                    isActive ? 'text-foreground' : 'text-foreground/62',
+                  )}
+                >
+                  <Icon size={16} weight={isActive ? 'fill' : 'regular'} />
+                </TabsTab>
+              )
+            })}
+          </TabsList>
+        </Tabs>
+      </div>
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -109,14 +164,11 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         data-sidebar-carousel=""
         className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {/* Workspaces panel — one unified tree, replacing the old
-            Workspaces/Chats split. */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
-          <SidebarTreePanel />
-        </div>
-
         {/* Files panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+        <div
+          data-testid="carousel-panel"
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+        >
           <ErrorBoundary>
             <Suspense fallback={<SidebarSkeleton />}>
               <FileExplorerTree
@@ -151,7 +203,10 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         </div>
 
         {/* Git panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+        <div
+          data-testid="carousel-panel"
+          className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+        >
           <GitPanel />
         </div>
       </div>

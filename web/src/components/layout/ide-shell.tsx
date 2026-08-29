@@ -3,7 +3,6 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
-import { SidebarTabBar } from './sidebar-tab-bar'
 import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -140,7 +139,6 @@ export function IDEShell() {
           />
         )}
         {!hasNavScreen && <ContextPill />}
-        {!hasNavScreen && <SidebarTabBar />}
         <ErrorBoundary>
           <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
         </ErrorBoundary>

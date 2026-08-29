@@ -13,9 +13,6 @@ vi.mock('@/utils/platform', () => ({
 vi.mock('@/features/workspace/components/workspace-view', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
-vi.mock('@/components/layout/sidebar-tab-bar', () => ({
-  SidebarTabBar: () => <div data-testid="sidebar-tab-bar" />,
-}))
 vi.mock('@/components/layout/sidebar-carousel', () => ({
   SidebarCarousel: () => <div data-testid="sidebar-carousel" />,
 }))
@@ -67,11 +64,6 @@ describe('IDEShell', () => {
   it('renders project header', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('sidebar-project-header')).toBeInTheDocument()
-  })
-
-  it('renders SidebarTabBar', () => {
-    render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-tab-bar')).toBeInTheDocument()
   })
 
   it('renders SidebarCarousel', () => {
