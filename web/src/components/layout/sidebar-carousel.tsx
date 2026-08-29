@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, Suspense } from 'react'
 import { NavStack } from './nav-stack'
-import { WorkspaceTree } from './workspace-tree'
+import { SidebarTreePanel } from './sidebar-tree-panel'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -9,9 +9,13 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import { AgentChatsPanel } from '@/features/agent/tree/agent-chats-panel'
 
-const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
+// 'chats' is dropped: Part B's SidebarTree (mounted below as SidebarTreePanel)
+// now covers what the Workspaces and Chats panels used to split between them.
+// A persisted activeTab of 'chats' from before this change simply misses
+// every entry here — TABS.indexOf returns -1, which every effect below
+// already treats as a no-op.
+const TABS: SidebarTab[] = ['workspaces', 'files', 'git']
 
 interface SidebarCarouselProps {
   activeWorkspaceRepoPath: string
@@ -105,14 +109,10 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         data-sidebar-carousel=""
         className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {/* Workspaces panel */}
+        {/* Workspaces panel — one unified tree, replacing the old
+            Workspaces/Chats split. */}
         <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
-          <WorkspaceTree />
-        </div>
-
-        {/* Chats panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
-          <AgentChatsPanel />
+          <SidebarTreePanel />
         </div>
 
         {/* Files panel */}

@@ -1,17 +1,18 @@
 import { useEffect } from 'react'
 import { useMatch } from '@tanstack/react-router'
-import { SquaresFour, ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { SquaresFour, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { cn } from '@/utils/cn'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 
+// No 'chats' entry: Part B's unified SidebarTree renders under 'workspaces'
+// now, so there is nothing left for a separate Chats tab to switch to.
 const TABS: {
   tab: SidebarTab
   label: string
   Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }>
 }[] = [
   { tab: 'workspaces', label: 'Workspaces', Icon: SquaresFour },
-  { tab: 'chats', label: 'Chats', Icon: ChatsCircle },
   { tab: 'files', label: 'Files', Icon: FolderOpen },
   { tab: 'git', label: 'Git', Icon: GitBranch },
 ]

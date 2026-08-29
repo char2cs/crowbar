@@ -216,8 +216,10 @@ export function NewTabView({ paneId }: { paneId: string }) {
   }, [activateThisPane, workspaceStore])
 
   // Only the hand-off row ("N more in this worktree") goes to the sidebar — it
-  // means "show me the rest", so a browser is the right destination.
-  const openChatsTab = useCallback(() => useSidebarStore.getState().setActiveTab('chats'), [])
+  // means "show me the rest", so a browser is the right destination. The
+  // unified SidebarTree renders under 'workspaces' now; there is no separate
+  // Chats tab to switch to.
+  const openChatsTab = useCallback(() => useSidebarStore.getState().setActiveTab('workspaces'), [])
 
   // A named chat row opens THAT chat. Shared with the Chats sidebar
   // (open-agent-chat.ts) so both honour the same reveal rule: a chat already

@@ -67,12 +67,6 @@ vi.mock('@phosphor-icons/react', () => ({
       'data-size': size,
       'data-weight': weight,
     }),
-  ChatsCircle: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', {
-      'data-icon': 'chats-circle',
-      'data-size': size,
-      'data-weight': weight,
-    }),
   FolderOpen: ({ size, weight }: { size?: number; weight?: string }) =>
     React.createElement('svg', {
       'data-icon': 'folder-open',
@@ -99,18 +93,17 @@ describe('SidebarTabBar', () => {
     mockMatch = null
   })
 
-  it('renders all 4 tabs when not on home route', () => {
+  it('renders all 3 tabs when not on home route', () => {
     render(<SidebarTabBar />)
     expect(screen.getByRole('tab', { name: /workspaces/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /chats/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /git/i })).toBeInTheDocument()
   })
 
-  it('orders tabs as Workspaces, Chats, Files, Git', () => {
+  it('orders tabs as Workspaces, Files, Git', () => {
     render(<SidebarTabBar />)
     const labels = screen.getAllByRole('tab').map((el) => el.textContent)
-    expect(labels).toEqual(['Workspaces', 'Chats', 'Files', 'Git'])
+    expect(labels).toEqual(['Workspaces', 'Files', 'Git'])
   })
 
   it('marks the active tab as selected', () => {
@@ -125,12 +118,11 @@ describe('SidebarTabBar', () => {
     expect(useSidebarStore.getState().activeTab).toBe('files')
   })
 
-  it('hides the git tab on the home route but keeps chats', () => {
+  it('hides the git tab on the home route but keeps workspaces and files', () => {
     mockMatch = { params: { projectId: 'p1' } }
     render(<SidebarTabBar />)
     expect(screen.queryByRole('tab', { name: /git/i })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /workspaces/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /chats/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument()
   })
 

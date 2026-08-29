@@ -4,11 +4,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
-vi.mock('@/components/layout/workspace-tree', () => ({
-  WorkspaceTree: () => <div data-testid="panel-workspaces" />,
-}))
-vi.mock('@/features/agent/tree/agent-chats-panel', () => ({
-  AgentChatsPanel: () => <div data-testid="panel-chats" />,
+vi.mock('@/components/layout/sidebar-tree-panel', () => ({
+  SidebarTreePanel: () => <div data-testid="panel-workspaces" />,
 }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
   FileExplorerTree: () => <div data-testid="panel-files" />,
@@ -41,24 +38,23 @@ describe('SidebarCarousel', () => {
     HTMLElement.prototype.scrollTo = vi.fn()
   })
 
-  it('mounts all 4 panels', () => {
+  it('mounts all 3 panels', () => {
     render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
     expect(screen.getByTestId('panel-workspaces')).toBeInTheDocument()
-    expect(screen.getByTestId('panel-chats')).toBeInTheDocument()
     expect(screen.getByTestId('panel-files')).toBeInTheDocument()
     expect(screen.getByTestId('panel-git')).toBeInTheDocument()
   })
 
-  it('renders the panels in Workspaces, Chats, Files, Git order (index math must not be off-by-one)', () => {
+  it('renders the panels in Workspaces, Files, Git order (index math must not be off-by-one)', () => {
     render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
     const container = screen.getByTestId('panel-workspaces').closest('[data-sidebar-carousel]')
     const testIds = Array.from(container?.querySelectorAll('[data-testid^="panel-"]') ?? []).map(
       (el) => el.getAttribute('data-testid'),
     )
-    expect(testIds).toEqual(['panel-workspaces', 'panel-chats', 'panel-files', 'panel-git'])
+    expect(testIds).toEqual(['panel-workspaces', 'panel-files', 'panel-git'])
   })
 
-  it('scrolls to the Chats panel index (1) when activeTab is chats', () => {
+  it('scrolls to the Files panel index (1) when activeTab is files', () => {
     render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
     const container = screen
       .getByTestId('panel-workspaces')
@@ -68,7 +64,7 @@ describe('SidebarCarousel', () => {
     scrollToSpy.mockClear()
 
     act(() => {
-      useSidebarStore.setState({ activeTab: 'chats' })
+      useSidebarStore.setState({ activeTab: 'files' })
     })
 
     expect(scrollToSpy).toHaveBeenCalledWith(
@@ -77,11 +73,12 @@ describe('SidebarCarousel', () => {
   })
 
   // Regression: hiding and re-showing the sidebar while the Files panel was
-  // active landed on Chats. Collapsing the panel drives the carousel's width to
-  // 0, the browser clamps scrollLeft, and the offsets that arrive while the
-  // sidebar reopens do not correspond to the width the container ends up with —
-  // reading them back through Math.round() picked a neighbouring panel and
-  // reassigned activeTab. Only a real scroll gesture may move the tab.
+  // active landed on a neighbouring panel. Collapsing the panel drives the
+  // carousel's width to 0, the browser clamps scrollLeft, and the offsets that
+  // arrive while the sidebar reopens do not correspond to the width the
+  // container ends up with — reading them back through Math.round() picked a
+  // neighbouring panel and reassigned activeTab. Only a real scroll gesture may
+  // move the tab.
   describe('activeTab is only derived from scroll offsets the user caused', () => {
     function carousel(): HTMLElement {
       return screen
@@ -109,9 +106,9 @@ describe('SidebarCarousel', () => {
       const el = carousel()
       selectFilesAndSettle(el)
 
-      // An offset that rounds to panel index 1 (Chats) — what a collapse/expand
-      // cycle leaves behind, since the offset was written for a width the
-      // container no longer has.
+      // An offset that rounds back to panel index 1 (Files, still the active
+      // one) — what a collapse/expand cycle leaves behind, since the offset
+      // was written for a width the container no longer has.
       setGeometry(el, 400, 400)
       fireEvent.scroll(el)
 
@@ -137,11 +134,13 @@ describe('SidebarCarousel', () => {
       const el = carousel()
       selectFilesAndSettle(el)
 
+      // Files sits at index 1; an offset of two panel-widths is Git, its
+      // neighbour to the right.
       fireEvent.wheel(el)
-      setGeometry(el, 400, 400)
+      setGeometry(el, 400, 800)
       fireEvent.scroll(el)
 
-      expect(useSidebarStore.getState().activeTab).toBe('chats')
+      expect(useSidebarStore.getState().activeTab).toBe('git')
     })
   })
 })

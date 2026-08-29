@@ -330,7 +330,9 @@ describe('NewTabView', () => {
 
       fireEvent.click(screen.getByText(/21 more in this worktree/i))
 
-      expect(setActiveTab).toHaveBeenCalledWith('chats')
+      // The unified SidebarTree renders under 'workspaces' now — there is no
+      // separate Chats tab to switch to (Task 8).
+      expect(setActiveTab).toHaveBeenCalledWith('workspaces')
       expect(openContent).not.toHaveBeenCalled()
     })
   })
