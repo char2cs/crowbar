@@ -74,10 +74,19 @@
    A SIBLING of .dock, not a child of it: the dock is a centred 768px column
    (it only needs to be as wide as the controls it holds), but the transcript
    underneath runs the full pane, so the glass has to too — sized off
-   --agent-dock-h directly instead of borrowing the dock's own narrow box. */
+   --agent-dock-h directly instead of borrowing the dock's own narrow box.
+
+   STOPS SHORT OF THE SCROLLBAR, on the right. `.scroll` sits right under this
+   (see agent-transcript.tsx) and its native scrollbar is part of ITS OWN
+   painting — this is a sibling drawn on TOP, so without the inset its blur
+   sampled (and visually sat over) the scrollbar track too, smudging the one
+   thing on screen that must stay sharp to read as a control. --agent-scrollbar-w
+   is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
+   hand-picked, because the real width is a platform fact, not a design value. */
 .agent-chat .dissolve {
   position: absolute;
-  inset-inline: 0;
+  left: 0;
+  right: var(--agent-scrollbar-w, 0px);
   bottom: 0;
   height: calc(var(--agent-dock-h, 92px) + 88px);
   z-index: 1;

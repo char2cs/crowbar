@@ -48,13 +48,35 @@
      composer.css. The gradient spans the same --agent-dock-h + 88px band as
      the dissolve's blur layers there, so the two read as one effect instead
      of opacity finishing before the blur does; it is clear right up to that
-     band and fully gone by the switches line below it, on any background. */
-  mask-image: linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px));
+     band and fully gone by the switches line below it, on any background.
+
+     A SECOND mask layer keeps the scrollbar out of the first one's reach.
+     This mask paints the whole element — its own native scrollbar included,
+     unlike `.dissolve` (composer.css), which is a separate sibling the
+     scrollbar simply isn't part of — so the fade was dimming the bar itself
+     as it neared the dock, the one thing on screen that must stay legible.
+     The second gradient is solid across exactly --agent-scrollbar-w at the
+     right edge; `mask-composite`'s default (`add`, i.e. union) between mask
+     layers means that strip stays fully opaque no matter what the first
+     gradient says at that height. */
+  mask-image: linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
   -webkit-mask-image: linear-gradient(
-    to top,
-    transparent 0,
-    black calc(var(--agent-dock-h, 92px) + 88px)
-  );
+      to top,
+      transparent 0,
+      black calc(var(--agent-dock-h, 92px) + 88px)
+    ),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
 }
 /* One measure for the whole surface — the transcript, the composer and the
    controls all sit on it, which is what makes the empty state read as a page. */

@@ -906,18 +906,32 @@ export function AgentChatPane({
       onMouseDown={focusTerminalFromEmptySpace}
       className="flex h-full w-full flex-col"
     >
-      {/* THE COLUMN. Both the terminal and the switcher live inside it, and the
-          padding is on the column rather than on either of them. That is the whole
-          trick: the switcher cannot drift out of line with the agent's first
-          character, because they are inset by the SAME box. Alignment is structural
-          here, not a hand-tuned pixel — which is exactly what it was before, and it
-          broke every time anything moved.
+      {/* THE COLUMN. The terminal and the switcher live inside it, and the padding
+          is on the column rather than on either of them — the switcher cannot
+          drift out of line with the agent's first character, because they are
+          inset by the SAME box. Alignment is structural here, not a hand-tuned
+          pixel — which is exactly what it was before, and it broke every time
+          anything moved.
 
-          The cap is what makes the padding appear only when there is room to spare:
-          wide pane → real gutters; narrow pane → the column just fills it. And it
-          resizes the PTY, so the agent genuinely re-wraps to ~106 columns instead of
-          running lines to 164. Because the whole pane is one bg-background, the
-          padding and the gutters are invisible — you see breathing room, not a box. */}
+          The cap (and its padding) is what makes gutters appear only when
+          there is room to spare: wide pane → real gutters; narrow pane → the
+          column just fills it. It resizes the PTY, so the agent genuinely
+          re-wraps to ~106 columns instead of running lines to 164 — which is a
+          TERMINAL concern, not a chat one: the chat's own reading column
+          (`.center`, 768px) is already narrower than this cap and centers
+          itself regardless of how wide its scroller is, and `.scroll`'s own
+          padding-top (transcript.css) already gives the first message its
+          breathing room. Capping the column here too, and padding it, used to
+          nest the chat's scroll box a SECOND time inside both, which pushed
+          its native scrollbar and its top edge in from the pane's real corner
+          to this box's edge, then in again by the padding — so pure chat drops
+          the cap, the top gutter and the RIGHT gutter (the scrollbar's own
+          edge), same as split already does. The LEFT gutter stays: it is the
+          one edge with something else beyond it — the app's own sidebar — and
+          the composer's glass (`.dissolve`, composer.css) reaching flush to a
+          real neighbour read as smudging it, where reaching flush to the
+          pane's own scrollbar or top edge reads as intended. Only a lone
+          terminal keeps the full wrapped width and all four gutters. */}
       <div
         ref={columnRef}
         className={cn(
@@ -926,10 +940,12 @@ export function AgentChatPane({
           // so the surface switcher sitting in its strip came out with no styling
           // at all. Anything both surfaces draw hangs off this instead.
           'agent-chat-pane',
-          'mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pt-4',
-          // The reading column exists so one surface does not run to 164 characters.
-          // Two surfaces have the opposite problem, so the split takes the pane.
-          splitting ? 'max-w-none' : 'max-w-4xl',
+          'mx-auto flex min-h-0 w-full flex-1 flex-col',
+          splitting || presentation === 'chat' ? 'max-w-none' : 'max-w-4xl',
+          // Pure chat keeps only its LEFT gutter — see above — dropping the
+          // top and right ones this presentation would otherwise share with
+          // terminal/split.
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
         )}
       >
         <div

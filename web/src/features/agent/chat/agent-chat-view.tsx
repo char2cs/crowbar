@@ -22,6 +22,7 @@ import {
   type AgentEmptyDocumentHandle,
 } from '@/features/agent/chat/agent-empty-document'
 import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
+import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width'
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
@@ -166,6 +167,12 @@ export function AgentChatView({
   // wrong the moment anybody typed a second line.
   const [dockHeight, setDockHeight] = useState(0)
   const dockObserver = useRef<ResizeObserver | null>(null)
+  // THE SCROLLBAR'S OWN WIDTH, published to CSS the same way. The dissolve
+  // spans the full pane (see composer.css) so its blur reaches exactly as far
+  // as the transcript's real content does — never past it into the scrollbar
+  // track, which is what made the glass read as smudging the thumb itself.
+  const [scrollbarWidth, setScrollbarWidth] = useState(0)
+  useEffect(() => setScrollbarWidth(measureScrollbarWidth()), [])
   // The empty document's own handle, read exactly once — at the instant of the
   // first send — so the arrival slide has something to arrive FROM. A ref, not
   // state: nothing ever renders off it, and it must survive the very unmount
@@ -528,7 +535,12 @@ export function AgentChatView({
     <section
       className="agent-chat chat"
       aria-label="Agent chat"
-      style={{ '--agent-dock-h': `${Math.round(dockHeight)}px` } as React.CSSProperties}
+      style={
+        {
+          '--agent-dock-h': `${Math.round(dockHeight)}px`,
+          '--agent-scrollbar-w': `${scrollbarWidth}px`,
+        } as React.CSSProperties
+      }
     >
       {transcript}
 
