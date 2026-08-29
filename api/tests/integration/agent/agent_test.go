@@ -31,7 +31,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -191,7 +191,7 @@ func (h *harness) importRepoAndWorkspace(
 	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
 	require.NoError(t, err, "import repo")
 
-	ws, err := h.app.Usecases.Worktree.CreateChild(ctx, worktree.CreateChildInput{
+	ws, err := h.app.Usecases.Workspace.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID:       repo.ID,
 		ProjectID:    project.ID,
 		RepoPath:     repo.Path,

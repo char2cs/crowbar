@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -34,7 +34,7 @@ func samePathResolved(t *testing.T, want, got string) {
 func importHarness(
 	t *testing.T,
 	repoPath string,
-) (worktree.Usecase, func() (context.Context, []domain.Workspace)) {
+) (hierarchy.Usecase, func() (context.Context, []domain.Workspace)) {
 	t.Helper()
 
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
@@ -54,7 +54,7 @@ func importHarness(
 	}))
 
 	crowbarHome := t.TempDir()
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		&stubProvider{},
@@ -105,7 +105,7 @@ func TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder(t *testi
 
 	uc, readAll := importHarness(t, repoPath)
 
-	err := uc.CreateFromImport(context.Background(), worktree.ImportInput{
+	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID:        "r1",
 		ProjectID:     "p1",
 		RepoPath:      repoPath,
@@ -140,7 +140,7 @@ func TestRegression_ImportFreeBranchStillProvisionsRealWorktree(t *testing.T) {
 
 	uc, readAll := importHarness(t, repoPath)
 
-	err := uc.CreateFromImport(context.Background(), worktree.ImportInput{
+	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID:        "r1",
 		ProjectID:     "p1",
 		RepoPath:      repoPath,

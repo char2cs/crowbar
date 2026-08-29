@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 // show a folder whose branch has since been renamed. Nothing resolves a
 // workspace by that name — the record carries the path — and the create path
 // disambiguates a name a previous workspace has frozen.
-func (u *worktreeUsecase) RenameBranch(
+func (u *hierarchyUsecase) RenameBranch(
 	ctx context.Context,
 	wsID string,
 	newBranch string,
@@ -70,7 +70,7 @@ func (u *worktreeUsecase) RenameBranch(
 
 // guardRenameBranch rejects every rename that must not reach git, before any
 // side effect runs.
-func (u *worktreeUsecase) guardRenameBranch(
+func (u *hierarchyUsecase) guardRenameBranch(
 	ctx context.Context,
 	ws domain.Workspace,
 	newBranch string,

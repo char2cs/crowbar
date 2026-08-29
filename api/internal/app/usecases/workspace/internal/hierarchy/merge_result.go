@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 // MergeResult reports the outcome of a local merge-into-parent (07 §3.1).
 // ConflictsPending is true when a git step reported conflicts: the in-progress

@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkMergeEligibilityFor_LargeSiblingSet(b *testing.B) {
-	uc := workspace.New(nil, nil, nil)
+	uc := workspace.New(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	const n = 1000
 	siblings := make([]domain.Workspace, 0, n)

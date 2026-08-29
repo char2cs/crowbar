@@ -5,9 +5,47 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
+)
+
+// CreateChildInput, ImportInput and MergeResult are the hierarchy usecase's
+// own value types, re-exported here so a caller of this package's public face
+// never has to import internal/hierarchy directly.
+type (
+	CreateChildInput = hierarchy.CreateChildInput
+	ImportInput      = hierarchy.ImportInput
+	MergeResult      = hierarchy.MergeResult
+	Option           = hierarchy.Option
+	TerminalReaper   = hierarchy.TerminalReaper
+	ChatWorkObserver = hierarchy.ChatWorkObserver
+)
+
+// WithTerminalReaper wires the terminal engine so cascade delete can kill a
+// workspace's live PTY sessions. Without it, terminal cleanup is skipped.
+var WithTerminalReaper = hierarchy.WithTerminalReaper
+
+// The hierarchy usecase's sentinel errors, re-exported here for the same
+// reason as the value types above.
+var (
+	ErrParentLocked                 = hierarchy.ErrParentLocked
+	ErrRebaseNonLeaf                = hierarchy.ErrRebaseNonLeaf
+	ErrChildHasChildren             = hierarchy.ErrChildHasChildren
+	ErrCrossRepoWorktreeMove        = hierarchy.ErrCrossRepoWorktreeMove
+	ErrSelfParent                   = hierarchy.ErrSelfParent
+	ErrWorkspaceLocked              = hierarchy.ErrWorkspaceLocked
+	ErrBranchWorkspaceExists        = hierarchy.ErrBranchWorkspaceExists
+	ErrParentUnprovisioned          = hierarchy.ErrParentUnprovisioned
+	ErrRenameUnmanagedWorkspace     = hierarchy.ErrRenameUnmanagedWorkspace
+	ErrRenameTargetExists           = hierarchy.ErrRenameTargetExists
+	ErrBranchStillHeld              = hierarchy.ErrBranchStillHeld
+	ErrBranchHeldByManagedWorkspace = hierarchy.ErrBranchHeldByManagedWorkspace
+	ErrWorkspaceWorking             = hierarchy.ErrWorkspaceWorking
 )
 
 // WorkspaceLifecycleRepo is the workspace repository surface the usecase needs.
@@ -79,7 +117,12 @@ type ProjectActivityRollup interface {
 	)
 }
 
-// Usecase is the lifecycle/read surface over the workspace aggregate.
+// Usecase is the workspace feature's one public face: the lifecycle/read
+// surface over the workspace aggregate PLUS the worktree hierarchy (07) —
+// worktree-backed create, local child→parent merge, re-parenting, and cascade
+// delete. The hierarchy methods (CreateChild through SetChatObserver) are a
+// thin delegation onto internal/hierarchy, which holds their implementation;
+// this interface only names the one surface a caller sees.
 // SyncWorkingTreeState is the shared wrapper the watcher, file, and git usecases
 // call to recompute and persist the working-tree summary (00 §5.3).
 type Usecase interface {
@@ -151,25 +194,114 @@ type Usecase interface {
 		ws domain.Workspace,
 		siblings []domain.Workspace,
 	) MergeEligibility
+
+	// CreateChild creates a worktree-backed (or workspace-only) child (07 §4.1).
+	CreateChild(
+		ctx context.Context,
+		in CreateChildInput,
+	) (domain.Workspace, error)
+	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
+	// up to a protected/default root, creating missing ancestors (07 §import).
+	CreateFromImport(
+		ctx context.Context,
+		in ImportInput,
+	) error
+	// MergeIntoParent runs a local child→parent merge under one of the three
+	// strategies (07 §3.1).
+	MergeIntoParent(
+		ctx context.Context,
+		childID string,
+		strategy gitdomain.MergeStrategy,
+	) (MergeResult, error)
+	// Reparent rebases a leaf child onto a new parent's tip (07 §4).
+	Reparent(
+		ctx context.Context,
+		childID string,
+		newParentID string,
+	) (domain.Workspace, error)
+	// RenameBranch renames a managed workspace's branch and relocates its
+	// workspace root to the directory the new name derives.
+	RenameBranch(
+		ctx context.Context,
+		wsID string,
+		newBranch string,
+	) (domain.Workspace, error)
+	// RebaseOntoParent is the user-initiated "finish the move" action for a
+	// moved-but-conflicting child.
+	RebaseOntoParent(
+		ctx context.Context,
+		childID string,
+	) (domain.Workspace, error)
+	// RetryProvision re-runs holder resolution + provisioning for an existing
+	// placeholder (spec §3.3).
+	RetryProvision(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
+	// DetachHolder frees a live holder off the placeholder's branch, then
+	// Retry-provisions in place (spec §3.5/§3.7).
+	DetachHolder(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
+	// DeleteCascade removes rootID and its unlocked descendants (07 §5).
+	DeleteCascade(
+		ctx context.Context,
+		rootID string,
+	) error
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
+	// path from the caller rather than resolving it from the (possibly
+	// already-deleted) repo row.
+	DeleteRepoWorkspaces(
+		ctx context.Context,
+		repoID string,
+		repoPath string,
+	) ([]string, error)
+	// SetChatObserver wires the chat-usecase surface guardReparent's
+	// working-chat check needs (invariant 5). It is a post-construction setter
+	// because the chat usecase itself depends on this one (Promote forks a
+	// workspace through it) — see hierarchy.Usecase.SetChatObserver.
+	SetChatObserver(observer ChatWorkObserver)
 }
 
 type workspaceUsecase struct {
 	repo   WorkspaceLifecycleRepo
 	git    WorkingTreeGitEngine
 	rollup ProjectActivityRollup
+	hierarchy.Usecase
 }
 
-// New builds a Usecase from the workspace repo, the git engine summary surface,
-// and the project roll-up usecase.
+// New builds a Usecase from the workspace repo, the git engine, and the
+// project roll-up usecase — the lifecycle methods' own three dependencies,
+// unchanged from before this package absorbed the worktree hierarchy — plus
+// everything the hierarchy needs beyond those. hierarchyWorkspaces and
+// hierarchyGit are the SAME repository and git engine as repo/git above,
+// widened to the fuller interfaces the hierarchy's own create/merge/reparent
+// logic uses (repo/git only need the narrow slice the lifecycle methods call);
+// they are separate parameters, not one, so a caller exercising only the
+// lifecycle half (see workspace_test.go) can keep supplying its existing
+// narrow fakes without also having to satisfy the wider ones. provider,
+// repos, now and crowbarHome are the hierarchy's remaining dependencies
+// verbatim (repos resolves a workspace's repository main path so worktree
+// removal and branch deletion run against the repo, never a child's own
+// worktree); opts configures it further (e.g. WithTerminalReaper).
 func New(
 	repo WorkspaceLifecycleRepo,
 	git WorkingTreeGitEngine,
 	rollup ProjectActivityRollup,
+	hierarchyWorkspaces wsrepo.Workspace,
+	hierarchyGit enginegit.Engine,
+	provider engineprovider.Engine,
+	repos store.Store[domain.Repository, string],
+	now func() time.Time,
+	crowbarHome func() (string, error),
+	opts ...Option,
 ) Usecase {
 	return &workspaceUsecase{
-		repo:   repo,
-		git:    git,
-		rollup: rollup,
+		repo:    repo,
+		git:     git,
+		rollup:  rollup,
+		Usecase: hierarchy.New(hierarchyWorkspaces, hierarchyGit, provider, repos, now, crowbarHome, opts...),
 	}
 }
 

@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -27,9 +27,9 @@ func TestCreateChild_BlankBranch_GeneratesAndChecksAgainstRealRefs(t *testing.T)
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -57,15 +57,15 @@ func TestCreateChild_BlankBranch_RetriesOnARealCollision(t *testing.T) {
 	}
 	calls := 0
 	names := []string{"chat-taken", "chat-taken", "chat-free"}
-	restore := worktree.SetBranchNameCandidateForTest(func() string {
+	restore := hierarchy.SetBranchNameCandidateForTest(func() string {
 		name := names[calls]
 		calls++
 		return name
 	})
 	defer restore()
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -93,15 +93,15 @@ func TestCreateChild_BlankBranch_DetectsARemotePrefixedCollision(t *testing.T) {
 	}
 	calls := 0
 	names := []string{"chat-taken", "chat-free"}
-	restore := worktree.SetBranchNameCandidateForTest(func() string {
+	restore := hierarchy.SetBranchNameCandidateForTest(func() string {
 		name := names[calls]
 		calls++
 		return name
 	})
 	defer restore()
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -120,11 +120,11 @@ func TestCreateChild_BlankBranch_DetectsARemotePrefixedCollision(t *testing.T) {
 func TestCreateChild_BlankBranch_GivesUpAfterTooManyCollisions(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha", branches: []gitdomain.Branch{{Name: "chat-taken"}}}
 	ws := &fakeWorkspace{}
-	restore := worktree.SetBranchNameCandidateForTest(func() string { return "chat-taken" })
+	restore := hierarchy.SetBranchNameCandidateForTest(func() string { return "chat-taken" })
 	defer restore()
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -146,9 +146,9 @@ func TestCreateChild_ExplicitBranch_NeverConsultsTheGenerator(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",

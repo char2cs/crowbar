@@ -13,7 +13,6 @@ import (
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -102,8 +101,8 @@ func (f *fakeReader) MergeEligibilityFor(
 type fakeHierarchy struct {
 	created      domain.Workspace
 	createErr    error
-	gotCreate    worktree.CreateChildInput
-	mergeResult  worktree.MergeResult
+	gotCreate    workspace.CreateChildInput
+	mergeResult  workspace.MergeResult
 	mergeErr     error
 	gotMergeID   string
 	gotStrategy  gitdomain.MergeStrategy
@@ -121,7 +120,7 @@ type fakeHierarchy struct {
 	renameErr    error
 	gotRenameID  string
 	gotRenameTo  string
-	gotImport    worktree.ImportInput
+	gotImport    workspace.ImportInput
 	importErr    error
 	importDone   chan struct{}
 	gotRebaseID  string
@@ -130,7 +129,7 @@ type fakeHierarchy struct {
 
 func (f *fakeHierarchy) CreateFromImport(
 	_ context.Context,
-	in worktree.ImportInput,
+	in workspace.ImportInput,
 ) error {
 	f.gotImport = in
 	if f.importDone != nil {
@@ -153,7 +152,7 @@ func (f *fakeHierarchy) RenameBranch(
 
 func (f *fakeHierarchy) CreateChild(
 	_ context.Context,
-	in worktree.CreateChildInput,
+	in workspace.CreateChildInput,
 ) (domain.Workspace, error) {
 	f.gotCreate = in
 	if f.createDone != nil {
@@ -166,7 +165,7 @@ func (f *fakeHierarchy) MergeIntoParent(
 	_ context.Context,
 	childID string,
 	strategy gitdomain.MergeStrategy,
-) (worktree.MergeResult, error) {
+) (workspace.MergeResult, error) {
 	f.gotMergeID = childID
 	f.gotStrategy = strategy
 	if f.mergeDone != nil {

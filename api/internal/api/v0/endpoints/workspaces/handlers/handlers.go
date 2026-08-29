@@ -10,7 +10,6 @@ import (
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -80,17 +79,17 @@ type Reader interface {
 type Hierarchy interface {
 	CreateChild(
 		ctx context.Context,
-		in worktree.CreateChildInput,
+		in workspace.CreateChildInput,
 	) (domain.Workspace, error)
 	CreateFromImport(
 		ctx context.Context,
-		in worktree.ImportInput,
+		in workspace.ImportInput,
 	) error
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
 		strategy gitdomain.MergeStrategy,
-	) (worktree.MergeResult, error)
+	) (workspace.MergeResult, error)
 	Reparent(
 		ctx context.Context,
 		childID string,

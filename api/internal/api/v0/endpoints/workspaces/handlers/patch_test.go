@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -61,11 +61,11 @@ func TestPatch_BadJSON_Returns400(t *testing.T) {
 // readable reason, not a 500.
 func TestPatch_RefusalsMapToConflict(t *testing.T) {
 	for name, refusal := range map[string]error{
-		"locked workspace":   worktree.ErrWorkspaceLocked,
-		"branch taken":       worktree.ErrBranchWorkspaceExists,
-		"destination taken":  worktree.ErrRenameTargetExists,
-		"adopted checkout":   worktree.ErrRenameUnmanagedWorkspace,
-		"not yet provisoned": worktree.ErrParentUnprovisioned,
+		"locked workspace":   workspace.ErrWorkspaceLocked,
+		"branch taken":       workspace.ErrBranchWorkspaceExists,
+		"destination taken":  workspace.ErrRenameTargetExists,
+		"adopted checkout":   workspace.ErrRenameUnmanagedWorkspace,
+		"not yet provisoned": workspace.ErrParentUnprovisioned,
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := do(
@@ -178,7 +178,7 @@ func TestPatch_BranchOnlySkipsThePlacer(t *testing.T) {
 // still half-apply.
 func TestPatch_FailedRenameSkipsThePlacement(t *testing.T) {
 	placer := &fakePlacer{}
-	hierarchy := &fakeHierarchy{renameErr: worktree.ErrWorkspaceLocked}
+	hierarchy := &fakeHierarchy{renameErr: workspace.ErrWorkspaceLocked}
 	r, got, _ := newRouterWithPlacer(&fakeReader{}, hierarchy, &fakeRepos{}, placer)
 
 	rec := do(r, http.MethodPatch, patchPath(), `{"branch":"feature/x","order":0}`)

@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 // SetBranchNameCandidateForTest overrides the provisional-branch-name
 // candidate source generateBranchName draws from, so a test can pin what it

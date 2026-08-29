@@ -112,7 +112,6 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Git)
 	assert.NotNil(t, c.Terminal)
 	assert.NotNil(t, c.ProviderSync)
-	assert.NotNil(t, c.Worktree)
 	assert.NotNil(t, c.BranchReview)
 	assert.NotNil(t, c.AgentChat)
 	assert.NotNil(t, c.AgentTurn)
@@ -300,12 +299,12 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 }
 
 // TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent
-// pins the Promote fix: worktree.CreateChild's own taxonomy default rule
+// pins the Promote fix: workspace.CreateChild's own taxonomy default rule
 // (model spec §4.1) inherits OwnWorktree from the PARENT, so a fork parent
 // that is itself a workspace-less bubble (WorktreePath == "") would otherwise
 // default a promotion into ANOTHER bubble — a chat with neither a worktree nor
 // a branch name, silently. worktreeChildCreator forces OwnWorktree true
-// always, which this proves against the REAL worktree.Usecase (real git, real
+// always, which this proves against the REAL workspace.Usecase (real git, real
 // resolveInherited, real branch generator), not the fake usecases/chat wires
 // its own fixture with.
 func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
@@ -335,7 +334,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 	require.NoError(t, err)
 	require.Empty(t, parent.WorktreePath, "precondition: the fork parent owns no worktree of its own")
 
-	creator := usecases.NewWorktreeChildCreatorForTest(c.Worktree)
+	creator := usecases.NewWorktreeChildCreatorForTest(c.Workspace)
 
 	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID)
 

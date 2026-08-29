@@ -12,7 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -67,14 +66,14 @@ type stubHierarchy struct{}
 
 func (stubHierarchy) CreateChild(
 	_ context.Context,
-	_ worktree.CreateChildInput,
+	_ workspace.CreateChildInput,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
 func (stubHierarchy) CreateFromImport(
 	_ context.Context,
-	_ worktree.ImportInput,
+	_ workspace.ImportInput,
 ) error {
 	return nil
 }
@@ -83,8 +82,8 @@ func (stubHierarchy) MergeIntoParent(
 	_ context.Context,
 	_ string,
 	_ gitdomain.MergeStrategy,
-) (worktree.MergeResult, error) {
-	return worktree.MergeResult{}, nil
+) (workspace.MergeResult, error) {
+	return workspace.MergeResult{}, nil
 }
 
 func (stubHierarchy) RebaseOntoParent(

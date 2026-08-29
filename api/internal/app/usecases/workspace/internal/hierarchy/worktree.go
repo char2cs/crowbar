@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 import (
 	"context"
@@ -129,6 +129,14 @@ type Usecase interface {
 		repoID string,
 		repoPath string,
 	) ([]string, error)
+	// SetChatObserver wires the chat-usecase surface guardReparent's
+	// working-chat check needs. It is a post-construction setter rather than a
+	// New(...) option because the chat usecase itself depends on this one
+	// (Promote forks a workspace through it), so at construction time here the
+	// chat usecase does not exist yet to hand over — the composition root calls
+	// this once both usecases exist. A nil observer (the default, and every
+	// existing caller) makes the guard a no-op.
+	SetChatObserver(observer ChatWorkObserver)
 }
 
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
@@ -139,24 +147,40 @@ type TerminalReaper interface {
 	Kill(ctx context.Context, sessionID string) error
 }
 
-type worktreeUsecase struct {
-	workspaces  workspace.Workspace
-	git         enginegit.Engine
-	provider    engineprovider.Engine
-	repos       store.Store[domain.Repository, string]
-	now         func() time.Time
-	crowbarHome func() (string, error)
-	terminals   TerminalReaper
+// ChatWorkObserver answers the two questions guardReparent's working-chat check
+// needs: which chats a workspace owns, and whether one of them is CURRENTLY
+// working. It is the same live, process-local answer
+// usecases/chat/internal/tree's own guardNotWorking already established for the
+// unified Chats-panel tree (Task 11, model spec invariant 5) — reached here
+// through the chat usecase's public door (usecases/chat.Usecase.Working) rather
+// than its internal tree/inflight packages, which this package may not import.
+type ChatWorkObserver interface {
+	ListChatsByWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) ([]domain.Chat, error)
+	Working(chatID string) bool
 }
 
-// Option configures optional worktreeUsecase dependencies without widening the
+type hierarchyUsecase struct {
+	workspaces   workspace.Workspace
+	git          enginegit.Engine
+	provider     engineprovider.Engine
+	repos        store.Store[domain.Repository, string]
+	now          func() time.Time
+	crowbarHome  func() (string, error)
+	terminals    TerminalReaper
+	chatObserver ChatWorkObserver
+}
+
+// Option configures optional hierarchyUsecase dependencies without widening the
 // New signature (it has many test call sites).
-type Option func(*worktreeUsecase)
+type Option func(*hierarchyUsecase)
 
 // WithTerminalReaper wires the terminal engine so cascade delete can kill a
 // workspace's PTY sessions. Without it, terminal cleanup is skipped (tests).
 func WithTerminalReaper(r TerminalReaper) Option {
-	return func(u *worktreeUsecase) { u.terminals = r }
+	return func(u *hierarchyUsecase) { u.terminals = r }
 }
 
 // New builds the hierarchy usecase. repos resolves a workspace's repository main
@@ -171,7 +195,7 @@ func New(
 	crowbarHome func() (string, error),
 	opts ...Option,
 ) Usecase {
-	u := &worktreeUsecase{
+	u := &hierarchyUsecase{
 		workspaces:  workspaces,
 		git:         git,
 		provider:    provider,
@@ -185,8 +209,13 @@ func New(
 	return u
 }
 
+// SetChatObserver implements Usecase.
+func (u *hierarchyUsecase) SetChatObserver(observer ChatWorkObserver) {
+	u.chatObserver = observer
+}
+
 //nolint:gocyclo // orchestrates create with intricate worktree/branch rollback paths; splitting risks the rollback invariants
-func (u *worktreeUsecase) CreateChild(
+func (u *hierarchyUsecase) CreateChild(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
@@ -317,7 +346,7 @@ func (u *worktreeUsecase) CreateChild(
 // caller that already knows its own repo (including one whose repo is
 // path-less, e.g. the HTTP create route) keeps today's explicit-create
 // behavior untouched rather than having it silently swapped for the parent's.
-func (u *worktreeUsecase) resolveInherited(
+func (u *hierarchyUsecase) resolveInherited(
 	ctx context.Context,
 	in CreateChildInput,
 ) (CreateChildInput, bool, error) {
@@ -365,7 +394,7 @@ func ownWorktreeOrDefault(
 // worktree path (which would never case-match a sibling root now that both
 // carry a trailing "/worktree" leaf only on the CANDIDATE side before that
 // dereference).
-func (u *worktreeUsecase) deriveWorktreePath(
+func (u *hierarchyUsecase) deriveWorktreePath(
 	ctx context.Context,
 	home string,
 	projectID string,
@@ -405,7 +434,7 @@ func (u *worktreeUsecase) deriveWorktreePath(
 // carries the remote URL (Create) has it applied over the loaded row so the
 // parse still prefers the caller's value while the name stays available as the
 // fallback.
-func (u *worktreeUsecase) resolveSlug(
+func (u *hierarchyUsecase) resolveSlug(
 	ctx context.Context,
 	repoID string,
 	remoteURL string,
@@ -459,7 +488,7 @@ func siblingWorktreePaths(
 // (so later merge/reparent math diffs against what the remote already contains),
 // while the create path's fork point is exactly where the new branch diverged from
 // its parent (origin's tip of that parent whenever it is reachable).
-func (u *worktreeUsecase) addWorktree(
+func (u *hierarchyUsecase) addWorktree(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
@@ -516,7 +545,7 @@ func (u *worktreeUsecase) addWorktree(
 // Every step degrades to the local parent tip and warns: a no-remote/offline
 // machine, a parent not on origin, a fetch failure, or an unresolved origin ref
 // must never block branch creation (the user can pull the parent afterward).
-func (u *worktreeUsecase) parentStartPoint(
+func (u *hierarchyUsecase) parentStartPoint(
 	ctx context.Context,
 	in CreateChildInput,
 ) string {
@@ -552,7 +581,7 @@ func (u *worktreeUsecase) parentStartPoint(
 // NEVER be allowed to VETO a branch a local remote-tracking ref already confirms:
 // that veto is exactly what silently fabricated a fresh fork off the default
 // branch when the live query hiccupped.
-func (u *worktreeUsecase) branchIsRemoteBranch(
+func (u *hierarchyUsecase) branchIsRemoteBranch(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -600,7 +629,7 @@ func (u *worktreeUsecase) branchIsRemoteBranch(
 // (losing only the freshest commits, not correctness) rather than aborting the
 // whole import. Only when there is NEITHER a successful fetch NOR a local
 // origin/<branch> to resolve is the failure fatal.
-func (u *worktreeUsecase) checkoutRemoteBranch(
+func (u *hierarchyUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
@@ -643,7 +672,7 @@ func (u *worktreeUsecase) checkoutRemoteBranch(
 // same-named local branch deserves the SHA in the log to recover it from.
 // Purely diagnostic: every failure is ignored, and it runs after the checkout,
 // so it can never influence whether the import proceeds.
-func (u *worktreeUsecase) warnOnDiscardedLocalTip(
+func (u *hierarchyUsecase) warnOnDiscardedLocalTip(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -663,7 +692,7 @@ func (u *worktreeUsecase) warnOnDiscardedLocalTip(
 // adoptMainWorktree registers the repository's main worktree as a workspace
 // without creating a new git worktree. It is used when the requested branch is
 // the repository's default branch and there is no parent workspace.
-func (u *worktreeUsecase) adoptMainWorktree(
+func (u *hierarchyUsecase) adoptMainWorktree(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
@@ -694,7 +723,7 @@ func (u *worktreeUsecase) adoptMainWorktree(
 // branchWorkspaceExists reports whether a non-deleted workspace already holds
 // this branch in the repo. A branch can be checked out in at most one worktree,
 // so the repo keeps at most one workspace per branch.
-func (u *worktreeUsecase) branchWorkspaceExists(
+func (u *hierarchyUsecase) branchWorkspaceExists(
 	ctx context.Context,
 	repoID string,
 	branch string,
@@ -721,7 +750,7 @@ func (u *worktreeUsecase) branchWorkspaceExists(
 // mainWorktreeAdopted reports whether the repo's main worktree (the default
 // workspace) is already adopted, so adoptMainWorktree runs at most once and a
 // repeat attempt cannot persist a duplicate default row.
-func (u *worktreeUsecase) mainWorktreeAdopted(
+func (u *hierarchyUsecase) mainWorktreeAdopted(
 	ctx context.Context,
 	repoID string,
 ) (bool, error) {
@@ -741,7 +770,7 @@ func (u *worktreeUsecase) mainWorktreeAdopted(
 // back a failed managed-worktree create (or to restore the folder when the
 // managed worktree holding its branch is removed). Best-effort: a failure is
 // logged, never fatal.
-func (u *worktreeUsecase) reattachMain(
+func (u *hierarchyUsecase) reattachMain(
 	ctx context.Context,
 	detached bool,
 	repoPath string,
@@ -756,7 +785,7 @@ func (u *worktreeUsecase) reattachMain(
 	}
 }
 
-func (u *worktreeUsecase) resolveLocked(
+func (u *hierarchyUsecase) resolveLocked(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -773,7 +802,7 @@ func (u *worktreeUsecase) resolveLocked(
 	return false, nil
 }
 
-func (u *worktreeUsecase) MergeIntoParent(
+func (u *hierarchyUsecase) MergeIntoParent(
 	ctx context.Context,
 	childID string,
 	strategy gitdomain.MergeStrategy,
@@ -791,7 +820,7 @@ func (u *worktreeUsecase) MergeIntoParent(
 	return u.finalizeMerge(ctx, child, parent)
 }
 
-func (u *worktreeUsecase) loadMergePair(
+func (u *hierarchyUsecase) loadMergePair(
 	ctx context.Context,
 	childID string,
 ) (domain.Workspace, domain.Workspace, error) {
@@ -806,7 +835,7 @@ func (u *worktreeUsecase) loadMergePair(
 	return child, parent, nil
 }
 
-func (u *worktreeUsecase) guardMerge(
+func (u *hierarchyUsecase) guardMerge(
 	ctx context.Context,
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -831,7 +860,7 @@ func (u *worktreeUsecase) guardMerge(
 	return nil
 }
 
-func (u *worktreeUsecase) runMerge(
+func (u *hierarchyUsecase) runMerge(
 	ctx context.Context,
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -847,7 +876,7 @@ func (u *worktreeUsecase) runMerge(
 	return u.git.Merge(ctx, parent.WorktreePath, child.Branch)
 }
 
-func (u *worktreeUsecase) runRebaseMerge(
+func (u *hierarchyUsecase) runRebaseMerge(
 	ctx context.Context,
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -861,7 +890,7 @@ func (u *worktreeUsecase) runRebaseMerge(
 	)
 }
 
-func (u *worktreeUsecase) handleMergeError(
+func (u *hierarchyUsecase) handleMergeError(
 	ctx context.Context,
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -914,7 +943,7 @@ func (u *worktreeUsecase) handleMergeError(
 	return MergeResult{ConflictsPending: true}, nil
 }
 
-func (u *worktreeUsecase) finalizeMerge(
+func (u *hierarchyUsecase) finalizeMerge(
 	ctx context.Context,
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -948,7 +977,7 @@ func (u *worktreeUsecase) finalizeMerge(
 // This transient value is superseded on the next branch-based summarize/watcher
 // recompute; routing it through summaryBase would only entangle the delicate
 // merge/reparent fork-point accounting for no correctness gain.
-func (u *worktreeUsecase) resyncSummary(
+func (u *hierarchyUsecase) resyncSummary(
 	ctx context.Context,
 	id string,
 	worktreePath string,
@@ -971,7 +1000,7 @@ func (u *worktreeUsecase) resyncSummary(
 	return hasConflicts, nil
 }
 
-func (u *worktreeUsecase) Reparent(
+func (u *hierarchyUsecase) Reparent(
 	ctx context.Context,
 	childID string,
 	newParentID string,
@@ -1000,7 +1029,7 @@ func (u *worktreeUsecase) Reparent(
 // ABORTED back to a clean worktree, yet the child is STILL moved under the new
 // parent ("moved on paper, not yet integrated"). The predicted-conflict overlay
 // (mergeConflicts) marks it; the user finishes the rebase on their own terms.
-func (u *worktreeUsecase) replayAndReparent(
+func (u *hierarchyUsecase) replayAndReparent(
 	ctx context.Context,
 	child domain.Workspace,
 	newParentID string,
@@ -1031,7 +1060,7 @@ func (u *worktreeUsecase) replayAndReparent(
 // settleReparent persists the child's new parent + fork point and resyncs its
 // working-tree summary (best-effort, like finalizeMerge) so a prior conflict
 // status clears and the diff stats reflect the new base.
-func (u *worktreeUsecase) settleReparent(
+func (u *hierarchyUsecase) settleReparent(
 	ctx context.Context,
 	child domain.Workspace,
 	newParentID string,
@@ -1055,7 +1084,7 @@ func (u *worktreeUsecase) settleReparent(
 // conflict tooling; a clean rebase integrates the child. The intended fork point
 // (the parent tip) is persisted up front so the branch reads correctly once
 // resolved.
-func (u *worktreeUsecase) RebaseOntoParent(
+func (u *hierarchyUsecase) RebaseOntoParent(
 	ctx context.Context,
 	childID string,
 ) (domain.Workspace, error) {
@@ -1102,7 +1131,7 @@ func (u *worktreeUsecase) RebaseOntoParent(
 }
 
 // RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
-func (u *worktreeUsecase) RetryProvision(
+func (u *hierarchyUsecase) RetryProvision(
 	ctx context.Context,
 	wsID string,
 ) (domain.Workspace, error) {
@@ -1167,7 +1196,7 @@ func (u *worktreeUsecase) RetryProvision(
 // A branch that is not on origin (a local-only protected branch, an offline
 // machine) still checks out from the local ref: there is no remote content to
 // prefer, and refusing would strand the placeholder with no way forward.
-func (u *worktreeUsecase) materializeProtectedWorktree(
+func (u *hierarchyUsecase) materializeProtectedWorktree(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -1191,7 +1220,7 @@ func (u *worktreeUsecase) materializeProtectedWorktree(
 // `git worktree add -B <branch> <sha>` starts from a SHA and so creates no
 // tracking info of its own — without it `git pull` in the provisioned worktree
 // fails with "There is no tracking information for the current branch".
-func (u *worktreeUsecase) materializeFromOrigin(
+func (u *hierarchyUsecase) materializeFromOrigin(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -1218,7 +1247,7 @@ func (u *worktreeUsecase) materializeFromOrigin(
 //
 // The local read comes FIRST so a repo with no remote never pays for a network
 // round-trip under the per-clone lock just to be told what the ref already said.
-func (u *worktreeUsecase) originHasBranch(
+func (u *hierarchyUsecase) originHasBranch(
 	ctx context.Context,
 	repoPath string,
 	branch string,
@@ -1238,7 +1267,7 @@ func (u *worktreeUsecase) originHasBranch(
 // re-provisions in place. When the holder is the repo home it also clears the
 // home row's branch (spec §3.5/§3.7). A detach failure returns cleanly — no
 // ClearBranch, no Retry — so there is never partial state.
-func (u *worktreeUsecase) DetachHolder(
+func (u *hierarchyUsecase) DetachHolder(
 	ctx context.Context,
 	wsID string,
 ) (domain.Workspace, error) {
@@ -1278,7 +1307,7 @@ func (u *worktreeUsecase) DetachHolder(
 }
 
 // repoHomeWorkspaceID returns the id of the repo's default (home) workspace.
-func (u *worktreeUsecase) repoHomeWorkspaceID(
+func (u *hierarchyUsecase) repoHomeWorkspaceID(
 	ctx context.Context,
 	repoID string,
 ) (string, bool, error) {
@@ -1294,7 +1323,7 @@ func (u *worktreeUsecase) repoHomeWorkspaceID(
 	return "", false, nil
 }
 
-func (u *worktreeUsecase) guardReparent(
+func (u *hierarchyUsecase) guardReparent(
 	ctx context.Context,
 	child domain.Workspace,
 	newParent domain.Workspace,
@@ -1316,6 +1345,9 @@ func (u *worktreeUsecase) guardReparent(
 	if hasKids {
 		return ErrChildHasChildren
 	}
+	if workingErr := u.guardNotWorking(ctx, child.ID); workingErr != nil {
+		return workingErr
+	}
 	// A different repo means a different remote, branch and worktree path, so a
 	// row that owns a worktree cannot be reparented across repos at all — it is
 	// not a rebase target there, it is a different checkout entirely (model spec
@@ -1327,7 +1359,74 @@ func (u *worktreeUsecase) guardReparent(
 	return nil
 }
 
-func (u *worktreeUsecase) DeleteCascade(
+// guardNotWorking refuses a move over a workspace subtree that owns a
+// currently-working chat (invariant 5), computed with the SAME
+// cascade.Plan-over-subtree mechanism usecases/chat/internal/tree's own
+// guardNotWorking + subtreeIDsOf already established for the unified
+// Chats-panel tree (Task 11) — fed domain.Workspace rows here instead of
+// domain.Chat rows, since the workspace hierarchy is still workspace-shaped;
+// what changed is that each workspace in the subtree now has a resolvable
+// owning chat row to ask (Task 9's taxonomy) rather than nothing at all.
+//
+// A nil chatObserver (no caller has wired one) makes this a no-op, matching
+// every other optional dependency in this file (see TerminalReaper).
+func (u *hierarchyUsecase) guardNotWorking(
+	ctx context.Context,
+	rootID string,
+) error {
+	if u.chatObserver == nil {
+		return nil
+	}
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return fmt.Errorf("guard not working: list: %w", err)
+	}
+	for _, wsID := range subtreeWorkspaceIDs(rootID, all) {
+		working, workingErr := u.anyChatWorkingIn(ctx, wsID)
+		if workingErr != nil {
+			return workingErr
+		}
+		if working {
+			return ErrWorkspaceWorking
+		}
+	}
+	return nil
+}
+
+// anyChatWorkingIn reports whether any chat owned by workspaceID is currently
+// working.
+func (u *hierarchyUsecase) anyChatWorkingIn(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	chats, err := u.chatObserver.ListChatsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return false, fmt.Errorf("guard not working: list chats: %w", err)
+	}
+	for _, c := range chats {
+		if u.chatObserver.Working(c.ID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// subtreeWorkspaceIDs returns rootID and every workspace below it, the set a
+// move takes as one — deliberately NOT the deletion-order/skip-locked
+// cascade.Plan usage nodesFrom feeds DeleteCascade: a locked workspace can
+// still own a working chat, so membership here must never skip one.
+func subtreeWorkspaceIDs(
+	rootID string,
+	all []domain.Workspace,
+) []string {
+	nodes := make([]cascade.Node, 0, len(all))
+	for _, ws := range all {
+		nodes = append(nodes, cascade.Node{ID: ws.ID, Parent: ws.ParentID})
+	}
+	return cascade.Plan(rootID, nodes)
+}
+
+func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,
 ) error {
@@ -1360,7 +1459,7 @@ func (u *worktreeUsecase) DeleteCascade(
 // worktree cannot strand the rest. A LOCKED workspace is removed here rather
 // than refused: the guard exists so a user cannot delete a protected branch's
 // worktree on its own, and that reason is gone once the repo it belongs to is.
-func (u *worktreeUsecase) DeleteRepoWorkspaces(
+func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 	ctx context.Context,
 	repoID string,
 	repoPath string,
@@ -1398,7 +1497,7 @@ func (u *worktreeUsecase) DeleteRepoWorkspaces(
 	return handled, nil
 }
 
-func (u *worktreeUsecase) removeOne(
+func (u *hierarchyUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
 	repoPathFallback string,
@@ -1464,7 +1563,7 @@ func (u *worktreeUsecase) removeOne(
 
 // reapTerminals terminates every live PTY session owned by wsID. Best-effort and a
 // no-op when no terminal reaper is wired (tests / virtual repos).
-func (u *worktreeUsecase) reapTerminals(
+func (u *hierarchyUsecase) reapTerminals(
 	ctx context.Context,
 	wsID string,
 ) {
@@ -1479,7 +1578,7 @@ func (u *worktreeUsecase) reapTerminals(
 	}
 }
 
-func (u *worktreeUsecase) repoPathFor(
+func (u *hierarchyUsecase) repoPathFor(
 	ctx context.Context,
 	ws domain.Workspace,
 ) (string, error) {
@@ -1493,7 +1592,7 @@ func (u *worktreeUsecase) repoPathFor(
 	return repo.Path, nil
 }
 
-func (u *worktreeUsecase) childHasChildren(
+func (u *hierarchyUsecase) childHasChildren(
 	ctx context.Context,
 	childID string,
 ) (bool, error) {

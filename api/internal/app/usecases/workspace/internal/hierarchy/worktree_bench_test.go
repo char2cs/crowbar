@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -54,7 +54,7 @@ func newWorkspaceRepo(
 
 // benchHarness holds the wired-up usecase and handles needed per benchmark run.
 type benchHarness struct {
-	uc         worktree.Usecase
+	uc         hierarchy.Usecase
 	workspaces workspace.Workspace
 	repoPath   string
 	baseBranch string
@@ -90,7 +90,7 @@ func newBenchHarness(
 	}))
 
 	prov := &stubProvider{}
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		prov,
@@ -188,7 +188,7 @@ func (h *benchHarness) createChild(
 	parentBranch string,
 ) domain.Workspace {
 	b.Helper()
-	in := worktree.CreateChildInput{
+	in := hierarchy.CreateChildInput{
 		RepoID:       h.repoID,
 		ProjectID:    h.projectID,
 		RepoPath:     h.repoPath,

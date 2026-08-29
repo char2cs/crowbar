@@ -14,7 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -86,22 +86,22 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		},
 		{
 			name:   "parent locked",
-			err:    worktree.ErrParentLocked,
+			err:    workspace.ErrParentLocked,
 			status: http.StatusConflict,
 		},
 		{
 			name:   "duplicate branch workspace is conflict",
-			err:    worktree.ErrBranchWorkspaceExists,
+			err:    workspace.ErrBranchWorkspaceExists,
 			status: http.StatusConflict,
 		},
 		{
 			name:   "rebase non leaf",
-			err:    worktree.ErrRebaseNonLeaf,
+			err:    workspace.ErrRebaseNonLeaf,
 			status: http.StatusConflict,
 		},
 		{
 			name:   "child has children",
-			err:    worktree.ErrChildHasChildren,
+			err:    workspace.ErrChildHasChildren,
 			status: http.StatusConflict,
 		},
 		{

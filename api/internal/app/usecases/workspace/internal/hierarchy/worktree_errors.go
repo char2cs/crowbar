@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 import "errors"
 
@@ -80,3 +80,10 @@ var ErrBranchStillHeld = errors.New("usecases: branch is still held; detach the 
 var ErrBranchHeldByManagedWorkspace = errors.New(
 	"usecases: branch is checked out in another Crowbar workspace",
 )
+
+// ErrWorkspaceWorking is returned when a reparent targets a leaf child whose
+// workspace subtree owns a currently-working chat (invariant 5) — the same
+// rule usecases/chat/internal/tree's own guardNotWorking enforces for the
+// unified Chats-panel tree. The guard runs before any git work, so a working
+// chat is never displaced mid-turn.
+var ErrWorkspaceWorking = errors.New("usecases: workspace has a working chat")

@@ -11,12 +11,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -45,7 +44,6 @@ type Container struct {
 	Git           git.Usecase
 	Terminal      terminal.Usecase
 	ProviderSync  provider.Usecase
-	Worktree      worktree.Usecase
 	BranchReview  branchreview.Usecase
 	// TerminalMeta is the durable session metadata store implementation exposed
 	// so the API layer can inject it into the terminal engine via SetMetaStore
@@ -124,6 +122,13 @@ func New(
 		repos.Workspace,
 		engines.Git,
 		projectUsecase,
+		repos.Workspace,
+		engines.Git,
+		engines.Provider,
+		gormStores.Repositories,
+		nowFunc,
+		crowbarHome,
+		workspace.WithTerminalReaper(engines.Terminal),
 	)
 	fileUsecase := file.New(
 		newFsEngineAdapter(engines.FS),
@@ -156,15 +161,6 @@ func New(
 		Git:         engines.Git,
 		CrowbarHome: crowbarHome,
 	})
-	worktreeUsecase := worktree.New(
-		repos.Workspace,
-		engines.Git,
-		engines.Provider,
-		gormStores.Repositories,
-		nowFunc,
-		crowbarHome,
-		worktree.WithTerminalReaper(engines.Terminal),
-	)
 	branchReview := branchreview.New(
 		repos.Workspace,
 		repos.ReviewThread,
@@ -172,10 +168,16 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, worktreeUsecase)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase)
 	if err != nil {
 		return nil, err
 	}
+	// Wired AFTER agentic exists, not as a workspace.New(...) option: the chat
+	// usecase itself depends on the workspace usecase (Promote forks a
+	// workspace through worktreeChildCreator above), so at workspace.New's own
+	// call site the chat usecase does not exist yet to hand over. See
+	// workspace.Usecase.SetChatObserver's doc comment.
+	workspaceUsecase.SetChatObserver(agentic.chat)
 	return &Container{
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,
@@ -185,7 +187,6 @@ func New(
 		Git:                  gitUsecase,
 		Terminal:             terminalUsecase,
 		ProviderSync:         providerSync,
-		Worktree:             worktreeUsecase,
 		BranchReview:         branchReview,
 		TerminalMeta:         terminalMeta,
 		AgentChat:            agentic.chat,
@@ -225,7 +226,7 @@ func newAgentWiring(
 	crowbarHome func() (string, error),
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
-	worktreeUsecase worktree.Usecase,
+	workspaceUsecase workspace.Usecase,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -256,7 +257,7 @@ func newAgentWiring(
 		Agents:          engines.Agents,
 		Terminal:        engines.Terminal,
 		Workspace:       wsReader,
-		Worktree:        worktreeChildCreator{worktree: worktreeUsecase},
+		Worktree:        worktreeChildCreator{worktree: workspaceUsecase},
 		Lineage:         lineage,
 		ProviderPrefs:   gormStores.AgentProviderPreferences,
 		PermissionPrefs: gormStores.AgentPermissionDefault,
@@ -398,7 +399,7 @@ func (r agentChatReader) ListChats(
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent
 // usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
 // Promote names only the fork parent it forks from, and this fills in the rest
-// of worktree.CreateChildInput the way every other spontaneous create does —
+// of workspace.CreateChildInput the way every other spontaneous create does —
 // leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
 // parent-inherited defaulting resolves them, and Branch blank so it generates
 // and collision-checks a provisional name (model spec §4.1).
@@ -410,7 +411,7 @@ func (r agentChatReader) ListChats(
 // workspace-less bubble must not silently promote this chat into another
 // bubble. So it is forced true here, always.
 type worktreeChildCreator struct {
-	worktree worktree.Usecase
+	worktree workspace.Usecase
 }
 
 // CreateChildWorkspace implements agentusecase.WorktreeCreator.
@@ -419,7 +420,7 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	forkParentID string,
 ) (domain.Workspace, error) {
 	ownWorktree := true
-	return w.worktree.CreateChild(ctx, worktree.CreateChildInput{
+	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
 		ParentID:    forkParentID,
 		OwnWorktree: &ownWorktree,
 	})
@@ -433,7 +434,7 @@ type workspaceGetter interface {
 
 // repoGetter is the minimal repository-read surface agentWorkspaceReader needs to
 // resolve a home-kind (adopted-checkout) workspace's on-disk identity slug from
-// its repo id, mirroring worktree.resolveSlug's load-the-row pattern so the
+// its repo id, mirroring workspace's worktree hierarchy resolveSlug's load-the-row pattern so the
 // no-remote fallback can still reach the repo NAME.
 type repoGetter interface {
 	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
@@ -538,7 +539,7 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 // repo) yields an empty slug, which HomeDefaultChatsDir collapses to the project
 // directory — still strictly under home. It always loads the repo row so the
 // no-remote / unparseable-URL fallback can reach the repo NAME, mirroring
-// worktree.resolveSlug.
+// workspace's worktree hierarchy resolveSlug.
 func (r *agentWorkspaceReader) repoSlug(
 	ctx context.Context,
 	repoID string,

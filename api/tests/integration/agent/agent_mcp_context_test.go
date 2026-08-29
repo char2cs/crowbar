@@ -46,7 +46,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
@@ -266,7 +266,7 @@ func contextFixture(
 	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
 	require.NoError(t, err, "import repo")
 
-	caller, err := h.app.Usecases.Worktree.CreateChild(ctx, worktree.CreateChildInput{
+	caller, err := h.app.Usecases.Workspace.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID:       repo.ID,
 		ProjectID:    project.ID,
 		RepoPath:     repo.Path,
@@ -276,7 +276,7 @@ func contextFixture(
 	})
 	require.NoError(t, err, "create the caller's workspace")
 
-	child, err := h.app.Usecases.Worktree.CreateChild(ctx, worktree.CreateChildInput{
+	child, err := h.app.Usecases.Workspace.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID:       repo.ID,
 		ProjectID:    project.ID,
 		RepoPath:     repo.Path,

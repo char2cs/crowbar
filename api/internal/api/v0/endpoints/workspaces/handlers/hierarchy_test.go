@@ -11,7 +11,7 @@ import (
 
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -26,7 +26,7 @@ func TestMergeIntoParent_Returns202(
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{
-		mergeResult: worktree.MergeResult{ParentTipSha: "abc123"},
+		mergeResult: workspace.MergeResult{ParentTipSha: "abc123"},
 		mergeDone:   make(chan struct{}),
 	}
 	rec := do(
@@ -92,7 +92,7 @@ func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	hierarchy := &fakeHierarchy{mergeErr: worktree.ErrParentLocked}
+	hierarchy := &fakeHierarchy{mergeErr: workspace.ErrParentLocked}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
 	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
@@ -182,7 +182,7 @@ func TestReparentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	hierarchy := &fakeHierarchy{reparentErr: worktree.ErrChildHasChildren}
+	hierarchy := &fakeHierarchy{reparentErr: workspace.ErrChildHasChildren}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
 	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
@@ -270,7 +270,7 @@ func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
 			{ID: "sibling", ParentID: "parent"},
 		},
 	}
-	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
 
 	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
@@ -293,7 +293,7 @@ func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 			{ID: "grandchild", ParentID: "child"},
 		},
 	}
-	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	lastErrors := &fakeLastErrors{}
 	r, h := newFoldRouter(reader, hierarchy, lastErrors)
 
@@ -311,7 +311,7 @@ func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
 	t *testing.T,
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ConflictsPending: true}}
+	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ConflictsPending: true}}
 	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
 
 	rec := mergeInto(r, `{"strategy":"merge","deleteSource":true}`)
@@ -327,7 +327,7 @@ func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
 	t *testing.T,
 ) {
 	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
 
 	rec := mergeInto(r, `{"strategy":"squash"}`)
@@ -347,7 +347,7 @@ func TestMergeIntoParent_FoldLeafLookupFailureSurfacesLastError(
 		get:     domain.Workspace{ID: "child"},
 		listErr: errors.New("the workspace index is unreadable"),
 	}
-	hierarchy := &fakeHierarchy{mergeResult: worktree.MergeResult{ParentTipSha: "abc123"}}
+	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	lastErrors := &fakeLastErrors{}
 	r, h := newFoldRouter(reader, hierarchy, lastErrors)
 
@@ -370,7 +370,7 @@ func TestMergeIntoParent_FoldDeleteFailureSurfacesLastError(
 		list: []domain.Workspace{{ID: "child", ParentID: "parent"}},
 	}
 	hierarchy := &fakeHierarchy{
-		mergeResult: worktree.MergeResult{ParentTipSha: "abc123"},
+		mergeResult: workspace.MergeResult{ParentTipSha: "abc123"},
 		deleteErr:   errors.New("the worktree is locked"),
 	}
 	lastErrors := &fakeLastErrors{}

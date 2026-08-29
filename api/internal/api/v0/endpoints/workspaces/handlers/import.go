@@ -10,12 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 )
 
 // importRequest is the POST …/workspaces/import body: the branches to import as
 // managed workspaces. Each is PR-parented up to a protected/default root, with
-// missing ancestors created (see worktree.CreateFromImport).
+// missing ancestors created (see workspace.CreateFromImport).
 type importRequest struct {
 	Branches []string `json:"branches"`
 }
@@ -70,7 +70,7 @@ func (h *Handlers) Import(c *gin.Context) {
 		))
 		return
 	}
-	in := worktree.ImportInput{
+	in := workspace.ImportInput{
 		RepoID:        repo.ID,
 		ProjectID:     repo.ProjectID,
 		RepoPath:      repo.Path,

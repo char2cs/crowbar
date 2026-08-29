@@ -123,6 +123,18 @@ func (u *Usecase) Work() *inflight.Work {
 	return u.work
 }
 
+// Working reports whether chatID is currently working — the SAME live,
+// process-local answer Work() exposes the tree usecase's guardNotWorking, in
+// the narrow bool shape usecases/workspace's own reparent guard needs. It is
+// exposed here, rather than through inflight.Work directly, so that package
+// (this feature's own turn/runner machinery) never has to be imported by a
+// consumer with no other business depending on it (usecases/workspace may not
+// import usecases/chat/internal/shared/inflight, an internal package).
+func (u *Usecase) Working(chatID string) bool {
+	working, _, _ := u.work.Observe(chatID)
+	return working
+}
+
 // NewChatLineage builds the lineage reader over the chat repository. It is
 // built BEFORE the chat usecase and handed to it, because the tree usecase
 // that owns the same edges holds the chat usecase in turn.

@@ -88,7 +88,7 @@ func (c *Container) Register(
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
 		c.eng.Git,
-		c.app.Usecases.Worktree,
+		c.app.Usecases.Workspace,
 		c.app.Repositories.Workspace,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
@@ -134,7 +134,7 @@ func (c *Container) Register(
 	workspaces.Register(
 		repoScoped,
 		c.app.Usecases.Workspace,
-		c.app.Usecases.Worktree,
+		c.app.Usecases.Workspace,
 		c.app.GORM.Repositories,
 		c.app.Repositories.Workspace,
 		c.app.Repositories,

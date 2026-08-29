@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -130,7 +130,7 @@ func TestRegression_ImportBranchChecksOutOriginContentNotParentFork(t *testing.T
 		hiddenBranches:  map[string]bool{"feature/x": true},
 		failFetchBranch: map[string]bool{"feature/x": true},
 	}
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		engine,
 		&stubProvider{},
@@ -141,7 +141,7 @@ func TestRegression_ImportBranchChecksOutOriginContentNotParentFork(t *testing.T
 
 	// Import feature/x with NO parentId — exactly as the real import posts it, so
 	// the create handler defaults ParentBranch to the repo default (main).
-	child, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	child, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       repoID,
 		ProjectID:    projectID,
 		RepoPath:     repoPath,
@@ -208,7 +208,7 @@ func TestRegression_ImportBranchTracksOriginOnReachablePath(t *testing.T) {
 
 	// The REAL engine, origin reachable: the fetch succeeds and creates local
 	// feature/x from origin/feature/x with no upstream — exactly the gap.
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		&stubProvider{},
@@ -217,7 +217,7 @@ func TestRegression_ImportBranchTracksOriginOnReachablePath(t *testing.T) {
 		func() (string, error) { return t.TempDir(), nil },
 	)
 
-	child, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+	child, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       repoID,
 		ProjectID:    projectID,
 		RepoPath:     repoPath,
@@ -315,7 +315,7 @@ func TestRegression_ImportParentsPRChainCreatingMissingBase(t *testing.T) {
 		{Head: "feat/child", Base: "feat/base"},
 		{Head: "feat/base", Base: "main"},
 	}}
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		prov,
@@ -325,7 +325,7 @@ func TestRegression_ImportParentsPRChainCreatingMissingBase(t *testing.T) {
 	)
 
 	// Import ONLY feat/child — its missing base must be created and parented.
-	err = uc.CreateFromImport(context.Background(), worktree.ImportInput{
+	err = uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID:        repoID,
 		ProjectID:     projectID,
 		RepoPath:      repoPath,

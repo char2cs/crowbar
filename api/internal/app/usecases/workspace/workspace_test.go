@@ -28,7 +28,10 @@ func newWorkspaceUsecase(
 	repo := mocks.NewWorkspaceLifecycleRepo()
 	git := mocks.NewWorkingTreeGitEngine()
 	roll := mocks.NewProjectRollup()
-	uc := workspace.New(repo, git, roll)
+	// The hierarchy-only params are nil: none of this file's tests exercise the
+	// worktree hierarchy (CreateChild, Reparent, ...), only the lifecycle
+	// methods repo/git/roll above back — see workspace.New's doc comment.
+	uc := workspace.New(repo, git, roll, nil, nil, nil, nil, nil, nil)
 	return repo, git, roll, uc
 }
 

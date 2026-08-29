@@ -10,7 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -185,22 +185,22 @@ func (h *Handlers) buildCreateInput(
 	ctx context.Context,
 	repoID string,
 	body createRequest,
-) (worktree.CreateChildInput, error) {
+) (workspace.CreateChildInput, error) {
 	repo, err := h.repos.FindByKey(ctx, repoID)
 	if err != nil {
-		return worktree.CreateChildInput{}, err
+		return workspace.CreateChildInput{}, err
 	}
 	if repo == nil {
-		return worktree.CreateChildInput{}, apperr.ErrNotFound
+		return workspace.CreateChildInput{}, apperr.ErrNotFound
 	}
 	parentBranch := repo.DefaultBranch
 	if body.ParentID != "" {
 		parentBranch, err = h.resolveParentBranch(ctx, body.ParentID)
 		if err != nil {
-			return worktree.CreateChildInput{}, err
+			return workspace.CreateChildInput{}, err
 		}
 	}
-	return worktree.CreateChildInput{
+	return workspace.CreateChildInput{
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
 		RepoPath:     repo.Path,

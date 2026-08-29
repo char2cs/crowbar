@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -73,7 +73,7 @@ func (s *stubProvider) OpenPullRequests(
 // realHarness bundles the wired-up usecase plus the handles a scenario needs to
 // drive REAL git and inspect REAL read-model rows.
 type realHarness struct {
-	uc         worktree.Usecase
+	uc         hierarchy.Usecase
 	workspaces workspace.Workspace
 	provider   *stubProvider
 	repoPath   string
@@ -161,7 +161,7 @@ func newRealUsecase(
 	}))
 
 	prov := &stubProvider{}
-	uc := worktree.New(
+	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		prov,
@@ -245,7 +245,7 @@ func (h *realHarness) createChild(
 	parentBranch string,
 ) domain.Workspace {
 	t.Helper()
-	in := worktree.CreateChildInput{
+	in := hierarchy.CreateChildInput{
 		RepoID:       h.repoID,
 		ProjectID:    h.projectID,
 		RepoPath:     h.repoPath,
@@ -441,7 +441,7 @@ func TestIntegration_ReparentWithChildrenRejected(t *testing.T) {
 	_ = h.createChild(t, "feature/grandchild", child.ID, child.Branch)
 
 	_, err := h.uc.Reparent(ctx, child.ID, parentB.ID)
-	require.ErrorIs(t, err, worktree.ErrChildHasChildren)
+	require.ErrorIs(t, err, hierarchy.ErrChildHasChildren)
 
 	assert.Equal(t, childTipBefore, revParse(t, child.WorktreePath, "HEAD"),
 		"rejected reparent must not mutate git")

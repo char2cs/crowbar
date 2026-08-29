@@ -1,4 +1,4 @@
-package worktree_test
+package hierarchy_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -60,7 +60,7 @@ func (f *fakeGit) lastRenameTo() string {
 // renameFixture builds a usecase around one managed workspace on `branch`,
 // with its workspace root materialised under a temp crowbar home.
 type renameFixture struct {
-	uc      worktree.Usecase
+	uc      hierarchy.Usecase
 	git     *fakeGit
 	home    string
 	oldRoot string
@@ -110,7 +110,7 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 			return domain.Workspace{ID: id, Branch: b, WorktreePath: self.WorktreePath}, nil
 		},
 	}
-	f.uc = worktree.New(ws, f.git, &fakeProvider{},
+	f.uc = hierarchy.New(ws, f.git, &fakeProvider{},
 		&fakeRepoStore{path: "/repo", remoteURL: "https://github.com/test/repo.git"},
 		newNow(), func() (string, error) { return home, nil })
 	return f
@@ -173,7 +173,7 @@ func TestRenameBranch_RejectsLockedWorkspaceBeforeTouchingGit(t *testing.T) {
 
 	_, err := f.uc.RenameBranch(context.Background(), "w1", "renamed")
 
-	require.ErrorIs(t, err, worktree.ErrWorkspaceLocked)
+	require.ErrorIs(t, err, hierarchy.ErrWorkspaceLocked)
 	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
 	assert.False(t, f.renamed.called)
 }
@@ -190,7 +190,7 @@ func TestRenameBranch_RejectsWorkspaceOutsideCrowbarHome(t *testing.T) {
 
 	_, err := f.uc.RenameBranch(context.Background(), "w1", "renamed")
 
-	require.ErrorIs(t, err, worktree.ErrRenameUnmanagedWorkspace)
+	require.ErrorIs(t, err, hierarchy.ErrRenameUnmanagedWorkspace)
 	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
 }
 
@@ -210,7 +210,7 @@ func TestRenameBranch_RejectsBranchAnotherWorkspaceHolds(t *testing.T) {
 
 	_, err := f.uc.RenameBranch(context.Background(), "w1", "taken")
 
-	require.ErrorIs(t, err, worktree.ErrBranchWorkspaceExists)
+	require.ErrorIs(t, err, hierarchy.ErrBranchWorkspaceExists)
 	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
 }
 

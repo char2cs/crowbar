@@ -12,7 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -69,7 +69,9 @@ import (
 //     already imported — one folder belongs to exactly one project),
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
-//     ErrChildHasChildren), the unified tree's placement sentinels
+//     ErrChildHasChildren, ErrWorkspaceWorking — a reparent refused over a
+//     workspace subtree that owns a currently-working chat), the unified
+//     tree's placement sentinels
 //     (agentusecase.ErrTreeCycle, agentusecase.ErrTreeCrossWorkspace — a move
 //     that would make a row unreachable from the tree's root, or cross a
 //     workspace boundary; the sidebar's own workspace-into-folder feature and the
@@ -219,15 +221,16 @@ var conflictSentinels = []error{
 	apperr.ErrConflict,
 	enginesearch.ErrLocked,
 	fs.ErrExist,
-	worktree.ErrParentLocked,
-	worktree.ErrWorkspaceLocked,
-	worktree.ErrParentUnprovisioned,
+	workspace.ErrParentLocked,
+	workspace.ErrWorkspaceLocked,
+	workspace.ErrParentUnprovisioned,
 	project.ErrRepoAlreadyImported,
-	worktree.ErrRebaseNonLeaf,
-	worktree.ErrChildHasChildren,
-	worktree.ErrBranchWorkspaceExists,
-	worktree.ErrRenameTargetExists,
-	worktree.ErrRenameUnmanagedWorkspace,
+	workspace.ErrRebaseNonLeaf,
+	workspace.ErrChildHasChildren,
+	workspace.ErrBranchWorkspaceExists,
+	workspace.ErrRenameTargetExists,
+	workspace.ErrRenameUnmanagedWorkspace,
+	workspace.ErrWorkspaceWorking,
 }
 
 // isPlacementConflict reports whether err is one of the unified tree's

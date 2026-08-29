@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 import (
 	"context"
@@ -73,7 +73,7 @@ func chainFor(branch, defaultBranch string, base, existing map[string]string) []
 // provider.maybeReparentFromPR: it additionally CREATES missing parents and
 // sets ParentID at creation. Because it sets ParentID explicitly, the poll's
 // ParentID=="" guard leaves these rows untouched — no double-parenting.
-func (u *worktreeUsecase) CreateFromImport(ctx context.Context, in ImportInput) error {
+func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput) error {
 	// 1. Open-PR graph head→base (best-effort; empty on provider failure).
 	base := u.prBaseGraph(ctx, in.RepoPath)
 
@@ -114,7 +114,7 @@ func (u *worktreeUsecase) CreateFromImport(ctx context.Context, in ImportInput) 
 // branches. It is best-effort: a provider failure yields an empty graph and the
 // import falls back to parenting everything under the default branch, which is
 // strictly better than refusing to import because GitHub was unreachable.
-func (u *worktreeUsecase) prBaseGraph(ctx context.Context, repoPath string) map[string]string {
+func (u *hierarchyUsecase) prBaseGraph(ctx context.Context, repoPath string) map[string]string {
 	base := map[string]string{}
 	links, err := u.provider.OpenPullRequests(ctx, repoPath)
 	if err != nil {
@@ -136,7 +136,7 @@ func (u *worktreeUsecase) prBaseGraph(ctx context.Context, repoPath string) map[
 // those are exactly the parents resolveImportParent nests imports under.
 //
 // A read failure yields an empty map, never an error: see CreateFromImport.
-func (u *worktreeUsecase) existingBranchWorkspaces(
+func (u *hierarchyUsecase) existingBranchWorkspaces(
 	ctx context.Context,
 	repoID string,
 ) map[string]string {
@@ -219,7 +219,7 @@ func resolveImportParent(
 // is reserved for the one outcome that produces NO row at all.
 //
 // An empty id with a nil error means "already represented, nothing to record".
-func (u *worktreeUsecase) createImportNode(
+func (u *hierarchyUsecase) createImportNode(
 	ctx context.Context,
 	in ImportInput,
 	branch string,
@@ -271,7 +271,7 @@ func (u *worktreeUsecase) createImportNode(
 //
 // A failure with no live holder has no reconstructable reason, so the cause is
 // persisted as LastError for the row to explain itself.
-func (u *worktreeUsecase) importPlaceholder(
+func (u *hierarchyUsecase) importPlaceholder(
 	ctx context.Context,
 	in ImportInput,
 	branch string,
@@ -305,7 +305,7 @@ func (u *worktreeUsecase) importPlaceholder(
 // checkout, the same two kinds RetryProvision refuses to provision over. It
 // returns "" for every other outcome (free, already-managed, or an unresolvable
 // holder), which is the signal that there is no Detach… to offer.
-func (u *worktreeUsecase) resolveHolderPath(
+func (u *hierarchyUsecase) resolveHolderPath(
 	ctx context.Context,
 	repoPath string,
 	branch string,

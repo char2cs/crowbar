@@ -1,4 +1,4 @@
-package worktree
+package hierarchy
 
 import (
 	"context"
@@ -22,7 +22,7 @@ const maxBranchNameAttempts = 20
 //
 // CreateChild calls it only when the caller left Branch blank; every existing
 // explicit-create caller keeps supplying its own name and never reaches this.
-func (u *worktreeUsecase) generateBranchName(
+func (u *hierarchyUsecase) generateBranchName(
 	ctx context.Context,
 	repoPath string,
 ) (string, error) {
