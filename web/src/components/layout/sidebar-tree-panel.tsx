@@ -1,10 +1,13 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
+import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
+import { RenameDialog } from '@/components/sidebar/rename-dialog'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { performRenameRow, performImportBranches } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, importProjectAndSync, EMPTY_PROJECTS } from '@/lib/store/projects'
@@ -12,6 +15,7 @@ import { dataOf } from '@/lib/loadable'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { applyPendingRemovals, planRemoval } from './removal-plan'
 import { RemovalTray } from './removal-tray'
+import { RepoImportDialog } from './repo-import-dialog'
 import { ROW_BASE } from './workspace-row-base'
 import { postWorkspace } from '@/lib/api'
 import { createChat } from '@/features/agent/api/agent-api'
@@ -81,6 +85,7 @@ export function SidebarTreePanel() {
   const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   const rows = useMemo(() => repos.flatMap(rowsFromRepo), [repos])
+  const treeRef = useRef<HTMLDivElement>(null)
   // The tree's only entry point for a SECOND project — carried over verbatim
   // from the old workspace-tree.tsx, which was the app's only "New Project"
   // surface once past the zero-project /oobe screen.
@@ -89,6 +94,13 @@ export function SidebarTreePanel() {
     importProjectAndSync(project)
     setImportProjectOpen(false)
   }, [])
+
+  // Rename and branch-import both need a dialog rather than the row-context-menu's
+  // direct-fire actions (lock/new-folder) — one row id (or none) at a time.
+  const [renamingRowId, setRenamingRowId] = useState<string | null>(null)
+  const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
+  const renamingLabel = rows.find((r) => r.id === renamingRowId)?.label ?? ''
+  const importRepo = importRepoRowId != null ? resolveRow(repos, importRepoRowId)?.repo : undefined
 
   const handleOpen = useCallback(
     (id: string) => {
@@ -169,12 +181,14 @@ export function SidebarTreePanel() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ScrollArea className="flex-1">
-        <SidebarTree
-          rows={rows}
-          onOpen={handleOpen}
-          onTrash={handleTrash}
-          onCreate={handleCreate}
-        />
+        <div ref={treeRef}>
+          <SidebarTree
+            rows={rows}
+            onOpen={handleOpen}
+            onTrash={handleTrash}
+            onCreate={handleCreate}
+          />
+        </div>
 
         {/* One row closes the list — "New Project", carried over verbatim from
             workspace-tree.tsx. Deliberately outside the tree component, same
@@ -201,6 +215,34 @@ export function SidebarTreePanel() {
         open={importProjectOpen}
         onOpenChange={setImportProjectOpen}
         onImport={handleImportProject}
+      />
+      <SidebarRowContextMenu
+        treeRef={treeRef}
+        rows={rows}
+        onRename={setRenamingRowId}
+        onImport={setImportRepoRowId}
+      />
+      <RenameDialog
+        open={renamingRowId != null}
+        initialValue={renamingLabel}
+        onOpenChange={(open) => {
+          if (!open) setRenamingRowId(null)
+        }}
+        onConfirm={(name) => {
+          if (renamingRowId) void performRenameRow(renamingRowId, name)
+        }}
+      />
+      <RepoImportDialog
+        projectId={importRepo?.projectId ?? ''}
+        repoId={importRepo?.id ?? ''}
+        defaultBranch={importRepo?.defaultBranch ?? ''}
+        open={importRepoRowId != null}
+        onOpenChange={(open) => {
+          if (!open) setImportRepoRowId(null)
+        }}
+        onImport={(branches) => {
+          if (importRepo) void performImportBranches(importRepo.id, branches)
+        }}
       />
     </div>
   )
