@@ -23,6 +23,15 @@ interface RecentsBandProps {
   onClose: (entry: RecentsEntry) => void
 }
 
+// The close button sits OUTSIDE SidebarRow's own layout (absolute, over the
+// row), so SidebarRow's `pr-2.5` (it has no trailing controls in this usage)
+// leaves its `truncate` label free to render right up under it. Same problem
+// `tab-bar-item.tsx` already solved for its own external close button —
+// `Tab` reserves `pr-8` against a `!size-5` button at `right-1.5` (26px right
+// extent, 6px of clearance). Ours is a 24px `ROW_SUB_ACTION_HOVER` button at
+// `right-2.5` (34px right extent); `pr-10` (40px) keeps the same 6px margin.
+const RECENTS_ROW_CLOSE_RESERVE = 'pr-10'
+
 /**
  * §5: "what is up, and what is running." Every entry renders through
  * `SidebarRow` at `depth={0}` — no indent, no parentage, no chevron, no
@@ -93,6 +102,7 @@ function RecentsEntryRow({
           key={chatId}
           chatId={chatId}
           hasView={isLive}
+          reserveClose={canClose}
           onOpen={() => onFocus(entry)}
         />
       ))}
@@ -119,10 +129,15 @@ function RecentsEntryRow({
 function RecentsMemberRow({
   chatId,
   hasView,
+  reserveClose,
   onOpen,
 }: {
   chatId: string
   hasView: boolean
+  /** Whether this entry's row(s) sit under an overlaid close control — reserve
+   *  room for it (see RECENTS_ROW_CLOSE_RESERVE) so a long title truncates
+   *  before it, not before SidebarRow's own narrower built-in inset. */
+  reserveClose: boolean
   onOpen: () => void
 }) {
   const chat = useWorkspaceStoreContext((s) => s.agentChats.chats.find((c) => c.id === chatId))
@@ -146,7 +161,10 @@ function RecentsMemberRow({
   }
 
   return (
-    <div data-testid={`recents-row-${chat.id}`}>
+    <div
+      data-testid={`recents-row-${chat.id}`}
+      className={cn(reserveClose && RECENTS_ROW_CLOSE_RESERVE)}
+    >
       <SidebarRow row={row} depth={0} onOpen={onOpen} />
     </div>
   )
