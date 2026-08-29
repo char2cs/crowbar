@@ -43,9 +43,10 @@ import (
 )
 
 type chatFolderUsecase struct {
-	chats Chats
-	agent Agent
-	work  *inflight.Work
+	chats      Chats
+	agent      Agent
+	work       *inflight.Work
+	workspaces WorkspaceGitStatus
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -60,12 +61,16 @@ type chatFolderUsecase struct {
 // components observe, not a second one: a move or delete refuses over the
 // subtree it takes by asking it directly, so the answer can never lag behind
 // what a hook just announced.
+//
+// workspaces is DeletePreview's only seam onto the workspace layer — nothing
+// else here reads a workspace at all.
 func New(
 	chats Chats,
 	agent Agent,
 	work *inflight.Work,
+	workspaces WorkspaceGitStatus,
 ) Usecase {
-	return &chatFolderUsecase{chats: chats, agent: agent, work: work}
+	return &chatFolderUsecase{chats: chats, agent: agent, work: work, workspaces: workspaces}
 }
 
 func (u *chatFolderUsecase) ListInRepo(

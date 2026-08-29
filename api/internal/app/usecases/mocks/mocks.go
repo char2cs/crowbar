@@ -1372,3 +1372,39 @@ func (s *AgentChatPlacements) parentOf(
 	}
 	return ""
 }
+
+// AgentWorkspaceGitStatus fakes the chat tree usecase's WorkspaceGitStatus
+// seam: each workspace's already-synced Added/Deleted counts, keyed by
+// workspace id, with no live git call behind it.
+type AgentWorkspaceGitStatus struct {
+	Summaries map[string][2]int
+	Err       error
+}
+
+// NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
+// workspace summaries recorded.
+func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
+	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}}
+}
+
+// Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer
+// with. A workspace never Set here answers 0, 0 — the zero value a workspace
+// with a clean working tree would also report.
+func (s *AgentWorkspaceGitStatus) Set(
+	workspaceID string,
+	added int,
+	deleted int,
+) {
+	s.Summaries[workspaceID] = [2]int{added, deleted}
+}
+
+func (s *AgentWorkspaceGitStatus) WorkingTreeSummary(
+	ctx context.Context,
+	workspaceID string,
+) (int, int, error) {
+	if s.Err != nil {
+		return 0, 0, s.Err
+	}
+	pair := s.Summaries[workspaceID]
+	return pair[0], pair[1], nil
+}

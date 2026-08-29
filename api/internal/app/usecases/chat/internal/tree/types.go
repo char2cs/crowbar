@@ -132,6 +132,18 @@ type Agent interface {
 	) error
 }
 
+// WorkspaceGitStatus is the narrow read port DeletePreview needs off the
+// workspace usecase: each workspace's own already-synced Added/Deleted
+// working-tree counts (00 §5.3) — the same numbers the sidebar itself
+// renders, never a live git call. A preview runs before every idle delete
+// confirm, so it has to stay as cheap as the read model it draws from.
+type WorkspaceGitStatus interface {
+	WorkingTreeSummary(
+		ctx context.Context,
+		workspaceID string,
+	) (added, deleted int, err error)
+}
+
 // CreateInput carries the fields needed to create a folder. ParentID is a
 // chat id, another folder's id, or "" for the panel root; the new folder is
 // appended at the end of that sibling space. RepoID is carried rather than a
@@ -280,4 +292,14 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
+	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
+	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
+	// row in the subtree, and the working-tree file count summed across every
+	// workspace-owning row in it. A subtree can span more than one independent
+	// workspace now, so this is the one place that count is actually computed
+	// rather than read off a single workspace the caller already has.
+	DeletePreview(
+		ctx context.Context,
+		chatID string,
+	) (chatCount, fileCount int, err error)
 }

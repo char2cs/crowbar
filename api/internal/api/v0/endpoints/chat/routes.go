@@ -54,6 +54,13 @@ import (
 // writes something different in kind: a chat's parent IS its context lineage, so
 // this endpoint can turn a standalone chat into a thread of another and back.
 //
+// .../chats/:id/delete-preview is DELETE's dry run: what an idle delete's
+// confirm dialog names before the user commits to it. id may be a chat or a
+// folder, and a folder's subtree can span more than one independent
+// workspace, so the file count it returns is a real sum across every one of
+// them rather than a single workspace's own already-known count (backend
+// addendum spec §1).
+//
 // settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
 // GLOBAL user setting (per user/machine, not per workspace — the CLIs are
 // machine-level), so its write route mounts there at /settings/chat/providers,
@@ -97,6 +104,7 @@ func Register(
 	repoScoped.GET("/chats/:id/handoff", h.Handoff)
 	repoScoped.PATCH("/chats/:id/placement", h.PlaceChat)
 	repoScoped.DELETE("/chats/:id", h.Delete)
+	repoScoped.GET("/chats/:id/delete-preview", h.DeletePreview)
 	repoScoped.GET("/chats/folders", h.ListFolders)
 	repoScoped.POST("/chats/folders", h.CreateFolder)
 	repoScoped.PATCH("/chats/folders/:folderId", h.PatchFolder)

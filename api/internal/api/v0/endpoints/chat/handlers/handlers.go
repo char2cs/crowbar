@@ -394,6 +394,14 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (agentusecase.ChatDeletion, error)
+	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
+	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
+	// row in the subtree and the working-tree file count summed across every
+	// workspace-owning row in it.
+	DeletePreview(
+		ctx context.Context,
+		chatID string,
+	) (chatCount, fileCount int, err error)
 }
 
 // Handlers serves the .../repos/:repoId/chats routes from the agent usecase

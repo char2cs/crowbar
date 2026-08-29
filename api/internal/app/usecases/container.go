@@ -267,7 +267,12 @@ func newAgentWiring(
 		Minter: minter,
 		Tools:  toolDeps,
 	})
-	chatTree := agentusecase.NewTree(repos.AgentChat, chat, chat.Work())
+	chatTree := agentusecase.NewTree(
+		repos.AgentChat,
+		chat,
+		chat.Work(),
+		workspaceGitStatusReader{workspace: workspaceUsecase},
+	)
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,
@@ -394,6 +399,28 @@ func (r agentChatReader) ListChats(
 	ctx context.Context,
 ) ([]domain.Chat, error) {
 	return r.chats.ListChats(ctx)
+}
+
+// workspaceGitStatusReader adapts the workspace usecase into the chat tree
+// usecase's WorkspaceGitStatus seam (internal/app/usecases/chat/internal/tree.
+// WorkspaceGitStatus): DeletePreview needs each workspace-owning row's file
+// counts, and Get's Added/Deleted are the SAME already-synced numbers the
+// sidebar itself renders — never a live git call recomputed per row on every
+// preview.
+type workspaceGitStatusReader struct {
+	workspace workspace.Usecase
+}
+
+// WorkingTreeSummary implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) WorkingTreeSummary(
+	ctx context.Context,
+	workspaceID string,
+) (int, int, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return ws.Added, ws.Deleted, nil
 }
 
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent
