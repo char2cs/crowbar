@@ -84,8 +84,8 @@ func newUsecase(
 	t *testing.T,
 ) (*mocks.AgentChatPlacements, tree.Usecase) {
 	t.Helper()
-	chats := mocks.NewAgentChatPlacements()
-	return chats, tree.New(chats, chats)
+	chats, uc, _ := newUsecaseWithWork(t)
+	return chats, uc
 }
 
 // seedChat appends a chat at the panel root, created at the given second so the

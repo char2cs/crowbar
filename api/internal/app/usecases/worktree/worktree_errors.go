@@ -15,6 +15,13 @@ var ErrRebaseNonLeaf = errors.New("usecases: rebase forbidden for non-leaf child
 // is not a leaf; only leaf workspaces may be re-parented (07 §4).
 var ErrChildHasChildren = errors.New("usecases: child has children")
 
+// ErrCrossRepoWorktreeMove is returned when a re-parent would move a
+// worktree-owning child under a new parent in a DIFFERENT repo. A different
+// repo means a different remote, branch and worktree path, so it is not a
+// reparent at all for a row that owns one (unified sidebar model spec
+// invariant 7). A row with no worktree of its own is unaffected.
+var ErrCrossRepoWorktreeMove = errors.New("usecases: cannot move a worktree across repos")
+
 // ErrSelfParent is returned when a re-parent targets the child itself. A
 // workspace cannot be its own parent: the self-loop both detaches the node in
 // the tree and makes it permanently unreparentable (it would count as its own

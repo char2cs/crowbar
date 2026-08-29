@@ -99,6 +99,9 @@ func (u *chatFolderUsecase) PlaceChat(
 	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
+	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
+		return domain.Chat{}, nil, wErr
+	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the
 	// chat has been living under is still recoverable, and the comparison against
 	// what it lands on is what decides whether anything happened worth recording.

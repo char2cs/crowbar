@@ -1243,6 +1243,14 @@ func (u *worktreeUsecase) guardReparent(
 	if hasKids {
 		return ErrChildHasChildren
 	}
+	// A different repo means a different remote, branch and worktree path, so a
+	// row that owns a worktree cannot be reparented across repos at all — it is
+	// not a rebase target there, it is a different checkout entirely (model spec
+	// invariant 7). A row with no worktree of its own carries none of that, so a
+	// cross-repo move is still a plain reparent for it.
+	if child.RepoID != newParent.RepoID && child.WorktreePath != "" {
+		return ErrCrossRepoWorktreeMove
+	}
 	return nil
 }
 

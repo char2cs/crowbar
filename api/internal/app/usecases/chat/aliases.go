@@ -3,6 +3,7 @@ package chat
 import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
@@ -106,9 +107,20 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// NewTree builds the sidebar forest's tree usecase.
-func NewTree(chats TreeChats, agent TreeAgent) TreeUsecase {
-	return tree.New(chats, agent)
+// NewTree builds the sidebar forest's tree usecase. work is the chat
+// usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
+// delete verbs refuse over a subtree that is still working, and there is
+// exactly one tracker to ask.
+func NewTree(chats TreeChats, agent TreeAgent, work *inflight.Work) TreeUsecase {
+	return tree.New(chats, agent, work)
+}
+
+// Work exposes the in-flight turn tracker this usecase's own components
+// observe, so the tree usecase built on top of it (see NewTree) can refuse a
+// move or delete over a chat that is currently working. Deliberately not on
+// ChatUsecase: only the composition root wiring the tree usecase needs it.
+func (u *Usecase) Work() *inflight.Work {
+	return u.work
 }
 
 // NewChatLineage builds the lineage reader over the chat repository. It is

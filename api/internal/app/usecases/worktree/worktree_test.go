@@ -1690,6 +1690,39 @@ func TestReparent_RejectsNonLeafChild(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
+// A worktree-owning child names a specific remote, branch and worktree path —
+// moving it under a parent in a DIFFERENT repo is not a reparent at all, so
+// guardReparent refuses it before any git work (model spec invariant 7).
+func TestReparent_RefusesCrossRepoWhenChildOwnsAWorktree(t *testing.T) {
+	child := domain.Workspace{ID: "c", RepoID: "repo-a", WorktreePath: "/cw"}
+	newParent := domain.Workspace{ID: "np", RepoID: "repo-b", WorktreePath: "/np"}
+	ws := reparentWS(child, newParent, nil)
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, worktree.ErrCrossRepoWorktreeMove)
+	assert.Empty(t, g.calls)
+}
+
+// A row with no worktree of its own carries no remote, branch or worktree path
+// to lose across a repo boundary, so a cross-repo move is still a plain
+// reparent for it: RebasesOntoNewTipAndUpdatesAggregate below already proves
+// the happy path within one repo, and the guard itself imposes no same-repo
+// requirement when child.WorktreePath is empty (see guardReparent).
+func TestReparent_AllowsCrossRepoWhenChildOwnsNoWorktree(t *testing.T) {
+	child := domain.Workspace{ID: "c", RepoID: "repo-a", Branch: "feat"}
+	newParent := domain.Workspace{ID: "np", RepoID: "repo-b", WorktreePath: "/np"}
+	ws := reparentWS(child, newParent, nil)
+	ws.ReparentFn = func(_ context.Context, id, parentID, forkPointSha string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip"}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err)
+}
+
 func TestReparent_RejectsSelfParent(t *testing.T) {
 	// A workspace must never become its own parent: the self-loop detaches the
 	// node in the tree and (via childHasChildren) makes it permanently

@@ -264,7 +264,7 @@ func newAgentWiring(
 		Minter: minter,
 		Tools:  toolDeps,
 	})
-	chatTree := agentusecase.NewTree(repos.AgentChat, chat)
+	chatTree := agentusecase.NewTree(repos.AgentChat, chat, chat.Work())
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,

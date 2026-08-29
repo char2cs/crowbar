@@ -175,6 +175,10 @@ type Usecase struct {
 	// guarded rather than assumed.
 	tools agenttools.Deps
 
+	// work is the SAME tracker sh.work hands conversations/turns/runners — see
+	// Work in aliases.go.
+	work *inflight.Work
+
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.
 	conversations *conversation.Conversations
@@ -275,6 +279,7 @@ func New(d Deps) *Usecase {
 		ws:          d.Workspace,
 		answers:     sh.answers,
 		tools:       d.Tools,
+		work:        sh.work,
 	}
 	// The tool surface's four self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.

@@ -38,12 +38,14 @@ import (
 	"github.com/google/uuid"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 type chatFolderUsecase struct {
 	chats Chats
 	agent Agent
+	work  *inflight.Work
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -53,11 +55,17 @@ type chatFolderUsecase struct {
 // chats a delete takes and which chat a create is born under, and the agent
 // usecase is the only thing that knows how to erase one, mint one, or start a
 // CLI on one.
+//
+// work is the SAME in-flight tracker the agent usecase's own turn and runner
+// components observe, not a second one: a move or delete refuses over the
+// subtree it takes by asking it directly, so the answer can never lag behind
+// what a hook just announced.
 func New(
 	chats Chats,
 	agent Agent,
+	work *inflight.Work,
 ) Usecase {
-	return &chatFolderUsecase{chats: chats, agent: agent}
+	return &chatFolderUsecase{chats: chats, agent: agent, work: work}
 }
 
 func (u *chatFolderUsecase) ListInRepo(
@@ -198,6 +206,9 @@ func (u *chatFolderUsecase) Move(
 	}
 	if mErr := u.checkFolderMove(ctx, snapshot, id, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
+	}
+	if wErr := guardNotWorking(subtreeIDsOf(id, snapshot.rows), u.work); wErr != nil {
+		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, id, current.ParentID, destination, in.Order)
 	written, err := u.persist(ctx, snapshot)

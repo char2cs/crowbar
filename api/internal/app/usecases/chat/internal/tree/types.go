@@ -203,6 +203,11 @@ type Usecase interface {
 	// Move re-parents and/or reorders a folder, densifying both the level it left
 	// and the level it joined. It returns the moved folder plus every other row
 	// those two densifies shifted.
+	//
+	// The move takes the folder's whole subtree with it — nothing below it is
+	// rewritten, since a child's ParentID already names it — so it is refused
+	// with ErrSubtreeWorking if any row in that subtree, folder or chat, is
+	// currently working.
 	Move(
 		ctx context.Context,
 		id string,
@@ -251,6 +256,10 @@ type Usecase interface {
 	// workspaceID is the scope the caller is acting in, and the move is refused if
 	// the chat is not in it: a chat addressed from the wrong workspace is not this
 	// caller's row to move.
+	//
+	// The move takes the chat's whole subtree with it, and is refused with
+	// ErrSubtreeWorking if the chat or any row below it is currently working —
+	// the same refusal Move makes for a folder.
 	PlaceChat(
 		ctx context.Context,
 		workspaceID string,
