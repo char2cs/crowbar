@@ -44,7 +44,6 @@ func Register(
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/lock", h.Lock)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
-	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)

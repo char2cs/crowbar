@@ -99,32 +99,27 @@ func (f *fakeReader) MergeEligibilityFor(
 }
 
 type fakeHierarchy struct {
-	created      domain.Workspace
-	createErr    error
-	gotCreate    workspace.CreateChildInput
-	mergeResult  workspace.MergeResult
-	mergeErr     error
-	gotMergeID   string
-	gotStrategy  gitdomain.MergeStrategy
-	reparented   domain.Workspace
-	reparentErr  error
-	gotReparent  string
-	gotNewParent string
-	deleteErr    error
-	gotDeleteID  string
-	createDone   chan struct{}
-	deleteDone   chan struct{}
-	mergeDone    chan struct{}
-	reparentDone chan struct{}
-	renamed      domain.Workspace
-	renameErr    error
-	gotRenameID  string
-	gotRenameTo  string
-	gotImport    workspace.ImportInput
-	importErr    error
-	importDone   chan struct{}
-	gotRebaseID  string
-	rebaseErr    error
+	created     domain.Workspace
+	createErr   error
+	gotCreate   workspace.CreateChildInput
+	mergeResult workspace.MergeResult
+	mergeErr    error
+	gotMergeID  string
+	gotStrategy gitdomain.MergeStrategy
+	deleteErr   error
+	gotDeleteID string
+	createDone  chan struct{}
+	deleteDone  chan struct{}
+	mergeDone   chan struct{}
+	renamed     domain.Workspace
+	renameErr   error
+	gotRenameID string
+	gotRenameTo string
+	gotImport   workspace.ImportInput
+	importErr   error
+	importDone  chan struct{}
+	gotRebaseID string
+	rebaseErr   error
 }
 
 func (f *fakeHierarchy) CreateFromImport(
@@ -172,19 +167,6 @@ func (f *fakeHierarchy) MergeIntoParent(
 		close(f.mergeDone)
 	}
 	return f.mergeResult, f.mergeErr
-}
-
-func (f *fakeHierarchy) Reparent(
-	_ context.Context,
-	childID string,
-	newParentID string,
-) (domain.Workspace, error) {
-	f.gotReparent = childID
-	f.gotNewParent = newParentID
-	if f.reparentDone != nil {
-		close(f.reparentDone)
-	}
-	return f.reparented, f.reparentErr
 }
 
 func (f *fakeHierarchy) RebaseOntoParent(
@@ -370,7 +352,6 @@ func newRouterWithPlacer(
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
-	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
 	rg.POST("/workspaces/:wsId/lock", h.Lock)

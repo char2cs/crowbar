@@ -28,22 +28,16 @@ type mergeRequest struct {
 	DeleteSource bool                    `json:"deleteSource"`
 }
 
-// reparentRequest is the POST .../workspaces/:wsId/reparent body: the id of the
-// new parent the leaf child is rebased onto.
-type reparentRequest struct {
-	NewParentID string `json:"newParentId"`
-}
-
 // patchRequest is the PATCH .../workspaces/:wsId body. Branch renames the
 // workspace's branch; FolderID and Order are its SIDEBAR placement — which
 // folder it is filed under and where it sits among its siblings. The two travel
 // on one endpoint because they are the two things a user edits about a row in
 // place, and a nil field is left as it is.
 //
-// FolderID is never a fork parent. Re-parenting a fork is a git operation with
-// its own endpoint (POST .../reparent) because it rebases; filing a row into a
-// folder writes only the workspace's own chat row's ParentID, moving nothing on
-// disk.
+// FolderID is never a fork parent. Re-parenting a fork is a git operation
+// (the hierarchy usecase's guarded Reparent) because it rebases; filing a row
+// into a folder writes only the workspace's own chat row's ParentID, moving
+// nothing on disk.
 type patchRequest struct {
 	Branch   *string `json:"branch"`
 	FolderID *string `json:"folderId"`
@@ -245,13 +239,6 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 	return true, nil
 }
 
-// Reparent handles
-// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent. It
-// validates synchronously (body shape, newParentId present, workspace exists)
-// returning 4xx on failure; then it returns 202 and rebases the leaf child onto
-// the new parent in the background. The reparented workspace is delivered on the
-// workspace WebSocket stream via the repository's broadcast callback; a failure
-// surfaces as LastError on the entity (00 §4).
 // RebaseOntoParent handles
 // POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/rebase-onto-parent.
 // It is the user-initiated "finish the move" for a moved-but-conflicting child:
@@ -276,37 +263,6 @@ func (h *Handlers) RebaseOntoParent(
 		func(ctx context.Context) error {
 			_, rebaseErr := h.hierarchy.RebaseOntoParent(ctx, id)
 			return rebaseErr
-		},
-	)
-}
-
-func (h *Handlers) Reparent(
-	c *gin.Context,
-) {
-	var body reparentRequest
-	if err := c.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.NewParentID == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "newParentId is required")
-		return
-	}
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
-		return
-	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, reparentErr := h.hierarchy.Reparent(ctx, id, body.NewParentID)
-			return reparentErr
 		},
 	)
 }
