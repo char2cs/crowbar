@@ -49,5 +49,8 @@ export function closeRecent(entry: RecentsBandEntry): void {
     for (const pane of panes) paneActions.closePane(pane.id)
     return
   }
-  paneActions.forgetDormantArrangement(entry.id)
+  // `entry.id` is workspace-qualified for cross-workspace display uniqueness
+  // (see recents-for-project.ts) — `localId` is the real id the owning
+  // store's own `dormantArrangements` are keyed by.
+  paneActions.forgetDormantArrangement(entry.localId)
 }

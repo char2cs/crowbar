@@ -72,6 +72,18 @@ export function getKnownHomeWorkspaceIds(): string[] {
   return [...states.values()].map((s) => s.wsId).filter((id): id is string => id !== null)
 }
 
+/**
+ * `projectId`'s own resolved home-workspace id, or `null` if it hasn't
+ * resolved (or hasn't been asked for) yet. Unlike `getKnownHomeWorkspaceIds`
+ * (deliberately flattened across every project, for WorkspaceHost's
+ * retention pruning), a caller scoped to ONE project — e.g. a project's
+ * Recents band, which must not pull in another project's home chats — needs
+ * this project's id specifically.
+ */
+export function getHomeWorkspaceId(projectId: string): string | null {
+  return states.get(projectId)?.wsId ?? null
+}
+
 function getSnapshot(projectId: string | null): HomeWorkspaceState {
   return (projectId ? states.get(projectId) : undefined) ?? UNRESOLVED
 }

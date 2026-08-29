@@ -28,6 +28,19 @@ export type { RecentsEntry, RecentsEntryState }
  */
 export interface RecentsBandEntry extends RecentsEntry {
   workspaceId: string
+  /**
+   * The entry's id exactly as `deriveRecentsEntries` produced it, before
+   * `recents-for-project.ts` workspace-qualifies `.id` for cross-workspace
+   * uniqueness. Pane ids (`ROOT_PANE_ID`/`BOTTOM_PANE_ID`) are module-level
+   * constants shared verbatim across EVERY workspace store, so `.id` alone
+   * collides once a project's Recents spans more than one workspace
+   * (`WorkspaceHost` keeps several retained at once) — `.id` stays globally
+   * unique (React keys / `data-testid`), `localId` is what the OWNING
+   * workspace store's own `dormantArrangements`/pane ids actually are, for
+   * any call (e.g. `paneActions.forgetDormantArrangement`) that must match
+   * against real stored state.
+   */
+  localId: string
 }
 
 interface RecentsBandProps {

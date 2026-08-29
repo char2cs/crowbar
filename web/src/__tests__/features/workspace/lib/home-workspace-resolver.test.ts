@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
 import {
   ensureHomeWorkspaceResolved,
   getKnownHomeWorkspaceIds,
+  getHomeWorkspaceId,
   useHomeWorkspaceState,
   __resetHomeWorkspaceResolverForTest,
 } from '@/features/workspace/lib/home-workspace-resolver'
@@ -82,6 +83,36 @@ describe('home-workspace-resolver', () => {
 
     await waitFor(() => {
       expect(getKnownHomeWorkspaceIds().sort()).toEqual(['ws-p1', 'ws-p2'])
+    })
+  })
+
+  describe('getHomeWorkspaceId', () => {
+    it('returns null before anything has resolved for that project', () => {
+      expect(getHomeWorkspaceId('p1')).toBeNull()
+    })
+
+    it("returns exactly the ONE project's own resolved id, not another project's", async () => {
+      fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
+        Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home' }),
+      )
+      ensureHomeWorkspaceResolved('p1')
+      ensureHomeWorkspaceResolved('p2')
+
+      await waitFor(() => {
+        expect(getHomeWorkspaceId('p1')).toBe('ws-p1')
+      })
+      expect(getHomeWorkspaceId('p2')).toBe('ws-p2')
+      expect(getHomeWorkspaceId('p1')).not.toBe(getHomeWorkspaceId('p2'))
+    })
+
+    it('returns null for a project that errored rather than the error sentinel', async () => {
+      fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('not found'))
+      ensureHomeWorkspaceResolved('p1')
+
+      await waitFor(() => {
+        expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
+      })
+      expect(getHomeWorkspaceId('p1')).toBeNull()
     })
   })
 })

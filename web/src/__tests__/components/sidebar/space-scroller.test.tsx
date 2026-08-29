@@ -139,6 +139,7 @@ describe('SpaceScroller', () => {
     const row = makeRow('row-1', 'Fix the thing')
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',

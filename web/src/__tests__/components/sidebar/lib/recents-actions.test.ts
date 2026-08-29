@@ -39,7 +39,8 @@ describe('focusRecent', () => {
   it("navigates to the entry's owning workspace", () => {
     const navigate = vi.fn()
     const entry: RecentsBandEntry = {
-      id: 'e1',
+      id: 'ws-1:e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -59,7 +60,8 @@ describe('focusRecent', () => {
     store.getState().paneActions.setActivePane(otherPane)
 
     const entry: RecentsBandEntry = {
-      id: 'e1',
+      id: 'ws-1:e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'live',
       workspaceId: 'ws-1',
@@ -72,7 +74,8 @@ describe('focusRecent', () => {
   it('is a no-op for a workspace not found in the given repos', () => {
     const navigate = vi.fn()
     const entry: RecentsBandEntry = {
-      id: 'e1',
+      id: 'nope:e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'nope',
@@ -88,7 +91,8 @@ describe('closeRecent', () => {
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
     const entry: RecentsBandEntry = {
-      id: 'e1',
+      id: 'ws-1:e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'live',
       workspaceId: 'ws-1',
@@ -105,7 +109,8 @@ describe('closeRecent', () => {
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
     const entry: RecentsBandEntry = {
-      id: 'e1',
+      id: 'ws-1:e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'live',
       workspaceId: 'ws-1',
@@ -120,11 +125,16 @@ describe('closeRecent', () => {
   it('forgets a DORMANT entry outright — there is no pane to close', () => {
     const store = getOrCreateWorkspaceStore('ws-1')
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID) // seeds one dormant arrangement
+    store.getState().paneActions.closePane(ROOT_PANE_ID) // seeds one dormant arrangement keyed ROOT_PANE_ID
     expect(store.getState().dormantArrangements).toHaveLength(1)
 
+    // `.id` is workspace-qualified for cross-workspace display uniqueness
+    // (recents-for-project.ts) and deliberately differs from `.localId` —
+    // this pins that `closeRecent` forgets by `localId` (the store's real
+    // arrangement id), not by the qualified `.id`, which would never match.
     const entry: RecentsBandEntry = {
-      id: ROOT_PANE_ID,
+      id: `ws-1:${ROOT_PANE_ID}`,
+      localId: ROOT_PANE_ID,
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -132,5 +142,18 @@ describe('closeRecent', () => {
     closeRecent(entry)
 
     expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('does NOT forget the arrangement when only the qualified `.id` is passed', () => {
+    // Regression pin for the collision fix: if closeRecent ever regresses to
+    // using `.id` instead of `.localId`, this proves the arrangement survives
+    // (the store's real dormant entry is keyed ROOT_PANE_ID, not the
+    // qualified display id).
+    const store = getOrCreateWorkspaceStore('ws-1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    store.getState().paneActions.forgetDormantArrangement(`ws-1:${ROOT_PANE_ID}`)
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
   })
 })

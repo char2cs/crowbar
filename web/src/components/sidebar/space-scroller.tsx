@@ -11,6 +11,12 @@ import type { WorkspaceState } from '@/features/workspace/stores/workspace-store
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { Project } from '@/lib/types'
 
+// Join delimiter for the id-list dependency keys below — same choice and
+// rationale as workspace-host.tsx's own `ID_DELIM`: a workspace id can never
+// contain NUL, but nothing stops one containing a space or `|`, which a
+// naive join/split would then mis-parse.
+const ID_DELIM = '\u0000'
+
 interface SpaceScrollerProps {
   projects: Project[]
   /** Undefined on a route with no project in it yet (matches
@@ -52,12 +58,23 @@ function recentsSlice(state: WorkspaceState) {
  * skipped for an id with no live store rather than creating one (see
  * recents-for-project.ts for why calling `getOrCreateWorkspaceStore` on a
  * never-opened workspace would leak it).
+ *
+ * `refreshSignal` re-runs the subscription setup (re-scanning
+ * `getAllActiveWorkspaceIds()`) whenever it changes, independent of
+ * `workspaceIds` — the caller passes its own `workingSignal` so a tree
+ * workspace flipping `working` (the most common trigger for "a workspace
+ * just got a store") re-scans for newly-active stores this effect would
+ * otherwise never notice. This is a partial mitigation, not a full fix: a
+ * workspace whose store is created without `workingSignal` also changing
+ * (e.g. a chat opened into a pane that never starts a turn) still is not
+ * picked up until some OTHER re-render happens — see space-scroller's own
+ * `SpacePanel` comment and task-30-report.md for the full disclosure.
  */
-function useRecentsTick(workspaceIds: string[]): void {
-  const idsKey = workspaceIds.slice().sort().join(' ')
+function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
+  const idsKey = workspaceIds.slice().sort().join(ID_DELIM)
   const [, setTick] = useState(0)
   useEffect(() => {
-    const ids = idsKey ? idsKey.split(' ') : []
+    const ids = idsKey ? idsKey.split(ID_DELIM) : []
     const active = new Set(getAllActiveWorkspaceIds())
     const unsubs = ids
       .filter((id) => active.has(id))
@@ -79,7 +96,7 @@ function useRecentsTick(workspaceIds: string[]): void {
         })
       })
     return () => unsubs.forEach((u) => u())
-  }, [idsKey])
+  }, [idsKey, refreshSignal])
 }
 
 interface SpacePanelProps {
@@ -104,26 +121,29 @@ function SpacePanel({
   onCloseRecent,
 }: SpacePanelProps) {
   const rows = rowsForProject(projectId)
-  // Re-scanning "which workspace under this project is working" on every
-  // backend push (already narrow, project-scoped - not the whole `repos`
-  // array) is what catches a workspace's store being created for the FIRST
-  // time this session while its panel is not otherwise re-rendering: the
-  // transition to "working" is what makes THIS project panel re-render and
-  // pick the new store up.
+  // Narrow, project-scoped selector (not the whole `repos` array) that
+  // changes whenever a tree workspace under this project starts/stops
+  // working. Read for its own re-render (a fresh string forces this
+  // component to re-render when it changes) AND handed to useRecentsTick
+  // below to re-scan `getAllActiveWorkspaceIds()` — a workspace's store
+  // being created for the first time this session most commonly coincides
+  // with its first chat starting to work, so this is what usually catches
+  // it. It is a partial mitigation, not a guarantee: a workspace whose
+  // store appears WITHOUT `working` also flipping (e.g. a pane opened onto
+  // an already-idle/dormant chat) is still missed until some unrelated
+  // re-render happens — there is no general cross-store live-aggregation
+  // primitive in this codebase to close that gap fully (see
+  // task-30-report.md).
   const workingSignal = useSidebarStore((s) =>
     s.repos
       .filter((r) => r.projectId === projectId)
-      .flatMap((r) => r.workspaces.map((w) => `${w.id}:${w.working ? 1 : 0}`))
-      .join('|'),
+      .flatMap((r) => r.workspaces.map((w) => `${w.id}${ID_DELIM}${w.working ? 1 : 0}`))
+      .join(ID_DELIM),
   )
   const workspaceIds = Array.from(
     new Set(rows.map((r) => r.workspaceId).filter((id): id is string => id != null)),
   )
-  // `workingSignal` is read only to force a re-render on change (see comment
-  // above); this line exists to keep eslint's exhaustive-deps happy without
-  // pretending the value itself is used.
-  void workingSignal
-  useRecentsTick(workspaceIds)
+  useRecentsTick(workspaceIds, workingSignal)
   const entries = recentsForProject(projectId)
 
   return (

@@ -47,7 +47,7 @@ describe('RecentsBand', () => {
   it('a working entry has no close control', () => {
     setWs1(DEFAULT_CHATS, { 'chat-1': true })
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1'], state: 'working', workspaceId: 'ws-1' },
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'working', workspaceId: 'ws-1' },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
@@ -57,7 +57,7 @@ describe('RecentsBand', () => {
 
   it('a set draws as one shell around its member rows', () => {
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     const shell = screen.getByTestId('recents-set-e1')
@@ -66,7 +66,7 @@ describe('RecentsBand', () => {
 
   it('entries render flat, no indent', () => {
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getByTestId('recents-row-chat-1')).not.toHaveAttribute('data-depth')
@@ -76,6 +76,7 @@ describe('RecentsBand', () => {
     const onFocus = vi.fn()
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -89,6 +90,7 @@ describe('RecentsBand', () => {
     const onClose = vi.fn()
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'live',
       workspaceId: 'ws-1',
@@ -101,6 +103,7 @@ describe('RecentsBand', () => {
   it('the close control is never labelled as a delete', () => {
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -114,7 +117,13 @@ describe('RecentsBand', () => {
 
   it('a live set lights the shell, not the members', () => {
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'live', workspaceId: 'ws-1' },
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        workspaceId: 'ws-1',
+      },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     const shell = screen.getByTestId('recents-set-e1')
@@ -123,7 +132,7 @@ describe('RecentsBand', () => {
 
   it('a dormant (at-rest) set does not light the shell', () => {
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     const shell = screen.getByTestId('recents-set-e1')
@@ -140,6 +149,7 @@ describe('RecentsBand', () => {
     setWs1([{ id: 'chat-1', workspaceId: 'ws-1', title: 'A'.repeat(120) }])
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -153,6 +163,7 @@ describe('RecentsBand', () => {
     setWs1(DEFAULT_CHATS, { 'chat-1': true })
     const entry: RecentsBandEntry = {
       id: 'e1',
+      localId: 'e1',
       chatIds: ['chat-1'],
       state: 'working',
       workspaceId: 'ws-1',
@@ -174,8 +185,8 @@ describe('RecentsBand', () => {
       working: {},
     })
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
-      { id: 'e2', chatIds: ['chat-2'], state: 'dormant', workspaceId: 'ws-other' },
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
+      { id: 'e2', localId: 'e2', chatIds: ['chat-2'], state: 'dormant', workspaceId: 'ws-other' },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
