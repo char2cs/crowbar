@@ -468,6 +468,41 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	assert.Equal(t, "folder_updated", frames[0].kind)
 }
 
+// TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself proves that
+// at the repo-scoped mount (Task 17: no :wsId path param) PlaceChat resolves
+// the chat's own current workspace via GetChat rather than trusting the URL,
+// so the tree usecase's move-across-workspace assertion is asked about the
+// chat's real workspace and not a stale/absent one.
+func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing.T) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-9", ParentID: "c1"}}
+	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c2", WorkspaceID: "ws-9"}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"parentId":"c1"}`))
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c2"}}
+
+	newFolderHandlersWith(uc, tree, &frames).PlaceChat(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "ws-9", tree.gotID, "PlaceChat must be called with the chat's OWN workspace")
+	assert.Equal(t, "c2", tree.gotPlaceID)
+}
+
+// TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces proves a GetChat failure
+// during that fallback resolution surfaces as a mapped error rather than
+// reaching the tree usecase with a guessed workspace.
+func TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces(t *testing.T) {
+	tree := &fakeChatTree{}
+	uc := &fakeAgentUsecase{getChatErr: apperr.ErrNotFound}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"parentId":"c1"}`))
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c2"}}
+
+	newFolderHandlersWith(uc, tree, &frames).PlaceChat(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, tree.gotPlaceID, "the tree usecase must never be reached")
+}
+
 func TestPlaceChat_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
 	var frames []folderFrame

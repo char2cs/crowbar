@@ -505,7 +505,7 @@ func AgentChatDTOList(
 	return out
 }
 
-// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/chats/:id: the
+// AgentChatDetailDTO is the wire shape of GET .../repos/:repoId/chats/:id: the
 // chat (with its derived runner facts) plus the conversations it has hosted, oldest
 // first. Conversations succeeds the deleted `segments` list: it is what a segment really
 // was, minus everything that described a process (no status, no PTY, no runner id), so
@@ -532,7 +532,7 @@ func AgentChatDetailDTOFrom(
 	}
 }
 
-// HandoffDTO is the wire shape of GET .../workspaces/:wsId/chats/:id/handoff: the
+// HandoffDTO is the wire shape of GET .../repos/:repoId/chats/:id/handoff: the
 // assembled handoff blob a freshly spawned provider CLI can be given as prior
 // context. Handoff is "" (not omitted) when the chat's ledger has no entries
 // yet.
@@ -571,13 +571,20 @@ type AgentProviderDTO struct {
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
-// (GET .../workspaces/:wsId/chats/ws): the thing that changed, the workspace it
-// belongs to, and the lifecycle kind — chat kinds (created/turn_started/turn_stopped/
-// title_set/placement_set/deleted), runner kinds (started/session_bound/moved/
-// displaced/exited), and folder kinds (folder_created/folder_updated/folder_deleted),
-// all of which ride this same workspace-scoped feed. It carries no snapshot; the stream is a
-// bare event feed, not a full-state resource stream. WorkspaceID both scopes the feed
-// (agentChatDef's wsId Filter) and rides along on the wire frame.
+// (GET .../repos/:repoId/chats/ws, and still GET .../home/chats/ws): the thing
+// that changed, the workspace it belongs to, and the lifecycle kind — chat
+// kinds (created/turn_started/turn_stopped/title_set/placement_set/deleted),
+// runner kinds (started/session_bound/moved/displaced/exited), and folder
+// kinds (folder_created/folder_updated/folder_deleted), all of which ride this
+// same feed. It carries no snapshot; the stream is a bare event feed, not a
+// full-state resource stream. WorkspaceID rides along on the wire frame and
+// still scopes the home mount's feed (agentChatDef's wsId Filter, keyed off
+// its injected :wsId); the repo-scoped mount names no workspace in its URL, so
+// that Filter resolves inactive there (ws.BuildPredicate's documented
+// no-scoping-param fallback) and a client subscribed there sees every chat's
+// events unfiltered — a disclosed, pre-existing limitation (no chat row
+// carries its own repo id yet, matching ChatTreeUsecase.ListInRepo's own
+// caveat), not a new one Task 17 introduces.
 //
 // ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
 // has taken that runner off its chat (an eviction, a provider switch, a chat deleted under

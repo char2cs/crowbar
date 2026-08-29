@@ -168,16 +168,16 @@ func (c *Container) Register(
 		c.terminals.Handle,
 		ws.DualServe,
 	)
-	// The agentic-chat REST + WS surface is workspace-scoped (Task 3): every
-	// AgentChat is anchored to a workspace, so its routes mount on wsScoped
-	// (.../workspaces/:wsId) exactly like terminal.Register above, giving it
-	// scopeWorkspaceToPath's wsId-ownership enforcement for free. The WS route
-	// (.../chats/ws) lands in the SAME group as the REST routes so its
-	// :wsId path param is available to agentChatDef's Filter (container.go). rg
-	// carries the GLOBAL provider-preferences write route (/settings/chat/providers),
-	// mounted once outside the entity hierarchy like /settings/terminal/profiles.
+	// The agentic-chat REST + WS surface is repo-scoped (Task 17): a chat's
+	// workspace is optional and mutable, so its routes mount on repoScoped
+	// (.../repos/:repoId) rather than wsScoped — no chat route names a
+	// workspace any more. Handlers that once trusted :wsId now either read
+	// :repoId or resolve a specific chat's own workspace from the chat itself
+	// (GetChat), never from the URL. rg carries the GLOBAL
+	// provider-preferences write route (/settings/chat/providers), mounted
+	// once outside the entity hierarchy like /settings/terminal/profiles.
 	chat.Register(
-		wsScoped,
+		repoScoped,
 		rg,
 		c.app.Usecases.AgentChat,
 		c.app.Usecases.AgentTurn,

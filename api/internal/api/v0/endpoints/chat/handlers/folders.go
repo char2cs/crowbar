@@ -219,6 +219,13 @@ func (h *Handlers) DeleteFolder(
 // and the panel draws no other mark for it — so dragging a chat under another
 // chat makes it a thread that reads that chat's turns, and dragging it back out
 // makes it standalone again.
+//
+// The tree usecase asserts the moved chat still belongs to the workspace it is
+// told, so a request with no :wsId (the repo-scoped mount, Task 17) resolves
+// the chat's OWN current workspace via GetChat first — the assertion then
+// compares the chat against itself, which is what "no workspace named in the
+// URL" has to mean now that WorkspaceID is optional and mutable. The home
+// mount's injected :wsId is used as-is, unchanged from before Task 17.
 func (h *Handlers) PlaceChat(
 	ctx *gin.Context,
 ) {
@@ -228,6 +235,15 @@ func (h *Handlers) PlaceChat(
 		return
 	}
 	wsID := ctx.Param("wsId")
+	if wsID == "" {
+		chat, err := h.chats.GetChat(ctx.Request.Context(), ctx.Param("id"))
+		if err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(ctx, status, msg)
+			return
+		}
+		wsID = chat.WorkspaceID
+	}
 	placed, shifted, err := h.folders.PlaceChat(ctx.Request.Context(), wsID, ctx.Param("id"),
 		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
 	if err != nil {

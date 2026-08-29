@@ -9,7 +9,7 @@ import (
 )
 
 // SetChatPermissionLevel handles
-// PUT .../workspaces/:wsId/chats/:id/permission-level.
+// PUT .../repos/:repoId/chats/:id/permission-level.
 func (h *Handlers) SetChatPermissionLevel(
 	ctx *gin.Context,
 ) {

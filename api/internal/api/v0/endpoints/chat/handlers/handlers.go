@@ -1,5 +1,5 @@
-// Package handlers holds the gin handlers backing the
-// .../workspaces/:wsId/agent endpoints.
+// Package handlers holds the gin handlers backing the .../repos/:repoId/chats
+// endpoints, and their re-mount under the project home group.
 package handlers
 
 import (
@@ -17,11 +17,21 @@ import (
 // It starts no processes and reads no vendor CLI. Every route served off here
 // answers whether or not a runner has ever been placed on the chat.
 type ChatUsecase interface {
-	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID
-	// (Task 3: List is scoped by the :wsId path param, not global).
+	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
+	// calls this when its request still names a workspace (the home mount's
+	// injected :wsId); otherwise it falls back to ListChats below.
 	ListChatsByWorkspace(
 		ctx context.Context,
 		workspaceID string,
+	) ([]domain.Chat, error)
+
+	// ListChats returns every row the daemon knows, across every workspace and
+	// repo — List's fallback once a request no longer names a workspace (Task
+	// 17). It carries the same "repo boundary not yet enforced" limitation
+	// ChatTreeUsecase.ListInRepo already discloses for folders: a chat with no
+	// resolvable workspace in this repo is returned anyway rather than dropped.
+	ListChats(
+		ctx context.Context,
 	) ([]domain.Chat, error)
 
 	GetChat(
@@ -386,7 +396,7 @@ type ChatTreeUsecase interface {
 	) (agentusecase.ChatDeletion, error)
 }
 
-// Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase
+// Handlers serves the .../repos/:repoId/chats routes from the agent usecase
 // and the Chats-panel tree usecase.
 type Handlers struct {
 	chats           ChatUsecase

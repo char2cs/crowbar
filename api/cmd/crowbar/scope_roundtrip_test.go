@@ -180,7 +180,7 @@ func hookCommands(t *testing.T, providerID string, ctx engineagents.TemplateCtx)
 // TestHookCallbackRoundTrip_ProjectHomeHasNoRepo is the regression guard for the
 // project-home outage. For EVERY hook event of EVERY shipped provider, an empty
 // RepoID must survive the shell and land as repo == "" — which routes the
-// callback to the project-home agent mount instead of a 404 /repos//workspaces/…
+// callback to the project-home agent mount instead of a 404 /repos//chats/…
 func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
@@ -218,7 +218,8 @@ func TestHookCallbackRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 }
 
 // TestHookCallbackRoundTrip_WorkspaceScopedControl is the control: repo-home and
-// worktree workspaces DO carry a repo id, and must keep the workspace-scoped path.
+// worktree workspaces DO carry a repo id, and must keep the repo-scoped path
+// (Task 17: no workspace segment, regardless of which workspace it came from).
 func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
@@ -235,9 +236,9 @@ func TestHookCallbackRoundTrip_WorkspaceScopedControl(t *testing.T) {
 
 				require.Equal(t, "REPO", got.repo)
 				require.Lenf(t, got.args, 1, "%s hook: `hook <event>` takes exactly one positional", event)
-				require.Equal(t, "/v0/projects/PROJ/repos/REPO/workspaces/WS/chats/hooks",
+				require.Equal(t, "/v0/projects/PROJ/repos/REPO/chats/hooks",
 					scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"),
-					"%s hook must stay workspace-scoped when a repo id exists", event)
+					"%s hook must stay repo-scoped when a repo id exists", event)
 			}
 		})
 	}

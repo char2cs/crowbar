@@ -113,6 +113,45 @@ func TestCreate_UsecaseError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody proves that at the
+// repo-scoped mount (Task 17: no :wsId path param) Create reads the new
+// chat's workspace anchor from the body's workspaceId instead.
+func TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2)
+}
+
+// TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess proves an
+// omitted body workspaceId at the repo-scoped mount forwards "" rather than
+// inventing one — a workspace-less chat, legal since WorkspaceID became
+// optional (Task 5).
+func TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, createChatCall{ProviderID: "vendor-a"}, tree.gotCreate2)
+}
+
 // configurableListGetUsecase is a configurable agent-port double dedicated to
 // the List/Get handlers: each test dials in the chats or errors it needs to
 // exercise a given branch. SpawnChat/IngestHook are not exercised through this
@@ -121,6 +160,9 @@ type configurableListGetUsecase struct {
 	chats     []domain.Chat
 	listErr   error
 	listWsIDs []string
+	// listChatsCalls counts List's global fallback (Task 17: no :wsId in the
+	// URL), which reuses chats/listErr exactly as ListChatsByWorkspace does.
+	listChatsCalls int
 
 	chat   domain.Chat
 	getErr error
@@ -182,6 +224,16 @@ func (u *configurableListGetUsecase) ListChatsByWorkspace(
 	wsID string,
 ) ([]domain.Chat, error) {
 	u.listWsIDs = append(u.listWsIDs, wsID)
+	if u.listErr != nil {
+		return nil, u.listErr
+	}
+	return u.chats, nil
+}
+
+func (u *configurableListGetUsecase) ListChats(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	u.listChatsCalls++
 	if u.listErr != nil {
 		return nil, u.listErr
 	}
@@ -400,6 +452,59 @@ func TestList_UsecaseError(
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestList_NoPathWorkspace_FallsBackToListChats proves that at the repo-scoped
+// mount (Task 17: no :wsId path param) List reads the GLOBAL chat list rather
+// than ListChatsByWorkspace, and drops the folder-typed rows a real ListChats
+// read would also carry (ListFolders already serves those separately).
+func TestList_NoPathWorkspace_FallsBackToListChats(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.Chat{
+			{ID: "c1", WorkspaceID: "ws1"},
+			{ID: "c2", WorkspaceID: "ws2"},
+			{ID: "f1", Type: domain.ChatTypeFolder},
+		},
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats", nil)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.List(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 2, "the folder row must not ride the chats list")
+	assert.Equal(t, "c1", envelope.Data[0].ID)
+	assert.Equal(t, "c2", envelope.Data[1].ID)
+
+	assert.Equal(t, 1, uc.listChatsCalls)
+	assert.Empty(t, uc.listWsIDs, "ListChatsByWorkspace must not run when no workspace is named")
+}
+
+// TestList_NoPathWorkspace_UsecaseError proves a ListChats failure on the
+// global-fallback branch surfaces as a mapped error, same as the
+// ListChatsByWorkspace branch.
+func TestList_NoPathWorkspace_UsecaseError(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats", nil)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
 
 	h.List(ctx)
 
@@ -762,9 +867,10 @@ func TestGet_RuntimeLookupError(
 }
 
 // TestGet_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace): a chat that exists but is anchored to a
-// DIFFERENT workspace than the :wsId path param 404s exactly like an unknown
-// id, never leaking that the chat exists elsewhere (Task 3).
+// (requireChatInWorkspace) still applies when the request names a workspace
+// (the home mount's injected :wsId): a chat that exists but is anchored to a
+// DIFFERENT workspace than :wsId 404s exactly like an unknown id, never
+// leaking that the chat exists elsewhere (Task 3, preserved by Task 17).
 func TestGet_WrongWorkspace404s(
 	t *testing.T,
 ) {
@@ -779,6 +885,27 @@ func TestGet_WrongWorkspace404s(
 	h.Get(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestGet_NoPathWorkspace_AnyWorkspaceIsVisible proves the repo-scoped mount
+// (Task 17: no :wsId path param) drops the workspace-ownership half of
+// requireChatInWorkspace: a chat anchored to SOME workspace is served
+// regardless, since the model spec addresses a chat by id alone (§5.1) and a
+// URL naming no workspace has no stale comparison left to make.
+func TestGet_NoPathWorkspace_AnyWorkspaceIsVisible(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-other"},
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestGet_ChatNotFound proves an unknown chat id 404s via the

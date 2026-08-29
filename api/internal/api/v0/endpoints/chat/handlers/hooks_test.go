@@ -267,6 +267,12 @@ func (f *fakeAgentUsecase) ListChatsByWorkspace(
 	return nil, nil
 }
 
+func (f *fakeAgentUsecase) ListChats(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	return nil, nil
+}
+
 func (f *fakeAgentUsecase) GetChat(
 	_ context.Context,
 	_ string,

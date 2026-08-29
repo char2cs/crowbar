@@ -139,14 +139,20 @@ func (stubUsecase) ListChatsByWorkspace(
 	return nil, nil
 }
 
-// GetChat always reports WorkspaceID "w1", matching the :wsId path segment
-// TestRegisterMountsRoutes dials against, so the scope check every
-// Get/Switch/Rename/Handoff route now runs (requireChatInWorkspace) passes.
+func (stubUsecase) ListChats(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	return nil, nil
+}
+
+// GetChat answers a workspace-less chat: TestRegisterMountsRoutes dials the
+// repo-scoped mount, which carries no :wsId for requireChatInWorkspace's scope
+// check to compare against, so this only has to satisfy the existence half.
 func (stubUsecase) GetChat(
 	_ context.Context,
 	id string,
 ) (domain.Chat, error) {
-	return domain.Chat{ID: id, WorkspaceID: "w1"}, nil
+	return domain.Chat{ID: id}, nil
 }
 
 func (stubUsecase) ReadMessages(
@@ -303,23 +309,23 @@ func (stubUsecase) SetDefaultPermissionLevel(
 }
 
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
-// under the workspace-scoped group (Task 3: .../workspaces/:wsId/agent/...),
-// including the WS upgrade route delegating to the supplied handler.
+// under the repo-scoped group (Task 17: .../repos/:repoId/chats/...), including
+// the WS upgrade route delegating to the supplied handler.
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	wsHit := false
 	uc := stubUsecase{}
-	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
 		func(c *gin.Context) {
 			wsHit = true
 			c.Status(http.StatusOK)
 		})
 
-	const base = "/v0/projects/p1/repos/r1/workspaces/w1"
+	const base = "/v0/projects/p1/repos/r1"
 	cases := []struct {
 		method string
 		path   string
@@ -360,6 +366,28 @@ func TestRegisterMountsRoutes(
 	assert.True(t, wsHit, "GET .../chats/ws must delegate to the supplied handler")
 }
 
+// TestChatRoutes_OldWorkspaceScopedPathGone proves the pre-Task-17 shape is
+// genuinely gone (404, not merely undocumented): Register no longer mounts
+// anything under .../workspaces/:wsId at all, since chat.Register only ever
+// receives the repo-scoped group now (router.go).
+func TestChatRoutes_OldWorkspaceScopedPathGone(
+	t *testing.T,
+) {
+	r := gin.New()
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
+	settingsRG := r.Group("/v0")
+	uc := stubUsecase{}
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+		func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/v0/projects/p1/repos/r1/workspaces/w1/chats", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // TestRegisterBindsMCPSegIDFromTheURL closes the gap every other MCP test leaves
 // open: they set gin's param map by hand, so the route's :segid and the
 // handler's ctx.Param("segid") could disagree and still pass. Only a request
@@ -373,15 +401,15 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 ) {
 	got := &dispatchRecord{}
 	r := gin.New()
-	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil,
 		func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
 
-	const path = "/v0/projects/p1/repos/r1/workspaces/w1/chats/runners/seg-42/mcp"
+	const path = "/v0/projects/p1/repos/r1/chats/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,
 		strings.NewReader(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`))
 	req.Header.Set("Content-Type", "application/json")

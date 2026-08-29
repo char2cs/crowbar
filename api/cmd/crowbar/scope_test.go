@@ -2,9 +2,12 @@ package main
 
 import "testing"
 
+// TestScopedAgentPath proves the repo branch no longer carries a workspace
+// segment (Task 17: chat routes moved off .../workspaces/:wsId), and that the
+// (now-unused for path purposes) workspace argument is still accepted.
 func TestScopedAgentPath(t *testing.T) {
 	got := scopedAgentPath("p1", "r1", "w1", "/c1/rename?source=agent")
-	want := "/v0/projects/p1/repos/r1/workspaces/w1/chats/c1/rename?source=agent"
+	want := "/v0/projects/p1/repos/r1/chats/c1/rename?source=agent"
 	if got != want {
 		t.Fatalf("scopedAgentPath = %q, want %q", got, want)
 	}
@@ -14,8 +17,8 @@ func TestScopedAgentPath_HomeWorkspaceHasNoRepo(t *testing.T) {
 	// A project-home workspace resolves an EMPTY repo id (WorktreeDir returns ""
 	// for the project-level home — see agentWorkspaceReader.AgentChatsDir's doc).
 	// The callback must target the home-group mount that home.Register serves
-	// (added in commit 1), NOT /repos//workspaces/.../chats, which 404s. This is
-	// the project-home half of the spec's CRITICAL "chats work for ALL workspace
+	// (added in commit 1), NOT /repos//chats, which 404s. This is the
+	// project-home half of the spec's CRITICAL "chats work for ALL workspace
 	// kinds" requirement.
 	got := scopedAgentPath("p1", "", "home-ws", "/hooks")
 	want := "/v0/projects/p1/home/chats/hooks"

@@ -15,11 +15,16 @@ import (
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// Create handles POST .../workspaces/:wsId/chats: spawns a fresh
-// AgentChat anchored to the :wsId path param and starts a RUNNER on it,
-// launching the provider's vendor CLI in a PTY. It responds with the new
-// chat's id; the spawned runner id is not surfaced here (the client reads it
-// back as liveRunnerId via GET .../chats or .../chats/:id).
+// Create handles POST .../repos/:repoId/chats: spawns a fresh AgentChat and
+// starts a RUNNER on it, launching the provider's vendor CLI in a PTY. It
+// responds with the new chat's id; the spawned runner id is not surfaced here
+// (the client reads it back as liveRunnerId via GET .../chats or .../chats/:id).
+//
+// The URL no longer names a workspace to anchor the new chat to (Task 17): a
+// caller that wants one names it explicitly in the body's workspaceId, which
+// defaults to "" — a workspace-less chat, legal since WorkspaceID became
+// optional. The home mount still injects :wsId (RequireHomeWorkspace), which
+// wins when present so the project home's own create is unaffected.
 //
 // The optional parentId names where the chat is BORN in the Chats tree: another
 // chat (making it a thread of that chat), a folder ("new chat in this folder"), or
@@ -35,15 +40,20 @@ func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
 
 	var body struct {
-		Provider string `json:"provider"`
-		ParentID string `json:"parentId"`
+		Provider    string `json:"provider"`
+		ParentID    string `json:"parentId"`
+		WorkspaceID string `json:"workspaceId"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	wsID := ctx.Param("wsId")
+	if wsID == "" {
+		wsID = body.WorkspaceID
 	}
 
 	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID)
@@ -56,18 +66,22 @@ func (h *Handlers) Create(
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
 }
 
-// List handles GET .../workspaces/:wsId/chats, returning only the
-// chats anchored to the :wsId path param, each carrying the runner facts derived
-// for it by chatRuntime (its live runner, that runner's PTY, its provider) — so the
-// chat list can render provider glyphs and attach a pane without a second round trip
-// per row.
+// List handles GET .../repos/:repoId/chats, returning every conversation-typed
+// chat, each carrying the runner facts derived for it by chatRuntime (its live
+// runner, that runner's PTY, its provider) — so the chat list can render
+// provider glyphs and attach a pane without a second round trip per row.
+//
+// A request that still names a workspace (the home mount's injected :wsId)
+// scopes to it exactly as before. Otherwise the repo boundary is not yet
+// enforced — the same disclosed limitation ChatTreeUsecase.ListInRepo already
+// carries for folders (no chat row carries its own repo id yet) — so every
+// conversation-typed row the daemon knows is returned.
 func (h *Handlers) List(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
 
-	chats, err := h.chats.ListChatsByWorkspace(rctx, wsID)
+	chats, err := h.listChats(rctx, ctx.Param("wsId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -88,10 +102,44 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes))
 }
 
-// Get handles GET .../workspaces/:wsId/chats/:id, returning the chat with its
+// listChats backs List: wsID scopes to ListChatsByWorkspace when the request
+// still names a workspace (the home mount's injected :wsId), otherwise it
+// falls back to the global ListChats, narrowed to conversations.
+func (h *Handlers) listChats(
+	ctx context.Context,
+	wsID string,
+) ([]domain.Chat, error) {
+	if wsID != "" {
+		return h.chats.ListChatsByWorkspace(ctx, wsID)
+	}
+	all, err := h.chats.ListChats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return onlyConversations(all), nil
+}
+
+// onlyConversations narrows a global chat list to real conversations, dropping
+// the folder-typed rows List's own repo-scoped ListFolders already serves.
+// Branch/workflow rows pass through unfiltered, matching ListChatsByWorkspace's
+// existing behaviour (it forwards its store read raw).
+func onlyConversations(
+	rows []domain.Chat,
+) []domain.Chat {
+	out := make([]domain.Chat, 0, len(rows))
+	for _, row := range rows {
+		if row.Type != domain.ChatTypeFolder {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// Get handles GET .../repos/:repoId/chats/:id, returning the chat with its
 // derived runner facts and the conversations it has hosted — the append-only history
 // that succeeds the deleted segment list. 404s (via requireChatInWorkspace) when id
-// names a chat anchored to a DIFFERENT workspace than :wsId.
+// names an unknown chat, or (for a request that still names a workspace) one
+// anchored to a DIFFERENT workspace.
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
@@ -161,19 +209,26 @@ func (h *Handlers) chatRuntime(
 	}, nil
 }
 
-// requireChatInWorkspace loads chatID and writes a 404 unless it belongs to the
-// :wsId path param. It is the by-id scope check shared by Get/Switch/Rename/
-// Handoff (and Delete, Task 5): every one of those routes takes a bare chat id
-// with no other workspace-scoping input, so without this check a caller in
-// workspace A could address a chat anchored to workspace B by id alone. Both the
-// unknown-id and wrong-workspace cases return HTTP 404 (never the chat body), so
-// no cross-workspace chat is ever served; the two responses carry DIFFERENT body
-// messages ("chat not found in workspace" vs the mapped GetChat not-found text),
-// so a probe can still tell "exists elsewhere" from "does not exist" — an
-// accepted minor, the scope check's job is to deny cross-workspace ACCESS, not to
-// perfectly hide existence. ok is false exactly when the caller must return
-// immediately because a response was already written (either this 404 or a mapped
-// GetChat error).
+// requireChatInWorkspace loads chatID, 404ing on an unknown id. When the
+// request still names a workspace — the home mount's injected :wsId, since a
+// project home's chats stay workspace-scoped — it additionally 404s unless
+// chatID belongs to that workspace, exactly as before Task 17. A repo-scoped
+// request names no workspace at all, so for it this is an existence check
+// only: the model spec addresses a chat by id alone (§5.1), and a chat's
+// workspace is optional and mutable, so there is no stale-proof "wrong scope"
+// comparison left to make.
+//
+// It is the by-id scope check shared by Get/Switch/Rename/Handoff (and
+// Delete, Task 5): every one of those routes takes a bare chat id with no
+// other scoping input. The unknown-id and wrong-workspace cases both return
+// HTTP 404 (never the chat body), so no cross-workspace chat is ever served
+// to a workspace-scoped caller; the two responses carry DIFFERENT body
+// messages ("chat not found in workspace" vs the mapped GetChat not-found
+// text), so a probe can still tell "exists elsewhere" from "does not exist" —
+// an accepted minor, the scope check's job is to deny cross-workspace ACCESS,
+// not to perfectly hide existence. ok is false exactly when the caller must
+// return immediately because a response was already written (either this 404
+// or a mapped GetChat error).
 func (h *Handlers) requireChatInWorkspace(
 	ctx *gin.Context,
 	chatID string,
@@ -184,18 +239,17 @@ func (h *Handlers) requireChatInWorkspace(
 		libs.WriteErr(ctx, status, msg)
 		return domain.Chat{}, false
 	}
-	if chat.WorkspaceID != ctx.Param("wsId") {
+	if wsID := ctx.Param("wsId"); wsID != "" && chat.WorkspaceID != wsID {
 		libs.WriteErr(ctx, http.StatusNotFound, "chat not found in workspace")
 		return domain.Chat{}, false
 	}
 	return chat, true
 }
 
-// Rename handles POST .../workspaces/:wsId/chats/:id/rename: sets the
+// Rename handles POST .../repos/:repoId/chats/:id/rename: sets the
 // chat's title. `?source=agent` applies the agent precedence rule (skip if
 // user-locked); the default (a human/FE rename) sets unconditionally and
-// locks. 404s (via requireChatInWorkspace) when id names a chat anchored to a
-// DIFFERENT workspace than :wsId.
+// locks. 404s (via requireChatInWorkspace) on an unknown id.
 func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
@@ -223,7 +277,7 @@ func (h *Handlers) Rename(
 	libs.WriteAccepted(ctx)
 }
 
-// SetSelection handles PATCH .../workspaces/:wsId/chats/:id/selection:
+// SetSelection handles PATCH .../repos/:repoId/chats/:id/selection:
 // writes the chat's sticky choice of model and reasoning effort.
 //
 // The body is the WHOLE selection, not a patch of one field: an omitted or empty
@@ -232,9 +286,8 @@ func (h *Handlers) Rename(
 // property of the model — so a partial write could store a pair that was never
 // jointly valid.
 //
-// 404s (via requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
-// workspace than :wsId; 400s when a value is outside the provider's declared
-// catalogue.
+// 404s (via requireChatInWorkspace) on an unknown id; 400s when a value is
+// outside the provider's declared catalogue.
 func (h *Handlers) SetSelection(
 	ctx *gin.Context,
 ) {
@@ -262,7 +315,7 @@ func (h *Handlers) SetSelection(
 	libs.WriteAccepted(ctx)
 }
 
-// Delete handles DELETE .../workspaces/:wsId/chats/:id: hard-deletes the
+// Delete handles DELETE .../repos/:repoId/chats/:id: hard-deletes the
 // chat AND EVERY CHAT THREADED BELOW IT, each through PurgeChat (best-effort PTY
 // teardown, then asynx Forget), plus any folder caught inside that subtree. Each
 // chat's event log is erased, not merely tombstoned, so it is gone from every
@@ -278,9 +331,10 @@ func (h *Handlers) SetSelection(
 //
 // The scoped "deleted" broadcast every client sees for each purged chat comes
 // from the hub projection's OnForget (Task 5), not from here; the folders taken
-// with them have no projection to ride, so those frames ARE sent from here. 404s
-// (via requireChatInWorkspace) when id names a chat anchored to a DIFFERENT
-// workspace than :wsId.
+// with them have no projection to ride, so those frames ARE sent from here,
+// keyed on :wsId when the request still has one (the home mount) and "" — every
+// subscriber, since the WS filter degrades to unfiltered with no :wsId bound —
+// otherwise. 404s (via requireChatInWorkspace) on an unknown id.
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {
