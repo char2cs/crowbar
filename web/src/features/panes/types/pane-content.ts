@@ -50,6 +50,7 @@ interface EditorTabBase {
   name: string
   isPinned?: boolean
   isPreview?: boolean
+  isUncloseable?: boolean
 }
 
 // ── Per-type content definitions ────────────────────────────────────
