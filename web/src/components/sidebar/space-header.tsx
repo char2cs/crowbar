@@ -48,6 +48,10 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
       onBlur={() => setActive(false)}
       onClick={onToggleFold}
       onKeyDown={(e) => {
+        // Same guard as SidebarRow (sidebar-row.tsx): a keydown on the nested
+        // overflow button bubbles here too, and without this check Enter/Space
+        // on that button would fire onToggleFold instead of its own onClick.
+        if (e.target !== e.currentTarget) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           onToggleFold()
@@ -56,6 +60,10 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
     >
       <span className={cn(ROW_GLYPH_BOX, 'size-5')}>
         {showChevron ? (
+          // rotate-180, not SidebarRow's rotate-90+DISCLOSURE_GLYPH_PATH: that
+          // chevron toggles between two states of a row's OWN children;
+          // this one reports the whole space's fold, matching the task
+          // brief's own literal test (`toHaveClass('rotate-180')`).
           <CaretDown
             aria-hidden="true"
             data-testid="chevron"
@@ -81,7 +89,7 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
           }}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
+          <DotsThree aria-hidden="true" className="size-3" weight="bold" />
         </button>
       )}
     </div>

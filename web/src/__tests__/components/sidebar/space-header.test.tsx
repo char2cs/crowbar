@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { SpaceHeader } from '@/components/sidebar/space-header'
 import type { Project } from '@/lib/types'
 
@@ -97,6 +98,31 @@ describe('SpaceHeader', () => {
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     fireEvent.click(screen.getByTestId('overflow'))
+    expect(onOverflow).toHaveBeenCalledTimes(1)
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('keyboard-activating the overflow button fires onOverflow, not onToggleFold', async () => {
+    // Regression: a keydown on the nested overflow button bubbles to the row's
+    // own onKeyDown. Without SidebarRow's `e.target !== e.currentTarget`
+    // guard, Enter/Space on the button fired onToggleFold instead of the
+    // button's own click. fireEvent.keyDown does not exercise this — jsdom
+    // does not synthesize a button's default click-on-Enter/Space action from
+    // a raw keydown event — so this uses userEvent, which does.
+    const onToggle = vi.fn()
+    const onOverflow = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={onToggle}
+        onOverflow={onOverflow}
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    screen.getByTestId('overflow').focus()
+    await user.keyboard('{Enter}')
     expect(onOverflow).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
