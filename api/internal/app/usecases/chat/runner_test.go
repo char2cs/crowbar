@@ -1290,6 +1290,29 @@ func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogNoLiveTUI)
 }
 
+// TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble proves
+// SlashCatalog (catalog.go) resolves a bubble's cwd through the SAME
+// ancestor walk spawnPaths uses (Task 22) — a genuinely separate call site
+// that used to resolve WorktreeDir from chat.WorkspaceID directly.
+//
+// The assertion is on f.ws.lastWorkspaceID, not merely on the call
+// succeeding: fakeWorkspace answers every id identically, including "",
+// which is exactly how the original bug went undetected through 21 tasks
+// (see spawnPaths' own test coverage history). Only checking WHICH id
+// reached the fake proves the fallback actually ran.
+func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+
+	_, err := f.usecase.SlashCatalog(f.ctx, bubbleID)
+
+	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported,
+		"must reach the provider's OWN missing-capability refusal, not a cwd-resolution failure")
+	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
+		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
+}
+
 func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
@@ -2028,6 +2051,30 @@ func TestCompact_AnUnknownChatSendsNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, before, f.term.callCount(),
 		"an unknown chat must reach no CLI at all")
+}
+
+// TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble proves Compact
+// (compact.go) resolves a bubble's cwd through the SAME ancestor walk
+// spawnPaths uses (Task 22) — a genuinely separate call site that used to
+// resolve WorktreeDir from chat.WorkspaceID directly.
+//
+// A no-gesture refusal and a cwd-resolution failure both surface as
+// apperr.ErrNotFound here (see TestCompact_AProviderWithNoGestureIsNotFound
+// above), so the error alone cannot tell them apart — the assertion that
+// actually proves the fallback ran is on f.ws.lastWorkspaceID: fakeWorkspace
+// answers every id identically, including "", which is exactly how the
+// original bug went undetected through 21 tasks.
+func TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+
+	err := f.usecase.Compact(f.ctx, bubbleID)
+
+	require.ErrorIs(t, err, apperr.ErrNotFound,
+		"must still refuse for the provider's OWN missing gesture, exactly as an ordinary chat would")
+	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
+		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
 }
 
 // ─── from boot_test.go ────────────────────────────────────────────────

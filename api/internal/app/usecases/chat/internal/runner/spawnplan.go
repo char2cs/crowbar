@@ -28,7 +28,10 @@ type spawnPaths struct {
 
 func (rs *Runners) spawnPaths(
 	ctx context.Context,
-	chatID, workspaceID, runnerID, providerID string,
+	chatID string,
+	workspaceID string,
+	runnerID string,
+	providerID string,
 ) (spawnPaths, error) {
 	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chatID, workspaceID)
 	if err != nil {
@@ -75,24 +78,30 @@ func (rs *Runners) spawnPaths(
 	}, nil
 }
 
-// cwdWorkspaceID answers the workspace a spawn's worktree and chats dir
-// resolve against: workspaceID itself for an ordinary workspace-owning chat,
-// or its nearest workspace-owning ancestor's for a bubble (chat.WorkspaceID
-// == "") — ancestorCwd's own answer to where a row's CLI runs (model spec: a
-// bubble under a worktree-owning row runs in that row's worktree).
+// cwdWorkspaceID answers the workspace a cwd-dependent op resolves
+// WorktreeDir/AgentChatsDir against: workspaceID itself for an ordinary
+// workspace-owning chat, or its nearest workspace-owning ancestor's for a
+// bubble (chat.WorkspaceID == "") — ancestorCwd's own answer to where a row's
+// CLI runs (model spec: a bubble under a worktree-owning row runs in that
+// row's worktree).
+//
+// Shared by every caller that needs a real workspace to run a bubble's CLI
+// against, not only spawnPaths: promptTarget, Compact and SlashCatalog all
+// resolve a LIVE runner's own worktree the same way.
 func (rs *Runners) cwdWorkspaceID(
 	ctx context.Context,
-	chatID, workspaceID string,
+	chatID string,
+	workspaceID string,
 ) (string, error) {
 	if workspaceID != "" {
 		return workspaceID, nil
 	}
 	ancestor, ok, err := rs.ancestorCwd.ResolveCwdWorkspaceID(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: resolve ancestor cwd: %w", err)
+		return "", fmt.Errorf("agent: resolve cwd workspace: %w", err)
 	}
 	if !ok {
-		return "", fmt.Errorf("agent: spawn runner: chat %s has no workspace-owning ancestor to run in", chatID)
+		return "", fmt.Errorf("agent: resolve cwd workspace: chat %s has no workspace-owning ancestor to run in", chatID)
 	}
 	return ancestor, nil
 }

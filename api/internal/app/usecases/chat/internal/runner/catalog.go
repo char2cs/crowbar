@@ -25,7 +25,11 @@ func (rs *Runners) SlashCatalog(
 	if err != nil {
 		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: live runner: %w", err)
 	}
-	home, _, _, worktree, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		return engineagents.SlashCatalog{}, err
+	}
+	home, _, _, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: worktree: %w", err)
 	}

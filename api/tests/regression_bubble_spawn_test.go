@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +22,29 @@ import (
 // off the runner's real terminal WS by readSpawnCwd: ground truth no
 // Crowbar-reported field can fake, since it is text the spawned OS process
 // itself produced.
+//
+// It also declares presentation.prompt_submit (restart_tui, {message} passed
+// positionally to sh — a harmless extra $0 the script never reads) so
+// SubmitPrompt's replacement spawn is reachable: that path resolves its own
+// cwd through promptTarget, a SEPARATE call site from the create path's
+// spawnPaths, and is exactly what TestRegression_BubbleChatReceivesAPrompt
+// exercises. session.resume is declared only because prompt_submit's own
+// validation requires it present; this test never resumes, so it is never
+// actually applied to an argv.
 const cwdStubProviderDescriptorYAML = `id: cwdstub
 spawn:
   cmd: "sh"
   args: ["-c", "echo CROWBAR_CWD:$(pwd); exec cat"]
   interactive_required: true
+session:
+  resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "{message}" }
 events:
   session_start:
     in: session_start
@@ -199,4 +218,56 @@ func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
 	bubbleCwd := readSpawnCwd(t, h, imported, bubbleID)
 	require.Equal(t, ancestorCwd, bubbleCwd,
 		"the bubble's CLI must run in its ancestor's worktree, via tree.CwdWorkspaceID's walk")
+}
+
+// TestRegression_BubbleChatReceivesAPrompt proves the SAME ancestor-cwd
+// fallback also covers a bubble's very first follow-up message, not merely
+// its create.
+//
+// This is a genuinely SEPARATE call site from the one
+// TestRegression_BubbleChatSpawnsInAncestorWorktree exercises:
+// SubmitPrompt's own preflight (promptTarget, prompts.go) used to resolve
+// WorktreeDir from chat.WorkspaceID directly, so a bubble could be CREATED
+// successfully and still 500/404 on its very next message. Compact and
+// SlashCatalog resolve cwd through the identical helper
+// (cwdWorkspaceID) and are covered at the usecase level instead — see
+// TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble and
+// TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble in
+// internal/app/usecases/chat, both reached over the real HTTP surface would
+// need a genuine terminal-attached provider to answer either capability
+// check meaningfully, which adds nothing this end-to-end test and those two
+// unit tests don't already prove together.
+func TestRegression_BubbleChatReceivesAPrompt(t *testing.T) {
+	h := newHarness(t)
+	writeCwdStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	base := repoBase(imported)
+
+	ancestorID := createChatWithProvider(t, h, base, "cwdstub", imported.workspaceID, "")
+	ancestorCwd := readSpawnCwd(t, h, imported, ancestorID)
+
+	folder := createChatFolder(t, h, base, "prompt-bubble-holder", ancestorID)
+	bubbleID := createChatWithProvider(t, h, base, "cwdstub", "", folder.ID)
+	before := getAgentChat(t, h, base, bubbleID)
+	require.NotEmpty(t, before.LiveRunnerID, "the bubble must be live before it can take a prompt")
+
+	var submission struct {
+		RunnerID          string `json:"runnerId"`
+		TerminalSessionID string `json:"terminalSessionId"`
+	}
+	h.post(base+"/chats/"+bubbleID+"/prompts",
+		map[string]string{"text": "hello from the test", "clientRequestId": uuid.NewString()},
+		http.StatusOK, &submission)
+	require.NotEmpty(t, submission.RunnerID,
+		"submitting a prompt to a bubble must place a runner to carry it, not 500/404 in promptTarget")
+	h.QuiesceReactors()
+
+	after := getAgentChat(t, h, base, bubbleID)
+	require.NotEmpty(t, after.LiveRunnerID, "the bubble must still be live after taking the prompt")
+	require.NotEqual(t, before.LiveRunnerID, after.LiveRunnerID,
+		"restart_tui delivery replaces the CLI, so a NEW runner is the one that actually carries the prompt")
+
+	afterCwd := readSpawnCwd(t, h, imported, bubbleID)
+	require.Equal(t, ancestorCwd, afterCwd,
+		"the replacement runner promptTarget/spawnRunner placed must ALSO resolve the ancestor's worktree")
 }

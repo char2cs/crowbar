@@ -208,7 +208,11 @@ func (rs *Runners) promptTarget(
 	if err != nil {
 		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: live runner: %w", err)
 	}
-	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		return engineagents.Runner{}, nil, "", err
+	}
+	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
 	}

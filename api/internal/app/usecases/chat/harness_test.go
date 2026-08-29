@@ -325,12 +325,19 @@ type fakeWorkspace struct {
 	worktree  string
 	chatsDir  string
 	err       error
+	// lastWorkspaceID records the id WorktreeDir was last called with. The
+	// fake otherwise answers every id identically, including "" — a test
+	// that only checks the CALL succeeded proves nothing about which
+	// workspace a caller actually resolved a bubble's cwd against; a test
+	// that needs that must read this field.
+	lastWorkspaceID string
 }
 
 func (f *fakeWorkspace) WorktreeDir(
 	_ context.Context,
-	_ string,
+	workspaceID string,
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
+	f.lastWorkspaceID = workspaceID
 	if f.err != nil {
 		return "", "", "", "", f.err
 	}
@@ -339,8 +346,9 @@ func (f *fakeWorkspace) WorktreeDir(
 
 func (f *fakeWorkspace) AgentChatsDir(
 	_ context.Context,
-	_ string,
+	workspaceID string,
 ) (string, error) {
+	f.lastWorkspaceID = workspaceID
 	if f.err != nil {
 		return "", f.err
 	}
