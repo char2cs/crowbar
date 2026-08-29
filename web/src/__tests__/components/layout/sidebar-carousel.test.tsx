@@ -179,6 +179,18 @@ describe('SidebarCarousel', () => {
       expect(screen.getByTestId('tabs-underline')).toBeInTheDocument()
     })
 
+    // Regression: getInitialState() used to default activeTab to 'workspaces',
+    // a value TABS no longer contains post-narrowing — the Tabs `value` then
+    // matched neither glyph and NEITHER tab underlined on a cold load, until
+    // the user clicked one or the home-route effect below fired. This test
+    // renders under the store's real, un-overridden default (beforeEach only
+    // calls getInitialState(), no activeTab override) to catch that gap.
+    it('the Files tab is active by default, before any click or route effect', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tab', { name: 'Git' })).toHaveAttribute('aria-selected', 'false')
+    })
+
     it('holds exactly two glyphs — Files and Git — off the home route', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
       expect(screen.getAllByRole('tab')).toHaveLength(2)

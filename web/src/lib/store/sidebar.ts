@@ -495,7 +495,12 @@ export function getInitialState() {
     collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
-    activeTab: 'workspaces' as SidebarTab,
+    // The card's default-visible panel is Files (scrollLeft starts at 0 in
+    // sidebar-carousel.tsx) — 'workspaces' stopped being a valid TABS entry
+    // when the carousel narrowed to Files/Git (Task 15), and nothing else
+    // ever corrects a cold-start default, so it must match the real default
+    // panel or neither tab underlines on first load.
+    activeTab: 'files' as SidebarTab,
   }
 }
 
