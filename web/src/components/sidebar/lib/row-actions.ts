@@ -1,0 +1,143 @@
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { renameWorkspaceBranch, setWorkspaceLock, importBranches } from '@/lib/api'
+import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
+import { toast } from '@/features/window/stores/toast-store'
+
+/** What a folder is called until the user says otherwise (matches the
+ *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
+const NEW_FOLDER_NAME = 'New folder'
+
+/**
+ * Resolve the owning project id for a repo from the sidebar tree. Hierarchical
+ * mutations need both ids; the tree always carries `projectId` from the §5
+ * RepoDTO once the repo has seeded.
+ */
+export function projectIdForRepo(repoId: string): string | undefined {
+  return useSidebarStore.getState().repos.find((r) => r.id === repoId)?.projectId
+}
+
+/**
+ * Fire the branch rename. The daemon renames the git branch AND relocates the
+ * workspace's directory, then broadcasts the updated WorkspaceDTO — so, like
+ * create and delete, there is NO optimistic write here. An optimistic relabel is
+ * exactly what made rename look like it worked while changing nothing: the row
+ * showed the new name until the next reseed put the old one back.
+ *
+ * A refusal (the branch is taken, the workspace is locked or is an adopted
+ * checkout) comes back as a 409 whose message is written for the user, so it is
+ * surfaced rather than logged — they just typed the name that was rejected.
+ */
+export async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
+  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const ws = repo?.workspaces.find((w) => w.id === wsId)
+  if (!repo || !ws || ws.status === 'locked') return
+  if (ws.branch === branch) return
+  const projectId = repo.projectId
+  if (!projectId) return
+  try {
+    await renameWorkspaceBranch(projectId, repo.id, wsId, branch)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename branch')
+  }
+}
+
+/**
+ * Fire a folder rename.
+ *
+ * A folder holds no branch and no worktree, so renaming one moves nothing on
+ * disk: it is the same PATCH that files a folder somewhere else, carrying the
+ * one field that changed. Like the branch rename there is no optimistic write —
+ * the updated FolderDTO arrives on the stream, and relabelling the row here
+ * would only mean showing a name the daemon may not have taken.
+ */
+export async function performRenameFolder(folderId: string, name: string): Promise<void> {
+  const repo = useSidebarStore
+    .getState()
+    .repos.find((r) => r.folders?.some((f) => f.id === folderId))
+  const folder = repo?.folders?.find((f) => f.id === folderId)
+  if (!repo?.projectId || !folder) return
+  if (folder.name === name) return
+  try {
+    await placeFolder(repo.projectId, repo.id, folderId, { name })
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
+  }
+}
+
+/**
+ * Rename whatever row `rowId` names.
+ *
+ * The sidebar has ONE rename gesture and one inline editor, so it needs one
+ * place that knows a folder is not a branch. The id answers that on its own —
+ * the two id spaces never overlap — which keeps the row itself from having to
+ * carry a second, parallel rename path just to reach a different endpoint.
+ */
+export function performRenameRow(rowId: string, name: string): Promise<void> {
+  const isFolder = useSidebarStore
+    .getState()
+    .repos.some((r) => r.folders?.some((f) => f.id === rowId))
+  return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(rowId, name)
+}
+
+/**
+ * Set (or clear) a workspace's lock from the row context menu. `locked: null`
+ * drops the user's override rather than forcing false — see `setWorkspaceLock`'s
+ * own doc for why that third state exists.
+ */
+export async function performSetWorkspaceLock(wsId: string, locked: boolean | null): Promise<void> {
+  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const projectId = repo?.projectId
+  if (!repo || !projectId) return
+  try {
+    await setWorkspaceLock(projectId, repo.id, wsId, locked)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to update lock')
+  }
+}
+
+/**
+ * Fire the batch branch import (202 Accepted). No optimistic spinner rows —
+ * unlike the deleted PendingRowHooks version, this relies on the same
+ * WS-driven cache that already surfaces create/rename/delete with no
+ * optimistic write of their own.
+ */
+export async function performImportBranches(repoId: string, branches: string[]): Promise<void> {
+  if (branches.length === 0) return
+  const projectId = projectIdForRepo(repoId)
+  if (!projectId) return
+  try {
+    await importBranches(projectId, repoId, branches)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to import branches')
+  }
+}
+
+/**
+ * Create a folder named 'New folder' under `parentId` — how `createFolder`
+ * (`@/lib/api/sidebar-placement`) gets a live caller again now that the
+ * deleted drag-driven "group into folder" gesture is Part G's to rebuild.
+ *
+ * `parentId` is root-normalised exactly as the deleted confirmCreate's folder
+ * branch did (`folderParentFor`): a repo's default (home) workspace is the
+ * header row, not a real placement target for the daemon, so starting a
+ * folder there lands it at the repo root instead of naming a parent that
+ * doesn't exist in that space.
+ */
+export async function performCreateFolder(parentId: string): Promise<void> {
+  const repo = useSidebarStore
+    .getState()
+    .repos.find(
+      (r) =>
+        r.defaultWorkspaceId === parentId ||
+        r.workspaces.some((w) => w.id === parentId) ||
+        r.folders?.some((f) => f.id === parentId),
+    )
+  const projectId = repo?.projectId
+  if (!repo || !projectId) return
+  const folderParentId = parentId === repo.defaultWorkspaceId ? '' : parentId
+  try {
+    await createFolder(projectId, repo.id, NEW_FOLDER_NAME, folderParentId)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+  }
+}
