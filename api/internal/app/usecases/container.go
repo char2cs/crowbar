@@ -402,6 +402,13 @@ func (r agentChatReader) ListChats(
 // leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
 // parent-inherited defaulting resolves them, and Branch blank so it generates
 // and collision-checks a provisional name (model spec §4.1).
+//
+// OwnWorktree is the one field NOT left to that defaulting: resolveInherited's
+// default is "inherit whether the PARENT owns a worktree" (model spec §4.1's
+// taxonomy rule for an ordinary create), but promotion's entire point is
+// giving the chat a worktree of its own — a fork parent that is itself a
+// workspace-less bubble must not silently promote this chat into another
+// bubble. So it is forced true here, always.
 type worktreeChildCreator struct {
 	worktree worktree.Usecase
 }
@@ -411,7 +418,11 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	ctx context.Context,
 	forkParentID string,
 ) (domain.Workspace, error) {
-	return w.worktree.CreateChild(ctx, worktree.CreateChildInput{ParentID: forkParentID})
+	ownWorktree := true
+	return w.worktree.CreateChild(ctx, worktree.CreateChildInput{
+		ParentID:    forkParentID,
+		OwnWorktree: &ownWorktree,
+	})
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

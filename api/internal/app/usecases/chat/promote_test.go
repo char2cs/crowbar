@@ -114,6 +114,23 @@ func TestPromote_CreateWorkspaceFailure_AbortsBeforeSettingTheWorkspace(t *testi
 // TestPromote_AppendsThePromotionNote proves the model spec §4.2 ledger note:
 // appended AFTER the respawn, into the chat's own conversation, following the
 // same "[Crowbar] ..." convention lineageNoteText uses for a lineage change.
+//
+// This scenario — an actively-chatting bubble whose live runner has already
+// announced a session and taken a turn on the provider Promote is about to
+// respawn as — also reaches a REAL, KNOWN gap, asserted explicitly below
+// rather than triggered silently: model spec §4.2 says "native resume is
+// unavailable because a vendor session is cwd-keyed, so promotion always
+// takes the... spawned fresh with the whole ledger... branch," but
+// SwitchProvider's own resumability check (internal/runner/switch.go,
+// resumableConversation) has no notion of workspace identity — it decides
+// purely from whether this chat has ever recorded a turn under
+// (provider, sessionID). It finds this exact prior session "resumable" and
+// hands the incoming CLI a native --resume of it inside the BRAND NEW
+// worktree. Fixing that is out of this task's scope (it means changing
+// SwitchProvider's own resumability decision, which the brief's hard
+// constraint says not to touch) — recorded here instead, mirroring
+// TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY's own
+// "record the gap, don't assume it's fixed" convention in this same file.
 func TestPromote_AppendsThePromotionNote(t *testing.T) {
 	f := newFixture(t)
 	bubbleID, runnerID, _ := seedBubbleChat(t, f, "claude")
@@ -130,4 +147,13 @@ func TestPromote_AppendsThePromotionNote(t *testing.T) {
 	last := page.Items[len(page.Items)-1]
 	assert.Contains(t, last.Text, "[Crowbar]")
 	assert.Contains(t, last.Text, "promoted")
+
+	// KNOWN GAP (see doc comment above): the respawn resumed the OLD
+	// (pre-promotion) native session INSIDE THE NEW WORKTREE instead of
+	// spawning fresh with the whole ledger, as the model spec requires.
+	argv := f.term.calls[len(f.term.calls)-1].argv
+	resumeIdx := indexOf(argv, "--resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v must contain --resume", argv)
+	assert.Equal(t, "sid-bubble", argv[resumeIdx+1],
+		"documents the gap: this is the PRE-PROMOTION session id, resumed in the NEW worktree")
 }
