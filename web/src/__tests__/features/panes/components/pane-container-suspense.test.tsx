@@ -75,18 +75,47 @@ function PaneHost() {
   return createElement(PaneContainer, { pane })
 }
 
+// bufferActions.openContent goes through buffer-slice's own (currently
+// unmigrated, pre-existing-broken) addBufferToPane call — seed the buffers
+// and editor tabs directly instead, the same way buffer-slice.test.ts and
+// pane-slice.test.ts do, so this test exercises PaneContainer's OWN keep-alive
+// wiring rather than buffer-slice's unrelated breakage.
 function seedStore() {
   const store = createWorkspaceStore('w1')
-  const terminalId = store.getState().bufferActions.openContent({
-    type: 'terminal',
-    sessionId: 'pty-1',
+  const terminalId = 'terminal-1'
+  const diffId = 'diff-1'
+  store.setState((state) => {
+    state.buffers.push({
+      id: terminalId,
+      type: 'terminal',
+      sessionId: 'pty-1',
+      path: 'terminal://pty-1',
+      name: 'Terminal 1',
+      isPinned: false,
+      isPreview: false,
+    })
+    state.buffers.push({
+      id: diffId,
+      type: 'commitDiff',
+      wsId: 'w1',
+      sha: 'abc1234',
+      name: 'Commit abc1234',
+      path: 'commit-diff://w1/abc1234',
+      isPinned: false,
+      isPreview: false,
+    })
+    return state
   })
-  // Opened AFTER the terminal, so openContent's addBufferToPane(..., true)
-  // leaves this one — the lazy pane — as the pane's active buffer.
-  const diffId = store.getState().bufferActions.openContent({
+  store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    id: terminalId,
+    type: 'terminal',
+    name: 'Terminal 1',
+  })
+  // Added AFTER the terminal, so addEditorTabToPane's own always-activates
+  // behavior leaves this one — the lazy pane — as the pane's active tab.
+  store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    id: diffId,
     type: 'commitDiff',
-    wsId: 'w1',
-    sha: 'abc1234',
     name: 'Commit abc1234',
   })
   return { store, terminalId, diffId }

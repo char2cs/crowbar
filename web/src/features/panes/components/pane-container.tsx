@@ -3,7 +3,10 @@ import {
   useBuffersByIds,
   useBufferActions,
 } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
@@ -27,7 +30,12 @@ import {
   useVisiblePaneCount,
 } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type { BranchReviewContent, EditorContent } from '../types/pane-content'
+import type {
+  BranchReviewContent,
+  EditorContent,
+  PaneContent,
+  TerminalContent,
+} from '../types/pane-content'
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -76,14 +84,13 @@ interface PaneContainerProps {
   position?: PanePosition
 }
 
-type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
-type PaneRenderBuffer =
-  Exclude<import('../types/pane-content').PaneContent, EditorContent> | EditorBufferShell
+type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
+type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane renderer — resolves pane content to lazily-loaded surfaces and owns split routing; its length is the routing table, not multiple concerns.
 export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneContainerProps) {
   const activePaneId = useActivePaneId()
-  const { activatePaneBuffer, setActivePane } = usePaneActions()
+  const { activateEditorTabInPane, setActivePane } = usePaneActions()
   const bufferActions = useBufferActions()
   const { closeBuffer: closeBufferForce } = bufferActions
 
@@ -94,6 +101,20 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     [bufferActions],
   )
   const workspaceStore = useWorkspaceStore()
+  // Needed only to hand AgentChatPane the chat's owning workspace — the chat
+  // is no longer a buffer, so there is no per-buffer wsId to read any more.
+  const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
+  // A freshly opened/dropped buffer must be looked up in the buffer list before
+  // it can be added as an editor tab: addEditorTabToPane takes the tab's own
+  // EditorTabBase-shaped object (only its `id` is read today, but the object
+  // shape is the contract), not a bare id the way the old addBufferToPane did.
+  const addExistingTabToPane = useCallback(
+    (targetPaneId: string, tabId: string) => {
+      const tab = workspaceStore.getState().buffers.find((b) => b.id === tabId)
+      if (tab) workspaceStore.getState().paneActions.addEditorTabToPane(targetPaneId, tab)
+    },
+    [workspaceStore],
+  )
   // Stable identity: this feeds a memoized drop handler's dep array; an unstable
   // wrapper would defeat that memoization. It only closes over workspaceStore.
   const openTerminalBuffer = useCallback(
@@ -134,7 +155,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const [internalHoverZone, setInternalHoverZone] = useState<DropZone>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const rawPaneBuffers = useBuffersByIds(pane.bufferIds)
+  const rawPaneBuffers = useBuffersByIds(pane.editorTabIds)
   const paneBuffers = useMemo((): PaneRenderBuffer[] => {
     return rawPaneBuffers.flatMap((buffer) => {
       if (buffer.type === 'editor') {
@@ -144,6 +165,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
+            isPreview: buffer.isPreview,
           } satisfies EditorBufferShell,
         ]
       }
@@ -152,9 +174,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   }, [rawPaneBuffers])
 
   const activeBuffer = useMemo(() => {
-    if (!pane.activeBufferId) return null
-    return paneBuffers.find((b) => b.id === pane.activeBufferId) || null
-  }, [paneBuffers, pane.activeBufferId])
+    if (!pane.activeEditorTabId) return null
+    return paneBuffers.find((b) => b.id === pane.activeEditorTabId) || null
+  }, [paneBuffers, pane.activeEditorTabId])
+
+  // Spec §7.1's split toggle: chat-only vs. chat+editor. A pane with no chat
+  // has no toggle to read, so its editor view always shows (falling back to
+  // the empty stage) — the "a pane always shows something" behavior this file
+  // already had before chat became its own pane field.
+  const showEditorView = !pane.chatId || pane.editorOpen
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -183,12 +211,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   )
 
   const handleTabClick = useCallback(
-    (bufferId: string) => {
-      // Update workspace pane store (new system)
-      activatePaneBuffer(pane.id, bufferId)
+    (tabId: string) => {
+      activateEditorTabInPane(pane.id, tabId)
       setActivePane(pane.id)
     },
-    [pane.id, activatePaneBuffer, setActivePane],
+    [pane.id, activateEditorTabInPane, setActivePane],
   )
 
   const openFileTreeDropInPane = useCallback(
@@ -219,11 +246,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
 
       try {
         await handleFileOpen(fileDragData.path, false)
-        const openedBufferId =
-          workspaceStore.getState().paneActions.getActivePane()?.activeBufferId ?? null
-        if (openedBufferId) {
-          workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, openedBufferId, true)
-          workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, openedBufferId)
+        const openedTabId =
+          workspaceStore.getState().paneActions.getActivePane()?.activeEditorTabId ?? null
+        if (openedTabId) {
+          addExistingTabToPane(targetPaneId, openedTabId)
+          workspaceStore.getState().paneActions.activateEditorTabInPane(targetPaneId, openedTabId)
         }
       } catch (error) {
         console.error('Failed to open file from file tree drop:', error)
@@ -231,7 +258,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         delete window.__fileDragData
       }
     },
-    [handleFileOpen, pane.id, workspaceStore],
+    [handleFileOpen, pane.id, workspaceStore, addExistingTabToPane],
   )
 
   const handleExternalEditorExit = useCallback(() => {
@@ -347,7 +374,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             workingDirectory: currentDirectory,
             remoteConnectionId,
           })
-          workspaceStore.getState().paneActions.addBufferToPane(pane.id, newBufferId, true)
+          addExistingTabToPane(pane.id, newBufferId)
           window.dispatchEvent(
             new CustomEvent('terminal-detach-to-buffer', {
               detail: { terminalId },
@@ -355,10 +382,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
         } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
           moveBufferToPaneDropTarget(bufferId, sourcePaneId, { paneId: pane.id, zone: 'center' })
-          workspaceStore.getState().paneActions.addBufferToPane(pane.id, bufferId, true)
+          addExistingTabToPane(pane.id, bufferId)
         } else if (!sourcePaneId && bufferId) {
           ensureBufferInPaneDropTarget(bufferId, { paneId: pane.id, zone: 'center' })
-          workspaceStore.getState().paneActions.addBufferToPane(pane.id, bufferId, true)
+          addExistingTabToPane(pane.id, bufferId)
         }
         return
       }
@@ -383,7 +410,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           workingDirectory: currentDirectory,
           remoteConnectionId,
         })
-        workspaceStore.getState().paneActions.addBufferToPane(newPaneId, newBufferId, true)
+        addExistingTabToPane(newPaneId, newBufferId)
         window.dispatchEvent(
           new CustomEvent('terminal-detach-to-buffer', {
             detail: { terminalId },
@@ -391,15 +418,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )
       } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
         // Move from a different source pane into the new split pane
-        workspaceStore.getState().paneActions.moveBufferToPane(bufferId, sourcePaneId, newPaneId)
-        workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId)
+        workspaceStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, newPaneId)
+        workspaceStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
       } else if (bufferId) {
         // Move from this pane into the new split pane
-        workspaceStore.getState().paneActions.moveBufferToPane(bufferId, pane.id, newPaneId)
-        workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId)
+        workspaceStore.getState().paneActions.moveEditorTabToPane(bufferId, pane.id, newPaneId)
+        workspaceStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
       }
     },
-    [pane.id, openTerminalBuffer, workspaceStore],
+    [pane.id, openTerminalBuffer, workspaceStore, addExistingTabToPane],
   )
 
   // Handle mouse up for file tree drag (which uses mouse events, not HTML5 drag API)
@@ -446,9 +473,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const renderActiveBuffer = useCallback(
     (buffer: PaneRenderBuffer) => {
       switch (buffer.type) {
-        case 'newTab':
-          return <NewTabView paneId={pane.id} />
-
         case 'terminal':
           return (
             <TerminalPane
@@ -468,7 +492,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         case 'externalEditor':
           return (
             <ExternalEditorTerminal
-              filePath={buffer.path}
+              // Inherited from EditorTabBase as optional; every real
+              // 'externalEditor' tab is constructed with a genuine path.
+              filePath={buffer.path ?? ''}
               fileName={buffer.name}
               terminalConnectionId={buffer.terminalConnectionId}
               onEditorExit={handleExternalEditorExit}
@@ -482,11 +508,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               isActivePane={isActivePane}
             />
           )
-
-        // NOTE: 'agentChat' is intentionally NOT handled here. Like 'terminal', it is
-        // hosted by the always-mounted keep-alive block above (visibility:hidden when
-        // inactive) so a tab switch never remounts its live PTY — and it is excluded
-        // from the active-only Suspense that calls this switch.
 
         case 'markdownPreview':
           return <MarkdownPreview bufferId={buffer.id} />
@@ -503,13 +524,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               paneId={pane.id}
               bufferId={buffer.id}
               isActiveSurface={isActivePane}
-              isPreview={pane.previewBufferId === buffer.id}
+              isPreview={buffer.isPreview ?? false}
               onPromote={() => handlePromote(buffer.id)}
             />
           )
       }
     },
-    [handleExternalEditorExit, handlePromote, isActivePane, pane.id, pane.previewBufferId],
+    [handleExternalEditorExit, handlePromote, isActivePane, pane.id],
   )
 
   return (
@@ -554,7 +575,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         // crawl.
         data-pane-content=""
         className={cn(
-          'relative z-[1] min-h-0 flex-1 overflow-hidden bg-pane-background',
+          'relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background',
           // Casts onto the sidebar, so it only makes sense while there is a
           // sidebar there to catch it.
           sidebarOpen &&
@@ -563,83 +584,76 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
         style={paneContentStyle}
       >
-        {/* Under the New Tab rules a pane always holds at least one buffer, so
-            this should be unreachable. Kept — pointed at the same component — so
-            that if a bug ever does strand a pane with no tabs, it shows a usable
-            surface instead of a blank rectangle with no way out. */}
-        {!activeBuffer && <NewTabView paneId={pane.id} />}
+        {/* Chat view (spec §7.2): the pane's other sibling surface. Mounted
+            whenever pane.chatId is set — it does not compete with
+            editorTabIds/activeEditorTabId for "which one is active" (a pane
+            holds at most one chat), so isVisible is always true here.
+            How this region and the editor view below are actually arranged
+            (side-by-side on landscape, stacked on portrait, tabs when the
+            split is off) is Task 18's job, driven by use-chat-presentation.ts —
+            this is a placeholder sequential stack until that lands. */}
+        {pane.chatId && (
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <Suspense fallback={null}>
+              <AgentChatPane
+                chatId={pane.chatId}
+                runnerId={pane.runnerId ?? ''}
+                wsId={wsId}
+                bufferId={pane.id}
+                isActivePane={isActivePane}
+                isVisible
+              />
+            </Suspense>
+          </div>
+        )}
 
-        {/* Keep terminal and webviewer buffers always mounted to preserve PTY
-            sessions and embedded webview state. Deliberately OUTSIDE the
-            Suspense boundary below: TerminalPane is statically imported (it
-            never suspends), so a cold chunk load of whichever lazy pane type
-            is active must not transiently unmount these siblings. */}
-        {paneBuffers
-          .filter(
-            (b): b is import('../types/pane-content').TerminalContent => b.type === 'terminal',
-          )
-          .map((b) => {
-            const isActive = b.id === activeBuffer?.id
-            return (
-              <div
-                key={b.id}
-                className="absolute inset-0"
-                style={isActive ? undefined : { visibility: 'hidden' }}
-              >
-                <TerminalPane
-                  sessionId={b.sessionId}
-                  bufferId={b.id}
-                  paneId={pane.id}
-                  initialCommand={b.initialCommand}
-                  workingDirectory={b.workingDirectory}
-                  isActive={isActive && isActivePane}
-                  isVisible={isActive}
-                />
-              </div>
-            )
-          })}
+        {/* Editor view: everything pane.editorTabIds holds — files, terminals,
+            branch review, never the chat. Skipped only when the pane already
+            has a chat and holds no editor tabs at all (spec §7.1: "a view
+            holding only its chat draws no bar at all") — a chat-only pane
+            draws no empty stage beneath it. A pane with no chat always shows
+            this region, falling back to the empty stage. */}
+        {showEditorView && (
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            {/* Under the New Tab rules a pane always holds at least one buffer, so
+                this should be unreachable. Kept — pointed at the same component — so
+                that if a bug ever does strand a pane with no tabs, it shows a usable
+                surface instead of a blank rectangle with no way out. */}
+            {!activeBuffer && <NewTabView paneId={pane.id} />}
 
-        {/* Agent chats keep-alive exactly like the terminal block above: each is
-            mounted always and only HIDDEN when it isn't the active tab, so its live
-            PTY attachment (and its dormant-revive budget) survive a tab switch with
-            no remount. AgentChatPane is lazy, so — unlike the statically-imported
-            TerminalPane — each buffer needs its OWN Suspense: a cold chunk load must
-            resolve to `null` for that one buffer without unmounting its siblings
-            (the sibling terminals or other chats). `isVisible` is the ACTIVE TAB
-            within this pane; `isActivePane` is whether this pane has focus — they are
-            distinct, and the pane threads both. */}
-        {paneBuffers
-          .filter(
-            (b): b is import('../types/pane-content').AgentChatContent => b.type === 'agentChat',
-          )
-          .map((b) => {
-            const isActive = b.id === activeBuffer?.id
-            return (
-              <div
-                key={b.id}
-                className="absolute inset-0"
-                style={isActive ? undefined : { visibility: 'hidden' }}
-              >
-                <Suspense fallback={null}>
-                  <AgentChatPane
-                    chatId={b.chatId}
-                    runnerId={b.runnerId}
-                    wsId={b.wsId}
-                    bufferId={b.id}
-                    isActivePane={isActivePane}
-                    isVisible={isActive}
-                  />
-                </Suspense>
-              </div>
-            )
-          })}
+            {/* Keep terminal buffers always mounted to preserve PTY sessions.
+                Deliberately OUTSIDE the Suspense boundary below: TerminalPane is
+                statically imported (it never suspends), so a cold chunk load of
+                whichever lazy pane type is active must not transiently unmount
+                these siblings. */}
+            {paneBuffers
+              .filter((b): b is TerminalContent => b.type === 'terminal')
+              .map((b) => {
+                const isActive = b.id === activeBuffer?.id
+                return (
+                  <div
+                    key={b.id}
+                    className="absolute inset-0"
+                    style={isActive ? undefined : { visibility: 'hidden' }}
+                  >
+                    <TerminalPane
+                      sessionId={b.sessionId}
+                      bufferId={b.id}
+                      paneId={pane.id}
+                      initialCommand={b.initialCommand}
+                      workingDirectory={b.workingDirectory}
+                      isActive={isActive && isActivePane}
+                      isVisible={isActive}
+                    />
+                  </div>
+                )
+              })}
 
-        <Suspense fallback={null}>
-          {activeBuffer &&
-            activeBuffer.type !== 'terminal' &&
-            activeBuffer.type !== 'agentChat' &&
-            renderActiveBuffer(activeBuffer)}
-        </Suspense>
+            <Suspense fallback={null}>
+              {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
+            </Suspense>
+          </div>
+        )}
       </div>
     </div>
   )
