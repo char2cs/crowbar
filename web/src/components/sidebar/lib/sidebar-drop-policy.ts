@@ -27,7 +27,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * a render), so reading `getState()` here follows the store's own usage rule.
  */
 
-interface RowScope {
+export interface RowScope {
   repoId: string
   projectId: string | undefined
 }
@@ -45,8 +45,12 @@ interface RowScope {
  * — the remaining per-row linear scan is still real cost that task should
  * consider caching per-gesture rather than per-frame; not fixed here, since
  * this file only owns the matrix, not the drag loop.
+ *
+ * Exported so `drop-actions.ts`'s `onDrop` implementation (Task 33) resolves
+ * a row's repo/project the same way this matrix does, rather than a second
+ * copy of the same id-space walk.
  */
-function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope | null {
+export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope | null {
   const repo = repos.find(
     (r) =>
       r.defaultWorkspaceId === rowId ||

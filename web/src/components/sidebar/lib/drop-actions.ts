@@ -1,5 +1,5 @@
 import { toast } from '@/features/window/stores/toast-store'
-import type { DropMode } from '@/components/tree-dnd/drop-core'
+import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
@@ -7,49 +7,294 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
+import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
+import { placeWorkspace, placeFolder } from '@/lib/api/sidebar-placement'
+import { reparentWorkspace } from '@/lib/api/workspace'
+import { setChatPlacement } from '@/features/agent/api/agent-api'
+
+/** One request `performSidebarDrop` fires, in the order it must land — the
+ *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
+ *  its `project`/`repo` variants (not reachable through this drag any more)
+ *  and plus `chat` (a placement `drop-plan.ts` never had to express). */
+type RowPlacementCall =
+  | { kind: 'reparent'; projectId: string; repoId: string; wsId: string; parentId: string }
+  | {
+      kind: 'workspace'
+      projectId: string
+      repoId: string
+      wsId: string
+      folderId?: string
+      order: number
+    }
+  | {
+      kind: 'folder'
+      projectId: string
+      repoId: string
+      folderId: string
+      parentId: string
+      order: number
+    }
+  | { kind: 'chat'; workspaceId: string; chatId: string; parentId: string; order: number }
+
+/** A chat subject whose target lives in a different workspace — no endpoint
+ *  can re-home a chat to another workspace's own aggregate (see `planChatDrop`). */
+const UNSUPPORTED = 'unsupported' as const
+
+function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    const hit = findNode(node.children, id)
+    if (hit) return hit
+  }
+  return undefined
+}
+
+/** Which sibling space a container owns. '' is the repo root. */
+function membersOf(roots: SidebarTreeNode[], containerId: string): SidebarTreeNode[] {
+  if (containerId === '') return roots
+  return findNode(roots, containerId)?.children ?? []
+}
+
+/** The workspace whose fork-child space owns `containerId` — '' for a
+ *  root-level container, which has no lineage to protect. */
+function workspaceAnchor(repo: Repo, containerId: string): string {
+  const workspaceIds = new Set(repo.workspaces.map((w) => w.id))
+  const folderById = new Map((repo.folders ?? []).map((f) => [f.id, f]))
+  const visited = new Set<string>()
+  let cursor = containerId
+  while (cursor !== '' && !visited.has(cursor)) {
+    if (workspaceIds.has(cursor)) return cursor
+    visited.add(cursor)
+    cursor = folderById.get(cursor)?.parentId ?? ''
+  }
+  return ''
+}
+
+/** Where a row lands among `rest`, relative to `targetId`. A stale/foreign
+ *  `targetId` clamps to the end rather than refusing the drop. */
+function insertIndex(rest: string[], targetId: string, mode: 'before' | 'after'): number {
+  const at = rest.indexOf(targetId)
+  if (at < 0) return rest.length
+  return mode === 'after' ? at + 1 : at
+}
 
 /**
- * Committing a sidebar drop.
- *
- * `useSidebarDrag` (Task 21) is the drag ARM: hit-test, ghost, hairline, edge
- * scroll, the subtree cycle guard, pane-zone geometry — all real and wired
- * end to end, so a drag visibly tracks the pointer and resolves to a real
- * target. `performSidebarDrop` (row-to-row, via `onDrop`) stays a disclosed
- * placeholder — deliberately, not an oversight:
- *
- *   - A workspace/folder REORDER or RE-FILE has real, purpose-built store
- *     machinery already sitting ready for it (`SidebarPlacement`/
- *     `applyPlacement`/`capturePlacement` in `lib/store/sidebar.ts`, plus
- *     `placeWorkspace`/`placeFolder` in `lib/api/sidebar-placement.ts`) —
- *     but nesting a row 'into' another BRANCH row re-parents its FORK
- *     (`Workspace.parentId`), which that same file's own comment warns
- *     "silently breaks merge eligibility and the diff base" if written
- *     wrong. Getting the folder-vs-fork-edge precedence right needs reading
- *     `buildSidebarTree` (workspace-tree-utils.ts) in full and a real test
- *     suite against it — not a same-sitting guess.
- *   - A 'chat'/'workflow' row has NO sidebar placement endpoint at all yet
- *     (chat reordering has no live daemon route since the old, workspace-
- *     scoped Chats panel — and its `chat-tree-commit.ts` — was retired).
- *
- * This means "middle of a Recents entry" / "above·below a Recents entry"
- * (spec §8.1's other two targets) resolve mechanically today — a Recents
- * member row is a real droppable `SidebarRow` (`RecentsBand` already spreads
- * `drag.dragProps(row)` on it, Task 21), so a drop there DOES reach `onDrop`
- * with a real `mode: 'into' | 'before' | 'after'` — but committing "into"
- * as an open/merge and "before"/"after" as a reorder is exactly the write
- * this comment defers. `performSidebarPaneDrop` below is the part of spec
- * §8.1 this task (22) DOES build: the other two targets, "middle of a pane"
- * and "edge of a pane", which need no sidebar-placement endpoint at all —
- * only the pane store, which already has one.
+ * A `branch`/`folder` drop — adapts `drop-plan.ts`'s `planRowDrop` (git show
+ * 9ad89156) to `SidebarRow`. Kept: the container/fork-lineage math
+ * (`findNode`/`membersOf`/`workspaceAnchor`/`resolvesToFirstChild`) and the
+ * folder-edge-vs-fork-parent precedence. Dropped: `project`/`repo` subjects
+ * (out of this drag's scope now — see `SIDEBAR_DROP_POLICY`) and the
+ * `writes`/`capturePlacement` optimistic half (this plan's no-optimistic-
+ * write convention; the WS-driven cache applies the daemon's own confirmed
+ * placement, same as `performRenameWorkspaceBranch`).
  */
-export function performSidebarDrop(
+function planTreeRowDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
-): void {
-  toast.info(
-    `Reordering isn't wired to the daemon yet (${subjects.length} row(s) → ${target.id}, ${mode})`,
-  )
+): RowPlacementCall[] {
+  const { repos, collapsedChatRows } = useSidebarStore.getState()
+  const scope = resolveRowRepo(repos, target.id)
+  const repo = scope && repos.find((r) => r.id === scope.repoId)
+  if (!repo || !scope?.projectId) return []
+  const { repoId, projectId } = scope
+
+  const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [])
+  // The repo's own checkout (`rows-from-repo.ts`'s tree root) is a row but
+  // never a node in `roots` — its rendered children ARE `roots` itself.
+  const isHomeTarget = target.id === repo.defaultWorkspaceId
+  const targetNode = isHomeTarget ? undefined : findNode(roots, target.id)
+  const hasChildren = isHomeTarget ? roots.length > 0 : (targetNode?.children.length ?? 0) > 0
+  const expanded = !collapsedChatRows.has(target.id)
+  const firstChild =
+    mode !== 'into' &&
+    resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
+  const requested = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
+  const containerNode = requested === '' ? undefined : findNode(roots, requested)
+  const containerId = requested !== '' && !containerNode ? '' : requested
+  const containerKind = containerNode?.kind ?? 'root'
+
+  const lifted = new Set(subjects.map((s) => s.id))
+  const rest = membersOf(roots, containerId)
+    .map((n) => n.id)
+    .filter((id) => !lifted.has(id))
+  const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, target.id, mode)
+
+  const calls: RowPlacementCall[] = []
+  subjects.forEach((subject, i) => {
+    const order = at + i
+    // Nothing for `placeWorkspace`/`reparentWorkspace` to address — the
+    // repo's own checkout is not a member of `repo.workspaces`.
+    if (subject.id === repo.defaultWorkspaceId) return
+
+    if (subject.kind === 'folder') {
+      calls.push({
+        kind: 'folder',
+        projectId,
+        repoId,
+        folderId: subject.id,
+        parentId: containerId,
+        order,
+      })
+      return
+    }
+    if (subject.kind !== 'branch') return
+
+    const ws = repo.workspaces.find((w) => w.id === subject.id)
+    const currentFork = ws?.parentId ?? ''
+    const forked = currentFork !== '' && repo.workspaces.some((w) => w.id === currentFork)
+    const visibleCurrentFork = forked ? currentFork : ''
+    const visibleNextFork = containerKind === 'root' ? '' : workspaceAnchor(repo, containerId)
+    const nextFork =
+      visibleNextFork === visibleCurrentFork
+        ? currentFork
+        : visibleNextFork || repo.defaultWorkspaceId || ''
+    const folderId =
+      containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
+
+    if (nextFork !== '' && nextFork !== currentFork) {
+      // The reparent (202, rebases the fork) has to land before the index it
+      // was promised is asked for, or the daemon indexes into a level the
+      // row has not joined yet. The reparent itself clears any folder edge,
+      // so the follow-up carries one back only when landing inside one.
+      const reparentFolderId = containerKind === 'folder' ? containerId : undefined
+      calls.push({ kind: 'reparent', projectId, repoId, wsId: subject.id, parentId: nextFork })
+      calls.push({
+        kind: 'workspace',
+        projectId,
+        repoId,
+        wsId: subject.id,
+        ...(reparentFolderId !== undefined && { folderId: reparentFolderId }),
+        order,
+      })
+      return
+    }
+
+    // Landing directly under the current fork parent drops any folder edge;
+    // landing in one of its folders writes it. Independent of lineage, which
+    // is unchanged on this branch.
+    const directFolderId = containerKind === 'workspace' && ws?.folderId ? '' : folderId
+    calls.push({
+      kind: 'workspace',
+      projectId,
+      repoId,
+      wsId: subject.id,
+      ...(directFolderId !== undefined && { folderId: directFolderId }),
+      order,
+    })
+  })
+
+  return calls
+}
+
+/**
+ * A `chat` drop. A chat's placement lives on the `AgentChat` aggregate
+ * itself, workspace-scoped (`setChatPlacement`, `@/features/agent/api/agent-
+ * api`) — not `placeWorkspace`/`placeFolder`, which address `lib/store/
+ * sidebar.ts`'s `Workspace`/`Folder` and know nothing about a chat.
+ */
+function planChatDrop(
+  subjects: SidebarRow[],
+  target: SidebarRow,
+  mode: DropMode,
+): RowPlacementCall[] | typeof UNSUPPORTED {
+  // A repo/workspace folder (`rows-from-repo.ts`) and a chat folder
+  // (`AgentChatFolder`) are different backend aggregates sharing one
+  // `kind: 'folder'` tag; no row is ever both, so a chat has nothing real to
+  // land on there. Refuse rather than guess.
+  if (target.kind !== 'chat' || !target.workspaceId) return []
+  const destWorkspaceId = target.workspaceId
+  // `setChatPlacement` is scoped to one workspace's own chat tree — there is
+  // no field on it that re-homes a chat to a different workspace's aggregate.
+  if (subjects.some((s) => s.workspaceId !== destWorkspaceId)) return UNSUPPORTED
+
+  const { chats, folders } = getOrCreateWorkspaceStore(destWorkspaceId).getState().agentChats
+  // Recents renders every row at depth 0 with no parentage (spec §5.1) —
+  // `target.parentId` is always `null` there, so 'before'/'after' can only
+  // ever place at the workspace root; only 'into' (making the subject one of
+  // the target's own threads) reaches a real container.
+  const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
+  const lifted = new Set(subjects.map((s) => s.id))
+  const rest = [...chats, ...folders]
+    .filter((row) => (row.parentId ?? '') === containerId && !lifted.has(row.id))
+    .map((row) => row.id)
+  const at = mode === 'into' ? rest.length : insertIndex(rest, target.id, mode)
+
+  return subjects.map((subject, i) => ({
+    kind: 'chat' as const,
+    workspaceId: destWorkspaceId,
+    chatId: subject.id,
+    parentId: containerId,
+    order: at + i,
+  }))
+}
+
+function planRowDrop(
+  subjects: SidebarRow[],
+  target: SidebarRow,
+  mode: DropMode,
+): RowPlacementCall[] | typeof UNSUPPORTED {
+  if (subjects.length === 0) return []
+  return subjects[0].kind === 'chat'
+    ? planChatDrop(subjects, target, mode)
+    : planTreeRowDrop(subjects, target, mode)
+}
+
+function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
+  switch (call.kind) {
+    case 'reparent':
+      return reparentWorkspace(call.projectId, call.repoId, call.wsId, call.parentId)
+    case 'workspace':
+      return placeWorkspace(call.projectId, call.repoId, call.wsId, {
+        ...(call.folderId !== undefined && { folderId: call.folderId }),
+        order: call.order,
+      })
+    case 'folder':
+      return placeFolder(call.projectId, call.repoId, call.folderId, {
+        parentId: call.parentId,
+        order: call.order,
+      })
+    case 'chat':
+      return setChatPlacement(call.workspaceId, call.chatId, {
+        parentId: call.parentId,
+        order: call.order,
+      }).then(() => undefined)
+  }
+}
+
+/**
+ * Commit a row-to-row drop — reorder/reparent a workspace or folder, or
+ * place a chat within its own workspace's chat tree. `SIDEBAR_DROP_POLICY`
+ * has already refused every other subject/target/mode combination, so this
+ * only ever has to plan what it allows through.
+ *
+ * Calls fire in order, each awaited before the next: a multi-row move's
+ * `order` is an index into the destination as it stands once the previous
+ * call has landed, so firing them concurrently (`Promise.all`) could land
+ * the move in an arbitrary arrangement (matches `sidebar-placement.ts`'s own
+ * documented contract for `order`). No optimistic paint — the WS-driven
+ * cache applies the daemon's confirmed state, same as every other row action
+ * in this plan (`performRenameWorkspaceBranch`, `performCreateFolder`).
+ */
+export async function performSidebarDrop(
+  subjects: SidebarRow[],
+  target: SidebarRow,
+  mode: DropMode,
+): Promise<void> {
+  const plan = planRowDrop(subjects, target, mode)
+  if (plan === UNSUPPORTED) {
+    toast.error('Moving a chat to a different workspace is not supported yet')
+    return
+  }
+  try {
+    for (const call of plan) {
+      await fireRowPlacementCall(call)
+    }
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to move row')
+  }
 }
 
 /**
@@ -99,9 +344,9 @@ function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPane
   // so resolving `paneId` against the CHAT's workspace instead of the PANE's
   // real one does not fail — it silently mutates a workspace the user isn't
   // even looking at. Refuse rather than guess: there is no sidebar-placement
-  // endpoint threading a `navigate` call through this far down yet (see
-  // `performSidebarDrop`'s own comment on the same gap), and a cross-workspace
-  // merge/open has no coherent single-pane-tree meaning to fall back to.
+  // endpoint threading a `navigate` call through this far down yet, and a
+  // cross-workspace merge/open has no coherent single-pane-tree meaning to
+  // fall back to.
   if (subject.workspaceId !== getActiveWorkspaceId()) return
   const store = getOrCreateWorkspaceStore(subject.workspaceId)
   const { panes, paneActions } = store.getState()
@@ -130,7 +375,12 @@ function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPane
   // so it falls back to the same split, defaulting to the right.
   const splitOptions = getPaneSplitDropOptions(zone === 'center' ? 'right' : zone)
   if (!splitOptions) return
-  const newPaneId = paneActions.splitPane(paneId, splitOptions.direction, undefined, splitOptions.placement)
+  const newPaneId = paneActions.splitPane(
+    paneId,
+    splitOptions.direction,
+    undefined,
+    splitOptions.placement,
+  )
   if (!newPaneId) return
   paneActions.setPaneChat(newPaneId, chatId, null)
   paneActions.setActivePane(newPaneId)
