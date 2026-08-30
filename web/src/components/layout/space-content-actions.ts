@@ -81,19 +81,25 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
  * Trashes a row via the removal tray. Reads the store's raw, current repos
  * (not a caller-supplied filtered snapshot): the true current state, not the
  * UI's already-hidden-pending-removal overlay.
+ *
+ * Returns whether anything was actually held. `false` covers two cases a
+ * caller that just walked the user through a confirm dialog cannot treat as
+ * silent success: a repo-home id (resolves to a `workspace` subject naming
+ * no row in `repo.workspaces` — repo deletion gets its own confirmation flow
+ * in Part H and is not reachable from a row's trash button yet) and a
+ * user-locked, non-home workspace (`planRemoval`'s `draftFor` refuses one —
+ * the daemon would refuse the delete too, so the tray must never accept one
+ * and promise otherwise).
  */
-export function handleTrash(id: string): void {
+export function handleTrash(id: string): boolean {
   const currentRepos = useSidebarStore.getState().repos
   const found = resolveRow(currentRepos, id)
-  if (!found) return
+  if (!found) return false
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
-  // A repo-home id resolves to a `workspace` subject that names no row in
-  // `repo.workspaces` — planRemoval finds nothing to draft, so this is a
-  // no-op rather than a delete. Repo deletion gets its own confirmation
-  // flow in Part H; it is not reachable from a row's trash button yet.
   const drafts = planRemoval([found.subject], currentRepos, projects)
-  if (drafts.length === 0) return
+  if (drafts.length === 0) return false
   useRemovalTrayStore.getState().hold(drafts)
+  return true
 }
 
 /** Creates a workspace (fork) or a thread (chat) under `parentId`. */

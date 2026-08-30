@@ -182,21 +182,41 @@ describe('starting a thread on a real workspace', () => {
 })
 
 describe('handleTrash', () => {
-  it('holds a real workspace row in the removal tray', () => {
+  it('holds a real workspace row in the removal tray, and reports it', () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
 
-    handleTrash('ws-a')
+    expect(handleTrash('ws-a')).toBe(true)
 
     expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
     expect(useRemovalTrayStore.getState().entries[0]?.id).toBe('ws-a')
   })
 
-  it('is a no-op for the repo-home row (no matching row for planRemoval to draft)', () => {
+  it('is a no-op for the repo-home row (no matching row for planRemoval to draft), and reports it', () => {
     useSidebarStore.setState({ repos: [repo()] })
 
-    handleTrash('home-1')
+    expect(handleTrash('home-1')).toBe(false)
+
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+  })
+
+  // Task 25 review round 1, Important: a user-locked, non-home workspace
+  // still shows a trash button (only the project-home row hides it), but
+  // `draftFor` refuses to draft a locked workspace — the caller (the
+  // delete-confirm dialog's onConfirm) needs this reported so it can tell
+  // the user rather than silently swallowing a click it just walked them
+  // through a confirmation for.
+  it('is a no-op for a locked (non-home) workspace, and reports it', () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [{ id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' }],
+        }),
+      ],
+    })
+
+    expect(handleTrash('ws-locked')).toBe(false)
 
     expect(useRemovalTrayStore.getState().entries).toEqual([])
   })

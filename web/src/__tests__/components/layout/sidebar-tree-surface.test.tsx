@@ -8,7 +8,7 @@
  * project, each excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -34,6 +34,18 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     subscribe: () => () => {},
   }),
 }))
+// DeleteConfirmDialog's real preview fetch would otherwise hit the real
+// (unmocked) apiFetch retry loop against a relative URL jsdom can't resolve —
+// several real seconds of backoff before it finally rejects. Stubbed here so
+// the trash-click wiring tests below resolve instantly.
+const { fetchDeletePreview } = vi.hoisted(() => ({
+  fetchDeletePreview: vi.fn().mockResolvedValue({ chatCount: 0, fileCount: 0 }),
+}))
+vi.mock('@/components/sidebar/lib/delete-preview-client', () => ({ fetchDeletePreview }))
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
+}))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -56,6 +68,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchDeletePreview.mockResolvedValue({ chatCount: 0, fileCount: 0 })
   // jsdom does not implement scrollTo — SpaceScroller calls it on mount to
   // align its panel.
   HTMLElement.prototype.scrollTo = vi.fn()
@@ -129,5 +142,75 @@ describe('SidebarTreeSurface', () => {
     )
 
     expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+  })
+
+  // Task 25's own real-flow insertion point: a trash click must NOT hold the
+  // row immediately any more — it has to open the confirm dialog first and
+  // wait on a real Delete click.
+  it('a trash click opens the confirm dialog instead of holding the row immediately', async () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          id: 'r1',
+          projectId: 'p1',
+          defaultWorkspaceId: 'home-a',
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+        }),
+      ],
+    })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete alpha' }))
+
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
+    expect(useRemovalTrayStore.getState().entries[0]?.id).toBe('ws-a')
+  })
+
+  // Review round 1, Important: a locked (non-home) workspace's trash button
+  // still shows, but `handleTrash` finds zero drafts for it — confirming
+  // must say so rather than silently doing nothing after walking the user
+  // through a real confirm dialog.
+  it("confirming a locked workspace's delete reports it instead of silently no-opping", async () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          id: 'r1',
+          projectId: 'p1',
+          defaultWorkspaceId: 'home-a',
+          workspaces: [
+            { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+          ],
+        }),
+      ],
+    })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete locked-one' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('locked-one'),
+    )
   })
 })

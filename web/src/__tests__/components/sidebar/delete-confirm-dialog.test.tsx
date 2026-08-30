@@ -118,4 +118,86 @@ describe('DeleteConfirmDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
     expect(onConfirm).toHaveBeenCalledOnce()
   })
+
+  // Review round 1, Critical: the refusal branch renders no Dialog/backdrop,
+  // so re-deriving refuse-vs-confirm from the live `working` prop on every
+  // render meant a turn finishing while the refusal was still on screen —
+  // an entirely ordinary sequence, `open` never cycles back through `false`
+  // for it — silently matured the refusal into a real confirm dialog with a
+  // live preview fetch, zero new user action. The decision must freeze at
+  // the moment the click opened the dialog.
+  it('a working-row refusal does not mature into a confirm dialog when the turn finishes while it is still on screen', async () => {
+    const onConfirm = vi.fn()
+    const { rerender } = render(
+      <DeleteConfirmDialog
+        open
+        label="feature-x"
+        working
+        projectId="p1"
+        repoId="r1"
+        chatId="ws-a"
+        onOpenChange={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByText(/refuses|working/i)).toBeInTheDocument()
+
+    // The agent's turn finishes — `working` flips live — with no new click
+    // and `open` staying true throughout.
+    rerender(
+      <DeleteConfirmDialog
+        open
+        label="feature-x"
+        working={false}
+        projectId="p1"
+        repoId="r1"
+        chatId="ws-a"
+        onOpenChange={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByText(/refuses|working/i)).toBeInTheDocument()
+    expect(fetchDeletePreview).not.toHaveBeenCalled()
+  })
+
+  // A second trash click on a DIFFERENT row while a first row's refusal is
+  // still showing (no backdrop blocks it) must start its own fresh
+  // decision, not inherit the first row's frozen `working`.
+  it('a different row retargeting an open refusal gets its own fresh decision', async () => {
+    fetchDeletePreview.mockResolvedValue({ chatCount: 1, fileCount: 2 })
+    const onConfirm = vi.fn()
+    const { rerender } = render(
+      <DeleteConfirmDialog
+        open
+        label="working-row"
+        working
+        projectId="p1"
+        repoId="r1"
+        chatId="ws-a"
+        onOpenChange={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+    expect(screen.getByText(/refuses|working/i)).toBeInTheDocument()
+
+    // `open` stays true throughout — the retarget never closes first.
+    rerender(
+      <DeleteConfirmDialog
+        open
+        label="idle-row"
+        working={false}
+        projectId="p1"
+        repoId="r1"
+        chatId="ws-b"
+        onOpenChange={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(fetchDeletePreview).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'ws-b')
+  })
 })

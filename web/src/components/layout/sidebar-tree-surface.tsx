@@ -18,6 +18,7 @@ import { applyPendingRemovals } from './removal-plan'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import type { Project } from '@/lib/types'
 
@@ -119,7 +120,17 @@ export function SidebarTreeSurface({
           if (!open) setDeletingRowId(null)
         }}
         onConfirm={() => {
-          if (deletingRowId) trashSidebarRow(deletingRowId)
+          if (!deletingRowId) return
+          // A locked (non-home) workspace's own trash button still shows —
+          // Task 25 review round 1's Important finding — so a confirm can
+          // walk the user through a real preview and then find zero drafts
+          // to hold (`handleTrash`'s own doc comment). That can no longer be
+          // silent now that the click already implied a real delete was
+          // about to happen.
+          const held = trashSidebarRow(deletingRowId)
+          if (!held) {
+            toast.error(`Can't delete ${deletingRow?.label ?? 'this row'} — it may be locked`)
+          }
         }}
       />
     </div>

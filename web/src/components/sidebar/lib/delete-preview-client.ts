@@ -29,5 +29,8 @@ export function fetchDeletePreview(
   repoId: string,
   id: string,
 ): Promise<DeletePreview> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/chats/${id}/delete-preview`)
+  const p = encodeURIComponent(projectId)
+  const r = encodeURIComponent(repoId)
+  const i = encodeURIComponent(id)
+  return apiFetch(`/v0/projects/${p}/repos/${r}/chats/${i}/delete-preview`)
 }
