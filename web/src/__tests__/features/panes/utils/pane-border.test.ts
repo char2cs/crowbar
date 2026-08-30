@@ -15,6 +15,11 @@ describe('isWindowEdge', () => {
     expect(isWindowEdge('top', notAtEdge, 'left')).toBe(false)
   })
 
+  it('top is never a window edge, regardless of sidebar state', () => {
+    expect(isWindowEdge('top', full, 'left', true)).toBe(false)
+    expect(isWindowEdge('top', full, 'left', false)).toBe(false)
+  })
+
   it('bottom is always a window edge when atBottom', () => {
     expect(isWindowEdge('bottom', full, 'left')).toBe(true)
     expect(isWindowEdge('bottom', full, 'right')).toBe(true)
