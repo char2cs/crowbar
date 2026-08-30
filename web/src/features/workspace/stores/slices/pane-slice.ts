@@ -24,6 +24,7 @@ import {
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 import { syncSoleEditorTabCloseability } from './buffer-slice'
+import { nanoid } from 'nanoid'
 
 export interface PaneActions {
   splitPane(
@@ -61,6 +62,13 @@ export interface PaneActions {
    *  close. The symmetric removal to `closePane`'s own push onto
    *  `dormantArrangements`. */
   forgetDormantArrangement(entryId: string): void
+  /** Spec §8.2: "merging opens, it does not file" — group `chatIds` (2+, one
+   *  already live, one freshly split beside it) into a single Recents entry
+   *  so `deriveRecentsEntries` draws them as one SET rather than as loose
+   *  singletons. Extends an existing arrangement if one already owns any of
+   *  them, and strips membership from wherever else they were remembered —
+   *  see `performSidebarPaneDrop` (components/sidebar/lib/drop-actions.ts). */
+  groupIntoArrangement(chatIds: readonly string[]): void
 }
 
 export interface PaneSlice {
@@ -178,7 +186,19 @@ export const createPaneSlice: StateCreator<
           // still working keeps its "working, no view" row off `agentChats.working`
           // alone — nothing to remember yet. An idle chat's view is gone for good
           // unless we remember it here, so the close stays undoable.
-          if (closingPane?.chatId && !state.agentChats?.working?.[closingPane.chatId]) {
+          //
+          // Skipped when some OTHER arrangement already remembers this chat
+          // (§8.2's merged sets, `groupIntoArrangement`) — that entry already
+          // keeps it as one of its survivors; pushing a second, single-chat
+          // entry for the same id here would duplicate it across two rows.
+          const alreadyRemembered = state.dormantArrangements.some((e) =>
+            closingPane?.chatId ? e.chatIds.includes(closingPane.chatId) : false,
+          )
+          if (
+            closingPane?.chatId &&
+            !alreadyRemembered &&
+            !state.agentChats?.working?.[closingPane.chatId]
+          ) {
             state.dormantArrangements.push({
               id: paneId,
               chatIds: [closingPane.chatId],
@@ -477,14 +497,50 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           const pane = state.panes[paneId]
           if (!pane) return
+          const movedIn = chatId !== null && chatId !== pane.chatId
           pane.chatId = chatId
           pane.runnerId = runnerId
+          // Spec §8.2: "whatever goes up leaves every arrangement that was
+          // remembering it, and the arrangement you leave is remembered MINUS
+          // whatever you took out of it... An arrangement left with nobody in
+          // it goes." A chat moving fresh into a pane (never one already
+          // showing there — that path never calls this at all, see
+          // `performSidebarPaneDrop`'s "already up → reveal" branch) sheds
+          // its membership in whatever set(s) still remember it; the
+          // survivors stay grouped under the same entry id.
+          if (movedIn) {
+            state.dormantArrangements = state.dormantArrangements
+              .map((e) =>
+                e.chatIds.includes(chatId)
+                  ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }
+                  : e,
+              )
+              .filter((e) => e.chatIds.length > 0)
+          }
         })
       },
 
       forgetDormantArrangement(entryId) {
         set((state) => {
           state.dormantArrangements = state.dormantArrangements.filter((e) => e.id !== entryId)
+        })
+      },
+
+      groupIntoArrangement(chatIds) {
+        if (chatIds.length < 2) return
+        set((state) => {
+          // An entry already holding any of these ids is the one they are all
+          // joining — a target already on screen GROWS instead of a duplicate
+          // grouping standing up beside it (spec §8.2).
+          const owner = state.dormantArrangements.find((e) =>
+            e.chatIds.some((id) => chatIds.includes(id)),
+          )
+          const merged = Array.from(new Set([...(owner?.chatIds ?? []), ...chatIds]))
+          state.dormantArrangements = state.dormantArrangements
+            .filter((e) => e !== owner)
+            .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => !chatIds.includes(id)) }))
+            .filter((e) => e.chatIds.length > 0)
+          state.dormantArrangements.push({ id: owner?.id ?? nanoid(), chatIds: merged, state: 'live' })
         })
       },
     },

@@ -31,17 +31,11 @@ const NO_IDS: ReadonlySet<string> = new Set<string>()
  * store depends on nothing in `components/`.
  */
 export interface RemovalDraft {
-  /**
-   * What is going.
-   *
-   * The first four are the sidebar's rows; `chat` and `chatFolder` are the Chats
-   * panel's, which drop onto the SAME editor pane and wait out the same eight
-   * seconds here. They share this tray rather than growing a second one because
-   * a user who has just dragged something away has one place to look for it, and
-   * two trays with two undo clocks would be two answers to that.
-   */
-  kind: 'workspace' | 'folder' | 'repo' | 'project' | 'chat' | 'chatFolder'
-  /** The row itself: a workspace, folder, repo, project, chat or chat-folder id. */
+  /** What is going: the sidebar's own four row kinds. The Chats panel this tray
+   *  once shared with (`chat`/`chatFolder`, dropped onto the same editor pane)
+   *  is gone — that whole dwell-to-remove gesture went with it (Task 22). */
+  kind: 'workspace' | 'folder' | 'repo' | 'project'
+  /** The row itself: a workspace, folder, repo or project id. */
   id: string
   /** What the row reads as, for the tray row and the pane's overlay. */
   label: string

@@ -8,7 +8,6 @@ import {
 } from '@/components/layout/drag-ghost'
 import { dropLineBox } from '@/components/layout/drop-indicator'
 import { createEdgeScroller, type EdgeScroller } from '@/components/layout/edge-scroll'
-import { PANE_DROP_ATTR } from '@/components/layout/drop-target-dom'
 import {
   anyModeAllowed,
   sameDrop,
@@ -112,12 +111,16 @@ export interface SidebarPaneHit {
 
 /**
  * The pane as a drop target, geometry-aware rather than the old binary
- * "remove" zone.
+ * "remove" zone (`editor-removal-overlay.tsx`/`drop-target-dom.ts`'s
+ * `PANE_DROP_ATTR`, deleted with it — Task 22).
  *
- * Contract for whoever mounts a droppable pane element (Task 22): spread
- * `{[PANE_DROP_ATTR]: paneId}` onto it — the ATTRIBUTE'S VALUE is the pane's
- * id, not a bare presence flag, since `onPaneDrop` needs to say which pane.
+ * Contract for whoever mounts a droppable pane element (`PaneContainer`):
+ * spread `{[PANE_DROP_ATTR]: paneId}` onto it — the ATTRIBUTE'S VALUE is the
+ * pane's id, not a bare presence flag, since `onPaneDrop` needs to say which
+ * pane.
  */
+export const PANE_DROP_ATTR = 'data-pane-drop'
+
 const paneZone: DropZone<DragRow, SidebarPaneHit> = {
   attr: PANE_DROP_ATTR,
   hit: (_subjects, el, point) => {

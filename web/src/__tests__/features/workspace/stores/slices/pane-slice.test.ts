@@ -670,3 +670,125 @@ describe('pane-slice — forgetDormantArrangement (spec §5.4)', () => {
     expect(store.getState().dormantArrangements).toHaveLength(1)
   })
 })
+
+// Task 22: spec §8.2's merge/survivor bookkeeping — "merging opens... you get
+// them side by side", "whatever goes up leaves every arrangement that was
+// remembering it... the arrangement you leave is remembered minus whatever
+// you took out of it", "an arrangement left with nobody in it goes."
+describe('pane-slice — groupIntoArrangement (spec §8.2 "merging")', () => {
+  it('groups two chats into one live entry', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+  })
+
+  it('is a no-op for fewer than two chats', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1'])
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('extends an existing arrangement rather than nesting a second one — "grows instead of reopening"', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const [{ id }] = store.getState().dormantArrangements
+
+    store.getState().paneActions.groupIntoArrangement(['chat-2', 'chat-3'])
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect(store.getState().dormantArrangements[0].id).toBe(id)
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+      'chat-3',
+    ])
+  })
+
+  it('strips the incoming chats out of any OTHER arrangement they used to belong to', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-3'])
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+      'chat-3',
+    ])
+  })
+})
+
+describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §8.2)', () => {
+  it('a chat moving fresh into a NEW pane leaves every arrangement that remembered it, survivors kept as a set', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2', 'chat-3'])
+    const otherPane = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+
+    // Some other mechanism re-homes chat-2 onto a pane that isn't already
+    // showing it — the exact bookkeeping spec §8.2 describes ("pull one chat
+    // out of a live three-up, the other two are kept as a set, not the
+    // three"), exercised directly against the one write path for what a pane
+    // holds rather than through a gesture, since no live UI path moves an
+    // already-open chat today (`performSidebarPaneDrop` reveals it in place
+    // instead — see its own test file's note on this).
+    store.getState().paneActions.setPaneChat(otherPane, 'chat-2', null)
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-3'])
+  })
+
+  it('an arrangement left with nobody in it goes', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const paneA = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    const paneB = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+
+    store.getState().paneActions.setPaneChat(paneA, 'chat-1', null)
+    store.getState().paneActions.setPaneChat(paneB, 'chat-2', null)
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('re-setting the SAME chat a pane already holds does not touch dormantArrangements', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.groupIntoArrangement(['chat-2', 'chat-3']) // unrelated set
+    const before = store.getState().dormantArrangements
+
+    // Same chatId ROOT already holds, just a new runner (e.g. /resume) — no
+    // MOVE happened, so nothing should be stripped from anywhere.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-2')
+
+    expect(store.getState().dormantArrangements).toBe(before)
+  })
+
+  it('clearing a pane (chatId → null) does not strip that chat from an arrangement', () => {
+    // Only a chat moving somewhere NEW sheds membership — a bare clear is not
+    // a move (it is not "going up" anywhere), so it leaves the arrangement
+    // exactly as closePane's own dormant push already assumes it will.
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
+
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+  })
+})
+
+describe('pane-slice — closePane defers to an existing arrangement instead of duplicating', () => {
+  it('does not push a second, single-chat record for a chat already remembered by a merged set', () => {
+    const store = makeStoreWithWorking({})
+    // Mirrors `performSidebarPaneDrop`'s own merge order — `setPaneChat`
+    // FIRST (chat-1 enters ROOT fresh, nothing to strip yet), THEN
+    // `groupIntoArrangement` (now that it is actually resident there).
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    // Still exactly the one entry — closing chat-1's pane did not mint a
+    // duplicate {id: ROOT_PANE_ID, chatIds: ['chat-1']} alongside it.
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+  })
+})

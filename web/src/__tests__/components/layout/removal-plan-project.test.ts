@@ -7,7 +7,7 @@
  * it, and it never runs a clock.
  */
 import { describe, it, expect } from 'vitest'
-import { planRemoval, describeRemoval } from '@/components/layout/removal-plan'
+import { planRemoval } from '@/components/layout/removal-plan'
 import type { Repo } from '@/lib/store/sidebar'
 
 const PROJECTS = [
@@ -89,13 +89,5 @@ describe('planning a project removal', () => {
     // The old signature. Callers that never pass one keep the behaviour they
     // had rather than silently planning a removal with no label.
     expect(planRemoval([{ kind: 'project', id: 'p1' }], repos)).toEqual([])
-  })
-
-  it('promises a confirmation rather than an undo window', () => {
-    // The pane's overlay must not offer "8 seconds to undo" for a row that will
-    // never run a clock.
-    const { detail } = describeRemoval(planProject('p1'))
-    expect(detail).toContain('confirm')
-    expect(detail).not.toContain('8 seconds')
   })
 })

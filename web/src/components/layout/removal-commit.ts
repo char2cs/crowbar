@@ -3,7 +3,6 @@ import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
-import { isChatRemoval, sendChatRemoval } from '@/features/agent/tree/lib/chat-removal'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -77,12 +76,6 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
       return deleteProject(entry.projectId, ...opts)
-    // A chat is not one DELETE but a subtree of them, deepest first, plus the
-    // pane tabs the doomed chats had open — so the Chats tree owns its own send
-    // and this only routes to it.
-    case 'chat':
-    case 'chatFolder':
-      return sendChatRemoval(entry, ...opts)
   }
 }
 
@@ -141,11 +134,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
     return
   }
 
-  // A chat is not a sidebar row, so there is no tree to watch it leave — the
-  // send above already took it out of the workspace store, and waiting on a
-  // tombstone that never arrives would leave its rows hidden for good.
-  if (isChatRemoval(entry)) useRemovalTrayStore.getState().release(entry.hiddenIds)
-  else releaseWhenGone(entry.hiddenIds)
+  releaseWhenGone(entry.hiddenIds)
   leaveIfRemoved(entry, context)
 }
 

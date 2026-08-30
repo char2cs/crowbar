@@ -18,8 +18,8 @@ export interface ProjectRow {
  * What a removal means, worked out before anything is hidden.
  *
  * Pure, like `drop-plan.ts` next door and for the same reason: the whole of it —
- * which rows go, which rows go WITH them, what the tray says and what the pane's
- * overlay promises — is decided here and can be tested without a pointer.
+ * which rows go and which rows go WITH them — is decided here and can be tested
+ * without a pointer.
  *
  * The one rule worth stating: a hold is not a delete. Everything below computes
  * what to HIDE, and hiding is undone by putting the ids back. The destructive
@@ -79,8 +79,8 @@ function draftFor(
       projectId: project.id,
       // A project spans every repo under it, so there is no single owning one.
       repoId: '',
-      // Sidebar rows are not workspace-scoped; only a chat's delete route is,
-      // and only a chat has provider artwork to carry.
+      // Sidebar rows are not workspace-scoped — `wsId`/`providerIcon` are
+      // vestiges of the Chats panel's own drafts, gone with it (Task 22).
       wsId: '',
       providerIcon: '',
       // The project's own row AND every repo row inside it: the delete cascades
@@ -151,46 +151,6 @@ function draftFor(
     extra: descendants.length,
     // Resolved now, against a tree that still has the row in it.
     fallbackWsId: getPostDeleteNavigationTarget(repos as Repo[], workspace.id),
-  }
-}
-
-/**
- * What the pane's overlay says while a removal is armed.
- *
- * It names what will go, because the pane is a large target and the sidebar
- * behind it may already be scrolled somewhere else by the time the pointer
- * arrives — "release to remove" alone leaves the user to remember which rows
- * they picked up.
- */
-export function describeRemoval(
-  drafts: readonly RemovalDraft[],
-  armed = true,
-): {
-  title: string
-  detail: string
-  armed: boolean
-} {
-  // "Drop here" while the zone is merely AVAILABLE, "Release" only once a
-  // release really would remove. The pane is up for the whole drag now, and for
-  // most of it the pointer is somewhere else entirely — telling the user to
-  // release then would be an instruction to do the one thing that reorders.
-  const verb = armed ? 'Release to remove' : 'Drop here to remove'
-
-  if (drafts.length === 1) {
-    const [only] = drafts
-    return {
-      title: `${verb} ${only.label}`,
-      detail:
-        only.kind === 'repo' || only.kind === 'project'
-          ? 'You will confirm it in the sidebar before anything is deleted'
-          : 'You will have 8 seconds to undo',
-      armed,
-    }
-  }
-  return {
-    title: `${verb} ${drafts.length} rows`,
-    detail: 'You will have 8 seconds to undo',
-    armed,
   }
 }
 

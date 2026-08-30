@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Folder } from '@phosphor-icons/react'
 import { Library } from 'lucide-react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { ChatGlyph } from '@/components/ui/chat-glyph'
 import { ROW_BASE, ROW_GLYPH_BOX, ROW_INACTIVE, ROW_SUB_ACTION } from './workspace-row-base'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { RepoIconMark } from './repo-icon-mark'
@@ -26,21 +25,13 @@ import { RemovalConfirmDialog } from './removal-confirm-dialog'
  * deleted on release with nothing to undo; a tray is what makes the gesture
  * safe enough to be the only removal path in the sidebar.
  *
- * It is drawn TWICE — once at the foot of the workspace tree, once at the foot
- * of the Chats panel — because those two panels are pages of a carousel and only
- * one of them is on screen at a time. A single tray would put the row you just
- * dragged away on a page you would have to swipe to. Each instance shows only
- * the rows its own tree can undo, which is what `scope` names; the store, the
- * clock and the commit path behind them are one.
+ * It used to also draw at the foot of a separate Chats panel — a second
+ * instance sharing this same store, the store's clock and commit path, so the
+ * one row you had just dragged away had one place to look for it regardless of
+ * which panel you dragged it from. That panel and its own drag-to-remove
+ * gesture are gone (Task 22: the unified sidebar's tree and Recents are one
+ * scroller now, not a carousel of panels), so this is the only instance left.
  */
-
-/** Which tree's held rows an instance of the tray is drawn for. */
-export type RemovalTrayScope = 'sidebar' | 'chats'
-
-/** Whether this held row belongs to the Chats tree rather than the sidebar. */
-function scopeOf(entry: RemovalEntry): RemovalTrayScope {
-  return entry.kind === 'chat' || entry.kind === 'chatFolder' ? 'chats' : 'sidebar'
-}
 
 /**
  * The face a held row's label wears — the same one it wore in the tree it came
@@ -48,13 +39,10 @@ function scopeOf(entry: RemovalEntry): RemovalTrayScope {
  * as a different kind of thing at the one moment the user is deciding whether to
  * keep it.
  *
- * A branch is a git ref and reads in mono. A folder name — of either tree — is
- * prose someone typed, and so is a chat title.
+ * A branch is a git ref and reads in mono; a folder name is prose someone typed.
  */
 function labelFace(kind: RemovalEntry['kind']): string {
-  if (kind === 'folder' || kind === 'chatFolder')
-    return 'font-sans font-semibold tracking-[0.005em]'
-  if (kind === 'chat') return 'font-sans'
+  if (kind === 'folder') return 'font-sans font-semibold tracking-[0.005em]'
   return 'font-mono'
 }
 
@@ -99,24 +87,7 @@ function TrayGlyph({ entry }: { entry: RemovalEntry }) {
     )
   }
 
-  if (entry.kind === 'chat') {
-    // The PROVIDER's own mark — the Claude starburst, the Codex glyph — exactly
-    // as the sidebar row draws it, from the SVG the draft carried over. It drew a
-    // generic message-square here once, which made a chat in the tray the one row
-    // that did not look like the row it came from, at the one moment the user is
-    // deciding whether to keep it.
-    //
-    // Static: the row swaps this for the flip-dot spinner while a turn runs, but
-    // a chat on its way out is not doing a turn, so ChatGlyph is the idle half
-    // and `working` never reaches here.
-    return (
-      <span className={ROW_GLYPH_BOX}>
-        <ChatGlyph svg={entry.providerIcon} />
-      </span>
-    )
-  }
-
-  if (entry.kind === 'folder' || entry.kind === 'chatFolder') {
+  if (entry.kind === 'folder') {
     return (
       // Same glyph, same weight, as the folder row in the tree (folder-row.tsx):
       // a row held for removal must look like the row it was.
@@ -223,11 +194,10 @@ function TrayRow({ entry, onCancel, onCommit }: TrayRowProps) {
   )
 }
 
-export function RemovalTray({ scope = 'sidebar' }: { scope?: RemovalTrayScope } = {}) {
-  const held = useRemovalTrayStore((s) => s.entries)
-  // Memoised so the effects below — which key off the entry list — are driven by
-  // a real change to THIS tray's rows and not by a fresh array per render.
-  const entries = useMemo(() => held.filter((e) => scopeOf(e) === scope), [held, scope])
+export function RemovalTray() {
+  // The store's own array, held once — there is only the one tray now (see the
+  // module comment above), so there is nothing left to filter it down to.
+  const entries = useRemovalTrayStore((s) => s.entries)
   const navigate = useNavigate()
   const router = useRouter()
   // The rows the clock below writes into. Scoped to the tray so the one query

@@ -21,7 +21,6 @@ import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
-import { EditorRemovalOverlay } from './editor-removal-overlay'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -189,14 +188,13 @@ export function IDEShell() {
     </SidebarPeek>
   )
 
-  // The pane is the sidebar's removal target: a row dragged onto it leaves.
-  // Declared here, on the whole content pane, so the gesture has the biggest
-  // target in the window rather than a strip at the bottom of the sidebar the
-  // user has to travel to — and so what a workspace IS (an editor full of work)
-  // is what you drop it onto to be rid of it.
+  // Every pane in here is its OWN drop target now (PaneContainer spreads
+  // `PANE_DROP_ATTR` per pane, keyed by pane id) — spec §8.1's four-target
+  // table, not the one whole-content "drop anywhere in here to remove it"
+  // zone this div used to be (Task 22 deleted that dwell-to-remove gesture
+  // along with `editor-removal-overlay.tsx`).
   const contentEl = (
-    <div data-pane-drop="" className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
-      <EditorRemovalOverlay />
+    <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
       <ErrorBoundary>
         {/* WorkspaceHost stays mounted for the whole IDE session — including on
             the project-home route. Unmounting the host on every home visit

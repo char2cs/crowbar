@@ -592,8 +592,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   // everything live inside it, e.g. a terminal's PTY) every time
   // `pane.chatId` toggled. Reachable in production today via `⌘N`
   // (use-pane-keyboard.ts's `setPaneChat` on the active pane whatever it
-  // already holds) and chat-removal.ts's `setPaneChat(paneId, null, null)`
-  // the other way — NOT a hypothetical pane.chatId is not yet set.
+  // already holds) — NOT a hypothetical pane.chatId is not yet set.
   it('does not remount the editor view — including a live terminal — when pane.chatId toggles on and off', async () => {
     terminalMountCount.current = 0
     const store = createWorkspaceStore('w1')
@@ -625,5 +624,30 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.queryByTestId('chat-chat-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
     expect(terminalMountCount.current).toBe(1)
+  })
+})
+
+// Task 22: the sidebar's drag arm (`useSidebarDrag`) hit-tests a pane by
+// reading `PANE_DROP_ATTR` (`data-pane-drop`) straight off the DOM — every
+// rendered pane has to carry ITS OWN id on that attribute for a chat/row
+// dropped on it to resolve to the right pane and zone (spec §8.1). This
+// replaces the old dwell-to-remove overlay, which published one bare
+// `data-pane-drop=""` flag for the WHOLE content region (ide-shell.tsx) and
+// painted its "release to remove" veil through `editor-removal-overlay.tsx` —
+// both deleted with this task, not migrated.
+describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
+  it('publishes its own pane id on PANE_DROP_ATTR, not a bare presence flag', async () => {
+    const store = createWorkspaceStore('w1')
+    await renderPane(store)
+
+    const container = document.querySelector('[data-pane-container]')!
+    expect(container.getAttribute('data-pane-drop')).toBe(ROOT_PANE_ID)
+  })
+
+  it('carries no trace of the deleted dwell-to-remove overlay', async () => {
+    const store = createWorkspaceStore('w1')
+    await renderPane(store)
+
+    expect(document.querySelector('[data-pane-removal]')).toBeNull()
   })
 })

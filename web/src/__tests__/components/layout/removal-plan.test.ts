@@ -8,11 +8,7 @@
  * children, and a repo takes every worktree under it.
  */
 import { describe, it, expect } from 'vitest'
-import {
-  applyPendingRemovals,
-  describeRemoval,
-  planRemoval,
-} from '@/components/layout/removal-plan'
+import { applyPendingRemovals, planRemoval } from '@/components/layout/removal-plan'
 import type { Repo } from '@/lib/store/sidebar'
 import type { DragSubject } from '@/components/layout/drop-rules'
 
@@ -84,39 +80,6 @@ describe('what a removal takes with it', () => {
     const [draft] = planRemoval([WS('kid')], [repo()])
 
     expect(draft.fallbackWsId).toBe('a')
-  })
-})
-
-describe('what the pane promises', () => {
-  it('names the one row, and the eight seconds, once armed', () => {
-    expect(describeRemoval(planRemoval([WS('a')], [repo()]))).toEqual({
-      title: 'Release to remove alpha',
-      detail: 'You will have 8 seconds to undo',
-      armed: true,
-    })
-  })
-
-  it('says DROP HERE, not release, while the zone is merely available', () => {
-    // The veil is up for the whole drag now, and for most of it the pointer is
-    // somewhere else — telling the user to release then would be an instruction
-    // to do the one thing that reorders instead.
-    expect(describeRemoval(planRemoval([WS('a')], [repo()]), false)).toEqual({
-      title: 'Drop here to remove alpha',
-      detail: 'You will have 8 seconds to undo',
-      armed: false,
-    })
-  })
-
-  it('promises a repo an answer rather than a clock', () => {
-    expect(describeRemoval(planRemoval([{ kind: 'repo', id: 'r1' }], [repo()])).detail).toBe(
-      'You will confirm it in the sidebar before anything is deleted',
-    )
-  })
-
-  it('counts them when there are several', () => {
-    expect(describeRemoval(planRemoval([WS('a'), WS('b')], [repo()])).title).toBe(
-      'Release to remove 2 rows',
-    )
   })
 })
 

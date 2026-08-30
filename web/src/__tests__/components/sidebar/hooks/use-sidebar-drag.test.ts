@@ -15,9 +15,9 @@ import { createRef } from 'react'
 import {
   useSidebarDrag,
   SIDEBAR_DRAG_THRESHOLD_PX,
+  PANE_DROP_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
-import { PANE_DROP_ATTR } from '@/components/layout/drop-target-dom'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'

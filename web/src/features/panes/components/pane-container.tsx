@@ -41,6 +41,7 @@ import {
   moveBufferToPaneDropTarget,
 } from '../utils/pane-drop-actions'
 import { getPaneSplitDropOptions } from '../utils/pane-drop-zones'
+import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { type DropZone, SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import {
@@ -617,6 +618,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
+      // The sidebar's own drag arm (`useSidebarDrag`) hit-tests THIS attribute
+      // to find which pane a row/chat was dropped onto and at which zone
+      // (center/edge) — spec §8.1. Every drop here ADDS; see
+      // `performSidebarPaneDrop` (components/sidebar/lib/drop-actions.ts).
+      {...{ [PANE_DROP_ATTR]: pane.id }}
       // The whole pane is layout chrome: clicking anywhere in it (the tab
       // bar, the editor, empty padding) just marks this pane active as a
       // side effect. Every actually-interactive surface inside — tabs,
@@ -675,11 +681,18 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             out from under it — React saw a different element at its old
             position and unmounted/remounted it, and everything inside,
             INCLUDING LIVE TERMINAL PTYs, along with it. `pane.chatId` is not
-            a hypothetical either — `⌘N` (use-pane-keyboard.ts) calls
-            `setPaneChat` on the active pane whatever it currently holds, and
-            `chat-removal.ts` calls it the other way — so this was reachable
-            today, and directly against spec §7.2 ("Both surfaces stay
-            mounted") and the terminal keep-alive comment below.
+            a hypothetical either — `⌘N` (use-pane-keyboard.ts),
+            `openAgentChat`, and a chat drop onto a pane
+            (drop-actions.ts's `performSidebarPaneDrop`, Task 22) all call
+            `setPaneChat` on a pane that may already be showing something
+            else, so this was reachable today, and directly against spec
+            §7.2 ("Both surfaces stay mounted") and the terminal keep-alive
+            comment below. (The chat-removal.ts caller that used to clear
+            `pane.chatId` back to null went with that file — Task 22 — but
+            the toggle-BOTH-ways property this fixes is a React
+            reconciliation invariant, not a fact about which caller happens
+            to exercise it, so it still needs to hold the moment anything
+            clears a pane's chat again.)
 
             The fix: one stable parent, one stable position per child, keyed
             so React's reconciler matches by IDENTITY rather than by index —
@@ -737,8 +750,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                     AgentChatPane onto setPaneChat/chat-level rename instead of
                     a buffer id — not fixed here (out of this task's file
                     scope). `pane.chatId` IS set by production callers today —
-                    `⌘N` (use-pane-keyboard.ts) and, in reverse, chat-removal's
-                    `setPaneChat(paneId, null, null)` — so this gap is live, not
+                    `⌘N` (use-pane-keyboard.ts), `openAgentChat`, and a chat
+                    drop onto a pane (drop-actions.ts's
+                    `performSidebarPaneDrop`) — so this gap is live, not
                     theoretical; flagging it precisely rather than
                     understating it. */}
                 <AgentChatPane
