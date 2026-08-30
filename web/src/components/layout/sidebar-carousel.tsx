@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useLayoutEffect, useEffect, useRef, useState, Suspense } from 'react'
+import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useMatch } from '@tanstack/react-router'
 import { FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
@@ -14,6 +14,7 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 import {
+  CARD_BOTTOM_INSET_VAR,
   DEFAULT_CARD_HEIGHT_FRACTION,
   clampCardHeightFraction,
   loadCardHeightFraction,
@@ -51,12 +52,22 @@ interface SidebarCarouselProps {
    */
   sidebarHeight?: number
   /**
-   * Reports the card's own live height (px) on every change — mount, prop
-   * resize, and every frame of a drag. `ide-shell.tsx` uses this to give the
-   * tree region below an equal bottom inset (spec §6: "the tree keeps a
-   * bottom inset the height of the card") without the tree independently
-   * assuming any number of its own — this card is the one source of truth
-   * for its own height.
+   * Ref to the rail container `SidebarCarousel` and the tree region both sit
+   * under in `ide-shell.tsx` (mirrors `pane-sash.tsx`'s own
+   * `firstPaneRef`/`secondPaneRef` — refs to SIBLINGS, passed down from the
+   * parent that owns them all). During a drag, the live height is written
+   * straight onto this node as the `--card-bottom-inset` CSS custom
+   * property, which `space-scroller.tsx`'s `SpacePanel` reads via plain CSS
+   * inheritance — costing zero React re-renders for every frame of the drag,
+   * since nothing but a DOM property write happens until release.
+   */
+  railRef?: RefObject<HTMLDivElement | null>
+  /**
+   * Reports the card's own COMMITTED height (px) — mount, a `sidebarHeight`
+   * prop resize, and once on drag release. Deliberately NOT called on every
+   * frame of a live drag (that traffic goes through `railRef`'s CSS
+   * variable instead, exactly so a state update here can't cascade a
+   * re-render through the whole tree subtree on every pointermove).
    */
   onHeightChange?: (heightPx: number) => void
 }
@@ -64,6 +75,7 @@ interface SidebarCarouselProps {
 export function SidebarCarousel({
   activeWorkspaceRepoPath,
   sidebarHeight,
+  railRef,
   onHeightChange,
 }: SidebarCarouselProps) {
   const activeTab = useSidebarStore((s) => s.activeTab)
@@ -99,21 +111,35 @@ export function SidebarCarousel({
       ? Math.round(sidebarHeight * heightFraction)
       : undefined
 
-  // Reported on every change (mount, sidebarHeight resize, drag) so an
-  // ancestor can give the tree an equal bottom inset without assuming any
-  // number of its own — see the prop doc above.
-  useEffect(() => {
-    if (cardHeightPx != null) onHeightChange?.(cardHeightPx)
-  }, [cardHeightPx, onHeightChange])
+  // The RESTING value (mount, sidebarHeight resize, or the recompute a
+  // completed drag's committed `heightFraction` triggers) — never fired
+  // per-frame from inside a live drag, see the prop doc above. Keeps
+  // `--card-bottom-inset` in sync too, pre-paint (`useLayoutEffect`, not
+  // `useEffect`) so the tree never flashes an unset inset for one frame on
+  // mount.
+  useLayoutEffect(() => {
+    if (cardHeightPx == null) return
+    railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${cardHeightPx}px`)
+    onHeightChange?.(cardHeightPx)
+  }, [cardHeightPx, railRef, onHeightChange])
 
   // Pointer-drag resize from the top 6px hot zone (spec §6). Mirrors
   // pane-sash.tsx's/sidebar-split-pane.tsx's own pattern — track window
   // pointermove/up from pointerdown, coalesce the live size to one DOM write
-  // (and one `onHeightChange` report, since the tree's bottom inset tracks
-  // this same value live) per animation frame, commit once on release —
-  // rather than importing pane-sash.tsx itself: that component drags a
-  // flex-basis between two sibling panes, this drags one floating element's
-  // own height against a rail it does not share layout with.
+  // per animation frame, commit once on release — rather than importing
+  // pane-sash.tsx itself: that component drags a flex-basis between two
+  // sibling panes, this drags one floating element's own height against a
+  // rail it does not share layout with.
+  //
+  // Every live-frame write below is imperative DOM/CSS only — this card's
+  // own `cardRef.current.style.height` AND `railRef`'s
+  // `--card-bottom-inset` custom property, which `SpacePanel` reads via CSS
+  // inheritance (space-scroller.tsx). `onHeightChange` (React state in
+  // ide-shell.tsx) is called exactly once, on release, deliberately: calling
+  // it per frame previously re-rendered ide-shell.tsx and, since none of
+  // SidebarTreeSurface/SpaceScroller/SpacePanel/SidebarTree/SidebarRow are
+  // memoized, every visible row in the active project on every frame of a
+  // drag.
   const activeDragCleanupRef = useRef<(() => void) | null>(null)
 
   const handleResizePointerDown = useCallback(
@@ -131,7 +157,7 @@ export function SidebarCarousel({
       const applyLiveHeight = () => {
         animationFrame = 0
         if (cardRef.current) cardRef.current.style.height = `${liveHeight}px`
-        onHeightChange?.(liveHeight)
+        railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${liveHeight}px`)
       }
 
       const teardown = () => {
@@ -178,7 +204,7 @@ export function SidebarCarousel({
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
     },
-    [sidebarHeight, cardHeightPx, onHeightChange],
+    [sidebarHeight, cardHeightPx, railRef],
   )
 
   // Unmount-mid-drag safety (mirrors pane-sash.tsx): stray window listeners

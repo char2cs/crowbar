@@ -22,14 +22,6 @@ interface SidebarTreeSurfaceProps {
   projects: Project[]
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
-  /**
-   * Live height (px) of the floating file-explorer card (spec §6: "the tree
-   * keeps a bottom inset the height of the card, so the last row can always
-   * be scrolled clear"). Reported by `SidebarCarousel` itself and threaded
-   * down from `ide-shell.tsx` — this component never assumes the card's
-   * size on its own.
-   */
-  bottomInset?: number
 }
 
 /**
@@ -49,7 +41,6 @@ export function SidebarTreeSurface({
   projects,
   activeProjectId,
   onActiveProjectChange,
-  bottomInset,
 }: SidebarTreeSurfaceProps) {
   const navigate = useNavigate()
   // Every project's rows come off the SAME removal-tray-filtered `repos` the
@@ -100,7 +91,6 @@ export function SidebarTreeSurface({
           onCreate={createSidebarRow}
           onFocusRecent={focusRecentEntry}
           onCloseRecent={closeRecent}
-          bottomInset={bottomInset}
         />
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
+import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   getAllActiveWorkspaceIds,
@@ -31,10 +32,6 @@ interface SpaceScrollerProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
-  /** See `SidebarTreeSurface`'s own doc — threaded straight through to each
-   *  project's scroll region (spec §6's "bottom inset the height of the
-   *  card"). */
-  bottomInset?: number
 }
 
 /** The four `WorkspaceState` fields Recents actually reads, compared by
@@ -112,7 +109,6 @@ interface SpacePanelProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
-  bottomInset?: number
 }
 
 function SpacePanel({
@@ -124,7 +120,6 @@ function SpacePanel({
   onCreate,
   onFocusRecent,
   onCloseRecent,
-  bottomInset,
 }: SpacePanelProps) {
   const rows = rowsForProject(projectId)
   // Narrow, project-scoped selector (not the whole `repos` array) that
@@ -160,10 +155,17 @@ function SpacePanel({
       <ScrollArea className="flex-1">
         {/* Padding lives on the scrollable CONTENT, not the ScrollArea root —
             only that extends how far the region actually scrolls, which is
-            the whole point of the inset (spec §6). */}
+            the whole point of the inset (spec §6). Reads `--card-bottom-inset`
+            straight off the CSS cascade rather than a prop: that variable is
+            written directly onto the shared rail ancestor by
+            sidebar-carousel.tsx (see ide-shell.tsx's `railRef`), including
+            once per animation frame during a resize drag — routing that
+            through a React prop here would re-render this panel (and every
+            row in it) on every one of those frames. The `0px` fallback
+            covers the one render before the card has measured anything. */}
         <div
           data-testid="space-scroll-content"
-          style={bottomInset ? { paddingBottom: bottomInset } : undefined}
+          style={{ paddingBottom: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
         >
           <SidebarTree rows={rows} onOpen={onOpen} onTrash={onTrash} onCreate={onCreate} />
           <RecentsBand entries={entries} onFocus={onFocusRecent} onClose={onCloseRecent} />
@@ -195,7 +197,6 @@ export function SpaceScroller({
   onCreate,
   onFocusRecent,
   onCloseRecent,
-  bottomInset,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
@@ -266,7 +267,6 @@ export function SpaceScroller({
           onCreate={onCreate}
           onFocusRecent={onFocusRecent}
           onCloseRecent={onCloseRecent}
-          bottomInset={bottomInset}
         />
       ))}
     </div>

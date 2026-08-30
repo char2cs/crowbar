@@ -372,5 +372,132 @@ describe('SidebarCarousel', () => {
       expect(onHeightChange).not.toHaveBeenCalled()
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
     })
+
+    // Fix round 1: a live drag must cost zero React re-renders of anything
+    // outside this component — sidebar-split-pane.tsx's own established
+    // contract ("subsequent moves only update one CSS custom property").
+    // `onHeightChange` (React state, one level up in ide-shell.tsx) is the
+    // channel that used to fire every frame; the tree's own bottom inset now
+    // comes from `--card-bottom-inset`, written directly onto `railRef`.
+    describe('a live drag costs zero React re-renders (fix round 1)', () => {
+      it('does not call onHeightChange for intermediate drag frames, even once their own animation frame has run', () => {
+        vi.useFakeTimers()
+        try {
+          const onHeightChange = vi.fn()
+          render(
+            <SidebarCarousel
+              activeWorkspaceRepoPath="/repo"
+              sidebarHeight={900}
+              onHeightChange={onHeightChange}
+            />,
+          )
+          onHeightChange.mockClear()
+          const handle = screen.getByTestId('carousel-resize-handle')
+
+          fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
+          fireEvent.pointerMove(window, { clientY: 480 })
+          vi.advanceTimersByTime(20) // flushes the coalesced animation frame
+          fireEvent.pointerMove(window, { clientY: 440 })
+          vi.advanceTimersByTime(20)
+          fireEvent.pointerMove(window, { clientY: 400 })
+          vi.advanceTimersByTime(20)
+
+          // Every one of those frames actually ran (proven below) and none of
+          // them called onHeightChange.
+          expect(onHeightChange).not.toHaveBeenCalled()
+
+          fireEvent.pointerUp(window, { clientY: 400 })
+          expect(onHeightChange).toHaveBeenCalledTimes(1)
+          expect(onHeightChange).toHaveBeenCalledWith(400)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it("writes the live value straight onto railRef's --card-bottom-inset during the drag, with no onHeightChange call", () => {
+        vi.useFakeTimers()
+        try {
+          const onHeightChange = vi.fn()
+          const railRef = { current: document.createElement('div') }
+          render(
+            <SidebarCarousel
+              activeWorkspaceRepoPath="/repo"
+              sidebarHeight={900}
+              railRef={railRef}
+              onHeightChange={onHeightChange}
+            />,
+          )
+          onHeightChange.mockClear()
+          const handle = screen.getByTestId('carousel-resize-handle')
+
+          fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
+          fireEvent.pointerMove(window, { clientY: 400 }) // dragged up 100px
+          vi.advanceTimersByTime(20)
+
+          expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('400px')
+          expect(onHeightChange).not.toHaveBeenCalled()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('a sibling with no props of its own is not re-rendered by any frame of the drag, only (at most) once on release', () => {
+        let siblingRenders = 0
+        function Sibling() {
+          siblingRenders++
+          return null
+        }
+        // Mirrors ide-shell.tsx's real shape: a shared rail ref passed to
+        // SidebarCarousel, a piece of state updated by onHeightChange, and a
+        // non-memoized sibling under the same parent — exactly the shape
+        // the review found: SidebarTreeSurface/SpaceScroller/SpacePanel/
+        // SidebarTree/SidebarRow are all such non-memoized siblings.
+        function Harness() {
+          const railRef = React.useRef<HTMLDivElement>(null)
+          const [, setCommittedHeight] = React.useState(0)
+          return (
+            <div ref={railRef}>
+              <Sibling />
+              <SidebarCarousel
+                activeWorkspaceRepoPath="/repo"
+                sidebarHeight={900}
+                railRef={railRef}
+                onHeightChange={setCommittedHeight}
+              />
+            </div>
+          )
+        }
+
+        vi.useFakeTimers()
+        try {
+          render(<Harness />)
+          const rendersAfterMount = siblingRenders
+
+          const handle = screen.getByTestId('carousel-resize-handle')
+          fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
+          // `act()` around each flush forces React to actually commit any
+          // state update synchronously before the next line runs — without
+          // it, a state update from inside a fake-timer callback can sit
+          // uncommitted past the very assertion meant to catch it, passing
+          // for the wrong reason regardless of whether the fix is in place.
+          fireEvent.pointerMove(window, { clientY: 480 })
+          act(() => vi.advanceTimersByTime(20))
+          fireEvent.pointerMove(window, { clientY: 440 })
+          act(() => vi.advanceTimersByTime(20))
+          fireEvent.pointerMove(window, { clientY: 400 })
+          act(() => vi.advanceTimersByTime(20))
+
+          // No frame of the drag re-rendered the sibling.
+          expect(siblingRenders).toBe(rendersAfterMount)
+
+          fireEvent.pointerUp(window, { clientY: 400 })
+
+          // At most one additional render for the WHOLE drag, at release.
+          expect(siblingRenders).toBeLessThanOrEqual(rendersAfterMount + 1)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+    })
   })
 })

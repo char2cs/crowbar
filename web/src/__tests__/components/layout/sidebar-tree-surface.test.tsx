@@ -130,23 +130,4 @@ describe('SidebarTreeSurface', () => {
 
     expect(screen.queryByText('alpha')).not.toBeInTheDocument()
   })
-
-  // Spec §6: "the tree keeps a bottom inset the height of the card" —
-  // threaded straight through to SpaceScroller, not re-derived here.
-  it('threads bottomInset through to the scroll region as a bottom padding', () => {
-    useSidebarStore.setState({
-      repos: [repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a' })],
-    })
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        bottomInset={300}
-      />,
-    )
-
-    expect(screen.getByTestId('space-scroll-content')).toHaveStyle({ paddingBottom: '300px' })
-  })
 })

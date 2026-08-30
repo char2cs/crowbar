@@ -134,11 +134,14 @@ export function IDEShell() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  // The card's own live height (px), reported by SidebarCarousel itself —
-  // threaded to SidebarTreeSurface so the tree's scroll region can reserve
-  // an equal bottom inset (spec §6) without independently assuming the
-  // card's size. Neither side hardcodes the other's number.
-  const [cardHeightPx, setCardHeightPx] = useState(0)
+  // The tree's own bottom inset (spec §6) no longer flows through React
+  // state or props here: SidebarCarousel writes its live height straight
+  // onto `sidebarRailRef` as a `--card-bottom-inset` CSS custom property
+  // (via the `railRef` prop below), and `space-scroller.tsx`'s `SpacePanel`
+  // reads it back through plain CSS inheritance. A per-frame React state
+  // update here previously re-rendered this whole shell — and, since none
+  // of SidebarTreeSurface/SpaceScroller/SpacePanel/SidebarTree/SidebarRow
+  // are memoized, every visible row — on every frame of a resize drag.
 
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
@@ -172,14 +175,13 @@ export function IDEShell() {
             projects={allProjects}
             activeProjectId={activeProjectIdFromRoute}
             onActiveProjectChange={handleSelectProject}
-            bottomInset={cardHeightPx}
           />
         )}
         <ErrorBoundary>
           <SidebarCarousel
             activeWorkspaceRepoPath={activeWorkspaceRepoPath}
             sidebarHeight={sidebarRailHeight}
-            onHeightChange={setCardHeightPx}
+            railRef={sidebarRailRef}
           />
         </ErrorBoundary>
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />

@@ -190,9 +190,14 @@ describe('SpaceScroller', () => {
     expect(recentsForProject).toHaveBeenCalledWith('p2')
   })
 
-  // Spec §6: "the tree keeps a bottom inset the height of the card" — one
-  // number, reported by the card itself and threaded down here unchanged.
-  it('applies bottomInset as bottom padding on the scrollable content, per panel', () => {
+  // Spec §6: "the tree keeps a bottom inset the height of the card." Reads
+  // `--card-bottom-inset` off the CSS cascade (written directly onto the
+  // shared rail ancestor by sidebar-carousel.tsx — see ide-shell.tsx's
+  // `railRef`) rather than a React prop threaded through every layer: a
+  // prop here would re-render this panel (and every row in it) on every
+  // frame of a resize drag. See sidebar-carousel.test.tsx's "does not
+  // re-render the tree during a live drag" for the live end-to-end proof.
+  it("reads the card's bottom inset from the shared --card-bottom-inset CSS variable, per panel", () => {
     const projects = [makeProject('p1'), makeProject('p2')]
     render(
       <SpaceScroller
@@ -206,33 +211,13 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
-        bottomInset={240}
       />,
     )
     const contents = screen.getAllByTestId('space-scroll-content')
     expect(contents).toHaveLength(2)
     for (const content of contents) {
-      expect(content).toHaveStyle({ paddingBottom: '240px' })
+      expect(content).toHaveStyle({ paddingBottom: 'var(--card-bottom-inset, 0px)' })
     }
-  })
-
-  it('omits the bottom padding when no bottomInset is given', () => {
-    const projects = [makeProject('p1')]
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => []}
-        recentsForProject={noRecents}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-      />,
-    )
-    expect(screen.getByTestId('space-scroll-content')).not.toHaveAttribute('style')
   })
 
   it('renders nothing extra for a project with no recents entries', () => {
