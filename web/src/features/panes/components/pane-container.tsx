@@ -42,6 +42,14 @@ import {
 } from '../utils/pane-drop-actions'
 import { getPaneSplitDropOptions } from '../utils/pane-drop-zones'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
+
+// Painted straight onto the DOM by `useSidebarDrag`'s own `paintPaneHit` —
+// not read here as a prop, since a mounted pane and the sidebar's drag arm
+// live in completely different parts of the tree with nothing to prop-drill
+// through. Only the Tailwind selector needs to agree with the string
+// `paintPaneHit` writes, which is why it is spelled out (`data-[pane-hit]`)
+// rather than interpolated from an import — Tailwind's own build has to see
+// the literal class name to generate it.
 import { type DropZone, SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import {
@@ -629,11 +637,18 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       // editor, terminal — is a real focusable, keyboard-operable element
       // that keeps its own role; this wrapper conveys none of its own.
       role="presentation"
-      className={`relative flex h-full w-full flex-col overflow-hidden ${
+      className={cn(
+        'relative flex h-full w-full flex-col overflow-hidden',
         // Only ring the whole pane for file drags. Tab drags get the inner
         // SplitDropOverlay zone border instead — showing both is a double border.
-        isDragOver && !isTabDragOver && !internalHoverZone ? 'ring-2 ring-secondary' : ''
-      }`}
+        isDragOver && !isTabDragOver && !internalHoverZone && 'ring-2 ring-secondary',
+        // Spec §8.2: "the entry about to take a drop wears the same ring a
+        // pane wears" — same token (`ring-secondary`) the active-pane border
+        // and the file-drag ring above both already use, so a pane hovered
+        // during a sidebar-row drag reads as the SAME kind of "this is the
+        // target" as everything else in the app already does.
+        'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
+      )}
       onMouseDownCapture={handlePaneMouseDownCapture}
       onClick={handlePaneClick}
       onMouseUp={handleMouseUp}

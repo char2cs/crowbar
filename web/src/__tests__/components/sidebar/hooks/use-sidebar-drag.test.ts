@@ -16,6 +16,7 @@ import {
   useSidebarDrag,
   SIDEBAR_DRAG_THRESHOLD_PX,
   PANE_DROP_ATTR,
+  PANE_HIT_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
@@ -319,6 +320,149 @@ describe('useSidebarDrag', () => {
     release(310, 200)
 
     expect(onPaneDrop).toHaveBeenCalledWith([baseRow], 'pane-1', 'left')
+  })
+
+  // Fix round 1 (real, reviewer-verified gap): §8.2's "the entry about to
+  // take a drop wears the same ring a pane wears" needs a PANE half too — a
+  // neutral indicator marking which pane a release would land in. Painted
+  // straight onto the DOM (`paintPaneHit`), reading the exact same
+  // PANE_DROP_ATTR value the hit test itself resolves against.
+  describe('the pane-hit indicator (spec §8.2)', () => {
+    it('marks the hovered pane with PANE_HIT_ATTR, and only that pane', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const pane2 = makePane('pane-2', {
+        top: 100,
+        bottom: 300,
+        left: 600,
+        right: 800,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200) // over pane-1
+
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+      expect(pane2.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+    })
+
+    it('moves the mark when the drag crosses from one pane to another', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const pane2 = makePane('pane-2', {
+        top: 100,
+        bottom: 300,
+        left: 600,
+        right: 800,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200) // pane-1
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+
+      move(700, 200) // pane-2
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+      expect(pane2.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+    })
+
+    it('does not repaint on a zone change within the SAME pane (center → edge)', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200) // center
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+
+      move(310, 200) // left edge band, still pane-1
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+    })
+
+    it('clears the mark once the pointer leaves every pane', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200)
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+
+      move(10, ROW_H + 2) // back over the tree, off every pane
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+    })
+
+    it('clears the mark on release', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200)
+      release(400, 200)
+
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+    })
+
+    it('clears the mark on pointercancel', () => {
+      const rowA = makeRow(baseRow, 0)
+      const pane1 = makePane('pane-1', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200)
+      act(() => {
+        window.dispatchEvent(new Event('pointercancel', { bubbles: true }))
+      })
+
+      expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+    })
   })
 
   it('refuses a drop onto the dragged row’s own descendant, via its published path', () => {

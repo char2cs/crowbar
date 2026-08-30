@@ -4,10 +4,10 @@
  *
  * Two invented trees are wired up here — 'notes' and 'cards' — and neither is
  * the sidebar. That is the whole point: the sidebar's own hit test is covered
- * against its real attributes in `layout/drop-target-dom.test.ts`, so what is
- * left to prove is that a tree the core has never heard of gets identical
- * behaviour by handing in a table, and that two such trees on one page cannot
- * see each other's rows.
+ * against its real attributes in `sidebar/hooks/use-sidebar-drag.test.ts`, so
+ * what is left to prove is that a tree the core has never heard of gets
+ * identical behaviour by handing in a table, and that two such trees on one
+ * page cannot see each other's rows.
  *
  * jsdom has neither `elementsFromPoint` nor real layout, so both are stubbed.
  * The geometry IS the input, so stating it explicitly is what makes the band

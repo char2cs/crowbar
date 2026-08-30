@@ -2,7 +2,10 @@ import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 
 /**
@@ -84,11 +87,22 @@ export function performSidebarPaneDrop(
  * `setActivePane`, never a second `setPaneChat`.
  */
 function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
-  // A chat's owning workspace store is where its panes live — the same
-  // resolution `openAgentChat`/`focusRecent`/`closeRecent` already use, and
-  // the only one that works for a Recents row spanning a project's OTHER
-  // workspaces (spec §4: "Recents is per space").
   if (!subject.workspaceId) return
+  // `paneId` was hit-tested off the DOM, which only ever renders the panes of
+  // the ACTIVE workspace's WorkspaceView (every other retained workspace sits
+  // hidden — display:none — and the hit test itself refuses a zero-size rect).
+  // `RecentsBand` spans every workspace a project retains (spec §4: "Recents
+  // is per space"), so a row belonging to some OTHER, off-screen workspace can
+  // absolutely be dragged while THIS workspace's panes are what's on screen.
+  // `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are literal constants shared by every
+  // workspace's own store (recents-for-project.ts documents this same trap),
+  // so resolving `paneId` against the CHAT's workspace instead of the PANE's
+  // real one does not fail — it silently mutates a workspace the user isn't
+  // even looking at. Refuse rather than guess: there is no sidebar-placement
+  // endpoint threading a `navigate` call through this far down yet (see
+  // `performSidebarDrop`'s own comment on the same gap), and a cross-workspace
+  // merge/open has no coherent single-pane-tree meaning to fall back to.
+  if (subject.workspaceId !== getActiveWorkspaceId()) return
   const store = getOrCreateWorkspaceStore(subject.workspaceId)
   const { panes, paneActions } = store.getState()
   const chatId = subject.id

@@ -506,12 +506,28 @@ export const createPaneSlice: StateCreator<
           // it goes." A chat moving fresh into a pane (never one already
           // showing there — that path never calls this at all, see
           // `performSidebarPaneDrop`'s "already up → reveal" branch) sheds
-          // its membership in whatever set(s) still remember it; the
+          // its membership in whatever MULTI-chat set still remembers it; the
           // survivors stay grouped under the same entry id.
-          if (movedIn) {
+          //
+          // A SINGLE-chat entry is deliberately left alone here — it is not a
+          // "set this chat is leaving", it IS this chat's own dormant/live
+          // slot (spec §5.6: "restoring a dormant one — the row stays exactly
+          // where it sits"). Stripping it here would delete that one record
+          // outright, and `deriveRecentsEntries` would then re-derive the row
+          // fresh from the pane loop — appended AFTER every remaining dormant
+          // entry instead of staying put. Leaving it untouched means the SAME
+          // record just recomputes to 'live' the next time Recents derives
+          // (its `chatIds` still names this chat, and the chat is live again),
+          // at its ORIGINAL slot — and `closePane`'s own "already remembered"
+          // guard means the record is reused symmetrically on the way back
+          // out, too.
+          const strippable =
+            movedIn &&
+            state.dormantArrangements.some((e) => e.chatIds.length > 1 && e.chatIds.includes(chatId))
+          if (strippable) {
             state.dormantArrangements = state.dormantArrangements
               .map((e) =>
-                e.chatIds.includes(chatId)
+                e.chatIds.length > 1 && e.chatIds.includes(chatId)
                   ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }
                   : e,
               )
@@ -536,11 +552,30 @@ export const createPaneSlice: StateCreator<
             e.chatIds.some((id) => chatIds.includes(id)),
           )
           const merged = Array.from(new Set([...(owner?.chatIds ?? []), ...chatIds]))
+          const mergedEntry: RecentsEntry = { id: owner?.id ?? nanoid(), chatIds: merged, state: 'live' }
+
+          if (!owner) {
+            // Nothing existing to grow — a brand new group, appended like any
+            // other freshly-created row.
+            state.dormantArrangements.push(mergedEntry)
+            return
+          }
+
+          // Spec §5.6: "an arrangement that gains or loses a pane inherits
+          // the place it grew out of" — the OWNER's own slot is where the
+          // grown entry belongs, never the tail (filter-then-push always
+          // dropped an already-live set to the bottom of Recents on every
+          // merge). One pass over the ORIGINAL order: the owner's position
+          // becomes the merged entry in place, every OTHER entry sheds the
+          // ids that just joined it, and anything that empties out is
+          // dropped — which preserves every survivor's relative order too.
           state.dormantArrangements = state.dormantArrangements
-            .filter((e) => e !== owner)
-            .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => !chatIds.includes(id)) }))
+            .map((e) =>
+              e === owner
+                ? mergedEntry
+                : { ...e, chatIds: e.chatIds.filter((id) => !chatIds.includes(id)) },
+            )
             .filter((e) => e.chatIds.length > 0)
-          state.dormantArrangements.push({ id: owner?.id ?? nanoid(), chatIds: merged, state: 'live' })
         })
       },
     },

@@ -715,6 +715,72 @@ describe('pane-slice — groupIntoArrangement (spec §8.2 "merging")', () => {
       'chat-3',
     ])
   })
+
+  // Fix round 1 (real, reviewer-verified regression): the original
+  // implementation always did filter-then-push, which re-inserted a GROWING
+  // entry at the array TAIL — dropping an already-live set from wherever it
+  // sat straight to the bottom of Recents on every merge. Spec §5.6: "an
+  // arrangement that gains or loses a pane inherits the place of the ONE IT
+  // GREW OUT OF."
+  it('grows an entry IN PLACE — it does not jump to the end of the list (Fix round 1)', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['t', 'd']) // index 0
+    store.getState().paneActions.groupIntoArrangement(['x', 'y']) // index 1
+
+    store.getState().paneActions.groupIntoArrangement(['t', 'z']) // grows the FIRST entry
+
+    const { dormantArrangements } = store.getState()
+    expect(dormantArrangements).toHaveLength(2)
+    // The grown set is still FIRST, not shoved to the end behind [x, y].
+    expect([...dormantArrangements[0].chatIds].sort()).toEqual(['d', 't', 'z'])
+    expect([...dormantArrangements[1].chatIds].sort()).toEqual(['x', 'y'])
+  })
+
+  // A brand-new group (no pre-existing entry to grow out of) has nowhere of
+  // its own to inherit — appending is the only sensible slot for it.
+  it('appends a genuinely brand-new group after whatever already exists', () => {
+    const store = makeStore()
+    store.getState().paneActions.groupIntoArrangement(['a', 'b'])
+
+    store.getState().paneActions.groupIntoArrangement(['c', 'd'])
+
+    const { dormantArrangements } = store.getState()
+    expect(dormantArrangements).toHaveLength(2)
+    expect([...dormantArrangements[0].chatIds].sort()).toEqual(['a', 'b'])
+    expect([...dormantArrangements[1].chatIds].sort()).toEqual(['c', 'd'])
+  })
+
+  // Fix round 1: the "arrangement left with nobody in it goes" rule (§8.2)
+  // IS still reachable — not through setPaneChat pulling a group down to its
+  // LAST member (see the describe block below, where a shrunk-to-one entry
+  // is deliberately protected instead — it is now that chat's own slot) —
+  // but here: that already-single-member slot gets swept up whole into a
+  // DIFFERENT merge that doesn't choose it as the owner, and the now-empty
+  // record it leaves behind is pruned.
+  it('an arrangement left with nobody in it goes, when its sole member joins a different merge', () => {
+    const store = makeStore()
+    // An EARLIER entry, so the owner search below finds IT first.
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    // chat-6's own slot: a pair that gets pulled back down to one member.
+    store.getState().paneActions.groupIntoArrangement(['chat-6', 'chat-7'])
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-7', null)
+    expect([...store.getState().dormantArrangements].map((e) => [...e.chatIds].sort())).toEqual([
+      ['chat-1', 'chat-2'],
+      ['chat-6'],
+    ])
+
+    // chat-6 now joins a merge with chat-1 — the [chat-1, chat-2] entry (it
+    // comes first, and it already owns chat-1) is the one that grows;
+    // chat-6's own single-member entry has nobody left once chat-6 leaves it.
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-6'])
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+      'chat-6',
+    ])
+  })
 })
 
 describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §8.2)', () => {
@@ -736,16 +802,60 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
     expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-3'])
   })
 
-  it('an arrangement left with nobody in it goes', () => {
+  // Fix round 1 (real, reviewer-verified regression): the original version
+  // of this stripped a SINGLE-chat entry exactly like a multi-chat one —
+  // restoring a dormant chat (`openAgentChat`, reachable from New Tab's
+  // recent list) deleted its own dormant record outright, so
+  // `deriveRecentsEntries` re-derived the row fresh from the pane loop,
+  // appended AFTER every remaining dormant entry instead of staying at its
+  // slot. Spec §5.6: "Restoring a dormant one — the row stays exactly where
+  // it sits." A single-chat entry IS that chat's own persistent slot now, so
+  // `setPaneChat` never strips it down past one member — it stays, and just
+  // recomputes to 'live' in place the next time Recents derives.
+  it('pulling the last member out of a pair leaves the SURVIVOR its own single-chat slot — not removed', () => {
     const store = makeStore()
     store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
     const paneA = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    const paneB = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
 
+    // chat-1 moves out first — the pair's own entry sheds it (2 members, so
+    // still eligible) and is left with chat-2 alone.
     store.getState().paneActions.setPaneChat(paneA, 'chat-1', null)
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: expect.any(String), chatIds: ['chat-2'], state: 'live' },
+    ])
+
+    // Now chat-2 ALSO moves — but its entry is down to ONE member, so
+    // setPaneChat leaves it alone entirely (Fix round 1): it is chat-2's own
+    // slot now, not a "set" with nobody left in it, and the SAME record
+    // just recomputes to 'live' at chat-2's new pane on the next derive.
+    const paneB = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    const before = store.getState().dormantArrangements
     store.getState().paneActions.setPaneChat(paneB, 'chat-2', null)
 
-    expect(store.getState().dormantArrangements).toEqual([])
+    expect(store.getState().dormantArrangements).toBe(before)
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: expect.any(String), chatIds: ['chat-2'], state: 'live' },
+    ])
+  })
+
+  it('restoring a dormant chat via setPaneChat keeps its record — and its slot — instead of deleting it (spec §5.6)', () => {
+    const store = makeStoreWithWorking({})
+    // A single-chat entry, exactly as closePane's own dormant push creates.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    const [dormantRecord] = store.getState().dormantArrangements
+    expect(dormantRecord).toEqual({ id: ROOT_PANE_ID, chatIds: ['chat-1'], state: 'dormant' })
+
+    const before = store.getState().dormantArrangements
+    // Restore it into a pane — the same write `openAgentChat` performs.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+
+    // The SAME record, same id, same slot — not deleted and re-derived
+    // fresh (which would have appended it after every other dormant entry).
+    // Referentially the SAME array too: nothing here needed stripping, so
+    // nothing should have minted a new one for React to re-render over.
+    expect(store.getState().dormantArrangements).toBe(before)
+    expect(store.getState().dormantArrangements).toEqual([dormantRecord])
   })
 
   it('re-setting the SAME chat a pane already holds does not touch dormantArrangements', () => {

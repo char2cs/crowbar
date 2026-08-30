@@ -121,6 +121,17 @@ export interface SidebarPaneHit {
  */
 export const PANE_DROP_ATTR = 'data-pane-drop'
 
+/**
+ * Painted onto the SAME element as {@link PANE_DROP_ATTR} for as long as this
+ * pane is the one a release would land in — spec §8.2's "the entry about to
+ * take a drop wears the same ring a pane wears" is a promise about a PANE
+ * too, and this is the attribute a pane's own CSS reads to draw it (see
+ * `paintPaneHit` below). A bare presence flag, like the old veil's
+ * `data-armed` — there is only one question here ("is this the one"), not a
+ * value to carry.
+ */
+export const PANE_HIT_ATTR = 'data-pane-hit'
+
 const paneZone: DropZone<DragRow, SidebarPaneHit> = {
   attr: PANE_DROP_ATTR,
   hit: (_subjects, el, point) => {
@@ -192,6 +203,30 @@ function setDropLineTracking(el: HTMLDivElement | null, tracking: boolean): void
 function samePaneHit(a: SidebarPaneHit | null, b: SidebarPaneHit | null): boolean {
   if (a === null || b === null) return a === b
   return a.paneId === b.paneId && a.zone === b.zone
+}
+
+/**
+ * §8.2: "the entry about to take a drop wears the same ring a pane wears" —
+ * so a pane being hovered during a sidebar-row drag needs the OTHER half of
+ * that same answer, a neutral indicator marking which pane a release would
+ * land in. Painted straight onto the DOM, like the hairline above and the
+ * ghost — a pane's own element lives in a completely different part of the
+ * tree (inside `WorkspaceHost`, not the sidebar), so there is no ref to hand
+ * this a mounted node the way `attachDropLine` gets one; `PANE_DROP_ATTR`
+ * (the same attribute the hit test itself reads) doubles as the selector.
+ *
+ * Gated on the PANE changing, not the zone — this answers "which pane",
+ * not "which side of it"; a center→edge move on the SAME pane repaints the
+ * drop line but not this.
+ */
+function paintPaneHit(prevPaneId: string | null, nextPaneId: string | null): void {
+  if (prevPaneId === nextPaneId) return
+  if (prevPaneId !== null) {
+    document.querySelector(`[${PANE_DROP_ATTR}="${prevPaneId}"]`)?.removeAttribute(PANE_HIT_ATTR)
+  }
+  if (nextPaneId !== null) {
+    document.querySelector(`[${PANE_DROP_ATTR}="${nextPaneId}"]`)?.setAttribute(PANE_HIT_ATTR, '')
+  }
 }
 
 export interface UseSidebarDragOptions {
@@ -304,6 +339,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       }
       const pane = hit?.kind === 'pane' ? hit : null
       if (!samePaneHit(pane, paneHitRef.current)) {
+        paintPaneHit(paneHitRef.current?.paneId ?? null, pane?.paneId ?? null)
         paneHitRef.current = pane
         setPaneHit(pane)
       }
@@ -425,6 +461,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       document.removeEventListener('selectstart', preventDefault)
       draggingRef.current = null
       dropTargetRef.current = null
+      paintPaneHit(paneHitRef.current?.paneId ?? null, null)
       paneHitRef.current = null
       lastHitRef.current = null
       ghostOriginRef.current = null
@@ -478,6 +515,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // selection blocked, with no drag left to end and clear them.
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
+      paintPaneHit(paneHitRef.current?.paneId ?? null, null)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)

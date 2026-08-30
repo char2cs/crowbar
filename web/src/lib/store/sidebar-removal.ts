@@ -37,32 +37,22 @@ export interface RemovalDraft {
   kind: 'workspace' | 'folder' | 'repo' | 'project'
   /** The row itself: a workspace, folder, repo or project id. */
   id: string
-  /** What the row reads as, for the tray row and the pane's overlay. */
+  /** What the row reads as, for the tray row. */
   label: string
   projectId: string
   /** The owning repo; for a repo removal this is the repo itself, and for a
    *  project removal there is no single one, so it is ''. */
   repoId: string
   /**
-   * The workspace a chat row belongs to — what its DELETE is addressed to.
-   *
-   * '' on every sidebar row: a workspace, a repo and a project are not scoped to
-   * one, and a chat's delete route is workspace-nested. Required rather than
-   * optional so the commit path reads it as a string and never has to invent a
-   * fallback for a case its own planner cannot produce.
+   * Always '' now — a leftover of the deleted Chats panel's own drafts,
+   * whose chat kind was the only one ever scoped to a workspace. Kept
+   * (rather than dropped) so `RemovalEntry`/the commit path don't need a
+   * second, narrower draft shape for what is otherwise one interface.
    */
   wsId: string
   /**
-   * The chat's provider artwork, as the SVG string the daemon serves.
-   *
-   * '' on every sidebar row, and on a chat whose provider has gone — the tray
-   * falls back to the chat glyph there, exactly as the sidebar row does.
-   *
-   * Carried on the draft rather than looked up by the tray, because the tray is
-   * in `components/layout` and the provider list is a workspace-store fact the
-   * agent feature owns. The panel already holds the id→icon map at the moment it
-   * builds the draft, so this costs a lookup it was doing anyway — and it is
-   * what stops the tray drawing a stand-in that does not match the row.
+   * Always '' now, for the same reason `wsId` is: only a chat draft ever
+   * carried real provider artwork here, and that kind is gone (Task 22).
    */
   providerIcon: string
   /** Every row hidden while this waits — the row and whatever it takes with it. */
