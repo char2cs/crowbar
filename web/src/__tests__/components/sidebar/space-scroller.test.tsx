@@ -190,6 +190,51 @@ describe('SpaceScroller', () => {
     expect(recentsForProject).toHaveBeenCalledWith('p2')
   })
 
+  // Spec §6: "the tree keeps a bottom inset the height of the card" — one
+  // number, reported by the card itself and threaded down here unchanged.
+  it('applies bottomInset as bottom padding on the scrollable content, per panel', () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(
+      <SpaceScroller
+        projects={projects}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        rowsForProject={() => []}
+        recentsForProject={noRecents}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        onFocusRecent={vi.fn()}
+        onCloseRecent={vi.fn()}
+        bottomInset={240}
+      />,
+    )
+    const contents = screen.getAllByTestId('space-scroll-content')
+    expect(contents).toHaveLength(2)
+    for (const content of contents) {
+      expect(content).toHaveStyle({ paddingBottom: '240px' })
+    }
+  })
+
+  it('omits the bottom padding when no bottomInset is given', () => {
+    const projects = [makeProject('p1')]
+    render(
+      <SpaceScroller
+        projects={projects}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        rowsForProject={() => []}
+        recentsForProject={noRecents}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        onFocusRecent={vi.fn()}
+        onCloseRecent={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('space-scroll-content')).not.toHaveAttribute('style')
+  })
+
   it('renders nothing extra for a project with no recents entries', () => {
     const projects = [makeProject('p1')]
     render(

@@ -31,6 +31,10 @@ interface SpaceScrollerProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  /** See `SidebarTreeSurface`'s own doc — threaded straight through to each
+   *  project's scroll region (spec §6's "bottom inset the height of the
+   *  card"). */
+  bottomInset?: number
 }
 
 /** The four `WorkspaceState` fields Recents actually reads, compared by
@@ -108,6 +112,7 @@ interface SpacePanelProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  bottomInset?: number
 }
 
 function SpacePanel({
@@ -119,6 +124,7 @@ function SpacePanel({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  bottomInset,
 }: SpacePanelProps) {
   const rows = rowsForProject(projectId)
   // Narrow, project-scoped selector (not the whole `repos` array) that
@@ -152,8 +158,16 @@ function SpacePanel({
       className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
     >
       <ScrollArea className="flex-1">
-        <SidebarTree rows={rows} onOpen={onOpen} onTrash={onTrash} onCreate={onCreate} />
-        <RecentsBand entries={entries} onFocus={onFocusRecent} onClose={onCloseRecent} />
+        {/* Padding lives on the scrollable CONTENT, not the ScrollArea root —
+            only that extends how far the region actually scrolls, which is
+            the whole point of the inset (spec §6). */}
+        <div
+          data-testid="space-scroll-content"
+          style={bottomInset ? { paddingBottom: bottomInset } : undefined}
+        >
+          <SidebarTree rows={rows} onOpen={onOpen} onTrash={onTrash} onCreate={onCreate} />
+          <RecentsBand entries={entries} onFocus={onFocusRecent} onClose={onCloseRecent} />
+        </div>
       </ScrollArea>
     </div>
   )
@@ -181,6 +195,7 @@ export function SpaceScroller({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  bottomInset,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
@@ -251,6 +266,7 @@ export function SpaceScroller({
           onCreate={onCreate}
           onFocusRecent={onFocusRecent}
           onCloseRecent={onCloseRecent}
+          bottomInset={bottomInset}
         />
       ))}
     </div>

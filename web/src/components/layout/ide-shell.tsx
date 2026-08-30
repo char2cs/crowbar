@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
@@ -116,6 +116,30 @@ export function IDEShell() {
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
 
+  // The floating file-explorer card's own rail (spec §6: it "opens at one
+  // third of the sidebar's height" and "height is kept as a proportion of
+  // the rail"). Measured here, not inside SidebarCarousel, because the rail
+  // IS this column — measure synchronously on mount (mirrors
+  // use-tab-bar-scroll.ts's own layout-effect + ResizeObserver pattern) so
+  // the card opens at the right height on first paint, not one frame late.
+  const sidebarRailRef = useRef<HTMLDivElement>(null)
+  const [sidebarRailHeight, setSidebarRailHeight] = useState(0)
+  useLayoutEffect(() => {
+    const el = sidebarRailRef.current
+    if (!el) return
+    const measure = () => setSidebarRailHeight(el.getBoundingClientRect().height)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // The card's own live height (px), reported by SidebarCarousel itself —
+  // threaded to SidebarTreeSurface so the tree's scroll region can reserve
+  // an equal bottom inset (spec §6) without independently assuming the
+  // card's size. Neither side hardcodes the other's number.
+  const [cardHeightPx, setCardHeightPx] = useState(0)
+
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
   // the route. Keep the active project in sync with the route's projectId.
@@ -131,7 +155,10 @@ export function IDEShell() {
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
-      <div className="relative flex h-full flex-col overflow-hidden bg-transparent select-none">
+      <div
+        ref={sidebarRailRef}
+        className="relative flex h-full flex-col overflow-hidden bg-transparent select-none"
+      >
         {!hasNavScreen && (
           <SidebarProjectHeader
             projects={allProjects}
@@ -145,10 +172,15 @@ export function IDEShell() {
             projects={allProjects}
             activeProjectId={activeProjectIdFromRoute}
             onActiveProjectChange={handleSelectProject}
+            bottomInset={cardHeightPx}
           />
         )}
         <ErrorBoundary>
-          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+          <SidebarCarousel
+            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+            sidebarHeight={sidebarRailHeight}
+            onHeightChange={setCardHeightPx}
+          />
         </ErrorBoundary>
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
