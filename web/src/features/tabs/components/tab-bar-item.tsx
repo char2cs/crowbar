@@ -9,11 +9,9 @@ import {
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { AgentChatTabIcon } from '@/features/agent/shared/agent-chat-tab-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
-import { CrowbarMark } from '@/components/ui/crowbar-mark'
 import { Tab } from '@/components/ui/tabs'
 import { cn } from '@/utils/cn'
 
@@ -132,15 +130,6 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
-          ) : buffer.type === 'newTab' ? (
-            // Deliberately LARGER than the 14px icon slot (it overflows the
-            // place-content-center box, which has no clip). The mark art is a
-            // circle with generous internal padding, so at the sibling icons'
-            // 14px it reads visibly smaller than them; ~18px makes it match by
-            // eye. Don't "normalise" this back to size-3.5 — that regresses it.
-            <CrowbarMark className="size-[18px] shrink-0 text-muted-foreground" />
-          ) : buffer.type === 'agentChat' ? (
-            <AgentChatTabIcon wsId={buffer.wsId} chatId={buffer.chatId} />
           ) : (
             <FileExplorerIcon
               fileName={buffer.name}
@@ -215,7 +204,7 @@ const TabBarItem = memo(function TabBarItem({
  * naive `prev.buffer === next.buffer` check would re-render the active tab on
  * every keystroke even though nothing it draws has changed. Enumerated from the
  * fields read in the render body: id, type, name, path, isPinned, isPreview,
- * isUncloseable, the editor dirty flag, the diff payload and the agent-chat ids.
+ * isUncloseable, the editor dirty flag and the diff payload.
  *
  * Exported and REUSED by TabBar's `useRenderedPaneBuffers` subscription
  * (tab-bar.tsx) so the field set that gates the WHOLE tab strip's re-render is

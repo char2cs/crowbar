@@ -41,7 +41,9 @@ const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
   removeBufferFromPane: vi.fn(),
-  clearPreviewBufferEverywhere: vi.fn(),
+  // pane-slice's real name post-Task-2 (renamed from clearPreviewBufferEverywhere,
+  // and dropped its `id` param — it clears every buffer's isPreview flag).
+  clearEditorTabPreviewEverywhere: vi.fn(),
   getPaneById: vi.fn(() => null),
 })
 
@@ -255,7 +257,7 @@ describe('buffer-slice', () => {
       expect(storeInst.getState().bufferActions.getBufferById(id)?.isPreview).toBe(false)
     })
 
-    it('calls clearPreviewBufferEverywhere with the buffer id', () => {
+    it('calls clearEditorTabPreviewEverywhere', () => {
       const paneActions = makePaneActions()
       const { store: storeInst } = makeStore(paneActions)
       const id = storeInst.getState().bufferActions.openContent({
@@ -266,7 +268,7 @@ describe('buffer-slice', () => {
         isPreview: true,
       })
       storeInst.getState().bufferActions.promotePreview(id)
-      expect(paneActions.clearPreviewBufferEverywhere).toHaveBeenCalledWith(id)
+      expect(paneActions.clearEditorTabPreviewEverywhere).toHaveBeenCalled()
     })
 
     it('does nothing when buffer id is not found', () => {
@@ -274,7 +276,7 @@ describe('buffer-slice', () => {
       const { store: storeInst } = makeStore(paneActions)
       // no buffer in store
       storeInst.getState().bufferActions.promotePreview('nonexistent-id')
-      expect(paneActions.clearPreviewBufferEverywhere).not.toHaveBeenCalled()
+      expect(paneActions.clearEditorTabPreviewEverywhere).not.toHaveBeenCalled()
     })
   })
 

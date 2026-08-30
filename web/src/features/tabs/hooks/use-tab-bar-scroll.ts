@@ -8,6 +8,10 @@ interface UseTabBarScrollOptions {
 
 interface UseTabBarScrollResult {
   tabBarRef: RefObject<HTMLDivElement | null>
+  /** The actual horizontally-scrolling element — the editor-tab scroller,
+   *  since the pane-top row (`tabBarRef`) now also hosts the split toggle
+   *  and the chat head, which never scroll. */
+  scrollRef: RefObject<HTMLDivElement | null>
   isAtLeftEdge: boolean
   isAtRightEdge: boolean
   isAtTopEdge: boolean
@@ -19,6 +23,7 @@ export function useTabBarScroll({
   draggedBufferId,
 }: UseTabBarScrollOptions): UseTabBarScrollResult {
   const tabBarRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
   const [isAtRightEdge, setIsAtRightEdge] = useState(false)
   const [isAtTopEdge, setIsAtTopEdge] = useState(false)
@@ -46,14 +51,14 @@ export function useTabBarScroll({
   }, [sidebarPosition])
 
   const canScrollTabsHorizontally = useCallback(() => {
-    const container = tabBarRef.current
+    const container = scrollRef.current
     if (!container) return false
     return container.scrollWidth > container.clientWidth + 1
   }, [])
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
-      const container = tabBarRef.current
+      const container = scrollRef.current
       if (!container) return
       if (draggedBufferId) return
       if (e.ctrlKey || e.metaKey) return
@@ -80,5 +85,5 @@ export function useTabBarScroll({
     [canScrollTabsHorizontally, draggedBufferId],
   )
 
-  return { tabBarRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel }
+  return { tabBarRef, scrollRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel }
 }

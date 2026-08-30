@@ -71,8 +71,8 @@ function setupStore(buffers: EditorContent[]) {
       ...s.panes,
       [ROOT_PANE_ID]: {
         ...s.panes[ROOT_PANE_ID],
-        bufferIds: buffers.map((b) => b.id),
-        activeBufferId: buffers[0]?.id ?? null,
+        editorTabIds: buffers.map((b) => b.id),
+        activeEditorTabId: buffers[0]?.id ?? null,
       },
     },
   }))
@@ -152,7 +152,7 @@ describe('TabBar handler delegation', () => {
       fireEvent.click(tabs[3])
     })
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeBufferId).toBe('buf-3')
+    expect(store.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-3')
   })
 
   it('routes a double-click to the correct buffer (promotes that preview tab)', () => {
@@ -205,7 +205,7 @@ describe('TabBar handler delegation', () => {
       fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
     })
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeBufferId).toBe('buf-1')
+    expect(store.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-1')
   })
 
   it('routes the close affordance to the correct buffer', () => {
@@ -223,7 +223,7 @@ describe('TabBar handler delegation', () => {
     })
 
     expect(store.getState().buffers.some((b) => b.id === 'buf-2')).toBe(false)
-    expect(store.getState().panes[ROOT_PANE_ID]?.bufferIds).not.toContain('buf-2')
+    expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain('buf-2')
   })
 })
 

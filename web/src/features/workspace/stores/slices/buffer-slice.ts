@@ -463,16 +463,17 @@ export const createBufferSlice: StateCreator<
           })
         }
         // Release the held Monaco model for any pane that STILL holds this buffer.
-        // The canonical close paths call `removeBufferFromPane` first (which already
-        // released for that pane and stripped the id), so this only fires for panes
-        // that were skipped (direct closeBuffer callers) or other panes holding the
-        // same file — release exactly once per holding pane. Disposes the model when
-        // the last holder releases, so a reopen reads fresh content (no stale model).
+        // The canonical close paths call `removeEditorTabFromPane` first (which
+        // already released for that pane and stripped the id), so this only
+        // fires for panes that were skipped (direct closeBuffer callers) or
+        // other panes holding the same file — release exactly once per holding
+        // pane. Disposes the model when the last holder releases, so a reopen
+        // reads fresh content (no stale model).
         if (buf && isEditorContent(buf)) {
           const uri = fileUri(buf.path)
           const manager = editorManagerOf()
           for (const pane of Object.values(get().panes ?? {})) {
-            if (pane.bufferIds.includes(id)) manager?.closeBuffer(pane.id, uri)
+            if (pane.editorTabIds.includes(id)) manager?.closeBuffer(pane.id, uri)
           }
         }
         // Free git-blame data accumulated for this file so per-file Maps don't
@@ -567,7 +568,7 @@ export const createBufferSlice: StateCreator<
             found = true
           }
         })
-        if (found) get().paneActions.clearPreviewBufferEverywhere(id)
+        if (found) get().paneActions.clearEditorTabPreviewEverywhere()
       },
 
       getBufferById(id) {
