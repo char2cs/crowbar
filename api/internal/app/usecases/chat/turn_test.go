@@ -1318,38 +1318,58 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	assert.Contains(t, got[0].Schema, `"enum":["A","B"]`)
 }
 
-func TestObservation_ACodexChatObservesNeitherElicitationNorToolFailure(t *testing.T) {
-	testCases := []struct {
-		name    string
-		kind    string
-		payload map[string]any
-	}{
-		{
-			name: "elicitation", kind: engineagents.HookElicitation,
-			payload: map[string]any{"mcp_server_name": "spike", "message": "A or B?"},
-		},
-		{
-			name: "tool failure", kind: engineagents.HookToolFail,
-			payload: map[string]any{"tool_use_id": "t1", "tool_name": "shell", "error": "boom"},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
-			chatID, runnerID := f.spawn(t, "codex")
-			hook(t, f, runnerID, "codex", engineagents.HookUserPrompt,
-				map[string]any{"prompt": "go"})
+// TestObservation_ACodexChatObservesNoToolFailure used to run "elicitation"
+// through this same table too, on the premise that codex.yaml declared no
+// elicitation: event at all. a9ebb6f1 ("merge codex into one mixed-transport
+// descriptor") gave codex a real elicitation: mapping with its own reply
+// templates specifically so it would stop being dropped as unmapped — see
+// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt for
+// the positive case that replaced it. tool_fail is untouched by that merge:
+// codex.yaml still declares no tool_fail event, so this one case still
+// proves the "unmapped kind is dropped, never failed" invariant.
+func TestObservation_ACodexChatObservesNoToolFailure(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
-			err := f.usecase.IngestHook(f.ctx, runnerID, "codex", tc.kind, mustJSON(t, tc.payload))
-			f.wait()
+	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookToolFail,
+		mustJSON(t, map[string]any{"tool_use_id": "t1", "tool_name": "shell", "error": "boom"}))
+	f.wait()
 
-			require.NoError(t, err, "an unmapped kind is dropped, never failed")
-			assert.Empty(t, pendingChoices(t, f, chatID))
-			calls, listErr := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
-			require.NoError(t, listErr)
-			assert.Empty(t, calls)
-		})
-	}
+	require.NoError(t, err, "an unmapped kind is dropped, never failed")
+	assert.Empty(t, pendingChoices(t, f, chatID))
+	calls, listErr := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	require.NoError(t, listErr)
+	assert.Empty(t, calls)
+}
+
+// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt is
+// codex's half of a9ebb6f1's promise ("elicitation... now answerable"),
+// mirroring TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt
+// for claude. codex.yaml's elicitation: map only extracts message (schema:
+// requestedSchema is the api-transport field name, with no hooks-shape
+// fallback the way permission's tool_name: "tool || tool_name" has), so
+// Title, Mode, and Schema all stay unset for a hooks-delivered elicitation —
+// that is the actual declared mapping today, not an oversight this test
+// should paper over.
+func TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+
+	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+	hook(t, f, runnerID, "codex", engineagents.HookElicitation, map[string]any{
+		"mcp_server_name": "spike", "message": "do you prefer A or B?",
+	})
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, engineagents.InterruptElicitation, ints[0].Kind)
+
+	got := pendingChoices(t, f, chatID)
+	require.Len(t, got, 1)
+	assert.Equal(t, domain.ChoiceKindElicitation, got[0].Kind)
+	assert.Equal(t, "do you prefer A or B?", got[0].Question)
 }
 
 func TestObservation_ACodexPermissionReportsAllowAndDenyAndNothingInvented(t *testing.T) {
@@ -1641,6 +1661,158 @@ func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
 	require.NoError(t, got.err)
 	f.wait()
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
+}
+
+// TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider
+// is the exact bug reported live: Claude is asked to stop mid-message — a
+// graceful request, not a kill (runner/lifecycle.go's StopChat falls through
+// to TerminateGraceful for wire type "prompt") — the chat switches to Codex,
+// Codex's OWN turn closes FIRST, and Claude's real text, still gracefully
+// finishing, arrives LATE. Before the fix, closeAssistantTurn's
+// t.messages.Open(chatID) was scoped only by chat, not by runner: Codex's
+// turn_stop swept up Claude's still-open buffer and recorded Claude's own
+// words under CODEX's provider. runnersMove constructs the window this
+// needs (two runners placed on one chat — its own doc comment says this is
+// exactly what it is for), and everything downstream of that — the user
+// prompts, the deltas, the turn_stops — drives the real usecase, the real
+// descriptor, and the real event-sourced aggregate, the same path
+// production hits.
+func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunnerID := f.spawn(t, "claude")
+	f.announce(t, claudeRunnerID, "s1")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "write a Valve essay"})))
+
+	// Claude starts streaming its reply — NOT final: the user interrupts
+	// (asks it to stop) before this message ever closes on its own.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "message_delta",
+		deltaHook(t, "claude-msg", 0, false, "Valve Software: The Reluctant Giant")))
+	f.wait()
+
+	// The provider switch: a second runner (codex) placed on the SAME chat
+	// while claude's runner still has it too — runnersMove constructs
+	// exactly this window (its own doc comment: "two runners placed on one
+	// chat"), matching the moment a real StopChat/displace has not yet won
+	// its race against the outgoing CLI's own still-in-flight hook.
+	_, codexRunnerID := f.spawn(t, "codex")
+	require.NoError(t, f.runnersMove(t, codexRunnerID, chatID, "codex-s1"))
+
+	// Codex, placed second, closes its OWN turn FIRST.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "what did we talk before"})))
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "codex reply"})))
+	f.wait()
+
+	// Claude's real text — still gracefully finishing — arrives LATE, after
+	// Codex has already closed its own turn on the same chat.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{
+			"session_id":             "s1",
+			"last_assistant_message": "Valve Software: The Reluctant Giant",
+		})))
+	f.wait()
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+
+	var claudeTurn, codexTurn *domain.ActivityTurn
+	for i := range turns {
+		switch turns[i].Text {
+		case "Valve Software: The Reluctant Giant":
+			claudeTurn = &turns[i]
+		case "codex reply":
+			codexTurn = &turns[i]
+		}
+	}
+	require.NotNil(t, claudeTurn, "claude's text was recorded at all")
+	require.NotNil(t, codexTurn, "codex's text was recorded at all")
+
+	assert.Equal(t, "claude", claudeTurn.ProviderID,
+		"THE BUG: claude's own text must never be attributed to codex")
+	assert.Equal(t, "codex", codexTurn.ProviderID)
+	assert.Less(t, claudeTurn.DisplayOrder, codexTurn.DisplayOrder,
+		"dispatched first, so displays first, even though it was recorded last")
+}
+
+// TestRegression_StopChatSalvagesTheAlreadyStreamedText is a live-reproduced bug
+// (2026-08-30): stop a chat mid-stream — the exact "interrupt Claude, then send Codex
+// something else" report — and the assistant's partial reply, already received and
+// broadcast over message_delta, vanished entirely. closeAbandonedTurn (the function
+// StopChat's retire()/displace() path funnels through) recorded only a bare "stopped"
+// interruption marker and never looked at the streamed buffer at all, unlike the
+// quiet-screen sweep's AbandonMessage, which does. Confirmed live against the real
+// daemon and real claude CLI before this fix: the essay text visibly streamed to the
+// client over the WS feed, then StopChat left NO assistant turn behind for it.
+func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "s1")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "write a long essay about the transistor"})))
+
+	// Claude is still streaming — NOT final — when the user hits Stop.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
+		deltaHook(t, "essay-msg", 0, false, "The transistor stands as one of the most consequential inventions...")))
+	f.wait()
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+
+	var salvaged *domain.ActivityTurn
+	for i := range turns {
+		if turns[i].Text == "The transistor stands as one of the most consequential inventions..." {
+			salvaged = &turns[i]
+		}
+	}
+	require.NotNil(t, salvaged,
+		"THE BUG: text Crowbar already streamed to the client must survive a Stop, not disappear")
+	assert.Equal(t, "claude", salvaged.ProviderID)
+}
+
+// TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText is the same gap as
+// TestRegression_StopChatSalvagesTheAlreadyStreamedText, hit through a DIFFERENT door:
+// moveToNewChat, reached whenever the live CLI itself announces a /clear (a session_start
+// for a session id Crowbar doesn't recognise) while a message is still streaming on the
+// chat it is LEAVING. closeAbandonedTurn is the same function both paths funnel through,
+// so this is not a new bug — it is the same fix (AbandonMessageForRunner, threaded through
+// every closeAbandonedTurn call site) proven on its other callers too, not just StopChat's.
+func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
+	f := newFixture(t)
+
+	chatA, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sA")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "write a long essay about the telegraph"})))
+
+	// Claude is still streaming on chat A — NOT final — when the CLI itself /clears.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
+		deltaHook(t, "clear-msg", 0, false, "The telegraph transformed long-distance communication...")))
+	f.wait()
+
+	f.announce(t, runnerID, "sB") // /clear — moveToNewChat mints chat B, abandoning A's turn
+
+	moved := f.runner(t, runnerID)
+	require.NotEqual(t, chatA, moved.CurrentChatID, "precondition: the runner really did move to a new chat")
+
+	turns, err := f.activity.Turns(f.ctx, chatA, 0, 0, 0)
+	require.NoError(t, err)
+
+	var salvaged *domain.ActivityTurn
+	for i := range turns {
+		if turns[i].Text == "The telegraph transformed long-distance communication..." {
+			salvaged = &turns[i]
+		}
+	}
+	require.NotNil(t, salvaged,
+		"the same salvage StopChat gets must also cover moveToNewChat's abandon")
+	assert.Equal(t, "claude", salvaged.ProviderID)
 }
 
 // stopPayload is a real claude 2.1.212 Stop hook payload carrying `running` background

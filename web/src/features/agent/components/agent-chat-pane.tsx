@@ -239,12 +239,14 @@ export function AgentChatPane({
   // a provider built-in it never does — see AgentChatsState.settledPrompts.
   const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
 
-  // The message the agent is mid-way through saying. Selected as two PRIMITIVES
-  // rather than as the object: the object is replaced on every frame — roughly
-  // 1.4 a second — so a selector returning it would re-run every consumer on
-  // identity alone even when the text had not moved.
-  const streamingId = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.id)
-  const streamingText = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.text)
+  // The message(s) the agent is mid-way through saying — an array because a
+  // turn can have more than one open item (Codex; Claude is always 0-or-1).
+  // One selector, not per-field primitives: this is an Immer store, so the
+  // array reference itself only changes when an entry's content actually
+  // does (structural sharing — including Immer's own no-op detection when an
+  // upsert writes byte-identical text, e.g. a resent frame), and narrowed to
+  // this ONE chat's slot so another chat's streaming update never reaches it.
+  const streamingMessages = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId])
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
@@ -1020,8 +1022,7 @@ export function AgentChatPane({
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
-              streamingMessageId={streamingId}
-              streamingMessageText={streamingText}
+              streamingMessages={streamingMessages}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)

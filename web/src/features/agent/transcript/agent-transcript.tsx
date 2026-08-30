@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
@@ -12,11 +12,14 @@ import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider
 import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
-import { AgentTurnTools, groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
+import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
 
 interface AgentTranscriptProps {
   messages: AgentChatMessage[]
-  streamingBubble?: AgentChatMessage
+  /** One per still-open message item — see useChatMessages. Almost always
+   *  0 or 1 entries; more than one only for a provider (Codex) that can
+   *  split a turn's reply across several concurrent items. */
+  streamingBubbles?: AgentChatMessage[]
   queue: PromptQueueItem[]
   providers: AgentProvider[]
   activity: AgentActivity
@@ -35,9 +38,10 @@ interface AgentTranscriptProps {
   /** A stopped turn, keyed the same way compactionBefore is: by the sequence of
    *  the first message AFTER it, the row the divider draws above. */
   interruptedBefore?: Record<number, true>
-  /** The most recent stop with no later message loaded yet — nothing to key it
-   *  before, so it draws once the turn has actually gone idle, in the same slot
-   *  the working line just vacated, never alongside it. */
+  /** The most recent stop with no later CONFIRMED message loaded yet — nothing
+   *  to key it before, so it draws right after the last confirmed/streaming
+   *  content instead: above any still-queued prompt too, which has no
+   *  sequence yet and so can never anchor `interruptedBefore` itself. */
   trailingInterruption?: boolean
   onLoadOlder: () => void
   onRetryLoad: () => void
@@ -49,22 +53,21 @@ interface AgentTranscriptProps {
   showTerminalHintFor?: string
 }
 
-/** Sequences of assistant messages that should carry the provider label — the
- *  first assistant message in the loaded window, and any whose provider
- *  differs from the nearest earlier assistant message. One forward pass,
- *  computed once per messages change, replacing a backward walk that used to
- *  run twice per assistant row. */
-function providerLabelSequences(messages: AgentChatMessage[]): Set<number> {
-  const sequences = new Set<number>()
-  let previousProvider = ''
+/** The `at` of the user turn each assistant reply actually answers, keyed by
+ *  the reply's own sequence — what the turnbar times its reply AGAINST,
+ *  since "how long the agent took" means the gap from the prompt, not from
+ *  now. One forward pass: the most recent user message seen so far is the
+ *  one every assistant message until the next user message is answering. */
+function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<number, string> {
+  const map = new Map<number, string>()
+  let lastUserAt: string | undefined
   for (const message of messages) {
-    if (message.role !== 'assistant') continue
-    if (previousProvider === '' || previousProvider !== message.providerId) {
-      sequences.add(message.sequence)
+    if (message.role === 'user') lastUserAt = message.at
+    else if (message.role === 'assistant' && lastUserAt !== undefined) {
+      map.set(message.sequence, lastUserAt)
     }
-    previousProvider = message.providerId ?? ''
   }
-  return sequences
+  return map
 }
 
 /**
@@ -82,7 +85,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
   )
-  const providerLabelSeqs = useMemo(() => providerLabelSequences(messages), [messages])
+  const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
   // paging in more history must not retroactively unfreeze a message that was
   // never actually the beginning of the conversation. Only meaningful once
@@ -150,39 +153,54 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                 <MessageRow
                   message={message}
                   providers={props.providers}
-                  showProvider={
-                    message.role === 'assistant' && providerLabelSeqs.has(message.sequence)
-                  }
                   firstTurn={message.sequence === firstTurnSequence}
                   firstReply={message.sequence === firstReplySequence}
+                  toolCallsByTurn={message.role === 'assistant' ? callsByTurn : undefined}
+                  precedingUserAt={precedingUserAt.get(message.sequence)}
                 />
-                {message.role === 'assistant' && (
-                  <AgentTurnTools callsByTurn={callsByTurn} turnId={message.turnId ?? ''} />
-                )}
                 {message.sequence === firstTurnSequence && <FirstTurnDivider />}
               </>
             )}
           </div>
         ))}
-        {props.streamingBubble && (
+        {props.trailingInterruption && !props.working && <InterruptedDivider />}
+        {props.streamingBubbles?.map((bubble) => (
           <MessageRow
-            message={props.streamingBubble}
+            key={bubble.sequence}
+            message={bubble}
             providers={props.providers}
-            showProvider={false}
-          />
-        )}
-        {queue.map((item) => (
-          <QueuedRow
-            key={item.clientRequestId}
-            item={item}
-            onEdit={() => props.onEditPrompt(item)}
-            onCancel={() => props.onCancelPrompt(item.clientRequestId)}
-            onRetry={() => props.onRetryPrompt(item.clientRequestId)}
-            showTerminalHint={props.showTerminalHintFor === item.clientRequestId}
-            onOpenTerminal={props.onOpenTerminal}
+            streaming
           />
         ))}
-        {props.trailingInterruption && !props.working && <InterruptedDivider />}
+        {queue.map((item, index) => {
+          // The ABSOLUTE first turn, exactly as firstTurnSequence reasons about
+          // it above: nothing loaded yet, nothing older to page in, and this is
+          // the head of the queue — the one prompt that is about to BECOME
+          // sequence zero, not merely the first one currently waiting.
+          const isFirstTurn = index === 0 && messages.length === 0 && !props.hasOlder
+          // A Fragment, NOT a div: `.queued` aligns itself via `align-self:
+          // flex-end` on the assumption that it is a DIRECT flex child of
+          // `.stream` — a wrapping element (even an empty-looking one) makes
+          // it a normal block instead, which drops the shrink-to-fit sizing
+          // flex items get and stretches it to `max-width: 88%` every time,
+          // left-aligned inside that. A Fragment adds no box, so `.queued`
+          // stays a real flex child same as it was before this needed a
+          // sibling to hold the divider.
+          return (
+            <Fragment key={item.clientRequestId}>
+              <QueuedRow
+                item={item}
+                firstTurn={isFirstTurn}
+                onEdit={() => props.onEditPrompt(item)}
+                onCancel={() => props.onCancelPrompt(item.clientRequestId)}
+                onRetry={() => props.onRetryPrompt(item.clientRequestId)}
+                showTerminalHint={props.showTerminalHintFor === item.clientRequestId}
+                onOpenTerminal={props.onOpenTerminal}
+              />
+              {isFirstTurn && <FirstTurnDivider />}
+            </Fragment>
+          )
+        })}
         <WorkingLine
           activity={props.activity}
           working={props.working}

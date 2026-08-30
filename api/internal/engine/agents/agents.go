@@ -3,6 +3,8 @@ package agents
 import (
 	"context"
 	"errors"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
@@ -111,10 +113,43 @@ type Agent interface {
 
 type service struct {
 	injected *registry.Registry
+
+	resolved sync.Mutex
+	// descriptors caches Get's answer per (homeDir, id), because Get sits on
+	// the hottest path in the daemon: ingestResolvedHook (turn/ingest.go)
+	// calls it once per ingested hook, including once per streamed delta —
+	// several times a SECOND on a fast-streaming provider. protocol.Resolve
+	// itself is deliberately always-fresh (reads and re-validates the YAML on
+	// every call, so an on-disk override edited mid-development is picked up
+	// at once — see its own tests), and measured at over a millisecond per
+	// call for codex's descriptor alone. Paying that on every token is what
+	// made Codex's live streaming view visibly stall while Claude's (whose
+	// hooks-paced deltas arrive far less often) did not: the single goroutine
+	// that folds each event into the ledger (apiconn.go's pumpAPIConn) fell
+	// behind the incoming rate and only caught up once the provider stopped
+	// producing more — confirmed live. Invalidated by Stat'ing the override
+	// path (descriptorCacheEntry's own doc comment), which costs a syscall
+	// but not a read+parse+validate, on every call — so an edited override is
+	// still picked up without a restart, just without paying Resolve's full
+	// cost to notice nothing changed.
+	descriptors map[string]descriptorCacheEntry
+}
+
+// descriptorCacheEntry is one Get result, held until the on-disk override
+// path it was resolved against changes.
+type descriptorCacheEntry struct {
+	agent Agent
+	// overrideModTime is protocol.OverridePath's mtime as of this resolve, or
+	// the zero Time when no override file existed then (including every
+	// homeDir-less caller). Compared against a fresh Stat on every Get so an
+	// override created, edited, or removed on disk invalidates the entry —
+	// the zero Time changing to a real one, or a real one changing, are both
+	// "this changed" under time.Time.Equal.
+	overrideModTime time.Time
 }
 
 func New() Agents {
-	return &service{injected: registry.New()}
+	return &service{injected: registry.New(), descriptors: map[string]descriptorCacheEntry{}}
 }
 
 func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
@@ -130,11 +165,41 @@ func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
 }
 
 func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
+	key := homeDir + "\x00" + id
+	modTime := overrideModTime(protocol.OverridePath(homeDir, id))
+
+	s.resolved.Lock()
+	cached, ok := s.descriptors[key]
+	s.resolved.Unlock()
+	if ok && cached.overrideModTime.Equal(modTime) {
+		return cached.agent, nil
+	}
+
 	d, err := protocol.Resolve(ctx, homeDir, id)
 	if err != nil {
 		return nil, err
 	}
-	return &agent{spec: d}, nil
+	a := &agent{spec: d}
+
+	s.resolved.Lock()
+	s.descriptors[key] = descriptorCacheEntry{agent: a, overrideModTime: modTime}
+	s.resolved.Unlock()
+	return a, nil
+}
+
+// overrideModTime is the zero Time for an empty path (no override possible)
+// or one Stat could not reach (none exists, or a permission error — either
+// way, Resolve itself will fail the same Stat too, so there is nothing this
+// cache could get more wrong than Resolve already would).
+func overrideModTime(path string) time.Time {
+	if path == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 func (s *service) RecordInjection(runnerID string, docs ...string) {

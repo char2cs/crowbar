@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
+import {
+  ChatMarkdownEditor,
+  type CaretEdges,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
@@ -59,7 +62,11 @@ export interface AgentEmptyDocumentProps {
   onDraftChange: (value: string) => void
   onSubmit: () => void
   /** The chat's own key handling — Enter, Tab, arrows, Escape. */
-  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => void
+  onKeyDown: (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    readMarkdown: () => string,
+    caret: CaretEdges,
+  ) => void
   /** The selection chips and the surface switcher, left of the send button. */
   controls: ReactNode
   working: boolean
@@ -182,7 +189,9 @@ export function AgentEmptyDocument({
                 className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
                 disabled={idle || sendingVisual}
                 aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
-                title={stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'}
+                title={
+                  stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
+                }
                 onClick={stopping ? onStop : onSubmit}
               >
                 {stopping ? (

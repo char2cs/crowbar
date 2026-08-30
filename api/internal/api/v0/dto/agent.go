@@ -196,6 +196,11 @@ func TerminalWaitDTOFrom(
 // and paths never cross this boundary.
 type AgentMessageDTO struct {
 	Sequence int `json:"sequence"`
+	// DisplayOrder/ItemIndex are what a client actually sorts by — reserved
+	// at dispatch time, unlike Sequence, which is the row's persist-order
+	// identity and paging cursor. See domain.ActivityTurn.
+	DisplayOrder int64 `json:"displayOrder"`
+	ItemIndex    int   `json:"itemIndex"`
 	// TurnID is what the activity record attaches tool calls to, so a client can
 	// show which tools produced which reply.
 	TurnID     string `json:"turnId"`
@@ -266,13 +271,15 @@ type AgentSubagentDTO struct {
 // something outside the turn. These are what turn an apparently frozen agent into
 // a legible one: a permission wait, a notification, a compaction.
 type AgentInterruptionDTO struct {
-	ID         string     `json:"id"`
-	TurnID     string     `json:"turnId"`
-	Seq        int64      `json:"seq"`
-	Kind       string     `json:"kind"`
-	Detail     string     `json:"detail,omitempty"`
-	At         time.Time  `json:"at"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	Seq    int64  `json:"seq"`
+	// DisplayOrder — see domain.ActivityInterruption.
+	DisplayOrder int64      `json:"displayOrder"`
+	Kind         string     `json:"kind"`
+	Detail       string     `json:"detail,omitempty"`
+	At           time.Time  `json:"at"`
+	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
 }
 
 // AgentChoiceDTO is the agent waiting on a HUMAN DECISION — a tool permission, a

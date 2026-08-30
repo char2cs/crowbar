@@ -111,14 +111,23 @@ export interface AgentChatsState {
    */
   settledPrompts: Record<string, string[]>
   /**
-   * The assistant message each chat is CURRENTLY producing, if any.
+   * The assistant message(s) each chat is CURRENTLY producing, if any.
    *
-   * Transient by design and never persisted: it is replaced wholesale by every
-   * frame and dropped when the message lands in the ledger. Keeping it out of the
-   * ledger is what stops roughly 1.4 durable writes a second per streaming chat
-   * to store text that is superseded a moment later.
+   * An ARRAY, not a single slot: a turn can have more than one message item
+   * open (Codex splits a reply across several `agentMessage` items with
+   * distinct ids; Claude's turns only ever have one, so this is always
+   * length-0-or-1 for it). Upserted by id, never overwritten wholesale — a
+   * new item starting must not silently drop an earlier one still streaming.
+   *
+   * Transient by design and never persisted: entries are dropped ONLY once
+   * the message lands in the ledger (compared by text — see useChatMessages),
+   * never on a new turn starting — "interrupted" is a graceful request, not
+   * a kill, so the stopped turn's CLI can keep producing and complete on its
+   * own schedule after a different turn has already begun. Keeping it out
+   * of the ledger is what stops roughly 1.4 durable writes a second per
+   * streaming chat to store text that is superseded a moment later.
    */
-  streamingMessages: Record<string, { id: string; text: string }>
+  streamingMessages: Record<string, { id: string; text: string }[]>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -159,7 +168,8 @@ export interface AgentChatsSlice {
   setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
-  /** Write the message a chat is mid-way through saying, or clear it with null. */
+  /** Upsert (by id) one message a chat is mid-way through saying, or clear
+   *  ALL of a chat's in-flight messages with null (a new turn starting). */
   setAgentChatStreamingMessage: (
     chatId: string,
     message: { id: string; text: string } | null,
@@ -410,8 +420,18 @@ export const createAgentChatsSlice: StateCreator<
 
   setAgentChatStreamingMessage: (chatId, message) =>
     set((s) => {
-      if (message) s.agentChats.streamingMessages[chatId] = message
-      else delete s.agentChats.streamingMessages[chatId]
+      if (!message) {
+        delete s.agentChats.streamingMessages[chatId]
+        return
+      }
+      // In-place upsert on the Immer draft, not a rebuild — the array is
+      // expected to hold at most a handful of concurrently-open items, so
+      // this find is O(open items), and mutating avoids reallocating the
+      // array on every token the way `.map()`/spread would.
+      const list = (s.agentChats.streamingMessages[chatId] ??= [])
+      const existing = list.find((m) => m.id === message.id)
+      if (existing) existing.text = message.text
+      else list.push(message)
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

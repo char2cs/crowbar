@@ -383,6 +383,125 @@ func itoa(v int) string {
 	return string(buf[i:])
 }
 
+// Regression: reproduces the user's exact report. Claude's turn is
+// dispatched first, interrupted (a graceful stop request, NOT a kill — see
+// runner/lifecycle.go), and the user switches to Codex. Codex, dispatched
+// SECOND, finishes FIRST. Claude, still gracefully finishing in the
+// background, closes LATE — after Codex. Before this fix, CloseTurn minted
+// a fresh Seq at close time for BOTH, so Claude's reply — recorded after
+// Codex's — got a HIGHER value and sorted AFTER it despite being sent
+// first. DisplayOrder must stay tied to DISPATCH order regardless of which
+// one finishes first.
+func TestRegression_AnInterruptedTurnThatFinishesLateStillDisplaysBeforeALaterTurnThatFinishedFirst(t *testing.T) {
+	claudeOpened := commands.OpenTurn{
+		ChatID: chat, TurnID: "open-claude", RunnerID: "claude-runner",
+		ProviderID: "claude", Now: now,
+	}.EmitEvent(nil)
+	claudeDisplayOrder := claudeOpened.Turn.DisplayOrder
+
+	// The user interrupts Claude and switches to Codex — a second runner
+	// opens a turn on the SAME chat while Claude's is still technically
+	// open. This replaces ChatActivity.Turn wholesale (the pre-existing,
+	// separately-tracked single-pointer limitation), which is exactly why
+	// DisplayOrder cannot be recovered from Turn positionally at close time.
+	codexOpened := commands.OpenTurn{
+		ChatID: chat, TurnID: "open-codex", RunnerID: "codex-runner",
+		ProviderID: "codex", Now: now.Add(time.Second),
+	}.EmitEvent(&claudeOpened)
+	codexDisplayOrder := codexOpened.Turn.DisplayOrder
+	require.Greater(t, codexDisplayOrder, claudeDisplayOrder,
+		"dispatched second, so reserved a later order")
+
+	// Codex, dispatched second, finishes FIRST.
+	codexClosed := commands.CloseTurn{
+		ChatID: chat, TurnID: "msg-codex-1", RunnerID: "codex-runner",
+		Text: "codex reply", Now: now.Add(2 * time.Second),
+	}.EmitEvent(&codexOpened)
+	require.NotNil(t, codexClosed.Last.Turn)
+	assert.Equal(t, codexDisplayOrder, codexClosed.Last.Turn.DisplayOrder,
+		"inherits the order reserved at its own dispatch")
+
+	// Claude, dispatched first, finishes LATE — after Codex already closed.
+	claudeClosed := commands.CloseTurn{
+		ChatID: chat, TurnID: "msg-claude-1", RunnerID: "claude-runner",
+		Text: "claude reply", Now: now.Add(3 * time.Second),
+	}.EmitEvent(&codexClosed)
+	require.NotNil(t, claudeClosed.Last.Turn)
+
+	assert.Equal(t, claudeDisplayOrder, claudeClosed.Last.Turn.DisplayOrder,
+		"still recovers ITS OWN dispatch-time order despite closing last")
+	assert.Less(t, claudeClosed.Last.Turn.DisplayOrder, codexClosed.Last.Turn.DisplayOrder,
+		"THE FIX: displays before Codex, matching dispatch order")
+	assert.Greater(t, claudeClosed.Last.Turn.Seq, codexClosed.Last.Turn.Seq,
+		"while Seq — persist order — is, as ever, the opposite: proof the two are genuinely decoupled")
+}
+
+func TestOpenTurn_ReservesDisplayOrderPerRunner_NotClobberedByADifferentRunnerOpening(t *testing.T) {
+	a := commands.OpenTurn{ChatID: chat, TurnID: "open-a", RunnerID: "runner-a", Now: now}.
+		EmitEvent(nil)
+	b := commands.OpenTurn{ChatID: chat, TurnID: "open-b", RunnerID: "runner-b", Now: now}.
+		EmitEvent(&a)
+
+	assert.Contains(t, b.OpenTurnOrders, "runner-a", "runner-a's reservation survives runner-b opening")
+	assert.Contains(t, b.OpenTurnOrders, "runner-b")
+	assert.Equal(t, a.Turn.DisplayOrder, b.OpenTurnOrders["runner-a"])
+}
+
+func TestCloseTurn_ConsumesAndRemovesItsReservation(t *testing.T) {
+	opened := commands.OpenTurn{ChatID: chat, TurnID: "open-a", RunnerID: "runner-a", Now: now}.
+		EmitEvent(nil)
+	require.Contains(t, opened.OpenTurnOrders, "runner-a")
+
+	closed := commands.CloseTurn{ChatID: chat, TurnID: "t1", RunnerID: "runner-a", Text: "done", Now: now}.
+		EmitEvent(&opened)
+
+	assert.NotContains(t, closed.OpenTurnOrders, "runner-a", "consumed, not left to leak forever")
+}
+
+// TestRegression_AnInterruptionRecordedLateStillDisplaysAtItsTurnsOwnPosition is
+// ActivityInterruption's own version of the turn-DisplayOrder regression above:
+// RecordStop (the "Interrupted" divider's source, turn.go) can now fire well
+// after its turn opened — a provider switch that waits out a stuck outgoing
+// turn's whole grace period before forcing it (runner/switch.go's
+// forceOutgoingTurn) — and the stuck turn's OWN hooks (tool calls, other
+// interruptions) keep advancing Seq for the entire wait. Without an inherited
+// DisplayOrder, the eventual Interrupt would mint a fresh, much-later Seq and
+// the divider would render after activity it logically preceded — the
+// "interrupt signal moved away" symptom.
+func TestRegression_AnInterruptionRecordedLateStillDisplaysAtItsTurnsOwnPosition(t *testing.T) {
+	opened := commands.OpenTurn{
+		ChatID: chat, TurnID: "open-claude", RunnerID: "claude-runner",
+		ProviderID: "claude", Now: now,
+	}.EmitEvent(nil)
+	turnDisplayOrder := opened.Turn.DisplayOrder
+
+	// The turn stays open and stuck, but its own activity keeps consuming Seq —
+	// an unrelated permission prompt, opened and resolved, while nobody has
+	// stopped anything yet.
+	permissionOpened := commands.Interrupt{
+		ChatID: chat, ID: "interrupt-permission", Kind: "permission", Now: now.Add(time.Second),
+	}.EmitEvent(&opened)
+	permissionResolved := commands.ResolveInterruption{
+		ChatID: chat, ID: "interrupt-permission", Kind: "permission", Now: now.Add(2 * time.Second),
+	}.EmitEvent(&permissionOpened)
+
+	// Only NOW, well after Seq has moved on, does the switch's grace period
+	// elapse and force the stuck turn — RecordStop's Interrupt+Resolve pair.
+	stopOpened := commands.Interrupt{
+		ChatID: chat, ID: "interrupt-stop", Kind: "stopped", Now: now.Add(3 * time.Second),
+	}.EmitEvent(&permissionResolved)
+	stopResolved := commands.ResolveInterruption{
+		ChatID: chat, ID: "interrupt-stop", Kind: "stopped", Now: now.Add(3 * time.Second),
+	}.EmitEvent(&stopOpened)
+
+	require.NotNil(t, stopResolved.Last.Interruption)
+	assert.Equal(t, turnDisplayOrder, stopResolved.Last.Interruption.DisplayOrder,
+		"THE FIX: anchored to the turn it interrupted, not a fresh late Seq")
+	assert.Greater(t, stopResolved.Last.Interruption.Seq, stopResolved.Last.Interruption.DisplayOrder,
+		"while Seq — persist order — has moved on with everything that happened while it waited: "+
+			"proof the two are genuinely decoupled")
+}
+
 func TestRegression_ACloseSideEventNeverConjuresATurn(t *testing.T) {
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	closed := commands.CloseTurn{ChatID: chat, TurnID: "reply", Text: "done", Now: now}.

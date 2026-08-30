@@ -160,6 +160,21 @@ export interface AgentChatMessage {
    *  it, which is how a reply can show the work that produced it. */
   turnId: string
   sequence: number
+  /**
+   * What a client actually sorts by — reserved at DISPATCH time, unlike
+   * `sequence`, which is the row's persist-order identity and paging
+   * cursor. "Interrupting" a turn is a graceful stop, not a kill: the
+   * stopped CLI can keep producing and complete after a different turn
+   * (dispatched later) already has, which would give the earlier-sent turn
+   * a higher `sequence` and sort it after the later one — `displayOrder`
+   * exists specifically so that never happens. Optional/falls back to
+   * `sequence` only for fixtures predating this field; every real response
+   * always has it.
+   */
+  displayOrder?: number
+  /** This message's position within its own turn — 0 unless the turn
+   *  produced several (Codex splitting one reply across several items). */
+  itemIndex?: number
   role: AgentChatMessageRole
   providerId: string
   text: string
@@ -425,6 +440,9 @@ export interface AgentInterruption {
   id: string
   turnId: string
   seq: number
+  /** Inherits the turn it was opened against — see AgentChatMessage.displayOrder
+   *  and domain.ActivityInterruption. Falls back to `seq` when absent. */
+  displayOrder?: number
   kind: InterruptionKind
   detail?: string
   at: string

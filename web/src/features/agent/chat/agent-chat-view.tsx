@@ -14,6 +14,7 @@ import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
+import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
@@ -26,6 +27,7 @@ import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
+import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
@@ -69,8 +71,8 @@ export interface AgentChatViewProps {
   terminalWaitKind?: string
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
-  streamingMessageId?: string
-  streamingMessageText?: string
+  /** The message(s) the agent is mid-way through saying — see useChatMessages. */
+  streamingMessages?: { id: string; text: string }[]
   onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
@@ -104,6 +106,18 @@ function haltedBy(messages: AgentChatMessage[]): AgentChatMessage | undefined {
   return last?.role === 'notice' ? last : undefined
 }
 
+/** A message's or interruption's real display position — `displayOrder` when the
+ *  backend reserved one, `sequence`/`seq` otherwise. Never compare `sequence`
+ *  against `seq` (or either against the other's raw field) directly: an
+ *  interruption recorded late (a switch's grace period, a gracefully-finishing
+ *  stopped turn) can mint a `seq` that sorts it after activity it logically
+ *  preceded — the exact reordering `displayOrder` exists to prevent. */
+function displayOrderOf(item: { sequence: number; displayOrder?: number }): number
+function displayOrderOf(item: { seq: number; displayOrder?: number }): number
+function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: number }): number {
+  return item.displayOrder ?? item.sequence ?? item.seq ?? 0
+}
+
 /**
  * The chat surface: a transcript, and one bar under it.
  *
@@ -129,8 +143,7 @@ export function AgentChatView({
   terminalWaiting = false,
   terminalWaitKind,
   settledPrompts,
-  streamingMessageId,
-  streamingMessageText,
+  streamingMessages,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
@@ -247,8 +260,7 @@ export function AgentChatView({
     working,
     turnRevision,
     awaiting: prompts.deliveryPending,
-    streamingMessageId,
-    streamingMessageText,
+    streamingMessages,
     onApply: prompts.reconcile,
     pendingEvidence: prompts.pendingEvidence,
     pendingBaselines: prompts.pendingBaselines,
@@ -271,6 +283,15 @@ export function AgentChatView({
   }, [ledger.loading])
 
   const slash = useSlashCatalog({ wsId, chatId, providerId, active, draft })
+
+  // The currently-loaded window of the person's own words, oldest first — what
+  // ArrowUp/ArrowDown actually walk. Never reaches past a page not yet loaded,
+  // same as a terminal's history running out at the start of the session.
+  const userTexts = useMemo(
+    () => ledger.messages.filter((m) => m.role === 'user').map((m) => m.text),
+    [ledger.messages],
+  )
+  const history = usePromptHistory(userTexts)
 
   useImperativeHandle(ref, () => ({ cancelUnsentPrompts: prompts.cancelUnsentPrompts }), [
     prompts.cancelUnsentPrompts,
@@ -305,7 +326,7 @@ export function AgentChatView({
     const marks: Record<number, string> = {}
     for (const interruption of activity.interruptions) {
       if (interruption.kind !== 'compaction') continue
-      const next = ledger.messages.find((m) => m.sequence > interruption.seq)
+      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
       if (next) marks[next.sequence] = interruption.detail || 'auto'
     }
     return marks
@@ -326,7 +347,7 @@ export function AgentChatView({
   const interruptedBefore = useMemo(() => {
     const marks: Record<number, true> = {}
     for (const interruption of stoppedInterruptions) {
-      const next = ledger.messages.find((m) => m.sequence > interruption.seq)
+      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
       if (next) marks[next.sequence] = true
     }
     return marks
@@ -336,14 +357,19 @@ export function AgentChatView({
   // of the transcript — exactly where the working line it replaced just was.
   const trailingInterruption = useMemo(() => {
     if (stoppedInterruptions.length === 0) return false
-    const latest = stoppedInterruptions.reduce((a, b) => (b.seq > a.seq ? b : a))
-    return !ledger.messages.some((m) => m.sequence > latest.seq)
+    const latest = stoppedInterruptions.reduce((a, b) =>
+      displayOrderOf(b) > displayOrderOf(a) ? b : a,
+    )
+    return !ledger.messages.some((m) => displayOrderOf(m) > displayOrderOf(latest))
   }, [stoppedInterruptions, ledger.messages])
 
   const updateDraft = (value: string) => {
     setDraft(value)
     setComposerError('')
     slash.noteDraft(value)
+    // A real edit abandons wherever history recall had gotten to — the next
+    // ArrowUp starts a fresh walk from the newest turn, stashing THIS text.
+    history.reset()
   }
 
   // `text` overrides the draft state for a surface that HOLDS its own text. The
@@ -366,12 +392,16 @@ export function AgentChatView({
     seedDraft('')
     setComposerError('')
     slash.reset()
+    // A recalled-but-unedited history entry can be sent as-is; without this a
+    // later ArrowUp would resume from that stale index instead of the newest.
+    history.reset()
   }
 
   const editPrompt = (item: PromptQueueItem) => {
     prompts.remove(item.clientRequestId)
     seedDraft(item.text)
     setComposerError('')
+    history.reset()
   }
 
   // REGRESSION, live-verified: stopping a turn mid-GENERATION (as opposed to
@@ -394,7 +424,11 @@ export function AgentChatView({
     seedDraft(slash.accept(item))
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {
+  const handleKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    readMarkdown: () => string,
+    caret: CaretEdges,
+  ) => {
     if (event.key === 'Escape' && slash.open) {
       event.preventDefault()
       slash.close()
@@ -430,6 +464,26 @@ export function AgentChatView({
       }
       // The BOX's text, not the draft state. See ChatMarkdownEditor.
       enqueueDraft(readMarkdown())
+      return
+    }
+    // History recall — a terminal's own ArrowUp/ArrowDown, only at an edge the
+    // caret could not otherwise move past: intercepting anywhere else would
+    // hijack ordinary vertical movement through a wrapped or multi-line draft.
+    const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
+    if (!slash.open && plain && event.key === 'ArrowUp' && caret.atStart) {
+      const recalled = history.recallOlder(readMarkdown())
+      if (recalled !== undefined) {
+        event.preventDefault()
+        seedDraft(recalled)
+      }
+      return
+    }
+    if (!slash.open && plain && event.key === 'ArrowDown' && caret.atEnd) {
+      const recalled = history.recallNewer()
+      if (recalled !== undefined) {
+        event.preventDefault()
+        seedDraft(recalled)
+      }
     }
   }
 
@@ -470,7 +524,7 @@ export function AgentChatView({
   const transcript = (
     <AgentTranscript
       messages={ledger.messages}
-      streamingBubble={ledger.streamingBubble}
+      streamingBubbles={ledger.streamingBubbles}
       queue={queue}
       providers={providers}
       activity={activity}
@@ -514,7 +568,7 @@ export function AgentChatView({
           draftSeed={seed.n}
           hasText={draft.trim().length > 0}
           onDraftChange={updateDraft}
-          onSubmit={enqueueDraft}
+          onSubmit={() => enqueueDraft()}
           onKeyDown={handleKeyDown}
           controls={selectionCluster}
           working={working}
@@ -582,7 +636,7 @@ export function AgentChatView({
           onDraftChange={updateDraft}
           onHeightChange={setFieldHeight}
           onKeyDown={handleKeyDown}
-          onSend={enqueueDraft}
+          onSend={() => enqueueDraft()}
           onStop={handleStop}
           onOpenTerminal={onOpenTerminal}
           onRevive={onRevive}

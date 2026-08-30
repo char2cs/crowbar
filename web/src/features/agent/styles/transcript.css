@@ -34,6 +34,20 @@
   display: flex;
   flex-direction: column;
   padding-top: 20px;
+  /* Fades in on its own first paint — every mount of this element IS a chat
+     becoming visible, whether that's opening one or (the case this exists
+     for) the empty document handing off to it on a first send. Without this,
+     that handoff was the one moment nothing here was animated: the dock
+     already eases in via playArrival (arrival-animation.ts), and a
+     transcript that just POPS IN beside a bar that's sliding reads as two
+     uncoordinated things happening at once, not one arrival. Same duration
+     and curve as that slide, on purpose — matched here as a literal because
+     CSS cannot import a JS constant (ARRIVAL_SLIDE_MS/ARRIVAL_EASE there).
+     A side effect worth having: useTranscriptAnchor's own instant
+     scroll-to-bottom on this same mount now happens while this is still
+     fully transparent, so that snap is never visible either. */
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(0, 0, 0.2, 1);
   /* THE CONVERSATION RUNS UNDER THE COMPOSER. Reserving exactly the dock's own
      height plus a gap means the newest message can be scrolled clear of the box
      — it stops a line above it rather than touching its edge — while everything
@@ -59,18 +73,16 @@
      right edge; `mask-composite`'s default (`add`, i.e. union) between mask
      layers means that strip stays fully opaque no matter what the first
      gradient says at that height. */
-  mask-image: linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+  mask-image:
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
     linear-gradient(
       to left,
       black 0,
       black var(--agent-scrollbar-w, 0px),
       transparent var(--agent-scrollbar-w, 0px)
     );
-  -webkit-mask-image: linear-gradient(
-      to top,
-      transparent 0,
-      black calc(var(--agent-dock-h, 92px) + 88px)
-    ),
+  -webkit-mask-image:
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
     linear-gradient(
       to left,
       black 0,
@@ -102,8 +114,19 @@
   display: flex;
   width: 100%;
 }
+/* A user row's timestamp reads as a SECOND LINE, not a second column — the
+   message and the <time> after it become two stacked siblings instead of the
+   message alone. Every non-user role stays row-direction, one child, exactly
+   as before; only `user` ever renders that sibling in the first place. */
+.agent-chat .row.stacked {
+  flex-direction: column;
+}
+/* End-aligned for an ordinary bubble. The frozen first turn stays PLAIN
+   `.row.stacked` (no `.me`) — full width, default `align-items: stretch`
+   leaves it alone since it already sets its own width, and its `.turn-time`
+   falls back to sitting at the left, under where the text itself starts. */
 .agent-chat .row.me {
-  justify-content: flex-end;
+  align-items: flex-end;
 }
 
 /* A sent message keeps the shape of the box it was typed in: the composer's own
@@ -180,6 +203,19 @@
   display: none;
 }
 .agent-chat .queued .acts {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+/* The first turn's own pending state: no pill, no hatch, so the error text
+   this variant otherwise hides has to actually say something on its own. */
+.agent-chat .firstq .err {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--ui-text-xs);
+  color: var(--warning);
+}
+.agent-chat .firstq .acts {
   display: flex;
   gap: 2px;
   margin-top: 6px;
@@ -389,6 +425,44 @@
   color: var(--muted-foreground);
 }
 
+/* Whose turn this was, and a way to take it elsewhere — replaces the reported
+   effort under an assistant reply. The provider icon has no padding of its
+   own, so the row needs no correction when it leads — only the copy button
+   does, and only when IT leads (no provider icon known for this message). */
+.agent-chat .turnbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+}
+/* Measured: the button's own icon sits 8px in from the button's edge (28px
+   box, 12px icon, minus the design system's -mx-0.5 icon pull). Pulling the
+   BUTTON by that same 8px when it leads brings ITS icon flush with the prose
+   above, matching the provider-icon case exactly instead of double-counting
+   a correction that only applies to whichever element is actually first. */
+.agent-chat .turnbar > button:first-child {
+  margin-left: -8px;
+}
+
+/* When it flags an assistant turn it lives INSIDE `.turnbar`, inheriting
+   that row's own layout and muted colour for free. As a user row's own
+   sibling (outside any bubble) it needs both set itself — and the `>` below
+   matters: without it these would ALSO match the turnbar's own nested
+   `.turn-time`, where `align-self` is a no-op (not `.row`'s direct flex
+   item) but the margin is not, nudging it out of line with its siblings. */
+.agent-chat .turn-time {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .row.stacked > .turn-time {
+  margin-top: 2px;
+  align-self: flex-start;
+}
+.agent-chat .row.me > .turn-time {
+  align-self: flex-end;
+}
+
 .agent-chat .tools {
   display: flex;
   flex-direction: column;
@@ -447,4 +521,67 @@
   border: 1px solid var(--border);
   padding: 2px 9px;
   background: var(--background);
+}
+
+/* The streaming bubble's fade-in — see chat-fresh-text-plugin.tsx. Opacity
+   only: this text is already fully markdown-parsed and styled (bold, code,
+   ...) by the time this class ever wraps it, so the animation never runs
+   ahead of, or masks, its real formatting.
+
+   `animation-delay` staggers each word (set inline, per leaf) so one large
+   chunk from the transport — a whole sentence, some deltas — cascades in
+   like several small ones would have, instead of appearing all at once.
+   `fill-mode: both`, not `forwards`: a delayed word must stay at the
+   animation's OWN start state (dim) through its wait, not this rule's plain
+   `opacity: 1` — otherwise every delayed word would flash at full
+   brightness and then visibly dim before actually fading in. */
+.agent-chat .agent-prose .chat-fresh-text {
+  opacity: 1;
+  animation: chat-token-fade 260ms ease-out;
+  animation-fill-mode: both;
+}
+@keyframes chat-token-fade {
+  /* Fully invisible, not merely dim: a chunk lands with its final layout
+     already in place (line-wrapping is instant regardless — opacity is the
+     only lever here), so a merely-dim word still reads as "the whole
+     response appeared, then got restyled" rather than genuinely streaming
+     in. Layout space is still reserved (this is opacity, not display:none),
+     so nothing reflows as words reveal. */
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Only affects a genuinely NEW `.scroll` connecting to the DOM (a mount, or
+   `display` changing from `none`) — a plain re-render never re-triggers this,
+   so it cannot fire on every streamed token the way the transition above
+   could suggest. Support is close to universal in 2026, and the fallback for
+   anything older is simply no fade-in — `opacity: 1` from the first paint —
+   never a stuck-invisible transcript. */
+@starting-style {
+  .agent-chat .scroll {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat .scroll {
+    transition: none;
+  }
+  .agent-chat .agent-prose .chat-fresh-text {
+    /* The `animation` SHORTHAND, not just `animation-name`, here: the build's
+       CSS minifier was observed (live, in the packaged dev build) silently
+       rewriting a shorthand `animation: none` into `animation: auto` —
+       `auto` is a valid `animation-duration`/`animation-timeline` keyword,
+       and appears to be how this minifier round-trips a fully-reset
+       shorthand, but it reads as "still has a duration" to anyone auditing
+       computed styles. Setting the longhand directly leaves nothing for the
+       shorthand serializer to reinterpret. */
+    animation-name: none;
+    animation-duration: 0s;
+    animation-delay: 0s;
+    opacity: 1;
+  }
 }

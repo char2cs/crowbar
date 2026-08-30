@@ -122,7 +122,12 @@ func page(rows []domain.ActivityTurn, hasMore bool) domain.LedgerPage {
 	out := domain.LedgerPage{HasMore: hasMore, Items: make([]domain.LedgerMessage, 0, len(rows))}
 	turns := toChatTurns(rows)
 	for i, t := range turns {
-		out.Items = append(out.Items, domain.LedgerMessage{Sequence: int(rows[i].Seq), LedgerTurn: t})
+		out.Items = append(out.Items, domain.LedgerMessage{
+			Sequence:     int(rows[i].Seq),
+			DisplayOrder: rows[i].DisplayOrder,
+			ItemIndex:    rows[i].ItemIndex,
+			LedgerTurn:   t,
+		})
 	}
 	if len(out.Items) > 0 {
 		out.OldestCursor = out.Items[0].Sequence

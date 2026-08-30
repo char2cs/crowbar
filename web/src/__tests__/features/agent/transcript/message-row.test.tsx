@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import type {
   AgentChatMessage,
   AgentChatMessageRole,
   AgentProvider,
 } from '@/features/agent/api/agent-api'
+import { turnTimestampLabel } from '@/features/agent/lib/turn-time'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 
 const providers = [{ id: 'claude', displayName: 'Claude' }] as AgentProvider[]
@@ -18,7 +19,7 @@ function row(role: AgentChatMessageRole, text: string) {
     text,
     at: '2026-08-24T00:00:00Z',
   }
-  return render(<MessageRow message={message} showProvider={false} providers={providers} />)
+  return render(<MessageRow message={message} providers={providers} />)
 }
 
 describe('MessageRow', () => {
@@ -100,9 +101,7 @@ describe('MessageRow', () => {
         text,
         at: '2026-08-24T00:00:00Z',
       }
-      return render(
-        <MessageRow message={message} showProvider={false} providers={providers} firstTurn />,
-      )
+      return render(<MessageRow message={message} providers={providers} firstTurn />)
     }
 
     it('renders as a frozen document, not a bubble', () => {
@@ -132,9 +131,7 @@ describe('MessageRow', () => {
         text: 'a later message',
         at: '2026-08-24T00:00:00Z',
       }
-      const { container } = render(
-        <MessageRow message={message} showProvider={false} providers={providers} />,
-      )
+      const { container } = render(<MessageRow message={message} providers={providers} />)
       expect(container.querySelector('.bubble')).not.toBeNull()
       expect(container.querySelector('.frozen')).toBeNull()
     })
@@ -150,9 +147,7 @@ describe('MessageRow', () => {
         text: 'hi',
         at: '2026-08-24T00:00:00Z',
       }
-      const { container } = render(
-        <MessageRow message={message} showProvider={false} providers={providers} firstTurn />,
-      )
+      const { container } = render(<MessageRow message={message} providers={providers} firstTurn />)
       expect(container.querySelector('.frozen')).toBeNull()
       expect(container.querySelector('.assistant')).not.toBeNull()
     })
@@ -171,9 +166,7 @@ describe('MessageRow', () => {
         text,
         at: '2026-08-24T00:00:00Z',
       }
-      return render(
-        <MessageRow message={message} showProvider={false} providers={providers} firstReply />,
-      )
+      return render(<MessageRow message={message} providers={providers} firstReply />)
     }
 
     it('keeps the frozen document size on top of its ordinary assistant styling', () => {
@@ -195,9 +188,7 @@ describe('MessageRow', () => {
         text: 'a later reply',
         at: '2026-08-24T00:00:00Z',
       }
-      const { container } = render(
-        <MessageRow message={message} showProvider={false} providers={providers} />,
-      )
+      const { container } = render(<MessageRow message={message} providers={providers} />)
       expect(container.querySelector('.frozen')).toBeNull()
       expect(container.querySelector('[data-first-reply]')).toBeNull()
     })
@@ -215,10 +206,261 @@ describe('MessageRow', () => {
         at: '2026-08-24T00:00:00Z',
       }
       const { container } = render(
-        <MessageRow message={message} showProvider={false} providers={providers} firstReply />,
+        <MessageRow message={message} providers={providers} firstReply />,
       )
       expect(container.querySelector('.frozen')).toBeNull()
       expect(container.querySelector('.bubble')).not.toBeNull()
+    })
+  })
+
+  // Replaces the reported effort: whose agent answered, and a way to take its
+  // words elsewhere.
+  describe('the turnbar', () => {
+    const providersWithIcon = [
+      { id: 'claude', displayName: 'Claude', icon: '<svg data-testid="claude-glyph"></svg>' },
+    ] as AgentProvider[]
+
+    function assistantRow(text: string, providerList: AgentProvider[] = providersWithIcon) {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text,
+        at: '2026-08-24T00:00:00Z',
+      }
+      return render(<MessageRow message={message} providers={providerList} />)
+    }
+
+    it('shows the provider icon and a copy button in place of the reported effort', () => {
+      const { container } = assistantRow('a reply')
+      expect(container.querySelector('[data-provider-icon]')).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Copy this message' })).toBeInTheDocument()
+      expect(screen.queryByText(/effort/i)).toBeNull()
+    })
+
+    // REGRESSION: the Button component force-resizes any child <svg> that has
+    // no `size-*` class of its own (`[&_svg:not([class*='size-'])]:size-4`),
+    // which silently blew the copy icon up to 16px next to the provider
+    // icon's 12px and read as misaligned. The icon needs its own size class,
+    // not just its `size` prop, to opt out of that override.
+    it('keeps the copy icon the same size as the provider icon, not Button-inflated', () => {
+      assistantRow('a reply')
+      const copyIcon = screen
+        .getByRole('button', { name: 'Copy this message' })
+        .querySelector('svg')
+      expect(copyIcon?.getAttribute('class')).toMatch(/\bsize-3\b/)
+    })
+
+    it('copies the turn text, as sent, to the clipboard', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      })
+      assistantRow('copy me **please**')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy this message' }))
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('copy me **please**'))
+    })
+
+    it('skips the provider icon when the provider is unknown, but still offers copy', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'nobody',
+        text: 'orphaned reply',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(<MessageRow message={message} providers={[]} />)
+      expect(container.querySelector('[data-provider-icon]')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Copy this message' })).toBeInTheDocument()
+    })
+
+    it('never shows turn actions on a user message', () => {
+      const { container } = row('user', 'hello there')
+      expect(container.querySelector('[data-testid="message-turn-actions"]')).toBeNull()
+    })
+
+    // No preceding user turn known (a harness-injected reply, say) — falls
+    // back to reporting how long ago the reply itself happened.
+    it('falls back to how long ago the turn happened when it has no user turn to answer', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a reply',
+        at: new Date(Date.now() - 5 * 60_000).toISOString(),
+      }
+      const { container } = render(<MessageRow message={message} providers={providersWithIcon} />)
+      const time = container.querySelector('.turnbar time')
+      expect(time).toHaveTextContent('5m')
+    })
+
+    // The USEFUL number for a reply is how long the agent took to answer,
+    // not how long ago that was — "how long ago" is only the fallback above.
+    it('times itself against the user turn it answers, not against now', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a reply',
+        at: '2026-08-24T00:03:00Z',
+      }
+      const { container } = render(
+        <MessageRow
+          message={message}
+          providers={providersWithIcon}
+          precedingUserAt="2026-08-24T00:00:00Z"
+        />,
+      )
+      const time = container.querySelector('.turnbar time')
+      expect(time).toHaveTextContent('3m')
+    })
+
+    // The turnbar reports on a FINISHED turn — copying or timing text that is
+    // still streaming in offers a reader something that is not real yet.
+    it('is absent entirely while the turn is still streaming', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'still typing',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const { container } = render(
+        <MessageRow message={message} providers={providersWithIcon} streaming />,
+      )
+      expect(container.querySelector('[data-testid="message-turn-actions"]')).toBeNull()
+    })
+
+    it('renders after the turn tools, not before — what the turn did, then what a reader can do about it', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a reply',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const callsByTurn = new Map([
+        [
+          't1',
+          [
+            {
+              id: 'c1',
+              turnId: 't1',
+              seq: 0,
+              name: 'read_file',
+              status: 'ok' as const,
+              hasRequest: true,
+              hasResult: true,
+              startedAt: '2026-08-24T00:00:00Z',
+            },
+          ],
+        ],
+      ])
+      const { container } = render(
+        <MessageRow
+          message={message}
+          providers={providersWithIcon}
+          toolCallsByTurn={callsByTurn}
+        />,
+      )
+      const tools = container.querySelector('[data-testid="agent-turn-tools"]')
+      const turnbar = container.querySelector('[data-testid="message-turn-actions"]')
+      expect(tools).not.toBeNull()
+      expect(turnbar).not.toBeNull()
+      // DOCUMENT_POSITION_FOLLOWING (4): tools comes before turnbar.
+      expect(
+        tools!.compareDocumentPosition(turnbar!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    it('does not render turn tools for a still-streaming message even if calls exist', () => {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'still typing',
+        at: '2026-08-24T00:00:00Z',
+      }
+      const callsByTurn = new Map([
+        [
+          't1',
+          [
+            {
+              id: 'c1',
+              turnId: 't1',
+              seq: 0,
+              name: 'read_file',
+              status: 'ok' as const,
+              hasRequest: true,
+              hasResult: true,
+              startedAt: '2026-08-24T00:00:00Z',
+            },
+          ],
+        ],
+      ])
+      const { container } = render(
+        <MessageRow
+          message={message}
+          providers={providersWithIcon}
+          toolCallsByTurn={callsByTurn}
+          streaming
+        />,
+      )
+      expect(container.querySelector('[data-testid="agent-turn-tools"]')).toBeNull()
+    })
+  })
+
+  describe("a user prompt's own timestamp", () => {
+    // Absolute only — no "12m ·" prefix. A user's own turn has nothing to
+    // measure elapsed time AGAINST; only a reply answering it does.
+    it('shows below the bubble, the date and time it was sent — never an elapsed count', () => {
+      const at = '2026-08-24T00:00:00Z'
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: 'claude',
+        text: 'hello',
+        at,
+      }
+      const { container } = render(<MessageRow message={message} providers={providers} />)
+      const time = container.querySelector('.row > time.turn-time')
+      expect(time?.textContent).not.toMatch(/^\d+m/)
+      expect(time?.textContent).toBe(turnTimestampLabel(at))
+    })
+
+    it('is also shown for the frozen first turn', () => {
+      const at = '2026-08-24T00:00:00Z'
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 0,
+        role: 'user',
+        providerId: 'claude',
+        text: 'describe the change',
+        at,
+      }
+      const { container } = render(<MessageRow message={message} providers={providers} firstTurn />)
+      expect(container.querySelector('.row > time.turn-time')?.textContent).toBe(
+        turnTimestampLabel(at),
+      )
+    })
+
+    it('is never shown on an assistant, harness, or notice message', () => {
+      for (const role of ['assistant', 'harness', 'notice'] as const) {
+        const { container } = row(role, 'text')
+        expect(container.querySelector('.row > time.turn-time')).toBeNull()
+      }
     })
   })
 
@@ -262,12 +504,10 @@ describe('MessageRow memoization', () => {
       text: 'hi',
       at: '2026-08-24T00:00:00Z',
     }
-    const { rerender, container } = render(
-      <MessageRow message={message} showProvider={false} providers={providers} />,
-    )
+    const { rerender, container } = render(<MessageRow message={message} providers={providers} />)
     const firstHTML = container.innerHTML
     // Same object references — memo's default shallow comparator must skip this render.
-    rerender(<MessageRow message={message} showProvider={false} providers={providers} />)
+    rerender(<MessageRow message={message} providers={providers} />)
     expect(container.innerHTML).toBe(firstHTML)
   })
 })

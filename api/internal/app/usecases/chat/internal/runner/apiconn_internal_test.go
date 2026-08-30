@@ -60,6 +60,12 @@ func (noopTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{},
 
 func (noopTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 
+func (noopTurns) AbandonMessageForRunner(
+	context.Context, string, engineagents.Runner,
+) (bool, error) {
+	return false, nil
+}
+
 func (noopTurns) CloseStalledTurn(context.Context, seam.Stall) {}
 
 func TestApiSocketPath_IsShortAndDeterministic(t *testing.T) {

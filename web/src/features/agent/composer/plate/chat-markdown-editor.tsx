@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
-import type { Value } from 'platejs'
+import { PointApi, RangeApi, type Value } from 'platejs'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
@@ -8,6 +8,14 @@ import {
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { cn } from '@/lib/utils'
+
+/** Whether the caret has anywhere left to go WITHIN the text — the box's own
+ *  arrow-key history recall only fires at these edges, so moving through a
+ *  wrapped or multi-paragraph draft is never hijacked. */
+export interface CaretEdges {
+  atStart: boolean
+  atEnd: boolean
+}
 
 export interface ChatMarkdownEditorProps {
   /** Markdown to open with. Read ONCE, at mount — see the note on remounting. */
@@ -24,7 +32,11 @@ export interface ChatMarkdownEditorProps {
    * reached state yet, and submitting from state there sends the prompt one
    * character short — or, on the first keystroke, empty.
    */
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => void
+  onKeyDown: (
+    event: KeyboardEvent<HTMLDivElement>,
+    readMarkdown: () => string,
+    caret: CaretEdges,
+  ) => void
   /** The editable's measured height, for a control that rides its last line. */
   onHeightChange?: (height: number) => void
   autoFocus?: boolean
@@ -86,8 +98,41 @@ export function ChatMarkdownEditor({
         key: 'agent-chat-keys',
         handlers: {
           onKeyDown: ({ editor: current, event }) => {
-            keyHandlerRef.current(event as KeyboardEvent<HTMLDivElement>, () =>
-              chatValueToMarkdown(current.children as Value),
+            // Cmd/Ctrl+A selects the WHOLE document ourselves rather than
+            // leaving it to WebKit's native `selectAll:` — the same reason
+            // Monaco carries its own select-all keybinding (see
+            // desktop/src-tauri/src/lib.rs's build_app_menu): a framework-
+            // managed contenteditable is not guaranteed to be the element
+            // AppKit's editing-command routing actually reaches, and a
+            // no-op here costs nothing when the native path would have
+            // worked anyway.
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              !event.shiftKey &&
+              !event.altKey &&
+              event.key.toLowerCase() === 'a'
+            ) {
+              const docStart = current.api.start([])
+              const docEnd = current.api.end([])
+              if (docStart && docEnd) {
+                event.preventDefault()
+                current.tf.select({ anchor: docStart, focus: docEnd })
+              }
+              return
+            }
+            const { selection } = current
+            let atStart = false
+            let atEnd = false
+            if (selection && RangeApi.isCollapsed(selection)) {
+              const docStart = current.api.start([])
+              const docEnd = current.api.end([])
+              atStart = !!docStart && PointApi.equals(selection.anchor, docStart)
+              atEnd = !!docEnd && PointApi.equals(selection.anchor, docEnd)
+            }
+            keyHandlerRef.current(
+              event as KeyboardEvent<HTMLDivElement>,
+              () => chatValueToMarkdown(current.children as Value),
+              { atStart, atEnd },
             )
           },
         },

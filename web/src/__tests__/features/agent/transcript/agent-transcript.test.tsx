@@ -28,38 +28,143 @@ function draw(
   )
 }
 
-describe('AgentTranscript provider labels', () => {
-  it('shows the provider label on the first assistant message and on a provider change, not on consecutive same-provider replies', () => {
-    const messages: AgentChatMessage[] = [
+// Whose agent answered now lives in the turnbar's own provider icon (see
+// message-row.test.tsx), not a text label above the reply — the standalone
+// "Claude" line this transcript used to draw is gone.
+describe('AgentTranscript turnbar wiring', () => {
+  it('gives every assistant reply its own turnbar, never a user message', () => {
+    draw([
       { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'hi', at: '' },
       { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
-      { turnId: 't3', sequence: 3, role: 'assistant', providerId: 'claude', text: 'b', at: '' },
-      { turnId: 't4', sequence: 4, role: 'assistant', providerId: 'codex', text: 'c', at: '' },
-    ]
-    render(
-      <AgentTranscript
-        messages={messages}
-        queue={[]}
-        providers={[]}
-        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
-        working={false}
-        loading={false}
-        error={null}
-        hasOlder={false}
-        onLoadOlder={() => {}}
-        onRetryLoad={() => {}}
-        onOpenTerminal={() => {}}
-        onEditPrompt={() => {}}
-        onCancelPrompt={() => {}}
-        onRetryPrompt={() => {}}
-      />,
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
+  it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
+    draw(
+      [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],
+      {
+        activity: {
+          toolCalls: [
+            {
+              id: 'c1',
+              turnId: 't2',
+              seq: 0,
+              name: 'read_file',
+              status: 'ok',
+              hasRequest: true,
+              hasResult: true,
+              startedAt: '',
+            },
+          ],
+          subagents: [],
+          interruptions: [],
+          choices: [],
+        },
+      },
     )
-    // Sequence 2: first assistant message -> label shown. Sequence 3: same
-    // provider as 2 -> no label. Sequence 4: provider changed -> label shown.
-    const rows = screen.getAllByTestId(/^agent-message-\d+$/)
-    expect(rows[1].querySelector('.meta')).not.toBeNull()
-    expect(rows[2].querySelector('.meta')).toBeNull()
-    expect(rows[3].querySelector('.meta')).not.toBeNull()
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
+    ).not.toBeNull()
+  })
+
+  it('never gives a streaming bubble a turnbar or tool calls — the turn has not finished', () => {
+    draw([], {
+      streamingBubbles: [
+        {
+          turnId: 't1',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'claude',
+          text: 'typing…',
+          at: '',
+        },
+      ],
+      activity: {
+        toolCalls: [
+          {
+            id: 'c1',
+            turnId: 't1',
+            seq: 0,
+            name: 'read_file',
+            status: 'ok',
+            hasRequest: true,
+            hasResult: true,
+            startedAt: '',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByText('typing…')).toBeInTheDocument()
+    expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+  })
+
+  it("times a reply's turnbar against the user turn it answers, not against now", () => {
+    draw([
+      {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'hi',
+        at: '2026-08-24T00:00:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 2,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a',
+        at: '2026-08-24T00:04:00Z',
+      },
+    ])
+
+    const turnbar = screen.getByTestId('agent-message-2').querySelector('.turnbar time')
+    expect(turnbar).toHaveTextContent('4m')
+  })
+
+  it("skips a harness message between a user turn and the reply it answers — the harness's own words are not the user's", () => {
+    draw([
+      {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'hi',
+        at: '2026-08-24T00:00:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 2,
+        role: 'harness',
+        providerId: 'claude',
+        text: 'note',
+        at: '2026-08-24T00:01:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 3,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a',
+        at: '2026-08-24T00:04:00Z',
+      },
+    ])
+
+    const turnbar = screen.getByTestId('agent-message-3').querySelector('.turnbar time')
+    expect(turnbar).toHaveTextContent('4m')
   })
 })
 
@@ -167,6 +272,68 @@ describe('AgentTranscript first-turn framing', () => {
   })
 })
 
+describe('AgentTranscript queued first turn', () => {
+  let nextId = 0
+  function queueItem(text: string) {
+    nextId += 1
+    return {
+      clientRequestId: `r${nextId}`,
+      text,
+      state: 'queued' as const,
+      createdAt: '2026-08-24T00:00:00Z',
+      baselineSequence: 0,
+    }
+  }
+
+  // A blank chat's first send is a QueuedRow, not yet a MessageRow — it has
+  // to freeze on sight, before the provider ever confirms it, or sending
+  // flashes through the dashed pending pill first.
+  it('freezes the first queued item of a brand-new chat', () => {
+    draw([], { queue: [queueItem('describe the change')] })
+
+    const row = screen.getByTestId('queued-prompt')
+    expect(row).toHaveAttribute('data-first-turn', 'true')
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+  })
+
+  it('does not freeze a queued item once the chat already has history', () => {
+    draw([{ turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' }], {
+      queue: [queueItem('a follow-up')],
+    })
+
+    expect(screen.getByTestId('queued-prompt')).not.toHaveAttribute('data-first-turn')
+  })
+
+  it('does not freeze a queued item when older history has not been paged in yet', () => {
+    draw([], { queue: [queueItem('not actually first')], hasOlder: true })
+
+    expect(screen.getByTestId('queued-prompt')).not.toHaveAttribute('data-first-turn')
+  })
+
+  it('freezes only the head of the queue, never a second prompt queued behind it', () => {
+    draw([], { queue: [queueItem('first'), queueItem('second')] })
+
+    const rows = screen.getAllByTestId('queued-prompt')
+    expect(rows[0]).toHaveAttribute('data-first-turn', 'true')
+    expect(rows[1]).not.toHaveAttribute('data-first-turn')
+  })
+
+  // REGRESSION: `.queued` right-aligns via `align-self: flex-end`, which only
+  // has any effect on a DIRECT flex child of `.stream`. A wrapping element
+  // added around it (even one rendering nothing of its own) turns it into an
+  // ordinary block instead — losing shrink-to-fit sizing and stretching it to
+  // `max-width: 88%`, left-aligned inside that, which read as a large phantom
+  // gap on the right. jsdom cannot see that layout consequence, but it CAN
+  // see the DOM shape that causes it — so pin the shape, not the layout.
+  it('keeps a queued row a direct child of .stream, not wrapped in an intermediate element', () => {
+    const { container } = draw([], { queue: [queueItem('describe the change')] })
+
+    const stream = container.querySelector('.stream')
+    const row = screen.getByTestId('queued-prompt')
+    expect(row.parentElement).toBe(stream)
+  })
+})
+
 describe('AgentTranscript interrupted marker', () => {
   const oneFrozenTurn = [
     { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
@@ -200,7 +367,14 @@ describe('AgentTranscript interrupted marker', () => {
   it('draws anchored above the first message that follows the stop, not trailing, once one exists', () => {
     const messages = [
       { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
-      { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'after the stop', at: '' },
+      {
+        turnId: 't2',
+        sequence: 1,
+        role: 'user' as const,
+        providerId: '',
+        text: 'after the stop',
+        at: '',
+      },
     ]
     draw(messages, {
       interruptedBefore: { 1: true },
@@ -211,5 +385,31 @@ describe('AgentTranscript interrupted marker', () => {
     const divider = screen.getByTestId('agent-interrupted-divider')
     const later = screen.getByText('after the stop')
     expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  // REGRESSION (live-reported 2026-08-30): interrupt a turn, switch provider, and
+  // send a follow-up — the marker rendered AFTER the still-queued prompt (nothing
+  // in `messages` outranks the interruption yet, so it fell through to the
+  // trailing slot, which used to sit BELOW the queue) and only snapped above it
+  // once the hook confirmed the prompt and moved it into `messages`. The marker
+  // is part of "the record" the queue sits below, same as any confirmed message.
+  it('draws the trailing marker above a prompt still waiting on hook confirmation', () => {
+    draw(oneFrozenTurn, {
+      trailingInterruption: true,
+      working: false,
+      queue: [
+        {
+          clientRequestId: 'r1',
+          text: 'continue that essay',
+          state: 'queued',
+          createdAt: '2026-08-30T00:00:00Z',
+          baselineSequence: 0,
+        },
+      ],
+    })
+
+    const divider = screen.getByTestId('agent-interrupted-divider')
+    const queued = screen.getByTestId('queued-prompt')
+    expect(divider.compareDocumentPosition(queued) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

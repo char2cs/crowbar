@@ -48,7 +48,11 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
     placeholder: string
     ariaLabel: string
     onChange: (value: string) => void
-    onKeyDown: (event: unknown, readMarkdown: () => string) => void
+    onKeyDown: (
+      event: unknown,
+      readMarkdown: () => string,
+      caret: { atStart: boolean; atEnd: boolean },
+    ) => void
     expanded?: boolean
     controls?: string
   }) =>
@@ -61,9 +65,14 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
       onChange: (event: { target: { value: string } }) => onChange(event.target.value),
       // Second argument included deliberately: the real editor hands the key
       // handler the BOX's text, and a mock that omitted it would let a submit
-      // path that reads stale state keep passing.
+      // path that reads stale state keep passing. Third argument is a stand-in
+      // for the real editor's own caret-edge probe — jsdom does not execute a
+      // textarea's native arrow-key caret movement the way a real browser does,
+      // so this suite (about the queue/catalog/ledger, per the note above, not
+      // caret geometry) always reports "at an edge" rather than trying to track
+      // a position jsdom never actually moves.
       onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown(event, () => event.currentTarget.value),
+        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
     }),
 }))
 
@@ -147,8 +156,7 @@ const baseProps = () => ({
   // Declared so `setup`/`rerenderProps` accept it: the daemon only ever sends
   // these for a delivery that produced no turn, so the default is none.
   settledPrompts: undefined as string[] | undefined,
-  streamingMessageId: undefined as string | undefined,
-  streamingMessageText: undefined as string | undefined,
+  streamingMessages: undefined as { id: string; text: string }[] | undefined,
   // No sticky selection: these fixtures' providers declare no catalogue, so the
   // picker renders nothing at all here (see agent-model-picker.test.tsx).
   model: '',
@@ -231,7 +239,7 @@ beforeEach(() => {
 })
 
 describe('AgentChatView message ledger', () => {
-  it('renders complete hook-confirmed messages in sequence and attributes provider handoffs', async () => {
+  it('renders complete hook-confirmed messages in sequence, across a provider handoff', async () => {
     initialMessages = [
       message(1, 'user', 'Question'),
       message(2, 'assistant', 'Codex answer'),
@@ -242,9 +250,8 @@ describe('AgentChatView message ledger', () => {
 
     expect(await screen.findByText('Question')).toBeInTheDocument()
     expect(screen.getByText('Codex answer')).toBeInTheDocument()
+    expect(screen.getByText('Same provider')).toBeInTheDocument()
     expect(screen.getByText('Claude handoff')).toBeInTheDocument()
-    expect(screen.getAllByText('Codex')).toHaveLength(1)
-    expect(screen.getAllByText('Claude')).toHaveLength(1)
   })
 
   it('pages older messages upward and merges without duplicate sequences', async () => {
@@ -803,6 +810,75 @@ describe('AgentChatView durable FIFO', () => {
   })
 })
 
+describe('AgentChatView composer controls', () => {
+  // REGRESSION: the send button's onClick handed the click's own MouseEvent
+  // straight to `enqueueDraft`, whose optional `text` parameter then read
+  // that event instead of `undefined` — `prompts.enqueue` calls `.trim()` on
+  // it and throws. Enter never went through this path, so only the button
+  // was broken; a test that only pressed Enter would never have caught it.
+  it('sends when the send button is clicked, not only on Enter', async () => {
+    initialMessages = [message(1, 'assistant', 'hi')]
+    setup()
+    const input = await composer()
+    fireEvent.change(input, { target: { value: 'click to send' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+
+    await waitFor(() =>
+      expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'click to send', expect.any(String)),
+    )
+  })
+
+  // The same click-handler bug existed on the blank chat's own send button
+  // (AgentEmptyDocument's `onSubmit`), fixed identically.
+  it('sends from a blank chat when its own send button is clicked', async () => {
+    setup()
+    const input = await composer()
+    fireEvent.change(input, { target: { value: 'first ever message' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+
+    await waitFor(() =>
+      expect(submitPromptFn).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        'first ever message',
+        expect.any(String),
+      ),
+    )
+  })
+
+  // Shell-style recall through the chat's OWN sent turns, newest first —
+  // never past what is actually loaded, and back to the live draft at the top.
+  it("recalls the chat's own sent turns with ArrowUp/ArrowDown", async () => {
+    initialMessages = [
+      message(1, 'user', 'first message'),
+      message(2, 'assistant', 'reply one'),
+      message(3, 'user', 'second message'),
+      message(4, 'assistant', 'reply two'),
+    ]
+    setup()
+    expect(await screen.findByText('reply two')).toBeInTheDocument()
+
+    fireEvent.keyDown(await composer(), { key: 'ArrowUp' })
+    expect(await composer()).toHaveValue('second message')
+
+    fireEvent.keyDown(await composer(), { key: 'ArrowUp' })
+    expect(await composer()).toHaveValue('first message')
+
+    // Nothing older than the oldest loaded turn — stays put.
+    fireEvent.keyDown(await composer(), { key: 'ArrowUp' })
+    expect(await composer()).toHaveValue('first message')
+
+    fireEvent.keyDown(await composer(), { key: 'ArrowDown' })
+    expect(await composer()).toHaveValue('second message')
+
+    fireEvent.keyDown(await composer(), { key: 'ArrowDown' })
+    // Back past the newest turn: the live draft, empty since nothing was typed.
+    expect(await composer()).toHaveValue('')
+  })
+})
+
 describe('AgentChatView streaming', () => {
   // These are about the PILL: its slash picker, its multiline behaviour, the
   // bubble that streams above it. None of them exist on a blank chat, which is
@@ -820,7 +896,7 @@ describe('AgentChatView streaming', () => {
     const view = setup()
     await screen.findByTestId('agent-message-list')
 
-    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sen' })
+    view.rerenderProps({ streamingMessages: [{ id: 'm1', text: 'half a sen' }] })
 
     expect(await screen.findByText('half a sen')).toBeInTheDocument()
   })
@@ -831,9 +907,9 @@ describe('AgentChatView streaming', () => {
     const view = setup()
     await screen.findByTestId('agent-message-list')
 
-    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sen' })
+    view.rerenderProps({ streamingMessages: [{ id: 'm1', text: 'half a sen' }] })
     await screen.findByText('half a sen')
-    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'half a sentence' })
+    view.rerenderProps({ streamingMessages: [{ id: 'm1', text: 'half a sentence' }] })
 
     expect(await screen.findByText('half a sentence')).toBeInTheDocument()
     expect(screen.queryByText('half a sen')).not.toBeInTheDocument()
@@ -842,13 +918,56 @@ describe('AgentChatView streaming', () => {
   // The live frame and the message poll arrive from different places, so for a
   // moment both hold the same sentence. Rendering both would show it twice.
   it('drops the partial once the ledger has the finished message', async () => {
-    initialMessages = [message(3, 'assistant', 'the whole sentence')]
+    // turnId follows the real backend convention (assistantTurnID: "msg-"+the
+    // streamed message's own id) — suppression is matched by id, not text, so
+    // the fixture has to carry the id the streaming bubble below will match.
+    initialMessages = [{ ...message(3, 'assistant', 'the whole sentence'), turnId: 'msg-m1' }]
     const view = setup()
     expect(await screen.findByTestId('agent-message-3')).toBeInTheDocument()
 
-    view.rerenderProps({ streamingMessageId: 'm1', streamingMessageText: 'the whole sentence' })
+    view.rerenderProps({ streamingMessages: [{ id: 'm1', text: 'the whole sentence' }] })
 
     await waitFor(() => expect(screen.getAllByText('the whole sentence')).toHaveLength(1))
+  })
+
+  // Regression: Codex can split one turn's reply across more than one open
+  // message item. The old model stored a single {id, text} slot per chat, so
+  // a second item's first delta silently overwrote the first item's
+  // still-growing text — it vanished from the live view (though it was safe
+  // in the ledger all along), then reappeared once the real record landed.
+  // This is the case that model can't represent at all: two DIFFERENT ids,
+  // both still open, at once.
+  it('renders more than one still-open message item at once, without either clobbering the other', async () => {
+    const view = setup()
+    await screen.findByTestId('agent-message-list')
+
+    view.rerenderProps({
+      streamingMessages: [
+        { id: 'm1', text: 'first paragraph, still growing' },
+        { id: 'm2', text: 'second item' },
+      ],
+    })
+
+    expect(await screen.findByText('first paragraph, still growing')).toBeInTheDocument()
+    expect(await screen.findByText('second item')).toBeInTheDocument()
+  })
+
+  it('only drops the specific item the ledger has confirmed, leaving the other streaming item visible', async () => {
+    // See the "drops the partial" test above: turnId must match "msg-"+the
+    // streamed id (m1 here) for the suppression this test is exercising.
+    initialMessages = [{ ...message(3, 'assistant', 'first paragraph, done'), turnId: 'msg-m1' }]
+    const view = setup()
+    expect(await screen.findByTestId('agent-message-3')).toBeInTheDocument()
+
+    view.rerenderProps({
+      streamingMessages: [
+        { id: 'm1', text: 'first paragraph, done' },
+        { id: 'm2', text: 'second item, still growing' },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getAllByText('first paragraph, done')).toHaveLength(1))
+    expect(screen.getByText('second item, still growing')).toBeInTheDocument()
   })
 })
 
@@ -877,8 +996,9 @@ describe('AgentChatView slash catalog', () => {
     setup()
     const input = await composer()
     fireEvent.change(input, { target: { value: '/compact' } })
+    // One presaved on mount, one silent refresh from opening the picker.
     await act(async () => vi.advanceTimersByTimeAsync(150))
-    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+    expect(slashCatalogFn).toHaveBeenCalledTimes(2)
 
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -929,8 +1049,10 @@ describe('AgentChatView slash catalog', () => {
     setup()
     const input = await composer()
     fireEvent.change(input, { target: { value: '/clear' } })
+    // One presaved on mount, one silent refresh from opening the picker —
+    // neither has answered yet, and Enter must not wait for either.
     await act(async () => vi.advanceTimersByTimeAsync(150))
-    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+    expect(slashCatalogFn).toHaveBeenCalledTimes(2)
 
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -939,7 +1061,7 @@ describe('AgentChatView slash catalog', () => {
     vi.useRealTimers()
   })
 
-  it('debounces one live probe, filters locally, and inserts provider-mapped text without submitting', async () => {
+  it('shows the presaved catalog instantly on open, then refreshes it once, silently', async () => {
     vi.useFakeTimers()
     slashCatalogFn.mockResolvedValue({
       providerId: 'codex',
@@ -965,13 +1087,21 @@ describe('AgentChatView slash catalog', () => {
       ],
     } satisfies SlashCatalog)
     setup()
+    // Presaved on chat initiation, well before the first `/`.
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+
     const input = await composer()
     fireEvent.change(input, { target: { value: '/rev' } })
-    expect(slashCatalogFn).not.toHaveBeenCalled()
-    await act(async () => vi.advanceTimersByTimeAsync(150))
-    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+    // Shows the cached catalog on the very same tick — no spinner, no wait.
     expect(screen.getByText('$review-code')).toBeInTheDocument()
     expect(screen.queryByText('write-tests')).not.toBeInTheDocument()
+    expect(slashCatalogFn).toHaveBeenCalledTimes(1)
+
+    // Opening it still asks again in the background, debounced, once.
+    await act(async () => vi.advanceTimersByTimeAsync(150))
+    expect(slashCatalogFn).toHaveBeenCalledTimes(2)
+
     fireEvent.click(screen.getByRole('option', { name: /review-code/i }))
     // RE-QUERIED, not the handle from before the insert. Text pushed in from
     // outside arrives by remounting the box (see `draftSeed`), so the element
@@ -984,19 +1114,26 @@ describe('AgentChatView slash catalog', () => {
   it('aborts and discards a stale catalog when the provider changes', async () => {
     vi.useFakeTimers()
     const catalog = deferred<SlashCatalog>()
-    let signal: AbortSignal | undefined
+    const signals: AbortSignal[] = []
     slashCatalogFn.mockImplementation((_w: string, _c: string, requestSignal: AbortSignal) => {
-      signal = requestSignal
+      signals.push(requestSignal)
       return catalog.promise
     })
     const view = setup()
+    // The chat's own presave already fired one probe on mount.
+    expect(signals).toHaveLength(1)
+
     fireEvent.change(await composer(), {
       target: { value: '/' },
     })
     await act(async () => vi.advanceTimersByTimeAsync(150))
-    expect(signal?.aborted).toBe(false)
+    expect(signals).toHaveLength(2)
+    const openSignal = signals[1]
+    expect(openSignal.aborted).toBe(false)
+
     view.rerenderProps({ providerId: 'claude' })
-    expect(signal?.aborted).toBe(true)
+    expect(openSignal.aborted).toBe(true)
+
     await act(async () =>
       catalog.resolve({
         providerId: 'codex',
@@ -1108,34 +1245,23 @@ describe('AgentChatView model + effort selection', () => {
     expect(onSelectionChange).toHaveBeenCalledWith('gpt-5.6-luna', '')
   })
 
-  it('shows the effort the PROVIDER reported for a turn, and only when it reported one', async () => {
-    // Provenance, not the request: this is what the CLI says it actually ran at.
-    initialMessages = [
-      { ...message(1, 'assistant', 'Reported'), effort: 'high' },
-      message(2, 'assistant', 'Unreported'),
-    ]
+  // The reported effort used to render here; it is gone from the transcript
+  // entirely now, replaced everywhere by the turnbar (provider icon + copy).
+  it('shows turn actions on an assistant reply, whatever the provider reported', async () => {
+    initialMessages = [{ ...message(1, 'assistant', 'Reported'), effort: 'high' }]
     setup()
 
     expect(await screen.findByText('Reported')).toBeInTheDocument()
-    const reported = screen.getAllByTestId('message-effort')
-    expect(reported).toHaveLength(1)
-    expect(reported[0]).toHaveTextContent('high effort')
+    expect(screen.getAllByTestId('message-turn-actions')).toHaveLength(1)
+    expect(screen.queryByText(/effort/i)).toBeNull()
   })
 
-  it('never shows a reported effort on a USER message', async () => {
+  it('never shows turn actions on a USER message', async () => {
     initialMessages = [{ ...message(1, 'user', 'Ask'), effort: 'high' }]
     setup()
 
     expect(await screen.findByText('Ask')).toBeInTheDocument()
-    expect(screen.queryByTestId('message-effort')).toBeNull()
-  })
-
-  it("does not borrow the chat's REQUESTED effort for a turn the provider said nothing about", async () => {
-    initialMessages = [message(1, 'assistant', 'Silent')]
-    setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra' })
-
-    expect(await screen.findByText('Silent')).toBeInTheDocument()
-    expect(screen.queryByTestId('message-effort')).toBeNull()
+    expect(screen.queryByTestId('message-turn-actions')).toBeNull()
   })
 })
 
@@ -1437,7 +1563,10 @@ describe('AgentChatView stopped turn divider', () => {
     await enterPrompt('second turn')
     await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
-    incrementalMessages = [message(3, 'user', 'second turn'), message(4, 'assistant', 'third turn reply')]
+    incrementalMessages = [
+      message(3, 'user', 'second turn'),
+      message(4, 'assistant', 'third turn reply'),
+    ]
     view.rerenderProps({ working: false, turnRevision: 2 })
     await screen.findByText('third turn reply')
 

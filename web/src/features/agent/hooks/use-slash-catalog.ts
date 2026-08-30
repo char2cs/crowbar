@@ -10,7 +10,6 @@ const SLASH_DEBOUNCE_MS = 150
 
 export type SlashCatalogState =
   | { state: 'closed' }
-  | { state: 'loading' }
   | { state: 'ready'; catalog: SlashCatalog }
   | { state: 'error'; error: Error; unavailable: boolean }
 
@@ -30,11 +29,15 @@ export interface SlashCatalogOptions {
 /**
  * The slash picker's catalogue.
  *
- * It opens on a LEADING slash and probes the provider once, debounced — the
- * probe can shell out to the CLI and take seconds, so it is never re-run per
- * keystroke; the query filters what came back. The catalogue is incomplete by
- * declaration on every provider Crowbar ships (see `SlashCatalog.completeness`),
- * which is why nothing here treats an empty result as an error.
+ * PRESAVED, not lazy: the probe can shell out to the CLI and take seconds, so
+ * it fetches once as soon as the chat is active — before anybody has typed a
+ * `/` — and caches whatever comes back. Opening the picker (the one moment the
+ * user actually goes into it) asks again in the background, in case skills
+ * changed since, but the refresh is silent: it never blanks what is already
+ * cached, so the picker has no loading state to show and never shows a
+ * spinner. The catalogue is incomplete by declaration on every provider
+ * Crowbar ships (see `SlashCatalog.completeness`), which is why nothing here
+ * treats an empty result as an error either.
  */
 export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: SlashCatalogOptions) {
   const [state, setState] = useState<SlashCatalogState>({ state: 'closed' })
@@ -42,6 +45,7 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
   const [selected, setSelected] = useState(0)
   const leadingRef = useRef(false)
   const providerRef = useRef(providerId)
+  providerRef.current = providerId
 
   /** Told about every draft change, so a leading `/` can open the picker exactly
    *  once — retyping the slash is what reopens it after an explicit dismissal. */
@@ -63,50 +67,59 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     setOpen(false)
   }, [])
 
-  // Provider/view changes close and abort the one-open-menu catalog. A leading
-  // slash must be deleted/retyped to explicitly open a fresh provider probe.
+  // A chat/provider switch invalidates whatever is cached — those are a
+  // different CLI's skills, never shown stale under a menu that looks like
+  // it belongs to the one now running.
   useEffect(() => {
-    if (providerRef.current !== providerId || !active) {
-      providerRef.current = providerId
-      setOpen(false)
-      setState({ state: 'closed' })
-    }
-  }, [providerId, active])
+    setOpen(false)
+    setState({ state: 'closed' })
+  }, [wsId, chatId, providerId])
 
-  useEffect(() => {
-    if (!open || !active) {
-      setState({ state: 'closed' })
-      return
-    }
-    const providerAtRequest = providerId
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      setState({ state: 'loading' })
-      void getSlashCatalog(wsId, chatId, controller.signal)
+  const probe = useCallback(
+    (signal: AbortSignal) => {
+      const providerAtRequest = providerId
+      return getSlashCatalog(wsId, chatId, signal)
         .then((catalog) => {
           if (
-            controller.signal.aborted ||
+            signal.aborted ||
             providerAtRequest !== providerRef.current ||
             catalog.providerId !== providerAtRequest
           )
             return
           setState({ state: 'ready', catalog })
-          setSelected(0)
         })
         .catch((error: unknown) => {
-          if (controller.signal.aborted || isAbort(error)) return
+          if (signal.aborted || isAbort(error)) return
           setState({
             state: 'error',
             error: error instanceof Error ? error : new Error(String(error)),
             unavailable: error instanceof ApiError && error.status === 422,
           })
         })
-    }, SLASH_DEBOUNCE_MS)
+    },
+    [wsId, chatId, providerId],
+  )
+
+  // Chat initiation: fetched once, well before the first `/`.
+  useEffect(() => {
+    if (!active) return
+    const controller = new AbortController()
+    void probe(controller.signal)
+    return () => controller.abort()
+  }, [active, probe])
+
+  // Reopening asks again, still silently — whatever is cached rides until the
+  // refresh lands, debounced so a `/` typed and immediately deleted never
+  // fires a probe at all.
+  useEffect(() => {
+    if (!open || !active) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => void probe(controller.signal), SLASH_DEBOUNCE_MS)
     return () => {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [open, active, wsId, chatId, providerId])
+  }, [open, active, probe])
 
   const query = draft.slice(1).trim().toLowerCase()
   const items = useMemo(() => {

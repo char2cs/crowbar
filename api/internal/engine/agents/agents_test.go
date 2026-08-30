@@ -39,6 +39,77 @@ func TestGet_UnknownAgentIsReported(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrUnknownAgent)
 }
 
+const minimalOverride = `
+id: probe
+spawn:
+  cmd: probe-cli
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
+// TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges is
+// the fix for a live-reported bug: Codex's streaming view visibly stalled
+// mid-reply, self-correcting only once the turn ended, while Claude streamed
+// smoothly. Get sits on the ingest hot path (once per hook, including once
+// per streamed delta), and protocol.Resolve is deliberately uncached — a full
+// disk read, YAML parse and rule-validate on every call, over a millisecond
+// for codex's own descriptor, measured. Codex's much higher per-second event
+// rate over its api-transport connection paid that cost often enough to fall
+// behind the incoming stream; Claude's hooks-paced rate never did. This
+// proves the cache holds an override's resolved descriptor stable across
+// repeated Get calls — corrupting the override on disk WITHOUT changing its
+// mtime must not be noticed, because noticing would mean Resolve ran again.
+func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "descriptors")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "probe.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(minimalOverride), 0o600))
+
+	svc := agents.New()
+	ctx := context.Background()
+	first, err := svc.Get(ctx, home, "probe")
+	require.NoError(t, err)
+	assert.Equal(t, "probe", first.ID())
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	stableModTime := info.ModTime()
+
+	// Corrupted, but pinned back to the EXACT mtime Get already saw — no
+	// sleep, no timing dependency: the cache is asked to distinguish "this
+	// file's content is different" (which it cannot, and must not try to)
+	// from "this file's mtime is different" (which it can, cheaply).
+	require.NoError(t, os.WriteFile(path, []byte("id: [unclosed"), 0o600))
+	require.NoError(t, os.Chtimes(path, stableModTime, stableModTime))
+
+	_, err = svc.Get(ctx, home, "probe")
+	require.NoError(t, err, "THE FIX: an unchanged mtime serves the cached descriptor, "+
+		"never re-reading a file that Get has no reason to believe changed")
+
+	// Now genuinely invalidate it: a real mtime change must still be caught,
+	// or this would not be a cache with correct invalidation — it would just
+	// be permanently stale, and a developer's edited override would never
+	// take effect without a daemon restart.
+	changedModTime := stableModTime.Add(time.Second)
+	require.NoError(t, os.Chtimes(path, changedModTime, changedModTime))
+
+	_, err = svc.Get(ctx, home, "probe")
+	assert.Error(t, err, "a real mtime change must invalidate the cache and surface the now-broken override")
+}
+
 func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 	a := get(t, "claude")
 

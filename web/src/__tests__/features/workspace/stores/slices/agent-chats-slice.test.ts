@@ -42,6 +42,60 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
+  // ── streamingMessages: upsert by id, not one slot ─────────────────────────
+  // Regression: this used to be `Record<string, {id,text}>` — a single slot
+  // per chat, unconditionally overwritten. Codex can have more than one
+  // message item open in a turn; the second item's first delta silently
+  // dropped the first item's still-growing text from the live view (it was
+  // always safe server-side, so the ledger "reconciled" it back a moment
+  // later — but the transcript visibly lost a paragraph until then).
+
+  it('setAgentChatStreamingMessage upserts by id — a second id does not drop the first', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second item' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'first paragraph' },
+      { id: 'm2', text: 'second item' },
+    ])
+  })
+
+  it('setAgentChatStreamingMessage replaces the SAME id in place, preserving order', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph, growing' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'first paragraph, growing' },
+      { id: 'm2', text: 'second' },
+    ])
+  })
+
+  it('setAgentChatStreamingMessage(chatId, null) clears every entry for that chat', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'a' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'b' })
+
+    s.getState().setAgentChatStreamingMessage('c1', null)
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+  })
+
+  it('does not touch another chat entirely — no cross-chat clobbering', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
+
+    s.getState().setAgentChatStreamingMessage('c2', { id: 'm2', text: 'chat two' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'chat one' },
+    ])
+  })
+
   // ── The sticky model / effort selection ───────────────────────────────────
   // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
   // is the only thing that brings an accepted pair back into the store.

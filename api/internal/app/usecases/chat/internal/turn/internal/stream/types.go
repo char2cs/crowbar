@@ -14,6 +14,7 @@ import "time"
 // is dropped as already-recorded.
 type Message struct {
 	ID           string
+	RunnerID     string
 	TurnID       string
 	Text         string
 	RecordedText string

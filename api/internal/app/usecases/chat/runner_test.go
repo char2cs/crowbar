@@ -870,6 +870,176 @@ func TestSwitchProvider_MidTurn_OutgoingCLIDies_ReleasesTheSwitch(t *testing.T) 
 	assert.NotEqual(t, runnerID, live.ID)
 }
 
+// TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod is the
+// bug the user hit live: they started a chat with one provider and switched to
+// another while the first was still mid-turn, and the switch (and the frontend's
+// "Starting <provider>…" spinner) hung forever. WaitsForTheTurnBefore... and
+// OutgoingCLIDies... above prove the wait releases on the turn's own two real
+// endings (it finishes, or the CLI dies) — this proves it also releases when
+// NEITHER ever happens: no turn_stop, no exit, nothing, ever. That gap is real
+// precisely because AwaitTurnComplete's own reasoning ("a live CLI finishes or
+// dies") never accounted for a CLI that is alive but simply stuck.
+func TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	oldTerm := f.runner(t, runnerID).TerminalSession
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+
+	// The outgoing CLI never sends turn_stop and never dies. Before the fix this
+	// blocked here forever; the grace period above is real, but short, so this
+	// still proves the release with no sleep or poll of its own.
+	sess := <-killed
+	assert.Equal(t, oldTerm, sess, "the stuck outgoing turn is forced the same way an explicit Stop would be")
+
+	got := <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, got.runnerID, live.ID)
+	assert.Equal(t, "codex", live.ProviderID, "the switch completes once the stuck turn is forced")
+	assert.NotEqual(t, runnerID, live.ID)
+}
+
+// TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly
+// guards the two new failure paths against colliding: a caller whose OWN context is
+// cancelled while the grace period is also armed must still abort with nothing
+// changed, exactly as TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged
+// already requires with no grace period configured at all.
+func TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, time.Hour)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+
+	select {
+	case <-parked:
+	case sess := <-killed:
+		cancel()
+		t.Fatalf("the outgoing CLI (%s) was terminated mid-turn", sess)
+	case r := <-done:
+		cancel()
+		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+
+	cancel()
+
+	got := <-done
+	require.Error(t, got.err)
+	assert.ErrorIs(t, got.err, context.Canceled)
+	assert.Empty(t, got.runnerID)
+
+	f.wait()
+	assert.Empty(t, f.term.terminatedIDs(), "the caller's own cancellation aborts the switch untouched, not the grace period")
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, runnerID, live.ID, "the outgoing CLI is still on its chat")
+	assert.True(t, f.chat(t, chatID).Working, "and still mid-turn")
+}
+
+// TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly stresses the
+// exact shape the user asked for: a single chat hopping between providers, more than
+// once, where EACH outgoing CLI in turn is stuck (never completes, never dies). It
+// proves forceOutgoingTurn leaves the chat in a state a SECOND switch can force again
+// cleanly — not just once — and that each force targets the CORRECT runner's terminal
+// session, never a stale one left over from the previous round.
+func TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	claudeTerm := f.runner(t, claudeRunner).TerminalSession
+	prompt(t, f, claudeRunner, "claude", "round one: think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on claude")
+
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("round one: switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+	sess := <-killed
+	assert.Equal(t, claudeTerm, sess, "round one forces claude's own terminal, not a stale one")
+	got := <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.Equal(t, "codex", live.ProviderID, "round one lands on codex")
+	codexRunner := live.ID
+	codexTerm := f.runner(t, codexRunner).TerminalSession
+	require.NotEqual(t, claudeTerm, codexTerm)
+
+	// Round two: codex, the chat's NEW outgoing provider, gets stuck exactly the same
+	// way claude did. Nothing about having already forced one switch may leave the
+	// chat unable to force a second.
+	prompt(t, f, codexRunner, "codex", "round two: think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on codex")
+
+	killed = terminateSignal(f)
+	parked = parkedOnTurn(t)
+	done = make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "claude")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("round two: switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+	sess = <-killed
+	assert.Equal(t, codexTerm, sess, "round two forces codex's own terminal, not claude's stale one")
+	got = <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err = f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, got.runnerID, live.ID)
+	assert.Equal(t, "claude", live.ProviderID, "round two lands back on a fresh claude")
+	assert.NotEqual(t, claudeRunner, live.ID, "a fresh runner, not the one already forced out in round one")
+}
+
 // TestResumeChat_DormantChat_DoesNotWait: ResumeChat shares switchProviderLocked, and a
 // dormant chat has no CLI and therefore no turn anybody could still be running — even
 // though its Working flag may still be set (a chat whose CLI died mid-turn). The revive
@@ -2023,6 +2193,118 @@ func TestCompact_AnUnknownChatSendsNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, before, f.term.callCount(),
 		"an unknown chat must reach no CLI at all")
+}
+
+// The same provider as compactingDescriptorBody, with compact_pre/compact_post
+// also mapped — mirroring claude.yaml, which maps them to
+// PreCompact/PostCompact with the same {session_id, trigger} fields.
+const compactingWithHooksDescriptorBody = `
+id: claude
+display_name: Compacting
+spawn:
+  cmd: claude
+  interactive_required: true
+session:
+  resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "{message}" }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+  compact_start:
+    out: prompt
+    send:
+      text: "/compact"
+  compact_pre:
+    in: PreCompact
+    map:
+      session_id: session_id
+      trigger: trigger
+  compact_post:
+    in: PostCompact
+    map:
+      session_id: session_id
+      trigger: trigger
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
+// TestRegression_CompactPreSettlesThePendingDeliveryImmediately is the fix for
+// the bug reported live 2026-08-29: "Crowbar just keeps waiting for something
+// that never happens" after /compact, even though the provider had already
+// finished compacting. Root cause, confirmed live: /compact is delivered as
+// an ordinary prompt (compact.go) that never confirms via a user_prompt hook
+// and produces no ledger turn, so before this fix the ONLY thing that ever
+// released the composer's "sending" state was termwait's generic 30s quiet
+// timeout — even though compact_pre itself, arriving on an idle chat (no open
+// turn, exactly compact's own shape), already marks the compaction
+// interruption resolved INSTANTLY (commands/interrupt.go's idle-chat
+// handling). compact_post is not a reliable second signal to wait for: live
+// testing showed it often never arrives at all for a small chat. compact_pre
+// must settle the still-pending delivery itself, immediately.
+func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", compactingWithHooksDescriptorBody)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "native-session")
+
+	require.NoError(t, f.usecase.Compact(f.ctx, chatID))
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"precondition: compact is delivered as an ordinary prompt, with nothing yet confirming it")
+
+	// SubmitPrompt's restart_tui strategy REPLACES the runner to deliver
+	// "/compact" — the delivery's own RunnerID (and the compact hooks that
+	// follow) belong to that replacement, not the one f.spawn returned.
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_pre",
+		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
+
+	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"compact_pre alone (the chat is idle — no turn was ever open for /compact) must settle the "+
+			"delivery immediately, not leave it for compact_post (which does not reliably arrive) or "+
+			"the 30s quiet timeout")
+}
+
+// TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot is the
+// defensive twin: if compaction ever happens with a turn genuinely open (so
+// compact_pre's Interrupt call does NOT resolve instantly), compact_post must
+// still settle the delivery when it does arrive.
+func TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", compactingWithHooksDescriptorBody)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "native-session")
+
+	require.NoError(t, f.usecase.Compact(f.ctx, chatID))
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+
+	// No compact_pre delivered at all here — standing in for the "not idle"
+	// case (a turn open when compaction starts), which this test does not
+	// need to construct in full: it only needs SOMETHING left pending when
+	// compact_post arrives.
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID))
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_post",
+		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
+
+	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"compact_post must settle a delivery compact_pre left pending")
 }
 
 // ─── from boot_test.go ────────────────────────────────────────────────

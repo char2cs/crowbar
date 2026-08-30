@@ -8,6 +8,7 @@ import {
   listChatFolders,
   type AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
+import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   isLatestProviderWrite,
@@ -190,6 +191,14 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     let cancelled = false
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
+
+    // `message_delta` fires once per streamed token, each its own top-level WS
+    // callback — outside anything React 18 batches. A fast provider can emit
+    // several inside one animation frame; this collapses them into one store
+    // write per chat per frame instead of one per token. See the batcher for why.
+    const streamingMessages = createStreamingMessageBatcher((chatId, message) =>
+      stateOf().setAgentChatStreamingMessage(chatId, message),
+    )
 
     // Every single-chat read that lands bumps this. A list seed captures it before it
     // asks, and refuses to apply a snapshot that a fresher read has already overtaken —
@@ -536,12 +545,24 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          //
+          // Deliberately NOT clearing streamingMessages[chatId] here (tried,
+          // reverted): "interrupted" does not mean dead. Stopping a turn is a
+          // graceful request, not a kill — the CLI it was asked to stop can
+          // keep producing output and complete its OWN turn on its own
+          // schedule, arriving under its own message id well after a
+          // DIFFERENT turn (a provider switch mid-interrupt) has already
+          // started. A blanket clear on the next turn_started throws that
+          // still-alive entry away — the reader watches it vanish mid-
+          // sentence. Entries are removed only by useChatMessages's own
+          // dedup-against-the-ledger check, same as any other item.
           return
         case 'message_delta':
           // The agent is mid-sentence. This is the only frame in the feed that is
           // not a record of anything — it is replaced by the ledger's own copy the
-          // moment the message completes.
-          if (ev.message) st.setAgentChatStreamingMessage(ev.chatId, ev.message)
+          // moment the message completes. Batched to the next frame rather than
+          // written straight through — see streamingMessages above.
+          if (ev.message) streamingMessages.schedule(ev.chatId, ev.message)
           return
         case 'prompt_settled':
           // A prompt Crowbar delivered turned out not to produce a turn — a
@@ -576,6 +597,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     return () => {
       cancelled = true
       unsubscribe()
+      streamingMessages.dispose()
     }
   }, [wsId])
 }

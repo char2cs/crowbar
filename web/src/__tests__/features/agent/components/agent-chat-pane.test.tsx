@@ -113,7 +113,11 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
     placeholder: string
     ariaLabel: string
     onChange: (value: string) => void
-    onKeyDown: (event: unknown, readMarkdown: () => string) => void
+    onKeyDown: (
+      event: unknown,
+      readMarkdown: () => string,
+      caret: { atStart: boolean; atEnd: boolean },
+    ) => void
     expanded?: boolean
     controls?: string
   }) =>
@@ -126,9 +130,11 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
       onChange: (event: { target: { value: string } }) => onChange(event.target.value),
       // Second argument included deliberately: the real editor hands the key
       // handler the BOX's text, and a mock that omitted it would let a submit
-      // path that reads stale state keep passing.
+      // path that reads stale state keep passing. Third argument is a stand-in
+      // for the real editor's own caret-edge probe — see the identical note in
+      // agent-chat-view.test.tsx's own mock of this module.
       onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown(event, () => event.currentTarget.value),
+        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
     }),
 }))
 

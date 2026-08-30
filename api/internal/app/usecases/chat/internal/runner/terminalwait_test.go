@@ -79,6 +79,12 @@ func (stubTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{},
 
 func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 
+func (stubTurns) AbandonMessageForRunner(
+	context.Context, string, engineagents.Runner,
+) (bool, error) {
+	return false, nil
+}
+
 func (stubTurns) CloseStalledTurn(context.Context, seam.Stall) {}
 
 // A terminal that cannot render a screen leaves the daemon with NO detector, and

@@ -52,8 +52,7 @@ func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) 
 	if !validID(id) {
 		return nil, fmt.Errorf("%w: %q", ErrUnknown, id)
 	}
-	if homeDir != "" {
-		override := filepath.Join(homeDir, overrideDir, id+yamlSuffix)
+	if override := OverridePath(homeDir, id); override != "" {
 		if data, err := os.ReadFile(override); err == nil { //nolint:gosec // id is validated above; homeDir is daemon-owned
 			return Load(data)
 		}
@@ -63,6 +62,21 @@ func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) 
 		return nil, fmt.Errorf("%w: %q", ErrUnknown, id)
 	}
 	return Load(data)
+}
+
+// OverridePath is where a per-daemon on-disk override for id would live under
+// homeDir, the same path Resolve itself checks before falling back to the
+// embedded default. Exposed so a caller that resolves the SAME id repeatedly
+// on a hot path (agents.service.Get, called once per ingested hook — see its
+// own doc comment) can cheaply Stat this path to know whether Resolve's full
+// read-parse-validate is worth repeating, instead of paying it unconditionally
+// on every call. Empty for a homeDir-less caller, exactly like Resolve's own
+// "no override possible" case.
+func OverridePath(homeDir, id string) string {
+	if homeDir == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, overrideDir, id+yamlSuffix)
 }
 
 func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {

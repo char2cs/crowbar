@@ -267,7 +267,9 @@ func (s *Store) RecentToolCalls(
 
 func (r TurnRow) domain() domain.ActivityTurn {
 	return domain.ActivityTurn{
-		ID: r.ID, ChatID: r.ChatID, Seq: r.Seq, Role: r.Role,
+		ID: r.ID, ChatID: r.ChatID, Seq: r.Seq,
+		DisplayOrder: r.DisplayOrder, ItemIndex: r.ItemIndex,
+		Role:       r.Role,
 		ProviderID: r.ProviderID, RunnerID: r.RunnerID, SessionID: r.SessionID,
 		Text: r.Text, Effort: r.Effort, StartedAt: r.StartedAt, EndedAt: r.EndedAt,
 	}
@@ -292,7 +294,8 @@ func (r SubagentRow) domain() domain.ActivitySubagent {
 func (r InterruptionRow) domain() domain.ActivityInterruption {
 	return domain.ActivityInterruption{
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
-		Kind: r.Kind, Detail: r.Detail, At: r.At, ResolvedAt: r.ResolvedAt,
+		DisplayOrder: r.DisplayOrder,
+		Kind:         r.Kind, Detail: r.Detail, At: r.At, ResolvedAt: r.ResolvedAt,
 	}
 }
 

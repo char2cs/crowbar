@@ -26,6 +26,32 @@ type StreamDef[T any] struct {
 	ScopeKey      func(*gin.Context) string
 	OnSubscribe   func(scope string)
 	OnUnsubscribe func(scope string)
+	// CoalesceKey opts a stream into latest-wins delivery: when set and it
+	// reports ok for a value, a client's per-key pending slot is OVERWRITTEN
+	// rather than queued, so a slow client is never starved and never
+	// disconnected for this value's kind — a later write for the same key
+	// simply supersedes the earlier, still-undelivered one.
+	//
+	// This is correct ONLY for a stream whose own values are already
+	// "the full state so far", so a receiver who misses several superseded
+	// writes is exactly as correct as one who saw every one of them — e.g. an
+	// assistant message broadcast as "everything said so far" rather than as
+	// an increment (see hub.BroadcastAgentChatMessageDelta's own doc
+	// comment: "a client that missed a frame is correct again on the next
+	// one"). It must NOT be set for a stream whose values are individually
+	// meaningful deltas or lifecycle edges (an increment, a state
+	// transition) — coalescing those loses information a later value can
+	// never reconstruct. Nil (the default) keeps every stream's existing,
+	// disconnect-on-overflow behavior exactly as it was — see
+	// TestPush_SlowConsumer_DisconnectsInsteadOfDroppingForever, which this
+	// field does not change for any stream that leaves it unset.
+	//
+	// Values sharing NO key (ok == false) go through the ordinary bounded
+	// queue untouched, and are always delivered strictly before any
+	// currently-pending coalesced value (see client.coalesce's own doc
+	// comment) — coalescing trades ordering only among values that already
+	// declared they don't need it, never against the rest of the stream.
+	CoalesceKey func(T) (key string, ok bool)
 }
 
 // FilterDef is an optional query-param predicate over a stream value.

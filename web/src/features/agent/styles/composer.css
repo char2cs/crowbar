@@ -179,12 +179,13 @@
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
   padding: 8px 14px;
-  transition:
-    border-radius 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
-/* Stadium on one line, 18px once it wraps. The EASE between them is the design;
-   a snap reads as the box being replaced rather than growing. */
+/* Stadium on one line, 18px once it wraps — INSTANT, not eased. This used to
+   ease over 180ms on the theory that a snap reads as the box being replaced
+   rather than growing; live, while actually typing, that read as the box's
+   own outline lagging a beat behind text that had already wrapped. The one
+   thing typed into this box that must never feel delayed is the box itself. */
 .agent-chat .pill.multi {
   border-radius: 18px;
 }
@@ -305,6 +306,9 @@
   text-underline-offset: 2px;
 }
 
+/* Rides the field's own growth. INSTANT, not eased — it used to ease its
+   Y-offset over 160ms as `fieldHeight` grew, which while actively typing read
+   as the button lagging a beat behind text that had already wrapped. */
 .agent-chat .handle {
   position: absolute;
   right: 4px;
@@ -313,7 +317,6 @@
   align-items: center;
   gap: 2px;
   height: 20px;
-  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
 }
 .agent-chat .handle .sep {
   width: 1px;
@@ -372,12 +375,18 @@
    stadium — the bar has not gone anywhere, it has stopped being an input. The
    footer selectors stay live underneath: switching model is the one thing that
    can actually clear a usage limit. */
+/* Right padding is deliberately tighter than left: `.msg`'s own text wants the
+   full 14px inset `.left` gets everywhere else in the composer, but whatever
+   trails it (a Terminal/Resume button, or ComposerHalted's `.when` timestamp)
+   is pinned flush against THIS edge via its own `margin-left: auto` below —
+   14px there read as a big right-side gap the normal composer's send circle
+   (always pinned close to its own edge) never has. */
 .agent-chat .pill.halted {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 5px 0 14px;
   border-color: color-mix(in oklch, var(--warning) 45%, transparent);
   background: color-mix(in oklch, var(--warning) 10%, var(--background));
   box-shadow:
@@ -392,6 +401,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.agent-chat .pill.halted > button:last-child {
+  margin-left: auto;
 }
 .agent-chat .pill.halted .when {
   margin-left: auto;
@@ -498,14 +510,15 @@
   outline: none;
 }
 /* Rides one line below the caret. `pointer-events` is off on everything but the
-   bar itself, so the document under it stays clickable for its whole width. */
+   bar itself, so the document under it stays clickable for its whole width.
+   INSTANT, not eased — same reasoning as `.handle` above: a control that
+   follows text you are actively typing must never read as catching up to it. */
 .agent-chat .dochandle {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
   pointer-events: none;
-  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
 }
 .agent-chat .dochandle .inner {
   --pad: max(40px, calc((100% - 720px) / 2));
@@ -556,7 +569,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 12px;
-  padding: 8px 0 0;
+  /* Both sides match `.pill`'s own `padding: 8px 14px` exactly, the same edge
+     the pill's own text and send circle sit inside. `.left` used to carry a
+     -7px margin instead of real padding here, on the theory that it was
+     "optical alignment" — with `overflow: hidden` below, that margin pulled
+     the leading chip PAST this row's own left edge and clipped it. A real
+     padding here has no overflow to clip into. */
+  padding: 8px 14px 0;
   overflow: hidden;
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
@@ -570,11 +589,6 @@
   /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
      fit moves to the next line whole, it doesn't fold in place. */
   white-space: nowrap;
-}
-/* Optical alignment: the leading chip's glyph, not its box, lines up with the
-   pill's text. */
-.agent-chat .underbar .left {
-  margin-left: -7px;
 }
 /* On its own wrapped line, `.right` has no sibling for `space-between` to push
    against — the auto margin is what still pins it to the row's right edge. */

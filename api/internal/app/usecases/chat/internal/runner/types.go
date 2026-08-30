@@ -109,6 +109,15 @@ type Turns interface {
 	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
 	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
+	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
+	// yet-final message before closeAbandonedTurn tears its turn down — see
+	// its own doc comment for why the runner must be named explicitly rather
+	// than re-resolved.
+	AbandonMessageForRunner(
+		ctx context.Context,
+		chatID string,
+		runner engineagents.Runner,
+	) (bool, error)
 
 	// The four seams the terminal-wait detector reads through. They are here
 	// rather than passed separately because they all belong to the hook side, and

@@ -149,6 +149,14 @@ export const AlertIcon = icon(
   'AlertIcon',
 )
 
+export const CopyIcon = icon(
+  <>
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+    <path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
+  </>,
+  'CopyIcon',
+)
+
 export const ShieldIcon = icon(
   <>
     <path d="M12 3 5 6v5.5c0 4.2 2.9 7.6 7 9.5 4.1-1.9 7-5.3 7-9.5V6z" />

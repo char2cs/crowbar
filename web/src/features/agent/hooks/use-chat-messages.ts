@@ -10,10 +10,28 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+// Sorted by displayOrder (dispatch order), NOT sequence (persist order) — an
+// interrupted turn that finishes late must still display before a later
+// turn that finished first. Falls back to sequence for anything predating
+// the field (old fixtures only; every real response has it).
+//
+// The merge MAP's key is turnId, NOT sequence: a turn can legitimately be
+// re-closed under a FRESH sequence for the SAME turnId (closeAssistantTurn's
+// reconciliation loop always re-records the last streamed item to layer the
+// terminating hook's effort/text onto it, even when nothing but that
+// changed) — a real, reported duplicate ("Noted — saw the Codex exchange…"
+// rendered twice, one copy missing `effort`, live 2026-08-29). Keying by
+// sequence treated that second close as a brand-new row instead of an
+// update to the first; turnId is the row's actual identity (every message
+// IS its turn — see AgentChatMessage.turnId) and survives it.
 function mergeMessages(current: AgentChatMessage[], incoming: AgentChatMessage[]) {
-  const bySequence = new Map(current.map((item) => [item.sequence, item]))
-  for (const item of incoming) bySequence.set(item.sequence, item)
-  return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence)
+  const byTurnId = new Map(current.map((item) => [item.turnId, item]))
+  for (const item of incoming) byTurnId.set(item.turnId, item)
+  return [...byTurnId.values()].sort(
+    (a, b) =>
+      (a.displayOrder ?? a.sequence) - (b.displayOrder ?? b.sequence) ||
+      (a.itemIndex ?? 0) - (b.itemIndex ?? 0),
+  )
 }
 
 export interface ChatMessagesOptions {
@@ -25,8 +43,10 @@ export interface ChatMessagesOptions {
   turnRevision: number
   /** A prompt is still waiting on hook confirmation, so keep polling. */
   awaiting: boolean
-  streamingMessageId?: string
-  streamingMessageText?: string
+  /** The message(s) the agent is mid-way through saying. An array because a
+   *  turn can have more than one open item (Codex; Claude is always 0-or-1)
+   *  — see agent-chats-slice.ts. */
+  streamingMessages?: { id: string; text: string }[]
   /** Every applied page, for queue reconciliation. Called SYNCHRONOUSLY inside
    *  the recovery walk, which then re-reads `pendingEvidence` — an async
    *  reconciliation would make the walk read its own stale answer and page to
@@ -56,8 +76,7 @@ export function useChatMessages(options: ChatMessagesOptions) {
     working,
     turnRevision,
     awaiting,
-    streamingMessageId,
-    streamingMessageText,
+    streamingMessages,
     onApply,
     pendingEvidence,
     pendingBaselines,
@@ -231,28 +250,43 @@ export function useChatMessages(options: ChatMessagesOptions) {
     }
   }, [wsId, chatId, applyMessages])
 
-  // The message being said right now, as a bubble below the recorded ones.
+  // The message(s) being said right now, as bubbles below the recorded ones —
+  // one per still-open item, in arrival order (Codex can have more than one
+  // open per turn; Claude never does, so this is a single-entry array there,
+  // same rendered output as before this array existed).
   //
-  // Suppressed once the ledger has it. The two arrive from different places — the
-  // live frame and the message poll — so for a moment both are present, and
-  // rendering both would show the same sentence twice. Comparing the TEXT rather
-  // than an id is what makes that work: the ledger row is keyed by the provider's
-  // message id and this frame carries the same id, but the row is only written
-  // when the message completes, so equal text is the earliest reliable signal
-  // that the record has caught up.
-  const streamingBubble = useMemo(() => {
-    const text = streamingMessageText?.trim()
-    if (!text || !streamingMessageId) return undefined
-    if (messages.some((m) => m.role === 'assistant' && m.text.trim() === text)) return undefined
-    return {
-      sequence: Number.MAX_SAFE_INTEGER,
-      role: 'assistant' as const,
-      text: streamingMessageText ?? '',
-      providerId,
-      turnId: '',
-      at: '',
+  // Each is suppressed once the ledger has it. The two arrive from different
+  // places — the live frame and the message poll — so for a moment both are
+  // present, and rendering both would show the same sentence twice.
+  //
+  // Matched by id, not text: the backend can RECONCILE a streamed message's
+  // text against the terminating hook's own copy when the two disagree
+  // (turn/message.go's closeAssistantTurn — "its ok that the backend is
+  // reconciling missing text, that's intended fallback behaviour"), and the
+  // persisted text then legitimately differs from whatever was streamed. A
+  // text comparison never matches that row, so the stale bubble is left on
+  // screen underneath the real one forever — a real, reported duplicate. The
+  // id survives reconciliation unchanged: assistantTurnID(messageID) is
+  // always "msg-" + the SAME streamed message id regardless of whether its
+  // text got replaced, so matching a ledger row's turnId against
+  // "msg-"+this bubble's id is the reliable signal instead.
+  const streamingBubbles = useMemo(() => {
+    if (!streamingMessages?.length) return EMPTY_MESSAGES
+    const bubbles: AgentChatMessage[] = []
+    // Descending from MAX_SAFE_INTEGER, in arrival order, so a lone entry
+    // gets the exact sentinel this used before arrays existed here, and
+    // several entries still sort strictly after every real message.
+    let sequence = Number.MAX_SAFE_INTEGER - (streamingMessages.length - 1)
+    for (const m of streamingMessages) {
+      const text = m.text.trim()
+      const recordedTurnId = `msg-${m.id}`
+      if (text && !messages.some((r) => r.role === 'assistant' && r.turnId === recordedTurnId)) {
+        bubbles.push({ sequence, role: 'assistant', text: m.text, providerId, turnId: '', at: '' })
+      }
+      sequence++
     }
-  }, [streamingMessageId, streamingMessageText, messages, providerId])
+    return bubbles.length ? bubbles : EMPTY_MESSAGES
+  }, [streamingMessages, messages, providerId])
 
   const getCursor = useCallback(() => cursorRef.current, [])
 
@@ -261,7 +295,7 @@ export function useChatMessages(options: ChatMessagesOptions) {
     hasOlder,
     loading,
     error,
-    streamingBubble,
+    streamingBubbles,
     getCursor,
     loadInitial,
     refresh,

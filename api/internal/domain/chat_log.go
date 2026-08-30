@@ -25,6 +25,10 @@ type LedgerTurn struct {
 // LedgerMessage is a LedgerTurn at its position in the chat's ordering.
 type LedgerMessage struct {
 	Sequence int
+	// DisplayOrder/ItemIndex — see ActivityTurn. What a client actually
+	// sorts by; Sequence stays the unique row identity and paging cursor.
+	DisplayOrder int64
+	ItemIndex    int
 	LedgerTurn
 }
 

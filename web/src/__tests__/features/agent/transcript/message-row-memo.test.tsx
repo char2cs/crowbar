@@ -24,10 +24,10 @@ describe('MessageRow memo (render-count proof)', () => {
       text: 'hi',
       at: '2026-08-24T00:00:00Z',
     }
-    const { rerender } = render(<MessageRow message={message} showProvider={false} providers={providers} />)
+    const { rerender } = render(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1)
 
-    rerender(<MessageRow message={message} showProvider={false} providers={providers} />)
+    rerender(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1) // still 1 — memo skipped the second render entirely
   })
 
@@ -42,11 +42,11 @@ describe('MessageRow memo (render-count proof)', () => {
       text: 'hi',
       at: '2026-08-24T00:00:00Z',
     }
-    const { rerender } = render(<MessageRow message={message} showProvider={false} providers={providers} />)
+    const { rerender } = render(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1)
 
     const changedMessage = { ...message, text: 'changed' }
-    rerender(<MessageRow message={changedMessage} showProvider={false} providers={providers} />)
+    rerender(<MessageRow message={changedMessage} providers={providers} />)
     expect(markdownRenderCount.count).toBe(2)
   })
 })

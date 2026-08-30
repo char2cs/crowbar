@@ -9,6 +9,7 @@ import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
+import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
 import {
   resolveComposerState,
   type ComposerRevival,
@@ -43,7 +44,11 @@ interface AgentComposerProps {
   slashOpen: boolean
   onDraftChange: (value: string) => void
   onHeightChange: (height: number) => void
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => void
+  onKeyDown: (
+    event: KeyboardEvent<HTMLDivElement>,
+    readMarkdown: () => string,
+    caret: CaretEdges,
+  ) => void
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void

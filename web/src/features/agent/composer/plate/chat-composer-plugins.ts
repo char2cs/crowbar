@@ -18,6 +18,7 @@ import { HtmlKit } from '@/features/editor/markdown/plate/html-node'
 import { MarkdownImageKit } from '@/features/editor/markdown/plate/markdown-image-node'
 import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-callout-rules'
 import { htmlMarkdownRules } from '@/features/editor/markdown/plate/markdown-html-rules'
+import { ChatFreshTextPlugin } from '@/features/agent/transcript/plate/chat-fresh-text-plugin'
 import {
   CommentCodeBlockElement,
   CommentCodeLineElement,
@@ -82,6 +83,10 @@ export const chatComposerPlugins = [
     shortcuts: { toggle: { keys: 'mod+alt+8' } },
   }),
   CodeLinePlugin.withComponent(CommentCodeLineElement),
+  // Renders the streaming transcript's fade-in. Inert everywhere else: the
+  // mark it looks for is set only by streaming-value-patch.ts, so it never
+  // fires in the composer or on a recorded, non-streaming message.
+  ChatFreshTextPlugin,
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],

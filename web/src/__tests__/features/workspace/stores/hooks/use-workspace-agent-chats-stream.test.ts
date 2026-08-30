@@ -15,6 +15,7 @@ const {
   removeAgentChat,
   setAgentChatWorking,
   setAgentChatTerminalWait,
+  setAgentChatStreamingMessage,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -34,6 +35,7 @@ const {
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
   setAgentChatTerminalWait: vi.fn(),
+  setAgentChatStreamingMessage: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -98,6 +100,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       removeAgentChat,
       setAgentChatWorking,
       setAgentChatTerminalWait,
+      setAgentChatStreamingMessage,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -126,6 +129,8 @@ type Frame = {
   /** What the chat's CLI is blocked on that Crowbar cannot answer. Present on the
    *  `terminal_wait` kind only, and its ABSENCE there is the clearing edge. */
   terminalWait?: { kind: string }
+  /** An assistant message still being produced. Present on `message_delta` only. */
+  message?: { id: string; text: string }
 }
 
 const chat = (id: string) => ({
@@ -376,6 +381,26 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(getChatFn).not.toHaveBeenCalled()
   })
 
+  // Regression (shipped and reverted in the same session): a turn_started
+  // handler was briefly added that cleared streamingMessages[chatId] wholesale,
+  // on the theory that a fresh turn owns none of the previous one's in-flight
+  // items. That's false — "interrupted" is a graceful stop request, not a
+  // kill, so the stopped CLI can keep producing and complete its OWN turn
+  // under its own message id well after a NEW turn (a provider switch
+  // mid-interrupt) has already started. Clearing on turn_started threw that
+  // still-alive entry away — the reader watched genuinely-live text vanish
+  // mid-sentence the instant the new turn began.
+  it('neither turn_started nor turn_stopped touch streamingMessages — only the ledger dedup does', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    const onFrame = captureCb()
+
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started', working: true })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: false })
+
+    expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+  })
+
   // THE BUG, at the FE seam. The backend fold alone did not fix the spinner: this hook
   // used to hardcode `turn_stopped -> false`, so the chat row went dark the moment claude
   // ended its turn to wait on a background subagent, no matter what the server said.
@@ -405,6 +430,89 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped' })
 
     expect(setAgentChatWorking).toHaveBeenCalledWith('c1', false)
+  })
+
+  // ── message_delta: batched to the next animation frame ─────────────────
+  // Each WS `message` event is its own top-level callback, outside anything
+  // React 18 batches automatically. A fast provider emitting several deltas
+  // inside one frame used to cost one store write per delta; see
+  // streaming-message-batcher.ts.
+  describe('message_delta batching', () => {
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+
+    it('does not write to the store synchronously — it waits for the next frame', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+      await nextFrame()
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'B' },
+      })
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bu' },
+      })
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledTimes(1)
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    it('ignores a frame missing the message payload', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'message_delta' })
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    it('drops a still-pending delta on unmount rather than writing it late', async () => {
+      const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+      unmount()
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
   })
 
   it('created reseeds the whole list rather than refetching a single chat', async () => {

@@ -1,10 +1,36 @@
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
-import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage, AgentProvider, AgentToolCall } from '@/features/agent/api/agent-api'
+import { Button } from '@/components/ui/button'
+import { ProviderIcon } from '@/components/ui/provider-icon'
+import { CopyIcon } from '@/features/agent/shared/agent-icons'
+import {
+  turnLatencyLabel,
+  turnTimeLabel,
+  turnTimestampLabel,
+  turnTimeTitle,
+} from '@/features/agent/lib/turn-time'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
+import { AgentTurnTools } from '@/features/agent/transcript/turn-tools'
+import { toast } from '@/features/window/stores/toast-store'
 
 function providerName(providers: AgentProvider[], id: string): string {
   return providers.find((provider) => provider.id === id)?.displayName ?? id
+}
+
+function providerGlyph(providers: AgentProvider[], id: string): string | undefined {
+  return providers.find((provider) => provider.id === id)?.icon
+}
+
+/** Copy a turn's own text forward — the box already sends it as markdown, so
+ *  what a reader gets back is exactly what the provider produced. */
+async function copyTurn(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('Copied to clipboard')
+  } catch {
+    toast.error('Could not copy to clipboard')
+  }
 }
 
 /**
@@ -34,13 +60,14 @@ function providerName(providers: AgentProvider[], id: string): string {
  */
 function MessageRowComponent({
   message,
-  showProvider,
   providers,
   firstTurn = false,
   firstReply = false,
+  streaming = false,
+  toolCallsByTurn,
+  precedingUserAt,
 }: {
   message: AgentChatMessage
-  showProvider: boolean
   providers: AgentProvider[]
   /** This is the chat's very first turn — kept in the empty document's own
    *  typography rather than switched to a bubble the instant it is sent. Only
@@ -53,6 +80,22 @@ function MessageRowComponent({
    *  message; see `agent-transcript.tsx` for how it is told apart from
    *  merely being the first assistant message loaded. */
   firstReply?: boolean
+  /** This is a still-open streaming bubble, not a closed, ledger-confirmed
+   *  turn. The turnbar (provider icon, copy, elapsed time) reports on a
+   *  FINISHED turn — showing it mid-stream would offer to copy text that is
+   *  still changing and time a turn that has not ended yet. */
+  streaming?: boolean
+  /** Finished tool calls for every turn in this transcript, keyed by turnId —
+   *  only ever passed for closed (non-streaming) assistant messages, since a
+   *  still-running call belongs to the working line, not a turn already
+   *  answered. */
+  toolCallsByTurn?: Map<string, AgentToolCall[]>
+  /** The `at` of the user turn this reply actually answers — what the
+   *  turnbar times ITSELF against: how long the agent took to answer, not
+   *  how long ago that was. Absent for a reply with no user turn before it
+   *  in the loaded window (a harness-injected one, say), where the turnbar
+   *  falls back to reporting how long ago it happened instead. */
+  precedingUserAt?: string
 }) {
   const user = message.role === 'user'
   const assistant = message.role === 'assistant'
@@ -60,6 +103,7 @@ function MessageRowComponent({
   const notice = message.role === 'notice'
   const frozen = user && firstTurn
   const frozenReply = assistant && firstReply
+  const glyph = assistant ? providerGlyph(providers, message.providerId) : undefined
   // A sent message keeps the shape of the box it was typed in: stadium while it
   // fits on one line, 18px once it wraps.
   const multi = message.text.length > 60 || message.text.includes('\n')
@@ -73,7 +117,12 @@ function MessageRowComponent({
 
   return (
     <article
-      className={cn('row', user && !frozen && 'me')}
+      // `stacked`: a user row's timestamp sits BELOW its message, not beside
+      // it — column direction, the message and the <time> as two siblings
+      // rather than one nested inside the other. `me` still does the actual
+      // left/right call: end-aligned for an ordinary bubble, left where it
+      // falls for the frozen full-width first turn.
+      className={cn('row', user && 'stacked', user && !frozen && 'me')}
       data-sequence={message.sequence}
       data-testid={`agent-message-${message.sequence}`}
       data-role={message.role}
@@ -96,7 +145,6 @@ function MessageRowComponent({
           !user && !harness && !notice && !assistant && 'assistant',
         )}
       >
-        {showProvider && <p className="meta">{providerName(providers, message.providerId)}</p>}
         {/* Said in words, not only in styling. The body of one of these is raw
             provider markup a reader has every reason to mistake for their own
             last message, and a muted box alone does not say whose words they are. */}
@@ -134,20 +182,45 @@ function MessageRowComponent({
           // sentence, which is the one thing about it worth showing.
           <span>{message.text}</span>
         )}
-        {/* Provenance, not a headline: what the CLI ITSELF said it ran this turn
-            at. It is a different fact from the chat's requested selection — the
-            two can legitimately disagree — so it is only ever shown for a turn
-            the provider actually reported one on. */}
-        {assistant && message.effort && (
-          <p
-            className="meta"
-            title="Reasoning effort the provider reported for this turn"
-            data-testid="message-effort"
-          >
-            {message.effort} effort
-          </p>
+        {/* What the turn actually DID, before what a reader can do about it —
+            tool calls are the turn's own work, the turnbar below is a
+            reader's actions on the finished result. Neither exists until the
+            turn has actually closed: a streaming bubble's calls still belong
+            to the working line, and copying or timing text that is still
+            changing offers a reader something that isn't real yet. */}
+        {assistant && !streaming && toolCallsByTurn && (
+          <AgentTurnTools callsByTurn={toolCallsByTurn} turnId={message.turnId ?? ''} />
+        )}
+        {assistant && !streaming && (
+          <div className="turnbar" data-testid="message-turn-actions">
+            {glyph && <ProviderIcon svg={glyph} className="size-3" />}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              tooltip="Copy"
+              aria-label="Copy this message"
+              onClick={() => void copyTurn(message.text)}
+            >
+              <CopyIcon size={12} className="size-3" />
+            </Button>
+            <time className="turn-time" dateTime={message.at} title={turnTimeTitle(message.at)}>
+              {precedingUserAt
+                ? turnLatencyLabel(precedingUserAt, message.at)
+                : turnTimeLabel(message.at)}
+            </time>
+          </div>
         )}
       </div>
+      {/* Below the bubble, not inside it — a fact ABOUT the turn, not part of
+          what was said. Sibling of the message div so `.row.stacked` can lay
+          the two out as separate lines regardless of which shape the message
+          itself takes (bubble or frozen). Timestamp only — a user's own turn
+          has nothing to time itself against, unlike a reply's latency. */}
+      {user && (
+        <time className="turn-time" dateTime={message.at} title={turnTimeTitle(message.at)}>
+          {turnTimestampLabel(message.at)}
+        </time>
+      )}
     </article>
   )
 }

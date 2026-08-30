@@ -10,6 +10,8 @@
 package turn
 
 import (
+	"time"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
@@ -69,6 +71,12 @@ type Turns struct {
 	// through is the hub — a layer above this one. Nil until then, and nil forever
 	// in a daemon with no detector.
 	messageDelta func(chatID, workspaceID, messageID, text string)
+
+	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
+	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
+	// self-releasing channel wait, not a lock another path can hold — it never
+	// risks the deadlock the package doc warns against.
+	messageAwaitTimeout time.Duration
 }
 
 // Deps is everything the hook ingress is built over. It is a struct and not an
@@ -93,6 +101,17 @@ type Deps struct {
 	Conversations Conversations
 }
 
+// defaultMessageAwaitTimeout bounds closeAssistantTurn's wait for a message
+// that may still be streaming when its turn's own closing hook arrives. Each
+// hook is its own CLI-spawned subprocess, so the real gap being covered is not
+// network jitter but subprocess scheduling latency under load — measured live
+// exceeding 500ms with just two chats running concurrently (the hook handler
+// itself blocked ~530ms, timed out, and the real delta still landed moments
+// later under its own id). 3s gives real headroom against that, and this path
+// is only ever reached on the rare turn actually racing — never on the
+// ordinary one, which already finds its message Open and returns immediately.
+const defaultMessageAwaitTimeout = 3 * time.Second
+
 // New builds the hook ingress. The runner port is bound separately, by
 // SetRunners, because the two call each other.
 func New(d Deps) *Turns {
@@ -110,11 +129,12 @@ func New(d Deps) *Turns {
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
-		messages:       stream.New(),
-		hookDeliveries: agentjournal.NewHookDeliveries(),
-		hookGates:      inflight.NewGate(),
-		pendingHooks:   d.PendingHooks,
-		answers:        d.Answers,
+		messages:            stream.New(),
+		hookDeliveries:      agentjournal.NewHookDeliveries(),
+		hookGates:           inflight.NewGate(),
+		pendingHooks:        d.PendingHooks,
+		answers:             d.Answers,
+		messageAwaitTimeout: defaultMessageAwaitTimeout,
 
 		conversations: d.Conversations,
 	}
@@ -123,6 +143,11 @@ func New(d Deps) *Turns {
 // SetRunners binds the runner lifecycle this package reaches for the placement
 // half of a hook.
 func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
+
+// SetMessageAwaitTimeout overrides how long closeAssistantTurn waits for a
+// still-streaming message before concluding nothing streamed. Test-only
+// surface: production always uses defaultMessageAwaitTimeout.
+func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout = d }
 
 // SetMessageDelta wires the fan-out for a growing assistant message. It is called
 // at sweep start, not at construction: a daemon with nobody to publish to records

@@ -573,6 +573,23 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		Filters: []ws.FilterDef[dto.AgentChatEvent]{
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
 		},
+		// message_delta is the one kind on this feed that is already "the
+		// full state so far" by construction (see
+		// hub.BroadcastAgentChatMessageDelta's own doc comment) — a client
+		// that misses several is exactly as correct as one that saw every
+		// one, as long as it eventually sees the latest. A fast-streaming
+		// provider can emit these far more often than this feed's other,
+		// genuinely stateful kinds (turn_started, folder events, ...), and
+		// those must keep the ordinary bounded-queue-then-disconnect
+		// contract untouched — CoalesceKey is what lets the two coexist on
+		// one broadcaster. Keyed by (chat, message id) so two chats, or two
+		// co-open items in one chat's turn, never coalesce into each other.
+		CoalesceKey: func(e dto.AgentChatEvent) (string, bool) {
+			if e.Kind != dto.AgentChatKindMessageDelta || e.Message == nil {
+				return "", false
+			}
+			return e.ChatID + "\x00" + e.Message.ID, true
+		},
 	}
 }
 

@@ -40,6 +40,16 @@ type ChatActivity struct {
 
 	Turn *ActivityTurn `json:"turn,omitempty"`
 
+	// OpenTurnOrders reserves each RUNNER's next DisplayOrder independently of
+	// Turn, which is a single pointer — a second runner opening a turn
+	// replaces it wholesale, so an earlier turn's own placeholder (and
+	// whatever DisplayOrder it reserved) would otherwise be gone by the time
+	// that earlier turn, gracefully stopping in the background, actually
+	// closes. Keyed by RunnerID, never wiped by OpenTurn/CloseTurn the way
+	// Tools/Subagents/etc. are — only ever set (on open) or consumed and
+	// removed (on the matching close).
+	OpenTurnOrders map[string]int64 `json:"openTurnOrders,omitempty"`
+
 	Tools         map[string]ActivityToolCall     `json:"tools,omitempty"`
 	Subagents     map[string]ActivitySubagent     `json:"subagents,omitempty"`
 	Interruptions map[string]ActivityInterruption `json:"interruptions,omitempty"`
@@ -74,9 +84,21 @@ type ActivityDelta struct {
 }
 
 type ActivityTurn struct {
-	ID         string `json:"id"`
-	ChatID     string `json:"chatId"`
-	Seq        int64  `json:"seq"`
+	ID     string `json:"id"`
+	ChatID string `json:"chatId"`
+	Seq    int64  `json:"seq"`
+	// DisplayOrder is reserved once, at the moment the turn is DISPATCHED
+	// (OpenTurn), and inherited unchanged by whatever CloseTurn eventually
+	// records the reply — unlike Seq, which CloseTurn mints fresh at
+	// COMPLETION time. Stopping a turn is a graceful request, not a kill: the
+	// stopped CLI can keep producing and complete after a different turn
+	// (dispatched later) already has, which would otherwise give the
+	// earlier-sent turn a HIGHER Seq and sort it after the later one.
+	DisplayOrder int64 `json:"displayOrder"`
+	// ItemIndex is this message's position within its own turn — always 0,
+	// except a provider (Codex) that splits one turn's reply across several
+	// message items, each persisted separately but sharing one DisplayOrder.
+	ItemIndex  int    `json:"itemIndex"`
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`
 	RunnerID   string `json:"runnerId"`
@@ -122,14 +144,23 @@ type ActivitySubagent struct {
 }
 
 type ActivityInterruption struct {
-	ID         string     `json:"id"`
-	TurnID     string     `json:"turnId"`
-	ChatID     string     `json:"chatId"`
-	Seq        int64      `json:"seq"`
-	Kind       string     `json:"kind"`
-	Detail     string     `json:"detail,omitempty"`
-	At         time.Time  `json:"at"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	ChatID string `json:"chatId"`
+	Seq    int64  `json:"seq"`
+	// DisplayOrder inherits the DisplayOrder of the turn this interruption was
+	// opened against (ActivityTurn.DisplayOrder), not a fresh Seq of its own —
+	// same reasoning as ActivityTurn's own field: an interruption recorded
+	// late (RecordStop firing only after a switch's grace period elapses, or
+	// any interruption processed while a concurrent second runner's turns are
+	// also landing) would otherwise mint a Seq that sorts it after activity it
+	// logically preceded. Falls back to Seq when no turn is open to inherit
+	// from (an idle chat has nothing to anchor to anyway).
+	DisplayOrder int64      `json:"displayOrder"`
+	Kind         string     `json:"kind"`
+	Detail       string     `json:"detail,omitempty"`
+	At           time.Time  `json:"at"`
+	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
 }
 
 func (a ChatActivity) OpenCount() int {

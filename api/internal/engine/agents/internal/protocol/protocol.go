@@ -57,6 +57,13 @@ func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) 
 	return descriptor.Resolve(ctx, homeDir, id)
 }
 
+// OverridePath is descriptor.OverridePath, re-exported for a caller that
+// needs to know whether Resolve's answer for (homeDir, id) can still change
+// without paying Resolve's own cost to find out — see its own doc comment.
+func OverridePath(homeDir, id string) string {
+	return descriptor.OverridePath(homeDir, id)
+}
+
 // Installed reports whether a provider's command exists on PATH.
 func Installed(cmd string) bool { return descriptor.Installed(cmd) }
 

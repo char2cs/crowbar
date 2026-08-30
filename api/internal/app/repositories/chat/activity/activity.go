@@ -28,7 +28,9 @@ type TurnInput struct {
 	SessionID  string
 	Text       string
 	Effort     string
-	Now        time.Time
+	// ItemIndex — see commands.CloseTurn.ItemIndex. Only meaningful on CloseTurn.
+	ItemIndex int
+	Now       time.Time
 }
 
 type ToolInput struct {
@@ -197,7 +199,7 @@ func (r *eventSourced) CloseTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.CloseTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Text: in.Text, Effort: in.Effort, Now: in.Now,
+		Text: in.Text, Effort: in.Effort, ItemIndex: in.ItemIndex, Now: in.Now,
 	})
 }
 
