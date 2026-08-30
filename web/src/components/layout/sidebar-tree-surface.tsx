@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
@@ -6,8 +6,10 @@ import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
+import { DeleteConfirmDialog } from '@/components/sidebar/delete-confirm-dialog'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
+  resolveRow,
   handleOpen as openSidebarRow,
   handleTrash as trashSidebarRow,
   handleCreate as createSidebarRow,
@@ -78,6 +80,15 @@ export function SidebarTreeSurface({
   // listener here catches a right-click in ANY project's rows.
   const treeRef = useRef<HTMLDivElement>(null)
 
+  // A trash click no longer deletes directly (Task 8/22's `handleTrash`
+  // still does the real work, now only from this dialog's onConfirm): spec
+  // §9 requires an idle delete to confirm and a working one to refuse
+  // outright, so the click just names the pending row and
+  // `DeleteConfirmDialog` decides which of those it gets.
+  const [deletingRowId, setDeletingRowId] = useState<string | null>(null)
+  const deletingRow = allRows.find((r) => r.id === deletingRowId) ?? null
+  const deletingRepo = deletingRowId != null ? resolveRow(repos, deletingRowId)?.repo : undefined
+
   return (
     <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
@@ -88,7 +99,7 @@ export function SidebarTreeSurface({
           rowsForProject={rowsForProjectFn}
           recentsForProject={recentsForProjectFn}
           onOpen={openRow}
-          onTrash={trashSidebarRow}
+          onTrash={setDeletingRowId}
           onCreate={createSidebarRow}
           onFocusRecent={focusRecentEntry}
           onCloseRecent={closeRecent}
@@ -97,6 +108,20 @@ export function SidebarTreeSurface({
         />
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
+      <DeleteConfirmDialog
+        open={deletingRow != null}
+        label={deletingRow?.label ?? ''}
+        working={deletingRow?.working ?? false}
+        projectId={deletingRepo?.projectId}
+        repoId={deletingRepo?.id ?? ''}
+        chatId={deletingRowId ?? ''}
+        onOpenChange={(open) => {
+          if (!open) setDeletingRowId(null)
+        }}
+        onConfirm={() => {
+          if (deletingRowId) trashSidebarRow(deletingRowId)
+        }}
+      />
     </div>
   )
 }
