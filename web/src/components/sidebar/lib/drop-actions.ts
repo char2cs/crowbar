@@ -8,8 +8,12 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { applyPendingRemovals } from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
+import { buildChatTree } from '@/features/agent/tree/lib/chat-rows'
 import { placeWorkspace, placeFolder } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
@@ -41,6 +45,11 @@ type RowPlacementCall =
 /** A chat subject whose target lives in a different workspace — no endpoint
  *  can re-home a chat to another workspace's own aggregate (see `planChatDrop`). */
 const UNSUPPORTED = 'unsupported' as const
+
+/** `buildChatTree`'s fold/search inputs don't affect `.siblings` at all (it
+ *  is derived straight from the raw chat/folder set) — this call only ever
+ *  wants that field, so every other input is this one stable empty. */
+const EMPTY_ID_SET: ReadonlySet<string> = new Set()
 
 function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undefined {
   for (const node of nodes) {
@@ -95,7 +104,15 @@ function planTreeRowDrop(
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] {
-  const { repos, collapsedChatRows } = useSidebarStore.getState()
+  const { repos: rawRepos, collapsedChatRows } = useSidebarStore.getState()
+  // The tree the user actually sees (and dropped into) is removal-tray-
+  // filtered — `SidebarTreeSurface` feeds `rowsFromRepo` this same
+  // `applyPendingRemovals` view, not the raw store. Planning against the raw
+  // repos during an in-progress hold can count a held (about-to-vanish)
+  // sibling in `rest`/`insertIndex`'s math, or report a target as having
+  // children it no longer visibly has — silently upgrading a plain reorder
+  // into a first-child reparent the drag indicator never promised.
+  const repos = applyPendingRemovals(rawRepos, useRemovalTrayStore.getState().hiddenIds)
   const scope = resolveRowRepo(repos, target.id)
   const repo = scope && repos.find((r) => r.id === scope.repoId)
   if (!repo || !scope?.projectId) return []
@@ -130,6 +147,10 @@ function planTreeRowDrop(
     if (subject.id === repo.defaultWorkspaceId) return
 
     if (subject.kind === 'folder') {
+      // Not a member of this repo at all — `SIDEBAR_DROP_POLICY` should
+      // already have refused this, but nothing here should construct a call
+      // for a folder id `placeFolder` can't recognise.
+      if (!repo.folders?.some((f) => f.id === subject.id)) return
       calls.push({
         kind: 'folder',
         projectId,
@@ -143,7 +164,8 @@ function planTreeRowDrop(
     if (subject.kind !== 'branch') return
 
     const ws = repo.workspaces.find((w) => w.id === subject.id)
-    const currentFork = ws?.parentId ?? ''
+    if (!ws) return
+    const currentFork = ws.parentId ?? ''
     const forked = currentFork !== '' && repo.workspaces.some((w) => w.id === currentFork)
     const visibleCurrentFork = forked ? currentFork : ''
     const visibleNextFork = containerKind === 'root' ? '' : workspaceAnchor(repo, containerId)
@@ -155,10 +177,12 @@ function planTreeRowDrop(
       containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
 
     if (nextFork !== '' && nextFork !== currentFork) {
-      // The reparent (202, rebases the fork) has to land before the index it
-      // was promised is asked for, or the daemon indexes into a level the
-      // row has not joined yet. The reparent itself clears any folder edge,
-      // so the follow-up carries one back only when landing inside one.
+      // The reparent (202, rebases the fork in the background — see
+      // `reparent-settle.ts`) has to genuinely LAND before the index it was
+      // promised is asked for, not just answer 202; `fireRowPlacementCall`
+      // waits on `watchReparent` between these two calls. The reparent
+      // itself clears any folder edge, so the follow-up carries one back
+      // only when landing inside one.
       const reparentFolderId = containerKind === 'folder' ? containerId : undefined
       calls.push({ kind: 'reparent', projectId, repoId, wsId: subject.id, parentId: nextFork })
       calls.push({
@@ -175,7 +199,7 @@ function planTreeRowDrop(
     // Landing directly under the current fork parent drops any folder edge;
     // landing in one of its folders writes it. Independent of lineage, which
     // is unchanged on this branch.
-    const directFolderId = containerKind === 'workspace' && ws?.folderId ? '' : folderId
+    const directFolderId = containerKind === 'workspace' && ws.folderId ? '' : folderId
     calls.push({
       kind: 'workspace',
       projectId,
@@ -211,15 +235,28 @@ function planChatDrop(
   if (subjects.some((s) => s.workspaceId !== destWorkspaceId)) return UNSUPPORTED
 
   const { chats, folders } = getOrCreateWorkspaceStore(destWorkspaceId).getState().agentChats
+  // The real sibling order — dense `order` ascending, folders sorted above
+  // chats on a tie, chats newest-first below that (`compareSiblings`) — is
+  // NOT a plain `[...chats, ...folders]` concat; that puts every folder
+  // after every chat regardless of where either actually sits. `siblings`
+  // is `chat-rows.ts`'s own already-built, already-documented source for
+  // "what a drop indexes into... a dropped row lands among its REAL
+  // siblings" — reused here rather than re-derived.
+  const { siblings } = buildChatTree({
+    chats,
+    folders,
+    collapsed: EMPTY_ID_SET,
+    shown: EMPTY_ID_SET,
+    foldedAway: EMPTY_ID_SET,
+    query: '',
+  })
   // Recents renders every row at depth 0 with no parentage (spec §5.1) —
   // `target.parentId` is always `null` there, so 'before'/'after' can only
   // ever place at the workspace root; only 'into' (making the subject one of
   // the target's own threads) reaches a real container.
   const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
   const lifted = new Set(subjects.map((s) => s.id))
-  const rest = [...chats, ...folders]
-    .filter((row) => (row.parentId ?? '') === containerId && !lifted.has(row.id))
-    .map((row) => row.id)
+  const rest = (siblings.get(containerId) ?? []).filter((id) => !lifted.has(id))
   const at = mode === 'into' ? rest.length : insertIndex(rest, target.id, mode)
 
   return subjects.map((subject, i) => ({
@@ -242,10 +279,18 @@ function planRowDrop(
     : planTreeRowDrop(subjects, target, mode)
 }
 
-function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
+async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
   switch (call.kind) {
-    case 'reparent':
-      return reparentWorkspace(call.projectId, call.repoId, call.wsId, call.parentId)
+    case 'reparent': {
+      // Baseline captured — and the subscription armed — BEFORE the request
+      // goes out, so a frame that beats the 202 back is not missed. Only
+      // once `wait()` resolves has the rebase genuinely landed (or been
+      // refused, in which case it throws and the follow-up placement call
+      // below never fires).
+      const wait = watchReparent(call.wsId, call.parentId)
+      await reparentWorkspace(call.projectId, call.repoId, call.wsId, call.parentId)
+      return wait()
+    }
     case 'workspace':
       return placeWorkspace(call.projectId, call.repoId, call.wsId, {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
@@ -283,12 +328,12 @@ export async function performSidebarDrop(
   target: SidebarRow,
   mode: DropMode,
 ): Promise<void> {
-  const plan = planRowDrop(subjects, target, mode)
-  if (plan === UNSUPPORTED) {
-    toast.error('Moving a chat to a different workspace is not supported yet')
-    return
-  }
   try {
+    const plan = planRowDrop(subjects, target, mode)
+    if (plan === UNSUPPORTED) {
+      toast.error('Moving a chat to a different workspace is not supported yet')
+      return
+    }
     for (const call of plan) {
       await fireRowPlacementCall(call)
     }

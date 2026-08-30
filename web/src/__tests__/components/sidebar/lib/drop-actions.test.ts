@@ -18,7 +18,7 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   placeFolder: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/api/workspace', () => ({
-  reparentWorkspace: vi.fn().mockResolvedValue(undefined),
+  reparentWorkspace: vi.fn(),
 }))
 vi.mock('@/features/agent/api/agent-api', () => ({
   setChatPlacement: vi.fn().mockResolvedValue({ chat: {}, shifted: [] }),
@@ -36,9 +36,10 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
 
 /**
  * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts
@@ -48,6 +49,11 @@ import type { AgentChat } from '@/features/agent/api/agent-api'
  *
  * `performSidebarPaneDrop`'s own suite (below, unchanged from Task 22) covers
  * §8.1's other two targets — the middle/edge of a PANE.
+ *
+ * `reparent-settle.test.ts` unit-tests `watchReparent` itself (the immediate/
+ * subscription/failure/timeout paths); the "waits for real confirmation"
+ * describe block below only proves it is actually WIRED into the placement
+ * sequence here.
  */
 
 const branchRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
@@ -94,7 +100,9 @@ const chatRow = (id: string, wsId: string, over: Partial<SidebarRow> = {}): Side
  *
  *   home-1 (repo header)
  *     ws-a
- *       ws-fork   (forked off ws-a)
+ *       ws-fork    (forked off ws-a, no folder)
+ *       folder-3   (a folder nested under ws-a)
+ *         ws-d     (forked off ws-a too, filed into folder-3)
  *     ws-b
  *     ws-c
  *     folder-1
@@ -114,18 +122,40 @@ function makeRepo(): Repo {
       { id: 'ws-b', branch: 'b', age: '', order: 1 },
       { id: 'ws-c', branch: 'c', age: '', order: 2 },
       { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+      { id: 'ws-d', branch: 'd', age: '', order: 0, parentId: 'ws-a', folderId: 'folder-3' },
     ],
     folders: [
       { id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 3 },
       { id: 'folder-2', repoId: 'repo-1', name: 'Chores', order: 4 },
+      { id: 'folder-3', repoId: 'repo-1', name: 'Nested', parentId: 'ws-a', order: 1 },
     ],
   }
+}
+
+/** Simulates the WS frame a real reparent lands on success: a fresh
+ *  `Workspace` object reporting the new `parentId`. */
+function confirmReparent(wsId: string, parentId: string): void {
+  useSidebarStore.setState((s) => ({
+    repos: s.repos.map((r) => ({
+      ...r,
+      workspaces: r.workspaces.map((w) => (w.id === wsId ? { ...w, parentId } : w)),
+    })),
+  }))
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [makeRepo()] })
+  useRemovalTrayStore.setState(getInitialRemovalState())
   setActiveWorkspaceId('ws-1')
+  // Default: the reparent POST's background job "succeeds" and its
+  // confirming WS frame lands essentially at once — most tests below care
+  // about the PLACEMENT sequencing this unblocks, not the settle mechanism
+  // itself. The dedicated "waits for real confirmation"/"refusal" tests
+  // below override this per-call to prove the wait is real.
+  vi.mocked(reparentWorkspace).mockImplementation(async (_projectId, _repoId, wsId, parentId) => {
+    confirmReparent(wsId, parentId)
+  })
 })
 
 afterEach(() => {
@@ -178,6 +208,24 @@ describe('performSidebarDrop — filing into a folder', () => {
   })
 })
 
+describe('performSidebarDrop — clearing a stale folder edge', () => {
+  it('landing directly under the current fork parent drops the folder edge, with no lineage change', async () => {
+    // ws-d already forks off ws-a and sits filed in folder-3 (also under
+    // ws-a). Dropped directly INTO ws-a itself, its lineage does not
+    // change (ws-a was already its fork parent) but the folder edge must
+    // still be explicitly cleared.
+    await performSidebarDrop([branchRow('ws-d')], branchRow('ws-a', { parentId: 'home-1' }), 'into')
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // ws-a's own children are [ws-fork, folder-3] — landing "into" ws-a
+    // appends after both.
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-d', {
+      folderId: '',
+      order: 2,
+    })
+  })
+})
+
 describe('performSidebarDrop — crossing a fork parent', () => {
   it('reparents before placing when the destination is under a different fork parent', async () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
@@ -191,9 +239,9 @@ describe('performSidebarDrop — crossing a fork parent', () => {
   })
 
   it('dropping "after" an EXPANDED row with children re-parents as its first child', async () => {
-    // ws-a is expanded by default (nothing folded) and has ws-fork as a
-    // child, so the gap right under it is the first-child slot, not a
-    // sibling-after reorder.
+    // ws-a is expanded by default (nothing folded) and has children, so the
+    // gap right under it is the first-child slot, not a sibling-after
+    // reorder.
     await performSidebarDrop(
       [branchRow('ws-b')],
       branchRow('ws-a', { parentId: 'home-1' }),
@@ -219,6 +267,68 @@ describe('performSidebarDrop — crossing a fork parent', () => {
       folderId: '',
       order: 1,
     })
+  })
+
+  it('reparenting onto the repo home row rebases onto the repo checkout itself', async () => {
+    // ws-fork forks off ws-a; dropped onto the repo's own header it must
+    // rebase onto the (hidden-from-the-tree) default workspace, same as the
+    // old root-drop path.
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', 'home-1')
+    // Root-level siblings (5 of them) plus this one landing at the end.
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', { order: 5 })
+  })
+})
+
+describe('performSidebarDrop — waits for a real reparent confirmation, not just the 202', () => {
+  it('does not fire the placement call until a WS frame actually confirms the new parentId', async () => {
+    // This one call resolves the POST with no confirming side effect —
+    // exactly what the real 202-then-background-job endpoint does.
+    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', 'ws-b')
+    // The POST resolved, but nothing has confirmed the move landed yet.
+    expect(placeWorkspace).not.toHaveBeenCalled()
+
+    confirmReparent('ws-fork', 'ws-b')
+    await done
+
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', { order: 0 })
+  })
+
+  it('a server-side refusal (lastError set, e.g. guardReparent declining) surfaces as toast.error — the placement call never fires', async () => {
+    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Simulate the background job's own refusal landing on the entity —
+    // this is the ONLY channel `guardReparent`'s error reaches.
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) => ({
+        ...r,
+        workspaces: r.workspaces.map((w) =>
+          w.id === 'ws-fork' ? { ...w, lastError: 'workspace has fork children' } : w,
+        ),
+      })),
+    }))
+    await done
+
+    expect(placeWorkspace).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith(
+      'reparent of ws-fork failed: workspace has fork children',
+    )
   })
 })
 
@@ -282,6 +392,40 @@ describe('performSidebarDrop — the repo home row', () => {
     expect(placeWorkspace).not.toHaveBeenCalled()
     expect(reparentWorkspace).not.toHaveBeenCalled()
   })
+
+  it('dropping directly into the home row is the same as landing at the repo root', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // Root siblings minus ws-b itself: ws-a, ws-c, folder-1, folder-2 — ws-b
+    // lands after all four.
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+      folderId: '',
+      order: 4,
+    })
+  })
+
+  it('dropping "after" the EXPANDED home row lands as the FIRST root-level row, not the last', async () => {
+    // The home row is a row like any other, but it is not a node in
+    // `buildSidebarTree`'s own graph — its rendered children ARE the
+    // tree's roots. Naively reusing `findNode` for it would always report
+    // zero children and silently turn this into an append-at-the-end.
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-c', {
+      folderId: '',
+      order: 0,
+    })
+  })
 })
 
 describe('performSidebarDrop — unresolvable rows', () => {
@@ -293,6 +437,33 @@ describe('performSidebarDrop — unresolvable rows', () => {
     ).resolves.toBeUndefined()
 
     expect(placeWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('performSidebarDrop — removal-tray hold', () => {
+  it('plans against the removal-filtered tree the user actually saw, not the raw store', async () => {
+    // ws-a's own children (ws-fork, folder-3 holding ws-d) are all held for
+    // removal — hidden from the tree, but still sitting in the raw store
+    // until the hold either commits or is cancelled.
+    useRemovalTrayStore.setState({ hiddenIds: new Set(['ws-fork', 'folder-3', 'ws-d']) })
+
+    // Planned against the RAW repos, ws-a would still read as having
+    // children and — expanded — "after" it would reparent ws-b as its
+    // first child. Filtered the way the user actually saw the tree, ws-a
+    // has no visible children left, so this is a plain sibling reorder.
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // Root siblings minus ws-b: ws-a, ws-c, folder-1, folder-2 — "after"
+    // ws-a (index 0) is index 1.
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+      folderId: '',
+      order: 1,
+    })
   })
 })
 
@@ -308,6 +479,19 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
   parentId: '',
+  ...over,
+})
+
+const chatFolder = (
+  id: string,
+  wsId: string,
+  over: Partial<AgentChatFolder> = {},
+): AgentChatFolder => ({
+  id,
+  workspaceId: wsId,
+  name: id,
+  parentId: '',
+  order: 0,
   ...over,
 })
 
@@ -338,6 +522,24 @@ describe('performSidebarDrop — chats', () => {
       parentId: 'chat-a',
       order: 0,
     })
+  })
+
+  it('computes the insert index against the REAL sibling order, not a raw [...chats, ...folders] concat', async () => {
+    // Real order (`compareSiblings`: order ascending, folders above chats on
+    // a tie): folder-z(0), chat-x(1), chat-y(2). A naive concat instead
+    // pushes every folder after every chat regardless of `order`, seeing
+    // [chat-x, chat-y, folder-z] — a DIFFERENT list, so a DIFFERENT index.
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([chat('chat-x', 'ws-x', { order: 1 }), chat('chat-y', 'ws-x', { order: 2 })])
+    store.getState().seedAgentChatFolders([chatFolder('folder-z', 'ws-x', { order: 0 })])
+
+    await performSidebarDrop([chatRow('chat-x', 'ws-x')], chatRow('chat-y', 'ws-x'), 'before')
+
+    // Real siblings minus chat-x: [folder-z, chat-y] — "before" chat-y is
+    // index 1. (The naive concat would have computed 0.)
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-x', { parentId: '', order: 1 })
   })
 
   it('refuses a chat dropped onto a target in a different workspace — no placement endpoint can move it', async () => {
