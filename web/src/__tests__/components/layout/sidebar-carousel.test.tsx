@@ -131,6 +131,10 @@ describe('SidebarCarousel', () => {
     mockMatch = null
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
+    // The card's height persists across renders as a fraction of the rail
+    // (sidebar-card-height.ts) — clear it so each test starts from the
+    // spec's own one-third default, not a previous test's committed drag.
+    localStorage.removeItem('sidebar-card-height-fraction')
   })
 
   it('mounts both panels: Files and Git', () => {
@@ -286,6 +290,87 @@ describe('SidebarCarousel', () => {
       fireEvent.scroll(el)
 
       expect(useSidebarStore.getState().activeTab).toBe('files')
+    })
+  })
+
+  describe('the floating card (spec §6)', () => {
+    it('opens at one third of the sidebar height', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+    })
+
+    it('the resize handle is the top 6px', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      const handle = screen.getByTestId('carousel-resize-handle')
+      expect(handle).toHaveClass('h-1.5') // matches pane-sash.tsx's confirmed w-1.5/h-1.5 = 6px
+    })
+
+    it('renders with no explicit height before the rail has been measured', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      expect(screen.getByTestId('carousel-card')).not.toHaveAttribute('style')
+    })
+
+    it('reports its own height so an ancestor can inset the tree by the same amount', () => {
+      const onHeightChange = vi.fn()
+      render(
+        <SidebarCarousel
+          activeWorkspaceRepoPath="/repo"
+          sidebarHeight={900}
+          onHeightChange={onHeightChange}
+        />,
+      )
+      expect(onHeightChange).toHaveBeenCalledWith(300)
+    })
+
+    it('resizing the sidebar keeps the card at its own committed fraction, not a frozen pixel value', () => {
+      const { rerender } = render(
+        <SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />,
+      )
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+      rerender(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={1200} />)
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '400px' })
+    })
+
+    it('dragging the top handle up grows the card and persists the new fraction', () => {
+      const onHeightChange = vi.fn()
+      const { unmount } = render(
+        <SidebarCarousel
+          activeWorkspaceRepoPath="/repo"
+          sidebarHeight={900}
+          onHeightChange={onHeightChange}
+        />,
+      )
+      const handle = screen.getByTestId('carousel-resize-handle')
+      fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
+      fireEvent.pointerMove(window, { clientY: 400 }) // dragged up 100px
+      fireEvent.pointerUp(window, { clientY: 400 })
+
+      // 300px (one third of 900) + 100px dragged up = 400px.
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '400px' })
+      expect(onHeightChange).toHaveBeenLastCalledWith(400)
+      unmount()
+
+      // Persisted as a proportion of the rail — a fresh mount at the same
+      // rail height opens back at the dragged size, not the one-third default.
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '400px' })
+    })
+
+    it('a plain click on the handle (no movement) never commits a height change', () => {
+      const onHeightChange = vi.fn()
+      render(
+        <SidebarCarousel
+          activeWorkspaceRepoPath="/repo"
+          sidebarHeight={900}
+          onHeightChange={onHeightChange}
+        />,
+      )
+      onHeightChange.mockClear()
+      const handle = screen.getByTestId('carousel-resize-handle')
+      fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
+      fireEvent.pointerUp(window, { clientY: 500 })
+      expect(onHeightChange).not.toHaveBeenCalled()
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
     })
   })
 })
