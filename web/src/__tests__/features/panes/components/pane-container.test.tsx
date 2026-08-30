@@ -390,3 +390,154 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(store.getState().panes[sourcePaneId]?.editorTabIds ?? []).not.toContain('moved-tab')
   })
 })
+
+// Task 18: usePaneViewPresentation wired into the chat/editor arrangement,
+// replacing Task 31's placeholder sequential stack. usePaneViewPresentation's
+// own geometry math (side-by-side vs. stacked vs. tabs thresholds) has its own
+// dedicated unit tests in use-chat-presentation.test.ts against a plain
+// { clientWidth, clientHeight } double — no real layout needed. This file is
+// about the WIRING: does PaneContainer arrange the two real DOM regions
+// (divider or not, hidden or not, row or column) the way that presentation
+// says to, and do both regions genuinely survive every presentation change.
+describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
+  afterEach(() => {
+    setActiveWorkspaceStoreRef(null)
+  })
+
+  /** jsdom reports 0 for every element's clientWidth/clientHeight (no layout
+   *  engine) — usePaneViewPresentation treats an unmeasured 0x0 pane as
+   *  side-by-side (see its own "flash" comment), so that is the size this
+   *  suite gets for free without overriding anything. */
+  it('an unmeasured pane with the split on defaults to side by side: a divider, and the editor is not hidden', async () => {
+    const store = createWorkspaceStore('w1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a') // addEditorTabToPane sets editorOpen = true
+
+    await renderPane(store)
+
+    const chat = await screen.findByTestId('chat-chat-1')
+    const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+    expect(chat.closest('[hidden]')).toBeNull()
+    expect(editorMarker.closest('[hidden]')).toBeNull()
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
+  })
+
+  it('with the split off, there is no divider — tabs, not a cramped split', async () => {
+    const store = createWorkspaceStore('w1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    store.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false
+      return state
+    })
+
+    await renderPane(store)
+
+    await screen.findByTestId('chat-chat-1')
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+  })
+
+  /** Forces a genuinely portrait pane (narrow, tall) past jsdom's normal 0x0
+   *  by overriding the one measurement usePaneViewPresentation actually reads
+   *  — clientWidth/clientHeight — for the duration of the test. Everything
+   *  else about jsdom (no real layout) is untouched. */
+  async function withPaneBox<T>(width: number, height: number, run: () => Promise<T>): Promise<T> {
+    const widthDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    const heightDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')
+    Object.defineProperty(Element.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => width,
+    })
+    Object.defineProperty(Element.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => height,
+    })
+    try {
+      return await run()
+    } finally {
+      if (widthDesc) Object.defineProperty(Element.prototype, 'clientWidth', widthDesc)
+      if (heightDesc) Object.defineProperty(Element.prototype, 'clientHeight', heightDesc)
+    }
+  }
+
+  it('a portrait pane stacks the two views vertically, with a horizontal-orientation divider', async () => {
+    await withPaneBox(500, 1200, async () => {
+      const store = createWorkspaceStore('w1')
+      store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      const chat = await screen.findByTestId('chat-chat-1')
+      const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+      expect(chat.closest('[hidden]')).toBeNull()
+      expect(editorMarker.closest('[hidden]')).toBeNull()
+      // PaneSash's aria-orientation is the OPPOSITE of its layout direction
+      // (same convention agent-chat-pane-split.test.tsx relies on for its own
+      // terminal split) — 'horizontal' here means the sash itself divides
+      // top from bottom, i.e. the views are stacked in a column.
+      expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal')
+    })
+  })
+
+  it('a landscape pane presents the two views side by side, with a vertical-orientation divider', async () => {
+    await withPaneBox(1600, 500, async () => {
+      const store = createWorkspaceStore('w1')
+      store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      await screen.findByTestId('chat-chat-1')
+      expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
+    })
+  })
+
+  it('too small on both axes falls back to tabs even with the split on', async () => {
+    await withPaneBox(300, 200, async () => {
+      const store = createWorkspaceStore('w1')
+      store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+      expect(editorMarker.closest('[hidden]')).not.toBeNull()
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    })
+  })
+
+  it('never unmounts either view across an editorOpen toggle — same DOM nodes throughout', async () => {
+    const store = createWorkspaceStore('w1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+    await renderPane(store)
+
+    const chatBefore = await screen.findByTestId('chat-chat-1')
+    const editorBefore = await screen.findByTestId('editor-marker-tab-a')
+
+    await act(async () => {
+      store.setState((state) => {
+        const pane = state.panes[ROOT_PANE_ID]
+        if (pane) pane.editorOpen = false
+        return state
+      })
+    })
+
+    expect(screen.getByTestId('chat-chat-1')).toBe(chatBefore)
+    expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
+
+    await act(async () => {
+      store.setState((state) => {
+        const pane = state.panes[ROOT_PANE_ID]
+        if (pane) pane.editorOpen = true
+        return state
+      })
+    })
+
+    expect(screen.getByTestId('chat-chat-1')).toBe(chatBefore)
+    expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
+  })
+})

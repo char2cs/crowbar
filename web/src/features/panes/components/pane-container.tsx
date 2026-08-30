@@ -42,6 +42,13 @@ import {
 } from '../utils/pane-drop-actions'
 import { getPaneSplitDropOptions } from '../utils/pane-drop-zones'
 import { type DropZone, SplitDropOverlay } from './split-drop-overlay'
+import { PaneSash } from './pane-sash'
+import {
+  SPLIT_DEFAULT_SIZES,
+  SPLIT_MIN_HALF_PX,
+  SPLIT_MIN_STACKED_PX,
+  usePaneViewPresentation,
+} from '@/features/agent/hooks/use-chat-presentation'
 
 const ExternalEditorTerminal = lazy(() =>
   import('@/features/editor/components/external-editor-terminal').then((m) => ({
@@ -178,6 +185,18 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     return paneBuffers.find((b) => b.id === pane.activeEditorTabId) || null
   }, [paneBuffers, pane.activeEditorTabId])
 
+  // Spec §7.2's "two views": how the chat view and editor view are arranged
+  // when the pane has a chat — side by side (landscape), stacked (portrait),
+  // or tabs (too small, or the split toggled off). Geometry only, measured on
+  // THIS pane via ResizeObserver — see usePaneViewPresentation. A pane with no
+  // chat never reads this: it has no toggle, and its editor view is always
+  // the one showing (see the plain fallback branch in the render below).
+  const viewsContainerRef = useRef<HTMLDivElement>(null)
+  const chatViewRef = useRef<HTMLDivElement>(null)
+  const editorViewRef = useRef<HTMLDivElement>(null)
+  const [splitSizes, setSplitSizes] = useState<[number, number]>(SPLIT_DEFAULT_SIZES)
+  const presentation = usePaneViewPresentation(pane.editorOpen, viewsContainerRef)
+
   // Spec §7.1/§7.2's split toggle: chat-only vs. chat+editor. A pane with no
   // chat has no toggle to read, so its editor view is always the one showing.
   // This only ever HIDES the editor region (native `hidden` attribute, still
@@ -186,7 +205,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // melted the CPU." The chat region is never hidden this way: `editorOpen`
   // is "chat-only vs. chat+editor," not "chat vs. editor" — the chat shows in
   // both states.
-  const editorViewHidden = Boolean(pane.chatId) && !pane.editorOpen
+  //
+  // `presentation === 'tabs'` subsumes the old `!pane.editorOpen` check: tabs
+  // is reached either because the toggle is off, OR because it is on but the
+  // pane is too small to honour it — same downgrade shape as
+  // useChatPresentation's own `splitEnabled` gate, just driven by size.
+  const editorViewHidden = Boolean(pane.chatId) && presentation === 'tabs'
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -537,6 +561,57 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     [handleExternalEditorExit, handlePromote, isActivePane, pane.id],
   )
 
+  // Everything pane.editorTabIds holds — files, terminals, branch review,
+  // never the chat. Shared verbatim between the two render branches below (a
+  // pane with a chat, and a pane without one) so the editor region's actual
+  // content is identical either way — only its WRAPPER (and that wrapper's
+  // `hidden`/flex-basis) differs by presentation.
+  const editorViewInner = (
+    <>
+      {/* Under the New Tab rules a pane always holds at least one buffer, so
+          this should be unreachable. Kept — pointed at the same component — so
+          that if a bug ever does strand a pane with no tabs, it shows a usable
+          surface instead of a blank rectangle with no way out. */}
+      {!activeBuffer && <NewTabView paneId={pane.id} />}
+
+      {/* Keep terminal buffers always mounted to preserve PTY sessions.
+          Deliberately OUTSIDE the Suspense boundary below: TerminalPane is
+          statically imported (it never suspends), so a cold chunk load of
+          whichever lazy pane type is active must not transiently unmount
+          these siblings. A terminal is visible only when it is BOTH this
+          pane's active editor tab AND the editor view itself isn't hidden
+          behind the chat — the two are independent questions (a hidden
+          terminal must not be flagged isActive/isVisible just because
+          editorViewHidden flips back and forth without a tab switch). */}
+      {paneBuffers
+        .filter((b): b is TerminalContent => b.type === 'terminal')
+        .map((b) => {
+          const isActive = b.id === activeBuffer?.id && !editorViewHidden
+          return (
+            <div
+              key={b.id}
+              className="absolute inset-0"
+              style={isActive ? undefined : { visibility: 'hidden' }}
+            >
+              <TerminalPane
+                sessionId={b.sessionId}
+                bufferId={b.id}
+                paneId={pane.id}
+                initialCommand={b.initialCommand}
+                workingDirectory={b.workingDirectory}
+                isActive={isActive && isActivePane}
+                isVisible={isActive}
+              />
+            </div>
+          )
+        })}
+
+      <Suspense fallback={null}>
+        {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
+      </Suspense>
+    </>
+  )
+
   return (
     <div
       ref={containerRef}
@@ -588,111 +663,136 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
         style={paneContentStyle}
       >
-        {/* Chat view (spec §7.2): the pane's other sibling surface. Mounted
-            whenever pane.chatId is set — it does not compete with
-            editorTabIds/activeEditorTabId for "which one is active" (a pane
-            holds at most one chat), so isVisible is always true here.
-            How this region and the editor view below are actually arranged
-            (side-by-side on landscape, stacked on portrait, tabs when the
-            split is off) is Task 18's job, driven by use-chat-presentation.ts —
-            this is a placeholder sequential stack until that lands. */}
-        {pane.chatId && (
-          <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Suspense fallback={null}>
-              {/* bufferId is a KNOWN, DISCLOSED gap, not an oversight:
-                  AgentChatPane itself is not migrated off the buffer model —
-                  it still writes runner-follow repoints and title renames
-                  through `bufferActions.repointAgentChatBuffer(bufferId, ...)`
-                  / `.renameBuffer(bufferId, ...)`, which look the id up in
-                  `state.buffers`. A chat is no longer a buffer at all (Task 1
-                  removed 'agentChat' from PaneContent), so no id here can
-                  resolve to a real entry — every one of those calls safely
-                  no-ops (`if (!buf) return`) rather than corrupting a
-                  DIFFERENT tab's buffer, which is why `pane.id` (this pane's
-                  own stable identity, the closest analog to "this tab's id,
-                  independent of which chat/runner it currently follows" that
-                  the old buffer id was) is passed rather than some other
-                  string — but it means runner-follow write-back (e.g. after
-                  `/clear` moves the runner to a new chatId) and title-rename
-                  do not happen: ChatHead can show a stale name, and
-                  `closePane`'s dormantArrangements push can remember the
-                  wrong chat. Needs a follow-up task that migrates
-                  AgentChatPane onto setPaneChat/chat-level rename instead of
-                  a buffer id — not done here (out of this task's file scope,
-                  and pane.chatId is not yet set by any production caller). */}
-              <AgentChatPane
-                chatId={pane.chatId}
-                runnerId={pane.runnerId ?? ''}
-                wsId={wsId}
-                bufferId={pane.id}
-                isActivePane={isActivePane}
-                isVisible
+        {/* Spec §7.2's "two views": the chat view and the editor view, and how
+            they're arranged. A pane with no chat has no split to arrange —
+            the editor view is the only thing there is, so it renders alone,
+            full-pane, exactly as it always has (the `presentation` computed
+            above is simply unused on this branch). */}
+        {pane.chatId ? (
+          <div
+            ref={viewsContainerRef}
+            className={cn(
+              'relative flex min-h-0 flex-1 overflow-hidden',
+              presentation === 'stacked' && 'flex-col',
+            )}
+          >
+            {/* Chat view. Mounted whenever pane.chatId is set — it does not
+                compete with editorTabIds/activeEditorTabId for "which one is
+                active" (a pane holds at most one chat), so isVisible is
+                always true here. NEVER hidden — `editorOpen` means
+                "chat-only vs. chat+editor," not "chat vs. editor": the chat
+                shows in every presentation, including 'tabs'. */}
+            <div
+              ref={chatViewRef}
+              className={cn(
+                'relative min-h-0 min-w-0 overflow-hidden',
+                // Tabs: this box IS the pane's content area (the editor sits
+                // behind it, `hidden`). Side by side/stacked: it is one half
+                // of a real split, sized by splitSizes and left free for the
+                // sash to resize (shrink, no grow — same convention
+                // agent-chat-pane's own split uses).
+                presentation === 'tabs' ? 'h-full w-full flex-1' : 'shrink grow-0',
+              )}
+              style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[0]}%` }}
+            >
+              <Suspense fallback={null}>
+                {/* bufferId is a KNOWN, DISCLOSED gap, not an oversight:
+                    AgentChatPane itself is not migrated off the buffer model —
+                    it still writes runner-follow repoints and title renames
+                    through `bufferActions.repointAgentChatBuffer(bufferId, ...)`
+                    / `.renameBuffer(bufferId, ...)`, which look the id up in
+                    `state.buffers`. A chat is no longer a buffer at all (Task 1
+                    removed 'agentChat' from PaneContent), so no id here can
+                    resolve to a real entry — every one of those calls safely
+                    no-ops (`if (!buf) return`) rather than corrupting a
+                    DIFFERENT tab's buffer, which is why `pane.id` (this pane's
+                    own stable identity, the closest analog to "this tab's id,
+                    independent of which chat/runner it currently follows" that
+                    the old buffer id was) is passed rather than some other
+                    string — but it means runner-follow write-back (e.g. after
+                    `/clear` moves the runner to a new chatId) and title-rename
+                    do not happen: ChatHead can show a stale name, and
+                    `closePane`'s dormantArrangements push can remember the
+                    wrong chat. Needs a follow-up task that migrates
+                    AgentChatPane onto setPaneChat/chat-level rename instead of
+                    a buffer id — not fixed here (out of this task's file
+                    scope, and pane.chatId is not yet set by any production
+                    caller). */}
+                <AgentChatPane
+                  chatId={pane.chatId}
+                  runnerId={pane.runnerId ?? ''}
+                  wsId={wsId}
+                  bufferId={pane.id}
+                  isActivePane={isActivePane}
+                  isVisible
+                />
+              </Suspense>
+            </div>
+
+            {/* The draggable divider between the two views — side by side or
+                stacked only; tabs shows one view at a time, so there is
+                nothing to divide. Same imperative pixel sash agent-chat-pane
+                uses for its own split, with the identical floor convention:
+                the narrower axis (a half's own width side by side, a half's
+                own height stacked) gets the smaller floor. */}
+            {presentation !== 'tabs' && (
+              <PaneSash
+                direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}
+                sizes={splitSizes}
+                containerRef={viewsContainerRef}
+                firstPaneRef={chatViewRef}
+                secondPaneRef={editorViewRef}
+                onResizeCommit={setSplitSizes}
+                minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
               />
-            </Suspense>
+            )}
+
+            {/* Editor view: everything pane.editorTabIds holds — files,
+                terminals, branch review, never the chat. ALWAYS RENDERED
+                (never conditionally mounted) — `hidden` only applies the
+                native `hidden` attribute (display:none via the UA
+                stylesheet, not a Tailwind class, so it needs no compiled CSS
+                to take effect) in 'tabs' presentation (spec §7.1/§7.2: the
+                split is off, or the pane is too small to honour it).
+                Everything inside — including the terminal keep-alive block —
+                stays mounted across every presentation change: this div's
+                own presence in the tree never changes, only its `hidden`
+                attribute and its sizing do, so nothing inside it ever
+                unmounts/remounts.
+
+                KNOWN, DISCLOSED GAP — the tab strip's own relocation: spec
+                §7.2 additionally asks that in 'stacked' presentation the
+                editor's TAB STRIP itself (not this whole region) physically
+                moves to sit between the chat view and the editor view, while
+                the chat name stays up in the head. `TabBar` renders that
+                strip fused into one single row together with the split
+                toggle and the chat head (spec §7.1) with no seam to split it
+                at, and restructuring it into separable head/strip pieces is
+                a distinct change with its own blast radius that Task 17
+                already shipped and reviewed clean — out of this task's
+                declared file scope (`use-chat-presentation.ts` +
+                `pane-container.tsx`). TabBar stays put at the top of the
+                pane, unchanged, in every presentation below; only the
+                chat/editor arrangement underneath it responds to geometry.
+                Flagging this precisely rather than silently dropping it —
+                see the task report for the follow-up this implies. */}
+            <div
+              ref={editorViewRef}
+              hidden={editorViewHidden}
+              className={cn(
+                'relative min-h-0 overflow-hidden',
+                presentation === 'tabs' ? 'w-full flex-1' : 'shrink grow-0',
+              )}
+              style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[1]}%` }}
+            >
+              {editorViewInner}
+            </div>
+          </div>
+        ) : (
+          <div ref={editorViewRef} className="relative min-h-0 flex-1 overflow-hidden">
+            {editorViewInner}
           </div>
         )}
-
-        {/* Editor view: everything pane.editorTabIds holds — files, terminals,
-            branch review, never the chat. ALWAYS RENDERED (never conditionally
-            mounted) — `hidden` only applies the native `hidden` attribute
-            (display:none via the UA stylesheet, not a Tailwind class, so it
-            needs no compiled CSS to take effect) when the pane has a chat and
-            the split is off (spec §7.1/§7.2). A pane with no chat is never
-            hidden this way, so it always shows this region, falling back to
-            the empty stage.
-            Everything inside — including the terminal keep-alive block below —
-            stays mounted across that toggle: this div's own presence in the
-            tree never changes, only its `hidden` attribute does, so nothing
-            inside it ever unmounts/remounts. (A top-level, always-`absolute
-            inset-0`-across-the-whole-pane sibling was considered instead, to
-            put the terminals structurally outside this div entirely, but that
-            would size them to the FULL pane and visually overlap the chat
-            region whenever both are showing — nesting them here is what scopes
-            their position to the editor view's own box while still never
-            costing a remount.) */}
-        <div hidden={editorViewHidden} className="relative min-h-0 flex-1 overflow-hidden">
-          {/* Under the New Tab rules a pane always holds at least one buffer, so
-              this should be unreachable. Kept — pointed at the same component — so
-              that if a bug ever does strand a pane with no tabs, it shows a usable
-              surface instead of a blank rectangle with no way out. */}
-          {!activeBuffer && <NewTabView paneId={pane.id} />}
-
-          {/* Keep terminal buffers always mounted to preserve PTY sessions.
-              Deliberately OUTSIDE the Suspense boundary below: TerminalPane is
-              statically imported (it never suspends), so a cold chunk load of
-              whichever lazy pane type is active must not transiently unmount
-              these siblings. A terminal is visible only when it is BOTH this
-              pane's active editor tab AND the editor view itself isn't hidden
-              behind the chat — the two are independent questions (a hidden
-              terminal must not be flagged isActive/isVisible just because
-              editorViewHidden flips back and forth without a tab switch). */}
-          {paneBuffers
-            .filter((b): b is TerminalContent => b.type === 'terminal')
-            .map((b) => {
-              const isActive = b.id === activeBuffer?.id && !editorViewHidden
-              return (
-                <div
-                  key={b.id}
-                  className="absolute inset-0"
-                  style={isActive ? undefined : { visibility: 'hidden' }}
-                >
-                  <TerminalPane
-                    sessionId={b.sessionId}
-                    bufferId={b.id}
-                    paneId={pane.id}
-                    initialCommand={b.initialCommand}
-                    workingDirectory={b.workingDirectory}
-                    isActive={isActive && isActivePane}
-                    isVisible={isActive}
-                  />
-                </div>
-              )
-            })}
-
-          <Suspense fallback={null}>
-            {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
-          </Suspense>
-        </div>
       </div>
     </div>
   )
