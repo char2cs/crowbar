@@ -1,11 +1,12 @@
-import { createElement } from 'react'
+import { createElement, Fragment } from 'react'
 import { act, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   WorkspaceStoreContext,
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 // Task 31: PaneContainer migrated off the old bufferIds/activeBufferId/
@@ -73,23 +74,43 @@ vi.mock('@/features/tabs/components/tab-bar', () => ({
 }))
 
 // Exposes the real onDrop handler PaneContainer wires up (handleSplitDrop) via
-// a plain button, so a drag-drop test can fire it without simulating HTML5 DnD
-// through the real overlay's own zone-geometry math.
+// plain buttons, so a drag-drop test can fire it without simulating HTML5 DnD
+// through the real overlay's own zone-geometry math. `centerDropPayload` is
+// mutated per-test (vi.mock factories are hoisted and only ever instantiated
+// once) so the center-zone button can carry a test-specific source pane/tab.
+const { centerDropPayload } = vi.hoisted(() => ({
+  centerDropPayload: { current: { bufferId: 'existing-tab', paneId: 'phantom-source-pane' } },
+}))
 vi.mock('@/features/panes/components/split-drop-overlay', () => ({
   SplitDropOverlay: ({ onDrop }: { onDrop: (zone: string, e: unknown) => void }) =>
-    createElement('button', {
-      type: 'button',
-      'data-testid': 'split-drop-trigger',
-      onClick: () =>
-        onDrop('right', {
-          dataTransfer: {
-            getData: (type: string) =>
-              type === 'application/tab-data'
-                ? JSON.stringify({ bufferId: 'existing-tab', paneId: 'phantom-source-pane' })
-                : '',
-          },
-        }),
-    }),
+    createElement(
+      Fragment,
+      null,
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'split-drop-trigger-right',
+        onClick: () =>
+          onDrop('right', {
+            dataTransfer: {
+              getData: (type: string) =>
+                type === 'application/tab-data'
+                  ? JSON.stringify({ bufferId: 'existing-tab', paneId: 'phantom-source-pane' })
+                  : '',
+            },
+          }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'split-drop-trigger-center',
+        onClick: () =>
+          onDrop('center', {
+            dataTransfer: {
+              getData: (type: string) =>
+                type === 'application/tab-data' ? JSON.stringify(centerDropPayload.current) : '',
+            },
+          }),
+      }),
+    ),
 }))
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
@@ -141,6 +162,10 @@ function seedEditorTab(
 }
 
 describe('PaneContainer — chat/editor-view hosting', () => {
+  afterEach(() => {
+    setActiveWorkspaceStoreRef(null)
+  })
+
   it('renders the chat, not NewTabView, when the pane has a chat and zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
@@ -151,7 +176,12 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chat).toHaveAttribute('data-runner-id', 'runner-1')
     expect(chat).toHaveAttribute('data-ws-id', 'w1')
     expect(chat).toHaveAttribute('data-visible', 'true')
-    expect(screen.queryByTestId('new-tab-marker')).not.toBeInTheDocument()
+    // The editor region (and its NewTabView fallback) stays MOUNTED per spec
+    // §7.2 — "renders the chat, not NewTabView" means not SHOWING, not "isn't
+    // in the DOM at all". See the dedicated "keeps both mounted" test below
+    // for the mount-vs-visibility distinction spelled out explicitly.
+    expect(screen.getByTestId('new-tab-marker')).not.toBeVisible()
+    expect(chat).toBeVisible()
   })
 
   it('renders the active tab content and no chat surface when the pane has editor tabs and no chat', async () => {
@@ -189,6 +219,55 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(await screen.findByTestId('editor-marker-tab-a')).toBeInTheDocument()
   })
 
+  it('a pane with both a chat and editor tabs, split toggled off, keeps both mounted and only hides the editor view', async () => {
+    const store = createWorkspaceStore('w1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    // addEditorTabToPane sets editorOpen = true as a side effect (see the test
+    // above) — force the split back off so this test can assert the "chat-only"
+    // state without losing the editor tab.
+    store.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false
+      return state
+    })
+
+    await renderPane(store)
+
+    const chat = await screen.findByTestId('chat-chat-1')
+    const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+    // Both are MOUNTED regardless of which is showing (spec §7.2: "Both
+    // surfaces stay mounted"). The editor's marker is present in the DOM...
+    expect(editorMarker).toBeInTheDocument()
+    // ...but its content-area ancestor carries the native `hidden` attribute
+    // (display:none via the UA stylesheet — not a Tailwind class, so this
+    // assertion needs no compiled CSS to be meaningful), while the chat's does
+    // not.
+    expect(editorMarker.closest('[hidden]')).not.toBeNull()
+    expect(chat.closest('[hidden]')).toBeNull()
+  })
+
+  it('keeps the chat mounted (same DOM node) across an editor-tab activation', async () => {
+    const store = createWorkspaceStore('w1')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-b')
+
+    await renderPane(store)
+
+    const chatBefore = await screen.findByTestId('chat-chat-1')
+
+    await act(async () => {
+      store.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-a')
+    })
+
+    const chatAfter = screen.getByTestId('chat-chat-1')
+    // Same DOM node — switching which editor tab is active never remounts
+    // the chat region, which sits outside editorTabIds/activeEditorTabId
+    // entirely (it doesn't compete for "which one is active").
+    expect(chatAfter).toBe(chatBefore)
+  })
+
   it("reads the active tab's preview styling from its own isPreview field", async () => {
     const store = createWorkspaceStore('w1')
     seedEditorTab(store, ROOT_PANE_ID, 'tab-preview', { isPreview: true })
@@ -201,7 +280,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     )
   })
 
-  it("does not read preview styling off a removed pane-level id", async () => {
+  it('does not read preview styling off a removed pane-level id', async () => {
     const store = createWorkspaceStore('w1')
     seedEditorTab(store, ROOT_PANE_ID, 'tab-plain', { isPreview: false })
 
@@ -242,7 +321,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       return originalActivate(...args)
     }
 
-    const trigger = await screen.findByTestId('split-drop-trigger')
+    const trigger = await screen.findByTestId('split-drop-trigger-right')
     await act(async () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
@@ -260,5 +339,54 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(actions.moveBufferToPane).toBeUndefined()
     expect(actions.activatePaneBuffer).toBeUndefined()
     expect(actions.addBufferToPane).toBeUndefined()
+  })
+
+  it('a center-zone drop of an existing tab from another pane moves it in via the migrated pane-drop-actions helpers', async () => {
+    const store = createWorkspaceStore('w1')
+    // The center zone routes through pane-drop-actions.ts's
+    // moveBufferToPaneDropTarget/ensureBufferInPaneDropTarget, which read the
+    // GLOBAL active-workspace-store ref (a separate registry from the
+    // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
+    // pane-drop-actions.test.ts already needs for these same two helpers.
+    setActiveWorkspaceStoreRef(store)
+
+    const sourcePaneId = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!sourcePaneId) throw new Error('splitPane did not create a source pane')
+    store.setState((state) => {
+      state.buffers.push({
+        id: 'moved-tab',
+        type: 'editor',
+        path: '/moved.ts',
+        name: 'moved.ts',
+        content: '',
+        savedContent: '',
+        isDirty: false,
+        isVirtual: false,
+        tokens: [],
+        isPinned: false,
+        isPreview: false,
+      })
+      return state
+    })
+    store.getState().paneActions.addEditorTabToPane(sourcePaneId, {
+      id: 'moved-tab',
+      type: 'editor',
+      name: 'moved.ts',
+    })
+    centerDropPayload.current = { bufferId: 'moved-tab', paneId: sourcePaneId }
+
+    await renderPane(store)
+
+    const trigger = await screen.findByTestId('split-drop-trigger-center')
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    // Before this fix round, pane-drop-actions.ts's own helpers still called
+    // the removed moveBufferToPane/addBufferToPane/activatePaneBuffer — this
+    // proves the tab actually lands in ROOT_PANE_ID, not just that clicking
+    // through didn't throw.
+    expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('moved-tab')
+    expect(store.getState().panes[sourcePaneId]?.editorTabIds ?? []).not.toContain('moved-tab')
   })
 })

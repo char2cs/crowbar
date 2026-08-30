@@ -63,8 +63,8 @@ describe('pane drop actions', () => {
     const { moveBufferToPaneDropTarget } = await import('@/features/panes/utils/pane-drop-actions')
     const paneActions = wsStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-b')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-a', type: 'editor', name: 'a.ts' })
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-b', type: 'editor', name: 'b.ts' })
 
     const targetPaneId = moveBufferToPaneDropTarget('buffer-a', ROOT_PANE_ID, {
       paneId: ROOT_PANE_ID,
@@ -73,8 +73,8 @@ describe('pane drop actions', () => {
 
     expect(targetPaneId).not.toBeNull()
     if (!targetPaneId) return
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual(['buffer-b'])
-    expect(paneActions.getPaneById(targetPaneId)?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-b'])
+    expect(paneActions.getPaneById(targetPaneId)?.editorTabIds).toEqual(['buffer-a'])
     expect(wsStore.getState().activePaneId).toBe(targetPaneId)
   })
 
@@ -83,11 +83,11 @@ describe('pane drop actions', () => {
       await import('@/features/panes/utils/pane-drop-actions')
     const paneActions = wsStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-a', type: 'editor', name: 'a.ts' })
 
     expect(ensureBufferInPaneDropTarget('buffer-a', { paneId: ROOT_PANE_ID, zone: 'center' })).toBe(
       ROOT_PANE_ID,
     )
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-a'])
   })
 })

@@ -42,6 +42,6 @@ export function moveBufferToPaneDropTarget(
 
   const state = getActiveWorkspaceStoreRef()?.getState()
   if (!state) return null
-  state.paneActions.moveBufferToPane(bufferId, sourcePaneId, targetPaneId)
+  state.paneActions.moveEditorTabToPane(bufferId, sourcePaneId, targetPaneId)
   return targetPaneId
 }

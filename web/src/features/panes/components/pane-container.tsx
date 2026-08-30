@@ -178,11 +178,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     return paneBuffers.find((b) => b.id === pane.activeEditorTabId) || null
   }, [paneBuffers, pane.activeEditorTabId])
 
-  // Spec §7.1's split toggle: chat-only vs. chat+editor. A pane with no chat
-  // has no toggle to read, so its editor view always shows (falling back to
-  // the empty stage) — the "a pane always shows something" behavior this file
-  // already had before chat became its own pane field.
-  const showEditorView = !pane.chatId || pane.editorOpen
+  // Spec §7.1/§7.2's split toggle: chat-only vs. chat+editor. A pane with no
+  // chat has no toggle to read, so its editor view is always the one showing.
+  // This only ever HIDES the editor region (native `hidden` attribute, still
+  // mounted) — never unmounts it — per spec §7.2: "Both surfaces stay
+  // mounted. `display: none` dormancy is load-bearing — content-visibility
+  // melted the CPU." The chat region is never hidden this way: `editorOpen`
+  // is "chat-only vs. chat+editor," not "chat vs. editor" — the chat shows in
+  // both states.
+  const editorViewHidden = Boolean(pane.chatId) && !pane.editorOpen
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -595,6 +599,27 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         {pane.chatId && (
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Suspense fallback={null}>
+              {/* bufferId is a KNOWN, DISCLOSED gap, not an oversight:
+                  AgentChatPane itself is not migrated off the buffer model —
+                  it still writes runner-follow repoints and title renames
+                  through `bufferActions.repointAgentChatBuffer(bufferId, ...)`
+                  / `.renameBuffer(bufferId, ...)`, which look the id up in
+                  `state.buffers`. A chat is no longer a buffer at all (Task 1
+                  removed 'agentChat' from PaneContent), so no id here can
+                  resolve to a real entry — every one of those calls safely
+                  no-ops (`if (!buf) return`) rather than corrupting a
+                  DIFFERENT tab's buffer, which is why `pane.id` (this pane's
+                  own stable identity, the closest analog to "this tab's id,
+                  independent of which chat/runner it currently follows" that
+                  the old buffer id was) is passed rather than some other
+                  string — but it means runner-follow write-back (e.g. after
+                  `/clear` moves the runner to a new chatId) and title-rename
+                  do not happen: ChatHead can show a stale name, and
+                  `closePane`'s dormantArrangements push can remember the
+                  wrong chat. Needs a follow-up task that migrates
+                  AgentChatPane onto setPaneChat/chat-level rename instead of
+                  a buffer id — not done here (out of this task's file scope,
+                  and pane.chatId is not yet set by any production caller). */}
               <AgentChatPane
                 chatId={pane.chatId}
                 runnerId={pane.runnerId ?? ''}
@@ -608,52 +633,66 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
 
         {/* Editor view: everything pane.editorTabIds holds — files, terminals,
-            branch review, never the chat. Skipped only when the pane already
-            has a chat and holds no editor tabs at all (spec §7.1: "a view
-            holding only its chat draws no bar at all") — a chat-only pane
-            draws no empty stage beneath it. A pane with no chat always shows
-            this region, falling back to the empty stage. */}
-        {showEditorView && (
-          <div className="relative min-h-0 flex-1 overflow-hidden">
-            {/* Under the New Tab rules a pane always holds at least one buffer, so
-                this should be unreachable. Kept — pointed at the same component — so
-                that if a bug ever does strand a pane with no tabs, it shows a usable
-                surface instead of a blank rectangle with no way out. */}
-            {!activeBuffer && <NewTabView paneId={pane.id} />}
+            branch review, never the chat. ALWAYS RENDERED (never conditionally
+            mounted) — `hidden` only applies the native `hidden` attribute
+            (display:none via the UA stylesheet, not a Tailwind class, so it
+            needs no compiled CSS to take effect) when the pane has a chat and
+            the split is off (spec §7.1/§7.2). A pane with no chat is never
+            hidden this way, so it always shows this region, falling back to
+            the empty stage.
+            Everything inside — including the terminal keep-alive block below —
+            stays mounted across that toggle: this div's own presence in the
+            tree never changes, only its `hidden` attribute does, so nothing
+            inside it ever unmounts/remounts. (A top-level, always-`absolute
+            inset-0`-across-the-whole-pane sibling was considered instead, to
+            put the terminals structurally outside this div entirely, but that
+            would size them to the FULL pane and visually overlap the chat
+            region whenever both are showing — nesting them here is what scopes
+            their position to the editor view's own box while still never
+            costing a remount.) */}
+        <div hidden={editorViewHidden} className="relative min-h-0 flex-1 overflow-hidden">
+          {/* Under the New Tab rules a pane always holds at least one buffer, so
+              this should be unreachable. Kept — pointed at the same component — so
+              that if a bug ever does strand a pane with no tabs, it shows a usable
+              surface instead of a blank rectangle with no way out. */}
+          {!activeBuffer && <NewTabView paneId={pane.id} />}
 
-            {/* Keep terminal buffers always mounted to preserve PTY sessions.
-                Deliberately OUTSIDE the Suspense boundary below: TerminalPane is
-                statically imported (it never suspends), so a cold chunk load of
-                whichever lazy pane type is active must not transiently unmount
-                these siblings. */}
-            {paneBuffers
-              .filter((b): b is TerminalContent => b.type === 'terminal')
-              .map((b) => {
-                const isActive = b.id === activeBuffer?.id
-                return (
-                  <div
-                    key={b.id}
-                    className="absolute inset-0"
-                    style={isActive ? undefined : { visibility: 'hidden' }}
-                  >
-                    <TerminalPane
-                      sessionId={b.sessionId}
-                      bufferId={b.id}
-                      paneId={pane.id}
-                      initialCommand={b.initialCommand}
-                      workingDirectory={b.workingDirectory}
-                      isActive={isActive && isActivePane}
-                      isVisible={isActive}
-                    />
-                  </div>
-                )
-              })}
+          {/* Keep terminal buffers always mounted to preserve PTY sessions.
+              Deliberately OUTSIDE the Suspense boundary below: TerminalPane is
+              statically imported (it never suspends), so a cold chunk load of
+              whichever lazy pane type is active must not transiently unmount
+              these siblings. A terminal is visible only when it is BOTH this
+              pane's active editor tab AND the editor view itself isn't hidden
+              behind the chat — the two are independent questions (a hidden
+              terminal must not be flagged isActive/isVisible just because
+              editorViewHidden flips back and forth without a tab switch). */}
+          {paneBuffers
+            .filter((b): b is TerminalContent => b.type === 'terminal')
+            .map((b) => {
+              const isActive = b.id === activeBuffer?.id && !editorViewHidden
+              return (
+                <div
+                  key={b.id}
+                  className="absolute inset-0"
+                  style={isActive ? undefined : { visibility: 'hidden' }}
+                >
+                  <TerminalPane
+                    sessionId={b.sessionId}
+                    bufferId={b.id}
+                    paneId={pane.id}
+                    initialCommand={b.initialCommand}
+                    workingDirectory={b.workingDirectory}
+                    isActive={isActive && isActivePane}
+                    isVisible={isActive}
+                  />
+                </div>
+              )
+            })}
 
-            <Suspense fallback={null}>
-              {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
-            </Suspense>
-          </div>
-        )}
+          <Suspense fallback={null}>
+            {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
+          </Suspense>
+        </div>
       </div>
     </div>
   )

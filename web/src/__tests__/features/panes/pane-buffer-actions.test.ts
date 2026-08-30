@@ -47,11 +47,29 @@ describe('pane buffer actions', () => {
     vi.unstubAllGlobals()
   })
 
-  it('adds missing buffers to an existing pane', async () => {
+  it('adds a missing buffer to an existing pane', async () => {
     const { ensureBufferInPane } = await import('@/features/panes/utils/pane-buffer-actions')
+    // addEditorTabToPane only registers a REFERENCE (see the comment on
+    // ensureBufferInPane) — the buffer itself must already exist.
+    wsStore.setState((state) => {
+      state.buffers.push({
+        id: 'buffer-a',
+        type: 'editor',
+        path: '/buffer-a.ts',
+        name: 'buffer-a.ts',
+        content: '',
+        savedContent: '',
+        isDirty: false,
+        isVirtual: false,
+        tokens: [],
+        isPinned: false,
+        isPreview: false,
+      })
+      return state
+    })
 
     expect(ensureBufferInPane(ROOT_PANE_ID, 'buffer-a')).toBe(ROOT_PANE_ID)
-    expect(wsStore.getState().panes[ROOT_PANE_ID]?.bufferIds).toEqual(['buffer-a'])
+    expect(wsStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])
     expect(wsStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 
@@ -59,12 +77,19 @@ describe('pane buffer actions', () => {
     const { ensureBufferInPane } = await import('@/features/panes/utils/pane-buffer-actions')
     const paneActions = wsStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-b')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-a', type: 'editor', name: 'a.ts' })
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-b', type: 'editor', name: 'b.ts' })
 
     expect(ensureBufferInPane(ROOT_PANE_ID, 'buffer-a')).toBe(ROOT_PANE_ID)
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual(['buffer-a', 'buffer-b'])
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId).toBe('buffer-a')
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-a', 'buffer-b'])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.activeEditorTabId).toBe('buffer-a')
+  })
+
+  it('does nothing when the buffer does not exist anywhere (nothing to reference)', async () => {
+    const { ensureBufferInPane } = await import('@/features/panes/utils/pane-buffer-actions')
+
+    expect(ensureBufferInPane(ROOT_PANE_ID, 'ghost-buffer')).toBe(ROOT_PANE_ID)
+    expect(wsStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toEqual([])
   })
 
   it('returns null for missing panes', async () => {
