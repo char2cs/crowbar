@@ -132,7 +132,28 @@ export const PANE_DROP_ATTR = 'data-pane-drop'
  */
 export const PANE_HIT_ATTR = 'data-pane-hit'
 
-const paneZone: DropZone<DragRow, SidebarPaneHit> = {
+/**
+ * `SidebarPaneHit` plus the ACTUAL element `elementsFromPoint` resolved —
+ * carried only through this hook's own internal ref/paint plumbing, never
+ * exposed on the public `paneHit` state (which stays the plain logical
+ * value `{kind, paneId, zone}`). `WorkspaceHost` keeps every retained
+ * workspace mounted at once (hidden, not unmounted), and `PANE_DROP_ATTR`'s
+ * VALUES — `ROOT_PANE_ID`/`BOTTOM_PANE_ID` — are literal constants every
+ * workspace store shares, so a bare paneId string cannot uniquely name a DOM
+ * node: `document.querySelector('[data-pane-drop="root-pane"]')` can just as
+ * easily return a hidden, off-screen workspace's node as the one actually
+ * under the pointer, depending on DOM order — the exact hazard
+ * `performSidebarPaneDrop`'s own active-workspace guard exists to close for
+ * the commit path (Fix round 1). The hit test ALREADY resolved the one true
+ * element via `elementsFromPoint` (which, unlike `querySelector`, only ever
+ * returns what is actually painted at that point); carrying it forward here
+ * is what lets `paintPaneHit` below never have to re-derive it by attribute.
+ */
+interface ResolvedPaneHit extends SidebarPaneHit {
+  el: Element
+}
+
+const paneZone: DropZone<DragRow, ResolvedPaneHit> = {
   attr: PANE_DROP_ATTR,
   hit: (_subjects, el, point) => {
     const paneId = el.getAttribute(PANE_DROP_ATTR)
@@ -140,11 +161,11 @@ const paneZone: DropZone<DragRow, SidebarPaneHit> = {
     const rect = el.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return null
     const zone: PaneDropZone = getPaneDropZoneFromRect(point, rect)
-    return { kind: 'pane', paneId, zone: zone ?? 'center' }
+    return { kind: 'pane', paneId, zone: zone ?? 'center', el }
   },
 }
 
-const hitTest = createDropHitTest<DragRow, DragRow, SidebarPaneHit>(
+const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit>(
   rowDom,
   SIDEBAR_DRAG_POLICY,
   paneZone,
@@ -212,21 +233,27 @@ function samePaneHit(a: SidebarPaneHit | null, b: SidebarPaneHit | null): boolea
  * land in. Painted straight onto the DOM, like the hairline above and the
  * ghost — a pane's own element lives in a completely different part of the
  * tree (inside `WorkspaceHost`, not the sidebar), so there is no ref to hand
- * this a mounted node the way `attachDropLine` gets one; `PANE_DROP_ATTR`
- * (the same attribute the hit test itself reads) doubles as the selector.
+ * this a mounted node the way `attachDropLine` gets one.
  *
- * Gated on the PANE changing, not the zone — this answers "which pane",
- * not "which side of it"; a center→edge move on the SAME pane repaints the
- * drop line but not this.
+ * Takes the RESOLVED elements, never re-derives one by attribute (Fix round
+ * 2): `PANE_DROP_ATTR`'s value is not unique across the document — every
+ * retained workspace's hidden pane tree carries the same
+ * `ROOT_PANE_ID`/`BOTTOM_PANE_ID` strings — so a `document.querySelector`
+ * lookup here could paint a different, off-screen workspace's node instead
+ * of the one the pointer is actually over, depending on DOM order. `el` is
+ * whatever `elementsFromPoint` itself resolved (see `ResolvedPaneHit`), which
+ * cannot make that mistake — it only ever names what is really painted
+ * there.
+ *
+ * Gated on the ELEMENT changing, not the paneId string — for the same
+ * reason: two elements can share a paneId, and only element identity says
+ * "this is genuinely a different target" (a center→edge move on the SAME
+ * pane repaints the drop line but not this).
  */
-function paintPaneHit(prevPaneId: string | null, nextPaneId: string | null): void {
-  if (prevPaneId === nextPaneId) return
-  if (prevPaneId !== null) {
-    document.querySelector(`[${PANE_DROP_ATTR}="${prevPaneId}"]`)?.removeAttribute(PANE_HIT_ATTR)
-  }
-  if (nextPaneId !== null) {
-    document.querySelector(`[${PANE_DROP_ATTR}="${nextPaneId}"]`)?.setAttribute(PANE_HIT_ATTR, '')
-  }
+function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null): void {
+  if ((prev?.el ?? null) === (next?.el ?? null)) return
+  prev?.el.removeAttribute(PANE_HIT_ATTR)
+  next?.el.setAttribute(PANE_HIT_ATTR, '')
 }
 
 export interface UseSidebarDragOptions {
@@ -281,7 +308,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   const dropLineRef = useRef<HTMLDivElement | null>(null)
   const lastHitRef = useRef<Hit>(null)
   const dropTargetRef = useRef<(DragRow & { mode: DropMode }) | null>(null)
-  const paneHitRef = useRef<SidebarPaneHit | null>(null)
+  const paneHitRef = useRef<ResolvedPaneHit | null>(null)
   const edgeScrollerRef = useRef<EdgeScroller | null>(null)
   const scrollerXRef = useRef<{ left: number; right: number } | null>(null)
   const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
@@ -339,9 +366,12 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       }
       const pane = hit?.kind === 'pane' ? hit : null
       if (!samePaneHit(pane, paneHitRef.current)) {
-        paintPaneHit(paneHitRef.current?.paneId ?? null, pane?.paneId ?? null)
+        paintPaneHit(paneHitRef.current, pane)
         paneHitRef.current = pane
-        setPaneHit(pane)
+        // The public state carries only the logical value — never `el`,
+        // which is internal plumbing for `paintPaneHit` alone (see
+        // `ResolvedPaneHit`).
+        setPaneHit(pane && { kind: pane.kind, paneId: pane.paneId, zone: pane.zone })
       }
       // The line is DOM, not state: it moves on every publish, including the
       // ones that changed nothing for React (an edge scroll re-running the
@@ -461,7 +491,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       document.removeEventListener('selectstart', preventDefault)
       draggingRef.current = null
       dropTargetRef.current = null
-      paintPaneHit(paneHitRef.current?.paneId ?? null, null)
+      paintPaneHit(paneHitRef.current, null)
       paneHitRef.current = null
       lastHitRef.current = null
       ghostOriginRef.current = null
@@ -515,7 +545,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // selection blocked, with no drag left to end and clear them.
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
-      paintPaneHit(paneHitRef.current?.paneId ?? null, null)
+      paintPaneHit(paneHitRef.current, null)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)

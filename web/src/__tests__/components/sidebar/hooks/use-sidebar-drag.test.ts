@@ -463,6 +463,55 @@ describe('useSidebarDrag', () => {
 
       expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
     })
+
+    // Fix round 2 (real, reviewer-verified regression in this same round's
+    // new code): `WorkspaceHost` keeps every retained workspace mounted at
+    // once — hidden via display:none, never unmounted — and each one's
+    // `WorkspaceView` renders its own full pane tree regardless of whether
+    // it's the active workspace. `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are literal
+    // constants every workspace store shares, so TWO elements on the page can
+    // legitimately carry the identical `data-pane-drop="root-pane"` value —
+    // one hidden/off-screen, one the pointer is actually over. The original
+    // `paintPaneHit` re-resolved its target with
+    // `document.querySelector('[data-pane-drop="…"]')`, which answers with
+    // the FIRST document-order match regardless of visibility — exactly the
+    // shared-pane-id-across-hidden-workspaces hazard the cross-workspace
+    // commit fix (Fix round 1) already closed for `performSidebarPaneDrop`,
+    // reopened here in the ring's own lookup. The fix threads the REAL
+    // element `elementsFromPoint` resolved (`ResolvedPaneHit.el`) straight
+    // through instead of re-deriving one by attribute.
+    it('marks the element the pointer is actually over — not the first same-paneId node in the document', () => {
+      const rowA = makeRow(baseRow, 0)
+      // A hidden OTHER workspace's pane sharing the exact same paneId,
+      // mounted FIRST (so it would win a `querySelector` lookup). Zero-size,
+      // exactly as a real `display:none` node would be — the stubbed hit
+      // test (elementsFromPoint) can therefore never resolve TO it, only
+      // `document.querySelector` (the bug) could have.
+      const hiddenOtherWorkspacePane = makePane('root-pane', {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+      })
+      // The VISIBLE, actually-hit pane — same paneId, mounted second.
+      const visiblePane = makePane('root-pane', {
+        top: 100,
+        bottom: 300,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 200,
+      })
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(400, 200) // dead centre of the VISIBLE pane's rect
+
+      expect(visiblePane.hasAttribute(PANE_HIT_ATTR)).toBe(true)
+      expect(hiddenOtherWorkspacePane.hasAttribute(PANE_HIT_ATTR)).toBe(false)
+    })
   })
 
   it('refuses a drop onto the dragged row’s own descendant, via its published path', () => {
