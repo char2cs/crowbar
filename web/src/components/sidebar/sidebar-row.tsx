@@ -61,7 +61,12 @@ export function SidebarRow({
   onPointerDownDrag,
 }: SidebarRowProps) {
   // The project-home row is `branch` with no parent — the sidebar's one 20px
-  // glyph exception outside the project header itself (spec §3.1).
+  // glyph exception outside the project header itself (spec §3.1), and also
+  // the one row spec §9 calls a protected branch: "the repo's own ground …
+  // not workspaces you made". It's the only row this shape can occur on
+  // (rows-from-repo.ts gives exactly one row a null parentId, the repo's
+  // default worktree), so it never carries a trash even when a caller
+  // supplies onTrash.
   const isProjectHome = row.kind === 'branch' && row.parentId === null
   const expanded = !folded
   // §3.1: "+" makes a workspace on a row that is itself git-capable, a thread
@@ -116,10 +121,11 @@ export function SidebarRow({
           {row.label}
         </span>
 
-        {onTrash && (
+        {onTrash && !isProjectHome && (
           <button
             type="button"
             data-control="trash"
+            data-testid="trash-control"
             // Leads the trailing cluster and takes the deny tint on hover, the
             // moment before the click is unambiguous (spec §9).
             className={cn(ROW_SUB_ACTION_HOVER, 'hover:bg-destructive/10 hover:text-destructive')}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
@@ -103,5 +103,48 @@ describe('SidebarRow', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
     screen.getByRole('treeitem').click()
     expect(onOpen).toHaveBeenCalledWith('row-1')
+  })
+
+  it('a protected branch row has no trash, even though onTrash is supplied', () => {
+    // spec §9: "a protected branch is the repo's own ground … not workspaces
+    // you made" — structurally the one row rows-from-repo.ts ever gives a
+    // null parentId, the repo's own default worktree (kind 'branch',
+    // parentId null). The population rule lives in SidebarRow itself, not in
+    // whether a caller withholds the handler — SidebarTree always passes one.
+    render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'branch', branchName: 'develop', ownsWorktree: true }}
+        depth={0}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
+  })
+
+  it('a non-home branch row still carries a trash', () => {
+    render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', ownsWorktree: true }}
+        depth={0}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('trash-control')).toBeInTheDocument()
+  })
+
+  it('trash takes the deny tint on hover', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+    const trash = screen.getByTestId('trash-control')
+    fireEvent.mouseEnter(trash)
+    // The real token this codebase uses for a destructive/deny hover treatment
+    // is Tailwind's `text-destructive` (backed by the `--destructive` CSS var
+    // in theme.css) — there is no `--deny` token anywhere in web/src. The tint
+    // is CSS-driven (a static `hover:` utility class), so the class is present
+    // in the DOM regardless of the mouseenter simulation; the real activation
+    // happens via the browser's own `:hover` match.
+    expect(trash).toHaveClass('hover:text-destructive')
+    expect(trash).toHaveClass('hover:bg-destructive/10')
   })
 })
