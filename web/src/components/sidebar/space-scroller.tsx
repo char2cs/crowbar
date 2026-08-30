@@ -291,6 +291,16 @@ export function SpaceScroller({
       onWheel={armUserGesture}
       onTouchStart={armUserGesture}
       data-testid="space-scroll-region"
+      // Same geometry, same failure mode, same fix as sidebar-carousel.tsx's
+      // own `[data-sidebar-carousel]`: `overflow-x: scroll` + mandatory x
+      // snapping + min-w-full panels means a captured pointer travelling
+      // past this box's edge during a row drag gets scrolled a whole panel
+      // away by WebKit — the exact gesture Part G exists for (dragging a row
+      // rightward onto a pane). `index.css`'s `html[data-row-dragging]
+      // [data-sidebar-carousel]` rule pins BOTH carousels by this one
+      // attribute; see drag-carousel-pin.test.ts for its own measured
+      // rationale (pin without `will-change` costs 4x the frame budget).
+      data-sidebar-carousel=""
       className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {projects.map((project) => (

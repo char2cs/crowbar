@@ -445,7 +445,23 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       if (hit?.kind === 'pane') {
         optionsRef.current.onPaneDrop([...drag.subjects], hit.paneId, hit.zone)
       } else if (hit?.kind === 'row') {
-        optionsRef.current.onDrop([...drag.subjects], hit.row, hit.row.mode)
+        // `hit.row` is what `rowDom.read()` reconstructed off the DOM —
+        // {kind, id, parentId, path, expanded, hasChildren} and NOT a real
+        // `SidebarRow` (order/label/ownsWorktree/workspaceId/working/hasView
+        // are all absent, and `parentId` comes back '' for a root row, never
+        // `null` the way every real row uses). Good enough for the matrix
+        // (it only ever needs id/kind/parentId/expanded/hasChildren), wrong
+        // to hand a caller that expects the real thing — resolved back to
+        // the genuine row here, once, at commit time rather than every
+        // pointermove. `subjectsFor` already resolves "what live row does
+        // this id name" (that's exactly what it does for the row a press
+        // started on), so it doubles as the target lookup without a new
+        // option on this hook's contract.
+        const target = optionsRef.current.subjectsFor(hit.row.id).find((r) => r.id === hit.row.id)
+        // A race — the row left the tree between the hit test and the
+        // release — refuses rather than handing a caller a target it can no
+        // longer resolve.
+        if (target) optionsRef.current.onDrop([...drag.subjects], target, hit.row.mode)
       }
       endDrag()
     }

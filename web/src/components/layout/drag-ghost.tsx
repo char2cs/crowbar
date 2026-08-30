@@ -68,7 +68,7 @@ export function ghostTransform(x: number, y: number): string {
  * Rendered inline it would be laid out against the nearest transformed
  * ancestor instead — which the peeked sidebar card is, while it is on screen —
  * so it drifted off the cursor and was clipped away entirely at the card's
- * edge.
+ * edge. See sidebar-peek.tsx.
  */
 export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function DragGhost(
   { origin, children, className },
@@ -89,6 +89,13 @@ export const DragGhost = forwardRef<HTMLDivElement, DragGhostProps>(function Dra
         // frame cost 60ms with left/top against 8ms for the same pointer sweep
         // with no drag at all. A translate is composited: no layout, no repaint
         // of the content underneath.
+        //
+        // No `will-change`: it was here to get the layer up front, but the
+        // measurement does not support the cost. Transform vs left/top was worth
+        // ~3ms of a 60ms frame; the 42ms was a full-window overlay element,
+        // since deleted (see index.css). A permanent hint on an element that
+        // exists only during the drag buys a promotion this already gets from
+        // being a moving transform.
         transform: ghostTransform(origin?.x ?? 0, origin?.y ?? 0),
       }}
     >

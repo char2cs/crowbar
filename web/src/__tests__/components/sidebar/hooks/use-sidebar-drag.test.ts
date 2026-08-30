@@ -36,6 +36,16 @@ const ROW_KIND_ATTR: Record<string, string> = {
   workflow: 'data-sidebar-workflow-drop',
 }
 
+/** Every real row this suite has ever `makeRow`'d, keyed by id — what the
+ *  default `subjectsFor` below resolves against, mirroring how SidebarTree
+ *  (`rows.find`) and RecentsBand (`rowsRef.current.get`) resolve a live row
+ *  by id for real. `hit.row` off the DOM hit test is NOT a real `SidebarRow`
+ *  (see use-sidebar-drag.ts's own onPointerUp comment) — the hook re-resolves
+ *  the target through `subjectsFor` before calling `onDrop`, so a test that
+ *  presses one row and drops onto another needs BOTH registered here, not
+ *  just the one this suite happens to assert about. */
+const rowRegistry = new Map<string, SidebarRow>()
+
 /** A row in the tree, published exactly as `useSidebarDrag`'s own row spec
  *  reads it back — hand-built rather than routed through a rendered
  *  `<SidebarRow>`, since this suite is exercising the hook in isolation. */
@@ -44,6 +54,7 @@ function makeRow(
   index: number,
   extra: { path?: string; expanded?: boolean; hasChildren?: boolean } = {},
 ) {
+  rowRegistry.set(row.id, row)
   const el = document.createElement('div')
   el.setAttribute(ROW_KIND_ATTR[row.kind], row.id)
   el.setAttribute('data-sidebar-drop-parent', row.parentId ?? '')
@@ -117,7 +128,12 @@ function renderDrag(
   const view = renderHook(() =>
     useSidebarDrag({
       scrollRef,
-      subjectsFor: overrides.subjectsFor ?? (() => [baseRow]),
+      subjectsFor:
+        overrides.subjectsFor ??
+        ((rowId) => {
+          const row = rowRegistry.get(rowId)
+          return row ? [row] : []
+        }),
       onDrop,
       onPaneDrop,
     }),
@@ -156,6 +172,7 @@ function release(x: number, y: number) {
 }
 
 beforeEach(() => {
+  rowRegistry.clear()
   Element.prototype.setPointerCapture = () => {}
   vi.stubGlobal('requestAnimationFrame', () => 0)
   vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -204,6 +221,17 @@ describe('useSidebarDrag', () => {
     expect(onDrop).not.toHaveBeenCalled()
   })
 
+  it('a press of EXACTLY the threshold does not start a drag — it is a strict "greater than"', () => {
+    const rowA = makeRow(baseRow, 0)
+    const { result, onDrop } = renderDrag()
+
+    press(result, baseRow, rowA)
+    move(10 + SIDEBAR_DRAG_THRESHOLD_PX, 10)
+
+    expect(result.current.dragging).toBe(false)
+    expect(onDrop).not.toHaveBeenCalled()
+  })
+
   it('a press past the threshold starts a drag', () => {
     const rowA = makeRow(baseRow, 0)
     const { result } = renderDrag()
@@ -216,8 +244,25 @@ describe('useSidebarDrag', () => {
     release(10, 10)
   })
 
-  it('drops onto a row: onDrop fires with the subjects, target and resolved mode', () => {
-    const target: SidebarRow = { ...baseRow, id: 'b', label: 'b' }
+  it('drops onto a row: onDrop fires with the subjects, the REAL target row, and the resolved mode', () => {
+    // A real SidebarRow, not the partial shape the DOM hit test reconstructs
+    // ({kind, id, parentId, path, expanded, hasChildren} — the fields the
+    // matrix itself needs, nothing else): order/label/ownsWorktree/
+    // workspaceId/working/hasView all differ from baseRow's on purpose, so a
+    // regression that hands the caller the DOM-reconstructed stand-in
+    // (missing every one of them, and 'parentId: ""' instead of `null`)
+    // fails this on every extra field, not just `id`.
+    const target: SidebarRow = {
+      id: 'b',
+      kind: 'branch',
+      parentId: null,
+      order: 7,
+      label: 'b the real row',
+      ownsWorktree: false,
+      workspaceId: 'ws-b',
+      working: false,
+      hasView: true,
+    }
     const rowA = makeRow(baseRow, 0)
     makeRow(target, 1)
     const { result, onDrop } = renderDrag()
@@ -229,9 +274,27 @@ describe('useSidebarDrag', () => {
     expect(onDrop).toHaveBeenCalledTimes(1)
     const [subjects, hitTarget, mode] = onDrop.mock.calls[0]
     expect(subjects).toEqual([baseRow])
-    expect(hitTarget).toMatchObject({ id: 'b' })
+    expect(hitTarget).toEqual(target)
     expect(mode).toBe('before')
     expect(result.current.dragging).toBe(false)
+  })
+
+  it('refuses the drop rather than hand the caller a target it can no longer resolve', () => {
+    // A row can be hit-tested (it is still in the DOM) but no longer live in
+    // the data `subjectsFor` resolves against — the same race `subjectsFor`
+    // already refuses for on the SUBJECT side, now covered on the target
+    // side too, now that onDrop's target is a real re-resolved row rather
+    // than whatever the DOM hit test could reconstruct on its own.
+    const rowA = makeRow(baseRow, 0)
+    makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
+    rowRegistry.delete('b') // still a real DOM row; no longer a resolvable one.
+    const { result, onDrop } = renderDrag()
+
+    press(result, baseRow, rowA)
+    move(10, ROW_H + 2)
+    release(10, ROW_H + 2)
+
+    expect(onDrop).not.toHaveBeenCalled()
   })
 
   it('dropping on the middle third of a pane calls onPaneDrop with zone center', () => {
