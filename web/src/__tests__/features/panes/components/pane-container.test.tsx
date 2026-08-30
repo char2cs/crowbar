@@ -1,4 +1,4 @@
-import { createElement, Fragment } from 'react'
+import { createElement, Fragment, useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -8,6 +8,24 @@ import {
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+
+// Fix round 1 (Task 18 review): a mount counter, not just a DOM-identity
+// check, for the "does toggling pane.chatId remount a live terminal" test
+// below — a real PTY-backed surface, stood in for by a marker that counts
+// its own EFFECT-mount (not render) exactly the way TerminalPane's real
+// PTY-attach effect would only fire once per genuine mount.
+const { terminalMountCount } = vi.hoisted(() => ({ terminalMountCount: { current: 0 } }))
+vi.mock('@/features/panes/components/terminal-pane', () => ({
+  TerminalPane: ({ sessionId, bufferId }: { sessionId?: string; bufferId: string }) => {
+    useEffect(() => {
+      terminalMountCount.current += 1
+    }, [])
+    return createElement('div', {
+      'data-testid': `terminal-marker-${bufferId}`,
+      'data-session-id': sessionId ?? '',
+    })
+  },
+}))
 
 // Task 31: PaneContainer migrated off the old bufferIds/activeBufferId/
 // previewBufferId shape onto pane.editorTabIds/activeEditorTabId and the
@@ -158,6 +176,33 @@ function seedEditorTab(
     id,
     type: 'editor',
     name: `${id}.ts`,
+  })
+}
+
+/** A terminal tab — a buffer whose editor-view rendering is a real PTY
+ *  attachment in production (stubbed above to a mount-counting marker). Used
+ *  by the "does pane.chatId toggling remount the editor view" regression:
+ *  an editor tab alone proves DOM survival, but a terminal is what actually
+ *  loses live state (its PTY) on a spurious remount. */
+function seedTerminalTab(
+  store: ReturnType<typeof createWorkspaceStore>,
+  paneId: string,
+  id: string,
+) {
+  store.setState((state) => {
+    state.buffers.push({
+      id,
+      type: 'terminal',
+      name: `term-${id}`,
+      sessionId: `session-${id}`,
+      isPinned: false,
+    })
+    return state
+  })
+  store.getState().paneActions.addEditorTabToPane(paneId, {
+    id,
+    type: 'terminal',
+    name: `term-${id}`,
   })
 }
 
@@ -539,5 +584,46 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
     expect(screen.getByTestId('chat-chat-1')).toBe(chatBefore)
     expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
+  })
+
+  // Fix round 1: the Critical bug a review caught in the first version of
+  // this wiring — a `pane.chatId ? <A/> : <B/>` top-level branch reindexed
+  // the editor view's own DOM position, so React unmounted/remounted it (and
+  // everything live inside it, e.g. a terminal's PTY) every time
+  // `pane.chatId` toggled. Reachable in production today via `⌘N`
+  // (use-pane-keyboard.ts's `setPaneChat` on the active pane whatever it
+  // already holds) and chat-removal.ts's `setPaneChat(paneId, null, null)`
+  // the other way — NOT a hypothetical pane.chatId is not yet set.
+  it('does not remount the editor view — including a live terminal — when pane.chatId toggles on and off', async () => {
+    terminalMountCount.current = 0
+    const store = createWorkspaceStore('w1')
+    seedTerminalTab(store, ROOT_PANE_ID, 'term-a')
+
+    await renderPane(store)
+
+    const terminalBefore = await screen.findByTestId('terminal-marker-term-a')
+    expect(terminalMountCount.current).toBe(1)
+
+    // pane.chatId: null -> set. This is the exact transition the bug lost —
+    // the editor view (and the terminal buffer inside it) used to live
+    // directly under data-pane-content; once a chat exists it gets
+    // re-parented one level deeper, under viewsContainerRef, alongside the
+    // new chat view and sash.
+    await act(async () => {
+      store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    })
+
+    await screen.findByTestId('chat-chat-1')
+    expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
+    expect(terminalMountCount.current).toBe(1) // still exactly one mount, ever
+
+    // And back: set -> null.
+    await act(async () => {
+      store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
+    })
+
+    expect(screen.queryByTestId('chat-chat-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
+    expect(terminalMountCount.current).toBe(1)
   })
 })

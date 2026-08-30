@@ -664,25 +664,45 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         style={paneContentStyle}
       >
         {/* Spec §7.2's "two views": the chat view and the editor view, and how
-            they're arranged. A pane with no chat has no split to arrange —
-            the editor view is the only thing there is, so it renders alone,
-            full-pane, exactly as it always has (the `presentation` computed
-            above is simply unused on this branch). */}
-        {pane.chatId ? (
-          <div
-            ref={viewsContainerRef}
-            className={cn(
-              'relative flex min-h-0 flex-1 overflow-hidden',
-              presentation === 'stacked' && 'flex-col',
-            )}
-          >
-            {/* Chat view. Mounted whenever pane.chatId is set — it does not
-                compete with editorTabIds/activeEditorTabId for "which one is
-                active" (a pane holds at most one chat), so isVisible is
-                always true here. NEVER hidden — `editorOpen` means
-                "chat-only vs. chat+editor," not "chat vs. editor": the chat
-                shows in every presentation, including 'tabs'. */}
+            they're arranged.
+
+            THIS OUTER DIV, AND THE EDITOR-VIEW DIV INSIDE IT, ARE ALWAYS
+            RENDERED — never behind a `pane.chatId ? <A/> : <B/>` branch. That
+            was the shape this had until a review caught it: React reconciles
+            a ternary's two branches at the SAME tree position, but their
+            children differed in count/order (three siblings vs. one), so
+            toggling `pane.chatId` reindexed the editor view's own DOM node
+            out from under it — React saw a different element at its old
+            position and unmounted/remounted it, and everything inside,
+            INCLUDING LIVE TERMINAL PTYs, along with it. `pane.chatId` is not
+            a hypothetical either — `⌘N` (use-pane-keyboard.ts) calls
+            `setPaneChat` on the active pane whatever it currently holds, and
+            `chat-removal.ts` calls it the other way — so this was reachable
+            today, and directly against spec §7.2 ("Both surfaces stay
+            mounted") and the terminal keep-alive comment below.
+
+            The fix: one stable parent, one stable position per child, keyed
+            so React's reconciler matches by IDENTITY rather than by index —
+            the chat view and the sash are the ones that come and go
+            (`pane.chatId && …`), the editor view's own div is unconditional
+            and keeps the same key ("editor-view") whether or not it currently
+            has a sibling. */}
+        <div
+          ref={viewsContainerRef}
+          className={cn(
+            'relative flex min-h-0 flex-1 overflow-hidden',
+            Boolean(pane.chatId) && presentation === 'stacked' && 'flex-col',
+          )}
+        >
+          {pane.chatId && (
+            // Chat view. Mounted whenever pane.chatId is set — it does not
+            // compete with editorTabIds/activeEditorTabId for "which one is
+            // active" (a pane holds at most one chat), so isVisible is
+            // always true here. NEVER hidden — `editorOpen` means
+            // "chat-only vs. chat+editor," not "chat vs. editor": the chat
+            // shows in every presentation, including 'tabs'.
             <div
+              key="chat-view"
               ref={chatViewRef}
               className={cn(
                 'relative min-h-0 min-w-0 overflow-hidden',
@@ -716,8 +736,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                     wrong chat. Needs a follow-up task that migrates
                     AgentChatPane onto setPaneChat/chat-level rename instead of
                     a buffer id — not fixed here (out of this task's file
-                    scope, and pane.chatId is not yet set by any production
-                    caller). */}
+                    scope). `pane.chatId` IS set by production callers today —
+                    `⌘N` (use-pane-keyboard.ts) and, in reverse, chat-removal's
+                    `setPaneChat(paneId, null, null)` — so this gap is live, not
+                    theoretical; flagging it precisely rather than
+                    understating it. */}
                 <AgentChatPane
                   chatId={pane.chatId}
                   runnerId={pane.runnerId ?? ''}
@@ -728,71 +751,77 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 />
               </Suspense>
             </div>
+          )}
 
-            {/* The draggable divider between the two views — side by side or
-                stacked only; tabs shows one view at a time, so there is
-                nothing to divide. Same imperative pixel sash agent-chat-pane
-                uses for its own split, with the identical floor convention:
-                the narrower axis (a half's own width side by side, a half's
-                own height stacked) gets the smaller floor. */}
-            {presentation !== 'tabs' && (
-              <PaneSash
-                direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}
-                sizes={splitSizes}
-                containerRef={viewsContainerRef}
-                firstPaneRef={chatViewRef}
-                secondPaneRef={editorViewRef}
-                onResizeCommit={setSplitSizes}
-                minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
-              />
+          {/* The draggable divider between the two views — side by side or
+              stacked only; tabs shows one view at a time, so there is
+              nothing to divide. Same imperative pixel sash agent-chat-pane
+              uses for its own split, with the identical floor convention:
+              the narrower axis (a half's own width side by side, a half's
+              own height stacked) gets the smaller floor. */}
+          {pane.chatId && presentation !== 'tabs' && (
+            <PaneSash
+              key="chat-editor-sash"
+              direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}
+              sizes={splitSizes}
+              containerRef={viewsContainerRef}
+              firstPaneRef={chatViewRef}
+              secondPaneRef={editorViewRef}
+              onResizeCommit={setSplitSizes}
+              minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
+            />
+          )}
+
+          {/* Editor view: everything pane.editorTabIds holds — files,
+              terminals, branch review, never the chat. ALWAYS RENDERED
+              (never conditionally mounted) — `hidden` only applies the
+              native `hidden` attribute (display:none via the UA
+              stylesheet, not a Tailwind class, so it needs no compiled CSS
+              to take effect) in 'tabs' presentation (spec §7.1/§7.2: the
+              split is off, or the pane is too small to honour it, or there
+              is no chat at all). Everything inside — including the terminal
+              keep-alive block — stays mounted across every presentation
+              change AND across pane.chatId itself changing: this div keeps
+              the same key ("editor-view") and the same position among its
+              siblings regardless of whether the chat-view/sash siblings
+              above exist, so React never sees it as a different element —
+              only its `hidden` attribute and its sizing change, and nothing
+              inside it ever unmounts/remounts. See the block comment at the
+              top of this section for the bug this fixes.
+
+              KNOWN, DISCLOSED GAP — the tab strip's own relocation: spec
+              §7.2 additionally asks that in 'stacked' presentation the
+              editor's TAB STRIP itself (not this whole region) physically
+              moves to sit between the chat view and the editor view, while
+              the chat name stays up in the head. `TabBar` renders that
+              strip fused into one single row together with the split
+              toggle and the chat head (spec §7.1) with no seam to split it
+              at, and restructuring it into separable head/strip pieces is
+              a distinct change with its own blast radius that Task 17
+              already shipped and reviewed clean — out of this task's
+              declared file scope (`use-chat-presentation.ts` +
+              `pane-container.tsx`). TabBar stays put at the top of the
+              pane, unchanged, in every presentation below; only the
+              chat/editor arrangement underneath it responds to geometry.
+              Flagging this precisely rather than silently dropping it —
+              see the task report for the follow-up this implies. */}
+          <div
+            key="editor-view"
+            ref={editorViewRef}
+            hidden={editorViewHidden}
+            className={cn(
+              'relative min-h-0 overflow-hidden',
+              Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
             )}
-
-            {/* Editor view: everything pane.editorTabIds holds — files,
-                terminals, branch review, never the chat. ALWAYS RENDERED
-                (never conditionally mounted) — `hidden` only applies the
-                native `hidden` attribute (display:none via the UA
-                stylesheet, not a Tailwind class, so it needs no compiled CSS
-                to take effect) in 'tabs' presentation (spec §7.1/§7.2: the
-                split is off, or the pane is too small to honour it).
-                Everything inside — including the terminal keep-alive block —
-                stays mounted across every presentation change: this div's
-                own presence in the tree never changes, only its `hidden`
-                attribute and its sizing do, so nothing inside it ever
-                unmounts/remounts.
-
-                KNOWN, DISCLOSED GAP — the tab strip's own relocation: spec
-                §7.2 additionally asks that in 'stacked' presentation the
-                editor's TAB STRIP itself (not this whole region) physically
-                moves to sit between the chat view and the editor view, while
-                the chat name stays up in the head. `TabBar` renders that
-                strip fused into one single row together with the split
-                toggle and the chat head (spec §7.1) with no seam to split it
-                at, and restructuring it into separable head/strip pieces is
-                a distinct change with its own blast radius that Task 17
-                already shipped and reviewed clean — out of this task's
-                declared file scope (`use-chat-presentation.ts` +
-                `pane-container.tsx`). TabBar stays put at the top of the
-                pane, unchanged, in every presentation below; only the
-                chat/editor arrangement underneath it responds to geometry.
-                Flagging this precisely rather than silently dropping it —
-                see the task report for the follow-up this implies. */}
-            <div
-              ref={editorViewRef}
-              hidden={editorViewHidden}
-              className={cn(
-                'relative min-h-0 overflow-hidden',
-                presentation === 'tabs' ? 'w-full flex-1' : 'shrink grow-0',
-              )}
-              style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[1]}%` }}
-            >
-              {editorViewInner}
-            </div>
-          </div>
-        ) : (
-          <div ref={editorViewRef} className="relative min-h-0 flex-1 overflow-hidden">
+            style={
+              Boolean(pane.chatId) && presentation !== 'tabs'
+                ? { flexBasis: `${splitSizes[1]}%` }
+                : undefined
+            }
+          >
             {editorViewInner}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
