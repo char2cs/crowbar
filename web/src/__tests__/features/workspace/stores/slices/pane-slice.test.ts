@@ -6,6 +6,8 @@ import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/sli
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { fileUri } from '@/features/editor/lib/editor-uri'
+import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
 
 function makeStore() {
   return createStore<PaneSlice>()(
@@ -680,7 +682,10 @@ describe('pane-slice — groupIntoArrangement (spec §8.2 "merging")', () => {
     const store = makeStore()
     store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
     expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+    ])
   })
 
   it('is a no-op for fewer than two chats', () => {
@@ -799,7 +804,10 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
     store.getState().paneActions.setPaneChat(otherPane, 'chat-2', null)
 
     expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-3'])
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-3',
+    ])
   })
 
   // Fix round 1 (real, reviewer-verified regression): the original version
@@ -881,7 +889,106 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
 
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
 
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+    ])
+  })
+})
+
+// Task 23: spec §8.4 — "clicking a chat... does not take over the pane you
+// were in — that arrangement is put down whole, into Recents... Nothing you
+// click ever costs you what you were looking at." Every click-to-open
+// surface (openAgentChat — used by the Chats sidebar's row click, the New
+// Tab recent list, and a review-thread attribution click — plus ⌘N's
+// AGENT_NEW_CHAT handler) funnels through this one write path, so the
+// archive-on-swap guarantee lives here rather than re-derived at each site.
+describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () => {
+  it('swapping a pane onto a different chat archives the one it held as dormant', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: expect.any(String), chatIds: ['chat-1'], state: 'dormant' },
+    ])
+    // Nothing was lost from the pane itself either — it just shows the new chat.
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-2')
+  })
+
+  it('archives with a fresh id, never the pane id — the pane goes live again on the new chat', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+
+    // Reusing `paneId` here would collide with the live entry
+    // `deriveRecentsEntries` derives for this same pane below.
+    const [dormantRecord] = store.getState().dormantArrangements
+    expect(dormantRecord.id).not.toBe(ROOT_PANE_ID)
+
+    const entries = deriveRecentsEntries(Object.values(store.getState().panes), {}, [dormantRecord])
+    expect(entries).toEqual([
+      { id: dormantRecord.id, chatIds: ['chat-1'], state: 'dormant' },
+      { id: ROOT_PANE_ID, chatIds: ['chat-2'], state: 'live' },
+    ])
+  })
+
+  it('does not archive a WORKING chat being swapped out — its row lives on agentChats.working alone', () => {
+    const store = makeStoreWithWorking({ 'chat-1': true })
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('does not double-archive a chat that already has its own dormant slot', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    // Restore chat-1 — spec §5.6 keeps this the SAME record, at its slot.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+
+    // chat-1 already had a slot remembering it — swapping it back out must
+    // not mint a second record alongside that one.
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect(store.getState().dormantArrangements[0].chatIds).toEqual(['chat-1'])
+  })
+
+  it('never evicts a chat that is already open somewhere — openAgentChat reveals instead of re-opening', () => {
+    // The other half of §8.4: "a chat that is already up is gone TO, never
+    // opened twice." openAgentChat's own dedup (reveal via setActivePane)
+    // means setPaneChat is never called a second time for a chat that is
+    // already live in some pane — exercised here at the real call path
+    // (open-agent-chat.ts's openAgentChat), the one every reachable click
+    // surface goes through today (new-tab-view.tsx, review-thread-item.tsx,
+    // and — once chat rows resolve through rowsFromRepo's tree — the
+    // sidebar).
+    const store = createWorkspaceStore('ws-open-agent-chat-test')
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const paneBId = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    store.getState().paneActions.setPaneChat(paneBId!, 'chat-2', 'runner-2')
+
+    openAgentChat(store, 'ws-open-agent-chat-test', 'chat-1')
+
+    const panesWithChat1 = Object.values(store.getState().panes).filter(
+      (p) => p.chatId === 'chat-1',
+    )
+    expect(panesWithChat1).toHaveLength(1)
+    // Revealed where it already lives, not costing pane B's chat-2.
+    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(store.getState().panes[paneBId!]?.chatId).toBe('chat-2')
+  })
+
+  it('is a no-op (never throws) on a bare pane-slice store with no agentChats', () => {
+    const actions = makeStore().getState().paneActions
+    actions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    expect(() => actions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')).not.toThrow()
   })
 })
 
@@ -899,6 +1006,9 @@ describe('pane-slice — closePane defers to an existing arrangement instead of 
     // Still exactly the one entry — closing chat-1's pane did not mint a
     // duplicate {id: ROOT_PANE_ID, chatIds: ['chat-1']} alongside it.
     expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-1',
+      'chat-2',
+    ])
   })
 })

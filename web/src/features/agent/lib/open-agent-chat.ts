@@ -27,8 +27,11 @@ export function openAgentChat(store: WorkspaceStore, _wsId: string, chatId: stri
   }
 
   // Not open anywhere: land it as the ACTIVE pane's one chat. A pane holds at
-  // most one, so this replaces whatever chat (if any) that pane showed before —
-  // the runner is unknown here (`null`); agent-chat-pane's own mount-time
-  // revive resolves and writes back the real one.
+  // most one, so this swaps out whatever chat (if any) that pane showed
+  // before — `setPaneChat` itself archives that one into `dormantArrangements`
+  // first (spec §8.4: "nothing you click ever costs you what you were looking
+  // at"), so it is never silently lost. The runner is unknown here (`null`);
+  // agent-chat-pane's own mount-time revive resolves and writes back the real
+  // one.
   st.paneActions.setPaneChat(st.activePaneId, chatId, null)
 }

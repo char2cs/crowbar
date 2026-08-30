@@ -55,7 +55,10 @@ export interface PaneActions {
   switchToNextEditorTab(paneId: string): void
   switchToPreviousEditorTab(paneId: string): void
   navigateToPane(direction: 'left' | 'right' | 'up' | 'down'): void
-  /** The one write path for what chat a pane holds. */
+  /** The one write path for what chat a pane holds. Spec §8.4: swapping a
+   *  pane onto a different chat archives whatever it held into
+   *  `dormantArrangements` first — nothing a click lands here ever costs
+   *  the view that was on screen. */
   setPaneChat(paneId: string, chatId: string | null, runnerId: string | null): void
   /** Spec §5.4: the × on a DORMANT/SET (not-live) Recents entry — "forgets
    *  the arrangement" rather than closing a pane, since there is none to
@@ -498,6 +501,28 @@ export const createPaneSlice: StateCreator<
           const pane = state.panes[paneId]
           if (!pane) return
           const movedIn = chatId !== null && chatId !== pane.chatId
+          const evicted = pane.chatId
+
+          // Spec §8.4: "nothing you click ever costs you what you were
+          // looking at." A pane genuinely swapping onto a DIFFERENT chat
+          // (never an empty pane, never a same-chat/runner-only update, and
+          // never a bare clear to null — none of those "cost" anything)
+          // puts what it held into Recents whole first, same guards
+          // `closePane`'s own archiving uses: skip a chat the daemon is
+          // still working (its row lives on `agentChats.working` alone) and
+          // skip one some other dormant entry already remembers. A fresh
+          // id, not `paneId` — this pane is about to go LIVE on the new
+          // chat, so reusing its id here would collide with the live entry
+          // `deriveRecentsEntries` derives for it from the pane loop below.
+          if (
+            movedIn &&
+            evicted &&
+            !state.agentChats?.working?.[evicted] &&
+            !state.dormantArrangements.some((e) => e.chatIds.includes(evicted))
+          ) {
+            state.dormantArrangements.push({ id: nanoid(), chatIds: [evicted], state: 'dormant' })
+          }
+
           pane.chatId = chatId
           pane.runnerId = runnerId
           // Spec §8.2: "whatever goes up leaves every arrangement that was
@@ -523,7 +548,9 @@ export const createPaneSlice: StateCreator<
           // out, too.
           const strippable =
             movedIn &&
-            state.dormantArrangements.some((e) => e.chatIds.length > 1 && e.chatIds.includes(chatId))
+            state.dormantArrangements.some(
+              (e) => e.chatIds.length > 1 && e.chatIds.includes(chatId),
+            )
           if (strippable) {
             state.dormantArrangements = state.dormantArrangements
               .map((e) =>
@@ -552,7 +579,11 @@ export const createPaneSlice: StateCreator<
             e.chatIds.some((id) => chatIds.includes(id)),
           )
           const merged = Array.from(new Set([...(owner?.chatIds ?? []), ...chatIds]))
-          const mergedEntry: RecentsEntry = { id: owner?.id ?? nanoid(), chatIds: merged, state: 'live' }
+          const mergedEntry: RecentsEntry = {
+            id: owner?.id ?? nanoid(),
+            chatIds: merged,
+            state: 'live',
+          }
 
           if (!owner) {
             // Nothing existing to grow — a brand new group, appended like any
