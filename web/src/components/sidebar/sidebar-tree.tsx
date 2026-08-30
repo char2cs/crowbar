@@ -6,8 +6,12 @@ import {
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
 } from '@/components/layout/workspace-row-base'
+import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
+import { DropIndicator } from '@/components/layout/drop-indicator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { AffordanceRow } from '@/components/sidebar/affordance-row'
+import { useSidebarDrag, type SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarTreeProps {
@@ -16,6 +20,12 @@ interface SidebarTreeProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
+  /** The panel's own scroll container — what an edge-held drag scrolls
+   *  (Task 21). Shared with `RecentsBand`, since the two sit in one scroll
+   *  region per space. */
+  scrollRef: React.RefObject<HTMLElement | null>
+  onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
+  onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
 }
 
 const byOrder = (a: SidebarRowType, b: SidebarRowType) => a.order - b.order
@@ -36,7 +46,15 @@ const byOrder = (a: SidebarRowType, b: SidebarRowType) => a.order - b.order
  * rather than a second fold-state store. It already survives what this tree
  * will too: a remount local component state would not.
  */
-export function SidebarTree({ rows, onOpen, onTrash, onCreate }: SidebarTreeProps) {
+export function SidebarTree({
+  rows,
+  onOpen,
+  onTrash,
+  onCreate,
+  scrollRef,
+  onDrop,
+  onPaneDrop,
+}: SidebarTreeProps) {
   const collapsed = useSidebarStore((s) => s.collapsedChatRows)
 
   const ids = new Set(rows.map((r) => r.id))
@@ -57,9 +75,24 @@ export function SidebarTree({ rows, onOpen, onTrash, onCreate }: SidebarTreeProp
   roots.sort(byOrder)
   for (const siblings of childrenByParent.values()) siblings.sort(byOrder)
 
-  function renderRow(row: SidebarRowType, depth: number) {
+  // Single-row drags only — the new unified tree has no multiselect yet
+  // (Task 8 left `sidebar-selection.ts` orphaned), so a drag always carries
+  // exactly the grabbed row.
+  const drag = useSidebarDrag({
+    scrollRef,
+    subjectsFor: (rowId) => {
+      const row = rows.find((r) => r.id === rowId)
+      return row ? [row] : []
+    },
+    onDrop,
+    onPaneDrop,
+  })
+
+  function renderRow(row: SidebarRowType, depth: number, path: string) {
     const folded = collapsed.has(row.id)
     const children = childrenByParent.get(row.id)
+    const hasChildren = !!children && children.length > 0
+    const childPath = `${path}${row.id}/`
 
     return (
       <div key={row.id}>
@@ -71,10 +104,14 @@ export function SidebarTree({ rows, onOpen, onTrash, onCreate }: SidebarTreeProp
           onCreate={onCreate}
           onToggleFold={(id) => useSidebarStore.getState().toggleChatRow(id)}
           folded={folded}
+          dragProps={drag.dragProps(row, { path: childPath, expanded: !folded, hasChildren })}
+          isDragging={drag.draggingIds.has(row.id)}
+          isNestTarget={drag.nestTargetId === row.id}
+          onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
         />
         {!folded &&
-          (children && children.length > 0 ? (
-            children.map((child) => renderRow(child, depth + 1))
+          (hasChildren ? (
+            children!.map((child) => renderRow(child, depth + 1, childPath))
           ) : (
             <div
               className={ROW_INDENT_TRANSITION}
@@ -96,5 +133,15 @@ export function SidebarTree({ rows, onOpen, onTrash, onCreate }: SidebarTreeProp
     )
   }
 
-  return <>{roots.map((row) => renderRow(row, 0))}</>
+  return (
+    <>
+      {roots.map((row) => renderRow(row, 0, '/'))}
+      {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
+      {drag.ghostRows && (
+        <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>
+          <DragGhostRows rows={drag.ghostRows} />
+        </DragGhost>
+      )}
+    </>
+  )
 }

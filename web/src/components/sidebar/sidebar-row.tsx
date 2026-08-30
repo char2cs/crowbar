@@ -9,6 +9,7 @@ import {
   ROW_INACTIVE,
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
+  ROW_NEST_TARGET,
   ROW_SUB_ACTION_HOVER,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
@@ -22,8 +23,17 @@ interface SidebarRowProps {
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onToggleFold?: (id: string) => void
   folded?: boolean
-  /** Spread from drop-dom's createDropRowDom (Part D), not built by this task. */
-  dragProps?: Record<string, string>
+  /** Spread from drop-dom's createDropRowDom (Task 21's useSidebarDrag) — its
+   *  own `props()` omits an unset optional field rather than writing it as
+   *  '', so the value side of this is `string | undefined`. */
+  dragProps?: Record<string, string | undefined>
+  /** This row is one of the rows currently in the air (Task 21). */
+  isDragging?: boolean
+  /** A drop here would land INSIDE this row (Task 21) — fills instead of the
+   *  hairline drawn between rows, spec's "two signals, never both". */
+  isNestTarget?: boolean
+  /** Arms a press-and-hold-to-drag on this row (Task 21's `useSidebarDrag`). */
+  onPointerDownDrag?: (e: React.PointerEvent) => void
 }
 
 /**
@@ -46,6 +56,9 @@ export function SidebarRow({
   onToggleFold,
   folded,
   dragProps,
+  isDragging,
+  isNestTarget,
+  onPointerDownDrag,
 }: SidebarRowProps) {
   // The project-home row is `branch` with no parent — the sidebar's one 20px
   // glyph exception outside the project header itself (spec §3.1).
@@ -62,8 +75,14 @@ export function SidebarRow({
         tabIndex={0}
         data-sidebar-row-id={row.id}
         {...dragProps}
-        className={cn(ROW_BASE, ROW_INACTIVE, 'group pr-2.5')}
+        className={cn(
+          ROW_BASE,
+          isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
+          isDragging && 'opacity-40',
+          'group pr-2.5',
+        )}
         onClick={() => onOpen(row.id)}
+        onPointerDown={onPointerDownDrag}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {

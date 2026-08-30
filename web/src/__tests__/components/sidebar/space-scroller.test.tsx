@@ -5,6 +5,11 @@ import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
+// Task 21's drag wiring — no-op commit callbacks are enough for every test
+// below, none of which exercises a live drag.
+const onDrop = vi.fn()
+const onPaneDrop = vi.fn()
+
 // `SpacePanel` reads a narrow, project-scoped slice of the REAL sidebar
 // store (for the "is any workspace under this project working" re-render
 // signal) — the store's own default state (`repos: []`) is already exactly
@@ -68,6 +73,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     const panels = screen.getAllByTestId('space-panel')
@@ -90,6 +97,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     const el = screen.getByTestId('space-scroll-region')
@@ -118,6 +127,8 @@ describe('SpaceScroller', () => {
         onCreate={onCreate}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
 
@@ -156,6 +167,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     const panel = screen.getByTestId('space-panel')
@@ -184,6 +197,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     expect(recentsForProject).toHaveBeenCalledWith('p1')
@@ -211,6 +226,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     const contents = screen.getAllByTestId('space-scroll-content')
@@ -234,6 +251,8 @@ describe('SpaceScroller', () => {
         onCreate={vi.fn()}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
       />,
     )
     expect(screen.queryByTestId('recents-band')).not.toBeInTheDocument()

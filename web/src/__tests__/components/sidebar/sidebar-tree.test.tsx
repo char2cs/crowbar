@@ -10,6 +10,14 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
+// Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
+// enough for every test below, none of which exercises a live drag.
+const DRAG_PROPS = {
+  scrollRef: { current: null } as React.RefObject<HTMLElement | null>,
+  onDrop: vi.fn(),
+  onPaneDrop: vi.fn(),
+}
+
 const rows: SidebarRow[] = [
   {
     id: 'folder-1',
@@ -41,13 +49,29 @@ beforeEach(() => {
 
 describe('SidebarTree', () => {
   it('renders a row per entry, nested under its parent', () => {
-    render(<SidebarTree rows={rows} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />)
+    render(
+      <SidebarTree
+        rows={rows}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
     expect(screen.getByText('Bugs')).toBeInTheDocument()
     expect(screen.getByText('Fix the thing')).toBeInTheDocument()
   })
 
   it('folding a container hides its descendants', () => {
-    render(<SidebarTree rows={rows} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />)
+    render(
+      <SidebarTree
+        rows={rows}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
     // The brief's own step-1 test reaches for `getByTestId('fold-folder-1')`,
     // which does not exist: SidebarRow (Task 5, already committed) marks its
     // fold button with `data-control="fold"` and an aria-label, never a
@@ -59,7 +83,15 @@ describe('SidebarTree', () => {
   })
 
   it('indents each level by ROW_INDENT_STEP (14px, from workspace-row-base.ts)', () => {
-    render(<SidebarTree rows={rows} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />)
+    render(
+      <SidebarTree
+        rows={rows}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
     const root = screen.getByText('Bugs').closest('[role="treeitem"]')?.parentElement
     const child = screen.getByText('Fix the thing').closest('[role="treeitem"]')?.parentElement
     expect(root?.getAttribute('style')).toContain('margin-inline-start: 0px')
@@ -69,7 +101,15 @@ describe('SidebarTree', () => {
   it('an empty container renders the affordance row instead of nothing', () => {
     const onCreate = vi.fn()
     // folder-1 with no children at all.
-    render(<SidebarTree rows={[rows[0]]} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={onCreate} />)
+    render(
+      <SidebarTree
+        rows={[rows[0]]}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={onCreate}
+        {...DRAG_PROPS}
+      />,
+    )
     // No dropdown: folder-1 does not own a worktree, so only a thread is legal.
     expect(screen.queryByTestId('affordance-dropdown')).not.toBeInTheDocument()
     screen.getByRole('button', { name: /create new thread/i }).click()
@@ -88,7 +128,15 @@ describe('SidebarTree', () => {
       working: false,
       hasView: false,
     }
-    render(<SidebarTree rows={[branch]} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />)
+    render(
+      <SidebarTree
+        rows={[branch]}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
     expect(screen.getByTestId('affordance-dropdown')).toBeInTheDocument()
   })
 
@@ -98,7 +146,13 @@ describe('SidebarTree', () => {
       { ...rows[0], id: 'folder-b', label: 'Folder B' },
     ]
     const { container } = render(
-      <SidebarTree rows={siblings} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />,
+      <SidebarTree
+        rows={siblings}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
     )
     expect(container.querySelectorAll('hr')).toHaveLength(0)
     // Token-boundary check: `border-transparent` (ROW_INACTIVE's resting

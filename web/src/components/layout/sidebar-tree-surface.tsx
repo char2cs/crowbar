@@ -13,6 +13,7 @@ import {
   handleCreate as createSidebarRow,
 } from './space-content-actions'
 import { applyPendingRemovals } from './removal-plan'
+import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
@@ -91,6 +92,8 @@ export function SidebarTreeSurface({
           onCreate={createSidebarRow}
           onFocusRecent={focusRecentEntry}
           onCloseRecent={closeRecent}
+          onDrop={performSidebarDrop}
+          onPaneDrop={performSidebarPaneDrop}
         />
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />

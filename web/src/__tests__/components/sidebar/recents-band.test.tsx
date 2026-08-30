@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { RecentsBand, type RecentsBandEntry } from '@/components/sidebar/recents-band'
 
+// Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
+// enough for every test below, none of which exercises a live drag.
+const DRAG_PROPS = {
+  scrollRef: { current: null } as React.RefObject<HTMLElement | null>,
+  onDrop: vi.fn(),
+  onPaneDrop: vi.fn(),
+}
+
 interface FakeChat {
   id: string
   workspaceId: string
@@ -40,7 +48,9 @@ function setWs1(chats: FakeChat[], working: Record<string, boolean> = {}) {
 
 describe('RecentsBand', () => {
   it('renders nothing when there are no entries', () => {
-    const { container } = render(<RecentsBand entries={[]} onFocus={vi.fn()} onClose={vi.fn()} />)
+    const { container } = render(
+      <RecentsBand entries={[]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />,
+    )
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -49,7 +59,7 @@ describe('RecentsBand', () => {
     const entries: RecentsBandEntry[] = [
       { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'working', workspaceId: 'ws-1' },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
     // §5.6: the spinner still rides the member — its absence isn't what hid the close control.
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
@@ -59,7 +69,7 @@ describe('RecentsBand', () => {
     const entries: RecentsBandEntry[] = [
       { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
     expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
   })
@@ -68,7 +78,7 @@ describe('RecentsBand', () => {
     const entries: RecentsBandEntry[] = [
       { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     expect(screen.getByTestId('recents-row-chat-1')).not.toHaveAttribute('data-depth')
   })
 
@@ -81,7 +91,7 @@ describe('RecentsBand', () => {
       state: 'dormant',
       workspaceId: 'ws-1',
     }
-    render(<RecentsBand entries={[entry]} onFocus={onFocus} onClose={vi.fn()} />)
+    render(<RecentsBand entries={[entry]} onFocus={onFocus} onClose={vi.fn()} {...DRAG_PROPS} />)
     screen.getByRole('treeitem').click()
     expect(onFocus).toHaveBeenCalledWith(entry)
   })
@@ -95,7 +105,7 @@ describe('RecentsBand', () => {
       state: 'live',
       workspaceId: 'ws-1',
     }
-    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={onClose} />)
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={onClose} {...DRAG_PROPS} />)
     screen.getByTestId('recents-close-e1').click()
     expect(onClose).toHaveBeenCalledWith(entry)
   })
@@ -108,7 +118,7 @@ describe('RecentsBand', () => {
       state: 'dormant',
       workspaceId: 'ws-1',
     }
-    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const close = screen.getByTestId('recents-close-e1')
     expect(close.getAttribute('aria-label')).not.toMatch(/delete/i)
     // The tree's trash control is what this must NOT render for a Recents row.
@@ -125,7 +135,7 @@ describe('RecentsBand', () => {
         workspaceId: 'ws-1',
       },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
     expect(shell.className).toMatch(/bg-background/)
   })
@@ -134,7 +144,7 @@ describe('RecentsBand', () => {
     const entries: RecentsBandEntry[] = [
       { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
     expect(shell.className).not.toMatch(/bg-background/)
     expect(shell.className).toMatch(/bg-sidebar-element-idle/)
@@ -154,7 +164,7 @@ describe('RecentsBand', () => {
       state: 'dormant',
       workspaceId: 'ws-1',
     }
-    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const rowWrapper = screen.getByTestId('recents-row-chat-1')
     expect(rowWrapper.className).toMatch(/\bpr-10\b/)
   })
@@ -168,7 +178,7 @@ describe('RecentsBand', () => {
       state: 'working',
       workspaceId: 'ws-1',
     }
-    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const rowWrapper = screen.getByTestId('recents-row-chat-1')
     expect(rowWrapper.className).not.toMatch(/\bpr-10\b/)
   })
@@ -188,7 +198,7 @@ describe('RecentsBand', () => {
       { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
       { id: 'e2', localId: 'e2', chatIds: ['chat-2'], state: 'dormant', workspaceId: 'ws-other' },
     ]
-    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} />)
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
     expect(screen.getByTestId('recents-row-chat-2')).toHaveTextContent('Other space chat')
   })

@@ -3,6 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
+import { findScrollParent } from '@/components/layout/edge-scroll'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   getAllActiveWorkspaceIds,
@@ -10,6 +11,8 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import type { DropMode } from '@/components/tree-dnd/drop-core'
+import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { Project } from '@/lib/types'
 
 // Join delimiter for the id-list dependency keys below — same choice and
@@ -32,6 +35,8 @@ interface SpaceScrollerProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
+  onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
 }
 
 /** The four `WorkspaceState` fields Recents actually reads, compared by
@@ -109,6 +114,8 @@ interface SpacePanelProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
+  onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
 }
 
 function SpacePanel({
@@ -120,8 +127,20 @@ function SpacePanel({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  onDrop,
+  onPaneDrop,
 }: SpacePanelProps) {
   const rows = rowsForProject(projectId)
+  // The tree and Recents sit in ONE shared scroll region (spec §2) and both
+  // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
+  // target off this ref, which points at the actual overflow element
+  // (`ScrollAreaPrimitive.Viewport`), not the plain content div a naive ref
+  // here would otherwise land on.
+  const contentRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    viewportRef.current = findScrollParent(contentRef.current)
+  })
   // Narrow, project-scoped selector (not the whole `repos` array) that
   // changes whenever a tree workspace under this project starts/stops
   // working. Read for its own re-render (a fresh string forces this
@@ -164,11 +183,27 @@ function SpacePanel({
             row in it) on every one of those frames. The `0px` fallback
             covers the one render before the card has measured anything. */}
         <div
+          ref={contentRef}
           data-testid="space-scroll-content"
           style={{ paddingBottom: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
         >
-          <SidebarTree rows={rows} onOpen={onOpen} onTrash={onTrash} onCreate={onCreate} />
-          <RecentsBand entries={entries} onFocus={onFocusRecent} onClose={onCloseRecent} />
+          <SidebarTree
+            rows={rows}
+            onOpen={onOpen}
+            onTrash={onTrash}
+            onCreate={onCreate}
+            scrollRef={viewportRef}
+            onDrop={onDrop}
+            onPaneDrop={onPaneDrop}
+          />
+          <RecentsBand
+            entries={entries}
+            onFocus={onFocusRecent}
+            onClose={onCloseRecent}
+            scrollRef={viewportRef}
+            onDrop={onDrop}
+            onPaneDrop={onPaneDrop}
+          />
         </div>
       </ScrollArea>
     </div>
@@ -197,6 +232,8 @@ export function SpaceScroller({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  onDrop,
+  onPaneDrop,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
@@ -267,6 +304,8 @@ export function SpaceScroller({
           onCreate={onCreate}
           onFocusRecent={onFocusRecent}
           onCloseRecent={onCloseRecent}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
         />
       ))}
     </div>

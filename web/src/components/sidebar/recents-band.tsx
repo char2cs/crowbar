@@ -1,9 +1,18 @@
+import { useRef } from 'react'
 import { X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { ROW_ACTIVE, ROW_SUB_ACTION_HOVER } from '@/components/layout/workspace-row-base'
+import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
+import { DropIndicator } from '@/components/layout/drop-indicator'
+import {
+  useSidebarDrag,
+  type SidebarDrag,
+  type SidebarPaneZone,
+} from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
 
@@ -48,6 +57,12 @@ interface RecentsBandProps {
   onFocus: (entry: RecentsBandEntry) => void
   /** No control renders for a 'working' entry — nothing calls this for one. */
   onClose: (entry: RecentsBandEntry) => void
+  /** The panel's own scroll container — what an edge-held drag scrolls
+   *  (Task 21). Shared with `SidebarTree`, since the two sit in one scroll
+   *  region per space. */
+  scrollRef: React.RefObject<HTMLElement | null>
+  onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
+  onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
 }
 
 // The close button sits OUTSIDE SidebarRow's own layout (absolute, over the
@@ -74,9 +89,38 @@ const RECENTS_ROW_CLOSE_RESERVE = 'pr-10'
  * (`ROW_SUB_ACTION_HOVER`) so it stays visually consistent without borrowing
  * the tree's destructive semantics.
  */
-export function RecentsBand({ entries, onFocus, onClose }: RecentsBandProps) {
+export function RecentsBand({
+  entries,
+  onFocus,
+  onClose,
+  scrollRef,
+  onDrop,
+  onPaneDrop,
+}: RecentsBandProps) {
+  // Every member row constructs its own `SidebarRow` from live chat state at
+  // render time (RecentsMemberRow, below) — this is where each one lands so
+  // `subjectsFor` below can hand a drag the real thing it grabbed rather than
+  // re-deriving it from a chat id.
+  const rowsRef = useRef(new Map<string, SidebarRowType>())
+  const registerRow = (row: SidebarRowType) => {
+    rowsRef.current.set(row.id, row)
+  }
+  // A depth-0 leaf renderer: no tree structure to publish a real ancestor
+  // path from, so the subtree cycle guard is a no-op for a Recents-rendered
+  // TARGET (a real gap, narrow and disclosed — see use-sidebar-drag.ts).
+  const drag = useSidebarDrag({
+    scrollRef,
+    subjectsFor: (rowId) => {
+      const row = rowsRef.current.get(rowId)
+      return row ? [row] : []
+    },
+    onDrop,
+    onPaneDrop,
+  })
+
   // §5.7: no band until something is open — the empty state teaches the
-  // tree/Recents pairing for free.
+  // tree/Recents pairing for free. After the hook above: hooks run every
+  // render regardless of `entries.length`, so this has to follow them.
   if (entries.length === 0) return null
 
   return (
@@ -88,8 +132,21 @@ export function RecentsBand({ entries, onFocus, onClose }: RecentsBandProps) {
         </span>
       </div>
       {entries.map((entry) => (
-        <RecentsEntryRow key={entry.id} entry={entry} onFocus={onFocus} onClose={onClose} />
+        <RecentsEntryRow
+          key={entry.id}
+          entry={entry}
+          onFocus={onFocus}
+          onClose={onClose}
+          drag={drag}
+          registerRow={registerRow}
+        />
       ))}
+      {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
+      {drag.ghostRows && (
+        <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>
+          <DragGhostRows rows={drag.ghostRows} />
+        </DragGhost>
+      )}
     </div>
   )
 }
@@ -98,10 +155,14 @@ function RecentsEntryRow({
   entry,
   onFocus,
   onClose,
+  drag,
+  registerRow,
 }: {
   entry: RecentsBandEntry
   onFocus: (entry: RecentsBandEntry) => void
   onClose: (entry: RecentsBandEntry) => void
+  drag: SidebarDrag
+  registerRow: (row: SidebarRowType) => void
 }) {
   // §5.3/§5.6: chatIds.length decides the SHAPE — a shell around 2+ rows, or
   // a bare row for one. `state === 'live'` decides whether that shape is the
@@ -132,6 +193,8 @@ function RecentsEntryRow({
           hasView={isLive}
           reserveClose={canClose}
           onOpen={() => onFocus(entry)}
+          drag={drag}
+          registerRow={registerRow}
         />
       ))}
       {canClose && (
@@ -160,6 +223,8 @@ function RecentsMemberRow({
   hasView,
   reserveClose,
   onOpen,
+  drag,
+  registerRow,
 }: {
   /** Which workspace's store owns this chat — see `RecentsBandEntry`. */
   workspaceId: string
@@ -170,6 +235,8 @@ function RecentsMemberRow({
    *  before it, not before SidebarRow's own narrower built-in inset. */
   reserveClose: boolean
   onOpen: () => void
+  drag: SidebarDrag
+  registerRow: (row: SidebarRowType) => void
 }) {
   const chat = useWorkspaceStoreById(workspaceId, (s) =>
     s.agentChats.chats.find((c) => c.id === chatId),
@@ -192,13 +259,24 @@ function RecentsMemberRow({
     working,
     hasView,
   }
+  // So `subjectsFor` can hand a real, freshly-rendered row back to a drag
+  // that grabs it — see RecentsBand's own `rowsRef` note above.
+  registerRow(row)
 
   return (
     <div
       data-testid={`recents-row-${chat.id}`}
       className={cn(reserveClose && RECENTS_ROW_CLOSE_RESERVE)}
     >
-      <SidebarRow row={row} depth={0} onOpen={onOpen} />
+      <SidebarRow
+        row={row}
+        depth={0}
+        onOpen={onOpen}
+        dragProps={drag.dragProps(row)}
+        isDragging={drag.draggingIds.has(row.id)}
+        isNestTarget={drag.nestTargetId === row.id}
+        onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
+      />
     </div>
   )
 }
