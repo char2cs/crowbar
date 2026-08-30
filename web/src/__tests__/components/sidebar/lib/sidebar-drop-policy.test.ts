@@ -9,6 +9,7 @@ import {
   EDGE_BAND_CONTAINER,
   EDGE_BAND_HEAVY,
   NO_MODES,
+  REORDER_MODES,
 } from '@/components/tree-dnd/drop-core'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -40,7 +41,11 @@ describe('SIDEBAR_DROP_POLICY', () => {
           avatarLabel: 'A',
           avatarColor: 'bg-indigo-700',
           defaultWorkspaceId: 'home-1',
-          workspaces: [{ id: 'ws-1', branch: 'feature-a', age: '' }],
+          workspaces: [
+            { id: 'ws-1', branch: 'feature-a', age: '' },
+            // A protected branch — develop — sitting alongside ws-1 under home-1.
+            { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
+          ],
           folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
         },
         {
@@ -120,6 +125,38 @@ describe('SIDEBAR_DROP_POLICY', () => {
   it('an empty selection has nothing to drop', () => {
     const target = makeRow({ id: 'ws-2' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([], target)).toEqual(NO_MODES)
+  })
+
+  it('a locked (protected-branch) row reorders among its own siblings but cannot re-parent', () => {
+    // ws-locked and ws-1 both sit under home-1 (same parent).
+    const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+    const sibling = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
+    // folder-1 lives in the same repo but sits at the repo root, not under home-1.
+    const otherContainer = makeRow({
+      id: 'folder-1',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: null,
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
+  })
+
+  it('a locked row never gets "after" on an already-expanded target (that slot re-parents)', () => {
+    const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+    const sibling = makeRow({
+      id: 'ws-1',
+      workspaceId: 'ws-1',
+      parentId: 'home-1',
+    }) as SidebarRow & { expanded?: boolean; hasChildren?: boolean }
+    const expandedSibling = { ...sibling, expanded: true, hasChildren: true }
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], expandedSibling)).toEqual({
+      before: true,
+      after: false,
+      into: false,
+    })
   })
 
   it('a folder row resolves through the folders array, not workspaceId', () => {

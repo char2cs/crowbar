@@ -3,10 +3,12 @@ import {
   EDGE_BAND_CONTAINER,
   EDGE_BAND_HEAVY,
   NO_MODES,
+  REORDER_MODES,
+  resolvesToFirstChild,
   type AllowedModes,
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -36,16 +38,21 @@ interface RowScope {
  * feeding `repos` yet. Every rule below refuses rather than guesses when this
  * comes back null, same posture the old policies took on an unrecognised
  * selection.
+ *
+ * Takes `repos` rather than reading the store itself so one drag call reads
+ * `getState()` once, not once per subject. `drop-dom.ts`'s own design note
+ * says this runs on every pointermove once a live drag wires it up (Task 21)
+ * — the remaining per-row linear scan is still real cost that task should
+ * consider caching per-gesture rather than per-frame; not fixed here, since
+ * this file only owns the matrix, not the drag loop.
  */
-function resolveRowRepo(rowId: string): RowScope | null {
-  const repo = useSidebarStore
-    .getState()
-    .repos.find(
-      (r) =>
-        r.defaultWorkspaceId === rowId ||
-        r.workspaces.some((w) => w.id === rowId) ||
-        r.folders?.some((f) => f.id === rowId),
-    )
+function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope | null {
+  const repo = repos.find(
+    (r) =>
+      r.defaultWorkspaceId === rowId ||
+      r.workspaces.some((w) => w.id === rowId) ||
+      r.folders?.some((f) => f.id === rowId),
+  )
   return repo ? { repoId: repo.id, projectId: repo.projectId } : null
 }
 
@@ -65,6 +72,13 @@ function resolveRowRepo(rowId: string): RowScope | null {
  * mode when any dragged row is working — the UI mirror of the backend plan's
  * `guardNotWorking`, duplicated here deliberately since a drag needs to
  * refuse before a network round trip, not after.
+ *
+ * A protected branch (`drop-rules.ts`'s old locked rule, ~line 82-93) owns a
+ * worktree pinned to its parent, so it may reorder among its own siblings and
+ * nothing else — including not "after" an expanded sibling, since that would
+ * nest it. Lock state isn't a `SidebarRow` field; it's read the same way
+ * `file-explorer-tree.tsx` already reads it, via `isWorkspaceLockedInSidebar`
+ * against the row's `workspaceId`.
  */
 export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
@@ -76,14 +90,25 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   const kind = subjects[0].kind
   if (subjects.some((s) => s.kind !== kind)) return NO_MODES
 
-  const targetScope = resolveRowRepo(target.id)
+  const repos = useSidebarStore.getState().repos
+
+  const targetScope = resolveRowRepo(repos, target.id)
   if (!targetScope) return NO_MODES
 
   for (const subject of subjects) {
-    const subjectScope = resolveRowRepo(subject.id)
+    const subjectScope = resolveRowRepo(repos, subject.id)
     if (!subjectScope) return NO_MODES
     if (subjectScope.projectId !== targetScope.projectId) return NO_MODES
     if (subjectScope.repoId !== targetScope.repoId && subject.ownsWorktree) return NO_MODES
+  }
+
+  const hasLocked = subjects.some((s) => isWorkspaceLockedInSidebar(repos, s.workspaceId))
+  if (hasLocked) {
+    const sameParent = subjects.every((s) => s.parentId === target.parentId)
+    if (!sameParent) return NO_MODES
+    return resolvesToFirstChild(target, 'after')
+      ? { before: true, after: false, into: false }
+      : REORDER_MODES
   }
 
   return ALL_MODES
