@@ -147,7 +147,14 @@ export function createDropRowDom<Row extends DragSubjectBase>(spec: DropRowSpec)
  */
 export interface DropZone<S extends DragSubjectBase, Hit> {
   attr: string
-  hit(subjects: readonly S[]): Hit | null
+  /**
+   * `el`/`point` are the zone's own element and the pointer's viewport
+   * position — extra facts a binary zone (the old dwell-to-remove pane) never
+   * needed but a geometry-aware one does (Task 21's pane center/edge zones,
+   * `getPaneDropZoneFromRect`). Additive: an existing `hit(subjects)` that
+   * ignores them still satisfies this signature.
+   */
+  hit(subjects: readonly S[], el: Element, point: { x: number; y: number }): Hit | null
 }
 
 /**
@@ -170,7 +177,7 @@ export function createDropHitTest<
 ): (x: number, y: number, subjects: readonly S[]) => RowHit<Row> | Hit | null {
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
-      if (zone && el.hasAttribute(zone.attr)) return zone.hit(subjects)
+      if (zone && el.hasAttribute(zone.attr)) return zone.hit(subjects, el, { x, y })
       const row = dom.read(el)
       if (!row) continue
       const allowed = policy.allowedModes(subjects, row)
