@@ -41,11 +41,11 @@ interface FakeProvider {
 // transform hoists too) are linked before ordinary top-level `const`s run.
 const {
   agentChats,
-  buffers,
+  panes,
+  activePaneIdRef,
   setActiveAgentChatId,
   setActivePane,
-  activatePaneBuffer,
-  getPaneByBufferId,
+  setPaneChat,
   openContent,
   fakeStore,
   createChat,
@@ -60,37 +60,47 @@ const {
     },
   }
   const setActiveAgentChatId = vi.fn()
-  const setActivePane = vi.fn()
+  // `activePaneId` mutates as a side effect of `setActivePane`, mirroring the
+  // real store — openAgentChat (the helper shared with the Chats sidebar) runs
+  // for REAL against this store rather than being mocked out, and its
+  // not-open-anywhere branch reads `st.activePaneId` AFTER the caller's own
+  // `setActivePane` call, so the fake must actually move it.
+  const activePaneId = { current: '' }
+  const setActivePane = vi.fn((id: string) => {
+    activePaneId.current = id
+  })
   const openContent = vi.fn()
+  const setPaneChat = vi.fn()
   // A stable fake store: `getState()` always returns the SAME object holding
   // the SAME spy references, mirroring the real zustand store (a fresh object
   // per call would make call-order assertions across two `getState()` reads
   // impossible to write meaningfully).
-  // openAgentChat (the helper shared with the Chats sidebar) runs for real
-  // against this store rather than being mocked out, so these tests exercise the
-  // actual reveal-vs-open decision. That needs the two things it reads:
-  const buffers = { current: [] as Array<{ id: string; type: string; chatId?: string }> }
-  const activatePaneBuffer = vi.fn()
-  const getPaneByBufferId = vi.fn(() => null as { id: string } | null)
+  // openAgentChat runs for real against this store, so these tests exercise
+  // the actual reveal-vs-open decision. That needs `panes` (a chat's pane is
+  // found by scanning `chatId`, not by a buffer lookup any more).
+  const panes = { current: {} as Record<string, { id: string; chatId: string | null }> }
 
   const fakeState = {
     agentChats: agentChats.current,
     workspaceId: 'ws-1',
     setActiveAgentChatId,
-    get buffers() {
-      return buffers.current
+    get activePaneId() {
+      return activePaneId.current
     },
-    paneActions: { setActivePane, activatePaneBuffer, getPaneByBufferId },
+    get panes() {
+      return panes.current
+    },
+    paneActions: { setActivePane, setPaneChat },
     bufferActions: { openContent },
   }
   const fakeStore = { getState: () => fakeState }
   return {
     agentChats,
-    buffers,
+    panes,
+    activePaneIdRef: activePaneId,
     setActiveAgentChatId,
     setActivePane,
-    activatePaneBuffer,
-    getPaneByBufferId,
+    setPaneChat,
     openContent,
     fakeStore,
     createChat: vi.fn(),
@@ -154,7 +164,8 @@ beforeEach(() => {
       enabled: true,
     },
   ]
-  buffers.current = []
+  panes.current = {}
+  activePaneIdRef.current = ''
   repos.current = [
     {
       id: 'r1',
@@ -164,7 +175,6 @@ beforeEach(() => {
       workspaces: [{ id: 'ws-1' }],
     },
   ]
-  getPaneByBufferId.mockReturnValue(null)
 })
 
 describe('NewTabView', () => {
@@ -294,9 +304,10 @@ describe('NewTabView', () => {
 
       fireEvent.click(screen.getByTestId('nt-chat-row'))
 
-      expect(openContent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'agentChat', chatId: 'c0', wsId: 'ws-1' }),
-      )
+      // Opening a chat is no longer "adding a tab" — it sets the pane's own
+      // chat slot directly (no runner known yet).
+      expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'c0', null)
+      expect(openContent).not.toHaveBeenCalled()
       expect(setActiveTab).not.toHaveBeenCalled()
     })
 
@@ -309,18 +320,17 @@ describe('NewTabView', () => {
       expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
     })
 
-    it('REVEALS a chat already open elsewhere instead of yanking its tab over', () => {
+    it('REVEALS a chat already open elsewhere instead of yanking its pane over', () => {
       // Shared with the sidebar via open-agent-chat.ts: opening a chat that
-      // already has a tab in another split must take you to it, not move it.
+      // already has a pane elsewhere must take you to it, not move it.
       agentChats.current.chats = makeChats(1)
-      buffers.current = [{ id: 'buf-1', type: 'agentChat', chatId: 'c0' }]
-      getPaneByBufferId.mockReturnValue({ id: 'other-pane' })
+      panes.current = { 'other-pane': { id: 'other-pane', chatId: 'c0' } }
 
       render(<NewTabView paneId={ROOT_PANE_ID} />)
       fireEvent.click(screen.getByTestId('nt-chat-row'))
 
       expect(setActivePane).toHaveBeenCalledWith('other-pane')
-      expect(activatePaneBuffer).toHaveBeenCalledWith('other-pane', 'buf-1')
+      expect(setPaneChat).not.toHaveBeenCalled()
       expect(openContent).not.toHaveBeenCalled()
     })
 
@@ -372,9 +382,8 @@ describe('NewTabView', () => {
       })
 
       expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
-      expect(openContent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'agentChat', chatId: 'chat-9', wsId: 'ws-1' }),
-      )
+      expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
+      expect(openContent).not.toHaveBeenCalled()
     })
 
     it('picks the first ENABLED provider, skipping a disabled leading one', () => {
@@ -549,11 +558,10 @@ describe('NewTabView', () => {
       })
 
       expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
-      // Called again right before the buffer lands, guarding the async gap.
+      // Called again right before the chat lands, guarding the async gap.
       expect(setActivePane.mock.calls.every(([id]) => id === BOTTOM_PANE_ID)).toBe(true)
-      expect(openContent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'agentChat', chatId: 'chat-1' }),
-      )
+      expect(setPaneChat).toHaveBeenCalledWith(BOTTOM_PANE_ID, 'chat-1', null)
+      expect(openContent).not.toHaveBeenCalled()
     })
   })
 })

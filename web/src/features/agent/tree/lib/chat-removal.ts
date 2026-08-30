@@ -289,29 +289,22 @@ async function sendSubtreeRemoval(
   const previous = st.agentChats.chats.filter((c) => doomedChatIds.has(c.id))
   const previousFolders = st.agentChats.folders.filter((f) => doomedFolderIds.has(f.id))
   const wasActive = st.agentChats.activeChatId
-  // Captured as {id, chatId, name} rather than as buffers: the restore below
-  // reopens them by chat, and carrying the union through would make it re-narrow
-  // a type it has already established.
-  const openBuffers = st.buffers.flatMap((b) =>
-    b.type === 'agentChat' && doomedChatIds.has(b.chatId)
-      ? [{ id: b.id, chatId: b.chatId, name: b.name }]
+  // A chat is no longer a buffer — it is `PaneGroup.chatId` — so what a doomed
+  // chat leaves behind on removal is a PANE, not a tab. Captured as
+  // {paneId, chatId, runnerId} so the restore below can put both the chat AND
+  // whatever runner it had back on the exact pane it came from.
+  const openPanes = Object.values(st.panes).flatMap((pane) =>
+    pane.chatId && doomedChatIds.has(pane.chatId)
+      ? [{ paneId: pane.id, chatId: pane.chatId, runnerId: pane.runnerId }]
       : [],
   )
 
   for (const id of doomedChats) st.removeAgentChat(id)
   for (const id of doomedFolders) st.removeAgentChatFolder(id)
-  for (const buffer of openBuffers) {
-    // Raw closeBuffer is NOT enough — it filters the buffer out of the array but
-    // leaves the owning pane's activeBufferId pointing at it, so deleting the
-    // chat you were looking at blanks the whole pane. removeBufferFromPane
-    // activates an adjacent tab first; this is the exact closeTab pattern the
-    // WS-stream hook documents.
-    for (const pane of Object.values(st.panes)) {
-      if (pane.bufferIds.includes(buffer.id)) {
-        st.paneActions.removeBufferFromPane(pane.id, buffer.id)
-      }
-    }
-    st.bufferActions.closeBuffer(buffer.id)
+  for (const p of openPanes) {
+    // Clears the pane's chat slot so it falls back to its empty stage rather
+    // than pointing at a chat that is about to stop existing.
+    st.paneActions.setPaneChat(p.paneId, null, null)
   }
 
   try {
@@ -323,15 +316,10 @@ async function sendSubtreeRemoval(
     const snap = store.getState()
     for (const chat of previous) snap.upsertAgentChat(chat)
     if (previousFolders.length > 0) snap.applyAgentChatFolders(previousFolders)
-    // The optimistic close took the chats' tabs with it — put them back too, or a
-    // chat snaps into the list with its open tab silently gone.
-    for (const buffer of openBuffers) {
-      snap.bufferActions.openContent({
-        type: 'agentChat',
-        chatId: buffer.chatId,
-        wsId: entry.wsId,
-        name: buffer.name,
-      })
+    // The optimistic clear took the chats' panes with it — put them back too, or
+    // a chat snaps into the list with its pane silently emptied.
+    for (const p of openPanes) {
+      snap.paneActions.setPaneChat(p.paneId, p.chatId, p.runnerId)
     }
     if (wasActive !== null && previous.some((c) => c.id === wasActive)) {
       snap.setActiveAgentChatId(wasActive)

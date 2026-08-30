@@ -404,26 +404,28 @@ describe('sendChatRemoval — a chat and its subtree', () => {
     expect(deleteChat).toHaveBeenCalledWith(WS, 't1', { keepalive: true })
   })
 
-  it('closes the doomed chats’ pane tabs, activating a sibling rather than blanking the pane', async () => {
+  it('clears the doomed chat off its pane without touching an unrelated pane', async () => {
     seedThread()
     const st = store.getState()
-    st.bufferActions.openContent({ type: 'agentChat', chatId: 'p1', wsId: WS, name: 'Parent' })
-    st.bufferActions.openContent({ type: 'agentChat', chatId: 'c9', wsId: WS, name: 'Loner' })
-    const survivor = store.getState().buffers.find((b) => b.name === 'Loner')!.id
-    const pane = store.getState().activePaneId
+    const paneP = st.activePaneId
+    st.paneActions.setPaneChat(paneP, 'p1', 'runner-p1')
+    const paneQ = st.paneActions.splitPane(paneP, 'vertical')!
+    st.paneActions.setPaneChat(paneQ, 'c9', 'runner-c9')
 
     await sendChatRemoval(subtreeEntry)
 
-    expect(store.getState().panes[pane].bufferIds).toEqual([survivor])
-    expect(store.getState().panes[pane].activeBufferId).toBe(survivor)
+    // p1 is doomed — its pane's chat slot falls back to the empty stage.
+    expect(store.getState().panes[paneP]?.chatId).toBeNull()
+    // c9 survives — its pane is untouched.
+    expect(store.getState().panes[paneQ]?.chatId).toBe('c9')
+    expect(store.getState().panes[paneQ]?.runnerId).toBe('runner-c9')
   })
 
-  it('restores the chats, the folders and the tabs when the daemon refuses', async () => {
+  it('restores the chats, the folders and the panes holding them when the daemon refuses', async () => {
     seedThread()
     store.getState().setActiveAgentChatId('p1')
-    store
-      .getState()
-      .bufferActions.openContent({ type: 'agentChat', chatId: 'p1', wsId: WS, name: 'Parent' })
+    const pane = store.getState().activePaneId
+    store.getState().paneActions.setPaneChat(pane, 'p1', 'runner-p1')
     deleteChat.mockRejectedValue(new Error('nope'))
 
     await expect(sendChatRemoval(subtreeEntry)).rejects.toThrow('nope')
@@ -435,20 +437,22 @@ describe('sendChatRemoval — a chat and its subtree', () => {
         .sort(),
     ).toEqual(['c9', 'p1', 't1'])
     expect(store.getState().agentChats.folders.map((f) => f.id)).toEqual(['fin'])
-    // The optimistic close took the tab with it; a chat snapping back into the
-    // list with its tab silently gone is not a restore.
-    expect(store.getState().buffers).toHaveLength(1)
+    // The optimistic clear took the pane's chat with it; a chat snapping back
+    // into the list with its pane silently emptied is not a restore.
+    expect(store.getState().panes[pane]?.chatId).toBe('p1')
+    expect(store.getState().panes[pane]?.runnerId).toBe('runner-p1')
     expect(store.getState().agentChats.activeChatId).toBe('p1')
   })
 
-  it('does not reopen a tab the chat never had, nor re-activate a chat that was not', async () => {
+  it('does not give a pane a chat it never had, nor re-activate a chat that was not', async () => {
     seedThread()
     store.getState().setActiveAgentChatId('c9')
+    const pane = store.getState().activePaneId
     deleteChat.mockRejectedValue(new Error('nope'))
 
     await expect(sendChatRemoval(subtreeEntry)).rejects.toThrow('nope')
 
-    expect(store.getState().buffers).toEqual([])
+    expect(store.getState().panes[pane]?.chatId).toBeNull()
     expect(store.getState().agentChats.activeChatId).toBe('c9')
   })
 

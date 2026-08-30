@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
-import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
 // Focused WorkspaceView lifecycle tests for keep-alive semantics:
 //  - hydrate runs once per mount, never again on a warm re-activation;
@@ -9,11 +8,10 @@ import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 //    editing files in hidden worktrees, so without this the editors come back
 //    stale (the destroy-on-switch behaviour re-hydrated and reconciled);
 //  - the cold path does NOT double-reconcile (hydrateWorkspace already does).
-const { hydrateSpy, reconcileSpy, activeEffectsSpy, openNewTabSpy } = vi.hoisted(() => ({
+const { hydrateSpy, reconcileSpy, activeEffectsSpy } = vi.hoisted(() => ({
   hydrateSpy: vi.fn(async (_wsId: string) => ({ layout: null, editorStates: [] })),
   reconcileSpy: vi.fn(async (_wsId: string) => {}),
   activeEffectsSpy: vi.fn((_wsId: string) => {}),
-  openNewTabSpy: vi.fn(),
 }))
 
 vi.mock('@/lib/persistence/hydrate', () => ({
@@ -22,30 +20,15 @@ vi.mock('@/lib/persistence/hydrate', () => ({
 }))
 
 // getOrCreateWorkspaceStore memoizes by wsId in real life (a registry singleton
-// map) — the fake must too, or every render would hand useOpenOnNewTab a
+// map) — the fake must too, or every render would hand each effect a
 // freshly-identitied store and refire it regardless of whether `hydrated`
 // actually changed.
-//
-// `panes` mirrors production's real shape (see pane-slice's initial state):
-// ROOT_PANE_ID and BOTTOM_PANE_ID both always exist, each independently empty
-// or not — useOpenOnNewTab (I3) seeds a New Tab PER empty pane, not once per
-// workspace.
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => {
   const fakeStores = new Map<string, unknown>()
   return {
     getOrCreateWorkspaceStore: (wsId: string) => {
       if (!fakeStores.has(wsId)) {
-        fakeStores.set(wsId, {
-          __fakeStore: wsId,
-          getState: () => ({
-            buffers: [],
-            panes: {
-              [ROOT_PANE_ID]: { id: ROOT_PANE_ID, bufferIds: [] },
-              [BOTTOM_PANE_ID]: { id: BOTTOM_PANE_ID, bufferIds: [] },
-            },
-            bufferActions: { openNewTab: openNewTabSpy },
-          }),
-        })
+        fakeStores.set(wsId, { __fakeStore: wsId })
       }
       return fakeStores.get(wsId)
     },
@@ -90,7 +73,6 @@ beforeEach(() => {
   hydrateSpy.mockClear()
   reconcileSpy.mockClear()
   activeEffectsSpy.mockClear()
-  openNewTabSpy.mockClear()
 })
 
 afterEach(() => {
@@ -106,18 +88,6 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(reconcileSpy).not.toHaveBeenCalled()
   })
 
-  it('opens a New Tab in every empty RENDERED pane once hydration lands on a workspace with nothing restored', async () => {
-    await renderView(true)
-
-    // ROOT_PANE_ID restored empty and is rendered, so it gets seeded.
-    expect(openNewTabSpy).toHaveBeenCalledWith(ROOT_PANE_ID)
-    // BOTTOM_PANE_ID is never rendered (nothing draws `bottomLayout`), so a New
-    // Tab there would be an invisible, auto-eviction-PROTECTED buffer spending
-    // one of MAX_OPEN_TABS forever — see use-open-on-new-tab.
-    expect(openNewTabSpy).not.toHaveBeenCalledWith(BOTTOM_PANE_ID)
-    expect(openNewTabSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('warm re-activation: reconciles open buffers against disk, without re-hydrating', async () => {
     const { setActive } = await renderView(true)
     await setActive(false) // hide (another workspace became active)
@@ -128,7 +98,6 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(reconcileSpy).toHaveBeenCalledTimes(1)
     expect(reconcileSpy).toHaveBeenCalledWith('ws-a')
     expect(hydrateSpy).toHaveBeenCalledTimes(1) // still only the cold hydrate
-    expect(openNewTabSpy).toHaveBeenCalledTimes(1) // still only the cold open, not re-fired by the hide/return
   })
 
   it('runs the workspace watchers only while active', async () => {

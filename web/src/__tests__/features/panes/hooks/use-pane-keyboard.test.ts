@@ -14,12 +14,12 @@ vi.mock('@/utils/platform', async () => {
 const closeBuffer = vi.fn()
 const reopenLastClosedBuffer = vi.fn()
 const setPendingClose = vi.fn()
-const removeBufferFromPane = vi.fn()
+const removeEditorTabFromPane = vi.fn()
 const navigateToPane = vi.fn()
-const openNewTab = vi.fn()
 const openContent = vi.fn()
 const closePane = vi.fn()
 const setActivePane = vi.fn()
+const setPaneChat = vi.fn()
 const setActiveAgentChatId = vi.fn()
 
 // I4: the AGENT_NEW_CHAT chord (⌘N) creates a chat via the agent API — mocked
@@ -34,7 +34,7 @@ const { createChat, toastSpawnFailure } = vi.hoisted(() => ({
 vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
-type FakePane = { activeBufferId: string | null; bufferIds: string[] }
+type FakePane = { activeEditorTabId: string | null; editorTabIds: string[] }
 type FakeLayout =
   | { type: 'pane'; id: string }
   | {
@@ -58,8 +58,8 @@ const fakeState = {
   rootLayout: { type: 'pane', id: ROOT_PANE_ID } as FakeLayout,
   bottomLayout: { type: 'pane', id: BOTTOM_PANE_ID } as FakeLayout,
   panes: {
-    [ROOT_PANE_ID]: { activeBufferId: 'buf-1' as string | null, bufferIds: ['buf-1'] },
-    [BOTTOM_PANE_ID]: { activeBufferId: null as string | null, bufferIds: [] },
+    [ROOT_PANE_ID]: { activeEditorTabId: 'buf-1' as string | null, editorTabIds: ['buf-1'] },
+    [BOTTOM_PANE_ID]: { activeEditorTabId: null as string | null, editorTabIds: [] },
   } as Record<string, FakePane>,
   buffers: [{ id: 'buf-1', type: 'editor', isDirty: false }] as Array<{
     id: string
@@ -80,10 +80,9 @@ const fakeState = {
     closeBuffer,
     reopenLastClosedBuffer,
     setPendingClose,
-    openNewTab,
     openContent,
   },
-  paneActions: { navigateToPane, removeBufferFromPane, closePane, setActivePane },
+  paneActions: { navigateToPane, removeEditorTabFromPane, closePane, setActivePane, setPaneChat },
   setActiveAgentChatId,
 }
 const fakeStore = { getState: () => fakeState }
@@ -115,8 +114,8 @@ beforeEach(() => {
   fakeState.activePaneId = ROOT_PANE_ID
   fakeState.agentChats = { providers: [], chats: [] }
   fakeState.panes = {
-    [ROOT_PANE_ID]: { activeBufferId: 'buf-1', bufferIds: ['buf-1'] },
-    [BOTTOM_PANE_ID]: { activeBufferId: null, bufferIds: [] },
+    [ROOT_PANE_ID]: { activeEditorTabId: 'buf-1', editorTabIds: ['buf-1'] },
+    [BOTTOM_PANE_ID]: { activeEditorTabId: null, editorTabIds: [] },
   }
   fakeState.rootLayout = { type: 'pane', id: ROOT_PANE_ID }
   fakeState.bottomLayout = { type: 'pane', id: BOTTOM_PANE_ID }
@@ -138,22 +137,22 @@ function pressCmdW() {
  * counted as part of the root split.
  */
 function setPaneState({
-  activeBufferId,
-  bufferIds,
+  activeEditorTabId,
+  editorTabIds,
   paneCount = 1,
 }: {
-  activeBufferId: string | null
-  bufferIds: string[]
+  activeEditorTabId: string | null
+  editorTabIds: string[]
   paneCount?: number
 }) {
   const panes: Record<string, FakePane> = {
-    [ROOT_PANE_ID]: { activeBufferId, bufferIds },
-    [BOTTOM_PANE_ID]: { activeBufferId: null, bufferIds: [] },
+    [ROOT_PANE_ID]: { activeEditorTabId, editorTabIds },
+    [BOTTOM_PANE_ID]: { activeEditorTabId: null, editorTabIds: [] },
   }
   let rootLayout: FakeLayout = { type: 'pane', id: ROOT_PANE_ID }
   for (let i = 2; i <= paneCount; i++) {
     const extraId = `pane-${i}`
-    panes[extraId] = { activeBufferId: null, bufferIds: [] }
+    panes[extraId] = { activeEditorTabId: null, editorTabIds: [] }
     rootLayout = {
       type: 'split',
       id: `split-${i}`,
@@ -171,22 +170,22 @@ function setPaneState({
 /** Splits the BOTTOM panel itself into `paneCount` leaves (independent of the
  *  root tree), for the "sensibly handle the bottom pane" cases. */
 function setBottomPaneState({
-  activeBufferId,
-  bufferIds,
+  activeEditorTabId,
+  editorTabIds,
   paneCount = 1,
 }: {
-  activeBufferId: string | null
-  bufferIds: string[]
+  activeEditorTabId: string | null
+  editorTabIds: string[]
   paneCount?: number
 }) {
   const panes: Record<string, FakePane> = {
-    [ROOT_PANE_ID]: { activeBufferId: null, bufferIds: [] },
-    [BOTTOM_PANE_ID]: { activeBufferId, bufferIds },
+    [ROOT_PANE_ID]: { activeEditorTabId: null, editorTabIds: [] },
+    [BOTTOM_PANE_ID]: { activeEditorTabId, editorTabIds },
   }
   let bottomLayout: FakeLayout = { type: 'pane', id: BOTTOM_PANE_ID }
   for (let i = 2; i <= paneCount; i++) {
     const extraId = `bottom-pane-${i}`
-    panes[extraId] = { activeBufferId: null, bufferIds: [] }
+    panes[extraId] = { activeEditorTabId: null, editorTabIds: [] }
     bottomLayout = {
       type: 'split',
       id: `bottom-split-${i}`,
@@ -201,17 +200,14 @@ function setBottomPaneState({
   fakeState.bottomLayout = bottomLayout
 }
 
-function setBuffers(buffers: Array<{ id: string; type: string; isDirty?: boolean }>) {
-  fakeState.buffers = buffers
-}
-
 describe('usePaneKeyboard — Cmd+W closes the active tab', () => {
-  it('removes the active buffer from its pane (so a neighbor activates) AND closes it', () => {
+  it('removes the active tab from its pane (so a neighbor activates) AND closes it', () => {
     renderHook(() => usePaneKeyboard())
     pressCmdW()
-    // removeBufferFromPane is what activates the adjacent tab — without it the
-    // pane is left with a dangling activeBufferId and falls to the empty state.
-    expect(removeBufferFromPane).toHaveBeenCalledWith(ROOT_PANE_ID, 'buf-1')
+    // removeEditorTabFromPane is what activates the adjacent tab — without it
+    // the pane is left with a dangling activeEditorTabId and falls to the
+    // empty state.
+    expect(removeEditorTabFromPane).toHaveBeenCalledWith(ROOT_PANE_ID, 'buf-1')
     expect(closeBuffer).toHaveBeenCalledWith('buf-1')
   })
 
@@ -221,26 +217,29 @@ describe('usePaneKeyboard — Cmd+W closes the active tab', () => {
     pressCmdW()
     expect(setPendingClose).toHaveBeenCalledWith({ type: 'single', bufferId: 'buf-1' })
     expect(closeBuffer).not.toHaveBeenCalled()
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
-  it('does nothing on mod+w when there is no active buffer', () => {
-    setPaneState({ activeBufferId: null, bufferIds: [] })
+  it('does nothing on mod+w when there is no active tab', () => {
+    setPaneState({ activeEditorTabId: null, editorTabIds: [] })
     renderHook(() => usePaneKeyboard())
     pressCmdW()
     expect(closeBuffer).not.toHaveBeenCalled()
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 })
 
-describe('usePaneKeyboard — mod+w on a sole New Tab', () => {
-  it('mod+w on a sole New Tab in a split closes the split pane', () => {
-    setPaneState({ activeBufferId: 'nt-1', bufferIds: ['nt-1'], paneCount: 2 })
-    setBuffers([{ id: 'nt-1', type: 'newTab' }])
+// A pane with zero editorTabIds shows its own empty stage for free — there is
+// no more placeholder 'newTab' buffer to special-case. ⌘W on such a pane must
+// still behave the same way the old sole-New-Tab-buffer handling did: dismiss
+// the pane in a split, no-op in the last remaining one.
+describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
+  it('mod+w on an empty pane in a split closes the split pane', () => {
+    setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
     expect(closePane).toHaveBeenCalledWith(ROOT_PANE_ID)
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
   // C1 regression: `state.panes` ALSO holds BOTTOM_PANE_ID here (this is the
@@ -249,67 +248,50 @@ describe('usePaneKeyboard — mod+w on a sole New Tab', () => {
   // closePane on the workspace's ONLY editor pane, which reseeds and then
   // immediately deletes it again in pane-slice (bricking the workspace). Scoped
   // correctly, ROOT_PANE_ID's own tree has exactly one leaf, so this must no-op.
-  it('mod+w on a sole New Tab in the LAST pane does nothing', () => {
-    setPaneState({ activeBufferId: 'nt-1', bufferIds: ['nt-1'], paneCount: 1 })
-    setBuffers([{ id: 'nt-1', type: 'newTab' }])
+  it('mod+w on an empty pane in the LAST pane does nothing', () => {
+    setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 1 })
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
     expect(closePane).not.toHaveBeenCalled()
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
-  it('mod+w on a New Tab beside other tabs closes it normally (not uncloseable)', () => {
-    setPaneState({ activeBufferId: 'nt-1', bufferIds: ['buf-1', 'nt-1'], paneCount: 1 })
-    setBuffers([
-      { id: 'buf-1', type: 'editor', isDirty: false },
-      { id: 'nt-1', type: 'newTab' },
-    ])
-    renderHook(() => usePaneKeyboard())
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
-    expect(removeBufferFromPane).toHaveBeenCalledWith(ROOT_PANE_ID, 'nt-1')
-    expect(closeBuffer).toHaveBeenCalledWith('nt-1')
-    expect(closePane).not.toHaveBeenCalled()
-  })
-
-  // "Handle the bottom pane sensibly too": a sole New Tab in the (single, un-
-  // split) bottom panel must no-op exactly like the sole root pane, regardless
-  // of how many editor panes exist in the root tree — the two trees are scoped
+  // "Handle the bottom pane sensibly too": an empty bottom panel (single, un-
+  // split) must no-op exactly like the sole root pane, regardless of how many
+  // editor panes exist in the root tree — the two trees are scoped
   // independently.
-  it('mod+w on a sole New Tab in the ONLY bottom pane does nothing, even with a split root', () => {
-    setPaneState({ activeBufferId: 'buf-1', bufferIds: ['buf-1'], paneCount: 2 })
+  it('mod+w on the ONLY (empty) bottom pane does nothing, even with a split root', () => {
+    setPaneState({ activeEditorTabId: 'buf-1', editorTabIds: ['buf-1'], paneCount: 2 })
     fakeState.activePaneId = BOTTOM_PANE_ID
-    fakeState.panes[BOTTOM_PANE_ID] = { activeBufferId: 'nt-1', bufferIds: ['nt-1'] }
-    setBuffers([
-      { id: 'buf-1', type: 'editor', isDirty: false },
-      { id: 'nt-1', type: 'newTab' },
-    ])
+    fakeState.panes[BOTTOM_PANE_ID] = { activeEditorTabId: null, editorTabIds: [] }
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
     expect(closePane).not.toHaveBeenCalled()
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
-  it('mod+w on a sole New Tab in a SPLIT bottom panel closes that bottom split', () => {
+  it('mod+w on an empty pane in a SPLIT bottom panel closes that bottom split', () => {
     fakeState.activePaneId = BOTTOM_PANE_ID
-    setBottomPaneState({ activeBufferId: 'nt-1', bufferIds: ['nt-1'], paneCount: 2 })
-    setBuffers([{ id: 'nt-1', type: 'newTab' }])
+    setBottomPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
     expect(closePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
+    expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 })
 
 describe('usePaneKeyboard — new tab / terminal / file chords', () => {
-  it('mod+t opens a New Tab, not a terminal', () => {
+  // A New Tab is no longer a mintable placeholder tab — a pane already shows
+  // its own empty stage for free whenever it holds no editor tabs, and there
+  // is no primitive yet for "detach the active tab without closing it" to
+  // reproduce the old "add a blank scratch tab beside my real ones" gesture.
+  // The chord is inert until one exists; it must not fall through and open a
+  // terminal or anything else.
+  it('mod+t is currently a no-op (no more mintable New Tab placeholder)', () => {
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true }))
-    expect(openNewTab).toHaveBeenCalledTimes(1)
-    // Tightened from `not.toHaveBeenCalledWith({ type: 'terminal' })`: that
-    // assertion is satisfied even if the handler fell through and called
-    // openContent with some OTHER spec (e.g. a missing `return`), which would
-    // not actually be "not opening a terminal" in any meaningful sense.
     expect(openContent).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   it('mod+j opens a terminal', () => {
@@ -372,9 +354,10 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     await Promise.resolve()
 
     expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
-    expect(openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'agentChat', chatId: 'chat-9', wsId: 'ws-1' }),
-    )
+    // Opening a chat is no longer "adding a tab" — it sets the pane's own chat
+    // slot directly, with no runner known yet.
+    expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
+    expect(openContent).not.toHaveBeenCalled()
   })
 
   it('does nothing when no provider is available (no CLI installed)', () => {
@@ -382,7 +365,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     renderHook(() => usePaneKeyboard())
     pressChord()
     expect(createChat).not.toHaveBeenCalled()
-    expect(openContent).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   it('picks the first ENABLED provider, skipping a disabled leading one', () => {
@@ -408,7 +391,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     renderHook(() => usePaneKeyboard())
     pressChord()
     expect(createChat).not.toHaveBeenCalled()
-    expect(openContent).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   it('reports a spawn failure via toast instead of swallowing it', async () => {

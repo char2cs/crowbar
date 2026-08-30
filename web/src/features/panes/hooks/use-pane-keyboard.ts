@@ -52,8 +52,14 @@ export function usePaneKeyboard() {
       }
 
       if (matches(TAB_NEW)) {
+        // A New Tab is no longer a mintable placeholder tab (Task 1 removed it
+        // from the model) — a pane already shows its own empty stage for free
+        // whenever it holds no editor tabs. There is currently no primitive for
+        // "detach the active tab without closing it" to reproduce the old "add
+        // a blank scratch tab beside my real ones" gesture, so this chord is
+        // inert until one exists. Still prevented, so ⌘T never falls through to
+        // a browser/OS default.
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openNewTab()
         return
       }
 
@@ -90,15 +96,10 @@ export function usePaneKeyboard() {
         createChat(state.workspaceId, provider.id)
           .then((chatId) => {
             const st = workspaceStore.getState()
-            const title = st.agentChats.chats.find((c) => c.id === chatId)?.title
             st.setActiveAgentChatId(chatId)
             st.paneActions.setActivePane(targetPaneId)
-            st.bufferActions.openContent({
-              type: 'agentChat',
-              chatId,
-              wsId: st.workspaceId,
-              name: title || `${provider.displayName} chat`,
-            })
+            // A brand-new chat has no runner yet — null until it spawns one.
+            st.paneActions.setPaneChat(targetPaneId, chatId, null)
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return
@@ -112,21 +113,21 @@ export function usePaneKeyboard() {
 
       if (matches(TAB_CLOSE)) {
         // Always preventDefault so the chord never reaches the OS window-close.
-        // Mirror the tab × button (handleTabClose): remove the buffer from its
+        // Mirror the tab × button (handleTabClose): remove the tab from its
         // pane FIRST so an adjacent tab activates (raw closeBuffer alone leaves
-        // a dangling activeBufferId → empty state), and prompt before discarding
-        // a dirty editor buffer. No active buffer → no-op (never quits the app).
+        // a dangling activeEditorTabId → empty state), and prompt before
+        // discarding a dirty editor buffer. No active tab → no-op (never quits
+        // the app).
         e.preventDefault()
         const state = workspaceStore.getState()
         const paneId = state.activePaneId
-        const bufferId = state.panes[paneId]?.activeBufferId
-        if (!bufferId) return
-        const buf = state.buffers.find((b) => b.id === bufferId)
-        // A sole New Tab has no close: closing it would spawn another (see
-        // pane-slice's removeBufferFromPane), so ⌘W would visibly do nothing.
-        // In a SPLIT that keystroke means "dismiss this split" — which is the
-        // only reading that leaves the user anywhere new. In the last remaining
-        // pane there is nowhere to go, so it is a genuine no-op.
+        const pane = state.panes[paneId]
+        if (!pane) return
+        // A pane with zero editor tabs is already showing its own empty stage
+        // (no placeholder buffer to close any more). ⌘W there means "dismiss
+        // this split" — the only reading that leaves the user anywhere new. In
+        // the last remaining pane there is nowhere to go, so it is a genuine
+        // no-op.
         //
         // "Last remaining pane" must be scoped to paneId's OWN layout tree
         // (root editor area vs. the bottom panel) via getPaneScopeForPaneId —
@@ -137,8 +138,7 @@ export function usePaneKeyboard() {
         // remaining pane in either tree and bricking it (see pane-slice's
         // closePane — deleting the sole root leaf goes through the reseed
         // branch and immediately deletes the fallback leaf right after).
-        const pane = state.panes[paneId]
-        if (buf?.type === 'newTab' && pane && pane.bufferIds.length === 1) {
+        if (pane.editorTabIds.length === 0) {
           const scope = getPaneScopeForPaneId(
             state.rootLayout,
             state.bottomLayout,
@@ -150,12 +150,15 @@ export function usePaneKeyboard() {
           }
           return
         }
+        const tabId = pane.activeEditorTabId
+        if (!tabId) return
+        const buf = state.buffers.find((b) => b.id === tabId)
         if (buf && buf.type === 'editor' && buf.isDirty) {
-          state.bufferActions.setPendingClose({ type: 'single', bufferId })
+          state.bufferActions.setPendingClose({ type: 'single', bufferId: tabId })
           return
         }
-        state.paneActions.removeBufferFromPane(paneId, bufferId)
-        state.bufferActions.closeBuffer(bufferId)
+        state.paneActions.removeEditorTabFromPane(paneId, tabId)
+        state.bufferActions.closeBuffer(tabId)
         return
       }
 

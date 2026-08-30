@@ -38,23 +38,29 @@ vi.mock('@/features/agent/api/agent-api', () => ({
 }))
 
 const makePaneActions = () => ({
-  addBufferToPane: vi.fn(),
-  setPanePreviewBuffer: vi.fn(),
-  removeBufferFromPane: vi.fn(),
+  addEditorTabToPane: vi.fn(),
+  setEditorTabPreview: vi.fn(),
+  removeEditorTabFromPane: vi.fn(),
+  setActivePane: vi.fn(),
+  activateEditorTabInPane: vi.fn(),
   // pane-slice's real name post-Task-2 (renamed from clearPreviewBufferEverywhere,
   // and dropped its `id` param — it clears every buffer's isPreview flag).
   clearEditorTabPreviewEverywhere: vi.fn(),
   getPaneById: vi.fn(() => null),
+  getPaneByEditorTabId: vi.fn((): { id: string } | null => null),
 })
 
 type PaneActions = ReturnType<typeof makePaneActions>
 
 function makeStore(paneActions: PaneActions = makePaneActions(), workspaceId = 'ws-test') {
-  const store = createStore<BufferSlice & { paneActions: PaneActions; workspaceId: string }>()(
+  const store = createStore<
+    BufferSlice & { paneActions: PaneActions; workspaceId: string; activePaneId: string }
+  >()(
     immer((set, get) => ({
       ...createBufferSlice(...([set, get, {}] as unknown as Parameters<typeof createBufferSlice>)),
       paneActions,
       workspaceId,
+      activePaneId: ROOT_PANE_ID,
     })),
   )
   return { store, paneActions }
@@ -91,6 +97,54 @@ describe('buffer-slice', () => {
     const id2 = store.getState().bufferActions.openContent(spec)
     expect(id1).toBe(id2)
     expect(store.getState().buffers).toHaveLength(1)
+  })
+
+  it('openContent adds the new tab to the active pane via addEditorTabToPane, not an old action', () => {
+    const paneActions = makePaneActions()
+    const { store: storeInst } = makeStore(paneActions)
+    const id = storeInst.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/src/index.ts',
+      name: 'index.ts',
+      content: '',
+    })
+    expect(paneActions.addEditorTabToPane).toHaveBeenCalledTimes(1)
+    expect(paneActions.addEditorTabToPane).toHaveBeenCalledWith(
+      ROOT_PANE_ID,
+      expect.objectContaining({ id, type: 'editor', path: '/src/index.ts' }),
+    )
+  })
+
+  it('opening an already-open terminal jumps to its existing pane via getPaneByEditorTabId/activateEditorTabInPane', () => {
+    const paneActions = makePaneActions()
+    const { store: storeInst } = makeStore(paneActions)
+    const id = storeInst.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-1',
+      name: 'Terminal 1',
+    })
+    paneActions.getPaneByEditorTabId.mockReturnValue({ id: 'other-pane' })
+    paneActions.addEditorTabToPane.mockClear()
+
+    const again = storeInst.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-1',
+      name: 'Terminal 1',
+    })
+
+    expect(again).toBe(id)
+    expect(paneActions.getPaneByEditorTabId).toHaveBeenCalledWith(id)
+    expect(paneActions.setActivePane).toHaveBeenCalledWith('other-pane')
+    expect(paneActions.activateEditorTabInPane).toHaveBeenCalledWith('other-pane', id)
+    // The jump path REVEALS the existing tab — it never also lands a copy via
+    // the generic add-to-active-pane path.
+    expect(paneActions.addEditorTabToPane).not.toHaveBeenCalled()
+  })
+
+  it('openNewTab no longer exists — a pane with no tabs shows its own empty state for free', () => {
+    expect(
+      (store.getState().bufferActions as unknown as Record<string, unknown>).openNewTab,
+    ).toBeUndefined()
   })
 
   it('closeBuffer removes it from the list', () => {
@@ -163,30 +217,9 @@ describe('buffer-slice', () => {
     expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
-  // Closing an agent-chat tab STOPS its vendor CLI (so the process doesn't leak)
-  // but must KEEP the chat entry resumable — the backend goes dormant, not deleted.
-  // stopChat is called with the buffer's OWN wsId + chatId, and deleteChat is never
-  // touched (closing a tab is not deleting a chat).
-  it('closeBuffer stops the agent CLI of an agentChat buffer (keeps it resumable)', async () => {
-    stopChat.mockClear()
-    deleteChat.mockClear()
-    killTerminalSession.mockClear()
-    const id = store.getState().bufferActions.openContent({
-      type: 'agentChat',
-      chatId: 'chat-7',
-      wsId: 'ws-agent',
-      name: 'Fix the bug',
-    })
-    store.getState().bufferActions.closeBuffer(id)
-    expect(store.getState().buffers).toHaveLength(0)
-    // The stop goes through a dynamic import — flush microtasks.
-    await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-7'))
-    expect(deleteChat).not.toHaveBeenCalled()
-    expect(killTerminalSession).not.toHaveBeenCalled()
-  })
-
-  // Closing a shell terminal STILL hard-kills its PTY (unchanged) and must NOT call the
-  // agent stop endpoint — the two close behaviours are distinct.
+  // A chat is no longer a buffer (it is `PaneGroup.chatId`), so closeBuffer's
+  // old agentChat-specific stopChat behavior is unreachable and was removed
+  // along with it — there is no more agentChat spec for openContent to build.
   it('closeBuffer does not stop an agent CLI for a terminal buffer', async () => {
     stopChat.mockClear()
     const id = store.getState().bufferActions.openContent({
@@ -197,25 +230,6 @@ describe('buffer-slice', () => {
     store.getState().bufferActions.closeBuffer(id)
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))
     expect(stopChat).not.toHaveBeenCalled()
-  })
-
-  // Closing an already-dormant chat (no runner, runnerId '') is a safe no-op: the FE
-  // still calls stopChat (the backend no-ops on a chat with no live CLI), never
-  // deleteChat, and the tab just closes.
-  it('closeBuffer on a dormant agentChat still calls stopChat and never deletes the chat', async () => {
-    stopChat.mockClear()
-    deleteChat.mockClear()
-    const id = store.getState().bufferActions.openContent({
-      type: 'agentChat',
-      chatId: 'chat-dormant',
-      wsId: 'ws-agent',
-      name: 'Dormant chat',
-      runnerId: '',
-    })
-    store.getState().bufferActions.closeBuffer(id)
-    expect(store.getState().buffers).toHaveLength(0)
-    await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-dormant'))
-    expect(deleteChat).not.toHaveBeenCalled()
   })
 
   it('preview flag is set when isPreview is true', () => {
@@ -298,7 +312,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
         })
       })
       // Add the tab to the pane
@@ -333,7 +346,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
         })
         state.buffers.push({
           id: tabId2,
@@ -347,7 +359,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
         })
       })
       // Add first tab
@@ -393,7 +404,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
         })
         state.buffers.push({
           id: tabId2,
@@ -407,7 +417,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
         })
       })
       // Add two tabs
@@ -452,7 +461,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
           isUncloseable: false,
         })
         state.buffers.push({
@@ -467,7 +475,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
           isUncloseable: false,
         })
         state.buffers.push({
@@ -482,7 +489,6 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
-          isActive: false,
           isUncloseable: true,
         })
       })

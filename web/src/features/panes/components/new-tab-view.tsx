@@ -256,15 +256,10 @@ export function NewTabView({ paneId }: { paneId: string }) {
     createChat(wsId, provider.id)
       .then((chatId) => {
         const st = workspaceStore.getState()
-        const title = st.agentChats.chats.find((c) => c.id === chatId)?.title
         st.setActiveAgentChatId(chatId)
         st.paneActions.setActivePane(paneId)
-        st.bufferActions.openContent({
-          type: 'agentChat',
-          chatId,
-          wsId,
-          name: title || `${provider.displayName} chat`,
-        })
+        // A brand-new chat has no runner yet — null until it spawns one.
+        st.paneActions.setPaneChat(paneId, chatId, null)
       })
       .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
   }, [activateThisPane, paneId, providers, workspaceStore, wsId])

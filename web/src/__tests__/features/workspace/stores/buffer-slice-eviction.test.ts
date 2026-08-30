@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 describe('buffer slice auto-eviction', () => {
   it('evicts least-recent non-protected buffer when at maxOpenTabs', () => {
     const store = createWorkspaceStore('test-ws')
     store.setState({ maxOpenTabs: 2 })
 
-    store.getState().bufferActions.openContent({
+    const idA = store.getState().bufferActions.openContent({
       type: 'editor',
       path: '/a.ts',
       name: 'a.ts',
@@ -30,6 +31,10 @@ describe('buffer slice auto-eviction', () => {
     expect(store.getState().buffers).toHaveLength(2)
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
     expect(store.getState().buffers.map((b) => b.name)).toContain('c.ts')
+    // The evictee's tab must also be gone from the pane that held it — via
+    // pane-slice's real removeEditorTabFromPane, not the old (deleted)
+    // removeBufferFromPane/bufferIds shape.
+    expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(idA)
   })
 
   it('never evicts pinned buffers', () => {
