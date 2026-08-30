@@ -11,6 +11,58 @@ export const SPLIT_MIN_STACKED_PX = 160
 export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
 /**
+ * The measured half of every split this file drives: side by side, or
+ * stacked? Read off the CONTAINER's own box — never the window, so a narrow
+ * pane inside a wide window is answered correctly — via `ResizeObserver`.
+ *
+ * Reads `clientWidth`/`clientHeight` rather than `getBoundingClientRect()`
+ * specifically so a plain `{ clientWidth, clientHeight }` double is enough to
+ * drive it from a test, with no fake DOM rect to construct. On a real element
+ * the two are equivalent for this purpose.
+ *
+ * Shared by both presentation hooks below — the terminal split
+ * (`useChatPresentation`) and the pane's chat-view/editor-view split
+ * (`usePaneViewPresentation`) size their own splits by the identical rule,
+ * against the identical constant.
+ */
+function useSplitDimensions(
+  active: boolean,
+  containerRef: { current: HTMLElement | null },
+): { width: number; height: number } {
+  // Two PRIMITIVE state slots, not one `{ width, height }` object. A fresh
+  // object every `measure()` call — even reporting an unchanged size — never
+  // passes React's `Object.is` bail-out, where a repeated primitive does: an
+  // effect keyed on an unstable `containerRef` (a fresh ref-shaped literal
+  // passed inline on every render, e.g. from a test) would otherwise re-fire
+  // on every one of the re-renders its own `setState` just caused, forever.
+  const [width, setWidth] = useState(0)
+  const [height, setHeight] = useState(0)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!active || !container) return
+    const measure = () => {
+      const el = containerRef.current
+      if (!el) return
+      // A missing/non-finite reading (a bare test double supplying only one
+      // axis) is "unknown", not "zero" for the OTHER axis's comparisons below
+      // — coercing it to 0 keeps Math.max/comparisons meaningful instead of
+      // propagating NaN through every consumer.
+      const w = el.clientWidth
+      const h = el.clientHeight
+      setWidth(Number.isFinite(w) ? w : 0)
+      setHeight(Number.isFinite(h) ? h : 0)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    measure()
+    return () => observer.disconnect()
+  }, [active, containerRef])
+
+  return { width, height }
+}
+
+/**
  * Which surface a chat is shown on, and how the split is laid out.
  *
  * The chosen value is SEEDED from the user's preference and never subscribed to
@@ -64,24 +116,13 @@ export function useChatPresentation(
   // Side by side, or stacked? The PANE's width decides, not the window's — a
   // narrow pane inside a wide window is exactly the case a viewport media query
   // gets wrong. Only observed while the split is up.
-  const [splitStacked, setSplitStacked] = useState(false)
-
-  useEffect(() => {
-    const container = splitContainerRef.current
-    if (!splitting || !container) return
-    const measure = () => {
-      // A ZERO WIDTH IS "NOT MEASURED YET", NOT "NARROW". The first read can land
-      // before layout — and answering it with `stacked` makes the split flash
-      // vertical on the way in, then jump. Side by side is the shape this is FOR,
-      // so an unknown width keeps it.
-      const width = container.getBoundingClientRect().width
-      setSplitStacked(width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX)
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(container)
-    measure()
-    return () => observer.disconnect()
-  }, [splitting, splitContainerRef])
+  //
+  // A ZERO WIDTH IS "NOT MEASURED YET", NOT "NARROW". The first read can land
+  // before layout — and answering it with `stacked` makes the split flash
+  // vertical on the way in, then jump. Side by side is the shape this is FOR,
+  // so an unknown width keeps it.
+  const { width: splitWidth } = useSplitDimensions(splitting, splitContainerRef)
+  const splitStacked = splitWidth > 0 && splitWidth < SPLIT_SIDE_BY_SIDE_MIN_PX
 
   return {
     presentation,
@@ -97,6 +138,55 @@ export function useChatPresentation(
     setSplitSizes,
     splitStacked,
   }
+}
+
+/** How a pane arranges its chat view against its editor view (spec §7.2). */
+export type PaneViewPresentation = 'side-by-side' | 'stacked' | 'tabs'
+
+/**
+ * Spec §7.2's "two views": the pane-level generalization of the split above,
+ * from chat⇄terminal to chat-view⇄editor-view.
+ *
+ * There is nothing to CHOOSE here, unlike `useChatPresentation`: `editorOpen`
+ * is the pane's own persisted split toggle (Task 1: chat-only vs.
+ * chat+editor — `PaneGroup.editorOpen`), and once it is on, geometry decides
+ * the rest by measuring the PANE itself (never the window):
+ *
+ *   the split is off                  → 'tabs' — spec's default at every size.
+ *   the split is on, but there is not
+ *     enough room on EITHER axis      → 'tabs' — the same "downgrade the
+ *                                        intent, keep the preference" shape
+ *                                        `useChatPresentation` applies for
+ *                                        `splitEnabled` above, just driven by
+ *                                        size instead of a flag: opting in
+ *                                        does not force a cramped split, and
+ *                                        growing the pane recovers it with no
+ *                                        further click.
+ *   wider than tall                   → 'side-by-side' (landscape).
+ *   taller than wide                  → 'stacked' (portrait).
+ *
+ * "Not enough room on either axis" reuses SPLIT_SIDE_BY_SIDE_MIN_PX as a floor
+ * on the pane's LONGER axis, not just its width: a stacked layout needs real
+ * room on ITS long axis (height) for the same reason side by side needs it on
+ * width, and there is no second confirmed constant for that floor.
+ */
+export function usePaneViewPresentation(
+  editorOpen: boolean,
+  containerRef: { current: HTMLElement | null },
+): PaneViewPresentation {
+  const { width, height } = useSplitDimensions(editorOpen, containerRef)
+
+  if (!editorOpen) return 'tabs'
+  // Unmeasured (0x0, the frame before layout) cannot confirm either
+  // arrangement is usable. Tabs is always valid regardless of size, so
+  // guessing it here would be safe on its own terms — but it is also the ONE
+  // guess guaranteed to be visibly wrong the instant the real measurement
+  // lands whenever the pane turns out to be landscape, which is the common
+  // case: the pane would visibly pop from one view to two. Side by side is
+  // what an unmeasured split defaults to for the identical reason above.
+  if (width === 0 && height === 0) return 'side-by-side'
+  if (Math.max(width, height) < SPLIT_SIDE_BY_SIDE_MIN_PX) return 'tabs'
+  return width >= height ? 'side-by-side' : 'stacked'
 }
 
 /**
