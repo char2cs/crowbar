@@ -84,89 +84,167 @@
    is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
    hand-picked, because the real width is a platform fact, not a design value. */
 .agent-chat .dissolve {
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 88px);
   position: absolute;
   left: 0;
   right: var(--agent-scrollbar-w, 0px);
   bottom: 0;
-  height: calc(var(--agent-dock-h, 92px) + 88px);
+  height: var(--dissolve-h);
   z-index: 1;
   pointer-events: none;
 }
 .agent-chat .dissolve-layer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  /* top/bottom set per layer below — each layer only spans the band its own
+     mask actually reveals, plus a margin equal to its own blur radius (blur
+     sampling reads backdrop pixels from outside its box even though the
+     OUTPUT stays clipped to the box, so shrinking the box doesn't change
+     what's visible — it changes how much area the browser recomputes every
+     frame). Mask stops are absolute `calc()` offsets from each layer's own
+     (now-smaller) top, not percentages of the full dissolve height — that
+     keeps them landing at the same pixel regardless of the box's new size,
+     which itself varies with the dynamic --agent-dock-h. */
 }
 .agent-chat .dissolve-layer:nth-child(1) {
+  --top: 0px;
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.6 - 1px));
   backdrop-filter: blur(1px);
   -webkit-backdrop-filter: blur(1px);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 30%, transparent 40%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 0%,
-    black 10%,
-    black 30%,
-    transparent 40%
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(2) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 2px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 2px));
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
-  mask-image: linear-gradient(to bottom, transparent 10%, black 20%, black 40%, transparent 50%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 10%,
-    black 20%,
-    black 40%,
-    transparent 50%
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(3) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 4px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 4px));
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 50%, transparent 60%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 15%,
-    black 30%,
-    black 50%,
-    transparent 60%
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(4) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 8px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 8px));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  mask-image: linear-gradient(to bottom, transparent 20%, black 40%, black 60%, transparent 70%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 20%,
-    black 40%,
-    black 60%,
-    transparent 70%
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(5) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 16px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 16px));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  mask-image: linear-gradient(to bottom, transparent 40%, black 60%, black 80%, transparent 90%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 40%,
-    black 60%,
-    black 80%,
-    transparent 90%
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(6) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 32px));
+  top: var(--top);
+  bottom: 0px;
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
-  mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
 }
 .agent-chat .dissolve-layer:nth-child(7) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 64px));
+  top: var(--top);
+  bottom: 0px;
   backdrop-filter: blur(64px);
   -webkit-backdrop-filter: blur(64px);
-  mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
 }
 
 .agent-chat .pill {
