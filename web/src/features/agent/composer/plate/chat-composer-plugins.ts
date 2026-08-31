@@ -21,6 +21,7 @@ import { HtmlKit } from '@/features/editor/markdown/plate/html-node'
 import { MarkdownImageKit } from '@/features/editor/markdown/plate/markdown-image-node'
 import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-callout-rules'
 import { htmlMarkdownRules } from '@/features/editor/markdown/plate/markdown-html-rules'
+import { underlineMarkdownRules } from '@/features/editor/markdown/plate/markdown-underline-rules'
 import { ChatFreshTextPlugin } from '@/features/agent/transcript/plate/chat-fresh-text-plugin'
 import {
   CommentCodeBlockElement,
@@ -98,7 +99,7 @@ export const chatComposerPlugins = [
       // in one Crowbar box and sees `* item` in another is being told the two
       // are different editors.
       remarkStringifyOptions: { emphasis: '*', bullet: '-' },
-      rules: { ...calloutMarkdownRules, ...htmlMarkdownRules },
+      rules: { ...calloutMarkdownRules, ...htmlMarkdownRules, ...underlineMarkdownRules },
     },
   }),
 ]
