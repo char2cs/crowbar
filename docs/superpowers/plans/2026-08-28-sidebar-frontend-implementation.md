@@ -1196,13 +1196,41 @@ git commit -m "feat(pane): one row across the top — split toggle, chat head, e
 
 ### Task 18: Two views — landscape side-by-side, portrait stacked, both mounted
 
+**Scope extended post-hoc by the controller, after Task 31/32 landed.**
+The brief below only generalizes `use-chat-presentation.ts` itself — its
+current real host is `agent-chat-pane.tsx`'s OWN internal chat⇄terminal
+split (a different concern: that component's own embedded tool output,
+not the app-wide pane-level chat-view/editor-view split this redesign
+introduces). Verified independently: no task anywhere in this plan wires
+the generalized hook into `pane-container.tsx`, which currently renders
+chat-view and editor-view as Task 31's own disclosed "placeholder
+sequential stack... until [Task 18] lands." Lower severity than the
+Task 29-32 gaps (nothing crashes or is unreachable without this — the
+placeholder stack works, it just isn't the responsive side-by-side/
+stacked layout the spec describes), so this is folded into Task 18's own
+scope rather than spawned as a separate task: **this task must ALSO wire
+the generalized hook into `pane-container.tsx`**, replacing the
+placeholder stack with the real side-by-side (landscape)/stacked
+(portrait)/tabs (too small or split off) arrangement, per spec §7.2.
+
 **Files:**
 - Modify: whichever component hosts `useChatPresentation` today (confirmed:
   `use-chat-presentation.ts`, currently the chat⇄**terminal** split — this
   task generalizes it to chat⇄**editor view**, reusing its four constants
   verbatim: `SPLIT_SIDE_BY_SIDE_MIN_PX=780`, `SPLIT_MIN_HALF_PX=340`,
   `SPLIT_MIN_STACKED_PX=160`, `SPLIT_DEFAULT_SIZES=[45,55]`).
-- Test: extend that hook's existing test file.
+- Modify: `web/src/features/panes/components/pane-container.tsx` — wire the
+  generalized hook in, replacing the placeholder sequential stack (find its
+  exact current location by searching for "placeholder sequential stack"
+  in that file's comments) with the real arrangement: side-by-side on
+  landscape, stacked (tab strip moves down between chat and editor, per
+  spec §7.2) on portrait, tabs when too small or the split is off (driven
+  by `pane.editorOpen`, per Task 1). Both regions stay mounted always
+  (`hidden` attribute per Task 31's established pattern, never unmounted)
+  regardless of which presentation is chosen — confirm this survives
+  whatever you build.
+- Test: extend that hook's existing test file, plus
+  `pane-container.test.tsx` for the new wiring.
 
 **Interfaces:**
 - Consumes: `PaneGroup.editorOpen` (Task 1), the four constants above
@@ -1783,6 +1811,310 @@ git commit -m "feat(sidebar): consume /repos/:rid/tree directly, delete the clie
 
 ---
 
+### Task 29: Row actions — rename, lock/unlock, and branch import via a right-click menu
+
+**Added post-hoc, by the controller, after Task 8 landed.** Task 8 retired
+`workspace-tree.tsx`/`agent-chats-panel.tsx` and disclosed (per this plan's
+own "Known gap left to the executor" note above) that rename, lock/unlock,
+and branch import have no home on `SidebarRow`'s 4-prop surface any more.
+Verified by the controller: no task 9-28 reintroduces any of these three
+verbs. Multiselect and drag-driven "group into folder" are correctly left
+to Part G (Tasks 20-23) — this task covers only the single-row, non-drag
+verbs a right-click menu offers.
+
+**Files:**
+- Create: `web/src/components/sidebar/lib/row-actions.ts`
+- Create: `web/src/components/sidebar/row-context-menu.tsx`
+- Create: `web/src/components/sidebar/rename-dialog.tsx`
+- Restore verbatim: `web/src/components/layout/repo-import-dialog.tsx` —
+  `git show 9ad89156:web/src/components/layout/repo-import-dialog.tsx > web/src/components/layout/repo-import-dialog.tsx`
+  (it was deleted by Task 8 only because its one caller, `workspace-tree-context.tsx`,
+  was deleted — the dialog itself is self-contained: props are
+  `projectId`/`repoId`/`defaultBranch`/`open`/`onOpenChange`/`onImport`, no
+  internal dependency on anything else Task 8 removed. Confirm this via
+  `git show 9ad89156:web/src/components/layout/repo-import-dialog.tsx | head -40`
+  before restoring — if its actual dependencies differ from this plan's
+  belief, treat that as a real finding and adjust.)
+- Modify: `web/src/components/sidebar/sidebar-row.tsx` — add
+  `data-sidebar-row-id={row.id}` to the root `role="treeitem"` div (the only
+  change; every existing prop/behavior stays exactly as Task 5 shipped it).
+- Modify: `web/src/components/layout/sidebar-tree-panel.tsx` — mount the
+  context menu and both dialogs, wire their callbacks.
+- Test: `web/src/__tests__/components/sidebar/lib/row-actions.test.ts`
+- Test: `web/src/__tests__/components/sidebar/row-context-menu.test.tsx`
+- Test: `web/src/__tests__/components/sidebar/rename-dialog.test.tsx`
+
+**Interfaces:**
+- Consumes: `SidebarRow` type (Task 4), `SidebarRow` component (Task 5,
+  extended additively), `SidebarTreePanel` (Task 8), `@/components/ui/context-menu`'s
+  `ContextMenu`/`useContextMenu`/`ContextMenuItem`, `@/components/ui/dialog`,
+  `@/lib/api`'s `setWorkspaceLock`/`postWorkspace`/`importBranches`/
+  `renameWorkspaceBranch`, `@/lib/store/sidebar`'s `useSidebarStore`.
+- Produces:
+  ```ts
+  // row-actions.ts — restored from the deleted workspace-tree-actions.ts,
+  // trimmed to single-row use (no PendingRowHooks/optimistic spinner rows —
+  // the batch import fires and relies on the existing WS-driven cache to
+  // surface new rows, same as create/rename/delete already do with no
+  // optimistic write, per that file's own documented rationale).
+  export function projectIdForRepo(repoId: string): string | undefined
+  export function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void>
+  export function performRenameFolder(folderId: string, name: string): Promise<void>
+  export function performRenameRow(rowId: string, name: string): Promise<void>
+  export function performSetWorkspaceLock(wsId: string, locked: boolean | null): Promise<void>
+  export function performImportBranches(repoId: string, branches: string[]): Promise<void>
+  export function performCreateFolder(parentId: string): Promise<void>
+  ```
+  ```tsx
+  // row-context-menu.tsx
+  interface SidebarRowContextMenuProps {
+    treeRef: React.RefObject<HTMLElement | null>
+    rows: SidebarRow[]           // to look up kind/ownsWorktree/parentId by id
+    onRename: (rowId: string) => void      // opens rename-dialog.tsx
+    onImport: (repoRowId: string) => void  // opens the restored RepoImportDialog
+  }
+  function SidebarRowContextMenu(props: SidebarRowContextMenuProps): JSX.Element | null
+  ```
+  ```tsx
+  // rename-dialog.tsx
+  interface RenameDialogProps {
+    open: boolean
+    initialValue: string
+    onOpenChange: (open: boolean) => void
+    onConfirm: (name: string) => void
+  }
+  function RenameDialog(props: RenameDialogProps): JSX.Element
+  ```
+
+- [ ] **Step 1: Write the failing test for the pure logic**
+
+```ts
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { performRenameRow, performSetWorkspaceLock } from '@/components/sidebar/lib/row-actions'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import * as api from '@/lib/api'
+
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof api>()),
+  renameWorkspaceBranch: vi.fn().mockResolvedValue(undefined),
+  setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
+}))
+
+describe('row-actions', () => {
+  beforeEach(() => {
+    useSidebarStore.setState({
+      repos: [{
+        id: 'repo-1', projectId: 'proj-1', name: 'repo', defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main', defaultWorkspaceStatus: 'clean', defaultWorking: false,
+        workspaces: [{ id: 'ws-1', branch: 'feature-x', status: 'clean', age: '' }],
+        folders: [],
+      }],
+    })
+  })
+
+  it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
+    await performRenameRow('ws-1', 'feature-y')
+    expect(api.renameWorkspaceBranch).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', 'feature-y')
+  })
+
+  it('locking a workspace calls setWorkspaceLock with locked: true', async () => {
+    await performSetWorkspaceLock('ws-1', true)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', true)
+  })
+})
+```
+
+Verify the real current shape of `Repo`/`Workspace` in `web/src/lib/store/sidebar.ts`
+before finalizing this fixture — Task 8's report already found `age` is
+required and there is no separate `ChatFolder`; confirm nothing else has
+drifted since.
+
+- [ ] **Step 2: Run, verify fail**
+
+- [ ] **Step 3: Implement `row-actions.ts`** by restoring the four
+  `export function` bodies (`projectIdForRepo`, `performRenameWorkspaceBranch`,
+  `performRenameFolder`, `performRenameRow`) verbatim from
+  `git show 9ad89156:web/src/components/layout/workspace-tree-actions.ts`
+  (they are pure — depend only on `useSidebarStore` and `@/lib/api`, nothing
+  from the deleted React context) and add two new, small functions:
+  ```ts
+  export async function performSetWorkspaceLock(
+    wsId: string,
+    locked: boolean | null,
+  ): Promise<void> {
+    const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+    const projectId = repo?.projectId
+    if (!repo || !projectId) return
+    try {
+      await setWorkspaceLock(projectId, repo.id, wsId, locked)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update lock')
+    }
+  }
+
+  export async function performImportBranches(repoId: string, branches: string[]): Promise<void> {
+    if (branches.length === 0) return
+    const projectId = projectIdForRepo(repoId)
+    if (!projectId) return
+    try {
+      await importBranches(projectId, repoId, branches)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to import branches')
+    }
+  }
+  ```
+
+- [ ] **Step 4: Run, verify pass**
+
+- [ ] **Step 5: Write the failing test for the context menu's item list**
+
+```tsx
+import { describe, expect, it, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+const rows: SidebarRow[] = [
+  { id: 'ws-1', kind: 'branch', parentId: null, order: 0, label: 'repo', ownsWorktree: true, workspaceId: 'ws-1', working: false, hasView: false },
+  { id: 'folder-1', kind: 'folder', parentId: 'ws-1', order: 0, label: 'Bugs', ownsWorktree: false, workspaceId: null, working: false, hasView: false },
+]
+
+function renderMenu() {
+  const treeRef = { current: document.createElement('div') }
+  document.body.appendChild(treeRef.current)
+  const onRename = vi.fn()
+  const onImport = vi.fn()
+  render(<SidebarRowContextMenu treeRef={treeRef} rows={rows} onRename={onRename} onImport={onImport} />)
+  return { treeRef, onRename, onImport }
+}
+
+describe('SidebarRowContextMenu', () => {
+  it('right-clicking the project-home row offers Rename, Lock, and Import', () => {
+    const { treeRef } = renderMenu()
+    const target = document.createElement('div')
+    target.setAttribute('role', 'treeitem')
+    target.setAttribute('data-sidebar-row-id', 'ws-1')
+    treeRef.current.appendChild(target)
+    fireEvent.contextMenu(target)
+    expect(screen.getByText('Rename')).toBeInTheDocument()
+    expect(screen.getByText('Lock')).toBeInTheDocument()
+    expect(screen.getByText('Import branches')).toBeInTheDocument()
+  })
+
+  it('right-clicking a folder row offers only Rename', () => {
+    const { treeRef } = renderMenu()
+    const target = document.createElement('div')
+    target.setAttribute('role', 'treeitem')
+    target.setAttribute('data-sidebar-row-id', 'folder-1')
+    treeRef.current.appendChild(target)
+    fireEvent.contextMenu(target)
+    expect(screen.getByText('Rename')).toBeInTheDocument()
+    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+    expect(screen.queryByText('Import branches')).not.toBeInTheDocument()
+  })
+})
+```
+
+- [ ] **Step 6: Run, verify fail**
+
+- [ ] **Step 7: Implement `row-context-menu.tsx`**, mirroring the deleted
+  `row-context-menu.tsx`'s architecture (a sibling of the tree, native
+  `contextmenu` listener on `treeRef.current`, `e.target.closest('[role="treeitem"]')`
+  then read `data-sidebar-row-id` — NOT the old `readDropRow`/`dragSubjectsFor`,
+  which belong to the drag system Part G owns) rather than a hook inside the
+  tree, for the same re-render reason the original documented: opening the
+  popup must not re-render every row. Item rules, decided from the looked-up
+  `SidebarRow` by id (no multiselect — always exactly one row, since this
+  task does not touch the drag/selection system):
+  - **Rename** — always offered.
+  - **Lock** / **Unlock** — offered only when `row.ownsWorktree` is true
+    (a chat/folder row never owns a worktree to lock). Label reads the
+    row's current lock state — this task does not have a `locked` field on
+    `SidebarRow` yet, so read it from `useSidebarStore`'s matching
+    `Workspace.status === 'locked'` directly inside the menu's item-builder,
+    not from the `SidebarRow` prop.
+  - **Import branches** — offered only for the project-home row
+    (`row.kind === 'branch' && row.parentId === null`).
+  - **New folder** — offered on any `branch`/`folder` kind row (a row that
+    can itself hold children per §3.1's "containers are always expandable").
+    Task 8's review found `createFolder` (`@/lib/api/sidebar-placement`) has
+    zero live callers post-deletion — this item is how it gets one again.
+    Calls `performCreateFolder(rowId)` directly (no dialog): creates a
+    folder named `'New folder'` under `rowId` via `createFolder`, matching
+    the deleted `workspace-tree-context.tsx`'s `NEW_FOLDER_NAME` constant
+    and default-name behavior; the user renames it afterward via this same
+    menu's Rename item. Add `performCreateFolder(parentId: string): Promise<void>`
+    to `row-actions.ts`'s exports, restored/adapted from the deleted
+    `confirmCreate`'s folder branch (`git show 9ad89156:web/src/components/layout/workspace-tree-context.tsx`,
+    search `createFolder(`).
+  Calls `onRename(rowId)` / `onImport(repoRowId)` for the Rename/Import
+  items; Lock/Unlock and New folder call `performSetWorkspaceLock`/
+  `performCreateFolder` directly (no dialog needed for either).
+
+- [ ] **Step 8: Run, verify pass**
+
+- [ ] **Step 9: Add `data-sidebar-row-id={row.id}` to `sidebar-row.tsx`**
+
+One-line addition to the existing root div's props (alongside
+`role="treeitem"` `tabIndex={0}` `{...dragProps}`) — no other change to
+that file. Re-run Task 5's existing test file
+(`web/src/__tests__/components/sidebar/sidebar-row.test.tsx`) to confirm
+all 10 of its tests still pass unmodified.
+
+- [ ] **Step 10: Write the failing test for the rename dialog**
+
+```tsx
+import { describe, expect, it, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { RenameDialog } from '@/components/sidebar/rename-dialog'
+
+describe('RenameDialog', () => {
+  it('confirms with the edited value', () => {
+    const onConfirm = vi.fn()
+    render(<RenameDialog open initialValue="feature-x" onOpenChange={vi.fn()} onConfirm={onConfirm} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'feature-y' } })
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    expect(onConfirm).toHaveBeenCalledWith('feature-y')
+  })
+})
+```
+
+- [ ] **Step 11: Run, verify fail**
+
+- [ ] **Step 12: Implement `rename-dialog.tsx`** using `@/components/ui/dialog`
+  (`Dialog`, `DialogPopup`, `DialogHeader`, `DialogTitle`) and
+  `@/components/ui/input`'s `Input`, seeded with `initialValue`, a Rename
+  button calling `onConfirm(value)` then `onOpenChange(false)`.
+
+- [ ] **Step 13: Run, verify pass**
+
+- [ ] **Step 14: Restore `repo-import-dialog.tsx`** per the file list above,
+  then wire everything into `sidebar-tree-panel.tsx`: local state for
+  `renamingRowId: string | null` and `importRepoRowId: string | null`; mount
+  `<SidebarRowContextMenu treeRef={treeRef} rows={rows} onRename={setRenamingRowId} onImport={setImportRepoRowId} />`,
+  `<RenameDialog open={renamingRowId != null} initialValue={...} onConfirm={(name) => performRenameRow(renamingRowId!, name)} .../>`,
+  and `<RepoImportDialog open={importRepoRowId != null} onImport={(branches) => performImportBranches(repoIdFor(importRepoRowId!), branches)} .../>`
+  (resolve `projectId`/`repoId`/`defaultBranch` for the dialog from the same
+  `useSidebarStore` repo lookup `row-actions.ts` uses). Give the tree
+  container a `ref` if `sidebar-tree-panel.tsx` doesn't already hold one.
+
+- [ ] **Step 15: Run the full scoped suite**
+
+Run: `./node_modules/.bin/vitest run src/__tests__/components/sidebar/`
+Run: `bun tsc --noEmit` — confirm zero new errors versus this task's own
+starting baseline (record the exact before/after count, same methodology
+Task 8 used).
+
+- [ ] **Step 16: Commit**
+
+```bash
+git add web/src/components/sidebar/ web/src/components/layout/repo-import-dialog.tsx web/src/components/layout/sidebar-tree-panel.tsx
+git commit -m "feat(sidebar): rename, lock/unlock, and branch import return via a right-click menu"
+```
+
+---
+
 ## Self-review notes (from writing this plan)
 
 - **Spec coverage:** every row of the surface spec's own Handoff table (§13)
@@ -1802,3 +2134,528 @@ git commit -m "feat(sidebar): consume /repos/:rid/tree directly, delete the clie
   once the old context is deleted (most likely as plain callback props into
   `SidebarTree`, matching `SidebarTreeProps` in Task 6) and should treat
   that as part of B.5's/G.2's own scope rather than opening a new task for it.
+
+---
+
+### Task 30: Mount Spaces for real — `SpaceScroller` + `RecentsBand` replace `SidebarTreePanel`
+
+**Added post-hoc, by the controller, after Task 15 landed.** Task 15 deleted
+the carousel's `workspaces` panel (which rendered `SidebarTreePanel`, the
+app's only reachable mount point for the sidebar tree since Task 8), on the
+stated premise that "Part B's `SidebarTree` + Part D's `RecentsBand` now own
+that surface directly, not as carousel panels." Verified by the controller:
+**no task anywhere in this plan actually performs that mount.** `SpaceScroller`
+(Task 9), `SpaceHeader` (Task 10), the window-chrome space marks (Task 11),
+and `RecentsBand` (Task 12) are all built and reviewed clean, but zero of
+them have a live consumer — confirmed by grep before writing this task. Left
+as-is, the app ships with NO way to see or navigate the workspace tree at
+all. This is not a disclosed-and-deferred gap like Task 29's (secondary
+actions) — this is the sidebar's primary navigation surface. Execute
+immediately after Task 15, before Task 16, so the app never carries this
+regression forward.
+
+**Files:**
+- Modify: `web/src/components/layout/ide-shell.tsx` — mount `SpaceScroller`
+  between `SidebarProjectHeader` and `SidebarCarousel` (its real current
+  layout, confirmed: `<SidebarProjectHeader .../> <ContextPill /> <SidebarCarousel .../>`
+  at line ~131-144), matching the design spec's own layout diagram (§2's
+  ASCII sketch: `SPACES` region `flex: 1` above, `CARD` — the carousel —
+  floating and last).
+- Modify: `web/src/components/sidebar/space-scroller.tsx` — each panel
+  currently renders only `<SidebarTree>` (Task 9); per spec's own layout
+  diagram, "the tree and Recents are one scrolling group... below it, the
+  entries" — extend each panel to also render `<RecentsBand>` below its
+  `<SidebarTree>`, inside the SAME scroll region (one `ScrollArea` per
+  panel, not two). Add `recentsForProject: (projectId: string) => RecentsEntry[]`
+  and `onFocusRecent`/`onCloseRecent` props alongside the existing
+  `rowsForProject`/`onOpen`/`onTrash`/`onCreate`, matching the established
+  per-project-callback pattern this component already uses.
+- Create: `web/src/components/layout/space-content-actions.ts` (or fold into
+  wherever fits best on investigation) — `resolveRow`, `handleOpen`,
+  `handleTrash`, `handleCreate` extracted from `sidebar-tree-panel.tsx`
+  (read that file in full first: it is fully self-contained, already
+  correct, and already reviewed clean across Tasks 8/29 — these handlers
+  resolve a row's owning repo by searching ALL of `useSidebarStore`'s repos
+  regardless of which subset is currently rendered, so they need NO change
+  to work per-project; only the RENDERED `rows` need to be filtered by
+  project). Confirm this claim by reading the file before assuming it.
+- Create: a project-scoped rows/entries deriver — `rowsForProject(projectId)`
+  = `repos.filter(r => r.projectId === projectId).flatMap(rowsFromRepo)`
+  (repos already carry `projectId`, confirmed in `lib/store/sidebar.ts`);
+  `recentsForProject(projectId)` = `deriveRecentsEntries` (Task 13) fed only
+  the panes/working-chats belonging to workspaces under that project's
+  repos — investigate the real, current way to resolve "which workspace does
+  this pane's chat belong to" (likely via the workspace store registry or
+  the chat's own `workspaceId`) before implementing; do not assume a
+  mechanism that doesn't exist.
+- Modify: hoist `RemovalTray`, `RenameDialog`, `RepoImportDialog`,
+  `SidebarRowContextMenu`, and the "New Project" button (all currently
+  rendered ONCE inside `sidebar-tree-panel.tsx`) to mount ONCE at the
+  `ide-shell.tsx` level (or one level above `SpaceScroller`, your call) —
+  NOT once per `SpaceScroller` panel, which would duplicate trays/dialogs
+  per project.
+- Delete: `web/src/components/layout/sidebar-tree-panel.tsx` and its test,
+  once its logic is fully absorbed above — confirm via `grep -rl "SidebarTreePanel"`
+  that nothing else references it before deleting (Task 15's own diff
+  already stopped rendering it, so this should show zero remaining
+  importers).
+- Test: extend/create tests under `web/src/__tests__/components/layout/`
+  and `web/src/__tests__/components/sidebar/` mirroring whatever new files
+  you create, plus updated tests for `ide-shell.tsx` and `space-scroller.tsx`.
+
+**Interfaces:**
+- Consumes: `SpaceScroller` (Task 9, extend per above), `RecentsBand` (Task
+  12), `deriveRecentsEntries` (Task 13), `rowsFromRepo` (Task 8),
+  `SidebarTreePanel`'s existing handler logic (Task 8/29, to extract/reuse,
+  not rewrite from scratch), `ide-shell.tsx`'s existing `allProjects`/
+  `activeProjectIdFromRoute`/`handleSelectProject` (already live, used by
+  `SidebarProjectHeader` per Task 11 — reuse the SAME values for
+  `SpaceScroller`'s `projects`/`activeProjectId`/`onActiveProjectChange`,
+  do not derive a second, possibly-inconsistent copy).
+
+- [ ] **Step 1: Investigate and confirm the plan above against real code**
+
+Read `ide-shell.tsx`, `sidebar-tree-panel.tsx`, `space-scroller.tsx`,
+`recents-band.tsx`, `recents-entries.ts` in full. Confirm or correct every
+factual claim above (the real layout order, the real handler
+extractability, the real way to map a pane/chat to its owning project)
+before writing code. This session has repeatedly found brief-vs-reality
+drift on tasks of this size — treat that as the default expectation here,
+not the exception.
+
+- [ ] **Step 2: Write failing tests** for the project-scoped derivation
+  functions (`rowsForProject`/`recentsForProject` — real fixtures, real
+  assertions that a project's rows/entries genuinely exclude another
+  project's) and for `SpaceScroller`'s extended per-panel rendering
+  (`RecentsBand` renders below `SidebarTree` in the same panel).
+
+- [ ] **Step 3: Run, verify fail**
+
+- [ ] **Step 4: Implement** the extraction, the derivers, the `SpaceScroller`
+  extension, and the `ide-shell.tsx` mount. Verify manually (read the
+  resulting JSX tree, or use the Tauri MCP dev-desktop verification this
+  session's mandate requires) that a real multi-project setup shows each
+  project's own tree+Recents when scrolled to, and that trash/rename/lock/
+  import/create/New-Project all still work exactly as they did through
+  `SidebarTreePanel` before this task.
+
+- [ ] **Step 5: Run, verify pass** — full scoped suite plus a tsc before/after
+  count (known pre-existing baseline: 457 errors as of Task 15).
+
+- [ ] **Step 6: Delete `sidebar-tree-panel.tsx`** once confirmed dead, per
+  the grep check above.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add web/src/components/layout/ web/src/components/sidebar/
+git commit -m "feat(sidebar): mount Spaces for real — SpaceScroller+RecentsBand replace SidebarTreePanel"
+```
+
+---
+
+### Task 31: `PaneContainer` migrates off the old buffer shape — and chat becomes a first-class pane concern, not a buffer type
+
+**Added post-hoc, by the controller, after Task 17 landed.** Task 2's original
+"confirmed consumer-regression window" ruling named 8 files still reading the
+OLD `PaneGroup` shape (`bufferIds`/`activeBufferId`/`previewBufferId` +
+`activatePaneBuffer`/`addBufferToPane`/`moveBufferToPane`), explicitly
+disclosed as "not fixed until Part F (Tasks 17-19)... and whichever tasks
+touch tab-bar.tsx/pane-container.tsx directly." Task 17 fixed `tab-bar.tsx`
+(dropping tsc errors 457→433) but explicitly flagged that **no task in this
+entire plan claims `pane-container.tsx`** — verified independently by the
+controller: it is the LIVE, mounted primary renderer for every editor/
+terminal/agent-chat surface in the app (reachable via
+`ide-shell.tsx → workspace-host.tsx → workspace-view.tsx →
+workspace-layout-root.tsx → pane-node-renderer.tsx/split-view-root.tsx →
+PaneContainer`), and it still references the removed fields/actions
+directly — 23 of the project's 433 remaining tsc errors are in this one
+file. **This is not a secondary feature gap like Task 29's, and not a
+navigation gap like Task 30's — this is the core pane-rendering surface,
+and it does not currently compile.** Execute immediately after Task 17,
+before Task 18.
+
+**Files:**
+- Modify: `web/src/features/panes/components/pane-container.tsx` (full
+  content read by the controller — 655 lines, reproduced findings below).
+- Test: `web/src/__tests__/features/panes/components/pane-container.test.tsx`
+  (create if missing, extend if present — confirm which on investigation).
+
+**The structural change beneath the field renames — read this before touching anything**
+
+`PaneGroup` no longer has an `'agentChat'` buffer type in its content union
+at all (Task 1, already committed) — `pane.chatId`/`pane.runnerId` are now
+their OWN top-level fields on `PaneGroup`, entirely separate from
+`editorTabIds`. Today's `pane-container.tsx` still treats the chat as ONE
+MORE FILTERED BUFFER TYPE inside `paneBuffers` (lines 611-635: a `.filter(b
+=> b.type === 'agentChat')` keep-alive block, mirroring the terminal
+keep-alive block above it at lines 577-600). That is now structurally
+wrong, not just a field-name mismatch: **a pane's chat must render
+whenever `pane.chatId` is set, independent of `editorTabIds`/
+`activeEditorTabId` entirely** (a pane can hold a chat with zero editor
+tabs, matching Task 17's own "a pane with only its chat draws no [tab]
+bar at all" rule) — it does not compete with the editor tabs for "which
+one is active," because it isn't in that list any more.
+
+**Files/interfaces already built that this task must consume, not
+reinvent** (all already committed and reviewed clean):
+- `PaneGroup` (`web/src/features/panes/types/pane.ts`, Task 1):
+  `{id, type:'group', chatId, runnerId, editorTabIds, activeEditorTabId,
+  editorOpen, locked?}`.
+- `EditorTabBase` (`web/src/features/panes/types/pane-content.ts`, Task 1):
+  carries `isPreview`/`isPinned`/`isUncloseable` per tab — replaces the old
+  pane-level `previewBufferId` (line 506's `pane.previewBufferId ===
+  buffer.id` check becomes reading the ACTIVE TAB's own `isPreview` field).
+- `pane-slice.ts` actions (Tasks 1-3): `activateEditorTabInPane`,
+  `addEditorTabToPane`, `removeEditorTabFromPane`, `moveEditorTabToPane`,
+  `setEditorTabPreview`, `setEditorTabPinned`, `reorderEditorTabs`,
+  `getPaneByEditorTabId`, `clearEditorTabPreviewEverywhere`,
+  `switchToNextEditorTab`, `switchToPreviousEditorTab`, `setPaneChat` —
+  verify these are the REAL, current names/signatures by reading
+  `pane-slice.ts` directly (do not assume from this list alone; Task 17's
+  report may have touched some of these too — read its diff).
+- `ChatHead`/`SplitToggleButton` (Task 17, `tab-bar.tsx`) — the pane-top row
+  already resolves and displays the chat's identity; `PaneContainer` does
+  NOT need to re-derive chat metadata for the top row, only for its own
+  content-area rendering (mounting `AgentChatPane`).
+
+**What to change, concretely, in `pane-container.tsx`:**
+1. `useBuffersByIds(pane.bufferIds)` → `useBuffersByIds(pane.editorTabIds)`
+   (confirm `useBuffersByIds`'s real signature still fits — it may already
+   be generic over "an array of content ids," in which case only the field
+   read changes).
+2. `pane.activeBufferId` → `pane.activeEditorTabId` throughout.
+3. `activatePaneBuffer` → `activateEditorTabInPane`; `addBufferToPane` →
+   `addEditorTabToPane`; `moveBufferToPane` → `moveEditorTabToPane`,
+   everywhere they appear (the drag/drop handlers, `handleTabClick`,
+   `openFileTreeDropInPane`, `handleSplitDrop` — read every call site,
+   there are several).
+4. Delete the `'agentChat'` filter/keep-alive block (lines 611-635)
+   entirely. Replace it with a keep-alive block gated on `pane.chatId`
+   directly (mounted whenever `pane.chatId` is set, `isVisible` always
+   true for it since it doesn't compete with editor tabs for "active" —
+   confirm this against spec §7's actual rendering rule for a pane holding
+   both a chat and open files, since this is the one genuinely new design
+   question this migration surfaces: read `docs/superpowers/specs/2026-08-28-sidebar-and-pane-surface-design.md`
+   §7 in full for how a pane's chat and its editor view coexist — likely
+   "Two views" per Task 18's own title, meaning the chat and the editor
+   tab strip are the SxS/stacked halves per `use-chat-presentation.ts`,
+   NOT alternatives on the same content stack. If so, `PaneContainer`'s own
+   job shrinks to hosting the editor-tab content area ALONE, and the chat
+   half is a sibling this component (or whatever wraps it) renders
+   alongside — investigate and adapt rather than forcing the chat into the
+   same Suspense/switch-statement machinery the editor tab types use).
+5. `pane.previewBufferId === buffer.id` → read the active editor tab's own
+   `isPreview` field instead (find it via `editorTabIds`/whatever the tab
+   objects are, not a separate pane-level id).
+6. `EditorBufferShell`/`PaneRenderBuffer`/`AgentChatContent` type imports —
+   `AgentChatContent` no longer exists (Task 1 deleted it) — remove the
+   import and every type reference to it.
+7. `NewTabView` fallback (line 570, `{!activeBuffer && <NewTabView
+   paneId={pane.id} />}`) — confirm `NewTabView` itself still exists post
+   Task 1-3 (it was NOT deleted, only the `'newTab'` BUFFER TYPE was) and
+   still makes sense as the fallback for "this pane has no chat and no
+   editor tabs" — read its current real props/behavior before assuming.
+
+**Interfaces:**
+- Consumes: everything listed above.
+- Produces: no new public interface — this is an internal migration of an
+  already-mounted component; its own `PaneContainerProps` (`pane`,
+  `position`) are unchanged.
+
+- [ ] **Step 1: Investigate thoroughly before writing any code**
+
+Read `pane-container.tsx` in full (already reproduced above, but re-read
+the live file — it may have drifted further since this task was written).
+Read `pane-slice.ts`'s real current action signatures. Read spec §7 in
+full for the actual chat/editor-tabs coexistence model. Read `EditorPane`,
+`AgentChatPane`, `NewTabView`'s real current prop signatures (all
+consumed here) before wiring anything.
+
+- [ ] **Step 2: Write failing tests** covering at minimum: a pane with a
+  chat and zero editor tabs renders the chat, not `NewTabView`; a pane
+  with editor tabs and no chat renders the active tab's content, no chat
+  surface; a pane with both renders both (per whatever the real §7
+  coexistence model turns out to be); the active tab's preview styling
+  reads from the tab's own `isPreview`, not a removed pane-level field;
+  drag-drop of a file/tab into this pane calls the renamed editor-tab
+  actions, not the old buffer actions.
+
+- [ ] **Step 3: Run, verify fail**
+
+- [ ] **Step 4: Implement** per the concrete change list above, adapted to
+  whatever Step 1's investigation actually finds.
+
+- [ ] **Step 5: Run, verify pass.** Also run a project-wide `tsc --noEmit`
+  before/after count — this task should measurably shrink the remaining
+  error count (433 baseline as of Task 17), not just avoid growing it,
+  since it closes the single largest remaining chunk of Task 2's original
+  regression window.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/features/panes/components/pane-container.tsx web/src/__tests__/features/panes/components/pane-container.test.tsx
+git commit -m "fix(panes): PaneContainer migrates to editorTabIds/chatId — chat is a first-class pane concern, not a buffer type"
+```
+
+---
+
+### Task 32: `buffer-slice.ts` migrates `openContent`/`openNewTab` — the app's actual "open a file" path
+
+**Added post-hoc, by the controller, after Task 31 landed.** Task 31's
+implementer disclosed (correctly) that `buffer-slice.ts` — the store
+action every "open a file," "open a terminal," "start a chat" call in the
+app ultimately routes through — is still built entirely around the OLD
+pre-Tasks-1-3 model: a `'newTab'` PLACEHOLDER BUFFER object minted into
+`state.buffers` and referenced by id from `pane.bufferIds`, and an
+`'agentChat'` buffer type competing for a slot in that same list. Both
+concepts are gone from the real `PaneContent`/`EditorTabContentType` union
+(Task 1) and the real `PaneGroup` shape (`editorTabIds`, and `chatId` as
+its own top-level field, established Tasks 1-3 and confirmed live by Task
+31 — a pane's chat is not a tab any more, it is set via `setPaneChat`).
+Verified independently by the controller: `npx tsc --noEmit -p .` shows
+~30 real errors rooted in this one file (calls to `addBufferToPane`,
+`activatePaneBuffer`, `removeBufferFromPane`, `getPaneByBufferId`,
+`setPanePreviewBuffer` — none of which exist on `PaneActions` any more;
+reads of `pane.bufferIds`, which doesn't exist on `PaneGroup`). **This is
+the function every "open a file" gesture in the live app calls — it
+currently throws at runtime.** No task anywhere in this plan claims this
+file's `openContent`/`openNewTab` migration (Task 3 touched this file, but
+only added `syncSoleEditorTabCloseability`, already correctly built
+against the new shape — the OLDER, much larger `openContent`/`openNewTab`
+functions were untouched by Task 3 and remain fully on the old model).
+Execute immediately after Task 31, before Task 18.
+
+**Files:**
+- Modify: `web/src/features/workspace/stores/slices/buffer-slice.ts` (full
+  content already read by the controller — reproduced findings below).
+- Modify: `web/src/features/panes/types/pane-content.ts`'s
+  `OpenEditorTabSpec` union, if `'newTab'`/`'agentChat'` variants still
+  exist there (verify — they may already be gone, in which case
+  `buffer-slice.ts`'s own `spec.type === 'newTab'`/`'agentChat'` branches
+  are dead code the compiler is already flagging as unreachable, not a
+  live spec shape).
+- Modify: every real call site that currently calls
+  `openContent({type:'agentChat', ...})` to start/open a chat (grep for
+  it — likely wherever a chat gets created/re-focused, e.g. whatever
+  replaced the old `createChat`/`newChat` flow this session's earlier
+  tasks touched) — these must call `setPaneChat(paneId, chatId, runnerId)`
+  directly instead; opening a chat is no longer "adding a tab."
+- Delete: `makeNewTabBuffer`, `findNewTabInPane`,
+  `AUTO_EVICTION_PROTECTED`'s `'newTab'` member (the whole New-Tab-as-a-
+  buffer machinery) once confirmed dead.
+- Test: `web/src/__tests__/features/workspace/stores/slices/buffer-slice.test.ts`
+  (extend/fix — many of its existing cases likely assert the old
+  mint-a-newTab-buffer/agentChat-buffer behavior and need rewriting, not
+  just field renames).
+
+**What the controller already found, concretely:**
+- `openContent`'s dedup-and-jump logic for an existing `'agentChat'`/
+  `'terminal'` buffer calls `getPaneByBufferId`/`activatePaneBuffer` (both
+  gone) — needs `getPaneByEditorTabId`/`activateEditorTabInPane` for the
+  terminal case; the `'agentChat'` case shouldn't be reached via
+  `openContent` at all any more (see below).
+- The auto-eviction block reads `pane.bufferIds` and calls
+  `removeBufferFromPane` (gone) — needs `pane.editorTabIds`/
+  `removeEditorTabFromPane`.
+- The final "push into the active pane" step calls `addBufferToPane`/
+  `setPanePreviewBuffer` (gone) — needs `addEditorTabToPane`/
+  `setEditorTabPreview`, and (per Task 31's own finding)
+  `addEditorTabToPane` takes the tab's own object, not a bare id — confirm
+  this signature and adapt.
+- `spec.type === 'newTab'` inside `openContent`'s buffer-construction
+  branch, and the entire `openNewTab` action, mint/manage a `NewTabContent`
+  object that can no longer type-check (`NewTabContent` was deleted from
+  the union in Task 1). Given `PaneContainer` (Task 31) already falls back
+  to rendering `NewTabView` directly whenever `pane.editorTabIds.length
+  === 0` (no buffer object needed at all for that to happen), `openNewTab`
+  is very likely now OBSOLETE — investigate every real call site
+  (`grep -rl "openNewTab"`) and determine whether each one can simply be
+  deleted (if the pane already renders its empty state for free) or needs
+  a different, much smaller replacement (e.g., just ensuring the target
+  pane exists and has empty `editorTabIds`, with no buffer object to
+  manage at all).
+- `spec.type === 'agentChat'` inside `openContent`'s buffer-construction
+  branch: per Task 31's finding, a chat is set via `setPaneChat`, not
+  opened as a tab. Investigate every real call site of
+  `openContent({type:'agentChat', ...})` and redirect each one to call
+  `setPaneChat` instead. This is a genuine behavior change, not a rename
+  — confirm with each call site's surrounding logic (e.g. does it need to
+  find/create a pane first?) rather than doing a blind find-replace.
+
+**Interfaces:**
+- Consumes: `pane-slice.ts`'s real current action signatures (Tasks 1-3,
+  extended by Task 31 — re-verify against the file as it now stands, not
+  this task's own guesses).
+- Produces: no new public interface — `BufferActions`'s own signature
+  (`openContent`, `closeBuffer`, etc.) stays the same shape unless
+  `openNewTab` is found to be genuinely obsolete and removed, in which
+  case update every real caller and this interface together.
+
+- [ ] **Step 1: Investigate thoroughly before writing any code**
+
+Read `buffer-slice.ts` in full (already substantially read by the
+controller above, but re-read the live file — it may have drifted).
+Read `pane-slice.ts`'s real, current action signatures in full. Grep for
+every real call site of `openContent`, `openNewTab`, and
+`openContent({type:'agentChat'...})` specifically, across the whole
+`web/src` tree, and read each one before deciding how to migrate it.
+
+- [ ] **Step 2: Write failing tests** covering: opening a real file
+  creates an editor tab via `addEditorTabToPane` (not the old action);
+  opening an already-open terminal jumps to its existing pane via the
+  renamed actions; auto-eviction at the tab cap correctly removes the
+  evictee via `removeEditorTabFromPane`; whatever `openNewTab`'s
+  resolution turns out to be (obsolete-and-removed, or a smaller
+  replacement) is correctly tested; a chat-opening call site correctly
+  calls `setPaneChat`, not `openContent`.
+
+- [ ] **Step 3: Run, verify fail**
+
+- [ ] **Step 4: Implement** per the findings above, adapted to whatever
+  Step 1's investigation actually finds.
+
+- [ ] **Step 5: Run, verify pass.** Run a project-wide `tsc --noEmit`
+  before/after count (402 baseline as of Task 31) — this task should
+  measurably shrink the remaining error count, since it closes the
+  largest remaining chunk of the original regression window.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/features/workspace/stores/slices/buffer-slice.ts web/src/features/panes/types/pane-content.ts web/src/__tests__/features/workspace/stores/slices/buffer-slice.test.ts
+git commit -m "fix(panes): buffer-slice.ts's openContent/openNewTab migrate off the deleted newTab/agentChat buffer model"
+```
+
+---
+
+### Task 33: `onDrop` gets real persistence — placing a row is not just a gesture
+
+**Added post-hoc, by the controller, after Task 21 landed.** Task 21 built
+`useSidebarDrag`'s full mechanism (hit-test, ghost, hairline, edge-scroll,
+subtree cycle guard, pane-zone geometry) correctly and completely, but its
+own report disclosed: `onDrop`/`onPaneDrop` are wired end-to-end through
+`SidebarTree`/`RecentsBand` but resolve to a safe placeholder (a toast, no
+real API call) in `web/src/components/sidebar/lib/drop-actions.ts`.
+`onPaneDrop`'s real wiring is correctly Task 22's job (verified — its brief
+explicitly covers the four-target pane-drop table). **`onDrop`'s real
+persistence — actually reordering/reparenting a row when a tree-to-tree
+drag completes — has no task anywhere in this plan.** Verified: grepped
+the whole plan for `reparent|placeWorkspace|placeFolder`, zero hits outside
+Task 21's own interface declaration. Without this, "One drag" (Part G,
+this task's whole reason to exist) produces a convincing, fully-tested drag
+gesture that changes nothing when released — worse than no drag UI at all,
+since it invites the action and silently (toast-only) refuses it. Execute
+immediately after Task 21/22, before Task 23.
+
+**Files:**
+- Modify: `web/src/components/sidebar/lib/drop-actions.ts` (Task 21's own
+  placeholder file — replace the toast-only `onDrop` implementation with
+  real API calls).
+- Test: `web/src/__tests__/components/sidebar/lib/drop-actions.test.ts`
+  (extend/rewrite).
+
+**Reference: the OLD system's full placement-planning logic**, deleted by
+Task 8 but recoverable via `git show 9ad89156:web/src/components/layout/drop-plan.ts`
+— read it in full before starting; it is genuinely sophisticated (multi-row
+moves, fork-parent lineage tracking via `workspaceAnchor`, folder-vs-workspace
+container resolution, `resolvesToFirstChild`'s "after an expanded row" rule)
+and gets the ordering/container math right in ways worth preserving. **Do
+NOT port it verbatim** — it solves a strictly HARDER problem than this task
+needs, because:
+- It handles `project`/`repo`-kind drag subjects (reordering projects,
+  moving repos between projects) — the NEW unified system doesn't expose
+  that through this drag mechanism at all any more (`SpaceScroller`, Part
+  C, already committed, handles "which project" as a horizontal scroll
+  between full-width panels, not a tree drag; `rowsFromRepo` makes each
+  repo its own root row within a project's forest). `SIDEBAR_DROP_POLICY`
+  (Task 20, already committed) confirms the new system's real scope: rows
+  of kind `branch`/`folder`/`chat` reordering/reparenting within one
+  project's forest (crossing repos only for a `chat`-kind row with no
+  worktree, per spec §8.3's exception) — narrower than the old 5-kind
+  matrix.
+- It builds `DropPlan.writes`/`capturePlacement` for OPTIMISTIC local
+  painting before the daemon confirms. This entire plan has established,
+  repeatedly and deliberately (Task 8's `performRenameWorkspaceBranch`,
+  `performCreateFolder`, etc. — read their doc comments), a **no-optimistic-write**
+  convention: fire the real API call, let the WS-driven cache apply the
+  daemon's own confirmed state. Follow that same convention here — do NOT
+  build a new optimistic-paint/undo mechanism just for drops when nothing
+  else in this codebase does that any more.
+
+**What to actually build, concretely:**
+- A pure function (name your own, e.g. `planRowDrop`) that takes the
+  drag's `subjects: SidebarRow[]`, `target: SidebarRow`, `mode: DropMode`
+  (Task 20/21's real types), and the live `useSidebarStore` snapshot, and
+  returns the ORDERED list of real API calls needed — adapting
+  `drop-plan.ts`'s `planRowDrop`/`insertIndex`/`spliced`/`findNode`/
+  `membersOf`/`workspaceAnchor`/`resolvesToFirstChild` logic (the
+  ordering/container/lineage math is real and worth keeping) to the new
+  `SidebarRow`/`SIDEBAR_DROP_POLICY` model, WITHOUT the `writes`/optimistic
+  half.
+- Fire each call via the real, already-existing API functions:
+  `placeWorkspace(projectId, repoId, wsId, {folderId?, order})` and
+  `placeFolder(projectId, repoId, folderId, {parentId?, order})`
+  (`@/lib/api/sidebar-placement`, confirmed real signatures — read the
+  file directly to verify), and `reparentWorkspace(projectId, repoId,
+  wsId, ...)` (`@/lib/api/workspace`, confirmed real, for the fork-parent-
+  lineage-changing case, mirroring `drop-plan.ts`'s `'reparent'` call
+  kind) — verify each function's exact current parameter shape before
+  calling it, don't assume from this list.
+- Calls fire IN ORDER (a multi-row move's `order` values are relative to
+  the list as it stands after the previous call lands — same reasoning
+  `drop-plan.ts`'s own comment gives) — `await` each one sequentially, not
+  `Promise.all`.
+- A `'chat'`-kind row (no worktree) crossing repos: per
+  `SIDEBAR_DROP_POLICY`'s already-verified rule, this is the one case a
+  cross-repo drop is legal — investigate how a `chat` row's placement
+  should actually be represented server-side (this may need a different
+  API than `placeWorkspace`/`placeFolder`, since a chat row isn't
+  necessarily a `Workspace` — read the backend spec / grep for how chat
+  placement/parenting already works elsewhere in this plan, e.g. Task 29's
+  `performCreateFolder`/row-actions.ts patterns, before assuming).
+- Errors: `toast.error(...)` on failure, matching every other row-action's
+  established pattern (Task 8/29's `performRenameWorkspaceBranch` etc.) —
+  do not add a new error-handling convention.
+
+**Interfaces:**
+- Consumes: `SidebarRow`, `DropMode` (Task 4/20), `useSidebarStore`
+  (`Repo`/`Workspace`/`Folder` real shapes), `placeWorkspace`/`placeFolder`
+  (`@/lib/api/sidebar-placement`), `reparentWorkspace` (`@/lib/api/workspace`).
+- Produces: `onDrop`'s real implementation, replacing the toast placeholder
+  in `drop-actions.ts` — its own signature (`(subjects, target, mode) =>
+  void`, per Task 21) is unchanged.
+
+- [ ] **Step 1: Investigate thoroughly before writing any code**
+
+Read `drop-plan.ts`'s full old logic (above). Read `SIDEBAR_DROP_POLICY`'s
+real current implementation (Task 20) to confirm exactly which
+subject/target/mode combinations can reach `onDrop` at all (the policy
+already refuses everything else, so `onDrop`'s implementation only needs
+to handle what the policy allows through). Read `drop-actions.ts`'s
+current placeholder to see the real shape you're replacing. Read the real
+`placeWorkspace`/`placeFolder`/`reparentWorkspace` signatures.
+
+- [ ] **Step 2: Write failing tests** for at minimum: reordering a
+  workspace among its current siblings (no reparent call fired, only a
+  placement/order call); dropping a workspace `into` a folder (folder
+  edge written, no lineage change); dropping a workspace onto a row under
+  a DIFFERENT fork-parent (a `reparentWorkspace` call fires before the
+  placement call, matching `drop-plan.ts`'s documented ordering
+  rationale); a multi-row move firing its calls in order; a failed API
+  call producing a `toast.error`, not a thrown/unhandled exception.
+
+- [ ] **Step 3: Run, verify fail**
+
+- [ ] **Step 4: Implement** per the findings above.
+
+- [ ] **Step 5: Run, verify pass.** Project-wide `tsc --noEmit`
+  before/after count (286 baseline as of Task 21).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/components/sidebar/lib/drop-actions.ts web/src/__tests__/components/sidebar/lib/drop-actions.test.ts
+git commit -m "feat(sidebar): onDrop gets real persistence — placing a row calls the real placement API"
+```
