@@ -82,6 +82,28 @@ export function isChatWorking(chatId: string): boolean {
   return false
 }
 
+/**
+ * Which registered workspace store's `agentChats.chats` names `chatId`, or
+ * null if none does — the general single-chat form of `isChatWorking`'s own
+ * scan (a chat's owning workspace is not encoded in its id, so every
+ * registered store has to be searched), returning the owning id itself
+ * rather than a boolean.
+ *
+ * This is the real mechanism `recents-for-project.ts`'s `recentsForProject`
+ * already uses inline to build a whole project's chatId->workspaceId map in
+ * one pass (batch, not exposed as a per-chat function there because a
+ * project's Recents band needs the map for every chat at once, not one
+ * lookup at a time) — this is the single-id form for a caller that has
+ * exactly one chat to resolve, no project to scope the scan to, and needs
+ * the id itself rather than a batch.
+ */
+export function resolveWorkspaceIdForChat(chatId: string): string | null {
+  for (const [wsId, store] of registry.entries()) {
+    if (store.getState().agentChats.chats.some((chat) => chat.id === chatId)) return wsId
+  }
+  return null
+}
+
 export function destroyWorkspaceStore(wsId: string): void {
   const store = registry.get(wsId)
   if (store) {

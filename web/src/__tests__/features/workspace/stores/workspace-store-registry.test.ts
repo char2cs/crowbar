@@ -4,7 +4,20 @@ import {
   getWorkspaceStore,
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
+  resolveWorkspaceIdForChat,
 } from '@/features/workspace/stores/workspace-store-registry'
+import type { AgentChat } from '@/features/agent/api/agent-api'
+
+const chat = (id: string, workspaceId: string): AgentChat => ({
+  id,
+  workspaceId,
+  title: id,
+  liveRunnerId: '',
+  terminalSessionId: '',
+  activeProviderId: 'claude',
+  createdAt: '2026-01-01T00:00:00Z',
+  order: 0,
+})
 
 // Mock the IDB-backed persistence so a real destroyWorkspaceStore call (which
 // dynamically imports window-pane-store.ts for its buffer-scoped teardown)
@@ -77,5 +90,50 @@ describe('workspace-store-registry', () => {
     getOrCreateWorkspaceStore('ws-evicted')
     destroyWorkspaceStore('ws-evicted')
     expect(getWorkspaceStore('ws-evicted')).toBeUndefined()
+  })
+
+  // Task 27: the chatId -> workspaceId resolution Task 26's own review found
+  // missing from the render path entirely. Mirrors isChatWorking's own
+  // real-store-via-the-registry test style rather than mocking the scan.
+  describe('resolveWorkspaceIdForChat', () => {
+    it('returns the id of the registered store whose agentChats.chats names the chat', () => {
+      const store = getOrCreateWorkspaceStore('ws-a')
+      store.getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
+    })
+
+    it('searches every registered store, not just the first', () => {
+      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-a', 'ws-a'))
+      const storeB = getOrCreateWorkspaceStore('ws-b')
+      storeB.getState().upsertAgentChat(chat('chat-b', 'ws-b'))
+      expect(resolveWorkspaceIdForChat('chat-b')).toBe('ws-b')
+    })
+
+    it('returns null when no registered store names the chat', () => {
+      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      expect(resolveWorkspaceIdForChat('chat-never-seen')).toBeNull()
+    })
+
+    it('returns null when nothing is registered at all', () => {
+      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
+    })
+
+    it('stops naming a chat once its owning store is destroyed', () => {
+      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
+      destroyWorkspaceStore('ws-a')
+      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
+    })
+
+    it('resolves the workspace that actually owns the chat, not the caller-active one', () => {
+      // The whole point of the resolver (Task 26's own review): a chat's
+      // owning workspace has to be found on its own terms, independent of
+      // whichever workspace happens to be globally "active" elsewhere.
+      getOrCreateWorkspaceStore('ws-active').getState().upsertAgentChat(chat('chat-x', 'ws-active'))
+      getOrCreateWorkspaceStore('ws-background')
+        .getState()
+        .upsertAgentChat(chat('chat-y', 'ws-background'))
+      expect(resolveWorkspaceIdForChat('chat-y')).toBe('ws-background')
+    })
   })
 })
