@@ -173,3 +173,41 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
     expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
   })
 })
+
+// Spec §7.4: "Percent of the content box, inset by a constant 4px. Left and
+// top always take it, so the gutter above the first pane is the same as the
+// one beside it and two neighbours sit 8px apart on either axis. Right and
+// bottom give it up at the window, where the pane is meant to run into the
+// frame." Task 1 measured this live as 0px everywhere — no gutter mechanism
+// existed at all. Gated by the exact same we(edge)/isWindowEdge test the
+// border/radius already use, so a window edge always reads 0 on every axis.
+describe('buildPaneContentStyle — gutter (§7.4)', () => {
+  const sidebar = 'left' as const
+
+  it('single pane: 4px beside the (open) sidebar and above, 0 at the window', () => {
+    const s = buildPaneContentStyle(full, sidebar, false)
+    expect(s.marginLeft).toBe('4px') // chrome side — not the window frame
+    expect(s.marginTop).toBe('4px') // top is never a window edge
+    expect(s.marginRight).toBe('0') // window edge — gives it up
+    expect(s.marginBottom).toBe('0') // window edge — gives it up
+  })
+
+  it('interior pane (not at any edge): 4px on every side, so two neighbours sit 8px apart', () => {
+    const s = buildPaneContentStyle(notAtEdge, sidebar, false)
+    expect(s.marginLeft).toBe('4px')
+    expect(s.marginTop).toBe('4px')
+    expect(s.marginRight).toBe('4px')
+    expect(s.marginBottom).toBe('4px')
+  })
+
+  it('collapsed sidebar: the side it was shielding becomes a window edge and gives up its gutter', () => {
+    const s = buildPaneContentStyle(full, sidebar, false, false)
+    expect(s.marginLeft).toBe('0')
+  })
+
+  it('right sidebar (mirror): 4px beside it, 0 on the true left window edge', () => {
+    const s = buildPaneContentStyle(full, 'right', false)
+    expect(s.marginRight).toBe('4px') // chrome side
+    expect(s.marginLeft).toBe('0') // window edge
+  })
+})

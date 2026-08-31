@@ -47,6 +47,12 @@ export function buildPaneContentStyle(
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'
+  // §7.4: 4px inset on every edge, given up wherever the pane actually meets
+  // the window frame — the same we(edge) test the border/radius above use, so
+  // top (never a window edge) and the sidebar-shielded side always keep it,
+  // while a real window edge runs flush. Two neighbours across a split each
+  // keep their own facing edge's 4px, landing 8px apart.
+  const GUTTER = '4px'
 
   return {
     borderTop: BORDER,
@@ -57,5 +63,9 @@ export function buildPaneContentStyle(
     borderTopRightRadius: we('right') ? ZERO : R,
     borderBottomLeftRadius: we('left') || we('bottom') ? ZERO : R,
     borderBottomRightRadius: we('right') || we('bottom') ? ZERO : R,
+    marginLeft: we('left') ? ZERO : GUTTER,
+    marginTop: we('top') ? ZERO : GUTTER,
+    marginRight: we('right') ? ZERO : GUTTER,
+    marginBottom: we('bottom') ? ZERO : GUTTER,
   }
 }
