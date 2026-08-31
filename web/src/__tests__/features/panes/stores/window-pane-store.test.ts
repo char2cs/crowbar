@@ -18,7 +18,19 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  setActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+  destroyWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+
+/** Flush the microtask queue a few times — enough for one dynamic `import()`
+ *  plus its `.then()` chain (destroyWorkspaceStore's window-pane-store
+ *  teardown) to settle. Fake timers (active file-wide in this suite) only
+ *  fake macrotasks/timers, never microtasks, so plain awaits suffice. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+}
 
 const mockSave = saveWorkspaceLayout as ReturnType<typeof vi.fn>
 const mockSaveSession = saveSessionToStore as ReturnType<typeof vi.fn>
@@ -42,18 +54,14 @@ afterEach(() => {
 })
 
 describe('createWindowPaneStore', () => {
-  it('pane layout survives a workspace switch', () => {
-    // Task 26's own regression test for the trap the model spec names:
-    // panes/buffers used to live on the per-workspace store the registry
-    // destroyed on eviction/switch. The window-level store is a singleton,
-    // untouched by which workspace happens to be active. `ROOT_PANE_ID` is
-    // the one pane every fresh store actually creates — setPaneChat is a
-    // no-op against an id with no backing pane.
+  it('pane layout survives switching the active workspace pointer', () => {
+    // The active-workspace pointer changing alone (no destroy) was never the
+    // actual trap — see the singleton test below for the real one
+    // (destroyWorkspaceStore). This just pins that a plain switch is a no-op
+    // for panes/buffers, on an isolated store.
     const store = createWindowPaneStore()
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
-    // Simulate switching workspaces — the active-workspace pointer changes,
-    // but nothing about the window pane store is torn down or recreated.
     setActiveWorkspaceId('ws-2')
 
     expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatId).toBe('chat-1')
@@ -83,6 +91,48 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     const b = await import('@/features/panes/stores/window-pane-store')
     expect(a.windowPaneStore).toBe(b.windowPaneStore)
     expect(a.windowPaneStore).toBe(windowPaneStore)
+  })
+
+  // Task 26 fix round 1 (I5): the ACTUAL trap the model spec names is
+  // destroyWorkspaceStore — the old per-workspace registry destroyed the
+  // whole store panes/buffers lived on, the moment a workspace aged out of
+  // keep-alive. The previous version of this test never called
+  // destroyWorkspaceStore at all (only setActiveWorkspaceId, which was never
+  // what destroyed anything) and would have passed identically against the
+  // OLD, broken code. This exercises the REAL singleton and the REAL
+  // destroy call.
+  it('pane layout survives destroyWorkspaceStore for the chat\'s own (evicted) workspace', async () => {
+    resetWindowPaneStoreForTests()
+    getOrCreateWorkspaceStore('ws-evicted')
+
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    destroyWorkspaceStore('ws-evicted')
+    await flushMicrotasks()
+
+    expect(windowPaneStore.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatId).toBe(
+      'chat-1',
+    )
+  })
+
+  it('an open editor buffer survives destroyWorkspaceStore for its own (evicted) workspace', async () => {
+    resetWindowPaneStoreForTests()
+    getOrCreateWorkspaceStore('ws-evicted-2')
+
+    const bufferId = windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/src/a.ts',
+      name: 'a.ts',
+      content: 'hello',
+      workspaceId: 'ws-evicted-2',
+    })
+
+    destroyWorkspaceStore('ws-evicted-2')
+    await flushMicrotasks()
+
+    const state = windowPaneStore.getState()
+    expect(state.buffers.some((b) => b.id === bufferId)).toBe(true)
+    expect(state.panes[ROOT_PANE_ID]?.editorTabIds).toContain(bufferId)
   })
 })
 
