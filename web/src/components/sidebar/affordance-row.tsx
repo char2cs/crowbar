@@ -36,17 +36,15 @@ export function AffordanceRow({ onCreateThread, onCreateWorkspace }: AffordanceR
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger data-testid="affordance-dropdown" asChild>
-        <button
-          type="button"
-          className={ROW_SUB_ACTION_HOVER}
-          aria-label="Create new thread or workspace"
-          onClick={(e) => {
-            e.stopPropagation()
-          }}
-        >
-          <ChatsCircle aria-hidden="true" className="size-3" weight="regular" />
-        </button>
+      <DropdownMenuTrigger
+        data-testid="affordance-dropdown"
+        aria-label="Create new thread or workspace"
+        className={ROW_SUB_ACTION_HOVER}
+        onClick={(e) => {
+          e.stopPropagation()
+        }}
+      >
+        <ChatsCircle aria-hidden="true" className="size-3" weight="regular" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
         <DropdownMenuItem onClick={onCreateThread}>Create thread</DropdownMenuItem>

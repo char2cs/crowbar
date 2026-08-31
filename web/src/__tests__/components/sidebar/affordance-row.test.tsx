@@ -57,4 +57,19 @@ describe('AffordanceRow', () => {
     await user.click(await screen.findByText('Create workspace'))
     expect(onCreateWorkspace).toHaveBeenCalledOnce()
   })
+
+  it('does not nest a <button> inside the dropdown trigger (regression: Base UI asChild bug)', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<AffordanceRow onCreateThread={vi.fn()} onCreateWorkspace={vi.fn()} />)
+
+    const trigger = screen.getByTestId('affordance-dropdown')
+    expect(trigger.tagName).toBe('BUTTON')
+    expect(trigger.querySelector('button')).toBeNull()
+
+    const errorText = consoleError.mock.calls.map((call) => call.join(' ')).join('\n')
+    expect(errorText).not.toMatch(/cannot contain a nested/i)
+    expect(errorText).not.toMatch(/asChild/)
+
+    consoleError.mockRestore()
+  })
 })
