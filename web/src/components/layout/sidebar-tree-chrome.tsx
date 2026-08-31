@@ -93,8 +93,8 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
         onOpenChange={(open) => {
           if (!open) setImportRepoRowId(null)
         }}
-        onImport={(branches) => {
-          if (importRepo) void performImportBranches(importRepo.id, branches)
+        onImport={(branches, lockedBranches) => {
+          if (importRepo) void performImportBranches(importRepo.id, branches, lockedBranches)
         }}
       />
     </>

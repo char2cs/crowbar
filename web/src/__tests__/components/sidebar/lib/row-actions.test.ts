@@ -206,6 +206,71 @@ describe('row-actions', () => {
     expect(api.importBranches).not.toHaveBeenCalled()
   })
 
+  // Task 6: the import dialog's per-branch lock choice. `importBranches` only
+  // 202s — no workspace id exists to lock yet — so the lock has to wait for the
+  // branch's own workspace to land in the sidebar store (the same WS-driven
+  // cache every other create relies on) before it can fire, and it does so
+  // without any separate action from the caller.
+  describe('locking a branch chosen at import time', () => {
+    it('locks the newly-arrived workspace once its branch lands, with no separate action', async () => {
+      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
+      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
+
+      // Simulate the WS-driven reseed that lands the imported branch's new
+      // workspace — the same store write app-sync-provider.tsx applies for any
+      // create, not a raw WS frame.
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }] },
+        ],
+      })
+
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-new', true)
+    })
+
+    it('does not lock a branch that was imported but not chosen to be locked', async () => {
+      await performImportBranches('repo-1', ['feature-a', 'feature-b'], ['feature-a'])
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repo,
+            workspaces: [
+              ...repo.workspaces,
+              { id: 'ws-a', branch: 'feature-a', age: '' },
+              { id: 'ws-b', branch: 'feature-b', age: '' },
+            ],
+          },
+        ],
+      })
+      expect(api.setWorkspaceLock).toHaveBeenCalledTimes(1)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-a', true)
+    })
+
+    it('leaves every workspace unlocked when no branch was chosen to be locked (default import behavior is unchanged)', async () => {
+      await performImportBranches('repo-1', ['feature-a'])
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }] },
+        ],
+      })
+      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
+    })
+
+    it('an unrelated workspace change does not trigger a lock', async () => {
+      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-other', branch: 'other', age: '' }] },
+        ],
+      })
+      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
+    })
+  })
+
   it('creating a folder under a regular workspace row passes its id straight through', async () => {
     await performCreateFolder('ws-1')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(

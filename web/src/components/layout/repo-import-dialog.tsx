@@ -22,9 +22,12 @@ interface RepoImportDialogProps {
   defaultBranch: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Fires the import for the selected branches. The tree owns the optimistic
-   *  loading rows + the batch API call, so the dialog just closes afterwards. */
-  onImport: (branches: string[]) => void
+  /** Fires the import for the selected branches, plus which of THOSE branches
+   *  the user chose to lock (a subset of `branches`, empty when none were
+   *  chosen — importing with no lock choice behaves exactly as it always has).
+   *  The tree owns the optimistic loading rows + the batch API call, so the
+   *  dialog just closes afterwards. */
+  onImport: (branches: string[], lockedBranches: string[]) => void
 }
 
 /**
@@ -36,6 +39,12 @@ interface RepoImportDialogProps {
  * loading state instead of rendering as momentarily empty. Import posts the
  * whole selection in one batch; the daemon PR-parents and creates missing
  * ancestors server-side (the client hint is advisory).
+ *
+ * A checked row also carries its own lock toggle (Task 6): each branch chooses
+ * its post-import locked state right here, rather than requiring a separate
+ * Lock action from the row context menu afterwards. The import call itself
+ * only 202s — no workspace id exists yet — so the caller locks each branch
+ * once its own workspace actually lands (see `performImportBranches`).
  */
 export function RepoImportDialog({
   projectId,
@@ -51,6 +60,11 @@ export function RepoImportDialog({
   const [prLinks, setPrLinks] = useState<PRLink[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Per-branch lock choice (Task 6): which of the SELECTED branches should
+  // come in locked. `toggle` clears a row's entry here when it deselects it,
+  // so this is always a subset of `selected`; handleImport still intersects
+  // with `selected` as a belt-and-suspenders guard.
+  const [lockedBranches, setLockedBranches] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Fetch on open; the branch list and PR graph load independently so the hint
@@ -62,6 +76,7 @@ export function RepoImportDialog({
   useEffect(() => {
     if (!open) return
     setSelected(new Set())
+    setLockedBranches(new Set())
     setFilter('')
     setPrLinks([])
     setBranches([])
@@ -127,13 +142,36 @@ export function RepoImportDialog({
       else next.add(name)
       return next
     })
+    // Deselecting a row also drops its lock choice — reselecting it later
+    // starts fresh rather than silently reapplying a choice made earlier in
+    // the same open.
+    setLockedBranches((prev) => {
+      if (!prev.has(name)) return prev
+      const next = new Set(prev)
+      next.delete(name)
+      return next
+    })
+  }
+
+  function toggleLock(name: string) {
+    setLockedBranches((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   }
 
   function handleImport() {
     if (selected.size === 0) return
     // Hand off to the tree, which drops optimistic loading rows in immediately
     // and fires the batch import; close the modal so that feedback is visible.
-    onImport([...selected])
+    // Lock choice is filtered down to branches actually being imported — a
+    // deselected branch's stale lock choice must never leak into the call.
+    onImport(
+      [...selected],
+      [...lockedBranches].filter((b) => selected.has(b)),
+    )
     onOpenChange(false)
   }
 
@@ -188,7 +226,13 @@ export function RepoImportDialog({
                       transform: `translateY(${vi.start}px)`,
                     }}
                   >
-                    <ImportRow branch={b} checked={selected.has(b.name)} onToggle={toggle} />
+                    <ImportRow
+                      branch={b}
+                      checked={selected.has(b.name)}
+                      onToggle={toggle}
+                      locked={lockedBranches.has(b.name)}
+                      onToggleLock={toggleLock}
+                    />
                   </div>
                 )
               })}
@@ -213,10 +257,14 @@ function ImportRow({
   branch,
   checked,
   onToggle,
+  locked,
+  onToggleLock,
 }: {
   branch: BranchEntry
   checked: boolean
   onToggle: (name: string) => void
+  locked: boolean
+  onToggleLock: (name: string) => void
 }) {
   if (branch.isProtected) {
     return (
@@ -235,9 +283,25 @@ function ImportRow({
     )
   }
   return (
-    <label className="flex h-full cursor-pointer items-center gap-2 rounded px-1 text-xs hover:bg-accent/60">
-      <Checkbox checked={checked} onChange={() => onToggle(branch.name)} ariaLabel={branch.name} />
-      <span className="min-w-0 flex-1 truncate font-mono">{branch.name}</span>
-    </label>
+    <div className="flex h-full items-center gap-2 rounded px-1 text-xs hover:bg-accent/60">
+      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+        <Checkbox checked={checked} onChange={() => onToggle(branch.name)} ariaLabel={branch.name} />
+        <span className="min-w-0 flex-1 truncate font-mono">{branch.name}</span>
+      </label>
+      {/* Lock choice only matters — and only shows — once the branch is
+       *  actually part of the import; the smallest addition the brief asked
+       *  for, not a second control competing for attention on every row. */}
+      {checked && (
+        <button
+          type="button"
+          aria-pressed={locked}
+          aria-label={locked ? `Don't lock ${branch.name} after import` : `Lock ${branch.name} after import`}
+          onClick={() => onToggleLock(branch.name)}
+          className={`shrink-0 rounded p-0.5 ${locked ? 'text-foreground' : 'text-muted-foreground/40 hover:text-foreground'}`}
+        >
+          <Lock className="size-3" />
+        </button>
+      )}
+    </div>
   )
 }

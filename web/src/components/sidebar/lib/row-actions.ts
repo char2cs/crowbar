@@ -269,16 +269,71 @@ export async function performSetWorkspaceLock(wsId: string, locked: boolean | nu
  * unlike the deleted PendingRowHooks version, this relies on the same
  * WS-driven cache that already surfaces create/rename/delete with no
  * optimistic write of their own.
+ *
+ * `lockedBranches` is the import dialog's per-row lock choice (Task 6). The
+ * import POST only 202s — no workspace id exists yet to hand `setWorkspaceLock`
+ * — so each locked branch is watched for and locked the instant ITS workspace
+ * lands, rather than requiring a separate post-import Lock action.
  */
-export async function performImportBranches(repoId: string, branches: string[]): Promise<void> {
+export async function performImportBranches(
+  repoId: string,
+  branches: string[],
+  lockedBranches: string[] = [],
+): Promise<void> {
   if (branches.length === 0) return
   const projectId = projectIdForRepo(repoId)
   if (!projectId) return
+  const toLock = lockedBranches.filter((b) => branches.includes(b))
   try {
     await importBranches(projectId, repoId, branches)
+    lockBranchesOnArrival(repoId, toLock)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to import branches')
   }
+}
+
+/** How long a per-branch lock-after-import waits for the branch's new
+ *  workspace to arrive (via the sidebar store's WS-driven reseed) before
+ *  giving up silently. Mirrors reparent-settle.ts's own bounded wait — a
+ *  branch that never lands (a stranded import) must not leave a live store
+ *  subscription open for the rest of the session. */
+const IMPORT_LOCK_SETTLE_TIMEOUT_MS = 30_000
+
+/**
+ * Watches `repoId`'s workspaces for each of `branches` to arrive as a NEW
+ * workspace (one absent from the pre-import snapshot) and locks it the moment
+ * it does. Fire-and-forget: the caller has already 202'd the import and moved
+ * on, exactly like every other WS-driven create in this file.
+ */
+function lockBranchesOnArrival(repoId: string, branches: string[]): void {
+  if (branches.length === 0) return
+  const pending = new Set(branches)
+  const before = new Set(
+    useSidebarStore.getState().repos.find((r) => r.id === repoId)?.workspaces.map((w) => w.id) ?? [],
+  )
+
+  let unsubscribe: (() => void) | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const settle = () => {
+    if (timer !== null) clearTimeout(timer)
+    timer = null
+    unsubscribe?.()
+    unsubscribe = null
+  }
+
+  const checkArrivals = () => {
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
+    if (!repo) return
+    for (const ws of repo.workspaces) {
+      if (before.has(ws.id) || !pending.has(ws.branch)) continue
+      pending.delete(ws.branch)
+      void performSetWorkspaceLock(ws.id, true)
+    }
+    if (pending.size === 0) settle()
+  }
+
+  unsubscribe = useSidebarStore.subscribe(checkArrivals)
+  timer = setTimeout(settle, IMPORT_LOCK_SETTLE_TIMEOUT_MS)
 }
 
 /**
