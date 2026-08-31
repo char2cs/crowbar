@@ -4,14 +4,15 @@
  * blank, and this is the record that something happened here rather than the
  * turn simply trailing off.
  *
- * Reuses `CompactionDivider`'s real markup byte-for-byte, tag text swapped —
- * not a new visual language, the same rule `CompactionDivider` itself already
- * uses to tell "Compacted" from "Compacted automatically" apart.
+ * Reuses the same `.divider`/`.ln`/`.tag` markup `EventDivider` renders for
+ * an anchored interrupted tag — this is the ONE standalone case: the trailing
+ * marker below (agent-transcript.tsx), which has no next message to anchor
+ * an `EventDivider` row before, so it renders alone instead of merged.
  *
  * Positioned the same way a compaction boundary is: a real, sequence-anchored
  * `stopped` interruption the backend records (turn.RecordStop) the instant it
  * asks the CLI to stop, not this session's own memory of having clicked it —
- * see agent-chat-view.tsx's `interruptedBefore`/`trailingInterruption`.
+ * see agent-chat-view.tsx's `eventsBefore`/`trailingInterruption`.
  */
 export function InterruptedDivider() {
   return (

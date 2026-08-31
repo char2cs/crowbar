@@ -340,7 +340,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
       ],
-      { compactionBefore: { 1: 'manual' } },
+      { eventsBefore: { 1: [{ kind: 'compaction', trigger: 'manual' }] } },
     )
 
     const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
@@ -388,7 +388,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'user', providerId: '', text: 'being edited', at: '' },
       ],
-      { suppressSequence: 1, interruptedBefore: { 1: true } },
+      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted' }] } },
     )
 
     expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
@@ -502,7 +502,7 @@ describe('AgentTranscript interrupted marker', () => {
       },
     ]
     draw(messages, {
-      interruptedBefore: { 1: true },
+      eventsBefore: { 1: [{ kind: 'interrupted' }] },
       trailingInterruption: false,
       working: false,
     })
@@ -545,33 +545,33 @@ describe('AgentTranscript switch marker', () => {
     { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'second', at: '' },
   ]
 
-  it('draws a provider-switch divider, resolving the display name from the providers list', () => {
+  it('draws a provider-switch pill, resolving the display name from the providers list', () => {
     draw(twoMessages, {
-      switchesBefore: { 1: [{ what: 'provider', detail: 'codex' }] },
+      eventsBefore: { 1: [{ kind: 'provider', detail: 'codex' }] },
       providers: [{ id: 'codex', displayName: 'Codex' } as never],
     })
 
     expect(screen.getByTestId('agent-provider-switch-divider')).toHaveTextContent('Switched to Codex')
   })
 
-  it('draws a model-changed divider with the raw model id', () => {
-    draw(twoMessages, { switchesBefore: { 1: [{ what: 'model', detail: 'opus' }] } })
+  it('draws a model-changed pill with the raw model id', () => {
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', detail: 'opus' }] } })
 
     expect(screen.getByTestId('agent-model-switch-divider')).toHaveTextContent('Model: opus')
   })
 
-  it('draws an effort-changed divider with the raw effort level', () => {
-    draw(twoMessages, { switchesBefore: { 1: [{ what: 'effort', detail: 'high' }] } })
+  it('draws an effort-changed pill with the raw effort level', () => {
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', detail: 'high' }] } })
 
     expect(screen.getByTestId('agent-effort-switch-divider')).toHaveTextContent('Effort: high')
   })
 
-  it('draws both dividers, in order, when model and effort change together', () => {
+  it('draws both pills, in order, when model and effort change together', () => {
     draw(twoMessages, {
-      switchesBefore: {
+      eventsBefore: {
         1: [
-          { what: 'model', detail: 'opus' },
-          { what: 'effort', detail: 'high' },
+          { kind: 'model', detail: 'opus' },
+          { kind: 'effort', detail: 'high' },
         ],
       },
     })
@@ -587,6 +587,32 @@ describe('AgentTranscript switch marker', () => {
     expect(screen.queryByTestId('agent-provider-switch-divider')).toBeNull()
     expect(screen.queryByTestId('agent-model-switch-divider')).toBeNull()
     expect(screen.queryByTestId('agent-effort-switch-divider')).toBeNull()
+  })
+
+  // The whole point of the merge: a stop, a provider switch and a model
+  // change landing on the SAME next message used to stack three identical
+  // full-width wavy lines. They must now share one — a single
+  // agent-event-divider row carrying all three pills, in the order they
+  // actually happened, not three rows.
+  it('merges every tag that shares an anchor into ONE divider row, not one per event', () => {
+    const { container } = draw(twoMessages, {
+      eventsBefore: {
+        1: [
+          { kind: 'interrupted' },
+          { kind: 'provider', detail: 'codex' },
+          { kind: 'model', detail: 'opus' },
+        ],
+      },
+      providers: [{ id: 'codex', displayName: 'Codex' } as never],
+    })
+
+    const dividers = container.querySelectorAll('[data-testid="agent-event-divider"]')
+    expect(dividers).toHaveLength(1)
+    const pills = dividers[0]?.querySelectorAll('[class~="tag"]')
+    expect(pills).toHaveLength(3)
+    expect(pills?.[0]).toHaveTextContent('Interrupted')
+    expect(pills?.[1]).toHaveTextContent('Switched to Codex')
+    expect(pills?.[2]).toHaveTextContent('Model: opus')
   })
 })
 
@@ -629,11 +655,13 @@ describe('estimateRowHeight', () => {
 
   it('a divider row always gets the flat floor — it has no text to scale from', () => {
     expect(estimateRowHeight({ kind: 'first-turn-divider', key: 'k' })).toBe(ESTIMATED_ROW_HEIGHT)
-    expect(estimateRowHeight({ kind: 'interrupted-divider', key: 'k', sequence: 0 })).toBe(
-      ESTIMATED_ROW_HEIGHT,
-    )
     expect(
-      estimateRowHeight({ kind: 'compaction-divider', key: 'k', sequence: 0, trigger: 'manual' }),
+      estimateRowHeight({
+        kind: 'event-divider',
+        key: 'k',
+        sequence: 0,
+        tags: [{ kind: 'interrupted' }, { kind: 'compaction', trigger: 'manual' }],
+      }),
     ).toBe(ESTIMATED_ROW_HEIGHT)
   })
 })

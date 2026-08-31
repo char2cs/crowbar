@@ -3,6 +3,7 @@ import type { KeyboardEvent, Ref } from 'react'
 import {
   stopChat,
   type AgentChatMessage,
+  type AgentInterruption,
   type AgentPromptResult,
   type AgentProvider,
   type SlashCatalogItem,
@@ -17,6 +18,7 @@ import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-e
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
+import type { DividerTag } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
@@ -121,6 +123,26 @@ function displayOrderOf(item: { sequence: number; displayOrder?: number }): numb
 function displayOrderOf(item: { seq: number; displayOrder?: number }): number
 function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: number }): number {
   return item.displayOrder ?? item.sequence ?? item.seq ?? 0
+}
+
+/** The five interruption kinds the transcript draws a boundary pill for, mapped
+ *  to that pill's own shape. `null` for everything else (permission,
+ *  notification, elicitation) — those are answered inline, never a divider. */
+function toDividerTag(interruption: AgentInterruption): DividerTag | null {
+  switch (interruption.kind) {
+    case 'compaction':
+      return { kind: 'compaction', trigger: interruption.detail || 'auto' }
+    case 'stopped':
+      return { kind: 'interrupted' }
+    case 'provider_switched':
+      return { kind: 'provider', detail: interruption.detail ?? '' }
+    case 'model_changed':
+      return { kind: 'model', detail: interruption.detail ?? '' }
+    case 'effort_changed':
+      return { kind: 'effort', detail: interruption.detail ?? '' }
+    default:
+      return null
+  }
 }
 
 /**
@@ -316,23 +338,6 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  // Where the transcript draws its compaction rules. Interruptions and messages
-  // share ONE sequence space, so the boundary is simply the first message whose
-  // sequence is past the compaction's.
-  //
-  // A compaction with nothing after it yet draws NOTHING, and that is the point:
-  // the line says "what is above me is gone from the model's context", which is
-  // a claim about two sides. Drawing it under the newest message would put a
-  // boundary below the whole conversation and read as if the chat had ended.
-  const compactionBefore = useMemo(() => {
-    const marks: Record<number, string> = {}
-    for (const interruption of activity.interruptions) {
-      if (interruption.kind !== 'compaction') continue
-      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
-      if (next) marks[next.sequence] = interruption.detail || 'auto'
-    }
-    return marks
-  }, [activity.interruptions, ledger.messages])
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -346,32 +351,35 @@ export function AgentChatView({
     () => activity.interruptions.filter((interruption) => interruption.kind === 'stopped'),
     [activity.interruptions],
   )
-  const interruptedBefore = useMemo(() => {
-    const marks: Record<number, true> = {}
-    for (const interruption of stoppedInterruptions) {
-      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
-      if (next) marks[next.sequence] = true
-    }
-    return marks
-  }, [stoppedInterruptions, ledger.messages])
-  // Provider/model/effort switches — Crowbar's own doing, drawn the exact same
-  // way compactionBefore is: anchored before the next message, an array per
-  // sequence because a single SetChatSelection call can change model AND
-  // effort together, and both need their own divider before the same message.
-  const switchesBefore = useMemo(() => {
-    const kindToWhat: Partial<Record<string, 'provider' | 'model' | 'effort'>> = {
-      provider_switched: 'provider',
-      model_changed: 'model',
-      effort_changed: 'effort',
-    }
-    const marks: Record<number, Array<{ what: 'provider' | 'model' | 'effort'; detail: string }>> = {}
-    for (const interruption of activity.interruptions) {
-      const what = kindToWhat[interruption.kind]
-      if (!what) continue
+  // Where the transcript draws its boundary pills — one merged wavy line per
+  // anchor rather than one full-width divider per event (a stop, a switch and
+  // a compaction landing on the same next message used to stack three
+  // identical lines). Interruptions and messages share ONE sequence space, so
+  // the anchor is simply the first message whose sequence is past the event's
+  // — and several events can share that anchor, which is why this sorts them
+  // ALL together first: a per-kind map (one for compaction, one for switches)
+  // has no way to recover which of two DIFFERENT kinds actually happened
+  // first, only this one, chronologically-sorted pass does.
+  //
+  // An event with nothing after it yet draws NOTHING, and for compaction that
+  // is the point: the pill says "what is above me is gone from the model's
+  // context", a claim about two sides. Drawing it under the newest message
+  // would put a boundary below the whole conversation and read as if the
+  // chat had ended.
+  const eventsBefore = useMemo(() => {
+    const marks: Record<number, DividerTag[]> = {}
+    const relevant = activity.interruptions
+      .map((interruption) => ({ interruption, tag: toDividerTag(interruption) }))
+      .filter(
+        (entry): entry is { interruption: AgentInterruption; tag: DividerTag } =>
+          entry.tag !== null,
+      )
+      .sort((a, b) => displayOrderOf(a.interruption) - displayOrderOf(b.interruption))
+    for (const { interruption, tag } of relevant) {
       const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
       if (!next) continue
       const list = marks[next.sequence] ?? []
-      list.push({ what, detail: interruption.detail ?? '' })
+      list.push(tag)
       marks[next.sequence] = list
     }
     return marks
@@ -569,10 +577,8 @@ export function AgentChatView({
       showTerminalHintFor={
         prompts.showAwaitingTerminalHint ? prompts.awaitingHead?.clientRequestId : undefined
       }
-      compactionBefore={compactionBefore}
+      eventsBefore={eventsBefore}
       suppressSequence={halted?.sequence}
-      interruptedBefore={interruptedBefore}
-      switchesBefore={switchesBefore}
       trailingInterruption={trailingInterruption}
     />
   )

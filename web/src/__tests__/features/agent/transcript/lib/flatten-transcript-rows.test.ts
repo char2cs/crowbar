@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
-import { flattenTranscriptRows } from '@/features/agent/transcript/lib/flatten-transcript-rows'
+import {
+  flattenTranscriptRows,
+  type DividerTag,
+} from '@/features/agent/transcript/lib/flatten-transcript-rows'
 
 function msg(sequence: number, role: AgentChatMessage['role'] = 'user'): AgentChatMessage {
   return { sequence, turnId: `t${sequence}`, role, providerId: '', text: `msg ${sequence}`, at: '' }
@@ -11,8 +14,7 @@ describe('flattenTranscriptRows', () => {
   it('emits one row per message, in sequence order', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2), msg(3)],
-      compactionBefore: {},
-      interruptedBefore: {},
+      eventsBefore: {},
       firstTurnSequence: undefined,
     })
 
@@ -21,113 +23,55 @@ describe('flattenTranscriptRows', () => {
     expect(messageRows.map((r) => r.message.sequence)).toEqual([1, 2, 3])
   })
 
-  it('inserts a compaction-divider row before the message it precedes', () => {
+  it('inserts an event-divider row before the message it precedes', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: { 2: 'manual' },
-      interruptedBefore: {},
+      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }] },
       firstTurnSequence: undefined,
     })
 
-    const idx = rows.findIndex((r) => r.kind === 'compaction-divider')
-    expect(idx).toBeGreaterThanOrEqual(0)
-    expect(rows[idx]).toMatchObject({ kind: 'compaction-divider', sequence: 2, trigger: 'manual' })
-    expect(rows[idx + 1]).toMatchObject({ kind: 'message', message: { sequence: 2 } })
-  })
-
-  it('inserts an interrupted-divider row before the message it precedes', () => {
-    const rows = flattenTranscriptRows({
-      messages: [msg(1), msg(2)],
-      compactionBefore: {},
-      interruptedBefore: { 2: true },
-      firstTurnSequence: undefined,
-    })
-
-    const idx = rows.findIndex((r) => r.kind === 'interrupted-divider')
-    expect(idx).toBeGreaterThanOrEqual(0)
-    expect(rows[idx]).toMatchObject({ kind: 'interrupted-divider', sequence: 2 })
-    expect(rows[idx + 1]).toMatchObject({ kind: 'message', message: { sequence: 2 } })
-  })
-
-  it('renders compaction before interrupted when both precede the same message', () => {
-    const rows = flattenTranscriptRows({
-      messages: [msg(1), msg(2)],
-      compactionBefore: { 2: 'auto' },
-      interruptedBefore: { 2: true },
-      firstTurnSequence: undefined,
-    })
-
-    const kinds = rows.map((r) => r.kind)
-    expect(kinds).toEqual(['message', 'compaction-divider', 'interrupted-divider', 'message'])
-  })
-
-  it('inserts a switch-divider row before the message it precedes', () => {
-    const rows = flattenTranscriptRows({
-      messages: [msg(1), msg(2)],
-      compactionBefore: {},
-      interruptedBefore: {},
-      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
-      firstTurnSequence: undefined,
-    })
-
-    const idx = rows.findIndex((r) => r.kind === 'switch-divider')
+    const idx = rows.findIndex((r) => r.kind === 'event-divider')
     expect(idx).toBeGreaterThanOrEqual(0)
     expect(rows[idx]).toMatchObject({
-      kind: 'switch-divider',
+      kind: 'event-divider',
       sequence: 2,
-      what: 'provider',
-      detail: 'codex',
+      tags: [{ kind: 'compaction', trigger: 'manual' }],
     })
     expect(rows[idx + 1]).toMatchObject({ kind: 'message', message: { sequence: 2 } })
   })
 
-  it('renders one row per entry when model and effort change together', () => {
+  it('collapses several tags for the same anchor into ONE row, in the order given', () => {
+    const tags: DividerTag[] = [
+      { kind: 'interrupted' },
+      { kind: 'provider', detail: 'codex' },
+      { kind: 'model', detail: 'opus' },
+      { kind: 'effort', detail: 'high' },
+    ]
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: {},
-      interruptedBefore: {},
-      switchesBefore: {
-        2: [
-          { what: 'model', detail: 'opus' },
-          { what: 'effort', detail: 'high' },
-        ],
-      },
+      eventsBefore: { 2: tags },
       firstTurnSequence: undefined,
     })
 
-    const switchRows = rows.filter((r) => r.kind === 'switch-divider')
-    expect(switchRows).toHaveLength(2)
-    expect(switchRows).toMatchObject([
-      { what: 'model', detail: 'opus' },
-      { what: 'effort', detail: 'high' },
-    ])
+    const dividerRows = rows.filter((r) => r.kind === 'event-divider')
+    expect(dividerRows).toHaveLength(1)
+    expect(dividerRows[0]).toMatchObject({ sequence: 2, tags })
   })
 
-  it('renders compaction, interrupted, then switch dividers, in that order', () => {
+  it('draws nothing for an anchor with an empty tag list', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: { 2: 'auto' },
-      interruptedBefore: { 2: true },
-      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
+      eventsBefore: { 2: [] },
       firstTurnSequence: undefined,
     })
 
-    const kinds = rows.map((r) => r.kind)
-    expect(kinds).toEqual([
-      'message',
-      'compaction-divider',
-      'interrupted-divider',
-      'switch-divider',
-      'message',
-    ])
+    expect(rows.some((r) => r.kind === 'event-divider')).toBe(false)
   })
 
-  it('drops a suppressed message and its switch dividers entirely', () => {
+  it('drops a suppressed message and its event divider entirely', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2), msg(3)],
-      compactionBefore: {},
-      interruptedBefore: {},
-      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
+      eventsBefore: { 2: [{ kind: 'provider', detail: 'codex' }] },
       firstTurnSequence: undefined,
       suppressSequence: 2,
     })
@@ -138,8 +82,7 @@ describe('flattenTranscriptRows', () => {
   it('inserts a first-turn-divider row after the message matching firstTurnSequence', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: {},
-      interruptedBefore: {},
+      eventsBefore: {},
       firstTurnSequence: 1,
     })
 
@@ -151,8 +94,7 @@ describe('flattenTranscriptRows', () => {
   it('omits the first-turn-divider when firstTurnSequence matches nothing', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: {},
-      interruptedBefore: {},
+      eventsBefore: {},
       firstTurnSequence: undefined,
     })
 
@@ -162,8 +104,7 @@ describe('flattenTranscriptRows', () => {
   it('drops a suppressed message and its dividers entirely', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2), msg(3)],
-      compactionBefore: { 2: 'manual' },
-      interruptedBefore: { 2: true },
+      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }, { kind: 'interrupted' }] },
       firstTurnSequence: 2,
       suppressSequence: 2,
     })
@@ -175,8 +116,7 @@ describe('flattenTranscriptRows', () => {
   it('gives every row a unique key', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      compactionBefore: { 2: 'manual' },
-      interruptedBefore: { 2: true },
+      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }, { kind: 'interrupted' }] },
       firstTurnSequence: 1,
     })
 

@@ -13,14 +13,14 @@ import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persiste
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
-import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
+import { EventDivider } from '@/features/agent/transcript/event-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
 import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import {
   flattenTranscriptRows,
+  type DividerTag,
   type TranscriptRow,
 } from '@/features/agent/transcript/lib/flatten-transcript-rows'
-import { SwitchDivider, type SwitchKind } from '@/features/agent/transcript/switch-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
@@ -44,23 +44,18 @@ interface AgentTranscriptProps {
   /** A message the composer is already showing, so the transcript does not say
    *  the same sentence twice. */
   suppressSequence?: number
-  /** The compaction boundary, keyed by the sequence of the first message AFTER
-   *  it — the row the divider is drawn above. A compaction is a boundary
-   *  BETWEEN two messages, so the message that follows it is the only one that
-   *  identifies it unambiguously. */
-  compactionBefore?: Record<number, 'manual' | 'auto' | string>
-  /** A stopped turn, keyed the same way compactionBefore is: by the sequence of
-   *  the first message AFTER it, the row the divider draws above. */
-  interruptedBefore?: Record<number, true>
-  /** Provider/model/effort switches — Crowbar's own doing, keyed the same way
-   *  compactionBefore is. An ARRAY per sequence: a single SetChatSelection
-   *  call can change model and effort together, and both get their own
-   *  divider before the same next message. */
-  switchesBefore?: Record<number, Array<{ what: SwitchKind; detail: string }>>
+  /** Everything that happened before the next message — a compaction, a
+   *  stopped turn, a provider/model/effort switch — keyed by that message's
+   *  own sequence, the row the merged divider draws above. A boundary is
+   *  BETWEEN two messages, so the message that follows it is the only one
+   *  that identifies it unambiguously. Several tags can share one anchor
+   *  (a stop followed by a switch, or model+effort changing together) and
+   *  draw as pills on the SAME wavy line rather than one divider each. */
+  eventsBefore?: Record<number, DividerTag[]>
   /** The most recent stop with no later CONFIRMED message loaded yet — nothing
    *  to key it before, so it draws right after the last confirmed/streaming
    *  content instead: above any still-queued prompt too, which has no
-   *  sequence yet and so can never anchor `interruptedBefore` itself. */
+   *  sequence yet and so can never anchor `eventsBefore` itself. */
   trailingInterruption?: boolean
   onLoadOlder: () => void
   onRetryLoad: () => void
@@ -233,12 +228,8 @@ function TranscriptRowView({
   precedingUserAt: Map<number, string>
 }) {
   switch (row.kind) {
-    case 'compaction-divider':
-      return <CompactionDivider trigger={row.trigger} />
-    case 'interrupted-divider':
-      return <InterruptedDivider />
-    case 'switch-divider':
-      return <SwitchDivider what={row.what} detail={row.detail} providers={providers} />
+    case 'event-divider':
+      return <EventDivider tags={row.tags} providers={providers} />
     case 'first-turn-divider':
       return <FirstTurnDivider />
     case 'message':
@@ -296,20 +287,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     () =>
       flattenTranscriptRows({
         messages,
-        compactionBefore: props.compactionBefore,
-        interruptedBefore: props.interruptedBefore,
-        switchesBefore: props.switchesBefore,
+        eventsBefore: props.eventsBefore,
         firstTurnSequence,
         suppressSequence: props.suppressSequence,
       }),
-    [
-      messages,
-      props.compactionBefore,
-      props.interruptedBefore,
-      props.switchesBefore,
-      firstTurnSequence,
-      props.suppressSequence,
-    ],
+    [messages, props.eventsBefore, firstTurnSequence, props.suppressSequence],
   )
   // By row key, not index: paging older messages in prepends rows, and an
   // index-keyed measurement cache would hand every row the height of whatever
