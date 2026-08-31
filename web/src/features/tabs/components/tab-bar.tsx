@@ -1,15 +1,13 @@
 import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { splitEditorGroup } from '@/features/panes/utils/pane-command-actions'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -54,11 +52,11 @@ const writeText = (text: string) => navigator.clipboard.writeText(text)
  * strip's own hooks — drag, keyboard-nav, display-name — need the full buffer;
  * they only ever read rendered fields, so returning a stale-but-rendered-equal
  * object is safe. Handlers that need live non-rendered fields (e.g. reload,
- * which reads `content`) read `workspaceStore.getState()` instead.
+ * which reads `content`) read `windowPaneStore.getState()` instead.
  */
 function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
   const prev = useRef<PaneContent[]>([])
-  return useWorkspaceStoreContext((s) => {
+  return useStore(windowPaneStore, (s) => {
     const map = new Map(s.buffers.map((b) => [b.id, b]))
     const next: PaneContent[] = []
     for (const id of paneBufferIds) {
@@ -94,10 +92,11 @@ const TabBar = ({
   disablePaneActions = false,
   onAddTab,
 }: TabBarProps) => {
-  const globalActiveBufferId = useWorkspaceStoreContext(
+  const globalActiveBufferId = useStore(
+    windowPaneStore,
     (s) => s.paneActions.getActivePane()?.activeEditorTabId ?? null,
   )
-  const pendingClose = useWorkspaceStoreContext((s) => s.pendingClose)
+  const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
   const {
     closePane,
@@ -116,7 +115,6 @@ const TabBar = ({
     confirmPendingClose,
     setPendingClose,
   } = useBufferActions()
-  const workspaceStore = useWorkspaceStore()
   const paneBufferIds = pane?.editorTabIds ?? []
   const hasEditorTabs = paneBufferIds.length > 0
   // Projected, rendered-field-gated subscription (see useRenderedPaneBuffers):
@@ -131,13 +129,13 @@ const TabBar = ({
 
   const handleTabPin = useCallback(
     (bufferId: string) => {
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
       if (buf) setPinned(bufferId, !buf.isPinned)
     },
-    [workspaceStore, setPinned],
+    [setPinned],
   )
   function handleCloseOtherTabs(keepBufferId: string) {
-    const { buffers: allBufs } = workspaceStore.getState()
+    const { buffers: allBufs } = windowPaneStore.getState()
     // isUncloseable filters out the sole editor tab a pane is holding (see
     // pane-slice's syncSoleEditorTabCloseability), which — since there is no
     // "Editor" placeholder tab to fall back to any more — would otherwise
@@ -149,7 +147,7 @@ const TabBar = ({
     })
   }
   function handleCloseAllTabs() {
-    const { buffers: allBufs } = workspaceStore.getState()
+    const { buffers: allBufs } = windowPaneStore.getState()
     // Same isUncloseable guard as handleCloseOtherTabs (I2). NOTE: this still
     // iterates every buffer in the WORKSPACE while only ever removing from the
     // current pane (paneId) — a separate, pre-existing bug this fix does not
@@ -162,7 +160,7 @@ const TabBar = ({
     })
   }
   function handleCloseTabsToRight(bufferId: string) {
-    const { buffers: allBufs } = workspaceStore.getState()
+    const { buffers: allBufs } = windowPaneStore.getState()
     const idx = allBufs.findIndex((b) => b.id === bufferId)
     if (idx === -1) return
     const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
@@ -190,7 +188,7 @@ const TabBar = ({
 
   const handleTabClose = useCallback(
     (bufferId: string) => {
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
       // The single choke point every close affordance funnels through (× button,
       // middle-click's handleAuxClick, the context menu's single "Close", and
       // Delete/Backspace in keyboard nav all call this via `closeTab`). A pane's
@@ -205,7 +203,7 @@ const TabBar = ({
       if (paneId) removeEditorTabFromPane(paneId, bufferId)
       closeBuffer(bufferId)
     },
-    [closeBuffer, paneId, removeEditorTabFromPane, setPendingClose, workspaceStore],
+    [closeBuffer, paneId, removeEditorTabFromPane, setPendingClose],
   )
 
   const { handleSave } = useEditorAppStore.use.actions()
@@ -217,7 +215,8 @@ const TabBar = ({
   // referentially stable, so TabBar no longer re-renders on every pane mutation
   // (another pane's active-buffer swap, buffer add/remove, etc.) — only when the
   // number of main panes actually changes.
-  const mainPaneCount = useWorkspaceStoreContext(
+  const mainPaneCount = useStore(
+    windowPaneStore,
     (s) => Object.keys(s.panes).filter((id) => id !== BOTTOM_PANE_ID).length,
   )
   const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
@@ -308,11 +307,11 @@ const TabBar = ({
   // `set()`, and this field carries no other invariant to protect.
   const handleToggleSplit = useCallback(() => {
     if (!paneId) return
-    workspaceStore.setState((state) => {
+    windowPaneStore.setState((state) => {
       const p = state.panes[paneId]
       if (p) p.editorOpen = !p.editorOpen
     })
-  }, [paneId, workspaceStore])
+  }, [paneId])
 
   // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
   // sidebar (when open, the sidebar header owns the toggle). It appears on the
@@ -475,7 +474,7 @@ const TabBar = ({
       // Read from getState(), not the rendered-field-gated `buffers`: reload
       // needs the buffer's LIVE `content`, which that projection deliberately
       // does not track (it can hold a content-stale object reference).
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
       if (buf && buf.path !== 'extensions://marketplace') {
         if (paneId) removeEditorTabFromPane(paneId, bufferId)
         closeBuffer(bufferId)
@@ -489,7 +488,7 @@ const TabBar = ({
         }, 100)
       }
     },
-    [workspaceStore, closeBuffer, openContent, paneId, removeEditorTabFromPane],
+    [closeBuffer, openContent, paneId, removeEditorTabFromPane],
   )
 
   const handleSplitRight = useMemo(

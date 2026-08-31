@@ -39,10 +39,9 @@ import type * as Monaco from 'monaco-editor'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useStore } from 'zustand'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
@@ -128,20 +127,21 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // text and drives the external-sync + LSP-didChange effects off-render,
   // reading the new content + model imperatively when it actually changes.
   const readActiveContent = useCallback(() => {
-    const state = workspaceStore.getState()
-    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const state = windowPaneStore.getState()
+    const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
     const buffer = bufferId ? state.buffers.find((candidate) => candidate.id === bufferId) : null
     return buffer && hasTextContent(buffer) ? buffer.content : ''
-  }, [workspaceStore, paneId])
+  }, [paneId])
 
   // `languageOverride` changes RARELY (a manual language pick), so it stays a
   // render subscription — it feeds `setModelLanguage` + the LSP document
   // lifecycle, both keyed on `languageId`/`swapTick`, not on keystrokes. It
   // returns a PRIMITIVE so the snapshot is referentially stable.
-  const languageOverride = useWorkspaceStoreContext(
+  const languageOverride = useStore(
+    windowPaneStore,
     useCallback(
       (state) => {
-        const bufferId = state.panes[paneId]?.activeBufferId ?? null
+        const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
         const buffer = bufferId
           ? state.buffers.find((candidate) => candidate.id === bufferId)
           : null
@@ -271,7 +271,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     activeContentRef.current = previous
     // Apply any change that landed between render and this effect's commit.
     externalSyncRef.current(previous)
-    return workspaceStore.subscribe(() => {
+    return windowPaneStore.subscribe(() => {
       const next = readActiveContent()
       if (next === previous) return
       previous = next
@@ -279,7 +279,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       externalSyncRef.current(next)
       lspDidChangeRef.current(next)
     })
-  }, [workspaceStore, readActiveContent])
+  }, [readActiveContent])
 
   // ── Once-per-pane: select-all command + scroll/layout/visible-range ───────
   // Bound when the editor first becomes available; reads the CURRENT model.
@@ -513,8 +513,8 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     // subscription-driven path (store content actually changed) still applies
     // genuine external edits regardless of dirty state.
     const reconcileBuffer = (() => {
-      const state = workspaceStore.getState()
-      const id = state.panes[paneId]?.activeBufferId ?? null
+      const state = windowPaneStore.getState()
+      const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buf = id ? state.buffers.find((b) => b.id === id) : null
       return buf && isEditorContent(buf) ? buf : null
     })()
@@ -524,7 +524,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     return () => {
       externalSyncRef.current = () => {}
     }
-  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceStore])
+  }, [editorManager, externalApplyRef, paneId, swapTick])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
   // Runs on mount, when theme inputs change, AND once when the editor instance

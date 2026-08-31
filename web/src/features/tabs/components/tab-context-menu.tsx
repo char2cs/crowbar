@@ -14,7 +14,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { isVirtualContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { stripControlChars } from '@/features/terminal/utils/control-chars'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
 import { getBaseName, getDirName } from '@/utils/path-helpers'
@@ -60,8 +60,6 @@ const TabContextMenu = ({
   onSplitRight,
   onSplitDown,
 }: TabContextMenuProps) => {
-  const workspaceStore = useWorkspaceStore()
-
   if (!isOpen || !buffer) return null
 
   const items: ContextMenuItem[] = [
@@ -96,7 +94,7 @@ const TabContextMenu = ({
                 name: nextName,
                 customName: true,
               })
-              workspaceStore.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === buffer.id ? { ...b, name: nextName } : b,
                 ),
@@ -167,10 +165,11 @@ const TabContextMenu = ({
             onClick: () => {
               const dirPath = getDirName(buffer.path)
               const dirName = getBaseName(dirPath, 'terminal')
-              workspaceStore.getState().bufferActions.openContent({
+              windowPaneStore.getState().bufferActions.openContent({
                 type: 'terminal',
                 name: dirName,
                 workingDirectory: dirPath,
+                workspaceId: buffer.workspaceId,
               })
             },
           },

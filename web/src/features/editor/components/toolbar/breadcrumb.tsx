@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react'
+import { useStore } from 'zustand'
 import { Eye, MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { useShallow } from 'zustand/react/shallow'
 import { EditorStatusActions } from '@/features/editor/components/toolbar/editor-status-actions'
-import {
-  useWorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
@@ -41,13 +39,14 @@ export default function Breadcrumb({
   interactive = true,
   showPath = true,
 }: BreadcrumbProps = {}) {
-  const workspaceStore = useWorkspaceStore()
-  const resolvedBufferId = useWorkspaceStoreContext(
-    (state) => bufferId ?? state.panes[paneId ?? state.activePaneId]?.activeBufferId ?? null,
+  const resolvedBufferId = useStore(
+    windowPaneStore,
+    (state) => bufferId ?? state.panes[paneId ?? state.activePaneId]?.activeEditorTabId ?? null,
   )
   const resolvedEditorViewKey =
     editorViewKey ?? (paneId && resolvedBufferId ? `${paneId}:${resolvedBufferId}` : editorViewKey)
-  const activeBuffer = useWorkspaceStoreContext(
+  const activeBuffer = useStore(
+    windowPaneStore,
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
@@ -95,7 +94,7 @@ export default function Breadcrumb({
 
   const handlePreviewClick = () => {
     const fullActiveBuffer = resolvedBufferId
-      ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
+      ? windowPaneStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
       : null
     if (
       !fullActiveBuffer ||
@@ -115,7 +114,7 @@ export default function Breadcrumb({
     const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
 
     if (isMarkdown) {
-      workspaceStore.getState().bufferActions.openContent({
+      windowPaneStore.getState().bufferActions.openContent({
         type: 'markdownPreview',
         path: previewPath,
         name: previewName,
@@ -123,7 +122,7 @@ export default function Breadcrumb({
         sourceFilePath: fullActiveBuffer.path,
       })
     } else if (isHtml) {
-      workspaceStore.getState().bufferActions.openContent({
+      windowPaneStore.getState().bufferActions.openContent({
         type: 'htmlPreview',
         path: previewPath,
         name: previewName,
@@ -131,7 +130,7 @@ export default function Breadcrumb({
         sourceFilePath: fullActiveBuffer.path,
       })
     } else if (isCsv) {
-      workspaceStore.getState().bufferActions.openContent({
+      windowPaneStore.getState().bufferActions.openContent({
         type: 'csvPreview',
         path: previewPath,
         name: previewName,

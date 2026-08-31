@@ -28,6 +28,7 @@ import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLspIntegration } from '@/features/editor/hooks/use-lsp-integration'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
@@ -143,11 +144,11 @@ export function PaneLspLayer({
   // work (in-file search) — without subscribing content into render. LSP reads
   // content on demand through `getValue` (passed to useLspIntegration).
   const readActiveContent = useCallback(() => {
-    const state = workspaceStore.getState()
-    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const state = windowPaneStore.getState()
+    const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
     const buffer = bufferId ? state.buffers.find((b) => b.id === bufferId) : null
     return buffer && hasTextContent(buffer) ? buffer.content : ''
-  }, [workspaceStore, paneId])
+  }, [paneId])
   const getValue = useCallback(() => valueRef.current, [])
   // Seed the ref synchronously on first render so the first LSP/search run has
   // the current content even before the subscription's first emit.
@@ -158,14 +159,14 @@ export function PaneLspLayer({
   useEffect(() => {
     valueRef.current = readActiveContent()
     let previous = valueRef.current
-    return workspaceStore.subscribe(() => {
+    return windowPaneStore.subscribe(() => {
       const next = readActiveContent()
       if (next === previous) return
       previous = next
       valueRef.current = next
       onContentChangeRef.current?.()
     })
-  }, [workspaceStore, readActiveContent])
+  }, [readActiveContent])
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
   const settings = useSettingsStore((s) => s.settings)

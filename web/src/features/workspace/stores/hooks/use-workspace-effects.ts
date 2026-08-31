@@ -20,7 +20,6 @@ import { toast } from '@/features/window/stores/toast-store'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
@@ -300,7 +299,7 @@ export function useWorkspaceEffects(wsId: string) {
       // later save cannot resurrect content that was discarded on disk.
       // Own-save echoes are filtered inside via the pending-save markers.
       if (evt.type === 'modified' || evt.type === 'created') {
-        void syncBufferWithDisk(getOrCreateWorkspaceStore(wsId), evt.path)
+        void syncBufferWithDisk(wsId, evt.path)
       }
       if (!isStructuralChange(evt.type)) return
       void refreshDir(parentDir(evt.path))

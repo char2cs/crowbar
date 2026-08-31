@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { readFile as readTextFile, writeFile } from '@/features/file-system/controllers/platform'
 import {
   buildEnvTemplateContent,
@@ -170,10 +171,15 @@ export function useFileExplorerContextMenu({
 
         const wsStore = getActiveWorkspaceStoreRef()
         if (wsStore) {
-          const wsState = wsStore.getState()
-          const createdBuffer = wsState.buffers.find((buffer) => buffer.path === createdPath)
+          const workspaceId = wsStore.getState().workspaceId
+          // Task 26: buffers are window-level — scope by workspaceId too, or
+          // a sibling worktree's buffer at the same relative path could get
+          // this content instead.
+          const createdBuffer = windowPaneStore
+            .getState()
+            .buffers.find((buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId)
           if (createdBuffer) {
-            wsStore.setState((state) => ({
+            windowPaneStore.setState((state) => ({
               ...state,
               buffers: state.buffers.map((b) =>
                 b.id === createdBuffer.id && 'content' in b
@@ -293,10 +299,11 @@ export function useFileExplorerContextMenu({
           icon: <Terminal />,
           onClick: () => {
             const folderName = getBaseName(dirTargetPath, 'terminal')
-            getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+            windowPaneStore.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
+              workspaceId: getActiveWorkspaceStoreRef()?.getState().workspaceId,
             })
           },
         },

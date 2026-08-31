@@ -1,4 +1,4 @@
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { SplitDirection, SplitPlacement } from '../types/pane'
 
 export function createPaneBeside(
@@ -7,7 +7,8 @@ export function createPaneBeside(
   placement: SplitPlacement = 'after',
   bufferId?: string,
 ): string | null {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return null
-  return state.paneActions.splitPane(paneId, direction, bufferId, placement) ?? null
+  return (
+    windowPaneStore.getState().paneActions.splitPane(paneId, direction, bufferId, placement) ??
+    null
+  )
 }

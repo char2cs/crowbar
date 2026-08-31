@@ -1,4 +1,5 @@
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 /**
  * Open a chat, from wherever it was clicked — the Chats sidebar, or the New Tab
@@ -11,18 +12,22 @@ import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store
  * `wsId` is unused directly here (a chat pane carries no `wsId` field of its
  * own) but kept in the signature — the workspace a chat belongs to is not
  * something this helper should silently stop caring about.
+ *
+ * Task 26: `store` (the workspace's own store) is still needed for
+ * `setActiveAgentChatId` (AgentChatsSlice stayed per-workspace), but panes
+ * are window-level now — `windowPaneStore`, not `store`, owns them.
  */
 export function openAgentChat(store: WorkspaceStore, _wsId: string, chatId: string): void {
-  const st = store.getState()
-  st.setActiveAgentChatId(chatId)
+  store.getState().setActiveAgentChatId(chatId)
+  const { panes, activePaneId, paneActions } = windowPaneStore.getState()
 
   // Already open somewhere? REVEAL it — focus the pane holding it and raise it
   // there. Landing it in the active pane instead would, for a chat that lives
   // in the other half of a split, yank it across the screen instead of taking
   // the user to it.
-  const existingPane = Object.values(st.panes).find((p) => p.chatId === chatId)
+  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
   if (existingPane) {
-    st.paneActions.setActivePane(existingPane.id)
+    paneActions.setActivePane(existingPane.id)
     return
   }
 
@@ -33,5 +38,5 @@ export function openAgentChat(store: WorkspaceStore, _wsId: string, chatId: stri
   // at"), so it is never silently lost. The runner is unknown here (`null`);
   // agent-chat-pane's own mount-time revive resolves and writes back the real
   // one.
-  st.paneActions.setPaneChat(st.activePaneId, chatId, null)
+  paneActions.setPaneChat(activePaneId, chatId, null)
 }

@@ -18,6 +18,7 @@ import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
@@ -338,7 +339,7 @@ export function AgentChatPane({
   useEffect(() => {
     if (!known) return // nothing authoritative to re-point at yet
     if (shownChatId === chatId && liveRunnerId === runnerId) return
-    store.getState().bufferActions.repointAgentChatBuffer(bufferId, {
+    windowPaneStore.getState().bufferActions.repointAgentChatBuffer(bufferId, {
       chatId: shownChatId,
       runnerId: liveRunnerId,
     })
@@ -367,16 +368,16 @@ export function AgentChatPane({
   // arrived from somewhere else.
   const labelledFor = useRef('')
   useEffect(() => {
-    const s = store.getState()
-    const buffer = s.bufferActions.getBufferById(bufferId)
+    const bufferActions = windowPaneStore.getState().bufferActions
+    const buffer = bufferActions.getBufferById(bufferId)
     if (!buffer) return
 
     const arrivedFromAnotherChat = labelledFor.current !== '' && labelledFor.current !== shownChatId
     labelledFor.current = shownChatId
 
     const label = title || (arrivedFromAnotherChat ? UNTITLED_CHAT_LABEL : buffer.name)
-    if (buffer.name !== label) s.bufferActions.renameBuffer(bufferId, label)
-  }, [store, bufferId, title, shownChatId])
+    if (buffer.name !== label) bufferActions.renameBuffer(bufferId, label)
+  }, [bufferId, title, shownChatId])
 
   // THE REVIVE BUDGET: ONE PER CHAT, PER PANE MOUNT. Every id in here has already had a
   // revive fired at it by this pane, and will never get another one unasked — whatever
@@ -412,7 +413,7 @@ export function AgentChatPane({
     // A non-hotswap api-transport runner (codex) is legitimately live with nothing
     // attached: empty here means "no terminal to show right now", not "no runner".
     if (!chat.liveRunnerId) return false
-    s.bufferActions.repointAgentChatBuffer(bufferId, {
+    windowPaneStore.getState().bufferActions.repointAgentChatBuffer(bufferId, {
       chatId: chat.id,
       runnerId: chat.liveRunnerId,
     })

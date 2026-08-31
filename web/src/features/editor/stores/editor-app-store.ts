@@ -13,7 +13,7 @@ import {
 import { useSettingsStore } from '@/features/settings/store'
 import { createSelectors } from '@/utils/zustand-selectors'
 import { writeFile } from '@/features/file-system/controllers/platform'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import type { Position, Range } from '../types/editor'
 import { trackBufferHistoryChange } from './buffer-history-tracking'
@@ -42,17 +42,14 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
     window.dispatchEvent(new Event('flush-editor-content'))
   }
 
-  const wsRef = getActiveWorkspaceStoreRef()
-  const wsStore = wsRef?.getState()
-  if (!wsStore) return false
-  const { buffers } = wsStore
+  const { buffers } = windowPaneStore.getState()
   const { updateSettingsFromJSON } = useSettingsStore.getState()
   const { markPendingSave } = useFileWatcherStore.getState()
   const activeBuffer = buffers.find((buffer) => buffer.id === bufferId)
   if (!activeBuffer || !isEditorContent(activeBuffer)) return false
 
   const markBufferDirty = (id: string, isDirty: boolean) => {
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? {
@@ -66,7 +63,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   }
 
   const updateBufferContent = (id: string, content: string, markDirty = true) => {
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? {
@@ -83,7 +80,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
   const updateBufferPath = (id: string, newPath: string) => {
     const newName = newPath.split('/').pop() || newPath
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? { ...b, path: newPath, name: newName, isVirtual: false, savedContent: b.content }
@@ -229,14 +226,11 @@ export const useEditorAppStore = createSelectors(
             targetBufferId?: string
           },
         ) => {
-          const wsRef = getActiveWorkspaceStoreRef()
-          const wsStore = wsRef?.getState()
-          if (!wsStore) return
-          const { buffers, panes, activePaneId } = wsStore
+          const { buffers, panes, activePaneId } = windowPaneStore.getState()
           // Pin to the explicitly-targeted buffer when provided (I3); otherwise
           // fall back to the active buffer (legacy seam behavior).
           const targetBufferId =
-            options?.targetBufferId ?? panes[activePaneId]?.activeBufferId ?? null
+            options?.targetBufferId ?? panes[activePaneId]?.activeEditorTabId ?? null
           const { settings } = useSettingsStore.getState()
           const { markPendingSave } = useFileWatcherStore.getState()
           const contentAlreadyApplied = options?.contentAlreadyApplied === true
@@ -260,7 +254,7 @@ export const useEditorAppStore = createSelectors(
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              wsRef?.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === activeBuffer.id && isEditorContent(b) ? { ...b, content } : b,
                 ),
@@ -268,7 +262,7 @@ export const useEditorAppStore = createSelectors(
             }
           } else {
             if (!contentAlreadyApplied) {
-              wsRef?.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === activeBuffer.id && isEditorContent(b)
                     ? { ...b, content, isDirty: content !== b.savedContent }
@@ -287,7 +281,7 @@ export const useEditorAppStore = createSelectors(
                 try {
                   markPendingSave(activeBuffer.path)
                   await writeFile(activeBuffer.path, content)
-                  wsRef?.setState((state) => ({
+                  windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)
                         ? { ...b, isDirty: false, savedContent: content, hasExternalChange: false }
@@ -309,7 +303,7 @@ export const useEditorAppStore = createSelectors(
                 } catch (error) {
                   console.error('Error saving file:', error)
                   reportSaveError(error)
-                  wsRef?.setState((state) => ({
+                  windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b) ? { ...b, isDirty: true } : b,
                     ),
@@ -325,10 +319,8 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSave: async () => {
-          const wsStore = getActiveWorkspaceStoreRef()?.getState()
-          if (!wsStore) return
-          const { buffers, panes, activePaneId } = wsStore
-          const activeBufferId = panes[activePaneId]?.activeBufferId ?? null
+          const { buffers, panes, activePaneId } = windowPaneStore.getState()
+          const activeBufferId = panes[activePaneId]?.activeEditorTabId ?? null
           const activeBuffer = buffers.find((b) => b.id === activeBufferId)
           if (!activeBuffer || !isEditorContent(activeBuffer)) return
 
@@ -336,16 +328,16 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSaveAll: async () => {
-          const wsStore = getActiveWorkspaceStoreRef()?.getState()
-          if (!wsStore) return 0
-          const dirtyBufferIds = getDirtyEditorBuffers(wsStore.buffers).map((buffer) => buffer.id)
+          const dirtyBufferIds = getDirtyEditorBuffers(windowPaneStore.getState().buffers).map(
+            (buffer) => buffer.id,
+          )
           let savedCount = 0
 
           for (const bufferId of dirtyBufferIds) {
             // react-doctor-disable-next-line async-await-in-loop -- kept sequential: saveEditorBufferById can synchronously block on window.prompt('Save as:') for an untitled buffer, so parallel saves could pop multiple native prompts at once with no way to tell which file each belongs to. Save All is a rare, user-invoked action, not a hot path.
             const saved = await saveEditorBufferById(bufferId)
-            const nextBuffer = getActiveWorkspaceStoreRef()
-              ?.getState()
+            const nextBuffer = windowPaneStore
+              .getState()
               .buffers.find((buffer) => buffer.id === bufferId)
             if (saved && (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)) {
               savedCount += 1

@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { useStore } from 'zustand'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-active-workspace-state'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 interface Origin {
   bufferId: string
@@ -29,41 +29,47 @@ interface Origin {
  * is not true of terminals or agent chats.
  */
 export function useNavigationHistory(): void {
-  const activeBufferId = useActiveWorkspaceState(
-    (s) => s.panes[s.activePaneId]?.activeBufferId ?? null,
-    null,
+  // Task 26: panes/buffers are window-level now (one flat store, never
+  // destroyed on workspace switch) — `activeBufferId` alone no longer implies
+  // a stable "current workspace" the way it did when each workspace owned its
+  // own store instance.
+  const activeBufferId = useStore(
+    windowPaneStore,
+    (s) => s.panes[s.activePaneId]?.activeEditorTabId ?? null,
   )
 
   // Where the user currently is. On a switch this still holds the *outgoing*
   // buffer, which is what gets pushed — the position being left, not entered.
   const originRef = useRef<Origin | null>(null)
-  // The workspace store the origin was read from. A workspace switch tears down
-  // the outgoing store and activates the incoming one in one batch, so this
-  // effect re-runs ONCE with the new workspace's activeBufferId while the origin
-  // still describes the old workspace's buffer — indistinguishable, from
-  // `activeBufferId` alone, from an ordinary tab switch. Comparing store
-  // IDENTITY is what tells the two apart.
-  const storeRef = useRef<WorkspaceStore | null>(null)
+  // The ACTIVE WORKSPACE id the origin was read under. A workspace switch
+  // (`setActiveWorkspaceId`, still driven by WorkspaceView's own effect —
+  // Task 26 did not change what "active workspace" means, only where panes
+  // live) can activate a different workspace's buffer in what is otherwise
+  // the SAME pane — indistinguishable, from `activeBufferId` alone, from an
+  // ordinary tab switch. Comparing the buffer's own `workspaceId` is what
+  // tells the two apart now that there is no separate store identity to diff.
+  const originWorkspaceIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    const store = getActiveWorkspaceStoreRef()
-    const workspaceChanged = storeRef.current !== store
-    storeRef.current = store
+    const state = windowPaneStore.getState()
+    const buffer = state.buffers.find((b) => b.id === activeBufferId)
+    const activeWorkspaceId = getActiveWorkspaceId()
 
     if (!activeBufferId) {
       originRef.current = null
+      originWorkspaceIdRef.current = activeWorkspaceId
       return
     }
 
-    const state = store?.getState()
-    const buffer = state?.buffers.find((b) => b.id === activeBufferId)
     const incoming: Origin | null =
-      buffer?.type === 'editor' && buffer.path && state
-        ? { bufferId: buffer.id, filePath: buffer.path, workspaceId: state.workspaceId }
+      buffer?.type === 'editor' && buffer.path
+        ? { bufferId: buffer.id, filePath: buffer.path, workspaceId: buffer.workspaceId }
         : null
 
     const origin = originRef.current
+    const originWorkspaceId = originWorkspaceIdRef.current
     originRef.current = incoming
+    originWorkspaceIdRef.current = incoming?.workspaceId ?? activeWorkspaceId
 
     // This activation was performed *by* back/forward. Adopt it as the new
     // origin but do not record it — otherwise every step of history navigation
@@ -75,6 +81,8 @@ export function useNavigationHistory(): void {
     // workspace-relative paths, so recording here puts a foreign entry into the
     // new workspace's history — Back then opens the sibling worktree's file of
     // the same name. Adopt the incoming position (done above) and record nothing.
+    const workspaceChanged =
+      originWorkspaceId !== null && incoming !== null && originWorkspaceId !== incoming.workspaceId
     if (workspaceChanged) return
 
     if (!origin || origin.bufferId === activeBufferId) return

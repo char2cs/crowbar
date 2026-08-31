@@ -1,5 +1,6 @@
 import { useMemo, useEffect } from 'react'
-import { useActiveWorkspaceState } from '@/features/workspace/stores/hooks/use-active-workspace-state'
+import { useStore } from 'zustand'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getExplorerTargetPath } from '@/features/file-explorer/utils/file-explorer-tree-utils'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
@@ -11,18 +12,19 @@ interface UseFileExplorerSyncOptions {
 
 const EMPTY_BUFFERS: PaneContent[] = []
 
-const selectBuffers = (s: { buffers: PaneContent[] }) => s.buffers
-const selectActiveBufferId = (s: {
-  paneActions: { getActivePane(): { activeBufferId: string | null } | null | undefined }
-}) => s.paneActions.getActivePane()?.activeBufferId ?? null
-
 export function useFileExplorerSync({
   activePath,
   updateActivePath,
   revealPathInTree,
 }: UseFileExplorerSyncOptions) {
-  const buffers = useActiveWorkspaceState(selectBuffers, EMPTY_BUFFERS)
-  const activeBufferId = useActiveWorkspaceState(selectActiveBufferId, null)
+  // Task 26: buffers/panes are window-level and never destroyed — a plain
+  // zustand selector off the one singleton store, no more "active workspace"
+  // resubscription (useActiveWorkspaceState) needed.
+  const buffers = useStore(windowPaneStore, (s) => s.buffers) ?? EMPTY_BUFFERS
+  const activeBufferId = useStore(
+    windowPaneStore,
+    (s) => s.paneActions.getActivePane()?.activeEditorTabId ?? null,
+  )
 
   const activeBuffer = useMemo(
     () => buffers.find((buffer) => buffer.id === activeBufferId) || null,

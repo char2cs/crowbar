@@ -2,7 +2,7 @@ import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 /**
  * Reconcile an open editor buffer with an external on-disk change (e.g.
@@ -15,7 +15,7 @@ import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store
  * - A dirty buffer is never clobbered: it is flagged with hasExternalChange
  *   and a toast tells the user the file changed underneath them.
  */
-export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string): Promise<void> {
+export async function syncBufferWithDisk(workspaceId: string, path: string): Promise<void> {
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(path)) {
     // Echo of our own write — consume the marker, nothing to reconcile.
@@ -23,9 +23,15 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
     return
   }
 
-  const buffer = wsStore
+  // Task 26: buffers are window-level (one flat list for every workspace), so
+  // every lookup here is scoped by `workspaceId` too — `path` alone is
+  // workspace-RELATIVE and a sibling worktree can hold a different file at
+  // the same path.
+  const buffer = windowPaneStore
     .getState()
-    .buffers.find((b) => isEditorContent(b) && !b.isVirtual && b.path === path)
+    .buffers.find(
+      (b) => isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId,
+    )
   if (!buffer || !isEditorContent(buffer)) return
 
   if (buffer.isDirty) {
@@ -39,22 +45,27 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
     // diverged from the baseline we last wrote; if they match, this is our own
     // write echoing back, not an external edit. Mirrors the restore-path guard
     // in hydrate.ts (diskContent === savedContent).
-    const disk = await readWorkspaceFile(wsStore.getState().workspaceId, path).catch(() => null)
+    const disk = await readWorkspaceFile(workspaceId, path).catch(() => null)
     if (disk === null) return
 
     // Re-read at apply time: the user may have edited/closed the buffer, or a
     // concurrent echo may have already flagged it, while the read was in flight.
-    const current = wsStore
+    const current = windowPaneStore
       .getState()
-      .buffers.find((b) => isEditorContent(b) && !b.isVirtual && b.path === path)
+      .buffers.find(
+        (b) =>
+          isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId,
+      )
     if (!current || !isEditorContent(current) || !current.isDirty || current.hasExternalChange) {
       return
     }
     if (disk === current.savedContent) return // own-write echo — nothing diverged
 
-    wsStore.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
-        isEditorContent(b) && b.path === path && b.isDirty ? { ...b, hasExternalChange: true } : b,
+        isEditorContent(b) && b.path === path && b.workspaceId === workspaceId && b.isDirty
+          ? { ...b, hasExternalChange: true }
+          : b,
       ),
     }))
     toast.warning(
@@ -68,14 +79,14 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
   // async flows (FS events, restore reconciliation) that can complete after
   // the user switched workspaces, and the same relative path in a sibling
   // worktree holds different content.
-  const content = await readWorkspaceFile(wsStore.getState().workspaceId, path).catch(() => null)
+  const content = await readWorkspaceFile(workspaceId, path).catch(() => null)
   if (content === null) return
 
   // Re-check at apply time: the user may have started editing (or closed the
   // buffer) while the read was in flight — never clobber fresh edits.
-  wsStore.setState((state) => ({
+  windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && b.path === path && !b.isDirty
+      isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId && !b.isDirty
         ? {
             ...b,
             content,

@@ -16,6 +16,7 @@ import { useDefinitionLink } from '@/features/editor/lsp/use-definition-link'
 import { useGoToDefinition } from '@/features/editor/lsp/use-go-to-definition'
 import { useHover } from '@/features/editor/lsp/use-hover'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
@@ -202,9 +203,13 @@ export const useLspIntegration = ({
     }
 
     const cleanupDocument = () => {
-      const isStillOpen = workspaceStore
+      const wsId = workspaceStore.getState().workspaceId
+      const isStillOpen = windowPaneStore
         .getState()
-        .buffers.some((buffer) => hasTextContent(buffer) && buffer.path === filePath)
+        .buffers.some(
+          (buffer) =>
+            hasTextContent(buffer) && buffer.path === filePath && buffer.workspaceId === wsId,
+        )
 
       if (isStillOpen) {
         return
@@ -350,7 +355,10 @@ export const useLspIntegration = ({
       // Debounce completion trigger with fixed delay for predictable behavior
       completionTimerRef.current = setTimeout(() => {
         // Get latest value at trigger time (not from effect deps)
-        const buffer = workspaceStore.getState().buffers.find((b) => b.path === filePath)
+        const wsId = workspaceStore.getState().workspaceId
+        const buffer = windowPaneStore
+          .getState()
+          .buffers.find((b) => b.path === filePath && b.workspaceId === wsId)
         if (!buffer || !hasTextContent(buffer)) return
 
         const cursorOffset = cursorPositionRef.current.offset
@@ -389,7 +397,10 @@ export const useLspIntegration = ({
         return
       }
 
-      const buffer = workspaceStore.getState().buffers.find((b) => b.path === filePath)
+      const wsId = workspaceStore.getState().workspaceId
+      const buffer = windowPaneStore
+        .getState()
+        .buffers.find((b) => b.path === filePath && b.workspaceId === wsId)
       if (!buffer || !hasTextContent(buffer)) return
 
       const cursorOffset = cursorPositionRef.current.offset

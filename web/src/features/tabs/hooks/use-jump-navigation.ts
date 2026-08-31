@@ -3,6 +3,7 @@ import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { navigateToJumpEntry } from '@/features/editor/utils/jump-navigation'
 import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 export function useJumpNavigation() {
   const jumpListActions = useJumpListStore.use.actions()
@@ -16,10 +17,12 @@ export function useJumpNavigation() {
     const store = getActiveWorkspaceStore()
     if (!store) return
     const wsState = store.getState()
+    const paneState = windowPaneStore.getState()
     const editorState = useEditorStateStore.getState()
-    const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
+    const currentActiveBufferId =
+      paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
     const currentActiveBuffer = currentActiveBufferId
-      ? wsState.buffers.find((b) => b.id === currentActiveBufferId)
+      ? paneState.buffers.find((b) => b.id === currentActiveBufferId)
       : undefined
 
     const currentPosition =

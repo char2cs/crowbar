@@ -7,6 +7,7 @@ import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useEditorScroll } from '@/features/editor/hooks/use-scroll'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -262,8 +263,8 @@ export function EditorSurface({
   )
 
   const selectActiveBuffer = useCallback(
-    (state: import('@/features/workspace/stores/workspace-store.types').WorkspaceState) => {
-      const id = state.panes[paneId]?.activeBufferId ?? null
+    (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
+      const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
       if (!buffer || !hasTextContent(buffer)) return null
       return { bufferId: buffer.id, filePath: buffer.path }
@@ -272,7 +273,7 @@ export function EditorSurface({
   )
 
   usePaneEditorController(paneId, containerRef, {
-    store: workspaceStore,
+    store: windowPaneStore,
     selectActiveBuffer,
     manager: editorManager,
     registry,

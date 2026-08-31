@@ -13,6 +13,7 @@ interface BufferOpener {
     name: string
     content: string
     isPreview?: boolean
+    workspaceId?: string
   }) => void
 }
 
@@ -39,6 +40,7 @@ export async function openFileContent(
       name,
       content: decodeFileContent(payload),
       isPreview: opts.preview,
+      workspaceId: wsId,
     })
   } catch {
     toast.error('Failed to open file', name)

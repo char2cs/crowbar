@@ -3,10 +3,8 @@ import {
   useBuffersByIds,
   useBufferActions,
 } from '@/features/workspace/stores/hooks/use-buffer-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
@@ -116,7 +114,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     },
     [bufferActions],
   )
-  const workspaceStore = useWorkspaceStore()
   // Needed only to hand AgentChatPane the chat's owning workspace — the chat
   // is no longer a buffer, so there is no per-buffer wsId to read any more.
   const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
@@ -126,10 +123,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // shape is the contract), not a bare id the way the old addBufferToPane did.
   const addExistingTabToPane = useCallback(
     (targetPaneId: string, tabId: string) => {
-      const tab = workspaceStore.getState().buffers.find((b) => b.id === tabId)
-      if (tab) workspaceStore.getState().paneActions.addEditorTabToPane(targetPaneId, tab)
+      const tab = windowPaneStore.getState().buffers.find((b) => b.id === tabId)
+      if (tab) windowPaneStore.getState().paneActions.addEditorTabToPane(targetPaneId, tab)
     },
-    [workspaceStore],
+    [],
   )
   // Stable identity: this feeds a memoized drop handler's dep array; an unstable
   // wrapper would defeat that memoization. It only closes over workspaceStore.
@@ -141,8 +138,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       remoteConnectionId?: string
       sessionId?: string
     }): string =>
-      workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
-    [workspaceStore],
+      windowPaneStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
+    [],
   )
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
@@ -269,7 +266,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       // Use workspace store for split creation so the new pane renders correctly.
       const splitOptions = getPaneSplitDropOptions(target.zone)
       const targetPaneId = splitOptions
-        ? (workspaceStore
+        ? (windowPaneStore
             .getState()
             .paneActions.splitPane(
               pane.id,
@@ -279,15 +276,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             ) ?? pane.id)
         : pane.id
 
-      workspaceStore.getState().paneActions.setActivePane(targetPaneId)
+      windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
 
       try {
         await handleFileOpen(fileDragData.path, false)
         const openedTabId =
-          workspaceStore.getState().paneActions.getActivePane()?.activeEditorTabId ?? null
+          windowPaneStore.getState().paneActions.getActivePane()?.activeEditorTabId ?? null
         if (openedTabId) {
           addExistingTabToPane(targetPaneId, openedTabId)
-          workspaceStore.getState().paneActions.activateEditorTabInPane(targetPaneId, openedTabId)
+          windowPaneStore.getState().paneActions.activateEditorTabInPane(targetPaneId, openedTabId)
         }
       } catch (error) {
         console.error('Failed to open file from file tree drop:', error)
@@ -295,7 +292,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         delete window.__fileDragData
       }
     },
-    [handleFileOpen, pane.id, workspaceStore, addExistingTabToPane],
+    [handleFileOpen, pane.id, addExistingTabToPane],
   )
 
   const handleExternalEditorExit = useCallback(() => {
@@ -433,7 +430,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       // nothing would appear. Using workspaceStore directly fixes the rendering.
       const splitOptions = getPaneSplitDropOptions(zone)
       if (!splitOptions) return // non-center zone always has valid split options
-      const newPaneId = workspaceStore
+      const newPaneId = windowPaneStore
         .getState()
         .paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement)
       if (!newPaneId) return
@@ -455,15 +452,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )
       } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
         // Move from a different source pane into the new split pane
-        workspaceStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, newPaneId)
-        workspaceStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
+        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, newPaneId)
+        windowPaneStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
       } else if (bufferId) {
         // Move from this pane into the new split pane
-        workspaceStore.getState().paneActions.moveEditorTabToPane(bufferId, pane.id, newPaneId)
-        workspaceStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
+        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, pane.id, newPaneId)
+        windowPaneStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
       }
     },
-    [pane.id, openTerminalBuffer, workspaceStore, addExistingTabToPane],
+    [pane.id, openTerminalBuffer, addExistingTabToPane],
   )
 
   // Handle mouse up for file tree drag (which uses mouse events, not HTML5 drag API)
@@ -488,7 +485,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       e.stopPropagation()
       setIsDragOver(false)
       setIsTabDragOver(false)
-      workspaceStore.getState().paneActions.setActivePane(pane.id)
+      windowPaneStore.getState().paneActions.setActivePane(pane.id)
 
       // Tab drops are handled by SplitDropOverlay — skip here
       if (e.dataTransfer.types.includes('application/tab-data') || getInternalTabDragData()) {
@@ -504,7 +501,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         return
       }
     },
-    [pane.id, handleFileOpen, workspaceStore],
+    [pane.id, handleFileOpen],
   )
 
   const renderActiveBuffer = useCallback(

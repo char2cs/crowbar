@@ -1,4 +1,4 @@
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
@@ -8,9 +8,7 @@ import { createPaneBeside } from './pane-split-actions'
 
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined
-  const activeBuffer = getActiveWorkspaceStoreRef()
-    ?.getState()
-    .buffers.find((buffer) => buffer.id === bufferId)
+  const activeBuffer = windowPaneStore.getState().buffers.find((buffer) => buffer.id === bufferId)
   if (activeBuffer?.type === 'terminal') {
     return undefined
   }
@@ -23,14 +21,11 @@ function isEditorPaneId(paneId: string): boolean {
     return false
   }
 
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
-  return getAllLeafIds(state.rootLayout).includes(paneId)
+  return getAllLeafIds(windowPaneStore.getState().rootLayout).includes(paneId)
 }
 
 function getActiveEditorPane() {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return null
+  const state = windowPaneStore.getState()
   const activePane = state.paneActions.getActivePane()
   if (!activePane || !isEditorPaneId(activePane.id)) {
     return null
@@ -40,8 +35,7 @@ function getActiveEditorPane() {
 }
 
 export function toggleActiveEditorGroupLock(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -54,13 +48,12 @@ export function toggleActiveEditorGroupLock(): boolean {
 // Opens the Branch Review surface for the active workspace as a pane tab.
 // Returns the opened buffer id, or null when there is no active workspace.
 export function openBranchReviewForActiveWorkspace(): string | null {
-  const store = getActiveWorkspaceStoreRef()
   const wsId = getActiveWorkspaceId()
-  if (!store || !wsId) {
+  if (!wsId) {
     return null
   }
 
-  return store
+  return windowPaneStore
     .getState()
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
 }
@@ -87,8 +80,7 @@ export function splitEditorGroup(
 }
 
 export function closeActiveEditorGroup(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -109,8 +101,7 @@ export function closeActiveEditorGroup(): boolean {
 }
 
 export function closeOtherEditorGroups(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -143,8 +134,7 @@ function collectSplitIds(node: LayoutNode): string[] {
 }
 
 export function resetEditorGroupSizes(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const splitIds = collectSplitIds(state.rootLayout)
   if (splitIds.length === 0) {
     return false
@@ -158,8 +148,7 @@ export function resetEditorGroupSizes(): boolean {
 }
 
 export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane || !activePane.activeBufferId) {
     return false

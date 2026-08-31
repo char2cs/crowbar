@@ -7,8 +7,10 @@ import {
   LightningSlash as ZapOff,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useCommandShortcut } from '@/features/keymaps/hooks/use-command-shortcut'
 import { setSyntaxHighlightingFilePath } from '@/features/editor/extensions/builtin/syntax-highlighting'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
@@ -17,10 +19,6 @@ import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-pat
 import { MarkdownViewToggle } from '@/features/editor/markdown/plate/markdown-view-toggle'
 import type { Position } from '@/features/editor/types/editor'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
-import {
-  useWorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import {
   getAllLanguages,
@@ -108,10 +106,10 @@ function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive toolbar — cursor/language/LSP-status controls share the active-buffer selectors and command shortcuts; touched this program (getStatusConfig hoisted) with no further seam.
 export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
-  const workspaceStore = useWorkspaceStore()
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
-  const resolvedBufferId = useWorkspaceStoreContext(
-    (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
+  const resolvedBufferId = useStore(
+    windowPaneStore,
+    (state) => bufferId ?? state.panes[state.activePaneId]?.activeEditorTabId ?? null,
   )
   const settings = useSettingsStore((s) => s.settings)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
@@ -132,7 +130,8 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const activeServers = lspStatus.supportedLanguages || []
   const hasActiveServers = lspStatus.status === 'connected' && activeServers.length > 0
   const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : 'No Project'
-  const activeBuffer = useWorkspaceStoreContext(
+  const activeBuffer = useStore(
+    windowPaneStore,
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
@@ -219,7 +218,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         throw new Error('Language server did not start.')
       }
       const fullActiveBuffer = resolvedBufferId
-        ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
+        ? windowPaneStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
         : null
       const bufferContent =
         fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
@@ -250,7 +249,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         return
       }
 
-      workspaceStore.setState((state) => ({
+      windowPaneStore.setState((state) => ({
         buffers: state.buffers.map((b) =>
           b.id === resolvedBufferId && b.type === 'editor'
             ? { ...b, languageOverride: languageId }
@@ -271,7 +270,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           if (!started) {
             throw new Error('Language server did not start.')
           }
-          const fullActiveBuffer = workspaceStore
+          const fullActiveBuffer = windowPaneStore
             .getState()
             .buffers.find((buffer) => buffer.id === resolvedBufferId)
           const bufferContent =
@@ -291,7 +290,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       currentFileLanguageId,
       rootFolderPath,
       lspClient,
-      workspaceStore,
     ],
   )
 

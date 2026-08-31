@@ -20,6 +20,7 @@ import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
@@ -193,27 +194,28 @@ export function NewTabView({ paneId }: { paneId: string }) {
   // New Tab": the click focuses this pane, same as clicking anywhere else in
   // it (pane-container's handlePaneMouseDownCapture/onClick).
   const activateThisPane = useCallback(() => {
-    workspaceStore.getState().paneActions.setActivePane(paneId)
-  }, [workspaceStore, paneId])
+    windowPaneStore.getState().paneActions.setActivePane(paneId)
+  }, [paneId])
 
   const openTerminal = useCallback(() => {
     activateThisPane()
-    workspaceStore.getState().bufferActions.openContent({ type: 'terminal' })
-  }, [activateThisPane, workspaceStore])
+    windowPaneStore.getState().bufferActions.openContent({ type: 'terminal', workspaceId: wsId })
+  }, [activateThisPane, wsId])
 
   // A virtual buffer needs neither a target directory nor write access, so New
   // File works on a locked worktree (protected branches, Project Home) where the
   // file-explorer's New File is hidden outright.
   const openFile = useCallback(() => {
     activateThisPane()
-    workspaceStore.getState().bufferActions.openContent({
+    windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: 'untitled:Untitled',
       name: 'Untitled',
       content: '',
       isVirtual: true,
+      workspaceId: wsId,
     })
-  }, [activateThisPane, workspaceStore])
+  }, [activateThisPane, wsId])
 
   // Only the hand-off row ("N more in this worktree") goes to the sidebar — it
   // means "show me the rest", so a browser is the right destination. The
@@ -255,11 +257,11 @@ export function NewTabView({ paneId }: { paneId: string }) {
     activateThisPane()
     createChat(wsId, provider.id)
       .then((chatId) => {
-        const st = workspaceStore.getState()
-        st.setActiveAgentChatId(chatId)
-        st.paneActions.setActivePane(paneId)
+        workspaceStore.getState().setActiveAgentChatId(chatId)
+        const paneActions = windowPaneStore.getState().paneActions
+        paneActions.setActivePane(paneId)
         // A brand-new chat has no runner yet — null until it spawns one.
-        st.paneActions.setPaneChat(paneId, chatId, null)
+        paneActions.setPaneChat(paneId, chatId, null)
       })
       .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
   }, [activateThisPane, paneId, providers, workspaceStore, wsId])

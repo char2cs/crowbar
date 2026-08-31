@@ -1,8 +1,6 @@
 import { useCallback } from 'react'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { XtermTerminal } from './terminal'
 
 interface TerminalTabProps {
@@ -30,24 +28,23 @@ export function TerminalTab({
   isActive = true,
   isVisible = true,
 }: TerminalTabProps) {
-  const workspaceStore = useWorkspaceStore()
   // The owning workspace — threaded into the terminal so connection resolution
   // targets THIS workspace even when it is a hidden keep-alive workspace.
   const workspaceId = useWorkspaceStoreContext((s) => s.workspaceId)
 
   const handleTerminalExit = useCallback(() => {
-    workspaceStore.getState().bufferActions.closeBuffer(bufferId)
-  }, [bufferId, workspaceStore])
+    windowPaneStore.getState().bufferActions.closeBuffer(bufferId)
+  }, [bufferId])
 
   const handleActivate = useCallback(() => {
     if (paneId) {
-      workspaceStore.getState().paneActions.addBufferToPane(paneId, bufferId, true)
+      windowPaneStore.getState().paneActions.addBufferToPane(paneId, bufferId, true)
       return
     }
-    workspaceStore
+    windowPaneStore
       .getState()
-      .paneActions.activatePaneBuffer(workspaceStore.getState().activePaneId, bufferId)
-  }, [bufferId, paneId, workspaceStore])
+      .paneActions.activatePaneBuffer(windowPaneStore.getState().activePaneId, bufferId)
+  }, [bufferId, paneId])
 
   return (
     // onMouseDownCapture: xterm canvas events don't bubble through React, so we

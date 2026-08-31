@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { splitActiveEditorGroup } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { createChat } from '@/features/agent/api/agent-api'
@@ -65,13 +66,13 @@ export function usePaneKeyboard() {
 
       if (matches(TAB_NEW_TERMINAL)) {
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openContent({ type: 'terminal' })
+        windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' })
         return
       }
 
       if (matches(TAB_NEW_FILE)) {
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openContent({
+        windowPaneStore.getState().bufferActions.openContent({
           type: 'editor',
           path: 'untitled:Untitled',
           name: 'Untitled',
@@ -92,14 +93,14 @@ export function usePaneKeyboard() {
         const state = workspaceStore.getState()
         const provider = selectEnabledProviders(state)[0]
         if (!provider) return
-        const targetPaneId = state.activePaneId
+        const targetPaneId = windowPaneStore.getState().activePaneId
         createChat(state.workspaceId, provider.id)
           .then((chatId) => {
-            const st = workspaceStore.getState()
-            st.setActiveAgentChatId(chatId)
-            st.paneActions.setActivePane(targetPaneId)
+            workspaceStore.getState().setActiveAgentChatId(chatId)
+            const paneActions = windowPaneStore.getState().paneActions
+            paneActions.setActivePane(targetPaneId)
             // A brand-new chat has no runner yet — null until it spawns one.
-            st.paneActions.setPaneChat(targetPaneId, chatId, null)
+            paneActions.setPaneChat(targetPaneId, chatId, null)
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return
@@ -107,7 +108,7 @@ export function usePaneKeyboard() {
 
       if (matches(TAB_REOPEN_CLOSED)) {
         e.preventDefault()
-        workspaceStore.getState().bufferActions.reopenLastClosedBuffer()
+        windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
         return
       }
 
@@ -119,7 +120,7 @@ export function usePaneKeyboard() {
         // discarding a dirty editor buffer. No active tab → no-op (never quits
         // the app).
         e.preventDefault()
-        const state = workspaceStore.getState()
+        const state = windowPaneStore.getState()
         const paneId = state.activePaneId
         const pane = state.panes[paneId]
         if (!pane) return
@@ -171,7 +172,7 @@ export function usePaneKeyboard() {
       for (const [commandId, direction] of navTargets) {
         if (matches(commandId)) {
           e.preventDefault()
-          workspaceStore.getState().paneActions.navigateToPane(direction)
+          windowPaneStore.getState().paneActions.navigateToPane(direction)
           return
         }
       }

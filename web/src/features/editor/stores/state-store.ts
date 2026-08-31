@@ -5,7 +5,7 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { isDragScrolling } from '@/features/editor/hooks/use-drag-scroll'
 import type { Cursor, MultiCursorState, Position, Range } from '@/features/editor/types/editor'
 import { createSelectors } from '@/utils/zustand-selectors'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 // Types for editor state caching
 export interface EditorViewState {
@@ -305,8 +305,8 @@ export const useEditorStateStore = createSelectors(
         // Cursor actions
         setCursorPosition: (position, options) => {
           const currentState = useEditorStateStore.getState()
-          const _ws = getActiveWorkspaceStoreRef()?.getState()
-          const activeBufferId = _ws ? (_ws.panes[_ws.activePaneId]?.activeBufferId ?? null) : null
+          const _ws = windowPaneStore.getState()
+          const activeBufferId = _ws.panes[_ws.activePaneId]?.activeEditorTabId ?? null
           const activeEditorViewKey = currentState.activeEditorViewKey
           const viewKey = activeEditorViewKey ?? activeBufferId
           if (viewKey) {
@@ -321,8 +321,8 @@ export const useEditorStateStore = createSelectors(
         },
         setSelection: (selection) => {
           const currentState = useEditorStateStore.getState()
-          const _ws = getActiveWorkspaceStoreRef()?.getState()
-          const activeBufferId = _ws ? (_ws.panes[_ws.activePaneId]?.activeBufferId ?? null) : null
+          const _ws = windowPaneStore.getState()
+          const activeBufferId = _ws.panes[_ws.activePaneId]?.activeEditorTabId ?? null
           const activeEditorViewKey = currentState.activeEditorViewKey
           const viewKey = activeEditorViewKey ?? activeBufferId
           if (viewKey) {
@@ -334,8 +334,8 @@ export const useEditorStateStore = createSelectors(
         },
         setCursorAndSelection: (position, selection, options) => {
           const currentState = useEditorStateStore.getState()
-          const _ws = getActiveWorkspaceStoreRef()?.getState()
-          const activeBufferId = _ws ? (_ws.panes[_ws.activePaneId]?.activeBufferId ?? null) : null
+          const _ws = windowPaneStore.getState()
+          const activeBufferId = _ws.panes[_ws.activePaneId]?.activeEditorTabId ?? null
           const viewKey = currentState.activeEditorViewKey ?? activeBufferId
           if (viewKey) {
             viewStateCache.setCursor(viewKey, position)
@@ -491,8 +491,8 @@ export const useEditorStateStore = createSelectors(
         // Layout actions
         setScroll: (scrollTop, scrollLeft) => {
           const currentState = useEditorStateStore.getState()
-          const _ws = getActiveWorkspaceStoreRef()?.getState()
-          const activeBufferId = _ws ? (_ws.panes[_ws.activePaneId]?.activeBufferId ?? null) : null
+          const _ws = windowPaneStore.getState()
+          const activeBufferId = _ws.panes[_ws.activePaneId]?.activeEditorTabId ?? null
           const activeEditorViewKey = currentState.activeEditorViewKey
           const viewKey = activeEditorViewKey ?? activeBufferId
           if (viewKey) {
@@ -508,10 +508,8 @@ export const useEditorStateStore = createSelectors(
             viewStateCache.setScroll(bufferId, scrollTop, scrollLeft)
           }
           // Only update global state if this is still the active buffer
-          const _ws2 = getActiveWorkspaceStoreRef()?.getState()
-          const activeBufferId = _ws2
-            ? (_ws2.panes[_ws2.activePaneId]?.activeBufferId ?? null)
-            : null
+          const _ws2 = windowPaneStore.getState()
+          const activeBufferId = _ws2.panes[_ws2.activePaneId]?.activeEditorTabId ?? null
           if (bufferId === activeBufferId) {
             const currentState = useEditorStateStore.getState()
             if (currentState.scrollTop !== scrollTop || currentState.scrollLeft !== scrollLeft) {

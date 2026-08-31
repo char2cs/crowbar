@@ -10,10 +10,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useStore } from 'zustand'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 
 export interface PaneEditorStateBridgeProps {
@@ -36,8 +35,9 @@ export function PaneEditorStateBridge({
     return registry.subscribe(paneId, (ctx) => setFilePath(ctx?.filePath ?? ''))
   }, [registry, paneId])
 
-  const activeBufferId = useWorkspaceStoreContext(
-    useCallback((state) => state.panes[paneId]?.activeBufferId ?? null, [paneId]),
+  const activeBufferId = useStore(
+    windowPaneStore,
+    useCallback((state) => state.panes[paneId]?.activeEditorTabId ?? null, [paneId]),
   )
   const editorViewKey = activeBufferId ? `${paneId}:${activeBufferId}` : null
 

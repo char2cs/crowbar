@@ -1,6 +1,6 @@
 import type { CompletionItem } from 'vscode-languageserver-protocol'
 import { create } from 'zustand'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import type { FilteredCompletion } from '@/utils/fuzzy-matcher'
@@ -38,11 +38,10 @@ type DefinitionLinkRange = {
 }
 
 function getActiveTextContent(): string {
-  const wsStore = getActiveWorkspaceStoreRef()?.getState()
-  if (!wsStore) return ''
-  const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null
+  const paneState = windowPaneStore.getState()
+  const activeBufferId = paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
   const activeBuffer = activeBufferId
-    ? wsStore.buffers.find((buffer) => buffer.id === activeBufferId)
+    ? paneState.buffers.find((buffer) => buffer.id === activeBufferId)
     : null
   return activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : ''
 }

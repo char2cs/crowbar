@@ -1,20 +1,32 @@
+import { useStore } from 'zustand'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { useUIState } from '@/features/window/stores/ui-state-store'
-import { useWorkspaceStoreContext } from '../workspace-context'
-import type { PaneActions } from '../slices/pane-slice'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import type { WindowPaneState } from '@/features/panes/stores/window-pane-store.types'
+import type { PaneActions } from '@/features/panes/stores/slices/pane-slice'
 import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 
-export const useRootLayout = (): LayoutNode => useWorkspaceStoreContext((s) => s.rootLayout)
+/**
+ * Task 26: panes are window-level now (`windowPaneStore`, created once, never
+ * destroyed on workspace switch) — every one of these used to read off the
+ * ambient PER-WORKSPACE `useWorkspaceStoreContext()`. Callers of these hooks
+ * needed no changes: the selector shapes are unchanged, only what they read
+ * from is.
+ */
+function usePaneStore<T>(selector: (state: WindowPaneState) => T): T {
+  return useStore(windowPaneStore, selector)
+}
 
-export const useFullscreenPaneId = (): string | null =>
-  useWorkspaceStoreContext((s) => s.fullscreenPaneId)
+export const useRootLayout = (): LayoutNode => usePaneStore((s) => s.rootLayout)
 
-export const useActivePaneId = (): string => useWorkspaceStoreContext((s) => s.activePaneId)
+export const useFullscreenPaneId = (): string | null => usePaneStore((s) => s.fullscreenPaneId)
 
-export const usePaneActions = (): PaneActions => useWorkspaceStoreContext((s) => s.paneActions)
+export const useActivePaneId = (): string => usePaneStore((s) => s.activePaneId)
+
+export const usePaneActions = (): PaneActions => usePaneStore((s) => s.paneActions)
 
 export const usePaneById = (paneId: string): PaneGroup | null =>
-  useWorkspaceStoreContext((s) => s.panes[paneId] ?? null)
+  usePaneStore((s) => s.panes[paneId] ?? null)
 
 /**
  * How many panes the user can actually see and switch between right now.
@@ -27,9 +39,9 @@ export const usePaneById = (paneId: string): PaneGroup | null =>
  * stable and does not re-render every consumer on unrelated store writes.
  */
 export const useVisiblePaneCount = (): number => {
-  const rootLeaves = useWorkspaceStoreContext((s) => getAllLeafIds(s.rootLayout).length)
-  const bottomLeaves = useWorkspaceStoreContext((s) => getAllLeafIds(s.bottomLayout).length)
-  const fullscreenPaneId = useWorkspaceStoreContext((s) => s.fullscreenPaneId)
+  const rootLeaves = usePaneStore((s) => getAllLeafIds(s.rootLayout).length)
+  const bottomLeaves = usePaneStore((s) => getAllLeafIds(s.bottomLayout).length)
+  const fullscreenPaneId = usePaneStore((s) => s.fullscreenPaneId)
   const isBottomPaneVisible = useUIState((s) => s.isBottomPaneVisible)
 
   if (fullscreenPaneId) return 1

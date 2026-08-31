@@ -1,4 +1,4 @@
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ensureBufferInPane } from './pane-buffer-actions'
 import type { PaneDropZone } from './pane-drop-zones'
 import { getPaneSplitDropOptions } from './pane-drop-zones'
@@ -40,8 +40,6 @@ export function moveBufferToPaneDropTarget(
     return null
   }
 
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return null
-  state.paneActions.moveEditorTabToPane(bufferId, sourcePaneId, targetPaneId)
+  windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, targetPaneId)
   return targetPaneId
 }

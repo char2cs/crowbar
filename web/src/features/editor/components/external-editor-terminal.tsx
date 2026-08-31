@@ -13,7 +13,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { useCallback, useEffect, useRef } from 'react'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalTheme } from '@/features/terminal/hooks/use-terminal-theme'
 import { sanitizeTerminalTitle } from '@/features/terminal/utils/terminal-title'
@@ -45,7 +45,6 @@ export const ExternalEditorTerminal = ({
   const themeRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const resizeRafRef = useRef<number | null>(null)
 
-  const workspaceStore = useWorkspaceStore()
   const editorFontSize = useEditorSettingsStore((s) => s.fontSize)
   const editorFontFamily = useEditorSettingsStore((s) => s.fontFamily)
   const rootFolderPath = useProjectStore((s) => s.rootFolderPath)
@@ -57,7 +56,7 @@ export const ExternalEditorTerminal = ({
       const trimmed = title.trim()
       if (!trimmed || trimmed === 'Default Terminal') return
 
-      const buffers = workspaceStore.getState().buffers
+      const buffers = windowPaneStore.getState().buffers
       const buffer = buffers.find(
         (item) =>
           item.type === 'externalEditor' && item.terminalConnectionId === terminalConnectionId,
@@ -65,7 +64,7 @@ export const ExternalEditorTerminal = ({
 
       if (!buffer || buffer.name === trimmed) return
 
-      workspaceStore.setState((state) => ({
+      windowPaneStore.setState((state) => ({
         buffers: state.buffers.map((b) =>
           b.type === 'externalEditor' && b.terminalConnectionId === terminalConnectionId
             ? { ...b, name: trimmed }
@@ -73,7 +72,7 @@ export const ExternalEditorTerminal = ({
         ),
       }))
     },
-    [terminalConnectionId, workspaceStore],
+    [terminalConnectionId],
   )
 
   const getEditorCommand = useCallback(
