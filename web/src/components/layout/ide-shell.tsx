@@ -3,7 +3,6 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
-import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -168,7 +167,6 @@ export function IDEShell() {
             onSelectProject={handleSelectProject}
           />
         )}
-        {!hasNavScreen && <ContextPill />}
         {!hasNavScreen && (
           <SidebarTreeSurface
             projects={allProjects}
