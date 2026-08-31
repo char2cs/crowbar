@@ -1,11 +1,11 @@
 /**
  * `SidebarTreeSurface` wires `SpaceScroller` + the hoisted chrome
- * (RemovalTray/dialogs/context menu/"New Project") against the real
- * removal-tray-filtered `repos` — the thing `sidebar-tree-panel.tsx` used to
- * do for one flat tree, now scoped per project. Individual pieces (derivers,
- * handlers, RecentsBand wiring) have their own focused unit tests; this one
- * checks the WIRING: real multi-project repos genuinely produce one tree per
- * project, each excluding the other's rows.
+ * (RemovalTray/dialogs/context menu) against the real removal-tray-filtered
+ * `repos` — the thing `sidebar-tree-panel.tsx` used to do for one flat tree,
+ * now scoped per project. Individual pieces (derivers, handlers, RecentsBand
+ * wiring) have their own focused unit tests; this one checks the WIRING:
+ * real multi-project repos genuinely produce one tree per project, each
+ * excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -106,12 +106,31 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  it('mounts RemovalTray and "New Project" once, not once per project', () => {
+  it('mounts the hoisted chrome (RemovalTray) once, not once per project', () => {
     useSidebarStore.setState({
       repos: [
         repo({ id: 'r1', projectId: 'p1' }),
         repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' }),
       ],
+    })
+    useRemovalTrayStore.setState({
+      entries: [
+        {
+          entryId: 'entry-1',
+          kind: 'workspace',
+          id: 'ws-a',
+          label: 'alpha',
+          projectId: 'p1',
+          repoId: 'r1',
+          wsId: '',
+          providerIcon: '',
+          hiddenIds: ['ws-a'],
+          extra: 0,
+          fallbackWsId: null,
+          deadlineAt: Date.now() + 8000,
+        },
+      ],
+      hiddenIds: new Set(['ws-a']),
     })
 
     render(
@@ -122,7 +141,9 @@ describe('SidebarTreeSurface', () => {
       />,
     )
 
-    expect(screen.getAllByText('New Project')).toHaveLength(1)
+    // The whole point of hoisting: the held row's tray entry renders once for
+    // however many projects the sidebar has, never once per SpaceScroller panel.
+    expect(document.querySelectorAll('[data-removal-entry="entry-1"]')).toHaveLength(1)
   })
 
   it('a row held in the removal tray disappears from its own project panel', () => {

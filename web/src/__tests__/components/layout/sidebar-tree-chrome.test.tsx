@@ -1,50 +1,20 @@
 /**
- * `SidebarTreeChrome` is what `sidebar-tree-panel.tsx`'s "New Project" entry
- * point (the app's only way to add a second project once past the
- * zero-project /oobe screen) moved to — hoisted so it mounts ONCE at the
- * ide-shell level rather than once per `SpaceScroller` project panel.
+ * `SidebarTreeChrome` hoists `RemovalTray`/`RenameDialog`/`RepoImportDialog`/
+ * `SidebarRowContextMenu` so they mount ONCE at the ide-shell level rather
+ * than once per `SpaceScroller` project panel. "New Project" used to live
+ * here too, as a tree-foot row; Task 5 relocated it to a trailing `+` mark
+ * in `SidebarProjectHeader`'s window-chrome row (spec §4.1) and lifted its
+ * modal state up to `IDEShell` — this component no longer owns any of that.
  */
 import { createRef } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   // RemovalTray needs both.
   useRouter: () => ({ state: { location: { pathname: '/' } } }),
   useRouterState: () => '/',
-}))
-
-const { importProjectAndSync } = vi.hoisted(() => ({
-  importProjectAndSync: vi.fn(),
-}))
-vi.mock('@/lib/store/projects', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/store/projects')>()),
-  importProjectAndSync,
-}))
-// The real modal drives a Tauri native-dialog / postProject flow this file has
-// no business exercising — SidebarTreeChrome's own contract is just "open it,
-// and hand its result to importProjectAndSync", which this stub proves
-// without any of that.
-vi.mock('@/components/projects/import-project-modal', () => ({
-  ImportProjectModal: ({
-    open,
-    onImport,
-  }: {
-    open: boolean
-    onImport: (p: { id: string; name: string; path: string; lastActivity: Date }) => void
-  }) =>
-    open ? (
-      <button
-        type="button"
-        onClick={() =>
-          onImport({ id: 'p2', name: 'second-project', path: '/p2', lastActivity: new Date(0) })
-        }
-      >
-        confirm-import
-      </button>
-    ) : null,
 }))
 
 import { SidebarTreeChrome } from '@/components/layout/sidebar-tree-chrome'
@@ -62,33 +32,15 @@ function renderChrome() {
   return render(<SidebarTreeChrome treeRef={treeRef} rows={[]} repos={[]} />)
 }
 
-describe('New Project entry point', () => {
-  it('renders a "New Project" row', () => {
+describe('the leftover "New Project" row is gone', () => {
+  it('no longer renders a "New Project" button', () => {
     renderChrome()
-    expect(screen.getByText('New Project')).toBeInTheDocument()
+    expect(screen.queryByText('New Project')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument()
   })
 
-  it('opens the import modal on click, and importing closes it and syncs the project', async () => {
-    const user = userEvent.setup()
+  it('does not mount ImportProjectModal itself', () => {
     renderChrome()
-
-    expect(screen.queryByText('confirm-import')).not.toBeInTheDocument()
-    await user.click(screen.getByText('New Project'))
-    expect(screen.getByText('confirm-import')).toBeInTheDocument()
-
-    await user.click(screen.getByText('confirm-import'))
-    expect(importProjectAndSync).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ id: 'p2', name: 'second-project' }),
-    )
-    expect(screen.queryByText('confirm-import')).not.toBeInTheDocument()
-  })
-})
-
-describe('mounting once, not per panel', () => {
-  it('renders exactly one "New Project" row and one removal tray region regardless of caller', () => {
-    // The whole point of hoisting: this renders once for however many
-    // projects the sidebar has, never once per SpaceScroller panel.
-    renderChrome()
-    expect(screen.getAllByText('New Project')).toHaveLength(1)
+    expect(screen.queryByText('Import project')).not.toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
@@ -6,7 +6,14 @@ import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-histo
 import { SidebarCarousel } from './sidebar-carousel'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import {
+  useProjectStore,
+  useProjectDataStore,
+  EMPTY_PROJECTS,
+  importProjectAndSync,
+} from '@/lib/store/projects'
+import { ImportProjectModal } from '@/components/projects/import-project-modal'
+import type { Project } from '@/lib/types'
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
@@ -107,6 +114,16 @@ export function IDEShell() {
   const handleSelectProject = (projectId: string) => {
     void navigate({ to: '/ide/$projectId/home', params: { projectId } })
   }
+  // The tree's only entry point for a SECOND project (spec §3 ruling): a
+  // trailing `+` mark in SidebarProjectHeader's window-chrome row, not a
+  // reopened tree-foot row. Lifted here, alongside `allProjects`, so both
+  // SidebarProjectHeader (the mark) and this modal can reach it — moved
+  // verbatim from the old SidebarTreeChrome-owned state.
+  const [importProjectOpen, setImportProjectOpen] = useState(false)
+  const handleImportProject = useCallback((project: Project) => {
+    importProjectAndSync(project)
+    setImportProjectOpen(false)
+  }, [])
   const projectFallbackPath = homeRouteMatch
     ? (allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? '')
     : ''
@@ -165,6 +182,7 @@ export function IDEShell() {
             projects={allProjects}
             activeProjectId={activeProjectIdFromRoute}
             onSelectProject={handleSelectProject}
+            onAddProject={() => setImportProjectOpen(true)}
           />
         )}
         {!hasNavScreen && (
@@ -250,6 +268,11 @@ export function IDEShell() {
       <SettingsDialog
         isOpen={isSettingsOpen}
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
+      />
+      <ImportProjectModal
+        open={importProjectOpen}
+        onOpenChange={setImportProjectOpen}
+        onImport={handleImportProject}
       />
       <TerminalHost />
       <FontStyleInjector />

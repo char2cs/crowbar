@@ -32,8 +32,8 @@ interface SidebarTreeSurfaceProps {
 
 /**
  * SpaceScroller's real mount point, plus the chrome (RemovalTray,
- * RenameDialog, RepoImportDialog, SidebarRowContextMenu, "New Project") it
- * needs mounted once alongside it — split out of `ide-shell.tsx` itself
+ * RenameDialog, RepoImportDialog, SidebarRowContextMenu) it needs mounted
+ * once alongside it — split out of `ide-shell.tsx` itself
  * rather than inlined there, on purpose: `ide-shell.tsx`'s OWN comment on
  * `sidebarWorkspacePath` (a few lines up from where this used to be wired)
  * already establishes why — "subscribing to the whole repos array made

@@ -115,4 +115,41 @@ describe('SidebarProjectHeader', () => {
     render(<SidebarProjectHeader />)
     expect(screen.queryAllByTestId('space-mark')).toHaveLength(0)
   })
+
+  it('renders a trailing add-project mark after the last project mark when onAddProject is supplied', () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(
+      <SidebarProjectHeader
+        projects={projects}
+        activeProjectId="p1"
+        onSelectProject={vi.fn()}
+        onAddProject={vi.fn()}
+      />,
+    )
+    const marks = screen.getAllByTestId('space-mark')
+    const addMark = screen.getByTestId('add-project-mark')
+    // Trailing: it comes after every project mark in document order.
+    expect(marks[marks.length - 1].compareDocumentPosition(addMark)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+  })
+
+  it('clicking the add-project mark calls onAddProject', async () => {
+    const onAddProject = vi.fn()
+    render(
+      <SidebarProjectHeader
+        projects={[makeProject('p1')]}
+        activeProjectId="p1"
+        onSelectProject={vi.fn()}
+        onAddProject={onAddProject}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('add-project-mark'))
+    expect(onAddProject).toHaveBeenCalledOnce()
+  })
+
+  it('omits the add-project mark entirely when onAddProject is not supplied', () => {
+    render(<SidebarProjectHeader projects={[makeProject('p1')]} activeProjectId="p1" />)
+    expect(screen.queryByTestId('add-project-mark')).not.toBeInTheDocument()
+  })
 })
