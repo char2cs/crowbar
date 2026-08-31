@@ -8,10 +8,11 @@ import { render, act, cleanup } from '@testing-library/react'
 //    editing files in hidden worktrees, so without this the editors come back
 //    stale (the destroy-on-switch behaviour re-hydrated and reconciled);
 //  - the cold path does NOT double-reconcile (hydrateWorkspace already does).
-const { hydrateSpy, reconcileSpy, activeEffectsSpy } = vi.hoisted(() => ({
+const { hydrateSpy, reconcileSpy, activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
   hydrateSpy: vi.fn(async (_wsId: string) => ({ layout: null, editorStates: [] })),
   reconcileSpy: vi.fn(async (_wsId: string) => {}),
   activeEffectsSpy: vi.fn((_wsId: string) => {}),
+  agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
 }))
 
 vi.mock('@/lib/persistence/hydrate', () => ({
@@ -48,6 +49,10 @@ vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
   useWorkspaceEffects: (wsId: string) => activeEffectsSpy(wsId),
 }))
 
+vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
+  useWorkspaceAgentChatsStream: (wsId: string) => agentChatsStreamSpy(wsId),
+}))
+
 vi.mock('@/features/keymaps/hooks/use-save-keyboard', () => ({ useSaveKeyboard: () => {} }))
 vi.mock('@/features/panes/hooks/use-pane-keyboard', () => ({ usePaneKeyboard: () => {} }))
 vi.mock('@/features/keymaps/hooks/use-sidebar-tab-keyboard', () => ({
@@ -73,6 +78,7 @@ beforeEach(() => {
   hydrateSpy.mockClear()
   reconcileSpy.mockClear()
   activeEffectsSpy.mockClear()
+  agentChatsStreamSpy.mockClear()
 })
 
 afterEach(() => {
@@ -111,5 +117,26 @@ describe('WorkspaceView keep-alive lifecycle', () => {
 
     await setActive(true)
     expect(activeEffectsSpy).toHaveBeenCalledWith('ws-a')
+  })
+
+  // The agent feed is NOT one of the active-only watchers. It seeds this
+  // workspace's providers/chats and feeds `working`, and three surfaces need
+  // that live while the workspace is hidden: the project-wide Recents band
+  // (recents-for-project.ts aggregates every retained workspace), spec Law 9
+  // ("anything running has a row"), and a window-level pane still holding this
+  // workspace's chat. Its only previous mount point was the Chats panel Task 8
+  // deleted, so nothing fed any of it at all.
+  it('runs the agent chats stream for as long as the workspace is MOUNTED, active or not', async () => {
+    const { setActive } = await renderView(true)
+    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+
+    agentChatsStreamSpy.mockClear()
+    activeEffectsSpy.mockClear()
+    await setActive(false)
+
+    // Hidden, but still mounted: the hook is still being called every render,
+    // unlike the active-only watchers above.
+    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+    expect(activeEffectsSpy).not.toHaveBeenCalled()
   })
 })

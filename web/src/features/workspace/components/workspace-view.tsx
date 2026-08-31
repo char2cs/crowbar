@@ -8,6 +8,7 @@ import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores
 import { markWorkspaceDeactivated } from '../lib/activation-freshness'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
+import { useWorkspaceAgentChatsStream } from '../stores/hooks/use-workspace-agent-chats-stream'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
@@ -29,6 +30,29 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
   // retained workspace by id — so this hydrates exactly once per mount and never
   // re-hydrates on a warm re-activation.
   const [hydrated, setHydrated] = useState(false)
+
+  // THE AGENT FEED, FOR AS LONG AS THIS WORKSPACE IS MOUNTED — deliberately not
+  // inside `WorkspaceActiveEffects` below, which only mounts while `active`.
+  //
+  // It seeds `agentChats.providers` (empty means "there are none" everywhere:
+  // ⌘N and New Chat do nothing without it) and `agentChats.chats`, and feeds
+  // `working`/title-settling/runner-follow. Its only previous mount point was
+  // the Chats sidebar panel, deleted as dead code in Task 8 — nothing has fed
+  // any of that since.
+  //
+  // The reason `WorkspaceActiveEffects` is gated does NOT apply here: that hook
+  // writes the GLOBAL file-system/git stores, which are keyed to the single
+  // VISIBLE workspace, so a hidden workspace's frames would clobber the active
+  // one. This one writes THIS workspace's own store (plus the machine-level
+  // provider list, identical for every workspace), so there is nothing to
+  // clobber — and three surfaces genuinely need a hidden workspace's chats to
+  // stay live: Recents aggregates every retained workspace in the project
+  // (recents-for-project.ts), spec Law 9 says "anything running has a row"
+  // whether or not you are looking at its workspace, and a pane holding a
+  // hidden workspace's chat outlives that workspace's visibility by design
+  // (Task 26). Gating this on `active` would freeze all three until the user
+  // happened to switch back.
+  useWorkspaceAgentChatsStream(wsId)
 
   // Only the active workspace publishes itself as THE active store / id. Hidden
   // workspaces stay mounted but must not steal the ref (imperative non-React
