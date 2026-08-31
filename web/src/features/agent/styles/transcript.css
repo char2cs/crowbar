@@ -110,6 +110,31 @@
   margin-top: auto;
 }
 
+/* The windowed historical record — one flex child of `.stream` holding every
+   settled message and divider, absolutely positioned by the virtualizer.
+   `position: relative` is what those `top: 0; transform: translateY(...)` rows
+   are positioned against; the element's own height is set inline, from the
+   virtualizer's total size.
+
+   `flex-shrink: 0` because this box is the one child of `.stream` whose height
+   is EXPLICIT rather than content-derived: absolutely-positioned children
+   contribute nothing to an automatic minimum size, so without this a column
+   flex container under pressure could compress the whole transcript instead of
+   letting it scroll.
+
+   `overflow-anchor: none` for the same reason git-history-list.tsx sets it: the
+   browser's own scroll anchoring picks a node, then fights the virtualizer as
+   rows re-measure and shift under it. The transcript's anchoring is measured
+   and explicit (use-transcript-anchor.ts), and it must be the only thing moving
+   scrollTop. The 18px between rows is NOT here — it rides on each row's own
+   padding-bottom, so measureElement counts it (see agent-transcript.tsx). */
+.agent-chat .stream .virtual-rows {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  overflow-anchor: none;
+}
+
 .agent-chat .row {
   display: flex;
   width: 100%;

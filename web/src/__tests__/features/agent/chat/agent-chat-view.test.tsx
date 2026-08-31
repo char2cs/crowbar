@@ -76,8 +76,20 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
     }),
 }))
 
+// BOTH renderers, for the one reason the interactive one was already stubbed:
+// this suite is about the queue, the catalog and the ledger, not about which
+// markdown engine draws a settled turn (message-row.test.tsx owns that split).
+// A settled row renders through MarkdownMessageStatic, so leaving that one real
+// meant these ledger fixtures — two of which are 200+ messages long — each built
+// a full Plate document per row, for text the assertions only ever read back
+// verbatim.
 vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
   MarkdownMessage: ({ children }: { children: string }) => createElement('div', null, children),
+}))
+
+vi.mock('@/features/agent/transcript/plate/markdown-message-static', () => ({
+  MarkdownMessageStatic: ({ children }: { children: string }) =>
+    createElement('div', null, children),
 }))
 
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
@@ -206,6 +218,51 @@ async function enterPrompt(text: string) {
   fireEvent.change(input, { target: { value: text } })
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 }
+
+// The transcript's historical rows are windowed (`@tanstack/react-virtual`),
+// and jsdom has no layout engine, which breaks the virtualiser two ways:
+//
+//  - The scroll container measures 0px tall, and a virtualiser told its
+//    viewport is zero pixels windows down to NOTHING — `calculateRange` bails
+//    on `outerSize === 0` before overscan is ever applied, so not one message
+//    mounts.
+//  - Every ROW measures 0px too, so every row's `start` is 0 and the range's
+//    binary search — which returns on the first exact hit — lands in the
+//    MIDDLE of the list, silently unmounting the oldest half.
+//
+// These are ledger suites: they assert on the messages the ledger merged, so
+// the window has to cover the whole conversation, not a viewport's worth. A
+// nominal 1px per row keeps the starts strictly increasing (so the search finds
+// index 0), and an absurdly tall viewport keeps the window's far end past the
+// newest message. Rows shown/hidden by the WINDOW are agent-transcript.test.tsx's
+// subject, not this file's.
+//
+// Everything else (the dock's own measurement, the composer handle's drag
+// geometry) keeps jsdom's zeros, so nothing but the window changes here.
+//
+// The row height deliberately MATCHES the transcript's own `estimateSize`, so
+// the first measurement of every row reports no change and the virtualiser
+// never notifies — one render pass for a 200-message ledger instead of two.
+// Drift in that constant costs these suites time, never correctness.
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+const ESTIMATED_ROW_HEIGHT = 64
+
+function fakeRect(width: number, height: number): DOMRect {
+  const rect = { top: 0, left: 0, right: width, bottom: height, width, height, x: 0, y: 0 }
+  return { ...rect, toJSON: () => rect } as DOMRect
+}
+
+beforeEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect(this: HTMLElement) {
+    if (this.dataset.testid === 'agent-message-list') return fakeRect(768, 1_000_000)
+    if (this.hasAttribute('data-index')) return fakeRect(768, ESTIMATED_ROW_HEIGHT)
+    return originalGetBoundingClientRect.call(this)
+  }
+})
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
 
 beforeEach(() => {
   localStorage.clear()

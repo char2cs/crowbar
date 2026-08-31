@@ -1,7 +1,38 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
+
+// The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
+// layout engine: every element measures 0×0, and a virtualiser told its viewport
+// is zero pixels tall windows down to NOTHING — `calculateRange` bails on
+// `outerSize === 0` before overscan is ever applied, so not one row mounts.
+// Give elements a pane-sized rect before render so the window under test is the
+// realistic one the app produces. Purely geometric — no timers, no polling.
+// Same stub, same reason as changed-files-tree.scale.test.tsx.
+const VIEWPORT_WIDTH = 768
+const VIEWPORT_HEIGHT = 800
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+beforeEach(() => {
+  const rect = {
+    top: 0,
+    left: 0,
+    right: VIEWPORT_WIDTH,
+    bottom: VIEWPORT_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: VIEWPORT_HEIGHT,
+    x: 0,
+    y: 0,
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { ...rect, toJSON: () => rect } as DOMRect
+  }
+})
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
 
 function draw(
   messages: AgentChatMessage[],
@@ -269,6 +300,78 @@ describe('AgentTranscript first-turn framing', () => {
     )
 
     expect(screen.getByTestId('agent-message-5')).not.toHaveAttribute('data-first-reply')
+  })
+})
+
+describe('AgentTranscript windowed history', () => {
+  function conversation(turns: number): AgentChatMessage[] {
+    return Array.from({ length: turns }, (_, i) => ({
+      turnId: `t${i}`,
+      sequence: i,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      providerId: i % 2 === 0 ? '' : 'claude',
+      text: `turn ${i}`,
+      at: '',
+    }))
+  }
+
+  // The whole point of the virtualiser: DOM cost bounded by the viewport, not
+  // by the conversation. Node count rather than wall time deliberately — it is
+  // deterministic, so this is a real gate instead of a flaky timing assertion.
+  it('mounts a bounded window of rows, not one per message', () => {
+    const { container } = draw(conversation(200))
+
+    const mounted = container.querySelectorAll('.virtual-rows > [data-index]')
+    expect(mounted.length).toBeGreaterThan(0)
+    expect(mounted.length).toBeLessThan(40)
+    expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-message-199')).toBeNull()
+  })
+
+  // `.stream`'s `gap: 18px` fell between the per-message wrappers the old
+  // render emitted — never inside one, so a divider always sat flush against
+  // the message it belongs to. Absolutely-positioned virtual rows inherit no
+  // gap at all, so it is baked into each row's own padding-bottom; this pins
+  // that it still lands on group boundaries only.
+  it('keeps the 18px between message groups, and nowhere inside one', () => {
+    const { container } = draw(
+      [
+        { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+        { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+      ],
+      { compactionBefore: { 1: 'manual' } },
+    )
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    // message 0, its first-turn hairline, the compaction boundary, message 1.
+    expect(rows).toHaveLength(4)
+    expect(rows[0].querySelector('[data-testid="agent-message-0"]')).not.toBeNull()
+    expect(rows[1].querySelector('[data-testid="agent-first-turn-divider"]')).not.toBeNull()
+    expect(rows[2].querySelector('[data-testid="agent-compaction-divider"]')).not.toBeNull()
+    expect(rows[3].querySelector('[data-testid="agent-message-1"]')).not.toBeNull()
+
+    // Flush under the message it trails; the gap goes after the group instead.
+    expect(rows[0].style.paddingBottom).toBe('0px')
+    expect(rows[1].style.paddingBottom).toBe('18px')
+    // Flush above the message it leads, and nothing after the last row.
+    expect(rows[2].style.paddingBottom).toBe('0px')
+    expect(rows[3].style.paddingBottom).toBe('0px')
+  })
+
+  // The composer is already showing this sentence; the transcript must not say
+  // it twice. Survives the flattening — the whole group goes, dividers included.
+  it('drops the row the composer is already showing', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+        { turnId: 't2', sequence: 1, role: 'user', providerId: '', text: 'being edited', at: '' },
+      ],
+      { suppressSequence: 1, interruptedBefore: { 1: true } },
+    )
+
+    expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-message-1')).toBeNull()
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 })
 

@@ -1,8 +1,14 @@
-import { Fragment, useMemo } from 'react'
+import { Fragment, useCallback, useMemo } from 'react'
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import type { AgentActivity, AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
+import type {
+  AgentActivity,
+  AgentChatMessage,
+  AgentProvider,
+  AgentToolCall,
+} from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
@@ -10,6 +16,10 @@ import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span
 import { CompactionDivider } from '@/features/agent/transcript/compaction-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
 import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
+import {
+  flattenTranscriptRows,
+  type TranscriptRow,
+} from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
@@ -70,6 +80,127 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
   return map
 }
 
+/** `.stream`'s own `gap: 18px` (transcript.css), which an absolutely-positioned
+ *  virtual row can never inherit — baked into the row box instead, where
+ *  `measureElement` counts it as part of the row's height and the virtualizer's
+ *  offsets stay right. */
+const ROW_GAP = 18
+
+/** An unmeasured row's opening guess — roughly a short bubble plus its gap.
+ *  Only ever wrong for a moment: every mounted row reports its real height
+ *  through `measureElement`. */
+const ESTIMATED_ROW_HEIGHT = 64
+
+/**
+ * Where the 18px actually went BEFORE this list was flattened.
+ *
+ * The old render emitted one `<div>` per MESSAGE, holding that message's own
+ * dividers, and `.stream`'s flex `gap` fell between those wrappers — never
+ * inside one. So a compaction/interrupted divider sat flush against the message
+ * it leads, and a first-turn divider flush under the message it trails.
+ * Flattening split each wrapper into separate rows, so the gap has to be
+ * re-applied per GROUP rather than per row, or every divider would gain 18px of
+ * air on both sides that it never had.
+ */
+function endsMessageGroup(rows: TranscriptRow[], index: number): boolean {
+  const row = rows[index]
+  if (row.kind === 'first-turn-divider') return true
+  if (row.kind !== 'message') return false
+  return rows[index + 1]?.kind !== 'first-turn-divider'
+}
+
+/**
+ * tanstack's own `observeElementRect`, plus the pane-drag suppression
+ * `use-agent-chat-list-virtualizer.ts` already proved out: while a sidebar/pane
+ * drag is in progress (`data-pane-resizing` on `<html>`) hold the callback back
+ * — otherwise the drag drives a re-render per frame — and flush the last
+ * deferred measurement on `pane-resize-end`.
+ *
+ * Border-box, like the default: `.scroll` carries a padding-bottom the size of
+ * the dock plus 120px, so a `contentRect` reading would under-report the
+ * viewport by that much and window the transcript short of its own bottom edge.
+ */
+function observeScrollRect(
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+  cb: (rect: { width: number; height: number }) => void,
+) {
+  const element = instance.scrollElement
+  if (!element) return
+  const report = (rect: { width: number; height: number }) => {
+    cb({ width: Math.round(rect.width), height: Math.round(rect.height) })
+  }
+  let pending: { width: number; height: number } | null = null
+  const observer = new ResizeObserver(([entry]) => {
+    const box = entry?.borderBoxSize?.[0]
+    const rect = box
+      ? { width: box.inlineSize, height: box.blockSize }
+      : element.getBoundingClientRect()
+    if (document.documentElement.hasAttribute('data-pane-resizing')) {
+      pending = { width: rect.width, height: rect.height }
+      return
+    }
+    pending = null
+    report(rect)
+  })
+  observer.observe(element, { box: 'border-box' })
+  report(element.getBoundingClientRect())
+  const flush = () => {
+    if (!pending) return
+    report(pending)
+    pending = null
+  }
+  window.addEventListener('pane-resize-end', flush)
+  return () => {
+    observer.disconnect()
+    window.removeEventListener('pane-resize-end', flush)
+  }
+}
+
+/**
+ * One flattened row, drawn.
+ *
+ * A straight port of the `messages.map` block this replaced — same components,
+ * same props, same order. `firstReply` is computed HERE rather than carried on
+ * the row because `flattenTranscriptRows` deliberately does not know about it:
+ * it only sets a presentational attribute on `MessageRow` and never gates a
+ * row's presence or position, so it has no business in the row list's shape.
+ */
+function TranscriptRowView({
+  row,
+  providers,
+  firstTurnSequence,
+  firstReplySequence,
+  callsByTurn,
+  precedingUserAt,
+}: {
+  row: TranscriptRow
+  providers: AgentProvider[]
+  firstTurnSequence: number | undefined
+  firstReplySequence: number | undefined
+  callsByTurn: Map<string, AgentToolCall[]>
+  precedingUserAt: Map<number, string>
+}) {
+  switch (row.kind) {
+    case 'compaction-divider':
+      return <CompactionDivider trigger={row.trigger} />
+    case 'interrupted-divider':
+      return <InterruptedDivider />
+    case 'first-turn-divider':
+      return <FirstTurnDivider />
+    case 'message':
+      return (
+        <MessageRow
+          message={row.message}
+          providers={providers}
+          firstTurn={row.message.sequence === firstTurnSequence}
+          firstReply={row.message.sequence === firstReplySequence}
+          toolCallsByTurn={row.message.role === 'assistant' ? callsByTurn : undefined}
+          precedingUserAt={precedingUserAt.get(row.message.sequence)}
+        />
+      )
+  }
+}
+
 /**
  * The conversation.
  *
@@ -99,6 +230,44 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     firstTurnSequence !== undefined
       ? messages.find((m) => m.role === 'assistant' && m.sequence > firstTurnSequence)?.sequence
       : undefined
+
+  // The historical record, flat and windowed. Only the slice near the viewport
+  // (plus overscan) is ever mounted, so a thousand-turn chat costs the same DOM
+  // as a ten-turn one. Everything AFTER this block — the trailing interruption,
+  // the streaming bubbles, the queue, the working line — stays an ordinary flex
+  // child: small-count, always-visible tail items, and leaving them alone is
+  // what keeps `.stream`'s `margin-top: auto` bottom-anchor (and so
+  // `use-transcript-anchor.ts`) working exactly as before.
+  const rows = useMemo(
+    () =>
+      flattenTranscriptRows({
+        messages,
+        compactionBefore: props.compactionBefore,
+        interruptedBefore: props.interruptedBefore,
+        firstTurnSequence,
+        suppressSequence: props.suppressSequence,
+      }),
+    [
+      messages,
+      props.compactionBefore,
+      props.interruptedBefore,
+      firstTurnSequence,
+      props.suppressSequence,
+    ],
+  )
+  // By row key, not index: paging older messages in prepends rows, and an
+  // index-keyed measurement cache would hand every row the height of whatever
+  // used to sit at its position.
+  const getItemKey = useCallback((index: number) => rows[index]?.key ?? index, [rows])
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: rows.length,
+    getScrollElement: () => anchor.scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 12,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    getItemKey,
+    observeElementRect: observeScrollRect,
+  })
 
   return (
     <div
@@ -142,27 +311,46 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             </div>
           </div>
         )}
-        {messages.map((message) => (
-          <div key={message.sequence}>
-            {message.sequence === props.suppressSequence ? null : (
-              <>
-                {props.compactionBefore?.[message.sequence] && (
-                  <CompactionDivider trigger={props.compactionBefore[message.sequence]} />
-                )}
-                {props.interruptedBefore?.[message.sequence] && <InterruptedDivider />}
-                <MessageRow
-                  message={message}
-                  providers={props.providers}
-                  firstTurn={message.sequence === firstTurnSequence}
-                  firstReply={message.sequence === firstReplySequence}
-                  toolCallsByTurn={message.role === 'assistant' ? callsByTurn : undefined}
-                  precedingUserAt={precedingUserAt.get(message.sequence)}
-                />
-                {message.sequence === firstTurnSequence && <FirstTurnDivider />}
-              </>
-            )}
+        {/* Rendered only when there is something to render: an empty wrapper is
+            still a flex child, and `.stream`'s `gap` would put 18px of nothing
+            between a zero-height box and whatever follows it — the old
+            `messages.map` over an empty array emitted no element at all. */}
+        {rows.length > 0 && (
+          <div className="virtual-rows" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index]
+              if (!row) return null
+              const gapAfter =
+                virtualRow.index < rows.length - 1 && endsMessageGroup(rows, virtualRow.index)
+                  ? ROW_GAP
+                  : 0
+              return (
+                <div
+                  key={row.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                    paddingBottom: gapAfter,
+                  }}
+                >
+                  <TranscriptRowView
+                    row={row}
+                    providers={props.providers}
+                    firstTurnSequence={firstTurnSequence}
+                    firstReplySequence={firstReplySequence}
+                    callsByTurn={callsByTurn}
+                    precedingUserAt={precedingUserAt}
+                  />
+                </div>
+              )
+            })}
           </div>
-        ))}
+        )}
         {props.trailingInterruption && !props.working && <InterruptedDivider />}
         {props.streamingBubbles?.map((bubble) => (
           <MessageRow
