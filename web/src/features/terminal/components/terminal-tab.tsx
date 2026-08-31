@@ -37,13 +37,19 @@ export function TerminalTab({
   }, [bufferId])
 
   const handleActivate = useCallback(() => {
-    if (paneId) {
-      windowPaneStore.getState().paneActions.addBufferToPane(paneId, bufferId, true)
-      return
+    // I8 (Task 26 fix round 1): addBufferToPane/activatePaneBuffer have not
+    // existed on PaneActions since Task 1's editorTabIds rename — this threw
+    // on every click into a pane terminal. The tab is already open (it is
+    // mounted, rendering this very terminal); activate it in place —
+    // resolving the holding pane when the caller doesn't already know it.
+    const { paneActions } = windowPaneStore.getState()
+    const targetPaneId = paneId ?? paneActions.getPaneByEditorTabId(bufferId)?.id
+    if (targetPaneId) {
+      paneActions.activateEditorTabInPane(targetPaneId, bufferId)
+      // The mousedown capture this drives exists to "activate the pane" (see
+      // the comment on the container below) — not just the tab within it.
+      paneActions.setActivePane(targetPaneId)
     }
-    windowPaneStore
-      .getState()
-      .paneActions.activatePaneBuffer(windowPaneStore.getState().activePaneId, bufferId)
   }, [bufferId, paneId])
 
   return (

@@ -64,7 +64,8 @@ export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): bo
     return false
   }
 
-  return splitEditorGroup(activePane.id, direction, activePane.activeBufferId)
+  // I8 (Task 26 fix round 1): same activeBufferId dead-field bug as above.
+  return splitEditorGroup(activePane.id, direction, activePane.activeEditorTabId)
 }
 
 export function splitEditorGroup(
@@ -150,7 +151,7 @@ export function resetEditorGroupSizes(): boolean {
 export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'): boolean {
   const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
-  if (!activePane || !activePane.activeBufferId) {
+  if (!activePane || !activePane.activeEditorTabId) {
     return false
   }
 
@@ -176,6 +177,8 @@ export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'):
     return false
   }
 
-  state.paneActions.moveBufferToPane(activePane.activeBufferId, activePane.id, targetPane.id)
+  // I8 (Task 26 fix round 1): moveBufferToPane has not existed on PaneActions
+  // since Task 1's editorTabIds rename — real name is moveEditorTabToPane.
+  state.paneActions.moveEditorTabToPane(activePane.activeEditorTabId, activePane.id, targetPane.id)
   return true
 }
