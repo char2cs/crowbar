@@ -71,6 +71,15 @@ type Subscriber interface {
 		messageID string,
 		text string,
 	)
+	// PushAgentChatCompaction receives the live compact_pre/compact_post edge —
+	// a fact the ledger's own interruption record cannot carry live (see
+	// hub.BroadcastAgentChatCompaction's own doc comment). active is the whole
+	// answer both ways round: true on compact_pre, false on compact_post.
+	PushAgentChatCompaction(
+		chatID string,
+		workspaceID string,
+		active bool,
+	)
 	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
 	// (folder_created/folder_updated/folder_deleted). It carries the folder id and
 	// nothing else: the Chats socket is a bare event feed with no snapshot, so a

@@ -145,16 +145,25 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
   })
 
-  // Compaction rides the same interruption channel as a permission wait, but
-  // it isn't blocked on a PERSON — unlike every other interruption kind above,
-  // it keeps the working line instead of going quiet.
+  // Compaction is not a wait on a PERSON, unlike every other interruption kind
+  // above — it keeps the working line instead of going quiet. Driven by
+  // `compactingLive`, NEVER by `activity`: a compaction's ledger interruption
+  // record is born already resolved (a bare /compact prompt never opens a
+  // tracked turn), so `blockedOn(activity)` can never observe one open — this
+  // prop is the only thing that can turn this branch on in production.
   it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
-      />,
-    )
+    render(<WorkingLine working activity={NO_ACTIVITY} compactingLive />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  })
+
+  // An explicit /compact never opens a tracked turn (it is delivered as a
+  // bare prompt the CLI never confirms via user_prompt), so `working` stays
+  // FALSE for the entire compaction — live-confirmed on dev-desktop. Gating
+  // on `working` alone would hide this branch for exactly the case it exists
+  // to cover.
+  it('shows Compacting even when working is false — a /compact never opens a tracked turn', () => {
+    render(<WorkingLine working={false} activity={NO_ACTIVITY} compactingLive />)
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
@@ -163,12 +172,26 @@ describe('WorkingLine', () => {
     render(
       <WorkingLine
         working
-        activity={activity({
-          interruptions: [interruption({ kind: 'compaction' })],
-          toolCalls: [tool()],
-        })}
+        activity={activity({ toolCalls: [tool()] })}
+        compactingLive
       />,
     )
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  // The ledger's own compaction interruption is dead weight for this branch —
+  // it is ALWAYS already resolved by the time anything reads it, so it must
+  // never be able to turn the compacting branch on by itself.
+  it('does not compact off a ledger interruption alone — the ledger record is always already resolved', () => {
+    const { container } = render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
+      />,
+    )
+    // An unresolved ledger interruption of any kind (this one included) blocks
+    // the working line, same as the permission case above — proving nothing
+    // here silently "worked" by accident.
+    expect(container).toBeEmptyDOMElement()
   })
 })

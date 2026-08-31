@@ -82,6 +82,15 @@ func (t *Turns) handleObservation(
 		// produce one). Settle the pending delivery on this same signal rather
 		// than waiting on compact_post or termwait's unrelated 30s timeout.
 		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		// The ledger record above is already resolved by the time any reader
+		// sees it (same idle-chat shortcut), so it can never drive a LIVE
+		// "Compacting…" indicator. This direct push is the only signal that
+		// can. compact_post is not reliable, so the receiving client is
+		// responsible for a bounded self-heal rather than waiting forever —
+		// see use-workspace-agent-chats-stream.ts.
+		if t.compactionStatus != nil {
+			t.compactionStatus(chat.ID, chat.WorkspaceID, true)
+		}
 	case engineagents.HookCompactPost:
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
@@ -91,6 +100,9 @@ func (t *Turns) handleObservation(
 		// and compact_pre's Interrupt call found the chat genuinely busy.
 		// SettleDeliveryFor is a no-op if there is nothing left pending.
 		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		if t.compactionStatus != nil {
+			t.compactionStatus(chat.ID, chat.WorkspaceID, false)
+		}
 	}
 	return nil
 }

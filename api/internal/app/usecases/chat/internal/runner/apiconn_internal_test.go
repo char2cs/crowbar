@@ -44,6 +44,8 @@ func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error
 
 func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
 
+func (noopTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+
 func (noopTurns) MatchTerminalPrompt(
 	context.Context, string, string,
 ) (engineagents.TerminalPrompt, bool) {

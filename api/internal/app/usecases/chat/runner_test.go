@@ -3859,7 +3859,7 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record)
+	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil)
 
 	post := func(index int, final bool, text string) {
 		t.Helper()

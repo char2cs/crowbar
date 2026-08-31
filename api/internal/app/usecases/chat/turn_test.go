@@ -152,6 +152,37 @@ func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
+// TestObservation_CompactionPushesTheLiveEdgeDirectly pins the fix for the live
+// "Compacting…" indicator: the ledger's own interruption record for a
+// compaction is born already resolved (TestObservation_ACompactionOpensAndResolvesTheSameRecord,
+// above — no turn is ever open for a bare-prompt /compact, so
+// commands.Interrupt's idle-chat handling resolves it in the SAME event that
+// creates it), so nothing reading that record can ever observe a live
+// "in progress" window. This is what makes the direct compactionStatus push
+// necessary at all: it is the ONLY place "compaction just started" and
+// "compaction just ended" are each observable as their own moment.
+func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
+	f := newFixture(t)
+	_, runnerID := f.spawn(t, "claude")
+
+	var mu sync.Mutex
+	var calls []bool
+	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, nil,
+		func(_, _ string, active bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, active)
+		})
+
+	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
+	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []bool{true, false}, calls,
+		"compact_pre must push active=true and compact_post must push active=false, in order")
+}
+
 func TestObservation_SessionEndRecordsNothingOfItsOwn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")

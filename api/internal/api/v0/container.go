@@ -367,6 +367,26 @@ func (c *Container) PushAgentChatMessageDelta(
 	})
 }
 
+// PushAgentChatCompaction implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other conversation fact.
+// active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
+// own doc comment for why two kinds and no extra field.
+func (c *Container) PushAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	kind := dto.AgentChatKindCompactionStopped
+	if active {
+		kind = dto.AgentChatKindCompactionStarted
+	}
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        kind,
+	})
+}
+
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle
 // event (folder_created/folder_updated/folder_deleted) out on the SAME
 // workspace-scoped agent-chat WebSocket as PushAgentChat — one feed for "what

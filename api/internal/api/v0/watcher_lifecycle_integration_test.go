@@ -133,6 +133,8 @@ func (fileProbe) PushAgentChatPromptSettled(_, _, _ string) {}
 
 func (fileProbe) PushAgentChatMessageDelta(_, _, _, _ string) {}
 
+func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
+
 func (fileProbe) PushAgentRunner(_, _, _, _ string) {}
 
 func (p fileProbe) PushFile(

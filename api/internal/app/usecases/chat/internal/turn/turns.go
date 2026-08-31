@@ -72,6 +72,19 @@ type Turns struct {
 	// in a daemon with no detector.
 	messageDelta func(chatID, workspaceID, messageID, text string)
 
+	// compactionStatus fans the live compact_pre/compact_post edge out to any
+	// client watching, the same way messageDelta fans out a growing message.
+	// It exists as its own direct push rather than riding the ledger's
+	// interruption record: a /compact is always delivered as a bare prompt
+	// that never opens a tracked turn (compact.go), which means
+	// commands.Interrupt's own idle-chat handling marks the ledger record
+	// resolved in the SAME event that creates it — there is no window, live
+	// or polled, in which the ledger says "open". See observation.go's
+	// HookCompactPre/HookCompactPost cases, which call this ALONGSIDE the
+	// (still-needed, for the retroactive divider) ledger calls, never instead
+	// of them. Wired at sweep start, same reasoning as messageDelta.
+	compactionStatus func(chatID, workspaceID string, active bool)
+
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
 	// self-releasing channel wait, not a lock another path can hold — it never
@@ -154,6 +167,13 @@ func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout 
 // the message when it finishes instead.
 func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
 	t.messageDelta = fn
+}
+
+// SetCompactionStatus wires the fan-out for the live compact_pre/compact_post
+// edge. Called at sweep start, same as SetMessageDelta: a daemon with nobody
+// to publish to just skips the call (see observation.go), never panics.
+func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
+	t.compactionStatus = fn
 }
 
 // SetHookDeliveries replaces the exactly-once ingress journal. It exists for the

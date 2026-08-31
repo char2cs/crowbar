@@ -118,6 +118,10 @@ type Turns interface {
 	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
 	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
+	// SetCompactionStatus wires the live compact_pre/compact_post fan-out at
+	// sweep start — see turn.Turns.SetCompactionStatus's own doc comment for
+	// why this cannot ride the ledger's interruption record.
+	SetCompactionStatus(fn func(chatID, workspaceID string, active bool))
 	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
 	// yet-final message before closeAbandonedTurn tears its turn down — see
 	// its own doc comment for why the runner must be named explicitly rather

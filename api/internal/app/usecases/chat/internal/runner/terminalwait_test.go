@@ -63,6 +63,8 @@ func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error
 
 func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
 
+func (stubTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+
 func (stubTurns) MatchTerminalPrompt(
 	context.Context, string, string,
 ) (engineagents.TerminalPrompt, bool) {
@@ -100,7 +102,7 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
 	// And the sweep is a no-op rather than a nil dereference.
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil)
 }
 
 // A terminal that CAN render a screen gets a detector, built by SetTurns because
@@ -126,7 +128,7 @@ func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _ string) {})
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _ string) {}, nil)
 
 	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
 }
@@ -138,6 +140,32 @@ type deltaRecordingTurns struct {
 
 func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
 	d.wired = fn != nil
+}
+
+// StartTerminalWaitSweep wires compactionStatus BEFORE it checks for a
+// detector too, for the same reason messageDelta is: a daemon with no
+// detector still needs to tell its chat UI a compaction is in progress, and
+// dropping the wiring on that path is invisible until a user watches a
+// compaction that never shows.
+func TestStartTerminalWaitSweep_WiresCompactionStatusEvenWithNoDetector(t *testing.T) {
+	t.Parallel()
+
+	turns := &compactionRecordingTurns{}
+	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
+	rs.SetTurns(turns)
+
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, func(_, _ string, _ bool) {})
+
+	require.True(t, turns.wired, "a daemon with no detector still has compaction status to publish")
+}
+
+type compactionRecordingTurns struct {
+	stubTurns
+	wired bool
+}
+
+func (c *compactionRecordingTurns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
+	c.wired = fn != nil
 }
 
 // ─── from termwait_live_test.go (real PTY) ────────────────────

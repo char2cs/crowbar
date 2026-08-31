@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
 // Hoisted fakes — must be declared before any vi.mock calls.
@@ -15,6 +15,7 @@ const {
   removeAgentChat,
   setAgentChatWorking,
   setAgentChatTerminalWait,
+  setAgentChatCompacting,
   setAgentChatStreamingMessage,
   setAgentProviders,
   hydrateAgentChatOrder,
@@ -35,6 +36,7 @@ const {
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
   setAgentChatTerminalWait: vi.fn(),
+  setAgentChatCompacting: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
@@ -58,6 +60,11 @@ type Chat = {
 let buffers: Buf[] = []
 let storeChats: Chat[] = []
 let storeProviders: Array<{ id: string; displayName: string; icon: string }> = []
+// Mutated by the setAgentChatCompacting mock below, the same way storeChats is
+// mutated by seedAgentChats/upsertAgentChat — the hook's own self-heal check
+// READS this back (any other frame arriving while a chat is marked compacting
+// clears it), so a write-only spy would not exercise that path at all.
+let storeCompacting: Record<string, boolean> = {}
 // The pane holding those buffers. Closing a chat tab must go through the pane
 // (removeBufferFromPane) before the buffer is dropped, or the pane is left with a
 // dangling activeBufferId and renders its EMPTY state — a live bug: deleting the
@@ -92,7 +99,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
-      agentChats: { chats: storeChats, providers: storeProviders },
+      agentChats: { chats: storeChats, providers: storeProviders, compacting: storeCompacting },
       seedAgentChats,
       notifyAgentChatMessages,
       seedAgentChatFolders,
@@ -100,6 +107,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       removeAgentChat,
       setAgentChatWorking,
       setAgentChatTerminalWait,
+      setAgentChatCompacting,
       setAgentChatStreamingMessage,
       setAgentProviders,
       hydrateAgentChatOrder,
@@ -167,6 +175,11 @@ beforeEach(() => {
   activatePaneBuffer.mockClear()
   storeChats = []
   storeProviders = []
+  storeCompacting = {}
+  setAgentChatCompacting.mockImplementation((chatId: string, active: boolean) => {
+    if (active) storeCompacting[chatId] = true
+    else delete storeCompacting[chatId]
+  })
   // The real slices mutate; model that, so the hook's own reads (the vanished-chat
   // diff, the runner→chat lookup, the idempotence of a repeated frame) see a
   // faithful before/after rather than a frozen fixture.
@@ -1396,4 +1409,104 @@ it('does not refetch the chat for a terminal_wait frame', () => {
   })
 
   expect(getChatFn).not.toHaveBeenCalled()
+})
+
+// ── compaction_started / compaction_stopped: the live "Compacting…" edge ──
+//
+// The ledger's own interruption record for a compaction is born already
+// resolved (a bare /compact prompt never opens a tracked turn), so these two
+// frames are the ONLY place "in progress" is ever observable — see
+// AgentChatsState.compacting's doc comment. compact_post is not reliable, so
+// this is self-healed two ways: any OTHER chat frame arriving while marked
+// compacting clears it (primary), and a bounded client timeout clears it if
+// the chat goes silent altogether (backstop).
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+it('marks the chat compacting on compaction_started', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+
+  expect(setAgentChatCompacting).toHaveBeenCalledWith('c1', true)
+})
+
+it('clears compacting on compaction_stopped', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_stopped' })
+
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// This is the PRIMARY self-heal path, and the one that matters most in
+// practice: compact_post rarely arrives, but the next real thing that
+// happens to the chat (a turn starting, in this test) always does.
+it('self-heals off ANY other chat frame when compact_post never arrives', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // No compaction_stopped ever arrives — instead, ordinary chat life resumes.
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started', working: true })
+
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// A frame for a DIFFERENT chat must never clear c1's own compacting state —
+// self-heal is scoped per chat, same as every other map in this store.
+it('does not self-heal off a frame for a different chat', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c2', workspaceId: 'w1', kind: 'turn_started', working: true })
+
+  expect(setAgentChatCompacting).not.toHaveBeenCalledWith('c1', false)
+})
+
+// The non-negotiable backstop: a chat that goes completely silent after
+// compaction_started — no compaction_stopped, no other frame, nothing —
+// must not show "Compacting…" forever. Without this, the exact bug that
+// produced the live report (nothing ever showing) is replaced by a WORSE
+// one: something shows, and then never stops.
+it('self-heals on a bounded timeout when the chat goes silent altogether', () => {
+  vi.useFakeTimers()
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // Comfortably short of the timeout: still compacting as far as this client knows.
+  vi.advanceTimersByTime(30_000)
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // Past it: the backstop fires on its own, with no frame ever telling it to.
+  vi.advanceTimersByTime(31_000)
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// A compaction that legitimately finishes in time must not ALSO fire the
+// backstop later — that would be a spurious extra write, and on a chat that
+// started a new compaction in the meantime it would incorrectly clear that
+// new one.
+it('cancels the timeout once compaction_stopped arrives in time', () => {
+  vi.useFakeTimers()
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_stopped' })
+  setAgentChatCompacting.mockClear()
+
+  vi.advanceTimersByTime(120_000)
+
+  expect(setAgentChatCompacting).not.toHaveBeenCalled()
 })

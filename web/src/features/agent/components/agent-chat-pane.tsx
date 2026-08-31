@@ -199,6 +199,9 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
   const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
+  // Live mid-compaction, from the direct WS push — never derived from
+  // `activity`. See AgentChatsState.compacting's own doc comment for why.
+  const compacting = useStore(store, (s) => s.agentChats.compacting[shownChatId] ?? false)
   const turnRevision = useStore(store, (s) => s.agentChats.turnRevision[shownChatId] ?? 0)
   const title = useStore(
     store,
@@ -995,6 +998,7 @@ export function AgentChatPane({
               onSwitchProvider={handleSwitch}
               switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
               working={working}
+              compacting={compacting}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
               revival={revival}

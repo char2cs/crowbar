@@ -25,6 +25,13 @@ type fakeSubscriber struct {
 
 	agentChatFolders []agentChatFolderPush
 	agentChatWaits   []agentChatWaitPush
+	agentCompactions []agentCompactionPush
+}
+
+type agentCompactionPush struct {
+	chatID      string
+	workspaceID string
+	active      bool
 }
 
 type agentChatWaitPush struct {
@@ -130,6 +137,16 @@ func (f *fakeSubscriber) PushAgentChatTerminalWait(
 
 func (f *fakeSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
 func (f *fakeSubscriber) PushAgentChatMessageDelta(_, _, _, _ string) {}
+
+func (f *fakeSubscriber) PushAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	f.agentCompactions = append(f.agentCompactions, agentCompactionPush{
+		chatID: chatID, workspaceID: workspaceID, active: active,
+	})
+}
 
 func (f *fakeSubscriber) PushAgentChatFolder(
 	folderID string,
@@ -318,6 +335,29 @@ func TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers(t *te
 	assert.Equal(t,
 		agentChatWaitPush{chatID: "c1", workspaceID: "w1", wait: nil},
 		a.agentChatWaits[0])
+}
+
+// TestHub_BroadcastAgentChatCompaction_FansOut proves the live compaction edge
+// reaches every registered subscriber intact, both ways round — this is the
+// frame the "Compacting…" indicator has to key off, since the ledger's own
+// interruption record for a compaction is born already resolved and can never
+// drive it (see the doc comment on BroadcastAgentChatCompaction).
+func TestHub_BroadcastAgentChatCompaction_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatCompaction("c1", "w1", true)
+	h.BroadcastAgentChatCompaction("c1", "w1", false)
+
+	want := []agentCompactionPush{
+		{chatID: "c1", workspaceID: "w1", active: true},
+		{chatID: "c1", workspaceID: "w1", active: false},
+	}
+	assert.Equal(t, want, a.agentCompactions)
+	assert.Equal(t, want, b.agentCompactions)
 }
 
 // TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries

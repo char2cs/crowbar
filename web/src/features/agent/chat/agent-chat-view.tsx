@@ -9,7 +9,6 @@ import {
 } from '@/features/agent/api/agent-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
-import { blockedOn } from '@/features/agent/lib/agent-activity'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
@@ -53,6 +52,12 @@ export interface AgentChatViewProps {
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   working: boolean
+  /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
+   *  doc for why this cannot be derived from `activity`. Feeds both the
+   *  transcript's WorkingLine and the composer's own compacting state — one
+   *  live source for both, where each used to read (or, for the composer,
+   *  still needs) the ledger's permanently-dead-for-this interruption. */
+  compacting?: boolean
   /** Increments for every lifecycle frame, including a batched fast turn. */
   turnRevision: number
   live: boolean
@@ -133,6 +138,7 @@ export function AgentChatView({
   onSwitchProvider,
   switchDisabled,
   working,
+  compacting = false,
   turnRevision,
   live,
   revival,
@@ -310,10 +316,6 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  // Compaction reaches the client as an unresolved interruption today and as a
-  // chat work-state once the backend's inbound half lands. Reading the
-  // interruption keeps this correct in both worlds — the state is additive.
-  const compacting = blockedOn(activity)?.kind === 'compaction'
   // Where the transcript draws its compaction rules. Interruptions and messages
   // share ONE sequence space, so the boundary is simply the first message whose
   // sequence is past the compaction's.
@@ -554,6 +556,7 @@ export function AgentChatView({
       // person" check — excluding it here too used to be the only thing
       // silencing it, and would make that carve-out unreachable.
       working={working}
+      compacting={compacting}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}

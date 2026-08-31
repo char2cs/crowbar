@@ -35,6 +35,9 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   activity: AgentActivity
   working: boolean
+  /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
+   *  doc for why this cannot come from `activity`. */
+  compacting?: boolean
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -464,6 +467,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           activity={props.activity}
           working={props.working}
           since={messages.at(-1)?.at}
+          compactingLive={props.compacting}
         />
       </div>
     </div>

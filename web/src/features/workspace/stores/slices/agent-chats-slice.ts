@@ -96,6 +96,19 @@ export interface AgentChatsState {
    */
   terminalWaits: Record<string, AgentTerminalWait>
   /**
+   * Which chats are LIVE mid-compaction right now, keyed by chat id. PRESENCE
+   * is the verdict, same convention as terminalWaits.
+   *
+   * Driven ENTIRELY by the `compaction_started`/`compaction_stopped` WS
+   * frames (use-workspace-agent-chats-stream.ts) — never by the ledger's own
+   * interruption record. That record is born already resolved (a bare
+   * /compact prompt never opens a tracked turn), so it can never answer "is
+   * one happening right now"; only the live push can. The stream also
+   * self-heals this on any other lifecycle frame and a bounded timeout,
+   * because compact_post is not reliable — see the stream's own comments.
+   */
+  compacting: Record<string, boolean>
+  /**
    * Client request ids the daemon has reported as SETTLED: delivered to a CLI,
    * and over, without ever having produced a turn.
    *
@@ -166,6 +179,10 @@ export interface AgentChatsSlice {
    * when somebody answers the dialog at the terminal or the CLI dies behind it.
    */
   setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
+  /** Write — or clear, with false — whether a chat is LIVE mid-compaction
+   *  right now. See AgentChatsState.compacting for why this must never be
+   *  derived from the ledger. */
+  setAgentChatCompacting: (chatId: string, active: boolean) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
   /** Upsert (by id) one message a chat is mid-way through saying, or clear
@@ -214,6 +231,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
   terminalWaits: {},
+  compacting: {},
   settledPrompts: {},
   streamingMessages: {},
   turnRevision: {},
@@ -388,6 +406,7 @@ export const createAgentChatsSlice: StateCreator<
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
       delete s.agentChats.terminalWaits[chatId]
+      delete s.agentChats.compacting[chatId]
       delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.turnRevision[chatId]
@@ -407,6 +426,12 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       if (wait) s.agentChats.terminalWaits[chatId] = wait
       else delete s.agentChats.terminalWaits[chatId]
+    }),
+
+  setAgentChatCompacting: (chatId, active) =>
+    set((s) => {
+      if (active) s.agentChats.compacting[chatId] = true
+      else delete s.agentChats.compacting[chatId]
     }),
 
   setAgentChatPromptSettled: (chatId, clientRequestId) =>

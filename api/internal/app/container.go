@@ -457,6 +457,9 @@ func startTerminalWaitSweep(
 		func(chatID, workspaceID, messageID, text string) {
 			h.BroadcastAgentChatMessageDelta(chatID, workspaceID, messageID, text)
 		},
+		func(chatID, workspaceID string, active bool) {
+			h.BroadcastAgentChatCompaction(chatID, workspaceID, active)
+		},
 	)
 }
 

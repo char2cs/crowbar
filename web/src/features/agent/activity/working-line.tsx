@@ -17,6 +17,18 @@ interface WorkingLineProps {
   working: boolean
   /** When the current turn started, for the elapsed clock. */
   since?: string
+  /**
+   * Is this chat LIVE mid-compaction right now — from the direct WS push
+   * (use-workspace-agent-chats-stream.ts), never from `activity`.
+   *
+   * The ledger's own interruption record for a compaction is born already
+   * resolved (a bare /compact prompt never opens a tracked turn, so
+   * commands.Interrupt's idle-chat handling resolves it in the SAME event
+   * that creates it), so `blockedOn(activity)` can never observe an open
+   * compaction window — reading it for this would be permanently dead code.
+   * This prop is the only authoritative "is it happening right now" answer.
+   */
+  compactingLive?: boolean
 }
 
 /**
@@ -30,16 +42,20 @@ interface WorkingLineProps {
  * an answer is not working, and saying otherwise is how a blocked agent came to
  * look busy.
  */
-export function WorkingLine({ activity, working, since }: WorkingLineProps) {
+export function WorkingLine({ activity, working, since, compactingLive }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
 
-  // Compaction rides the same interruption channel as a permission wait, but
-  // it isn't blocked on a PERSON — it's the CLI's own housekeeping, and it's a
+  // Compaction is the CLI's own housekeeping, not a wait on a PERSON, and a
   // specific, known operation rather than the vague busywork the rotating
   // verb list exists for. Fixed at "Compacting" instead.
+  //
+  // Sourced from the live push, NEVER from `activity`: a compaction's ledger
+  // record is born already resolved (see this prop's own doc comment), so
+  // `blockedOn(activity)?.kind === 'compaction'` can never be true — it would
+  // be permanently dead code, not a fallback.
   const interruption = blockedOn(activity)
-  const compacting = interruption?.kind === 'compaction'
+  const compacting = compactingLive === true
 
   useEffect(() => {
     if (!working || compacting) {
@@ -70,7 +86,12 @@ export function WorkingLine({ activity, working, since }: WorkingLineProps) {
   // answer has to happen in a terminal does not make this a turn in flight.
   // Compaction is the one interruption kind that doesn't apply here.
   const blocked = pendingChoices(activity).length > 0 || (interruption !== null && !compacting)
-  if (!working || blocked) return null
+  // `working` is turn-dispatch state and stays FALSE for a /compact — it never
+  // opens a tracked turn (see compactingLive's own doc comment) — so gating
+  // on `working` alone would hide this branch for the exact case it exists
+  // to cover. Compacting is its own "there is something to show" condition,
+  // independent of whether a turn happens to be open too.
+  if ((!working && !compacting) || blocked) return null
   // Compaction isn't a tool call — nothing to enumerate under it.
   const tools = compacting ? [] : runningTools(activity)
 
