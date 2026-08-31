@@ -17,6 +17,7 @@ import {
   TablePlugin,
   TableRowPlugin,
 } from '@platejs/table/react'
+import { ChatFloatingToolbarKit } from '@/features/agent/composer/plate/chat-floating-toolbar-kit'
 import { HtmlKit } from '@/features/editor/markdown/plate/html-node'
 import { MarkdownImageKit } from '@/features/editor/markdown/plate/markdown-image-node'
 import { calloutMarkdownRules } from '@/features/editor/markdown/plate/markdown-callout-rules'
@@ -56,10 +57,15 @@ import {
  * - `MathKit` — katex is ~280 KB of library and stylesheet, imported at module
  *   scope. A prompt that types `$x$` means it literally, and the agent reads the
  *   characters either way.
- * - `BlockMenuKit`, `BlockPlaceholderKit`, `FloatingToolbarKit` — drag handles,
- *   a "type / for commands" hint that would be a lie here, and a selection
- *   toolbar. Page-editor furniture on a box that is usually one line; the
- *   markdown input rules already produce every block this set registers.
+ * - `BlockMenuKit`, `BlockPlaceholderKit` — drag handles and a "type / for
+ *   commands" hint that would be a lie here. Page-editor furniture on a box
+ *   that is usually one line.
+ *
+ * `ChatFloatingToolbarKit` (not the file editor's `FloatingToolbarKit`) IS
+ * registered — a selection toolbar earns its place once there's a selection
+ * to make, whether that's a one-line prompt or the empty-document surface.
+ * It's the comment editor's button set (no inline-equation button — no
+ * `MathKit` here either), not the full editor's.
  *
  * Table and code-block nodes use the COMMENT editor's minimal components rather
  * than the file editor's, which pull `createLowlight(all)`, cmdk and a Radix
@@ -87,6 +93,7 @@ export const chatComposerPlugins = [
     shortcuts: { toggle: { keys: 'mod+alt+8' } },
   }),
   CodeLinePlugin.withComponent(CommentCodeLineElement),
+  ...ChatFloatingToolbarKit,
   // Renders the streaming transcript's fade-in. Inert everywhere else: the
   // mark it looks for is set only by streaming-value-patch.ts, so it never
   // fires in the composer or on a recorded, non-streaming message.
@@ -109,12 +116,21 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
   [CalloutPlugin.key]: CalloutKitStatic[0],
 }
 
+// `PlateStatic` still renders `render.afterEditable` (see @platejs/core's
+// static build) even though there's no selection to make one for — a settled
+// message would otherwise crash on `FloatingToolbar`'s `useEditorId()`, which
+// requires an interactive `Plate`/`PlateController` that static rendering
+// never provides. Dropped here, not swapped, because there's no static
+// equivalent of a selection toolbar.
+const STATIC_EXCLUDED_KEYS = new Set(ChatFloatingToolbarKit.map((plugin) => plugin.key))
+
 /**
  * `chatComposerPluginsStatic`, derived — not hand-duplicated. A plugin added above
  * flows through automatically; only registered exceptions (Link's toolbar,
  * Callout's icon picker — both need an interactive editor, neither is a
- * content difference, see callout-content.tsx/link-kit.tsx) get swapped.
+ * content difference, see callout-content.tsx/link-kit.tsx) get swapped, and
+ * `ChatFloatingToolbarKit` gets dropped entirely (see STATIC_EXCLUDED_KEYS).
  */
-export const chatComposerPluginsStatic = chatComposerPlugins.map(
-  (plugin) => STATIC_NODE_OVERRIDES[plugin.key] ?? plugin,
-)
+export const chatComposerPluginsStatic = chatComposerPlugins
+  .filter((plugin) => !STATIC_EXCLUDED_KEYS.has(plugin.key))
+  .map((plugin) => STATIC_NODE_OVERRIDES[plugin.key] ?? plugin)
