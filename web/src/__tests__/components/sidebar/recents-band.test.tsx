@@ -150,6 +150,97 @@ describe('RecentsBand', () => {
     expect(shell.className).toMatch(/bg-sidebar-element-idle/)
   })
 
+  // Regression coverage for the doubled-margin bug: `SidebarRow` (via
+  // `ROW_BASE`) already carries `mx-1.5 my-0.5 h-9` on every row it renders,
+  // tree rows and Recents rows alike. RecentsEntryRow's own outer wrapper
+  // used to ALSO apply `mx-1.5 my-0.5` (plus a `p-0.5` shell) around a lone
+  // live entry, stacking a second copy of that margin/padding on top of the
+  // row's own — a live entry rendered ~8px taller and ~8px narrower than a
+  // real tree row despite the row's own `data-testid="recents-row-…"`
+  // element still measuring exactly `h-9` on its own (the mismatch the
+  // previous investigator missed by checking only that one element).
+  // `className` assertions here check the actual rendered box-model classes
+  // on BOTH the outer wrapper and the inner row — not just that a row is
+  // present — so a doubled margin/padding regresses this test even though
+  // every element still renders and every earlier test above still passes.
+  function classesOf(el: Element): string[] {
+    return el.className.split(/\s+/).filter(Boolean)
+  }
+
+  it('a lone live entry does not double SidebarRow’s own margin on its shell wrapper', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'live',
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const rowWrapper = screen.getByTestId('recents-row-chat-1')
+    const shellWrapper = rowWrapper.parentElement!
+
+    // The shell takes over SidebarRow's own outer margin exactly once...
+    expect(classesOf(shellWrapper)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5']))
+    // ...and does NOT also reach for a set's padded/larger-radius shell — a
+    // lone entry has nothing to group, so it should be pixel-for-pixel a
+    // tree row's own footprint (spec §5.2: "exactly as in the tree"), not a
+    // shell inflated by an extra 2px of padding on every edge.
+    expect(classesOf(shellWrapper)).not.toContain('p-0.5')
+    expect(classesOf(shellWrapper)).not.toContain('rounded-xl')
+
+    // ...and the row's own wrapper cancels SidebarRow's redundant instance
+    // of that same margin, so the net applied margin is the shell's alone.
+    expect(classesOf(rowWrapper)).toEqual(expect.arrayContaining(['-mx-1.5', '-my-0.5']))
+  })
+
+  it('a dormant entry keeps SidebarRow’s own margin as the ONLY margin (no shell, nothing to cancel)', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const rowWrapper = screen.getByTestId('recents-row-chat-1')
+    const outerWrapper = rowWrapper.parentElement!
+
+    expect(classesOf(outerWrapper)).not.toContain('mx-1.5')
+    expect(classesOf(outerWrapper)).not.toContain('my-0.5')
+    expect(classesOf(rowWrapper)).not.toContain('-mx-1.5')
+    expect(classesOf(rowWrapper)).not.toContain('-my-0.5')
+  })
+
+  it('a set shell does not re-add the margin its members already carry, but each member keeps its own (the pill separation §5.3 asks for)', () => {
+    const entries: RecentsBandEntry[] = [
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        workspaceId: 'ws-1',
+      },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = screen.getByTestId('recents-set-e1')
+
+    // The shell's own `mx-1.5 my-0.5` was pure dead weight (every member
+    // already carries it via ROW_BASE) — gone now, only the real 2px padding
+    // shell (§5.3) remains.
+    expect(classesOf(shell)).not.toContain('mx-1.5')
+    expect(classesOf(shell)).not.toContain('my-0.5')
+    expect(classesOf(shell)).toContain('p-0.5')
+    expect(classesOf(shell)).toContain('rounded-xl')
+
+    // Members are NOT solo-active — each keeps its own uncancelled margin,
+    // which is what visually separates one member's pill from the next.
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      const member = screen.getByTestId(rowId)
+      expect(classesOf(member)).not.toContain('-mx-1.5')
+      expect(classesOf(member)).not.toContain('-my-0.5')
+    }
+  })
+
   it('reserves room for the close control so a long title truncates before it, not under it', () => {
     // A title long enough to truncate right at the row's edge is the realistic
     // case where an unreserved close button would draw over the last

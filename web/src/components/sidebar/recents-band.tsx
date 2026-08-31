@@ -174,14 +174,32 @@ function RecentsEntryRow({
   // §5.4: every row has a close control except the working one. There is
   // nothing left to close, and that absence is the "still running" signal.
   const canClose = entry.state !== 'working'
+  // A lone live entry has no one to be grouped WITH — it doesn't need a set's
+  // shell (§5.3's padded "ground" exists to hold multiple pills apart), it
+  // just needs to BE the active row, pixel-for-pixel the tree's own footprint
+  // (§5.2: "exactly as in the tree"). `SidebarRow`'s own `ROW_BASE` already
+  // carries the row's real `mx-1.5 my-0.5 h-9` — mirroring the same classes
+  // on THIS wrapper too used to stack a second, visible margin/padding on top
+  // of it (a live entry rendered ~8px taller and ~8px narrower than a tree
+  // row — the bug this file was patched for). The member below cancels
+  // `ROW_BASE`'s own margin with an equal negative one exactly when this
+  // wrapper is the one taking over that spacing, so the net is applied once.
+  const soloActive = !isSet && isLive
 
   return (
     <div
       className={cn(
         'group relative',
-        isSet && 'mx-1.5 my-0.5 rounded-xl p-0.5',
+        // A SET's shell is a real container (§5.3): its own ground, radius,
+        // and 2px of padding around member rows that each keep their own
+        // margin — that's what separates one member's pill from the next.
+        // Only the shell's OWN `mx-1.5 my-0.5` was ever redundant here (every
+        // member already carries that same margin via `ROW_BASE`, and
+        // adjoining vertical margins collapse regardless, so the shell's copy
+        // added nothing but a stray, un-collapsible horizontal inset).
+        isSet && 'rounded-xl p-0.5',
         isSet && (isLive ? ROW_ACTIVE : 'bg-sidebar-element-idle'),
-        !isSet && isLive && cn('mx-1.5 my-0.5 rounded-xl p-0.5', ROW_ACTIVE),
+        soloActive && cn('mx-1.5 my-0.5 rounded-lg', ROW_ACTIVE),
       )}
       data-testid={isSet ? `recents-set-${entry.id}` : undefined}
     >
@@ -192,6 +210,7 @@ function RecentsEntryRow({
           chatId={chatId}
           hasView={isLive}
           reserveClose={canClose}
+          cancelOwnMargin={soloActive}
           onOpen={() => onFocus(entry)}
           drag={drag}
           registerRow={registerRow}
@@ -222,6 +241,7 @@ function RecentsMemberRow({
   chatId,
   hasView,
   reserveClose,
+  cancelOwnMargin,
   onOpen,
   drag,
   registerRow,
@@ -234,6 +254,15 @@ function RecentsMemberRow({
    *  room for it (see RECENTS_ROW_CLOSE_RESERVE) so a long title truncates
    *  before it, not before SidebarRow's own narrower built-in inset. */
   reserveClose: boolean
+  /** Set only for a lone live entry (`RecentsEntryRow`'s `soloActive`), whose
+   *  OWN wrapper takes over `SidebarRow`'s `mx-1.5 my-0.5` to become the row's
+   *  one active surface. `SidebarRow` always carries that margin itself too
+   *  (shared with the tree, can't opt out per-caller) — left uncancelled here
+   *  it would stack a second copy on top of the wrapper's, rendering the row
+   *  visibly bigger/narrower than a tree row. A SET's members deliberately
+   *  keep their own margin (uncancelled) — that's what separates one
+   *  member's pill from the next inside the shell (§5.3). */
+  cancelOwnMargin?: boolean
   onOpen: () => void
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
@@ -266,7 +295,7 @@ function RecentsMemberRow({
   return (
     <div
       data-testid={`recents-row-${chat.id}`}
-      className={cn(reserveClose && RECENTS_ROW_CLOSE_RESERVE)}
+      className={cn(reserveClose && RECENTS_ROW_CLOSE_RESERVE, cancelOwnMargin && '-mx-1.5 -my-0.5')}
     >
       <SidebarRow
         row={row}
