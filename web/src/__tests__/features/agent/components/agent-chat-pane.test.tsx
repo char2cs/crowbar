@@ -4,12 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
-import type { AgentChatContent } from '@/features/panes/types/pane-content'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { nanoid } from 'nanoid'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
 const {
@@ -278,12 +277,43 @@ function deferred<T>() {
 }
 
 // ── Harness ──────────────────────────────────────────────────────────
-// The REAL workspace store, so the pane's repoint writes land on a real buffer.
-// PaneHost is exactly what pane-container does: read the buffer, feed its
-// chatId/runnerId back in as props. That closes the loop the feature IS — the
-// buffer is the pane's moving target, and the pane is what moves it.
+// Task 26 fix round 1 (I6): buffers are window-level now (windowPaneStore),
+// not part of the per-workspace store `seedWorkspace` returns. PaneHost is
+// exactly what pane-container does: read the buffer, feed its
+// chatId/runnerId back in as props. That closes the loop the feature IS —
+// the buffer is the pane's moving target, and the pane is what moves it.
+//
+// The 'agentChat' buffer type this harness constructs was retired from
+// PaneContent's own union by an EARLIER task (Task 1) — no production code
+// path can build one through the typed `bufferActions.openContent` API any
+// more, so `openBuffer` below writes the object directly into
+// `windowPaneStore` (bypassing that API, `as unknown as PaneContent`) to
+// keep exercising `repointAgentChatBuffer`/`getBufferById`/`renameBuffer`'s
+// OWN behavior — which is generic over buffer shape and does not care how a
+// buffer got into the array. IMPORTANT CAVEAT, disclosed precisely rather
+// than left implicit: `pane-container.tsx` carries its own comment (predates
+// Task 26) stating that in REAL production usage, `AgentChatPane`'s
+// `bufferId` prop is NOT actually a companion-buffer id any more (some other
+// placeholder string is passed instead), so `repointAgentChatBuffer`/the
+// title-rename-via-buffer effect it exercises here are NOT reachable through
+// real callers today — that comment names it as a separate, already-tracked
+// follow-up task's scope ("migrate AgentChatPane onto setPaneChat/chat-level
+// rename instead of a buffer id"), not this one. This suite verifies
+// AgentChatPane's OWN internal contract correctly; it does not confirm
+// end-to-end production wiring for the buffer-mirroring assertions
+// specifically (`buffer(...)?.chatId/.runnerId/.name`).
+interface FakeAgentChatBuffer {
+  id: string
+  type: 'agentChat'
+  chatId: string
+  runnerId: string
+  wsId: string
+  name: string
+  path: string
+}
 
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
+  resetWindowPaneStoreForTests()
   const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
   store.getState().seedAgentChats(chats)
@@ -292,20 +322,29 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
-  return store.getState().bufferActions.openContent({
+function openBuffer(_store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
+  const id = nanoid()
+  const buf: FakeAgentChatBuffer = {
+    id,
     type: 'agentChat',
     chatId,
+    runnerId,
     wsId,
     name,
-    runnerId,
+    path: `agent-chat://${chatId}`,
+  }
+  windowPaneStore.setState((s) => {
+    s.buffers = [...s.buffers, buf as unknown as PaneContent]
+    return s
   })
+  return id
 }
 
 function PaneHost({ bufferId, isVisible = true }: { bufferId: string; isVisible?: boolean }) {
-  const store = useWorkspaceStore()
-  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    AgentChatContent | undefined
+  const buf = useStore(
+    windowPaneStore,
+    (s) => s.buffers.find((b) => b.id === bufferId) as unknown as FakeAgentChatBuffer | undefined,
+  )
   if (!buf) return null
   return createElement(AgentChatPane, {
     chatId: buf.chatId,
@@ -331,8 +370,10 @@ async function renderPane(store: Store, bufferId: string) {
   })
 }
 
-const buffer = (store: Store, id: string) =>
-  store.getState().buffers.find((b) => b.id === id) as AgentChatContent | undefined
+const buffer = (_store: Store, id: string) =>
+  windowPaneStore.getState().buffers.find((b) => b.id === id) as unknown as
+    | FakeAgentChatBuffer
+    | undefined
 
 // The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
 // the chat back afterwards shows the runner now on it. Tests that are about failure say

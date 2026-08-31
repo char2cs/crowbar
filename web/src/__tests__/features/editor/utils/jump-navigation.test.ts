@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 let store: ReturnType<typeof createWorkspaceStore>
 
 vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
+  // Task 26: navigateToJumpEntry reads ONLY `workspaceId` off this now —
+  // panes/buffers come from windowPaneStore (mocked normally, i.e. not
+  // mocked, below).
   getActiveWorkspaceStoreRef: () => store,
 }))
 const readWorkspaceFile = vi.fn(async (_wsId: string, _path: string) => 'reopened content')
@@ -41,39 +45,48 @@ const entryFor = (bufferId: string, filePath: string, workspaceId = 'w1') => ({
 })
 
 /**
- * The pane renders `pane.bufferIds`-derived buffers only, so an activeBufferId
- * outside that list renders a blank editor. Every navigation path must leave the
- * target buffer BOTH active and a member of the pane.
+ * The pane renders `pane.editorTabIds`-derived buffers only, so an
+ * activeEditorTabId outside that list renders a blank editor. Every
+ * navigation path must leave the target buffer BOTH active and a member of
+ * the pane. Task 26: panes/buffers are window-level now — read
+ * `windowPaneStore`, not the per-workspace `store`.
  */
 const isRenderable = (paneId: string): boolean => {
-  const pane = store.getState().panes[paneId]
-  if (!pane?.activeBufferId) return false
-  return pane.bufferIds.includes(pane.activeBufferId)
+  const pane = windowPaneStore.getState().panes[paneId]
+  if (!pane?.activeEditorTabId) return false
+  return pane.editorTabIds.includes(pane.activeEditorTabId)
+}
+
+function openInWorkspace(path: string, name: string, content: string): string {
+  return windowPaneStore.getState().bufferActions.openContent({
+    type: 'editor',
+    path,
+    name,
+    content,
+    workspaceId: store.getState().workspaceId,
+  })
 }
 
 describe('navigateToJumpEntry', () => {
   beforeEach(() => {
+    resetWindowPaneStoreForTests()
     store = createWorkspaceStore('w1')
   })
 
   it('shows the file when its tab is still open in the active pane', async () => {
-    const id = store
-      .getState()
-      .bufferActions.openContent({ type: 'editor', path: '/a.ts', name: 'a.ts', content: 'a' })
+    const id = openInWorkspace('/a.ts', 'a.ts', 'a')
 
     await navigateToJumpEntry(entryFor(id, '/a.ts'))
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeBufferId).toBe(id)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe(id)
     expect(isRenderable(ROOT_PANE_ID)).toBe(true)
   })
 
   it('shows the file after its tab was closed but the buffer survives', async () => {
-    const id = store
-      .getState()
-      .bufferActions.openContent({ type: 'editor', path: '/a.ts', name: 'a.ts', content: 'a' })
+    const id = openInWorkspace('/a.ts', 'a.ts', 'a')
     // Tab closed, buffer still in the store — jump navigation finds it by id and
     // must re-attach it to the pane, not just mark it active.
-    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, id, true)
+    windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
 
     await navigateToJumpEntry(entryFor(id, '/a.ts'))
 
@@ -84,8 +97,8 @@ describe('navigateToJumpEntry', () => {
     // Nothing open: the entry points at a buffer that no longer exists.
     await navigateToJumpEntry(entryFor('gone', '/b.ts'))
 
-    const pane = store.getState().panes[ROOT_PANE_ID]
-    const active = store.getState().buffers.find((b) => b.id === pane?.activeBufferId)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    const active = windowPaneStore.getState().buffers.find((b) => b.id === pane?.activeEditorTabId)
     expect(active?.path).toBe('/b.ts')
     expect(isRenderable(ROOT_PANE_ID)).toBe(true)
   })
@@ -95,8 +108,8 @@ describe('navigateToJumpEntry', () => {
     // returned '' — the tab reappeared with the right name and no text in it.
     await navigateToJumpEntry(entryFor('gone', '/b.ts'))
 
-    const pane = store.getState().panes[ROOT_PANE_ID]
-    const active = store.getState().buffers.find((b) => b.id === pane?.activeBufferId)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    const active = windowPaneStore.getState().buffers.find((b) => b.id === pane?.activeEditorTabId)
     expect((active as { content?: string })?.content).toBe('reopened content')
   })
 
@@ -126,24 +139,19 @@ describe('navigateToJumpEntry', () => {
 
     expect(ok).toBe(false)
     expect(readWorkspaceFile).not.toHaveBeenCalled()
-    expect(store.getState().buffers).toHaveLength(0)
+    expect(windowPaneStore.getState().buffers).toHaveLength(0)
   })
 
   it('does not reveal a same-path buffer that belongs to the wrong workspace', async () => {
     store = createWorkspaceStore('w2')
     // w2 has its OWN /src/app.ts open — the tab title would look identical.
-    store.getState().bufferActions.openContent({
-      type: 'editor',
-      path: '/src/app.ts',
-      name: 'app.ts',
-      content: 'b',
-    })
-    const paneBefore = store.getState().panes[ROOT_PANE_ID]?.activeBufferId
+    openInWorkspace('/src/app.ts', 'app.ts', 'b')
+    const paneBefore = windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId
 
     const ok = await navigateToJumpEntry(entryFor('gone', '/src/app.ts', 'w1'))
 
     expect(ok).toBe(false)
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeBufferId).toBe(paneBefore)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe(paneBefore)
   })
 
   it('still navigates when the entry names the workspace that is active', async () => {
@@ -178,6 +186,7 @@ describe('navigateToJumpEntry', () => {
  */
 describe('navigateToJumpEntry — the Back/Forward handshake survives a reopen', () => {
   beforeEach(() => {
+    resetWindowPaneStoreForTests()
     store = createWorkspaceStore('w1')
     useJumpListStore.getState().actions.clear()
   })
@@ -190,7 +199,7 @@ describe('navigateToJumpEntry — the Back/Forward handshake survives a reopen',
 
     await navigateToJumpEntry(back)
 
-    const reopenedId = store.getState().panes[ROOT_PANE_ID]?.activeBufferId
+    const reopenedId = windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId
     expect(reopenedId).toBeTruthy()
     expect(reopenedId).not.toBe(back.bufferId)
     // This is what use-navigation-history asks one render later.
