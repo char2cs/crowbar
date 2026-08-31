@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
-import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
+import { AgentTranscript, ESTIMATED_ROW_HEIGHT, estimateRowHeight } from '@/features/agent/transcript/agent-transcript'
+import type { TranscriptRow } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 
 // The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
 // layout engine: every element measures 0×0, and a virtualiser told its viewport
@@ -535,5 +536,53 @@ describe('AgentTranscript interrupted marker', () => {
     const divider = screen.getByTestId('agent-interrupted-divider')
     const queued = screen.getByTestId('queued-prompt')
     expect(divider.compareDocumentPosition(queued) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// Regression: a message settling from the streaming bubble (a real,
+// unestimated DOM element) into this virtualized list used to start over at
+// the SAME flat guess regardless of how long its own text was — a real,
+// physical drop in total height for the one tick before measureElement
+// corrected it, since the flat floor was sized for the shortest realistic
+// reply. Visible live as the transcript glide up, then glide back down, on
+// nearly every turn. Scaling the estimate off the row's own text shrinks
+// that gap for the common case (prose of some length).
+describe('estimateRowHeight', () => {
+  function messageRow(text: string): TranscriptRow {
+    return {
+      kind: 'message',
+      key: 'k',
+      message: {
+        turnId: 't',
+        sequence: 0,
+        role: 'assistant',
+        providerId: 'claude',
+        text,
+        at: '',
+      },
+    }
+  }
+
+  it('never estimates below the flat floor, even for an empty message', () => {
+    expect(estimateRowHeight(messageRow(''))).toBe(ESTIMATED_ROW_HEIGHT)
+  })
+
+  it('scales up for a message long enough to wrap several lines', () => {
+    const short = estimateRowHeight(messageRow('a short reply'))
+    const long = estimateRowHeight(messageRow('word '.repeat(400)))
+    expect(short).toBe(ESTIMATED_ROW_HEIGHT)
+    expect(long).toBeGreaterThan(short)
+    // Genuinely taller, not a rounding nudge off the floor.
+    expect(long).toBeGreaterThan(ESTIMATED_ROW_HEIGHT * 3)
+  })
+
+  it('a divider row always gets the flat floor — it has no text to scale from', () => {
+    expect(estimateRowHeight({ kind: 'first-turn-divider', key: 'k' })).toBe(ESTIMATED_ROW_HEIGHT)
+    expect(estimateRowHeight({ kind: 'interrupted-divider', key: 'k', sequence: 0 })).toBe(
+      ESTIMATED_ROW_HEIGHT,
+    )
+    expect(
+      estimateRowHeight({ kind: 'compaction-divider', key: 'k', sequence: 0, trigger: 'manual' }),
+    ).toBe(ESTIMATED_ROW_HEIGHT)
   })
 })

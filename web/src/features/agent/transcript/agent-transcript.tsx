@@ -86,12 +86,53 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
  *  offsets stay right. */
 const ROW_GAP = 18
 
-/** An unmeasured row's opening guess — a short assistant reply's real shape
- *  (padding + one prose line + turnbar + its own group gap), not 64, because
- *  a cold open's `scrollTop = scrollHeight` runs against this before anything
- *  is measured. Exported so the tests standing in for jsdom's missing layout
- *  engine can't drift from it. */
+/** An unmeasured row's opening guess FLOOR — a short assistant reply's real
+ *  shape (padding + one prose line + turnbar + its own group gap), not 64,
+ *  because a cold open's `scrollTop = scrollHeight` runs against this before
+ *  anything is measured. Exported so the tests standing in for jsdom's
+ *  missing layout engine can't drift from it. `estimateRowHeight` below
+ *  scales up from here per row; this constant alone is what a divider or an
+ *  empty/short message still gets. */
 export const ESTIMATED_ROW_HEIGHT = 96
+
+const ROW_PADDING = 8
+const ROW_LINE_HEIGHT = 23
+const ROW_TURNBAR = 30
+// A rough, unverified "characters per wrapped prose line" for this column's
+// measure — not measured against the real font, just enough to shrink a
+// LONG message's estimate error from many lines to roughly the right
+// handful, rather than pretending every message is exactly one line.
+const CHARS_PER_LINE = 88
+
+/**
+ * A per-row estimate scaled by the message's own text length, not the flat
+ * `ESTIMATED_ROW_HEIGHT` for every row regardless of content.
+ *
+ * Why this matters more than a marginal accuracy win: a message settling
+ * from the streaming bubble (a real, unestimated DOM element, sized to its
+ * actual content) into this virtualized list starts over at whatever this
+ * function returns — and the flat floor was chosen as roughly the SHORTEST
+ * realistic message's shape, so nearly every real reply (anything past one
+ * line) landed shorter than it actually was. That gap is a REAL, physical
+ * drop in `.stream`'s total height for the one tick between the row
+ * appearing and `measureElement` correcting it — not something any
+ * scroll-target trick can paper over, since the browser clamps `scrollTop`
+ * to whatever `scrollHeight` actually is at that instant regardless of what
+ * this hook wants it to be. Scaling the estimate off the same text this row
+ * is about to render shrinks that gap for the common case (prose of some
+ * length) even though it can't close it for every case (a table or an image
+ * still surprises it) — which is what actually cuts the visible "glides up,
+ * then glides back down" the flat floor produced on nearly every turn.
+ */
+export function estimateRowHeight(row: TranscriptRow): number {
+  if (row.kind !== 'message') return ESTIMATED_ROW_HEIGHT
+  const length = row.message.text.length
+  const lines = Math.max(1, Math.ceil(length / CHARS_PER_LINE))
+  return Math.max(
+    ESTIMATED_ROW_HEIGHT,
+    ROW_PADDING + lines * ROW_LINE_HEIGHT + ROW_TURNBAR + ROW_GAP,
+  )
+}
 
 /**
  * Where the 18px actually went BEFORE this list was flattened.
@@ -264,7 +305,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => anchor.scrollRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
     measureElement: (el) => el.getBoundingClientRect().height,
     getItemKey,
