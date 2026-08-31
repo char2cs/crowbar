@@ -18,33 +18,44 @@ const { toast } = vi.hoisted(() => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 const { pushEntry } = vi.hoisted(() => ({ pushEntry: vi.fn() }))
-const { openContent, addBufferToPane, activatePaneBuffer, getPaneByBufferId } = vi.hoisted(() => ({
-  openContent: vi.fn(() => 'buffer-new'),
-  addBufferToPane: vi.fn(),
-  activatePaneBuffer: vi.fn(),
-  getPaneByBufferId: vi.fn(() => null as { id: string } | null),
-}))
+const { openContent, addEditorTabToPane, activateEditorTabInPane, getPaneByEditorTabId } =
+  vi.hoisted(() => ({
+    openContent: vi.fn(() => 'buffer-new'),
+    addEditorTabToPane: vi.fn(),
+    activateEditorTabInPane: vi.fn(),
+    getPaneByEditorTabId: vi.fn(() => null as { id: string } | null),
+  }))
 
 interface TestBuffer {
   id: string
   path: string
   type: 'editor'
+  name?: string
+  workspaceId?: string
 }
 
 const wsState = {
   workspaceId: 'ws-1',
   activePaneId: 'pane-1',
-  panes: { 'pane-1': { id: 'pane-1', activeBufferId: 'buffer-app' } } as Record<
+  panes: { 'pane-1': { id: 'pane-1', activeEditorTabId: 'buffer-app' } } as Record<
     string,
-    { id: string; activeBufferId: string }
+    { id: string; activeEditorTabId: string }
   >,
   buffers: [] as TestBuffer[],
-  paneActions: { getPaneByBufferId, addBufferToPane, activatePaneBuffer },
+  paneActions: { getPaneByEditorTabId, addEditorTabToPane, activateEditorTabInPane },
   bufferActions: { openContent },
 }
 
 vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
   getActiveWorkspaceStoreRef: () => ({ getState: () => wsState }),
+}))
+// Task 26: panes/buffers moved off the per-workspace store onto the
+// window-level singleton — use-go-to-definition.ts reads panes/buffers/
+// paneActions/bufferActions off `windowPaneStore` now (workspaceId still
+// comes from getActiveWorkspaceStoreRef, mocked above). Both mocks point at
+// the SAME `wsState` object.
+vi.mock('@/features/panes/stores/window-pane-store', () => ({
+  windowPaneStore: { getState: () => wsState },
 }))
 vi.mock('@/features/file-system/controllers/platform', () => ({ readWorkspaceFile }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast }))
@@ -123,7 +134,7 @@ describe('go to definition across files', () => {
     vi.clearAllMocks()
     readWorkspaceFile.mockResolvedValue('target file contents')
     openContent.mockReturnValue('buffer-new')
-    getPaneByBufferId.mockReturnValue(null)
+    getPaneByEditorTabId.mockReturnValue(null)
     wsState.buffers = [{ id: 'buffer-app', path: 'src/app.ts', type: 'editor' }]
   })
 
@@ -143,23 +154,29 @@ describe('go to definition across files', () => {
         content: 'target file contents',
       }),
     )
-    expect(activatePaneBuffer).toHaveBeenCalledWith('pane-1', 'buffer-new')
+    // No pane already holds it (getPaneByEditorTabId -> null), so reveal adds
+    // it fresh — addEditorTabToPane activates the tab it adds, so there is no
+    // separate activate call on this branch.
+    expect(addEditorTabToPane).toHaveBeenCalledWith(
+      'pane-1',
+      expect.objectContaining({ id: 'buffer-new' }),
+    )
     expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('reveals a target already open in another pane instead of re-reading it', async () => {
     wsState.buffers = [
-      { id: 'buffer-app', path: 'src/app.ts', type: 'editor' },
-      { id: 'buffer-target', path: 'src/lib/target.ts', type: 'editor' },
+      { id: 'buffer-app', path: 'src/app.ts', type: 'editor', workspaceId: 'ws-1' },
+      { id: 'buffer-target', path: 'src/lib/target.ts', type: 'editor', workspaceId: 'ws-1' },
     ]
-    getPaneByBufferId.mockReturnValue({ id: 'pane-2' })
+    getPaneByEditorTabId.mockReturnValue({ id: 'pane-2' })
 
     await clickWithDefinition('src/lib/target.ts')
 
     expect(readWorkspaceFile).not.toHaveBeenCalled()
     expect(openContent).not.toHaveBeenCalled()
-    expect(addBufferToPane).not.toHaveBeenCalled()
-    expect(activatePaneBuffer).toHaveBeenCalledWith('pane-2', 'buffer-target')
+    expect(addEditorTabToPane).not.toHaveBeenCalled()
+    expect(activateEditorTabInPane).toHaveBeenCalledWith('pane-2', 'buffer-target')
   })
 
   it('records the departure point in the jump list before navigating', async () => {

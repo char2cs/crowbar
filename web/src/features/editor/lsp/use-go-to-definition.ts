@@ -3,6 +3,7 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { editorAPI } from '@/features/editor/extensions/api'
 import { useCenterCursor } from '@/features/editor/hooks/use-center-cursor'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { calculateOffsetFromContentPosition } from '@/features/editor/utils/position'
@@ -97,6 +98,10 @@ export const useGoToDefinition = ({
             const wsRef = getActiveWorkspaceStoreRef()
             const wsStore = wsRef?.getState()
             if (!wsStore) return
+            // Task 26: panes/buffers are window-level now — `wsStore` only
+            // still owns `workspaceId` (and other per-workspace slices);
+            // pane/buffer state and actions come from the one window store.
+            const paneStore = windowPaneStore.getState()
 
             // A target the workspace does not contain (a stdlib or dependency
             // source outside the worktree) can never be read through the
@@ -109,7 +114,8 @@ export const useGoToDefinition = ({
             }
 
             // Push current position to jump list before navigating
-            const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null
+            const activeBufferId =
+              paneStore.panes[paneStore.activePaneId]?.activeEditorTabId ?? null
             if (activeBufferId && filePath) {
               const editorState = useEditorStateStore.getState()
               useJumpListStore.getState().actions.pushEntry({
@@ -130,13 +136,29 @@ export const useGoToDefinition = ({
             // goes blank. Reveal in the pane that actually holds the buffer, and
             // attach to the active pane only when none does.
             const reveal = (bufferId: string): void => {
-              const holdingPane = wsStore.paneActions.getPaneByBufferId(bufferId)
-              const paneId = holdingPane?.id ?? wsStore.activePaneId
-              if (!holdingPane) wsStore.paneActions.addBufferToPane(paneId, bufferId, true)
-              wsStore.paneActions.activatePaneBuffer(paneId, bufferId)
+              const holdingPane = paneStore.paneActions.getPaneByEditorTabId(bufferId)
+              const paneId = holdingPane?.id ?? paneStore.activePaneId
+              if (holdingPane) {
+                paneStore.paneActions.activateEditorTabInPane(paneId, bufferId)
+              } else {
+                // addEditorTabToPane always activates the tab it adds, so no
+                // separate activate call is needed on this branch.
+                const buf = paneStore.buffers.find((b) => b.id === bufferId)
+                paneStore.paneActions.addEditorTabToPane(paneId, {
+                  id: bufferId,
+                  type: 'editor',
+                  name: buf?.name ?? bufferId,
+                  workspaceId: buf?.workspaceId ?? wsStore.workspaceId,
+                })
+              }
             }
 
-            const existingBuffer = wsStore.buffers.find((b) => b.path === targetFilePath)
+            // Task 26: buffers are window-level — scope the lookup to THIS
+            // workspace, since a sibling worktree can hold a different file
+            // at the same relative path.
+            const existingBuffer = paneStore.buffers.find(
+              (b) => b.path === targetFilePath && b.workspaceId === wsStore.workspaceId,
+            )
 
             if (existingBuffer) {
               reveal(existingBuffer.id)
@@ -145,11 +167,12 @@ export const useGoToDefinition = ({
               // await settles: linked worktrees of one repo share relative paths.
               const content = await readWorkspaceFile(wsStore.workspaceId, targetFilePath)
               const fileName = targetFilePath.split('/').pop() || 'untitled'
-              const bufferId = wsStore.bufferActions.openContent({
+              const bufferId = paneStore.bufferActions.openContent({
                 type: 'editor',
                 path: targetFilePath,
                 name: fileName,
                 content,
+                workspaceId: wsStore.workspaceId,
               })
               reveal(bufferId)
             }

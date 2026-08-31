@@ -4,6 +4,7 @@ import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { logger } from './logger'
 
 export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean> {
@@ -19,6 +20,10 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
 
   const wsStore = getActiveWorkspaceStoreRef()?.getState()
   if (!wsStore) return abandon()
+  // Task 26: panes/buffers are window-level now — `wsStore` only still owns
+  // `workspaceId` (and other per-workspace slices); pane/buffer state and
+  // actions come from the one window store.
+  const paneStore = windowPaneStore.getState()
 
   // The jump list survives workspace switches but its paths are workspace
   // RELATIVE, so an entry recorded elsewhere cannot be resolved here: sibling
@@ -59,10 +64,21 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
     // — otherwise the recorder records this jump as a new navigation, which
     // truncates the forward branch and breaks Back/Forward from then on.
     if (bufferId !== entry.bufferId) jumpActions().retargetNavigation(bufferId)
-    const holdingPane = wsStore.paneActions.getPaneByBufferId(bufferId)
-    const paneId = holdingPane?.id ?? wsStore.activePaneId
-    if (!holdingPane) wsStore.paneActions.addBufferToPane(paneId, bufferId, true)
-    wsStore.paneActions.activatePaneBuffer(paneId, bufferId)
+    const holdingPane = paneStore.paneActions.getPaneByEditorTabId(bufferId)
+    const paneId = holdingPane?.id ?? paneStore.activePaneId
+    if (holdingPane) {
+      paneStore.paneActions.activateEditorTabInPane(paneId, bufferId)
+    } else {
+      // addEditorTabToPane always activates the tab it adds, so no separate
+      // activate call is needed on this branch.
+      const buf = paneStore.buffers.find((b) => b.id === bufferId)
+      paneStore.paneActions.addEditorTabToPane(paneId, {
+        id: bufferId,
+        type: 'editor',
+        name: buf?.name ?? bufferId,
+        workspaceId: buf?.workspaceId ?? wsStore.workspaceId,
+      })
+    }
   }
 
   // Hide completions and reset input timestamp to prevent completions from triggering
@@ -70,11 +86,15 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
   uiActions.setIsLspCompletionVisible(false)
   uiActions.setLastInputTimestamp(0)
 
-  // Try to find the buffer by ID first, then by path
-  let targetBuffer = wsStore.buffers.find((b) => b.id === entry.bufferId)
+  // Try to find the buffer by ID first, then by path. Task 26: buffers are
+  // window-level — scope the path lookup to THIS workspace (a buffer id is
+  // already globally unique, so the id lookup needs no such filter).
+  let targetBuffer = paneStore.buffers.find((b) => b.id === entry.bufferId)
 
   if (!targetBuffer) {
-    targetBuffer = wsStore.buffers.find((b) => b.path === entry.filePath)
+    targetBuffer = paneStore.buffers.find(
+      (b) => b.path === entry.filePath && b.workspaceId === wsStore.workspaceId,
+    )
   }
 
   if (!targetBuffer) {
@@ -89,11 +109,12 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
     try {
       const content = await readWorkspaceFile(wsStore.workspaceId, entry.filePath)
       const fileName = entry.filePath.split('/').pop() || 'untitled'
-      const bufferId = wsStore.bufferActions.openContent({
+      const bufferId = paneStore.bufferActions.openContent({
         type: 'editor',
         path: entry.filePath,
         name: fileName,
         content,
+        workspaceId: wsStore.workspaceId,
       })
       reveal(bufferId)
     } catch (error) {
