@@ -96,6 +96,24 @@ export function isChatWorking(chatId: string): boolean {
  * lookup at a time) — this is the single-id form for a caller that has
  * exactly one chat to resolve, no project to scope the scan to, and needs
  * the id itself rather than a batch.
+ *
+ * Returns the REGISTRY KEY the chat was found under, not `chat.workspaceId`
+ * (a field `AgentChat` also carries) — the registry key is what tells a
+ * caller "this workspace has a live store right now", which is what every
+ * caller of this resolver actually needs (a store to read/act against), and
+ * doesn't require trusting a denormalized field on the chat record to agree
+ * with where it was actually found.
+ *
+ * REGISTRY-SCOPED, NOT OMNISCIENT: only searches currently-REGISTERED
+ * stores (`WorkspaceHost`'s keep-alive set). `WorkspaceHost` evicts and
+ * destroys a workspace's store on its own age/LRU window, while a pane
+ * holding that workspace's chat deliberately outlives the eviction — that
+ * survival is the entire point of Task 26's window-level pane hoist. So a
+ * pane whose chat belongs to an EVICTED (no longer registered) workspace —
+ * exactly the case this resolver exists to serve — resolves to null here,
+ * same as a chat that never existed. A caller that must survive eviction
+ * needs a second source (e.g. persisted chat metadata) this function
+ * intentionally does not attempt to be.
  */
 export function resolveWorkspaceIdForChat(chatId: string): string | null {
   for (const [wsId, store] of registry.entries()) {

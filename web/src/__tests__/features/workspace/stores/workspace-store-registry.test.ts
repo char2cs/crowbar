@@ -135,5 +135,40 @@ describe('workspace-store-registry', () => {
         .upsertAgentChat(chat('chat-y', 'ws-background'))
       expect(resolveWorkspaceIdForChat('chat-y')).toBe('ws-background')
     })
+
+    it("agrees with the chat record's own workspaceId in the ordinary (non-evicted) case", () => {
+      // Documents the doc comment's claim: the registry key and the chat's
+      // own denormalized `workspaceId` field are expected to agree whenever
+      // the owning store is actually registered — this resolver just never
+      // relies on the denormalized field to make that true.
+      const record = chat('chat-1', 'ws-a')
+      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(record)
+      expect(resolveWorkspaceIdForChat('chat-1')).toBe(record.workspaceId)
+    })
+
+    // Fix round 1 (coordinator review): the resolver's PRIMARY intended
+    // case — Task 26 deliberately hoisted panes to window level so a pane
+    // holding a chat OUTLIVES its owning workspace's own eviction
+    // (WorkspaceHost's age/LRU keep-alive window; see workspace-host.tsx).
+    // "Registered stores only" therefore means the one scenario this
+    // resolver exists to serve — a pane whose chat's workspace has since
+    // been evicted — is exactly the case where it answers null. This is
+    // documented as a deliberate characteristic on the function itself
+    // (REGISTRY-SCOPED, NOT OMNISCIENT), not a silent gap; this test pins
+    // that characteristic down so a future change can't quietly alter it.
+    it('resolves to null for a chat whose workspace was evicted, even though a pane can still reference it', () => {
+      getOrCreateWorkspaceStore('ws-evicted')
+        .getState()
+        .upsertAgentChat(chat('chat-1', 'ws-evicted'))
+      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-evicted')
+
+      // WorkspaceHost's own eviction path: destroy the store, exactly as it
+      // does when a workspace ages out of the keep-alive window. Nothing
+      // about the pane that still holds `chat-1` changes here — panes are
+      // window-level and outlive this by design (Task 26).
+      destroyWorkspaceStore('ws-evicted')
+
+      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
+    })
   })
 })
