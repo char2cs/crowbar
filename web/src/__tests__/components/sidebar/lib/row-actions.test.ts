@@ -259,7 +259,11 @@ describe('row-actions', () => {
       expect(api.setWorkspaceLock).not.toHaveBeenCalled()
     })
 
-    it('an unrelated workspace change does not trigger a lock', async () => {
+    // Lands the real match right after the noise so the watch's `pending` set
+    // reaches zero and it unsubscribes itself before the test ends — a
+    // subscription (or its 30s settle timer) surviving past the test would be
+    // a leak into whatever runs next, not just an assertion gap here.
+    it('an unrelated workspace change does not trigger a lock, and does not stop the watch from later locking the real one', async () => {
       await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
       const repo = useSidebarStore.getState().repos[0]
       useSidebarStore.setState({
@@ -268,6 +272,38 @@ describe('row-actions', () => {
         ],
       })
       expect(api.setWorkspaceLock).not.toHaveBeenCalled()
+
+      const repoAfterNoise = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repoAfterNoise,
+            workspaces: [...repoAfterNoise.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
+          },
+        ],
+      })
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-new', true)
+    })
+
+    // The import POST resolving is not the same moment as the workspace
+    // arriving — the daemon creates it in a detached background goroutine
+    // that races the HTTP round trip. A baseline snapshot taken AFTER
+    // `importBranches` resolves would already see this workspace and treat it
+    // as pre-existing, never locking it — the exact bug this regression test
+    // catches (mirrors reparent-settle.ts's own "frame that beats the
+    // response back" case, and drop-actions.ts's watchReparent(...) call
+    // BEFORE the request it's watching for).
+    it('locks a branch whose workspace lands in the store before the import call resolves', async () => {
+      vi.mocked(api.importBranches).mockImplementationOnce(async () => {
+        const repo = useSidebarStore.getState().repos[0]
+        useSidebarStore.setState({
+          repos: [
+            { ...repo, workspaces: [...repo.workspaces, { id: 'ws-race', branch: 'feature-a', age: '' }] },
+          ],
+        })
+      })
+      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-race', true)
     })
   })
 

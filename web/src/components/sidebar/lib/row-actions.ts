@@ -274,6 +274,13 @@ export async function performSetWorkspaceLock(wsId: string, locked: boolean | nu
  * import POST only 202s — no workspace id exists yet to hand `setWorkspaceLock`
  * — so each locked branch is watched for and locked the instant ITS workspace
  * lands, rather than requiring a separate post-import Lock action.
+ *
+ * `armImportLockWatch` is called (and its baseline snapshot taken) BEFORE
+ * `importBranches` goes out — exactly like `watchReparent`'s own call shape in
+ * `drop-actions.ts` (`reparent-settle.ts`'s module doc explains why: a
+ * workspace that lands while the request is still in flight has to be caught
+ * too, or it is silently misread as having "already existed before the
+ * import" and never locked).
  */
 export async function performImportBranches(
   repoId: string,
@@ -284,9 +291,10 @@ export async function performImportBranches(
   const projectId = projectIdForRepo(repoId)
   if (!projectId) return
   const toLock = lockedBranches.filter((b) => branches.includes(b))
+  const startLocking = armImportLockWatch(repoId, toLock)
   try {
     await importBranches(projectId, repoId, branches)
-    lockBranchesOnArrival(repoId, toLock)
+    startLocking()
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to import branches')
   }
@@ -300,40 +308,51 @@ export async function performImportBranches(
 const IMPORT_LOCK_SETTLE_TIMEOUT_MS = 30_000
 
 /**
- * Watches `repoId`'s workspaces for each of `branches` to arrive as a NEW
- * workspace (one absent from the pre-import snapshot) and locks it the moment
- * it does. Fire-and-forget: the caller has already 202'd the import and moved
- * on, exactly like every other WS-driven create in this file.
+ * Arms a watch for each of `branches` to arrive in `repoId`'s workspaces as a
+ * NEW workspace (one absent from the snapshot taken RIGHT NOW) and returns a
+ * `start` function that locks each as it does. Call this before firing the
+ * import request — the snapshot has to predate the request, or a frame that
+ * lands while the request is in flight is indistinguishable from one that was
+ * already there — and call the returned function once the request resolves.
+ *
+ * `start` itself checks for an already-landed arrival first (the race the
+ * early snapshot exists to catch) before subscribing for the rest. Both the
+ * snapshot and the watch are fire-and-forget: the caller has already 202'd the
+ * import and moved on, exactly like every other WS-driven create in this file.
  */
-function lockBranchesOnArrival(repoId: string, branches: string[]): void {
-  if (branches.length === 0) return
+function armImportLockWatch(repoId: string, branches: string[]): () => void {
+  if (branches.length === 0) return () => {}
   const pending = new Set(branches)
   const before = new Set(
     useSidebarStore.getState().repos.find((r) => r.id === repoId)?.workspaces.map((w) => w.id) ?? [],
   )
 
-  let unsubscribe: (() => void) | null = null
-  let timer: ReturnType<typeof setTimeout> | null = null
-  const settle = () => {
-    if (timer !== null) clearTimeout(timer)
-    timer = null
-    unsubscribe?.()
-    unsubscribe = null
-  }
-
-  const checkArrivals = () => {
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
-    if (!repo) return
-    for (const ws of repo.workspaces) {
-      if (before.has(ws.id) || !pending.has(ws.branch)) continue
-      pending.delete(ws.branch)
-      void performSetWorkspaceLock(ws.id, true)
+  return () => {
+    let unsubscribe: (() => void) | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const settle = () => {
+      if (timer !== null) clearTimeout(timer)
+      timer = null
+      unsubscribe?.()
+      unsubscribe = null
     }
-    if (pending.size === 0) settle()
-  }
 
-  unsubscribe = useSidebarStore.subscribe(checkArrivals)
-  timer = setTimeout(settle, IMPORT_LOCK_SETTLE_TIMEOUT_MS)
+    const checkArrivals = () => {
+      const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
+      if (!repo) return
+      for (const ws of repo.workspaces) {
+        if (before.has(ws.id) || !pending.has(ws.branch)) continue
+        pending.delete(ws.branch)
+        void performSetWorkspaceLock(ws.id, true)
+      }
+      if (pending.size === 0) settle()
+    }
+
+    checkArrivals()
+    if (pending.size === 0) return
+    unsubscribe = useSidebarStore.subscribe(checkArrivals)
+    timer = setTimeout(settle, IMPORT_LOCK_SETTLE_TIMEOUT_MS)
+  }
 }
 
 /**
