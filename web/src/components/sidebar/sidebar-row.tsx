@@ -68,17 +68,10 @@ export function SidebarRow({
   // default worktree), so it never carries a trash even when a caller
   // supplies onTrash.
   const isProjectHome = row.kind === 'branch' && row.parentId === null
-  // NOTHING DELETES A CHAT YET — not here, not in Recents, not in the Chats
-  // panel: `deleteChat` (agent-api.ts) has no caller anywhere in the app, and
-  // the removal tray that every other row's trash routes through
-  // (`planRemoval`/`RemovalDraft`) has no chat subject to plan one with.
-  //
-  // So the control is ABSENT rather than present-and-broken. Drawn, it looked
-  // exactly like a working trash and then reported "may be locked" on confirm
-  // — an explanation that is not merely unhelpful but false, since the chat is
-  // not locked and locking has nothing to do with why nothing happened. A row
-  // with no trash tells the truth; a row whose trash lies does not.
-  const deletable = row.kind !== 'chat'
+  // Every row kind carries a trash now — a chat's routes to a direct
+  // `deleteChat` call (space-content-actions.ts's `handleTrash`), not the
+  // removal tray every other kind uses.
+  const deletable = true
   const expanded = !folded
   // §3.1: "+" makes a workspace on a row that is itself git-capable, a thread
   // otherwise. `ownsWorktree` is the only fact this row carries that answers it.

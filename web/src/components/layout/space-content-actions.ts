@@ -5,8 +5,9 @@ import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval } from './removal-plan'
 import { postWorkspace } from '@/lib/api'
-import { createChat } from '@/features/agent/api/agent-api'
+import { createChat, deleteChat } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { scopedWorkspaceIdOf } from '@/components/sidebar/lib/row-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DragSubject } from './drop-rules'
 
@@ -157,27 +158,39 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
 }
 
 /**
- * Trashes a row via the removal tray. Reads the store's raw, current repos
- * (not a caller-supplied filtered snapshot): the true current state, not the
- * UI's already-hidden-pending-removal overlay.
+ * Trashes a row. A chat's delete is a direct `deleteChat` call, never a
+ * removal-tray draft — the tray's `planRemoval`/`RemovalDraft` has no chat
+ * subject to hold one with (`resolveChatRow`'s own doc explains why that
+ * union stays closed). Every other row still goes through the tray, reading
+ * the store's raw, current repos (not a caller-supplied filtered snapshot):
+ * the true current state, not the UI's already-hidden-pending-removal
+ * overlay.
  *
- * Returns whether anything was actually held. `false` covers two cases a
- * caller that just walked the user through a confirm dialog cannot treat as
- * silent success: a repo-home id (resolves to a `workspace` subject naming
- * no row in `repo.workspaces` — repo deletion gets its own confirmation flow
- * in Part H and is not reachable from a row's trash button yet) and a
- * user-locked, non-home workspace (`planRemoval`'s `draftFor` refuses one —
- * the daemon would refuse the delete too, so the tray must never accept one
- * and promise otherwise).
+ * Returns whether anything was actually held/deleted. `false` covers: a chat
+ * whose repo has no workspace at all to scope the DELETE request through
+ * (`scopedWorkspaceIdOf`), a repo-home id (resolves to a `workspace` subject
+ * naming no row in `repo.workspaces` — repo deletion gets its own
+ * confirmation flow in Part H and is not reachable from a row's trash button
+ * yet), and a user-locked, non-home workspace (`planRemoval`'s `draftFor`
+ * refuses one — the daemon would refuse the delete too, so the tray must
+ * never accept one and promise otherwise).
  */
 export function handleTrash(id: string): boolean {
   const currentRepos = useSidebarStore.getState().repos
-  // A chat row carries no trash control (see `sidebar-row.tsx`), so this is
-  // unreachable from the tree — checked anyway, and checked BEFORE resolveRow,
-  // because falling through to the workspace path is what made a chat row's
-  // trash claim the chat "may be locked". It is not locked; the removal tray
-  // has no chat subject at all. A false explanation is worse than none.
-  if (resolveChatRow(currentRepos, id)) return false
+  // Checked BEFORE resolveRow, which cannot see a chat at all
+  // (`resolveChatRow`'s own doc: "callers must consult THIS FIRST").
+  const chatRow = resolveChatRow(currentRepos, id)
+  if (chatRow) {
+    // The chat's OWN repo, never `chat.workspaceId` — the DELETE route is
+    // repo-scoped, so any workspace of this repo resolves the URL; a bubble
+    // has none of its own to name.
+    const wsId = scopedWorkspaceIdOf(chatRow.repo)
+    if (!wsId) return false
+    deleteChat(wsId, id).catch((err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete chat')
+    })
+    return true
+  }
   const found = resolveRow(currentRepos, id)
   if (!found) return false
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS

@@ -99,7 +99,7 @@ export async function performRenameFolder(folderId: string, name: string): Promi
  * name a workspace in another repo (spec §9.2's open set), and building this
  * repo's URL from that id would either 404 or address the wrong repo.
  */
-function scopedWorkspaceIdOf(repo: Repo): string | undefined {
+export function scopedWorkspaceIdOf(repo: Repo): string | undefined {
   return repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
 }
 

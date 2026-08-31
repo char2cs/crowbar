@@ -20,9 +20,8 @@ const baseRow: SidebarRowType = {
  *
  * The trailing-control cases below are about the CLUSTER (which controls, in
  * what order, with what treatment), not about any one row kind, so they need a
- * row the population rule admits a trash for. `baseRow` is a chat, and a chat
- * row deliberately has none: nothing in the app deletes a chat yet, so the
- * control is absent rather than present and lying (see `sidebar-row.tsx`).
+ * row that is guaranteed a trash regardless of kind. Every kind gets one now
+ * except the project-home row (see the "protected branch" case below).
  */
 const deletableRow: SidebarRowType = {
   ...baseRow,
@@ -139,16 +138,15 @@ describe('SidebarRow', () => {
     expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
   })
 
-  // Nothing in the app deletes a chat — `deleteChat` (agent-api.ts) has no
-  // caller and the removal tray has no chat subject to draft one with. Drawn,
-  // the control looked functional and then reported "may be locked", which is
-  // not why it failed and not true of the chat. Absent is the honest state.
-  it('a chat row has no trash, even though onTrash is supplied', () => {
+  // A chat's delete now routes to a real `deleteChat` call
+  // (space-content-actions.ts's `handleTrash`), so its row carries the same
+  // trash every other non-home row does.
+  it('a chat row carries a trash, wired to the real delete', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
-    expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
+    expect(screen.getByTestId('trash-control')).toBeInTheDocument()
   })
 
-  it('a chat row keeps its other trailing controls — only the trash is withheld', () => {
+  it('a chat row shows all three trailing controls, trash included', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -160,7 +158,7 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button')
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['create', 'fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['trash', 'create', 'fold'])
   })
 
   it('a non-home branch row still carries a trash', () => {

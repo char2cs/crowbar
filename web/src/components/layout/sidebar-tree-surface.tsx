@@ -10,6 +10,7 @@ import { DeleteConfirmDialog } from '@/components/sidebar/delete-confirm-dialog'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
   resolveRow,
+  resolveChatRow,
   handleOpen as openSidebarRow,
   handleTrash as trashSidebarRow,
   handleTrashProject as trashProject,
@@ -97,7 +98,14 @@ export function SidebarTreeSurface({
   // `DeleteConfirmDialog` decides which of those it gets.
   const [deletingRowId, setDeletingRowId] = useState<string | null>(null)
   const deletingRow = allRows.find((r) => r.id === deletingRowId) ?? null
-  const deletingRepo = deletingRowId != null ? resolveRow(repos, deletingRowId)?.repo : undefined
+  // `resolveRow` cannot see a chat (`resolveChatRow`'s own doc: "callers must
+  // consult THIS FIRST" — same order `handleOpen` above already uses), so a
+  // chat's delete-preview would otherwise get no `projectId` and degrade to
+  // the fallback copy instead of the real file/chat counts.
+  const deletingRepo =
+    deletingRowId == null
+      ? undefined
+      : (resolveChatRow(repos, deletingRowId)?.repo ?? resolveRow(repos, deletingRowId)?.repo)
 
   return (
     <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">

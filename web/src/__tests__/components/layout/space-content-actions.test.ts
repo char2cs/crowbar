@@ -8,9 +8,10 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const { postWorkspace, createChat, toastError } = vi.hoisted(() => ({
+const { postWorkspace, createChat, deleteChat, toastError } = vi.hoisted(() => ({
   postWorkspace: vi.fn(() => Promise.resolve()),
   createChat: vi.fn(() => Promise.resolve('chat-1')),
+  deleteChat: vi.fn(() => Promise.resolve()),
   toastError: vi.fn(),
 }))
 
@@ -21,6 +22,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
   createChat,
+  deleteChat,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
@@ -164,20 +166,24 @@ describe('handleOpen', () => {
 /**
  * The two verbs a chat row must NOT answer wrongly.
  *
- * Both used to fall through to a path built for a different row kind and
- * explain themselves in that kind's words — which is worse than doing nothing,
- * because the explanation was false.
+ * `handleCreate` used to fall through to a path built for a different row
+ * kind and explain itself in that kind's words — worse than doing nothing,
+ * because the explanation was false. `handleTrash` is the same shape of bug
+ * fixed the other direction: a chat delete must never fall into the
+ * removal-tray/workspace-lock path, even now that it succeeds for real.
  */
 describe('a chat row does not borrow another row kind’s refusal', () => {
   const repoWithChat = () =>
     repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
 
-  it('handleTrash refuses without claiming the chat is locked', () => {
+  it('handleTrash deletes directly — it never enters the removal tray', async () => {
     useSidebarStore.setState({ repos: [repoWithChat()] })
-    // False, so the caller says "can't delete" rather than nothing — but it
-    // must never have reached the workspace path that blames a lock. Nothing
-    // is held either way.
-    expect(handleTrash('c1')).toBe(false)
+    expect(handleTrash('c1')).toBe(true)
+    await Promise.resolve()
+    // repo()'s default `defaultWorkspaceId` ('home-1') is the scoped
+    // workspace id `scopedWorkspaceIdOf` resolves for a repo with no real
+    // `workspaces` entries.
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-1', 'c1')
     expect(useRemovalTrayStore.getState().entries).toEqual([])
   })
 
@@ -298,5 +304,44 @@ describe('handleTrash', () => {
     expect(handleTrash('ws-locked')).toBe(false)
 
     expect(useRemovalTrayStore.getState().entries).toEqual([])
+  })
+
+  // A chat's delete is a direct `deleteChat` call, not a removal-tray draft —
+  // `resolveChatRow` is consulted before `resolveRow` ever sees the id.
+  describe('a chat row', () => {
+    it('deletes a bubble chat, scoped through any workspace of its own repo', async () => {
+      useSidebarStore.setState({
+        repos: [
+          repo({
+            defaultWorkspaceId: undefined,
+            workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+            // No `workspaceId` — a bubble, not a worktree chat.
+            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+          }),
+        ],
+      })
+
+      expect(handleTrash('c1')).toBe(true)
+      await Promise.resolve()
+
+      expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'c1')
+    })
+
+    it('refuses when the repo has no workspace at all to scope the request through', () => {
+      useSidebarStore.setState({
+        repos: [
+          repo({
+            defaultWorkspaceId: undefined,
+            workspaces: [],
+            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+          }),
+        ],
+      })
+
+      expect(handleTrash('c1')).toBe(false)
+
+      expect(deleteChat).not.toHaveBeenCalled()
+      expect(useRemovalTrayStore.getState().entries).toEqual([])
+    })
   })
 })

@@ -46,6 +46,11 @@ const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
+const { deleteChat } = vi.hoisted(() => ({ deleteChat: vi.fn(() => Promise.resolve()) }))
+vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+  deleteChat,
+}))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -212,5 +217,38 @@ describe('SidebarTreeSurface', () => {
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining('locked-one'),
     )
+  })
+
+  // `resolveRow` (space-content-actions.ts) cannot see a chat row, so
+  // `deletingRepo`'s lookup has to try `resolveChatRow` first — otherwise the
+  // dialog's `projectId` comes back undefined and the real preview fetch is
+  // skipped for a chat specifically, degrading to the generic fallback copy.
+  it("a chat row's trash resolves its owning repo, so the real delete-preview fires", async () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          id: 'r1',
+          projectId: 'p1',
+          defaultWorkspaceId: 'home-a',
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ],
+    })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete a chat' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    expect(fetchDeletePreview).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'c1')
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    await waitFor(() => expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-a', 'c1'))
   })
 })
