@@ -387,6 +387,34 @@ describe('AgentChatPane — waiting in the terminal', () => {
     ).toBeTruthy()
   })
 
+  // `cn()` is `twMerge(clsx(...))`: `hidden` and `flex`/`flex-col` are
+  // conflicting display utilities, and twMerge keeps only the LAST one in
+  // source order. The chat surface's className is built as
+  // `hidden`-when-not-`presentation==='chat'` — the flex-column addition for
+  // the banner above must live INSIDE that same decision, not be appended
+  // after it, or it silently strips `hidden` off the surface it was never
+  // meant to touch. Reachable through the banner's own primary CTA:
+  // `openTerminalFromBanner` flips `presentation` to 'terminal' but does NOT
+  // clear `waiting` (that only clears once the CLI actually answers) — so a
+  // user clicking "Open Terminal" while the prompt is still pending is
+  // exactly `splitting=false, presentation='terminal', waiting=true`.
+  it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
+    const store = seed()
+    await renderPane(store, { isVisible: false })
+    await setWait(store, { kind: 'workspace_trust' })
+    expect(showing()).toBe('chat')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+    expect(showing()).toBe('terminal')
+
+    // Deliberately NOT calling setWait(store, null) here — the daemon has not
+    // answered, `waiting` is still true, which is the exact case the bug
+    // needs to reproduce.
+    const chatSurface = screen.getByTestId('agent-chat-surface')
+    expect(chatSurface.className).toMatch(/\bhidden\b/)
+    expect(chatSurface.className).not.toMatch(/\bflex\b/)
+  })
+
   // ── The quiet case ─────────────────────────────────────────────────
 
   // A chat nothing is blocking must be untouched by all of this: no banner, no

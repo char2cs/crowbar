@@ -978,16 +978,24 @@ export function AgentChatPane({
                   // into two floating panels, and the focus ring drew a box
                   // around whichever one you were typing in. The caret already
                   // says that.
-                  'relative min-h-0 min-w-0 shrink grow-0'
-                : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
-              // Only while the wait banner is up: it needs to sit ahead of
-              // AgentChatView in normal flow (below) rather than floating over
-              // it, so real layout reserves however tall it actually renders —
-              // see the banner's own block below for why. `.agent-chat.chat`
-              // (AgentChatView's own root) already carries `flex: 1;
-              // min-height: 0` for exactly this: its own doc comment notes it
-              // has to work as a flex item in more than one kind of parent.
-              waiting && 'flex flex-col',
+                  //
+                  // `flex flex-col` (only while the wait banner is up — see
+                  // the banner's own block below) is safe to append here:
+                  // this branch never carries `hidden`.
+                  cn('relative min-h-0 min-w-0 shrink grow-0', waiting && 'flex flex-col')
+                : // `flex flex-col` has to live INSIDE the `presentation === 'chat'`
+                  // arm, not appended after this whole cn(...) the way the split
+                  // branch does it above: `cn` is `twMerge(clsx(...))`, and `hidden`/
+                  // `flex` are conflicting display utilities — twMerge keeps only the
+                  // LAST one in source order. A trailing `waiting && 'flex flex-col'`
+                  // would silently strip `hidden` off the CHAT surface the instant
+                  // `presentation` flips to 'terminal' while a trust prompt is still
+                  // pending (exactly what `openTerminalFromBanner` produces, since
+                  // `waiting` doesn't clear until the CLI actually answers) — un-hiding
+                  // the very surface `hidden` exists to keep dormant. See the doc
+                  // comment right above this whole div for why that's load-bearing,
+                  // not cosmetic.
+                  cn('h-full', presentation === 'chat' ? waiting && 'flex flex-col' : 'hidden'),
             )}
             style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
           >
