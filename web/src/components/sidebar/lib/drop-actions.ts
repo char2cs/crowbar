@@ -2,7 +2,10 @@ import { toast } from '@/features/window/stores/toast-store'
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
@@ -376,17 +379,21 @@ export function performSidebarPaneDrop(
  */
 function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   if (!subject.workspaceId) return
-  // Task 26 investigation (this refusal predates the hoist): the OLD reason
-  // to refuse a chat from some OTHER, off-screen workspace was that `paneId`
-  // could only be resolved correctly against the store the DOM's hit-tested
-  // pane actually belonged to — `ROOT_PANE_ID`/`BOTTOM_PANE_ID` were literal
-  // constants every PER-WORKSPACE store shared, so resolving `paneId` against
-  // the wrong store didn't fail, it silently mutated a workspace the user
-  // wasn't looking at. Panes are window-level now (one store, real
-  // `windowPaneStore.getState().panes[paneId]` lookup) — there is no more
-  // "wrong store" to guess between, so this is exactly the feature the hoist
-  // was for: a Recents row from a different, off-screen workspace can now
-  // land its chat into a pane the user is actually looking at, correctly.
+  // Task 26 fix-round-1 (Critical 2): this refusal was removed once, on the
+  // reasoning that panes/buffers are window-level now so there is no more
+  // "wrong store" to mutate. That's true for the DATA side, but the RENDER
+  // side was never rebuilt to match: a pane's "is this chat known" check
+  // (AgentChatPane, via the AMBIENT WorkspaceStoreContext of whichever
+  // WorkspaceView happens to render it) still resolves the chat against
+  // whatever workspace is on screen, not the chat's real owning workspace —
+  // no chatId->workspace lookup exists anywhere in the render path yet. A
+  // chat from a different, off-screen workspace dropped in here would never
+  // be found in the active workspace's agentChats.chats, so the pane renders
+  // permanently blank (no CLI ever spawns) and — because setPaneChat persists
+  // to IndexedDB — SURVIVES RELOAD. Restored until that resolution mechanism
+  // (PaneGroup/chat carrying its own workspace identity through the render
+  // path) is actually built; this guard is what stands in for it meanwhile.
+  if (subject.workspaceId !== getActiveWorkspaceId()) return
   const { panes, paneActions } = windowPaneStore.getState()
   const chatId = subject.id
 

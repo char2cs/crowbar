@@ -695,21 +695,26 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 })
 
-describe('performSidebarPaneDrop — cross-workspace (Task 26: panes are window-level now)', () => {
-  // Fix round 1 (Task 22) refused this — the per-workspace pane STORE gave no
-  // way to resolve `paneId` against the chat's own workspace without risking
-  // a silent mutation of an off-screen workspace's store. That "wrong store"
-  // no longer exists: there is exactly one pane store, so a Recents row from
-  // an off-screen workspace can now land its chat into whatever pane is
-  // actually on screen — the very capability the hoist exists to provide.
-  it('lands a chat from a different, off-screen workspace into the pane actually hit', () => {
+describe('performSidebarPaneDrop — cross-workspace (Task 26 fix round 1, Critical 2)', () => {
+  // The panes/buffers DATA hoist made this look safe to drop (there is
+  // exactly one pane store now, no more "wrong store" to mutate), but the
+  // RENDER side was never rebuilt to match: a pane resolves "is this chat
+  // known" through the AMBIENT WorkspaceStoreContext of whichever
+  // WorkspaceView happens to render it, not the chat's real owning
+  // workspace — no chatId->workspace lookup exists in the render path. A
+  // chat from an off-screen workspace landed here would never be found in
+  // the on-screen workspace's agentChats.chats: the pane renders permanently
+  // blank, no CLI ever spawns, and — since setPaneChat persists to
+  // IndexedDB — it SURVIVES RELOAD. Refused until that resolution mechanism
+  // is actually built.
+  it('refuses a drop when the dragged chat belongs to a workspace other than the one whose pane was actually hit', () => {
     setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c1', 'ws-offscreen')], ROOT_PANE_ID, 'right')
 
     const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')
-    expect(newPane).toBeDefined()
+    expect(newPane).toBeUndefined()
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('already-here')
   })
 
