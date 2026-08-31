@@ -134,36 +134,50 @@ const TabBar = ({
     },
     [setPinned],
   )
+  // Task 26 fix round 1 (I4): buffers are one flat, window-wide list now, but
+  // "Close Others/All/to the Right" are THIS PANE's own tab-bar affordances —
+  // they must only ever touch tabs actually open IN paneId, in that pane's
+  // own visual order, never sweep up another pane's (or another workspace's)
+  // tabs. Read live off windowPaneStore at call time (not the React-rendered
+  // `buffers`) so a fast successive action sees the latest editorTabIds.
+  function thisPaneBuffersInOrder(): PaneContent[] {
+    if (!paneId) return []
+    const state = windowPaneStore.getState()
+    const editorTabIds = state.panes[paneId]?.editorTabIds ?? []
+    const byId = new Map(state.buffers.map((b) => [b.id, b]))
+    const ordered: PaneContent[] = []
+    for (const id of editorTabIds) {
+      const b = byId.get(id)
+      if (b) ordered.push(b)
+    }
+    return ordered
+  }
   function handleCloseOtherTabs(keepBufferId: string) {
-    const { buffers: allBufs } = windowPaneStore.getState()
     // isUncloseable filters out the sole editor tab a pane is holding (see
     // pane-slice's syncSoleEditorTabCloseability), which — since there is no
     // "Editor" placeholder tab to fall back to any more — would otherwise
     // strand the pane with an empty scroller and no way back in (I2).
-    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned && !b.isUncloseable)
+    const toClose = thisPaneBuffersInOrder().filter(
+      (b) => b.id !== keepBufferId && !b.isPinned && !b.isUncloseable,
+    )
     toClose.forEach((b) => {
       if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)
     })
   }
   function handleCloseAllTabs() {
-    const { buffers: allBufs } = windowPaneStore.getState()
-    // Same isUncloseable guard as handleCloseOtherTabs (I2). NOTE: this still
-    // iterates every buffer in the WORKSPACE while only ever removing from the
-    // current pane (paneId) — a separate, pre-existing bug this fix does not
-    // attempt, since narrowing the buffer set is a larger behavior change than
-    // the uncloseable-tab regression it was found alongside.
-    const toClose = allBufs.filter((b) => !b.isPinned && !b.isUncloseable)
+    // Same isUncloseable guard as handleCloseOtherTabs (I2).
+    const toClose = thisPaneBuffersInOrder().filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
       if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)
     })
   }
   function handleCloseTabsToRight(bufferId: string) {
-    const { buffers: allBufs } = windowPaneStore.getState()
-    const idx = allBufs.findIndex((b) => b.id === bufferId)
+    const paneBufs = thisPaneBuffersInOrder()
+    const idx = paneBufs.findIndex((b) => b.id === bufferId)
     if (idx === -1) return
-    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
+    const toClose = paneBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
       if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)

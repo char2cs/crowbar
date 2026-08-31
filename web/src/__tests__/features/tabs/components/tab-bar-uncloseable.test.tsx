@@ -160,6 +160,113 @@ function expectSoleTabSurvived(_store: ReturnType<typeof createWorkspaceStore>) 
   expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('nt-1')
 }
 
+/** Two real (closeable — neither pinned nor the sole tab of its pane) editor
+ *  tabs in EACH of ROOT_PANE_ID and BOTTOM_PANE_ID — the harness I4's fix
+ *  needs: a tab that the OLD window-wide bug would have swept up (it is not
+ *  pinned and not uncloseable) but that correctly-scoped Close All/Others/to
+ *  Right must never touch because it belongs to a DIFFERENT pane. */
+function setupTwoPaneStore(bufferOrder: 'root-first' | 'bottom-first' = 'root-first') {
+  const store = createWorkspaceStore('w1')
+  const rootBufs = [makeEditorBuffer(0), makeEditorBuffer(1)]
+  const bottomBufs = [makeEditorBuffer(2), makeEditorBuffer(3)]
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    // Order matters for "Close to Right": it must key off THIS PANE's own
+    // tab order (pane.editorTabIds), never the flat window-wide array's —
+    // bottom-first here specifically defeats an unscoped `slice(idx + 1)`
+    // over the flat array, which would otherwise coincidentally look correct
+    // whenever the active pane's own tabs already come last in that array.
+    s.buffers = bufferOrder === 'bottom-first' ? [...bottomBufs, ...rootBufs] : [...rootBufs, ...bottomBufs]
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      editorTabIds: rootBufs.map((b) => b.id),
+      activeEditorTabId: rootBufs[0].id,
+    }
+    s.panes[BOTTOM_PANE_ID] = {
+      ...s.panes[BOTTOM_PANE_ID],
+      editorTabIds: bottomBufs.map((b) => b.id),
+      activeEditorTabId: bottomBufs[0].id,
+    }
+    return s
+  })
+  return { store, rootBufs, bottomBufs }
+}
+
+describe('TabBar Close Others/All/to Right stay scoped to their own pane (I4)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('"Close All" in one pane never touches a closeable tab belonging to a DIFFERENT pane', () => {
+    const { store, rootBufs, bottomBufs } = setupTwoPaneStore()
+    act(() => {
+      renderTabBar(store, BOTTOM_PANE_ID)
+    })
+
+    const tabs = screen.getAllByRole('tab')
+    act(() => {
+      fireEvent.contextMenu(tabs[0])
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('close-all'))
+    })
+
+    const remaining = windowPaneStore.getState().buffers.map((b) => b.id)
+    for (const b of rootBufs) expect(remaining).toContain(b.id)
+    for (const b of bottomBufs) expect(remaining).not.toContain(b.id)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toEqual(
+      rootBufs.map((b) => b.id),
+    )
+  })
+
+  it('"Close Others" in one pane keeps every tab in a DIFFERENT pane', () => {
+    const { store, rootBufs, bottomBufs } = setupTwoPaneStore()
+    act(() => {
+      renderTabBar(store, BOTTOM_PANE_ID)
+    })
+
+    const tabs = screen.getAllByRole('tab')
+    act(() => {
+      fireEvent.contextMenu(tabs[0])
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('close-others'))
+    })
+
+    const remaining = windowPaneStore.getState().buffers.map((b) => b.id)
+    for (const b of rootBufs) expect(remaining).toContain(b.id)
+    // The kept tab (bottomBufs[0], right-clicked) survives; the other
+    // BOTTOM_PANE_ID tab is closed — but ROOT_PANE_ID's are untouched either way.
+    expect(remaining).toContain(bottomBufs[0].id)
+  })
+
+  it('"Close to Right" orders by THIS PANE\'s own tabs, not the flat window-wide buffer array', () => {
+    // bottom-first: BOTTOM_PANE_ID's own tabs sit BEFORE ROOT_PANE_ID's in
+    // the flat buffers array, so an unscoped `slice(idx + 1)` over that array
+    // would incorrectly reach past bottomBufs[1] into rootBufs — exactly the
+    // bug this test exists to catch.
+    const { store, rootBufs, bottomBufs } = setupTwoPaneStore('bottom-first')
+    act(() => {
+      renderTabBar(store, BOTTOM_PANE_ID)
+    })
+
+    // Right-click BOTTOM_PANE_ID's FIRST tab — "to the right" must mean
+    // bottomBufs[1] only, never anything from ROOT_PANE_ID.
+    const tabs = screen.getAllByRole('tab')
+    act(() => {
+      fireEvent.contextMenu(tabs[0])
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('close-to-right'))
+    })
+
+    const remaining = windowPaneStore.getState().buffers.map((b) => b.id)
+    for (const b of rootBufs) expect(remaining).toContain(b.id)
+    expect(remaining).toContain(bottomBufs[0].id)
+    expect(remaining).not.toContain(bottomBufs[1].id)
+  })
+})
+
 describe('TabBar honours isUncloseable (I2)', () => {
   afterEach(() => {
     vi.clearAllMocks()
