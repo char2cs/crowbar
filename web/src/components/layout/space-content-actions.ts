@@ -102,6 +102,31 @@ export function handleTrash(id: string): boolean {
   return true
 }
 
+/**
+ * Trashes a whole PROJECT via the same removal tray a row's trash uses —
+ * spec §9: "every row that owns something carries a trash: chats,
+ * workspaces, folders, repos, and the space header for the project."
+ *
+ * Deliberately not routed through `DeleteConfirmDialog` the way a row's
+ * trash is: `planRemoval`'s project draft already hides the project's row
+ * AND every repo under it, and `RemovalTray` pops `RemovalConfirmDialog`
+ * for exactly the two cascading kinds (`repo`, `project`) before it commits
+ * — so a project already gets the "confirm names what goes" step, from the
+ * surface that owns it, and a second dialog in front would ask twice.
+ *
+ * Returns whether anything was actually held, so the caller can say
+ * something rather than silently doing nothing (`draftFor` returns null for
+ * a project id no loaded project claims).
+ */
+export function handleTrashProject(projectId: string): boolean {
+  const currentRepos = useSidebarStore.getState().repos
+  const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
+  const drafts = planRemoval([{ kind: 'project', id: projectId }], currentRepos, projects)
+  if (drafts.length === 0) return false
+  useRemovalTrayStore.getState().hold(drafts)
+  return true
+}
+
 /** Creates a workspace (fork) or a thread (chat) under `parentId`. */
 export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
   const currentRepos = useSidebarStore.getState().repos

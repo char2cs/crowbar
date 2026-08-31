@@ -12,6 +12,7 @@ import {
   resolveRow,
   handleOpen as openSidebarRow,
   handleTrash as trashSidebarRow,
+  handleTrashProject as trashProject,
   handleCreate as createSidebarRow,
 } from './space-content-actions'
 import { applyPendingRemovals } from './removal-plan'
@@ -76,6 +77,14 @@ export function SidebarTreeSurface({
     (entry: RecentsBandEntry) => focusRecent(entry, repos, navigate),
     [repos, navigate],
   )
+  // Spec §9's project-level trash, reached from the space header's overflow.
+  // Says so rather than doing nothing when the tray refuses to hold the
+  // project (a project id no loaded project claims) — the same posture the
+  // row trash's own confirm takes.
+  const handleTrashProject = useCallback((projectId: string) => {
+    if (trashProject(projectId)) return
+    toast.error("Can't delete this project — it may already be gone")
+  }, [])
   // The right-click menu listens on an ancestor of every project's panel DOM
   // (via native `contextmenu` bubbling), not on any one panel — a single
   // listener here catches a right-click in ANY project's rows.
@@ -106,6 +115,7 @@ export function SidebarTreeSurface({
           onCloseRecent={closeRecent}
           onDrop={performSidebarDrop}
           onPaneDrop={performSidebarPaneDrop}
+          onTrashProject={handleTrashProject}
         />
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />

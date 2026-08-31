@@ -75,6 +75,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     const panels = screen.getAllByTestId('space-panel')
@@ -99,6 +100,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     const el = screen.getByTestId('space-scroll-region')
@@ -129,6 +131,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
 
@@ -169,6 +172,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     const panel = screen.getByTestId('space-panel')
@@ -199,6 +203,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     expect(recentsForProject).toHaveBeenCalledWith('p1')
@@ -228,6 +233,7 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     const contents = screen.getAllByTestId('space-scroll-content')
@@ -253,8 +259,108 @@ describe('SpaceScroller', () => {
         onCloseRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
       />,
     )
     expect(screen.queryByTestId('recents-band')).not.toBeInTheDocument()
+  })
+
+  // Spec §4: the space header IS the panel's first element, and it is what
+  // says which project this space is. Built in Task 10 and left with zero
+  // importers until the final fix wave.
+  describe('space header (spec §4)', () => {
+    const renderScroller = (overrides: Partial<{ onTrashProject: () => void }> = {}) => {
+      const projects = [makeProject('p1'), makeProject('p2')]
+      const entry: RecentsBandEntry = {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1'],
+        state: 'dormant',
+        workspaceId: 'ws-1',
+      }
+      render(
+        <SpaceScroller
+          projects={projects}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => [makeRow('row-1', 'Fix the thing')]}
+          recentsForProject={() => [entry]}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={overrides.onTrashProject ?? vi.fn()}
+        />,
+      )
+    }
+
+    it('renders one header per space, above that space\u2019s scroller', () => {
+      renderScroller()
+      const headers = screen.getAllByTestId('space-header-row')
+      expect(headers).toHaveLength(2)
+      const panel = screen.getAllByTestId('space-panel')[0]
+      const content = screen.getAllByTestId('space-scroll-content')[0]
+      expect(panel.contains(headers[0])).toBe(true)
+      // The header is NOT inside the scroll region — spec §2 draws it
+      // `flex: none` above the scroller, so it never scrolls away.
+      expect(content.contains(headers[0])).toBe(false)
+      expect(
+        headers[0].compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    // "Clicking the header folds the space: the tree goes, Recents stays."
+    it('folding hides the tree and keeps Recents', () => {
+      renderScroller()
+      expect(screen.getAllByText('Fix the thing')).toHaveLength(2)
+      expect(screen.getAllByTestId('recents-band')).toHaveLength(2)
+
+      fireEvent.click(screen.getAllByTestId('space-header-row')[0])
+
+      // p1's tree is gone; p2's header was not clicked, so its own tree stays.
+      expect(screen.queryAllByText('Fix the thing')).toHaveLength(1)
+      // ...and Recents survives the fold, in both.
+      expect(screen.getAllByTestId('recents-band')).toHaveLength(2)
+    })
+
+    it('folds only the space whose header was clicked', () => {
+      renderScroller()
+      const headers = screen.getAllByTestId('space-header-row')
+      expect(headers[0]).toHaveAttribute('aria-expanded', 'true')
+
+      fireEvent.click(headers[0])
+
+      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(screen.getAllByTestId('space-header-row')[1]).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
+    })
+
+    // Spec §9: "every row that owns something carries a trash ... and the
+    // space header for the project."
+    it('the overflow offers the project trash, and it names the project', () => {
+      const onTrashProject = vi.fn()
+      renderScroller({ onTrashProject })
+      const header = screen.getAllByTestId('space-header-row')[0]
+
+      fireEvent.mouseEnter(header) // the overflow only exists while active
+      fireEvent.click(screen.getByTestId('overflow'))
+
+      fireEvent.click(screen.getByText('Delete \u201Cp1\u201D'))
+      expect(onTrashProject).toHaveBeenCalledWith('p1')
+      // The overflow click must not also fold the space (SpaceHeader stops
+      // propagation; this pins that the mount relies on it).
+      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
+    })
   })
 })

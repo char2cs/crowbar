@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trash } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ContextMenu, useContextMenu } from '@/components/ui/context-menu'
 import { SidebarTree } from './sidebar-tree'
+import { SpaceHeader } from './space-header'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
@@ -38,6 +41,10 @@ interface SpaceScrollerProps {
   onCloseRecent: (entry: RecentsBandEntry) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
+  /** Spec §9's project-level trash, the one verb the space header's overflow
+   *  carries. Threaded as a prop like every other verb here rather than
+   *  called directly, so this file stays presentational. */
+  onTrashProject: (projectId: string) => void
 }
 
 /** The two `agentChats` fields Recents actually reads, compared by reference
@@ -119,7 +126,7 @@ function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
 }
 
 interface SpacePanelProps {
-  projectId: string
+  project: Project
   rowsForProject: (projectId: string) => SidebarRow[]
   recentsForProject: (projectId: string) => RecentsBandEntry[]
   onOpen: (id: string) => void
@@ -129,10 +136,11 @@ interface SpacePanelProps {
   onCloseRecent: (entry: RecentsBandEntry) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
+  onTrashProject: (projectId: string) => void
 }
 
 function SpacePanel({
-  projectId,
+  project,
   rowsForProject,
   recentsForProject,
   onOpen,
@@ -142,7 +150,9 @@ function SpacePanel({
   onCloseRecent,
   onDrop,
   onPaneDrop,
+  onTrashProject,
 }: SpacePanelProps) {
+  const projectId = project.id
   const rows = rowsForProject(projectId)
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
@@ -179,11 +189,59 @@ function SpacePanel({
   useRecentsTick(workspaceIds, workingSignal)
   const entries = recentsForProject(projectId)
 
+  // Spec §4: "clicking the header folds the space: the tree goes, Recents
+  // stays. That is the point of folding — to see nothing but what is up in
+  // this project. They share one scroller, so the fold hides the ROWS, not
+  // the scroller." Local per-panel state, not persisted: nothing in the spec
+  // asks a fold to survive a reload, and each project's panel is its own
+  // component instance (keyed by project id), so "per space" is free.
+  const [folded, setFolded] = useState(false)
+
+  // The overflow menu's anchor. `SpaceHeader.onOverflow` is a bare callback
+  // with no event (its own reviewed signature), so the menu is positioned off
+  // the header's own box rather than the pointer — which is also the more
+  // correct anchor for a control that can be reached by keyboard.
+  const headerRef = useRef<HTMLDivElement>(null)
+  const menu = useContextMenu()
+
   return (
     <div
       data-testid="space-panel"
       className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
     >
+      {/* flex: none, above the scroller — spec §2's own layout diagram. */}
+      <div ref={headerRef} className="shrink-0">
+        <SpaceHeader
+          project={project}
+          folded={folded}
+          onToggleFold={() => setFolded((f) => !f)}
+          onOverflow={() => {
+            const rect = headerRef.current?.getBoundingClientRect()
+            menu.openAt({ x: rect ? rect.right - 8 : 0, y: rect ? rect.bottom : 0 })
+          }}
+        />
+      </div>
+      {menu.isOpen && (
+        <ContextMenu
+          isOpen
+          position={menu.position}
+          onClose={menu.close}
+          items={[
+            {
+              // Spec §9: "every row that owns something carries a trash:
+              // chats, workspaces, folders, repos, AND THE SPACE HEADER FOR
+              // THE PROJECT." That is the only verb §4/§9 name for this
+              // overflow; rename/lock/import are row verbs with a home
+              // already (row-context-menu.tsx), and inventing more here
+              // would be guessing at an action set no spec describes.
+              id: 'delete-project',
+              label: `Delete “${project.name}”`,
+              icon: <Trash />,
+              onClick: () => onTrashProject(projectId),
+            },
+          ]}
+        />
+      )}
       <ScrollArea className="flex-1">
         {/* Padding lives on the scrollable CONTENT, not the ScrollArea root —
             only that extends how far the region actually scrolls, which is
@@ -200,15 +258,17 @@ function SpacePanel({
           data-testid="space-scroll-content"
           style={{ paddingBottom: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
         >
-          <SidebarTree
-            rows={rows}
-            onOpen={onOpen}
-            onTrash={onTrash}
-            onCreate={onCreate}
-            scrollRef={viewportRef}
-            onDrop={onDrop}
-            onPaneDrop={onPaneDrop}
-          />
+          {!folded && (
+            <SidebarTree
+              rows={rows}
+              onOpen={onOpen}
+              onTrash={onTrash}
+              onCreate={onCreate}
+              scrollRef={viewportRef}
+              onDrop={onDrop}
+              onPaneDrop={onPaneDrop}
+            />
+          )}
           <RecentsBand
             entries={entries}
             onFocus={onFocusRecent}
@@ -247,6 +307,7 @@ export function SpaceScroller({
   onCloseRecent,
   onDrop,
   onPaneDrop,
+  onTrashProject,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
@@ -319,7 +380,7 @@ export function SpaceScroller({
       {projects.map((project) => (
         <SpacePanel
           key={project.id}
-          projectId={project.id}
+          project={project}
           rowsForProject={rowsForProject}
           recentsForProject={recentsForProject}
           onOpen={onOpen}
@@ -329,6 +390,7 @@ export function SpaceScroller({
           onCloseRecent={onCloseRecent}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
+          onTrashProject={onTrashProject}
         />
       ))}
     </div>
