@@ -1,7 +1,7 @@
 import { getDB } from './idb'
-import type { WorkspaceLayout, EditorState, UIPreferences } from './schemas'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import type { EditorState, UIPreferences } from './schemas'
+import { loadWindowPaneLayout } from './workspace-layout'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
   isEditorContent,
   isPersistableContent,
@@ -16,7 +16,6 @@ import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 export interface WorkspaceHydrationResult {
-  layout: WorkspaceLayout | null
   editorStates: EditorState[]
 }
 
@@ -41,32 +40,50 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
   return prefs
 }
 
+/**
+ * One-time, WINDOW-level hydration of pane/buffer layout — call once at app
+ * boot (from `HydrationGate`, alongside `hydratePreferences`/`hydrateSidebar`),
+ * BEFORE any `WorkspaceView` mounts. Task 26 moved panes/buffers off the
+ * per-workspace store registry onto one window-level store
+ * (`window-pane-store.ts`) that is never destroyed, so there is exactly one
+ * persisted layout row to restore here, not one per workspace — see
+ * `workspace-layout.ts`'s `WINDOW_SESSION_ID`.
+ */
+export async function hydrateWindowPaneLayout(): Promise<void> {
+  const layout = await loadWindowPaneLayout()
+  if (!layout) return
+
+  const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
+
+  windowPaneStore.setState({
+    activePaneId: layout.activePaneId,
+    mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [layout.activePaneId],
+    panes: layout.panes,
+    rootLayout: layout.rootLayout,
+    bottomLayout: layout.bottomLayout,
+    buffers,
+  })
+}
+
+/**
+ * Per-workspace hydration: fetches this workspace's own saved editor-view
+ * state (cursor/scroll/folds — still workspace+buffer keyed, untouched by
+ * Task 26) and reconciles whatever of ITS buffers already exist in the
+ * (window-level, already-hydrated-once) pane store against disk — a restored
+ * buffer's content can be stale the moment the app opens.
+ */
 export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHydrationResult> {
   const db = await getDB()
+  const editorStates = await db.getAllFromIndex('editor-state', 'workspaceId', workspaceId)
 
-  const [layout, editorStates] = await Promise.all([
-    db.get('workspace-layout', workspaceId).then((r) => r ?? null),
-    db.getAllFromIndex('editor-state', 'workspaceId', workspaceId),
-  ])
-
-  const store = getOrCreateWorkspaceStore(workspaceId)
-
-  if (layout) {
-    const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
-
-    store.setState({
-      activePaneId: layout.activePaneId,
-      mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [layout.activePaneId],
-      panes: layout.panes,
-      rootLayout: layout.rootLayout,
-      bottomLayout: layout.bottomLayout,
-      buffers,
-    })
-
-    await reconcileRestoredBuffers(store, buffers)
+  const buffers = windowPaneStore
+    .getState()
+    .buffers.filter((b) => b.workspaceId === workspaceId)
+  if (buffers.length > 0) {
+    await reconcileRestoredBuffers(workspaceId, buffers)
   }
 
-  return { layout, editorStates }
+  return { editorStates }
 }
 
 /**
@@ -79,8 +96,10 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
  * hasExternalChange.
  */
 export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
-  const store = getOrCreateWorkspaceStore(workspaceId)
-  await reconcileRestoredBuffers(store, store.getState().buffers)
+  const buffers = windowPaneStore
+    .getState()
+    .buffers.filter((b) => b.workspaceId === workspaceId)
+  await reconcileRestoredBuffers(workspaceId, buffers)
 }
 
 /**
@@ -107,7 +126,7 @@ function restoreBufferDirtyState(buffer: PaneContent): PaneContent {
  * buffer would get a false "changed on disk" toast on every reload.
  */
 async function reconcileRestoredBuffers(
-  store: WorkspaceStore,
+  workspaceId: string,
   buffers: PaneContent[],
 ): Promise<void> {
   const realFileBuffers = buffers.filter(isPersistableContent)
@@ -119,7 +138,7 @@ async function reconcileRestoredBuffers(
       // readFile would then load the sibling worktree's file into this store.
       let diskContent: string | null
       try {
-        diskContent = await readWorkspaceFile(store.getState().workspaceId, buffer.path)
+        diskContent = await readWorkspaceFile(workspaceId, buffer.path)
       } catch (err) {
         // BUG-001: a 404 means the file is gone (e.g. its worktree was
         // deleted). Mark a clean buffer terminally so the pane shows a "file
@@ -128,23 +147,25 @@ async function reconcileRestoredBuffers(
         // left, and saving recreates the file. Other errors (network, 5xx)
         // stay silent and non-terminal as before.
         if (isNotFoundError(err) && !buffer.isDirty) {
-          setBufferFileMissing(store, buffer.path, true)
+          setBufferFileMissing(workspaceId, buffer.path, true)
         }
         return
       }
       // The file is back (or was never gone) — clear a stale missing flag
       // that may have been persisted by a previous session.
-      if (buffer.fileMissing) setBufferFileMissing(store, buffer.path, false)
+      if (buffer.fileMissing) setBufferFileMissing(workspaceId, buffer.path, false)
       if (diskContent === buffer.savedContent) return
-      await syncBufferWithDisk(store, buffer.path)
+      await syncBufferWithDisk(workspaceId, buffer.path)
     }),
   )
 }
 
-function setBufferFileMissing(store: WorkspaceStore, path: string, fileMissing: boolean): void {
-  store.setState((state) => ({
+function setBufferFileMissing(workspaceId: string, path: string, fileMissing: boolean): void {
+  windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && b.path === path ? { ...b, fileMissing } : b,
+      isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId
+        ? { ...b, fileMissing }
+        : b,
     ),
   }))
 }

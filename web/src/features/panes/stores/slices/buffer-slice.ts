@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { WorkspaceState } from '../workspace-store.types'
+import type { WindowPaneState } from '../window-pane-store.types'
 import type {
   PaneContent,
   OpenEditorTabSpec,
@@ -24,7 +24,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 // synchronous way to release the buffer's rich/source preference.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { useSettingsStore } from '@/features/settings/store'
-import type { WorkspaceStore } from '../workspace-store'
+import { getActiveWorkspaceId, getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 
@@ -82,14 +82,15 @@ export interface BufferSlice {
 }
 
 export const createBufferSlice: StateCreator<
-  WorkspaceState,
+  WindowPaneState,
   [['zustand/immer', never]],
   [],
   BufferSlice
-> = (set, get, api) => {
-  // See pane-slice for why reaching `editorManager` through `api` is safe: it is
-  // the non-reactive handle Object.assign'd onto the store after slice creation.
-  const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
+> = (set, get) => {
+  // See pane-slice for why the editor manager stays keyed by workspaceId
+  // rather than living on this (now window-level) store.
+  const editorManagerFor = (workspaceId: string) =>
+    getOrCreateWorkspaceStore(workspaceId).editorManager
 
   return {
     buffers: [],
@@ -99,19 +100,42 @@ export const createBufferSlice: StateCreator<
 
     bufferActions: {
       openContent(spec) {
+        // Resolve the owning workspace once: an explicit spec.workspaceId wins
+        // (the caller already knows — e.g. openFileContent's own wsId param),
+        // commitDiff/branchReview fall back to their own (pre-existing) wsId
+        // field, and everything else defaults to whichever workspace is
+        // currently active. `buffers` is one flat, window-level list now (Task
+        // 26) — every path-keyed lookup below must scope on this, or two
+        // workspaces sharing a relative path (the common case: they're worktrees
+        // of the same repo) would silently share one buffer.
+        const workspaceId =
+          spec.workspaceId ??
+          (spec.type === 'branchReview' || spec.type === 'commitDiff' ? spec.wsId : undefined) ??
+          getActiveWorkspaceId() ??
+          ''
+
         // Deduplicate: return existing buffer id if already open
         const existing = (() => {
           if (spec.type === 'editor') {
-            return get().buffers.find((b) => b.type === 'editor' && b.path === spec.path)
+            return get().buffers.find(
+              (b) => b.type === 'editor' && b.path === spec.path && b.workspaceId === workspaceId,
+            )
           }
           if (spec.type === 'branchReview') {
             return get().buffers.find(
-              (b) => b.type === 'branchReview' && (b as BranchReviewContent).wsId === spec.wsId,
+              (b) =>
+                b.type === 'branchReview' &&
+                (b as BranchReviewContent).wsId === spec.wsId &&
+                b.workspaceId === workspaceId,
             )
           }
           if (spec.type === 'commitDiff') {
             return get().buffers.find(
-              (b) => b.type === 'commitDiff' && b.wsId === spec.wsId && b.sha === spec.sha,
+              (b) =>
+                b.type === 'commitDiff' &&
+                b.wsId === spec.wsId &&
+                b.sha === spec.sha &&
+                b.workspaceId === workspaceId,
             )
           }
           if (spec.type === 'terminal' && spec.sessionId) {
@@ -120,16 +144,32 @@ export const createBufferSlice: StateCreator<
             )
           }
           if (spec.type === 'markdownPreview') {
-            return get().buffers.find((b) => b.type === 'markdownPreview' && b.path === spec.path)
+            return get().buffers.find(
+              (b) =>
+                b.type === 'markdownPreview' &&
+                b.path === spec.path &&
+                b.workspaceId === workspaceId,
+            )
           }
           if (spec.type === 'htmlPreview') {
-            return get().buffers.find((b) => b.type === 'htmlPreview' && b.path === spec.path)
+            return get().buffers.find(
+              (b) =>
+                b.type === 'htmlPreview' && b.path === spec.path && b.workspaceId === workspaceId,
+            )
           }
           if (spec.type === 'csvPreview') {
-            return get().buffers.find((b) => b.type === 'csvPreview' && b.path === spec.path)
+            return get().buffers.find(
+              (b) =>
+                b.type === 'csvPreview' && b.path === spec.path && b.workspaceId === workspaceId,
+            )
           }
           if (spec.type === 'externalEditor') {
-            return get().buffers.find((b) => b.type === 'externalEditor' && b.path === spec.path)
+            return get().buffers.find(
+              (b) =>
+                b.type === 'externalEditor' &&
+                b.path === spec.path &&
+                b.workspaceId === workspaceId,
+            )
           }
           return undefined
         })()
@@ -205,6 +245,7 @@ export const createBufferSlice: StateCreator<
             tokens: [],
             isPinned: false,
             isPreview,
+            workspaceId,
           } satisfies EditorContent
         } else if (spec.type === 'branchReview') {
           buf = {
@@ -215,6 +256,7 @@ export const createBufferSlice: StateCreator<
             path: `branch-review://${spec.wsId}`,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies BranchReviewContent
         } else if (spec.type === 'commitDiff') {
           buf = {
@@ -228,6 +270,7 @@ export const createBufferSlice: StateCreator<
             path: `commit-diff://${spec.wsId}/${spec.sha}`,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies CommitDiffContent
         } else if (spec.type === 'terminal') {
           const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
@@ -243,6 +286,7 @@ export const createBufferSlice: StateCreator<
             remoteConnectionId: spec.remoteConnectionId,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies TerminalContent
         } else if (spec.type === 'markdownPreview') {
           buf = {
@@ -254,6 +298,7 @@ export const createBufferSlice: StateCreator<
             sourceFilePath: spec.sourceFilePath,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies MarkdownPreviewContent
         } else if (spec.type === 'htmlPreview') {
           buf = {
@@ -265,6 +310,7 @@ export const createBufferSlice: StateCreator<
             sourceFilePath: spec.sourceFilePath,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies HtmlPreviewContent
         } else if (spec.type === 'csvPreview') {
           buf = {
@@ -276,6 +322,7 @@ export const createBufferSlice: StateCreator<
             sourceFilePath: spec.sourceFilePath,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies CsvPreviewContent
         } else {
           // spec.type === 'externalEditor'
@@ -287,6 +334,7 @@ export const createBufferSlice: StateCreator<
             terminalConnectionId: spec.terminalConnectionId,
             isPinned: false,
             isPreview: false,
+            workspaceId,
           } satisfies ExternalEditorContent
         }
 
@@ -308,7 +356,7 @@ export const createBufferSlice: StateCreator<
         // Dynamic import avoids a workspace-slice → terminal-feature cycle.
         if (buf && buf.type === 'terminal') {
           const { sessionId } = buf as TerminalContent
-          const workspaceId = get().workspaceId
+          const workspaceId = buf.workspaceId
           bestEffort(
             import('@/features/terminal/lib/kill-terminal-session').then(
               async ({ killTerminalSession }) => {
@@ -334,6 +382,7 @@ export const createBufferSlice: StateCreator<
               path: buf.path ?? '',
               name: buf.name,
               isPinned: buf.isPinned ?? false,
+              workspaceId: buf.workspaceId,
             }
             state.closedBuffersHistory.unshift(entry)
             if (state.closedBuffersHistory.length > EDITOR_CONSTANTS.MAX_CLOSED_BUFFERS_HISTORY) {
@@ -350,7 +399,7 @@ export const createBufferSlice: StateCreator<
         // reads fresh content (no stale model).
         if (buf && isEditorContent(buf) && buf.path) {
           const uri = fileUri(buf.path)
-          const manager = editorManagerOf()
+          const manager = editorManagerFor(buf.workspaceId)
           for (const pane of Object.values(get().panes ?? {})) {
             if (pane.editorTabIds.includes(id)) manager?.closeBuffer(pane.id, uri)
           }
@@ -465,18 +514,20 @@ export const createBufferSlice: StateCreator<
           path: entry.path,
           name: entry.name,
           content: '',
+          workspaceId: entry.workspaceId,
         })
         // The history entry carries no content; load it from disk and fill the
         // buffer in place. Dynamic import avoids a slice → platform-controller
         // cycle. Skip the fill if the user already typed into the empty buffer.
-        // Read from this store's own workspace: the active workspace can change
-        // while the read is in flight, and the same relative path in a sibling
-        // worktree holds different content.
+        // Read from the CLOSED buffer's own workspace (not necessarily the
+        // active one — the active workspace can change while the read is in
+        // flight, and the same relative path in a sibling worktree holds
+        // different content).
         bestEffort(
           import('@/features/file-system/controllers/platform').then(
             async ({ readWorkspaceFile }) => {
               try {
-                const content = await readWorkspaceFile(get().workspaceId, entry.path)
+                const content = await readWorkspaceFile(entry.workspaceId, entry.path)
                 set((state) => {
                   const buf = state.buffers.find((b) => b.id === id)
                   if (buf && buf.type === 'editor' && buf.content === '') {

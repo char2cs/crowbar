@@ -2,15 +2,12 @@
 import { createStore, type StoreApi } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { WorkspaceState } from './workspace-store.types'
-import { createPaneSlice } from './slices/pane-slice'
-import { createBufferSlice } from './slices/buffer-slice'
 import { createLspSlice } from './slices/lsp-slice'
 import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { createBranchReviewSlice } from './slices/branch-review-slice'
 import { createAgentChatsSlice } from './slices/agent-chats-slice'
-import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
 import {
@@ -58,38 +55,16 @@ export interface WorkspaceEditorHandles {
    * read it without ever pulling in the editor.
    */
   readonly activeEditorRegistry: ActiveEditorRegistry
-  /**
-   * Tears down the internal session-persistence subscription (the IndexedDB
-   * saveSessionToStore writer wired in createWorkspaceStore). destroyWorkspaceStore
-   * MUST call this: the subscription closes over this store, so without it a
-   * late setState after teardown writes a stale workspace's session to IndexedDB.
-   */
-  readonly _disposeSession: () => void
 }
 
 export type WorkspaceStore = StoreApi<WorkspaceState> & WorkspaceEditorHandles
 
-export type WorkspaceSnapshot = Partial<
-  Pick<
-    WorkspaceState,
-    | 'panes'
-    | 'rootLayout'
-    | 'bottomLayout'
-    | 'activePaneId'
-    | 'fullscreenPaneId'
-    | 'mostRecentActivePaneIds'
-    | 'buffers'
-    | 'recentFiles'
-    | 'terminalLayout'
-  >
->
+export type WorkspaceSnapshot = Partial<Pick<WorkspaceState, 'recentFiles' | 'terminalLayout'>>
 
 export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot): WorkspaceStore {
   const store = createStore<WorkspaceState>()(
     immer((set, get, api): WorkspaceState => ({
       workspaceId: wsId,
-      ...createPaneSlice(set, get, api),
-      ...createBufferSlice(set, get, api),
       ...createLspSlice(set, get, api),
       ...createTerminalSlice(set, get, api),
       ...createFileWatcherSlice(set, get, api),
@@ -100,16 +75,10 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     })),
   )
 
-  // Persist session (open buffers + active buffer) to IndexedDB on buffer changes.
-  // Capture the unsubscribe so destroyWorkspaceStore can tear it down — otherwise
-  // a late setState on a destroyed store (an in-flight file load / WS frame
-  // resolving after teardown) fires this and writes a STALE workspace's session,
-  // corrupting persisted layout. Exposed below as `_disposeSession`.
-  const disposeSession = store.subscribe((state, prev) => {
-    if (state.buffers === prev.buffers) return
-    const activePane = state.panes[state.activePaneId] ?? null
-    saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
-  })
+  // Note: buffer-session-persistence's saveSessionToStore now fires once, off
+  // the window-level pane store (window-pane-store.ts) — panes/buffers moved
+  // there in Task 26, so there is one flat buffer list for the whole window,
+  // not one per workspace.
 
   // One ModelRegistry + EditorManager per workspace (non-reactive handles),
   // constructed LAZILY on the first real editor need. `monaco-editor` (a multi-MB
@@ -124,18 +93,30 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
   const armEditor = (): Promise<void> => {
     if (editorManager) return Promise.resolve()
     if (armPromise) return armPromise
-    armPromise = import('@/features/editor/lib/monaco-adapters')
-      .then(({ EDITOR_CREATE_OPTIONS, langForUri, realEditorApi, realModelApi }) => {
+    // Loaded alongside monaco-adapters (not a static top-level import): a
+    // static import here would cycle back through the window pane store's
+    // own pane-slice, which resolves an editor manager BY workspace id via
+    // this very module (workspace-store-registry.ts → workspace-store.ts).
+    armPromise = Promise.all([
+      import('@/features/editor/lib/monaco-adapters'),
+      import('@/features/panes/stores/window-pane-store'),
+    ])
+      .then(([{ EDITOR_CREATE_OPTIONS, langForUri, realEditorApi, realModelApi }, { windowPaneStore }]) => {
         // `text(uri)` reads the buffer content for the file at that uri, or '' if
         // it isn't loaded; `lang(uri)` derives the Monaco language id from the path.
+        // Buffers are window-level now (Task 26) — scope the lookup to THIS
+        // workspace's own buffers (`buf.workspaceId`), since a hidden retained
+        // workspace can hold a buffer at the same relative path.
         const registry = new ModelRegistry(realModelApi())
         const meta: BufferMeta = {
           lang: (uri) => langForUri(uri),
           text: (uri) => {
             const fsPath = uriToFsPath(uri)
-            const buf = store
+            const buf = windowPaneStore
               .getState()
-              .buffers.find((b) => b.type === 'editor' && b.path === fsPath)
+              .buffers.find(
+                (b) => b.type === 'editor' && b.path === fsPath && b.workspaceId === wsId,
+              )
             return buf && 'content' in buf ? buf.content : ''
           },
         }
@@ -162,6 +143,5 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     editorManager: { get: () => editorManager, enumerable: true },
     armEditor: { value: armEditor, enumerable: true },
     activeEditorRegistry: { value: activeEditorRegistry, enumerable: true },
-    _disposeSession: { value: disposeSession, enumerable: true },
   }) as WorkspaceStore
 }

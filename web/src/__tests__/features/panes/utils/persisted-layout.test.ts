@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripNewTabs, type Snapshot } from '@/features/workspace/stores/persisted-layout'
+import { stripNewTabs, type Snapshot } from '@/features/panes/utils/persisted-layout'
 
 describe('stripNewTabs', () => {
   const snapshot = {
@@ -8,60 +8,60 @@ describe('stripNewTabs', () => {
       { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
     ],
     panes: {
-      root: { id: 'root', bufferIds: ['nt-1', 'e-1'], activeBufferId: 'nt-1' },
-      split: { id: 'split', bufferIds: ['nt-2'], activeBufferId: 'nt-2' },
+      root: { id: 'root', editorTabIds: ['nt-1', 'e-1'], activeEditorTabId: 'nt-1' },
+      split: { id: 'split', editorTabIds: ['nt-2'], activeEditorTabId: 'nt-2' },
     },
   } as unknown as Snapshot
 
-  it('drops newTab buffers', () => {
+  it('drops buffers whose content type no longer exists (e.g. the retired New Tab placeholder)', () => {
     expect(stripNewTabs(snapshot).buffers.map((b) => b.id)).toEqual(['e-1'])
   })
 
   it('strips their ids out of pane membership, so no id is left stranded', () => {
-    expect(stripNewTabs(snapshot).panes.root.bufferIds).toEqual(['e-1'])
+    expect(stripNewTabs(snapshot).panes.root.editorTabIds).toEqual(['e-1'])
   })
 
-  it('repoints activeBufferId when it pointed at a New Tab', () => {
+  it('repoints activeEditorTabId when it pointed at a dropped buffer', () => {
     const out = stripNewTabs(snapshot)
-    expect(out.panes.root.activeBufferId).toBe('e-1')
+    expect(out.panes.root.activeEditorTabId).toBe('e-1')
     // Nothing left to activate — null, never a dangling id.
-    expect(out.panes.split.activeBufferId).toBeNull()
+    expect(out.panes.split.activeEditorTabId).toBeNull()
   })
 
-  it("drops a New Tab that is a pane's only tab, leaving it empty", () => {
-    const soleNewTab = {
+  it("drops a buffer that is a pane's only tab, leaving it empty", () => {
+    const soleUnknown = {
       buffers: [{ id: 'nt-only', type: 'newTab', path: '', name: 'New Tab' }],
       panes: {
-        root: { id: 'root', bufferIds: ['nt-only'], activeBufferId: 'nt-only' },
+        root: { id: 'root', editorTabIds: ['nt-only'], activeEditorTabId: 'nt-only' },
       },
     } as unknown as Snapshot
 
-    const out = stripNewTabs(soleNewTab)
+    const out = stripNewTabs(soleUnknown)
     expect(out.buffers.map((b) => b.id)).toEqual([])
-    expect(out.panes.root.bufferIds).toEqual([])
-    expect(out.panes.root.activeBufferId).toBeNull()
+    expect(out.panes.root.editorTabIds).toEqual([])
+    expect(out.panes.root.activeEditorTabId).toBeNull()
   })
 
-  it('heals a pre-existing stranded id even when no New Tab is open (Finding 1)', () => {
-    // No newTab buffers at all — the guard must still fire the heal, not bail
-    // out early, since a pane holds an id with no backing buffer.
+  it('heals a pre-existing stranded id even when nothing was dropped (Finding 1)', () => {
+    // No unknown-type buffers at all — the guard must still fire the heal,
+    // not bail out early, since a pane holds an id with no backing buffer.
     const strandedOnly = {
       buffers: [{ id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' }],
       panes: {
-        root: { id: 'root', bufferIds: ['e-1', 'ghost'], activeBufferId: 'ghost' },
+        root: { id: 'root', editorTabIds: ['e-1', 'ghost'], activeEditorTabId: 'ghost' },
       },
     } as unknown as Snapshot
 
     const out = stripNewTabs(strandedOnly)
-    expect(out.panes.root.bufferIds).toEqual(['e-1'])
-    expect(out.panes.root.activeBufferId).toBe('e-1')
+    expect(out.panes.root.editorTabIds).toEqual(['e-1'])
+    expect(out.panes.root.activeEditorTabId).toBe('e-1')
   })
 
   it('returns the same snapshot reference when there is truly nothing to strip', () => {
     const clean = {
       buffers: [{ id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' }],
       panes: {
-        root: { id: 'root', bufferIds: ['e-1'], activeBufferId: 'e-1' },
+        root: { id: 'root', editorTabIds: ['e-1'], activeEditorTabId: 'e-1' },
       },
     } as unknown as Snapshot
 
@@ -79,7 +79,7 @@ describe('stripNewTabs', () => {
         { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
       ],
       panes: {
-        root: { id: 'root', bufferIds: ['old-1', 'e-1'], activeBufferId: 'old-1' },
+        root: { id: 'root', editorTabIds: ['old-1', 'e-1'], activeEditorTabId: 'old-1' },
       },
     } as unknown as Snapshot
 
@@ -87,8 +87,8 @@ describe('stripNewTabs', () => {
 
     expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
     // The pane must not be left pointing at the id that just vanished.
-    expect(out.panes.root.bufferIds).toEqual(['e-1'])
-    expect(out.panes.root.activeBufferId).toBe('e-1')
+    expect(out.panes.root.editorTabIds).toEqual(['e-1'])
+    expect(out.panes.root.activeEditorTabId).toBe('e-1')
   })
 
   it('keeps every type this build DOES know, including the new commit diff', () => {
@@ -98,7 +98,7 @@ describe('stripNewTabs', () => {
         { id: 'br-1', type: 'branchReview', wsId: 'w1', name: 'Branch Review' },
       ],
       panes: {
-        root: { id: 'root', bufferIds: ['c-1', 'br-1'], activeBufferId: 'c-1' },
+        root: { id: 'root', editorTabIds: ['c-1', 'br-1'], activeEditorTabId: 'c-1' },
       },
     } as unknown as Snapshot
 

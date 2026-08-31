@@ -51,6 +51,18 @@ export interface EditorTabBase {
   isPinned?: boolean
   isPreview?: boolean
   isUncloseable?: boolean
+  /**
+   * The workspace this tab's content belongs to. Load-bearing since Task 26
+   * hoisted `buffers`/`panes` out of the per-workspace store registry into
+   * one window-level store: `path` is workspace-RELATIVE (a sibling worktree
+   * can hold a different file at the same path), so once every workspace's
+   * buffers share one flat list, this field is the only thing that keeps
+   * "src/foo.ts in workspace A" from being confused with "src/foo.ts in
+   * workspace B" — in dedup (`openContent`), disk reconciliation
+   * (`external-buffer-sync.ts`, `hydrate.ts`), and per-workspace teardown
+   * (`destroyWorkspaceStore`'s terminal-detach/blame-clear/history-cleanup).
+   */
+  workspaceId: string
 }
 
 // ── Per-type content definitions ────────────────────────────────────
@@ -198,6 +210,8 @@ export type OpenEditorTabSpec =
       isVirtual?: boolean
       isPreview?: boolean
       language?: string
+      /** Defaults to the active workspace when omitted — see EditorTabBase.workspaceId. */
+      workspaceId?: string
     }
   | {
       type: 'terminal'
@@ -207,12 +221,14 @@ export type OpenEditorTabSpec =
       remoteConnectionId?: string
       sessionId?: string
       path?: string
+      workspaceId?: string
     }
   | {
       type: 'commitDiff'
       wsId: string
       sha: string
       name: string
+      workspaceId?: string
     }
   | {
       type: 'markdownPreview'
@@ -220,6 +236,7 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'htmlPreview'
@@ -227,6 +244,7 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'csvPreview'
@@ -234,17 +252,20 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'externalEditor'
       path: string
       name: string
       terminalConnectionId: string
+      workspaceId?: string
     }
   | {
       type: 'branchReview'
       wsId: string
       name: string
+      workspaceId?: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────
@@ -253,6 +274,7 @@ export interface ClosedBuffer {
   path: string
   name: string
   isPinned: boolean
+  workspaceId: string
 }
 
 export interface PendingClose {

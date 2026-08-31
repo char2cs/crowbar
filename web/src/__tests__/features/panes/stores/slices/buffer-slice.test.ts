@@ -1,11 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import {
-  createBufferSlice,
-  type BufferSlice,
-} from '@/features/workspace/stores/slices/buffer-slice'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { createBufferSlice, type BufferSlice } from '@/features/panes/stores/slices/buffer-slice'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
@@ -198,6 +195,7 @@ describe('buffer-slice', () => {
       type: 'terminal',
       sessionId: 'sess-reconnect',
       name: 'Terminal 2',
+      workspaceId: 'ws-99',
     })
     localStore.getState().bufferActions.closeBuffer(id)
     // clearReconnect fires after killTerminalSession completes (both in the same async chain)
@@ -295,8 +293,16 @@ describe('buffer-slice', () => {
   })
 
   describe('sole editor tab closeability', () => {
+    // Task 26: these tests exercise the REAL paneActions (splitPane,
+    // addEditorTabToPane, moveEditorTabToPane), which now live on the
+    // window-level singleton — reset it between tests so one test's tabs
+    // never leak into the next's `editorTabIds` length assertions.
+    beforeEach(() => {
+      resetWindowPaneStoreForTests()
+    })
+
     it('the sole editor tab in a pane is marked uncloseable', () => {
-      const store = createWorkspaceStore('ws-test')
+      const store = windowPaneStore
       const tabId = 'tab-sole'
       // Create a buffer manually
       store.setState((state) => {
@@ -312,13 +318,16 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
         })
+        return state
       })
       // Add the tab to the pane
       store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabId,
         type: 'editor',
         name: 'foo.ts',
+        workspaceId: 'ws-test',
       })
       // Verify the pane has this tab
       const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
@@ -329,7 +338,7 @@ describe('buffer-slice', () => {
     })
 
     it('adding a second tab clears isUncloseable on both tabs', () => {
-      const store = createWorkspaceStore('ws-test')
+      const store = windowPaneStore
       const tabId1 = 'tab-1'
       const tabId2 = 'tab-2'
       // Create two buffers manually
@@ -346,6 +355,7 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
         })
         state.buffers.push({
           id: tabId2,
@@ -359,13 +369,16 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
         })
+        return state
       })
       // Add first tab
       store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabId1,
         type: 'editor',
         name: 'foo.ts',
+        workspaceId: 'ws-test',
       })
       // Verify it's marked uncloseable
       const tab1Before = store.getState().bufferActions.getBufferById(tabId1)
@@ -375,6 +388,7 @@ describe('buffer-slice', () => {
         id: tabId2,
         type: 'editor',
         name: 'bar.ts',
+        workspaceId: 'ws-test',
       })
       // Verify pane has both tabs
       const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
@@ -387,7 +401,7 @@ describe('buffer-slice', () => {
     })
 
     it('removing tabs down to one marks that tab as uncloseable again', () => {
-      const store = createWorkspaceStore('ws-test')
+      const store = windowPaneStore
       const tabId1 = 'tab-remove-1'
       const tabId2 = 'tab-remove-2'
       // Create two buffers manually
@@ -404,6 +418,7 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
         })
         state.buffers.push({
           id: tabId2,
@@ -417,18 +432,22 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
         })
+        return state
       })
       // Add two tabs
       store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabId1,
         type: 'editor',
         name: 'foo.ts',
+        workspaceId: 'ws-test',
       })
       store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabId2,
         type: 'editor',
         name: 'bar.ts',
+        workspaceId: 'ws-test',
       })
       // Both should be non-closeable
       expect(store.getState().bufferActions.getBufferById(tabId1)?.isUncloseable).toBe(false)
@@ -440,7 +459,7 @@ describe('buffer-slice', () => {
     })
 
     it('moveEditorTabToPane syncs isUncloseable on both source and destination panes', () => {
-      const store = createWorkspaceStore('ws-test')
+      const store = windowPaneStore
       const paneActions = store.getState().paneActions
       // Create pane B (destination)
       const paneBId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
@@ -461,6 +480,7 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
           isUncloseable: false,
         })
         state.buffers.push({
@@ -475,6 +495,7 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
           isUncloseable: false,
         })
         state.buffers.push({
@@ -489,25 +510,30 @@ describe('buffer-slice', () => {
           tokens: [],
           isPinned: false,
           isPreview: false,
+          workspaceId: 'ws-test',
           isUncloseable: true,
         })
+        return state
       })
       // Setup: Pane A has 2 tabs (both not uncloseable initially)
       paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabAStay,
         type: 'editor',
         name: 'file-a-stay.ts',
+        workspaceId: 'ws-test',
       })
       paneActions.addEditorTabToPane(ROOT_PANE_ID, {
         id: tabToMove,
         type: 'editor',
         name: 'file-to-move.ts',
+        workspaceId: 'ws-test',
       })
       // Setup: Pane B has 1 tab (uncloseable)
       paneActions.addEditorTabToPane(paneBId, {
         id: tabBId,
         type: 'editor',
         name: 'file-b1.ts',
+        workspaceId: 'ws-test',
       })
       // Before move: pane A has 2 tabs (both closeable), pane B has 1 tab (uncloseable)
       expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toHaveLength(2)

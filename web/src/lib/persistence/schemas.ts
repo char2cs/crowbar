@@ -16,6 +16,16 @@ export interface BranchReviewPersistedState {
 }
 
 export interface WorkspaceLayout {
+  /**
+   * Task 26: the object store's `keyPath` is still literally `workspaceId`
+   * (unchanged, so no `idb.ts` version bump is needed), but the VALUE written
+   * here is now `WINDOW_SESSION_ID` — a fixed constant, not a real workspace
+   * id. Pane/buffer layout is window-level (one flat store for every
+   * workspace, see `window-pane-store.ts`), so there is exactly one row in
+   * this object store now, not one per workspace. Each individual buffer
+   * still carries its OWN `workspaceId` (`EditorTabBase.workspaceId`) — that
+   * is the real per-buffer scoping now.
+   */
   workspaceId: string
   panes: Record<string, PaneGroup>
   rootLayout: LayoutNode

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
+import { hydratePreferences, hydrateSidebar, hydrateWindowPaneLayout } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
@@ -28,8 +28,10 @@ export function HydrationGate({ children }: HydrationGateProps) {
       useSidebarStore.getState().setRepos(repos)
       useProjectStore.getState().setProjects(projects)
 
-      // Overlay IDB-persisted UI state on top of API data
-      await Promise.all([hydratePreferences(), hydrateSidebar()])
+      // Overlay IDB-persisted UI state on top of API data. Task 26: pane/buffer
+      // layout is window-level now — hydrated ONCE here, before any
+      // WorkspaceView mounts, rather than once per workspace.
+      await Promise.all([hydratePreferences(), hydrateSidebar(), hydrateWindowPaneLayout()])
     }
 
     boot()

@@ -1,13 +1,29 @@
-// web/src/__tests__/features/workspace/stores/slices/pane-slice.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+// web/src/__tests__/features/panes/stores/slices/pane-slice.test.ts
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/slices/pane-slice'
+import { createPaneSlice, type PaneSlice } from '@/features/panes/stores/slices/pane-slice'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  getOrCreateWorkspaceStore,
+  getAllActiveWorkspaceIds,
+  destroyWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
+
+// Task 26: `agentChats.working` lives on the per-workspace store now (it never
+// moved), while panes read it through `isChatWorking` (workspace-store-
+// registry.ts), which searches every REGISTERED workspace store. Seeding a
+// real per-workspace store via the real registry — rather than mocking
+// `isChatWorking` — exercises the real integration and needs no mock.
+afterEach(() => {
+  getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  resetWindowPaneStoreForTests()
+})
 
 function makeStore() {
   return createStore<PaneSlice>()(
@@ -71,6 +87,7 @@ describe('pane-slice', () => {
       id: 'tab-1',
       type: 'editor',
       name: 'a.ts',
+      workspaceId: 'ws-test',
     })
     const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
     expect(rootGroup?.editorTabIds).toContain('tab-1')
@@ -80,8 +97,8 @@ describe('pane-slice', () => {
 
   it('removeEditorTabFromPane removes the tab from the group', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
     actions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-1')
     const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
     expect(rootGroup?.editorTabIds).not.toContain('tab-1')
@@ -90,7 +107,7 @@ describe('pane-slice', () => {
 
   it('removeEditorTabFromPane closes the editor view once the last tab is gone', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     actions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-1')
     const rootGroup = actions.getPaneById(ROOT_PANE_ID)
     expect(rootGroup?.editorTabIds).toEqual([])
@@ -100,9 +117,9 @@ describe('pane-slice', () => {
 
   it('closing the active tab activates the ADJACENT tab (right neighbor, else left when last)', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-3', type: 'editor', name: 'c.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-3', type: 'editor', name: 'c.ts', workspaceId: 'ws-test' })
     const activeOf = () => store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.activeEditorTabId
 
     // Activate the MIDDLE tab, then close it -> the right neighbor activates
@@ -125,13 +142,13 @@ describe('pane-slice', () => {
   // here. Activating one of those ghosts renders NOTHING.
   it('never activates a tab whose content no longer exists', () => {
     const store = makeStoreWithBuffers([
-      { id: 'tab-real', type: 'terminal' },
-      { id: 'tab-active', type: 'terminal' },
+      { id: 'tab-real', type: 'terminal', workspaceId: 'ws-test' },
+      { id: 'tab-active', type: 'terminal', workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-real', type: 'terminal', name: 'sh' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-ghost', type: 'terminal', name: 'sh' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-active', type: 'terminal', name: 'sh' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-real', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-ghost', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-active', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
 
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-active')
     actions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-active')
@@ -191,7 +208,7 @@ describe('pane-slice bottomRoot routing', () => {
   it('addEditorTabToPane adds to bottomRoot when paneId is BOTTOM_PANE_ID', () => {
     store
       .getState()
-      .paneActions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh' })
+      .paneActions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
     const bottomGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
     expect(bottomGroup?.editorTabIds).toContain('tab-1')
   })
@@ -211,7 +228,7 @@ describe('pane-slice bottomRoot routing', () => {
 
   it('activateEditorTabInPane works for bottomRoot pane', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-bottom', type: 'terminal', name: 'sh' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-bottom', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
     actions.activateEditorTabInPane(BOTTOM_PANE_ID, 'tab-bottom')
     const bottomGroup = actions.getPaneById(BOTTOM_PANE_ID)
     expect(bottomGroup?.activeEditorTabId).toBe('tab-bottom')
@@ -219,8 +236,8 @@ describe('pane-slice bottomRoot routing', () => {
 
   it('removeEditorTabFromPane removes tab from bottomRoot pane', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh' })
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-2', type: 'terminal', name: 'sh' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-2', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
     actions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-1')
     const bottomGroup = actions.getPaneById(BOTTOM_PANE_ID)
     expect(bottomGroup?.editorTabIds).not.toContain('tab-1')
@@ -232,6 +249,7 @@ describe('pane-slice bottomRoot routing', () => {
       id: 'tab-bottom',
       type: 'terminal',
       name: 'sh',
+      workspaceId: 'ws-test',
     })
     const pane = store.getState().paneActions.getPaneByEditorTabId('tab-bottom')
     expect(pane).not.toBeNull()
@@ -240,7 +258,7 @@ describe('pane-slice bottomRoot routing', () => {
 
   it('moveEditorTabToPane moves a tab across trees (bottomRoot -> paneRoot)', () => {
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-x', type: 'terminal', name: 'sh' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-x', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
     actions.moveEditorTabToPane('tab-x', BOTTOM_PANE_ID, ROOT_PANE_ID)
     const rootPaneGroup = actions.getPaneById(ROOT_PANE_ID)
     expect(rootPaneGroup?.editorTabIds).toContain('tab-x')
@@ -259,7 +277,7 @@ describe('pane-slice bottomRoot routing', () => {
 // tabs never touches chatId/runnerId, and setPaneChat never touches editorTabIds.
 describe('pane-slice — setPaneChat', () => {
   it('sets exactly one chat on a pane, replacing any prior one', () => {
-    const store = createWorkspaceStore('ws-test')
+    const store = makeStore()
     const paneId = store.getState().panes[ROOT_PANE_ID]?.id ?? ROOT_PANE_ID
     store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
     expect(store.getState().paneActions.getPaneById(paneId)?.chatId).toBe('chat-1')
@@ -269,12 +287,12 @@ describe('pane-slice — setPaneChat', () => {
   })
 
   it('editor tabs are independent of the chat', () => {
-    const store = createWorkspaceStore('ws-test')
+    const store = makeStore()
     const paneId = store.getState().panes[ROOT_PANE_ID]?.id ?? ROOT_PANE_ID
     store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
     store
       .getState()
-      .paneActions.addEditorTabToPane(paneId, { id: 'file-1', type: 'editor', name: 'foo.ts' })
+      .paneActions.addEditorTabToPane(paneId, { id: 'file-1', type: 'editor', name: 'foo.ts', workspaceId: 'ws-test' })
     expect(store.getState().paneActions.getPaneById(paneId)?.editorTabIds).toContain('file-1')
     expect(store.getState().paneActions.getPaneById(paneId)?.chatId).toBe('chat-1')
   })
@@ -286,6 +304,7 @@ describe('pane-slice — setPaneChat', () => {
       id: 'file-1',
       type: 'editor',
       name: 'foo.ts',
+      workspaceId: 'ws-test',
     })
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
     const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
@@ -299,9 +318,9 @@ describe('pane-slice — reorderEditorTabs', () => {
   it('moves a tab to the target index', () => {
     const store = makeStore()
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'c', type: 'editor', name: 'c.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'c', type: 'editor', name: 'c.ts', workspaceId: 'ws-test' })
 
     actions.reorderEditorTabs(ROOT_PANE_ID, 'a', 2)
 
@@ -311,7 +330,7 @@ describe('pane-slice — reorderEditorTabs', () => {
   it('is a no-op when the tab is not in the pane', () => {
     const store = makeStore()
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     actions.reorderEditorTabs(ROOT_PANE_ID, 'missing', 0)
     expect(actions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['a'])
   })
@@ -320,12 +339,12 @@ describe('pane-slice — reorderEditorTabs', () => {
 describe('pane-slice — setEditorTabPreview / setEditorTabPinned / clearEditorTabPreviewEverywhere', () => {
   it('setEditorTabPreview marks exactly one tab preview per pane', () => {
     const store = makeStoreWithBuffers([
-      { id: 'a', type: 'editor', isPreview: false },
-      { id: 'b', type: 'editor', isPreview: false },
+      { id: 'a', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
+      { id: 'b', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
 
     actions.setEditorTabPreview(ROOT_PANE_ID, 'a')
     expect(store.getState().buffers.find((b) => b.id === 'a')?.isPreview).toBe(true)
@@ -337,9 +356,9 @@ describe('pane-slice — setEditorTabPreview / setEditorTabPinned / clearEditorT
   })
 
   it('setEditorTabPinned sets isPinned on the tab content', () => {
-    const store = makeStoreWithBuffers([{ id: 'a', type: 'editor', isPinned: false }])
+    const store = makeStoreWithBuffers([{ id: 'a', type: 'editor', isPinned: false, workspaceId: 'ws-test' }])
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
 
     actions.setEditorTabPinned(ROOT_PANE_ID, 'a', true)
     expect(store.getState().buffers.find((b) => b.id === 'a')?.isPinned).toBe(true)
@@ -350,12 +369,12 @@ describe('pane-slice — setEditorTabPreview / setEditorTabPinned / clearEditorT
 
   it('clearEditorTabPreviewEverywhere clears preview on every tab, in every pane', () => {
     const store = makeStoreWithBuffers([
-      { id: 'a', type: 'editor', isPreview: true },
-      { id: 'b', type: 'editor', isPreview: true },
+      { id: 'a', type: 'editor', isPreview: true, workspaceId: 'ws-test' },
+      { id: 'b', type: 'editor', isPreview: true, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
 
     actions.clearEditorTabPreviewEverywhere()
 
@@ -368,8 +387,8 @@ describe('pane-slice — switchToNextEditorTab / switchToPreviousEditorTab', () 
   it('cycles forward through a pane’s tabs, wrapping at the end', () => {
     const store = makeStore()
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'a')
 
     actions.switchToNextEditorTab(ROOT_PANE_ID)
@@ -382,8 +401,8 @@ describe('pane-slice — switchToNextEditorTab / switchToPreviousEditorTab', () 
   it('cycles backward through a pane’s tabs, wrapping at the start', () => {
     const store = makeStore()
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'b', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'a')
 
     actions.switchToPreviousEditorTab(ROOT_PANE_ID)
@@ -396,7 +415,7 @@ describe('pane-slice — switchToNextEditorTab / switchToPreviousEditorTab', () 
     actions.switchToNextEditorTab(ROOT_PANE_ID)
     expect(actions.getPaneById(ROOT_PANE_ID)?.activeEditorTabId).toBeNull()
 
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'a', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     actions.switchToNextEditorTab(ROOT_PANE_ID)
     expect(actions.getPaneById(ROOT_PANE_ID)?.activeEditorTabId).toBe('a')
   })
@@ -407,41 +426,50 @@ describe('pane-slice — switchToNextEditorTab / switchToPreviousEditorTab', () 
 // the model and a reopen reads fresh content. Wires a fake editorManager onto the
 // store object (the same place `createWorkspaceStore` Object.assign's it).
 describe('pane-slice → editorManager model release (C1)', () => {
-  function makeStoreWithManager() {
+  // Task 26: the editor manager is resolved BY WORKSPACE now
+  // (`getOrCreateWorkspaceStore(buf.workspaceId).editorManager`, since
+  // Monaco models stay per-workspace to avoid mixing two retained
+  // workspaces' same-relative-path files) rather than read straight off the
+  // slice's own `api` — mock the registry lookup instead of stubbing `api`.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function makeStoreWithManager() {
     const closeBuffer = vi.fn()
-    // The pane slice reads `get().buffers` (path lookup) and `api.editorManager`.
+    const registry = await import('@/features/workspace/stores/workspace-store-registry')
+    vi.spyOn(registry, 'getOrCreateWorkspaceStore').mockReturnValue({
+      editorManager: { closeBuffer },
+    } as unknown as ReturnType<typeof registry.getOrCreateWorkspaceStore>)
+
     type S = PaneSlice & {
-      buffers: Array<{ id: string; type: string; path: string }>
+      buffers: Array<{ id: string; type: string; path: string; workspaceId: string }>
     }
-    let api: { editorManager: { closeBuffer: typeof closeBuffer } }
     const store = createStore<S>()(
-      immer((set, get, rawApi) => {
-        api = rawApi as unknown as typeof api
-        api.editorManager = { closeBuffer }
-        return {
-          ...createPaneSlice(
-            ...([set, get, rawApi] as unknown as Parameters<typeof createPaneSlice>),
-          ),
-          buffers: [{ id: 'tab-ed', type: 'editor', path: '/src/a.ts' }],
-        }
-      }),
+      immer((set, get, rawApi) => ({
+        ...createPaneSlice(
+          ...([set, get, rawApi] as unknown as Parameters<typeof createPaneSlice>),
+        ),
+        buffers: [{ id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' }],
+      })),
     )
     return { store, closeBuffer }
   }
 
-  it('removeEditorTabFromPane releases the model for that pane (paneId + fileUri)', () => {
-    const { store, closeBuffer } = makeStoreWithManager()
+  it('removeEditorTabFromPane releases the model for that pane (paneId + fileUri)', async () => {
+    const { store, closeBuffer } = await makeStoreWithManager()
     store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
       id: 'tab-ed',
       type: 'editor',
       name: 'a.ts',
+      workspaceId: 'ws-test',
     })
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
     expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('/src/a.ts'))
   })
 
-  it('does not release for a pane that never held the tab', () => {
-    const { store, closeBuffer } = makeStoreWithManager()
+  it('does not release for a pane that never held the tab', async () => {
+    const { store, closeBuffer } = await makeStoreWithManager()
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
     expect(closeBuffer).not.toHaveBeenCalled()
   })
@@ -454,7 +482,7 @@ describe('pane-slice → editorManager model release (C1)', () => {
 describe('pane-slice — activateEditorTabInPane only activates something the pane holds (I4)', () => {
   it('ignores a tab id that this pane does not hold', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
 
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-gone')
 
@@ -463,11 +491,12 @@ describe('pane-slice — activateEditorTabInPane only activates something the pa
 
   it('ignores a tab that lives in a different pane', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     actions.addEditorTabToPane(BOTTOM_PANE_ID, {
       id: 'tab-elsewhere',
       type: 'editor',
       name: 'b.ts',
+      workspaceId: 'ws-test',
     })
 
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-elsewhere')
@@ -477,8 +506,8 @@ describe('pane-slice — activateEditorTabInPane only activates something the pa
 
   it('activates normally when the pane really holds the tab', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-2', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
 
     actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-2')
 
@@ -493,7 +522,7 @@ describe('pane-slice — activateEditorTabInPane only activates something the pa
 describe('pane-slice — splitPane sharing a tab id across panes', () => {
   it('shares a real tab id across panes', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'tab-1', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
 
     const newPaneId = actions.splitPane(ROOT_PANE_ID, 'horizontal', 'tab-1')
 
@@ -505,9 +534,9 @@ describe('pane-slice — splitPane sharing a tab id across panes', () => {
 describe('pane-slice — closePane merges editor tabs, leaves chat untouched', () => {
   it('merges the closing split’s tabs into the surviving pane', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'root-tab', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'root-tab', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     const splitId = actions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    actions.addEditorTabToPane(splitId, { id: 'split-tab', type: 'editor', name: 'b.ts' })
+    actions.addEditorTabToPane(splitId, { id: 'split-tab', type: 'editor', name: 'b.ts', workspaceId: 'ws-test' })
 
     actions.closePane(splitId)
 
@@ -517,7 +546,7 @@ describe('pane-slice — closePane merges editor tabs, leaves chat untouched', (
 
   it('does not duplicate a tab id the survivor already holds', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'shared-tab', type: 'editor', name: 'a.ts' })
+    actions.addEditorTabToPane(ROOT_PANE_ID, { id: 'shared-tab', type: 'editor', name: 'a.ts', workspaceId: 'ws-test' })
     const splitId = actions.splitPane(ROOT_PANE_ID, 'horizontal', 'shared-tab')!
 
     actions.closePane(splitId)
@@ -573,7 +602,7 @@ describe('pane-slice — closing the sole root/bottom pane empties it, never del
 
   it('closing the sole bottom pane leaves an empty PaneGroup at BOTTOM_PANE_ID', () => {
     const actions = makeStore().getState().paneActions
-    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh' })
+    actions.addEditorTabToPane(BOTTOM_PANE_ID, { id: 'tab-1', type: 'terminal', name: 'sh', workspaceId: 'ws-test' })
 
     actions.closePane(BOTTOM_PANE_ID)
 
@@ -598,18 +627,16 @@ describe('pane-slice — closing the sole root/bottom pane empties it, never del
 // makes an idle close undoable; a chat the daemon is still working relies on
 // agentChats.working alone and must not also get a dormant record.
 //
-// Isolated PaneSlice store carrying just enough of `agentChats.working` to
-// exercise this — same pattern as `makeStoreWithBuffers` above, avoiding a
-// full `createWorkspaceStore` (whose merged-slice `setState` type doesn't
-// accept a void-returning immer callback here — a pre-existing tsc trap
-// unrelated to this test).
+// Task 26: `isChatWorking` (pane-slice.ts's own read of "is this chat
+// mid-turn") searches every REGISTERED workspace store's real
+// `agentChats.working` — seed one for real via the registry rather than
+// faking a local `agentChats` field the slice no longer reads directly.
 function makeStoreWithWorking(working: Record<string, boolean>) {
-  return createStore<PaneSlice & { agentChats: { working: Record<string, boolean> } }>()(
-    immer((set, get) => ({
-      ...createPaneSlice(...([set, get, {}] as unknown as Parameters<typeof createPaneSlice>)),
-      agentChats: { working },
-    })),
-  )
+  const wsStore = getOrCreateWorkspaceStore('ws-working-test')
+  for (const [chatId, isWorking] of Object.entries(working)) {
+    wsStore.getState().setAgentChatWorking(chatId, isWorking)
+  }
+  return makeStore()
 }
 
 describe('pane-slice — dormantArrangements (spec §5.5)', () => {
@@ -969,20 +996,21 @@ describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () 
     // surface goes through today (new-tab-view.tsx, review-thread-item.tsx,
     // and — once chat rows resolve through rowsFromRepo's tree — the
     // sidebar).
-    const store = createWorkspaceStore('ws-open-agent-chat-test')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const paneBId = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
-    store.getState().paneActions.setPaneChat(paneBId!, 'chat-2', 'runner-2')
+    resetWindowPaneStoreForTests()
+    const wsStore = createWorkspaceStore('ws-open-agent-chat-test')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const paneBId = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    windowPaneStore.getState().paneActions.setPaneChat(paneBId!, 'chat-2', 'runner-2')
 
-    openAgentChat(store, 'ws-open-agent-chat-test', 'chat-1')
+    openAgentChat(wsStore, 'ws-open-agent-chat-test', 'chat-1')
 
-    const panesWithChat1 = Object.values(store.getState().panes).filter(
+    const panesWithChat1 = Object.values(windowPaneStore.getState().panes).filter(
       (p) => p.chatId === 'chat-1',
     )
     expect(panesWithChat1).toHaveLength(1)
     // Revealed where it already lives, not costing pane B's chat-2.
-    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
-    expect(store.getState().panes[paneBId!]?.chatId).toBe('chat-2')
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(windowPaneStore.getState().panes[paneBId!]?.chatId).toBe('chat-2')
   })
 
   it('is a no-op (never throws) on a bare pane-slice store with no agentChats', () => {

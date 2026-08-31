@@ -1,6 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { WorkspaceState } from '../workspace-store.types'
-import type { WorkspaceStore } from '../workspace-store'
+import type { WindowPaneState } from '../window-pane-store.types'
 import { isEditorContent, type EditorTabBase } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
@@ -24,6 +23,7 @@ import {
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 import { syncSoleEditorTabCloseability } from './buffer-slice'
+import { getOrCreateWorkspaceStore, isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 
 export interface PaneActions {
@@ -126,16 +126,20 @@ function getLayoutKey(
 }
 
 export const createPaneSlice: StateCreator<
-  WorkspaceState,
+  WindowPaneState,
   [['zustand/immer', never]],
   [],
   PaneSlice
-> = (set, get, api) => {
-  // `api` is the same object onto which `createWorkspaceStore` later attaches the
-  // non-reactive `editorManager` handle (via Object.assign). It exists by the time
-  // any action runs, so the cast is safe and keeps the editor lib decoupled from
-  // the store state (the slice never imports editor *components*).
-  const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
+> = (set, get) => {
+  // Task 26: the Monaco-backed editor manager stays a PER-WORKSPACE resource
+  // (attached to each workspace's own `WorkspaceStore`, see workspace-store.ts)
+  // even though panes/buffers themselves are now window-level — two retained
+  // workspaces (spec: up to RETENTION_CAP=6 at once) can share a relative file
+  // path, and giving them one shared Monaco model would silently mix their
+  // content. `buf.workspaceId` (set on every buffer, see pane-content.ts) is
+  // what resolves which workspace's manager a given tab's model lives on.
+  const editorManagerFor = (workspaceId: string) =>
+    getOrCreateWorkspaceStore(workspaceId).editorManager
 
   /** Release the held Monaco model for `tabId` in `paneId` (editor tabs only). A
    *  no-op when the tab isn't an editor or the pane didn't hold it (the manager
@@ -144,7 +148,7 @@ export const createPaneSlice: StateCreator<
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
-    editorManagerOf()?.closeBuffer(paneId, fileUri(buf.path))
+    editorManagerFor(buf.workspaceId)?.closeBuffer(paneId, fileUri(buf.path))
   }
 
   return {
@@ -200,7 +204,7 @@ export const createPaneSlice: StateCreator<
           if (
             closingPane?.chatId &&
             !alreadyRemembered &&
-            !state.agentChats?.working?.[closingPane.chatId]
+            !isChatWorking(closingPane.chatId)
           ) {
             state.dormantArrangements.push({
               id: paneId,
@@ -517,7 +521,7 @@ export const createPaneSlice: StateCreator<
           if (
             movedIn &&
             evicted &&
-            !state.agentChats?.working?.[evicted] &&
+            !isChatWorking(evicted) &&
             !state.dormantArrangements.some((e) => e.chatIds.includes(evicted))
           ) {
             state.dormantArrangements.push({ id: nanoid(), chatIds: [evicted], state: 'dormant' })

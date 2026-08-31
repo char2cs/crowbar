@@ -1,7 +1,5 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { stripNewTabs } from './persisted-layout'
-import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 import type { TerminalContent } from '@/features/panes/types/pane-content'
@@ -11,9 +9,6 @@ import { bestEffort } from '@/lib/best-effort'
 import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
 const registry = new Map<string, WorkspaceStore>()
-const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
-/** Unsubscribe functions for the per-workspace persistence subscriptions. */
-const persistUnsubs = new Map<string, () => void>()
 
 let _activeWorkspaceId: string | null = null
 
@@ -44,128 +39,96 @@ export function getActiveWorkspaceId(): string | null {
 
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
-    // Stripped on the way IN as well as on the way out: the save path can only
-    // filter what this build knows about, and a layout written by an older
-    // build is exactly the case that matters — a tab whose content type has
-    // since been retired restores into a renderer that no longer exists.
-    const saved = loadFromLocalStorage(wsId)
-    const snapshot =
-      saved && saved.buffers && saved.panes
-        ? { ...saved, ...stripNewTabs({ buffers: saved.buffers, panes: saved.panes }) }
-        : (saved ?? undefined)
+    // Task 26: pane/buffer layout no longer lives on this per-workspace
+    // snapshot (it's window-level now — see window-pane-store.ts), so the
+    // only fields left to restore here are recentFiles/terminalLayout.
+    const snapshot = loadFromLocalStorage(wsId) ?? undefined
     const store = createWorkspaceStore(wsId, snapshot)
-
-    // Subscribe to store changes and debounce persistence writes.
-    // The callback runs a shallow-compare of the five persisted layout fields
-    // before doing any work, so non-persisted mutations (LSP diagnostics,
-    // terminal output, editor cursor, etc.) are ignored immediately without
-    // arming the debounce timer.
-    const unsub = store.subscribe((state, prev) => {
-      if (
-        state.panes === prev.panes &&
-        state.rootLayout === prev.rootLayout &&
-        state.bottomLayout === prev.bottomLayout &&
-        state.activePaneId === prev.activePaneId &&
-        state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
-        state.buffers === prev.buffers
-      ) {
-        return
-      }
-
-      const existing = persistTimers.get(wsId)
-      if (existing !== undefined) clearTimeout(existing)
-      const timer = setTimeout(() => {
-        persistTimers.delete(wsId)
-        const persistable = stripNewTabs({ buffers: state.buffers, panes: state.panes })
-        saveWorkspaceLayout({
-          workspaceId: wsId,
-          panes: persistable.panes,
-          rootLayout: state.rootLayout,
-          bottomLayout: state.bottomLayout,
-          activePaneId: state.activePaneId,
-          mostRecentActivePaneIds: state.mostRecentActivePaneIds,
-          buffers: persistable.buffers,
-          sidebarWidth: 0,
-          rightSidebarWidth: 0,
-          updatedAt: Date.now(),
-        })
-      }, 300)
-      persistTimers.set(wsId, timer)
-    })
-    persistUnsubs.set(wsId, unsub)
-
     registry.set(wsId, store)
   }
   return registry.get(wsId)!
 }
 
+/**
+ * Whether `chatId` is currently mid-turn, per whichever active workspace
+ * store's `agentChats.working` map actually names it. A chat's owning store
+ * is not known ahead of time from the id alone — a chat belongs to exactly
+ * one workspace, but which one is not encoded in the id — so this searches
+ * every currently-registered workspace store. Used by the window-level pane
+ * slice (`features/panes/stores/slices/pane-slice.ts`) in place of the old
+ * same-store `state.agentChats.working[chatId]` read, now that panes no
+ * longer live in the same store as a workspace's own agent-chat state.
+ */
+export function isChatWorking(chatId: string): boolean {
+  for (const store of registry.values()) {
+    if (store.getState().agentChats.working[chatId]) return true
+  }
+  return false
+}
+
 export function destroyWorkspaceStore(wsId: string): void {
-  const existing = persistTimers.get(wsId)
-  if (existing !== undefined) {
-    clearTimeout(existing)
-    persistTimers.delete(wsId)
-  }
-
-  const unsub = persistUnsubs.get(wsId)
-  if (unsub !== undefined) {
-    unsub()
-    persistUnsubs.delete(wsId)
-  }
-
   const store = registry.get(wsId)
   if (store) {
-    const { buffers } = store.getState()
+    // Task 26: buffers are window-level now (window-pane-store.ts), not part
+    // of this store's own state — scope the lookup to this workspace's own
+    // buffers via `workspaceId` (a buffer persists past this destroy; only
+    // the LIVE per-workspace resources below — the terminal transport, the
+    // blame cache, the undo history, the Monaco model — are torn down here).
+    // Dynamic import avoids a registry ↔ window-pane-store cycle (the pane
+    // slice itself resolves an editor manager BY workspace id through this
+    // very module).
+    bestEffort(
+      import('@/features/panes/stores/window-pane-store').then(({ windowPaneStore }) => {
+        const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === wsId)
 
-    // Detach (not kill) pane terminal PTY sessions on workspace switch.
-    // The PTY stays alive in the daemon; the WS transport is closed and the
-    // connectionId is persisted to localStorage so re-entry can re-attach with
-    // scrollback replay. killTerminalSession is still used on real tab close.
-    const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
-    if (terminalBuffers.length > 0) {
-      bestEffort(
-        import('@/features/terminal/lib/detach-terminal-session').then(
-          ({ detachTerminalSession }) => {
-            for (const buf of terminalBuffers) {
-              void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
-            }
-          },
-        ),
-        'detach terminal sessions',
-      )
-    }
+        // Detach (not kill) pane terminal PTY sessions on workspace switch.
+        // The PTY stays alive in the daemon; the WS transport is closed and the
+        // connectionId is persisted to localStorage so re-entry can re-attach with
+        // scrollback replay. killTerminalSession is still used on real tab close.
+        const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
+        if (terminalBuffers.length > 0) {
+          bestEffort(
+            import('@/features/terminal/lib/detach-terminal-session').then(
+              ({ detachTerminalSession }) => {
+                for (const buf of terminalBuffers) {
+                  void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(
+                    () => {},
+                  )
+                }
+              },
+            ),
+            'detach terminal sessions',
+          )
+        }
 
-    // Free cached git-blame for this workspace's open files. The blame store is a
-    // global singleton keyed by file path, so clearAllBlame() would wipe blame for
-    // OTHER still-active workspaces; we instead clear only this workspace's editor
-    // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
-    // the terminal branch above.
-    const editorPaths: string[] = []
-    for (const b of buffers) {
-      if (isEditorContent(b)) editorPaths.push(b.path)
-    }
-    if (editorPaths.length > 0) {
-      bestEffort(
-        import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-          const { clearBlameForFile } = useGitBlameStore.getState()
-          for (const path of editorPaths) {
-            clearBlameForFile(path)
-          }
-        }),
-        'clear blame for disposed workspace',
-      )
-    }
+        // Free cached git-blame for this workspace's open files. The blame store is a
+        // global singleton keyed by file path, so clearAllBlame() would wipe blame for
+        // OTHER still-active workspaces; we instead clear only this workspace's editor
+        // buffer paths.
+        const editorPaths: string[] = []
+        for (const b of buffers) {
+          if (isEditorContent(b)) editorPaths.push(b.path)
+        }
+        if (editorPaths.length > 0) {
+          bestEffort(
+            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+              const { clearBlameForFile } = useGitBlameStore.getState()
+              for (const path of editorPaths) {
+                clearBlameForFile(path)
+              }
+            }),
+            'clear blame for disposed workspace',
+          )
+        }
 
-    // Cleanup undo tracker and history for each buffer
-    for (const buf of buffers) {
-      cleanupBufferHistoryTracking(buf.id)
-      useHistoryStore.getState().actions.clearHistory(buf.id)
-    }
-
-    // Tear down the store's internal session-persistence subscription so a late
-    // setState after teardown can't write this (now stale) workspace's session
-    // to IndexedDB. Distinct from the registry's layout-persistence unsubscribe
-    // handled above; this one lives inside the store itself.
-    store._disposeSession()
+        // Cleanup undo tracker and history for each buffer
+        for (const buf of buffers) {
+          cleanupBufferHistoryTracking(buf.id)
+          useHistoryStore.getState().actions.clearHistory(buf.id)
+        }
+      }),
+      'window-pane-store buffer teardown',
+    )
 
     // Dispose editor resources (only if the workspace ever armed the editor —
     // a terminal/agent-only workspace never constructs the manager).

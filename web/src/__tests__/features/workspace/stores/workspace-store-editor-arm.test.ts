@@ -48,6 +48,7 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => {
 })
 
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { EditorManager } from '@/features/editor/lib/editor-manager'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 
@@ -89,19 +90,24 @@ describe('workspace-store editor arming seam', () => {
   })
 
   it('tolerates editor buffer lifecycle before arming (slices no-op, no monaco load)', () => {
+    resetWindowPaneStoreForTests()
     const store = createWorkspaceStore('arm-ws')
-    const id = store.getState().bufferActions.openContent({
+    // Task 26: panes/buffers are window-level now.
+    const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: '/a.ts',
       name: 'a.ts',
       content: 'hello',
+      workspaceId: 'arm-ws',
     })
     // Closing / removing an editor buffer routes through the slices'
     // `editorManager?.closeBuffer(...)` release path. Pre-arm there is no manager
     // and no held model, so this must be a safe no-op — and must NOT force a load.
     expect(() => {
-      store.getState().paneActions.removeBufferFromPane(store.getState().activePaneId, id)
-      store.getState().bufferActions.closeBuffer(id)
+      windowPaneStore
+        .getState()
+        .paneActions.removeEditorTabFromPane(windowPaneStore.getState().activePaneId, id)
+      windowPaneStore.getState().bufferActions.closeBuffer(id)
     }).not.toThrow()
     expect(store.editorManager).toBeUndefined()
   })
