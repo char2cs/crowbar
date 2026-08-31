@@ -82,12 +82,25 @@
    sampled (and visually sat over) the scrollbar track too, smudging the one
    thing on screen that must stay sharp to read as a control. --agent-scrollbar-w
    is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
-   hand-picked, because the real width is a platform fact, not a design value. */
+   hand-picked, because the real width is a platform fact, not a design value.
+
+   That measurement is LAYOUT SPACE — 0 wherever the platform draws an
+   overlay scrollbar (macOS with a trackpad, by default), not "no scrollbar
+   exists". An overlay thumb still paints on top of content during a scroll
+   gesture even though it reserves nothing, so a bare `var()` leaves this
+   glass with zero protection on exactly the systems whose scrollbar is
+   easiest to smudge. `max()` keeps a small floor under it regardless of what
+   got measured — real reserved space still wins once it's wider than the
+   floor, same as before. */
 .agent-chat .dissolve {
   --dissolve-h: calc(var(--agent-dock-h, 92px) + 88px);
+  /* An overlay thumb's own painted width, platform-observed rather than
+     derived from anything else here — the floor `right` below never goes
+     under it. */
+  --overlay-scrollbar-floor: 10px;
   position: absolute;
   left: 0;
-  right: var(--agent-scrollbar-w, 0px);
+  right: max(var(--agent-scrollbar-w, 0px), var(--overlay-scrollbar-floor));
   bottom: 0;
   height: var(--dissolve-h);
   z-index: 1;
