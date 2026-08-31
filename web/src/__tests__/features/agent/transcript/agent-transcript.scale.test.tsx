@@ -20,15 +20,29 @@ import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 // told its viewport is zero pixels tall windows down to NOTHING —
 // `calculateRange` bails on `outerSize === 0` before overscan is ever applied,
 // so not one row mounts. Give elements a pane-sized rect before render so the
-// window under test is the realistic one the app produces. Purely geometric —
-// no timers, no polling. Same stub, same reason as agent-transcript.test.tsx
-// and changed-files-tree.scale.test.tsx.
+// window under test is a bounded one, the same problem
+// changed-files-tree.scale.test.tsx and agent-transcript.test.tsx solve the
+// same way. Purely geometric — no timers, no polling.
+//
+// Unlike ChangedFilesTree, AgentTranscript's virtualizer measures EACH row's
+// own height via `measureElement: (el) => el.getBoundingClientRect().height`
+// (agent-transcript.tsx:267), not just the scroll container's. A single
+// blanket override (every element reports the full 800px viewport) makes
+// every row measure as tall as the viewport itself, which is not what a real
+// browser would lay out and isn't what determines the mounted count here.
+// So the scroll container (`.scroll`, the element `observeScrollRect` reads)
+// gets the viewport-sized rect, and every other element — the rows —
+// gets a fixed stand-in row height instead: not a real content-based
+// measurement (jsdom cannot produce one), but at least a row that is not the
+// entire viewport, so the windowing this test is gating on reflects genuine
+// per-row measurement rather than one row that happens to fill the screen.
 const VIEWPORT_WIDTH = 768
 const VIEWPORT_HEIGHT = 800
+const ROW_HEIGHT = 64
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
-  const rect = {
+  const viewportRect = {
     top: 0,
     left: 0,
     right: VIEWPORT_WIDTH,
@@ -38,7 +52,20 @@ beforeEach(() => {
     x: 0,
     y: 0,
   }
-  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  const rowRect = {
+    top: 0,
+    left: 0,
+    right: VIEWPORT_WIDTH,
+    bottom: ROW_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: ROW_HEIGHT,
+    x: 0,
+    y: 0,
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect(
+    this: HTMLElement,
+  ) {
+    const rect = this.classList.contains('scroll') ? viewportRect : rowRect
     return { ...rect, toJSON: () => rect } as DOMRect
   }
 })
@@ -85,6 +112,16 @@ function countMountedRows(container: HTMLElement) {
   return container.querySelectorAll('.virtual-rows > [data-index]').length
 }
 
+// Counting `[data-index]` wrappers alone would still pass if the virtualizer
+// were changed to mount empty placeholder rows instead of real content — the
+// "rows carry real MessageRow content" guarantee otherwise lives only in
+// agent-transcript.test.tsx's own windowed-history tests, a different file.
+// Every message here is `role: 'user' | 'assistant'`, so a genuinely rendered
+// row always carries a `MessageRow` with this testid (message-row.tsx:131).
+function countMountedMessageRows(container: HTMLElement) {
+  return container.querySelectorAll('[data-testid^="agent-message-"]').length
+}
+
 describe('AgentTranscript scale', () => {
   it('keeps mounted row count roughly constant as loaded message count grows', () => {
     const small = draw(messagesOfLength(100))
@@ -105,5 +142,11 @@ describe('AgentTranscript scale', () => {
     // 20x the messages, the same viewport window: mounted count must not scale
     // with the input. Was exactly 20.0 before virtualization.
     expect(largeCount / smallCount).toBeLessThan(1.5)
+
+    // The bounded count above is only the target behaviour if what's mounted
+    // is real content, not empty placeholder wrappers — verify that here
+    // rather than inferring it from a sibling test file.
+    expect(countMountedMessageRows(small.container)).toBeGreaterThan(0)
+    expect(countMountedMessageRows(large.container)).toBeGreaterThan(0)
   })
 })
