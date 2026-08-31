@@ -10,6 +10,13 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+// Lets one animation frame paint between evidence-recovery pages so a chat
+// opened with deep queued-evidence history (up to EVIDENCE_RECOVERY_MAX_PAGES
+// pages) doesn't apply all of it as one uninterrupted synchronous task.
+function yieldToRenderer(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
 // Sorted by displayOrder (dispatch order), NOT sequence (persist order) — an
 // interrupted turn that finishes late must still display before a later
 // turn that finished first. Falls back to sequence for anything predating
@@ -150,6 +157,7 @@ export function useChatMessages(options: ChatMessagesOptions) {
           })
           if (generation !== loadGeneration.current) return
           applyMessages(recovery.items)
+          await yieldToRenderer()
           if (!pendingEvidence() || !recovery.hasMore) return
           if (recovery.cursor <= after) return
           after = recovery.cursor
@@ -166,6 +174,7 @@ export function useChatMessages(options: ChatMessagesOptions) {
           })
           if (generation !== loadGeneration.current) return
           applyMessages(recovery.items)
+          await yieldToRenderer()
           if (!pendingEvidence() || !recovery.hasMore) return
           if (recovery.oldestCursor <= 0 || recovery.oldestCursor >= before) return
           before = recovery.oldestCursor

@@ -284,6 +284,107 @@ describe('mergeMessages: keyed by turnId, not sequence', () => {
   })
 })
 
+describe('loadInitial: yields between evidence-recovery pages', () => {
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+  })
+
+  // window.requestAnimationFrame is a shared global — vi.spyOn on it in one
+  // test otherwise keeps recording calls into the next test's spy instance.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // A queued-evidence chat can recover up to EVIDENCE_RECOVERY_MAX_PAGES
+  // pages of MESSAGE_PAGE_SIZE messages in loadInitial's forward-from-baseline
+  // branch. Without a yield between pages, applying all of them is one
+  // uninterrupted synchronous task that blocks the main thread.
+  it('yields to the renderer between evidence-recovery pages instead of blocking synchronously', async () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    listChatMessagesFn.mockImplementation(
+      async (_ws: string, _chat: string, opts?: { after?: number; before?: number }) => {
+        // Initial page: nothing new, but leaves evidence pending so the
+        // forward-from-baseline recovery loop below actually runs.
+        if (opts?.after === undefined && opts?.before === undefined) {
+          return { cursor: 0, oldestCursor: 0, hasMore: false, items: [] }
+        }
+        // First recovery page: reports more to fetch, so the loop must
+        // yield before going around for the second page.
+        if (opts?.after === 1) {
+          return {
+            cursor: 2,
+            oldestCursor: 1,
+            hasMore: true,
+            items: [message(2, { text: 'recovered 1' })],
+          }
+        }
+        // Second recovery page: ends the loop.
+        return {
+          cursor: 3,
+          oldestCursor: 1,
+          hasMore: false,
+          items: [message(3, { text: 'recovered 2' })],
+        }
+      },
+    )
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      onApply: () => {},
+      pendingEvidence: () => true,
+      pendingBaselines: (): number[] => [1],
+      onRecoveryExhausted: () => {},
+    }
+    const { result } = renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+    expect(rafSpy).toHaveBeenCalled()
+  })
+
+  // refresh() polls small pages on a 1s cadence — it must NOT pick up the
+  // yield meant for loadInitial's burst-load path.
+  it('does not yield to the renderer inside refresh', async () => {
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 5,
+      oldestCursor: 1,
+      hasMore: false,
+      items: [message(5)],
+    })
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    const { result } = renderHook(() => useChatMessages(options))
+    await waitFor(() => expect(result.current.messages).toHaveLength(1))
+
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 6,
+      oldestCursor: 1,
+      hasMore: false,
+      items: [message(6, { text: 'polled' })],
+    })
+    await result.current.refresh()
+
+    expect(rafSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe('streamingBubbles: suppressed by id, not by text', () => {
   beforeEach(() => {
     listChatMessagesFn.mockReset()
