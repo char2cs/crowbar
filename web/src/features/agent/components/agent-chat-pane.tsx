@@ -10,7 +10,6 @@ import {
   switchToNative,
   switchToTerminal,
 } from '@/features/agent/api/agent-api'
-import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -115,13 +114,16 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 type Attachment = TerminalAttachment
 
 interface AgentChatPaneProps {
-  /** The chat this tab is pointed at. NOT stable for its life: the pane re-points it. */
+  /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
-  /** The runner this tab follows, or '' when it has none (a dormant chat). */
+  /** The runner this pane follows, or '' when it has none (a dormant chat). */
   runnerId: string
   wsId: string
-  /** The pane buffer backing this tab — the thing the pane re-points and relabels. */
-  bufferId: string
+  /** The `PaneGroup` this surface renders inside — the thing that gets
+   *  re-pointed (`paneActions.setPaneChat`) when the runner moves. Was a
+   *  buffer id until Task 1 made `chatId`/`runnerId` fields on the pane
+   *  itself; a chat has not been a buffer since. */
+  paneId: string
   isActivePane: boolean
   /**
    * Whether this tab is the ACTIVE (visible) tab in its pane — distinct from
@@ -162,7 +164,7 @@ export function AgentChatPane({
   chatId,
   runnerId,
   wsId,
-  bufferId,
+  paneId,
   isActivePane,
   isVisible,
 }: AgentChatPaneProps) {
@@ -328,56 +330,34 @@ export function AgentChatPane({
     attachment.state === 'attached' && presentation === 'terminal',
   )
 
-  // Re-point the buffer at what this pane is actually showing. This is the write that
-  // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
+  // Re-point the PANE at what this surface is actually showing. This is the write that
+  // makes the view follow: pane-container feeds the pane's chatId/runnerId straight
   // back in as our props, so the next render is already looking at the new chat.
   //
-  // It converges in one step and cannot loop — once the buffer holds the pair computed
-  // here, the effect's deps are unchanged and it does not re-run. Writing '' as the
-  // runnerId of a dormant chat is deliberate: a tab must not go on claiming a runner
-  // that no longer exists.
+  // It converges in one step and cannot loop — once the pane holds the pair computed
+  // here, the effect's deps are unchanged and it does not re-run, and `setPaneChat`'s
+  // own writes are same-value no-ops under immer. Writing null as the runnerId of a
+  // dormant chat is deliberate: a pane must not go on claiming a runner that no longer
+  // exists.
+  //
+  // `setPaneChat` (not the deleted `repointAgentChatBuffer`, which guarded on a buffer
+  // type Task 1 removed and had therefore been a permanent no-op) also archives the
+  // conversation the CLI walked OUT of into Recents when this is a real move — spec
+  // §5.5's "the view dies, the row does not."
   useEffect(() => {
     if (!known) return // nothing authoritative to re-point at yet
     if (shownChatId === chatId && liveRunnerId === runnerId) return
-    windowPaneStore.getState().bufferActions.repointAgentChatBuffer(bufferId, {
-      chatId: shownChatId,
-      runnerId: liveRunnerId,
-    })
-  }, [store, bufferId, known, chatId, runnerId, shownChatId, liveRunnerId])
+    windowPaneStore.getState().paneActions.setPaneChat(paneId, shownChatId, liveRunnerId || null)
+  }, [store, paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
 
-  // The tab label is a snapshot taken by openContent, but the title changes AFTER the
-  // tab opens: the agent auto-titles the chat (WS `title_set`), the user renames it from
-  // the sidebar — and the tab may now be showing a DIFFERENT chat than it opened on,
-  // which has a title of its own. All three land on the shown chat's `title`, so
-  // mirroring title → buffer name here keeps the tab honest for all of them, with no
-  // store → component dependency.
-  //
-  // An untitled chat is NOT necessarily a tab that needs renaming — and the difference
-  // is the whole subtlety here. A tab opens carrying a provider placeholder ("Codex
-  // chat"), which is a perfectly good name for a chat nobody has titled yet, and blanking
-  // that would be a regression.
-  //
-  // The tab is only WRONG when it is wearing ANOTHER CHAT'S TITLE, and that happens in
-  // exactly one situation: the runner MOVED us to a fresh chat (a /clear), which has no
-  // title of its own to overwrite the old one with. Bailing on `!title` left the tab
-  // reading "reply with exactly: ORION" while showing a conversation that had nothing to
-  // do with it — caught by running it, not by a test, because the sibling test moves the
-  // runner into a chat that HAS a title.
-  //
-  // So: a title always names the tab; an empty title only renames it if we have just
-  // arrived from somewhere else.
-  const labelledFor = useRef('')
-  useEffect(() => {
-    const bufferActions = windowPaneStore.getState().bufferActions
-    const buffer = bufferActions.getBufferById(bufferId)
-    if (!buffer) return
-
-    const arrivedFromAnotherChat = labelledFor.current !== '' && labelledFor.current !== shownChatId
-    labelledFor.current = shownChatId
-
-    const label = title || (arrivedFromAnotherChat ? UNTITLED_CHAT_LABEL : buffer.name)
-    if (buffer.name !== label) bufferActions.renameBuffer(bufferId, label)
-  }, [bufferId, title, shownChatId])
+  // NO TAB RELABEL HERE ANY MORE. A chat used to be a buffer whose `name` was the tab
+  // label, so a title arriving after the tab opened (the agent auto-titles the chat via
+  // WS `title_set`, the user renames it from the sidebar, or the runner MOVED us to a
+  // fresh chat with a title of its own) had to be mirrored onto that buffer. Task 17's
+  // `ChatHead` reads `agentChats.chats.find(c => c.id === chatId)?.title` straight from
+  // the store instead, so all three cases are live for free — and the third one now
+  // works, because the effect above re-points the PANE's own chatId rather than a
+  // buffer that has not existed since Task 1.
 
   // THE REVIVE BUDGET: ONE PER CHAT, PER PANE MOUNT. Every id in here has already had a
   // revive fired at it by this pane, and will never get another one unasked — whatever
@@ -413,14 +393,11 @@ export function AgentChatPane({
     // A non-hotswap api-transport runner (codex) is legitimately live with nothing
     // attached: empty here means "no terminal to show right now", not "no runner".
     if (!chat.liveRunnerId) return false
-    windowPaneStore.getState().bufferActions.repointAgentChatBuffer(bufferId, {
-      chatId: chat.id,
-      runnerId: chat.liveRunnerId,
-    })
+    windowPaneStore.getState().paneActions.setPaneChat(paneId, chat.id, chat.liveRunnerId)
     if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
     setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
     return true
-  }, [store, wsId, bufferId, shownChatId])
+  }, [store, wsId, paneId, shownChatId])
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.

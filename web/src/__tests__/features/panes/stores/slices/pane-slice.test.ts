@@ -703,6 +703,67 @@ describe('pane-slice — forgetDormantArrangement (spec §5.4)', () => {
   })
 })
 
+// Spec §9: deletion is the only act that removes a THING rather than a view,
+// "so it is the only one that can leave a name behind. It clears the layout of
+// any pane holding a deleted chat, plucks every arrangement in Recents that
+// remembered one, drops arrangements left empty."
+describe('pane-slice — forgetChat (spec §9)', () => {
+  it('clears every pane holding the deleted chat and leaves the others alone', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.setPaneChat(BOTTOM_PANE_ID, 'chat-2', 'runner-2')
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBeNull()
+    expect(store.getState().panes[ROOT_PANE_ID].runnerId).toBeNull()
+    expect(store.getState().panes[BOTTOM_PANE_ID].chatId).toBe('chat-2')
+  })
+
+  it('plucks the chat out of a remembered SET, keeping the survivors grouped', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2', 'chat-3'])
+    const entryId = store.getState().dormantArrangements[0].id
+
+    store.getState().paneActions.forgetChat('chat-2')
+
+    const [entry] = store.getState().dormantArrangements
+    expect(entry.id).toBe(entryId) // the survivors keep their slot (§5.6)
+    expect(entry.chatIds).toEqual(['chat-1', 'chat-3'])
+  })
+
+  it('drops an arrangement left with nobody in it', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('never archives the deleted chat — a ghost row is exactly what §9 forbids', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('is a no-op for a chat nothing holds or remembers', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const before = store.getState().dormantArrangements
+
+    store.getState().paneActions.forgetChat('no-such-chat')
+
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
+    expect(store.getState().dormantArrangements).toBe(before)
+  })
+})
+
 // Task 22: spec §8.2's merge/survivor bookkeeping — "merging opens... you get
 // them side by side", "whatever goes up leaves every arrangement that was
 // remembering it... the arrangement you leave is remembered minus whatever

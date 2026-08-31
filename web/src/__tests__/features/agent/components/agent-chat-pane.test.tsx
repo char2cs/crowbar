@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
-import type { PaneContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
@@ -277,43 +276,27 @@ function deferred<T>() {
 }
 
 // ── Harness ──────────────────────────────────────────────────────────
-// Task 26 fix round 1 (I6): buffers are window-level now (windowPaneStore),
-// not part of the per-workspace store `seedWorkspace` returns. PaneHost is
-// exactly what pane-container does: read the buffer, feed its
-// chatId/runnerId back in as props. That closes the loop the feature IS —
-// the buffer is the pane's moving target, and the pane is what moves it.
+// Task 26 fix round 1 (I6): panes are window-level now (windowPaneStore), not
+// part of the per-workspace store `seedWorkspace` returns. PaneHost is exactly
+// what pane-container.tsx does: read the `PaneGroup`, feed its chatId/runnerId
+// back in as props. That closes the loop the feature IS — the pane is the
+// moving target, and AgentChatPane is what moves it.
 //
-// The 'agentChat' buffer type this harness constructs was retired from
-// PaneContent's own union by an EARLIER task (Task 1) — no production code
-// path can build one through the typed `bufferActions.openContent` API any
-// more, so `openBuffer` below writes the object directly into
-// `windowPaneStore` (bypassing that API, `as unknown as PaneContent`) to
-// keep exercising `repointAgentChatBuffer`/`getBufferById`/`renameBuffer`'s
-// OWN behavior — which is generic over buffer shape and does not care how a
-// buffer got into the array. IMPORTANT CAVEAT, disclosed precisely rather
-// than left implicit: `pane-container.tsx` carries its own comment (predates
-// Task 26) stating that in REAL production usage, `AgentChatPane`'s
-// `bufferId` prop is NOT actually a companion-buffer id any more (some other
-// placeholder string is passed instead), so `repointAgentChatBuffer`/the
-// title-rename-via-buffer effect it exercises here are NOT reachable through
-// real callers today — that comment names it as a separate, already-tracked
-// follow-up task's scope ("migrate AgentChatPane onto setPaneChat/chat-level
-// rename instead of a buffer id"), not this one. This suite verifies
-// AgentChatPane's OWN internal contract correctly; it does not confirm
-// end-to-end production wiring for the buffer-mirroring assertions
-// specifically (`buffer(...)?.chatId/.runnerId/.name`).
-interface FakeAgentChatBuffer {
-  id: string
-  type: 'agentChat'
-  chatId: string
-  runnerId: string
-  wsId: string
-  name: string
-  path: string
-}
+// This harness used to construct a fake 'agentChat' BUFFER instead, a type Task
+// 1 deleted from PaneContent's union — so it exercised `repointAgentChatBuffer`
+// against a shape no production caller could produce, and carried an explicit
+// caveat saying so. The final fix wave deleted that action and moved
+// AgentChatPane onto `paneActions.setPaneChat(paneId, ...)`; the harness now
+// holds a REAL `PaneGroup` and the caveat is gone with it — every repoint
+// assertion below runs the same write, through the same `paneId` prop,
+// pane-container.tsx passes in production.
+
+// A real `PaneGroup` carries no workspace id (pane-container reads it from the
+// ambient WorkspaceStoreContext), so the harness keeps it beside the pane
+// rather than inventing a field production does not have.
+const paneWorkspace = new Map<string, string>()
 
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
-  resetWindowPaneStoreForTests()
   const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
   store.getState().seedAgentChats(chats)
@@ -322,63 +305,62 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(_store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
+// `_name` is vestigial — it was the fake buffer's tab label, and a chat has no
+// buffer to label any more (ChatHead reads the title straight off the store).
+// Kept in the signature so the ~50 call sites below stay unchanged.
+function openChatPane(_store: Store, chatId: string, runnerId: string, _name = 'Chat', wsId = 'w1') {
   const id = nanoid()
-  const buf: FakeAgentChatBuffer = {
-    id,
-    type: 'agentChat',
-    chatId,
-    runnerId,
-    wsId,
-    name,
-    path: `agent-chat://${chatId}`,
-  }
   windowPaneStore.setState((s) => {
-    s.buffers = [...s.buffers, buf as unknown as PaneContent]
+    s.panes[id] = {
+      id,
+      type: 'group',
+      chatId,
+      runnerId: runnerId || null,
+      editorTabIds: [],
+      activeEditorTabId: null,
+      editorOpen: false,
+    }
     return s
   })
+  paneWorkspace.set(id, wsId)
   return id
 }
 
-function PaneHost({ bufferId, isVisible = true }: { bufferId: string; isVisible?: boolean }) {
-  const buf = useStore(
-    windowPaneStore,
-    (s) => s.buffers.find((b) => b.id === bufferId) as unknown as FakeAgentChatBuffer | undefined,
-  )
-  if (!buf) return null
+function PaneHost({ paneId, isVisible = true }: { paneId: string; isVisible?: boolean }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
   return createElement(AgentChatPane, {
-    chatId: buf.chatId,
-    runnerId: buf.runnerId,
-    wsId: buf.wsId,
-    bufferId: buf.id,
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
     isActivePane: true,
-    // Default true: the vast majority of these tests are the ACTIVE, visible tab.
+    // Default true: the vast majority of these tests are the ACTIVE, visible pane.
     // The keep-alive suite drives this false to prove a hidden chat doesn't revive.
     isVisible,
   })
 }
 
-async function renderPane(store: Store, bufferId: string) {
+async function renderPane(store: Store, paneId: string) {
   await act(async () => {
     render(
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store },
-        createElement(PaneHost, { bufferId }),
+        createElement(PaneHost, { paneId }),
       ),
     )
   })
 }
 
-const buffer = (_store: Store, id: string) =>
-  windowPaneStore.getState().buffers.find((b) => b.id === id) as unknown as
-    | FakeAgentChatBuffer
-    | undefined
+const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[id]
 
 // The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
 // the chat back afterwards shows the runner now on it. Tests that are about failure say
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  paneWorkspace.clear()
   getChatFn.mockReset()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()
@@ -446,8 +428,8 @@ describe('AgentChatPane', () => {
   // does not change), the conversation changes WITHOUT changing the terminal.
   it('follows its runner to a new chat without remounting the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     const term = await screen.findByTestId('xterm')
     expect(term).toHaveAttribute('data-session-id', 'pty1')
@@ -462,53 +444,29 @@ describe('AgentChatPane', () => {
         ])
     })
 
-    // The tab re-points at the chat the runner is in NOW...
-    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
-    // ...and relabels to that chat's title...
-    expect(buffer(store, bufferId)?.name).toBe('Fresh')
+    // The pane re-points at the chat the runner is in NOW — and that is the whole
+    // relabel now: ChatHead reads `agentChats.chats.find(...).title` by chat id, so
+    // the new chat's title follows the pane's own chatId with nothing to mirror.
+    expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
     // ...while the terminal is the SAME DOM NODE. Not a remount: the very same
     // xterm instance, still attached to the same live PTY.
     expect(await screen.findByTestId('xterm')).toBe(term)
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
   })
 
-  // The case above moves the runner into a chat that HAS a title, and that is exactly
-  // why it never caught this: a real /clear lands the runner on a chat nobody has named
-  // yet. The rename effect used to bail on an empty title, so the tab kept wearing the
-  // PREVIOUS chat's name — pointing at a conversation it was no longer showing. Found by
-  // running it: the tab still read "reply with exactly: ORION" after the /clear.
-  it('relabels to the untitled placeholder when the runner /clears into a fresh chat', async () => {
-    const store = seedWorkspace([
-      liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Respond With Orion' }),
-    ])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
-    expect(buffer(store, bufferId)?.name).toBe('Respond With Orion')
-
-    // /clear: same runner, same pty, brand-new chat — and it has NO title yet.
-    // (title: '' explicitly — the fixtures default an omitted title to `Chat <id>`,
-    // which is why the sibling test never exercised the untitled destination at all.)
-    await act(async () => {
-      store
-        .getState()
-        .seedAgentChats([
-          dormantChat({ id: 'c1', title: 'Respond With Orion' }),
-          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: '' }),
-        ])
-    })
-
-    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
-    expect(buffer(store, bufferId)?.name).toBe('Untitled chat')
-    expect(buffer(store, bufferId)?.name).not.toBe('Respond With Orion')
-  })
+  // DELETED (final fix wave): 'relabels to the untitled placeholder when the runner
+  // /clears into a fresh chat'. The behaviour it pinned — mirroring the shown chat's
+  // title onto a companion BUFFER's tab label — no longer exists: a chat is not a
+  // buffer, and ChatHead reads the live title by chat id, so there is no snapshot to
+  // go stale and no placeholder to fall back to.
 
   // Losing your runner because it MOVED is not your CLI dying. The old pane could
   // not tell those apart, so it offered a Resume button that spawned a SECOND CLI
   // on the old conversation while the first kept running.
   it('does not show the exited state when the runner merely moved', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     await act(async () => {
       store
@@ -538,8 +496,8 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockReturnValue(resumed.promise)
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      const bufferId = openBuffer(store, 'c1', '')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', '')
+      await renderPane(store, paneId)
 
       // Mid-flight: the EXISTING spinner, and not a trace of the button the user
       // complained about.
@@ -555,7 +513,7 @@ describe('AgentChatPane', () => {
       // Landed: the revived runner's PTY is attached and the tab follows it.
       const xterm = await screen.findByTestId('xterm')
       expect(xterm).toHaveAttribute('data-session-id', 'pty-revived')
-      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+      expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
       expect(useTerminalStore.getState().getSession('pty-revived')?.connectionId).toBe(
         'pty-revived',
       )
@@ -569,7 +527,7 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       expect(screen.getByTestId('pane-resume')).toBeTruthy()
@@ -596,7 +554,7 @@ describe('AgentChatPane', () => {
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       // The blank surface is genuinely up — this is not accidentally exercising
       // the non-blank path.
@@ -612,7 +570,7 @@ describe('AgentChatPane', () => {
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
       expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
@@ -625,7 +583,7 @@ describe('AgentChatPane', () => {
     it('fails honestly when the revived CLI dies on startup (resumed, but nothing on the chat)', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' }))) // resumed → still nobody there
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       expect(screen.getByTestId('pane-resume')).toBeTruthy()
@@ -641,7 +599,7 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockRejectedValue(new Error('claude: not on PATH'))
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
 
       // Every WS frame the chat could possibly get, re-seeded — the failure state must
@@ -667,8 +625,8 @@ describe('AgentChatPane', () => {
     // wearing a different hat. The exited copy is honest HERE — and only here.
     it('lets an agent stay dead once it has already been brought back this mount', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      const bufferId = openBuffer(store, 'c1', '')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', '')
+      await renderPane(store, paneId)
 
       expect(await screen.findByTestId('xterm')).toBeTruthy() // revived once
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
@@ -685,8 +643,8 @@ describe('AgentChatPane', () => {
 
     it('never revives from the pending state (the chat list has not landed)', async () => {
       const store = seedWorkspace([]) // the seed is still in flight
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       // "Not known" is not "dormant". Reviving here would spawn a SECOND CLI onto a
       // chat that may well already have one.
@@ -703,7 +661,7 @@ describe('AgentChatPane', () => {
 
     it('does not revive a chat whose runner merely moved away', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       // c1 is now dormant — but its runner is not dead, it walked into c2, and the pane
       // walks with it. A dormant chat NOBODY IS LOOKING AT must not be revived.
@@ -730,7 +688,7 @@ describe('AgentChatPane', () => {
     // Confirmed live. liveRunnerId is the only thing that may mean "no runner".
     it('does not revive a live runner that simply has no terminal to attach', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
@@ -743,7 +701,7 @@ describe('AgentChatPane', () => {
     it('shows a plain placeholder, never Resume, in the terminal view of a live runner with no terminal', async () => {
       landOnTerminal()
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).toBeNull()
@@ -762,7 +720,7 @@ describe('AgentChatPane', () => {
     // still must not spawn a CLI (Risk #4: the two flags are distinct).
     it('does not revive a hidden dormant chat', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      const bufferId = openBuffer(store, 'c1', '')
+      const paneId = openChatPane(store, 'c1', '')
       await act(async () => {
         render(
           createElement(
@@ -772,7 +730,7 @@ describe('AgentChatPane', () => {
               chatId: 'c1',
               runnerId: '',
               wsId: 'w1',
-              bufferId,
+              paneId,
               isActivePane: true,
               isVisible: false,
             }),
@@ -795,12 +753,12 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockReturnValue(resumed.promise)
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      const bufferId = openBuffer(store, 'c1', '')
+      const paneId = openChatPane(store, 'c1', '')
       const props = {
         chatId: 'c1',
         runnerId: '',
         wsId: 'w1',
-        bufferId,
+        paneId,
         isActivePane: true,
       }
       const host = (isVisible: boolean) =>
@@ -845,7 +803,7 @@ describe('AgentChatPane', () => {
     // usual, just not focused and not visible.
     it('keeps an attached chat mounted while hidden (no revive, terminal stays)', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
+      const paneId = openChatPane(store, 'c1', 'r1')
       await act(async () => {
         render(
           createElement(
@@ -855,7 +813,7 @@ describe('AgentChatPane', () => {
               chatId: 'c1',
               runnerId: 'r1',
               wsId: 'w1',
-              bufferId,
+              paneId,
               isActivePane: false,
               isVisible: false,
             }),
@@ -874,8 +832,8 @@ describe('AgentChatPane', () => {
   // ── Attaching ──────────────────────────────────────────────────────
   it('attaches the live runner PTY: seeds the mapping, then mounts the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     const xterm = await screen.findByTestId('xterm')
     expect(xterm.getAttribute('data-session-id')).toBe('pty1')
@@ -897,8 +855,8 @@ describe('AgentChatPane', () => {
     // not "dormant" — flashing Resume here would offer a button that spawns a
     // second CLI onto a chat that may well be live.
     const store = seedWorkspace([])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     expect(screen.queryByTestId('xterm')).toBeNull()
     expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
@@ -907,7 +865,7 @@ describe('AgentChatPane', () => {
 
   it('threads isActivePane=false through to the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferId = openBuffer(store, 'c1', 'r1')
+    const paneId = openChatPane(store, 'c1', 'r1')
     await act(async () => {
       render(
         createElement(
@@ -917,7 +875,7 @@ describe('AgentChatPane', () => {
             chatId: 'c1',
             runnerId: 'r1',
             wsId: 'w1',
-            bufferId,
+            paneId,
             isActivePane: false,
             isVisible: true,
           }),
@@ -944,8 +902,8 @@ describe('AgentChatPane', () => {
     const store = seedWorkspace([
       liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
     ])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     const before = await screen.findByTestId('xterm')
     expect(before).toHaveAttribute('data-session-id', 'pty1')
@@ -959,15 +917,15 @@ describe('AgentChatPane', () => {
     const after = await screen.findByTestId('xterm')
     expect(after).toHaveAttribute('data-session-id', 'pty2')
     expect(after).toBe(before) // SAME node: the attachment swapped, the terminal did not remount
-    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
+    expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
     expect(useTerminalStore.getState().getSession('pty2')?.connectionId).toBe('pty2')
     expect(screen.getByTestId('provider-switch').getAttribute('data-current')).toBe('claude')
   })
 
   it('lets go of a dead runner id when its chat goes dormant, and revives the chat', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferId = openBuffer(store, 'c1', 'r1')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
 
     await act(async () => {
       store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
@@ -976,7 +934,7 @@ describe('AgentChatPane', () => {
     // The buffer must never go on pointing at a runner that no longer exists — it lets r1
     // go, and takes up the one the revive put there.
     expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
-    expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+    expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
     expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
   })
 
@@ -989,8 +947,8 @@ describe('AgentChatPane', () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
       resumeChatFn.mockRejectedValueOnce(new Error('claude: not on PATH')) // the auto-revive
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      const bufferId = openBuffer(store, 'c1', '')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', '')
+      await renderPane(store, paneId)
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
 
       // The user installs the CLI and presses the button.
@@ -1003,7 +961,7 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
       const xterm = await screen.findByTestId('xterm')
       expect(xterm).toHaveAttribute('data-session-id', 'pty9')
-      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r9' })
+      expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r9' })
       expect(useTerminalStore.getState().getSession('pty9')?.connectionId).toBe('pty9')
       err.mockRestore()
     })
@@ -1012,7 +970,7 @@ describe('AgentChatPane', () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
       resumeChatFn.mockRejectedValue(new Error('claude: not on PATH'))
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       await act(async () => {
         fireEvent.click(screen.getByTestId('pane-resume'))
@@ -1041,7 +999,7 @@ describe('AgentChatPane', () => {
   describe('the PTY dies under the open pane', () => {
     it('does not resume off the terminal signal alone', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
       expect(await screen.findByTestId('xterm')).toBeTruthy()
 
       await act(async () => {
@@ -1064,7 +1022,7 @@ describe('AgentChatPane', () => {
     // there forever. Only the session the pane still WANTS may report it gone.
     it('ignores a displaced PTY reporting its death after the replacement attached', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
       expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
 
       await act(async () => {
@@ -1078,8 +1036,8 @@ describe('AgentChatPane', () => {
 
     it('revives once the daemon confirms the chat is dormant', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
       await act(async () => {
         fireEvent.click(screen.getByTestId('xterm')) // onSessionGone
       })
@@ -1091,7 +1049,7 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
       expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
-      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
+      expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
     })
   })
 
@@ -1104,7 +1062,7 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
       ])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const footerControl = screen.getByTestId('provider-switch')
       expect(footerControl.getAttribute('data-current')).toBe('codex')
@@ -1113,7 +1071,7 @@ describe('AgentChatPane', () => {
 
     it('is one flat surface — no card, and the switcher shares the terminal column', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       // This pane was built on CossUI's Frame first, and seeing it live is what killed
       // the idea: a Frame LIFTS a panel off its background, and a chat pane must not be
@@ -1142,8 +1100,8 @@ describe('AgentChatPane', () => {
 
     it('switches the provider on the chat the runner is in NOW, not the one the tab opened on', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       // The runner /clears into c2 — the tab follows it.
       await act(async () => {
@@ -1177,8 +1135,8 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
       ])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       await act(async () => {
         fireEvent.click(screen.getByTestId('provider-switch')) // → codex
@@ -1208,14 +1166,14 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty2')
-      expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
+      expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
     })
 
     it('settles into the failure state when the incoming CLI never arrives', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       // The switch reports success, but nothing is on the chat — the CLI died on startup.
       getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       await act(async () => {
         fireEvent.click(screen.getByTestId('provider-switch'))
@@ -1233,7 +1191,7 @@ describe('AgentChatPane', () => {
       // The production failure verbatim: the daemon could not find the codex binary and
       // answered 424 Failed Dependency.
       switchProviderFn.mockRejectedValue(new ApiError('terminal: command not found: codex', 424))
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       await act(async () => {
         fireEvent.click(screen.getByTestId('provider-switch'))
@@ -1250,7 +1208,7 @@ describe('AgentChatPane', () => {
 
     it('shows no toast when the switch succeeds', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       await act(async () => {
         fireEvent.click(screen.getByTestId('provider-switch'))
@@ -1262,36 +1220,11 @@ describe('AgentChatPane', () => {
   })
 
   // ── Tab title ──────────────────────────────────────────────────────
-  // openContent snapshots the label at open time; the chat's title changes later
-  // (the agent auto-titles it over WS `title_set`, or the user renames it) and both
-  // land on the store chat's `title`. The pane mirrors title → buffer name.
-  describe('tab title tracks the chat title', () => {
-    it('relabels the tab when the chat is titled', async () => {
-      const store = seedWorkspace([
-        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Codex chat' }),
-      ])
-      const bufferId = openBuffer(store, 'c1', 'r1', 'Codex chat')
-      await renderPane(store, bufferId)
-
-      await act(async () => {
-        store
-          .getState()
-          .seedAgentChats([
-            liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: 'Fix the flaky test' }),
-          ])
-      })
-
-      expect(buffer(store, bufferId)?.name).toBe('Fix the flaky test')
-    })
-
-    it('never blanks the tab when the chat title is empty', async () => {
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', title: '' })])
-      const bufferId = openBuffer(store, 'c1', 'r1', 'Codex chat')
-      await renderPane(store, bufferId)
-
-      expect(buffer(store, bufferId)?.name).toBe('Codex chat')
-    })
-  })
+  // DELETED (final fix wave): 'tab title tracks the chat title' (2 tests). They
+  // asserted `renameBuffer` mirrored the chat title onto the pane's companion
+  // buffer's tab label. A chat has had no buffer since Task 1, and Task 17's
+  // ChatHead subscribes to the chat's own `title` directly, so there is nothing
+  // left to mirror — chat-head.tsx's own tests cover what the head shows.
 
   // ── ⌘/ cycles the provider, like ⌘-tab ───────────────────────────────
   describe('cycle-provider chord', () => {
@@ -1303,8 +1236,8 @@ describe('AgentChatPane', () => {
 
     it('switches the chat to the next ENABLED provider', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       await pressCycle()
 
@@ -1317,8 +1250,8 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
       ])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       await pressCycle()
 
@@ -1329,8 +1262,8 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
       ])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       // With a chat open the focus sits in its xterm, which stopPropagations the
       // keys it handles. A bubble-phase listener never sees the chord in the one
@@ -1377,8 +1310,8 @@ describe('AgentChatPane', () => {
         },
       ])
       store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
-      await renderPane(store, bufferId)
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
 
       await pressCycle()
 
@@ -1399,17 +1332,17 @@ describe('AgentChatPane', () => {
         [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' })],
         'w-hidden',
       )
-      const hiddenBuffer = openBuffer(hidden, 'c1', 'r1', 'Chat', 'w-hidden')
+      const hiddenPaneId = openChatPane(hidden, 'c1', 'r1', 'Chat', 'w-hidden')
       const shown = seedWorkspace(
         [liveChat({ id: 'c2', runnerId: 'r2', pty: 'pty2', provider: 'claude' })],
         'w-shown',
       )
-      const shownBuffer = openBuffer(shown, 'c2', 'r2', 'Chat', 'w-shown')
+      const shownPaneId = openChatPane(shown, 'c2', 'r2', 'Chat', 'w-shown')
 
       // Both panes are the active, visible tab of their own workspace — exactly
       // what a retained workspace looks like the instant it goes hidden.
-      await renderPane(hidden, hiddenBuffer)
-      await renderPane(shown, shownBuffer)
+      await renderPane(hidden, hiddenPaneId)
+      await renderPane(shown, shownPaneId)
       setActiveWorkspaceId('w-shown')
 
       await pressCycle()
@@ -1420,7 +1353,7 @@ describe('AgentChatPane', () => {
 
     it('a HIDDEN chat ignores the chord — a background split must not switch', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const bufferId = openBuffer(store, 'c1', 'r1')
+      const paneId = openChatPane(store, 'c1', 'r1')
       // Every chat stays mounted for keep-alive, so without the isVisible gate a
       // hidden tab would swallow the chord and switch a chat nobody can see.
       await act(async () => {
@@ -1428,7 +1361,7 @@ describe('AgentChatPane', () => {
           createElement(
             WorkspaceStoreContext.Provider,
             { value: store },
-            createElement(PaneHost, { bufferId, isVisible: false }),
+            createElement(PaneHost, { paneId, isVisible: false }),
           ),
         )
       })
@@ -1442,7 +1375,7 @@ describe('AgentChatPane', () => {
   describe('React chat presentation', () => {
     it('defaults to Chat while retaining the native terminal as an attach-only fallback', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
@@ -1459,7 +1392,7 @@ describe('AgentChatPane', () => {
     it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       store.getState().setAgentChatWorking('c1', true)
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const input = screen.getByRole('textbox', { name: /message the agent/i })
       fireEvent.change(input, { target: { value: 'queued while busy' } })
@@ -1485,7 +1418,7 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
       ])
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const input = screen.getByRole('textbox', { name: /message the agent/i })
       fireEvent.change(input, { target: { value: 'deliver exactly once' } })
@@ -1524,7 +1457,7 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
       getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
-      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const input = screen.getByRole('textbox', { name: /message the agent/i })
       fireEvent.change(input, { target: { value: 'trigger replacement' } })

@@ -174,7 +174,7 @@ async function renderPane(
           chatId: 'c1',
           runnerId: 'r1',
           wsId: 'w1',
-          bufferId: 'b1',
+          paneId: 'b1',
           isActivePane: opts.isActivePane ?? true,
           isVisible: opts.isVisible ?? true,
         }),

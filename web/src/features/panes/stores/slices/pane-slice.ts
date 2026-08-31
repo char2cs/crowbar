@@ -65,6 +65,14 @@ export interface PaneActions {
    *  close. The symmetric removal to `closePane`'s own push onto
    *  `dormantArrangements`. */
   forgetDormantArrangement(entryId: string): void
+  /** Spec §9: a chat was DELETED — the one act that removes a thing rather
+   *  than a view, and therefore "the only one that can leave a name behind."
+   *  Clears the layout of any pane holding it and plucks it from every
+   *  arrangement that remembered it, dropping arrangements left empty.
+   *  Driven by the daemon's `deleted` frame (and by the reconnect seed's
+   *  vanished-chat diff), never by a local close — see
+   *  `use-workspace-agent-chats-stream.ts`. */
+  forgetChat(chatId: string): void
   /** Spec §8.2: "merging opens, it does not file" — group `chatIds` (2+, one
    *  already live, one freshly split beside it) into a single Recents entry
    *  so `deriveRecentsEntries` draws them as one SET rather than as loose
@@ -574,6 +582,23 @@ export const createPaneSlice: StateCreator<
       forgetDormantArrangement(entryId) {
         set((state) => {
           state.dormantArrangements = state.dormantArrangements.filter((e) => e.id !== entryId)
+        })
+      },
+
+      forgetChat(chatId) {
+        set((state) => {
+          // No archiving on the way out, unlike `closePane`/`setPaneChat`: a
+          // deleted chat has nothing left to come back to, and remembering it
+          // is precisely the ghost row spec §9 says deletion must not leave.
+          for (const pane of Object.values(state.panes)) {
+            if (pane.chatId !== chatId) continue
+            pane.chatId = null
+            pane.runnerId = null
+          }
+          if (!state.dormantArrangements.some((e) => e.chatIds.includes(chatId))) return
+          state.dormantArrangements = state.dormantArrangements
+            .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }))
+            .filter((e) => e.chatIds.length > 0)
         })
       },
 

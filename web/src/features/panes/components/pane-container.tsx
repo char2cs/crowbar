@@ -741,37 +741,24 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[0]}%` }}
             >
               <Suspense fallback={null}>
-                {/* bufferId is a KNOWN, DISCLOSED gap, not an oversight:
-                    AgentChatPane itself is not migrated off the buffer model —
-                    it still writes runner-follow repoints and title renames
-                    through `bufferActions.repointAgentChatBuffer(bufferId, ...)`
-                    / `.renameBuffer(bufferId, ...)`, which look the id up in
-                    `state.buffers`. A chat is no longer a buffer at all (Task 1
-                    removed 'agentChat' from PaneContent), so no id here can
-                    resolve to a real entry — every one of those calls safely
-                    no-ops (`if (!buf) return`) rather than corrupting a
-                    DIFFERENT tab's buffer, which is why `pane.id` (this pane's
-                    own stable identity, the closest analog to "this tab's id,
-                    independent of which chat/runner it currently follows" that
-                    the old buffer id was) is passed rather than some other
-                    string — but it means runner-follow write-back (e.g. after
-                    `/clear` moves the runner to a new chatId) and title-rename
-                    do not happen: ChatHead can show a stale name, and
-                    `closePane`'s dormantArrangements push can remember the
-                    wrong chat. Needs a follow-up task that migrates
-                    AgentChatPane onto setPaneChat/chat-level rename instead of
-                    a buffer id — not fixed here (out of this task's file
-                    scope). `pane.chatId` IS set by production callers today —
-                    `⌘N` (use-pane-keyboard.ts), `openAgentChat`, and a chat
-                    drop onto a pane (drop-actions.ts's
-                    `performSidebarPaneDrop`) — so this gap is live, not
-                    theoretical; flagging it precisely rather than
-                    understating it. */}
+                {/* `paneId` was `bufferId` and a known, disclosed gap until the
+                    final fix wave: AgentChatPane wrote runner-follow repoints
+                    and title renames through `bufferActions
+                    .repointAgentChatBuffer`/`.renameBuffer`, both of which look
+                    an id up in `state.buffers` — and a chat has not been a
+                    buffer since Task 1 removed 'agentChat' from PaneContent, so
+                    every one of those writes safely no-op'd and runner-follow
+                    silently never happened (`/clear` left ChatHead on the old
+                    name, and `closePane`'s dormantArrangements push remembered
+                    the wrong chat). AgentChatPane now writes
+                    `paneActions.setPaneChat(paneId, ...)` — the real write path
+                    for what chat a pane holds — and the relabel is gone
+                    entirely, since ChatHead reads the live title by chat id. */}
                 <AgentChatPane
                   chatId={pane.chatId}
                   runnerId={pane.runnerId ?? ''}
                   wsId={wsId}
-                  bufferId={pane.id}
+                  paneId={pane.id}
                   isActivePane={isActivePane}
                   isVisible
                 />
