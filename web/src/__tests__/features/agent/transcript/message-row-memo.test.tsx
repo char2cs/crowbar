@@ -5,8 +5,20 @@ import { MessageRow } from '@/features/agent/transcript/message-row'
 
 const markdownRenderCount = vi.hoisted(() => ({ count: 0 }))
 
+// Both mocked, sharing one counter: these tests assert on MessageRow's own
+// memoization, not on which of the two markdown renderers a given row picks
+// (message-row.test.tsx covers that split) — every message here is settled
+// (streaming defaults to false), so MarkdownMessageStatic is the one that
+// actually renders.
 vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
   MarkdownMessage: ({ children }: { children: string }) => {
+    markdownRenderCount.count++
+    return <span>{children}</span>
+  },
+}))
+
+vi.mock('@/features/agent/transcript/plate/markdown-message-static', () => ({
+  MarkdownMessageStatic: ({ children }: { children: string }) => {
     markdownRenderCount.count++
     return <span>{children}</span>
   },

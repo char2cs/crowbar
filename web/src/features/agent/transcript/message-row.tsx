@@ -11,6 +11,7 @@ import {
   turnTimeTitle,
 } from '@/features/agent/lib/turn-time'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { AgentTurnTools } from '@/features/agent/transcript/turn-tools'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -83,7 +84,10 @@ function MessageRowComponent({
   /** This is a still-open streaming bubble, not a closed, ledger-confirmed
    *  turn. The turnbar (provider icon, copy, elapsed time) reports on a
    *  FINISHED turn — showing it mid-stream would offer to copy text that is
-   *  still changing and time a turn that has not ended yet. */
+   *  still changing and time a turn that has not ended yet. Also the switch
+   *  between the interactive `MarkdownMessage` (needed for
+   *  `applyStreamedValue`'s patch-in-place) and the cheaper, static
+   *  `MarkdownMessageStatic` every settled message renders through. */
   streaming?: boolean
   /** Finished tool calls for every turn in this transcript, keyed by turnId —
    *  only ever passed for closed (non-streaming) assistant messages, since a
@@ -159,7 +163,18 @@ function MessageRowComponent({
           // it back as source is the box's own content un-rendering the instant
           // it is sent — the same table, the same fenced block, two appearances
           // one line apart.
-          <MarkdownMessage className="break-words">{message.text}</MarkdownMessage>
+          //
+          // Only the still-streaming bubble gets the interactive editor —
+          // `applyStreamedValue` patches an existing Plate document in place
+          // as tokens arrive, which only works on a real `usePlateEditor`
+          // instance. Every settled message (every non-streaming row, on
+          // either side) is static content and renders through `PlateStatic`
+          // instead, at a fraction of the interactive editor's cost.
+          streaming ? (
+            <MarkdownMessage className="break-words">{message.text}</MarkdownMessage>
+          ) : (
+            <MarkdownMessageStatic className="break-words">{message.text}</MarkdownMessageStatic>
+          )
         ) : harness ? (
           // Verbatim, in <code> — it's markup (`<task-notification>` is an HTML
           // tag to a markdown parser, which would swallow the row whole), and

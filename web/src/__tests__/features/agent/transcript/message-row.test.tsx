@@ -494,6 +494,48 @@ describe('MessageRow', () => {
   })
 })
 
+// MarkdownMessage (interactive Plate, needed for applyStreamedValue's
+// patch-in-place) is only for the ONE bubble still receiving tokens.
+// Everything else — every closed user/assistant row — renders through the
+// cheaper, non-interactive MarkdownMessageStatic. Both mount a
+// `[data-slate-editor]` root (same node markup either way, see
+// markdown-message-static.test.tsx) so `contenteditable` is the actual
+// discriminator: MarkdownMessage's read-only Plate/PlateContent sets it to
+// `"false"` explicitly; MarkdownMessageStatic's PlateStatic never sets it at
+// all, since there is no editable Slate surface underneath to mark.
+describe('MessageRow interactive vs. static rendering', () => {
+  for (const role of ['user', 'assistant'] as const) {
+    it(`renders a settled ${role} message through the static path, not the interactive editor`, () => {
+      const { container } = row(role, 'settled text')
+      const root = container.querySelector('[data-slate-editor]')
+      expect(root).not.toBeNull()
+      expect(root?.hasAttribute('contenteditable')).toBe(false)
+    })
+  }
+
+  it('renders a streaming assistant bubble through the interactive editor', () => {
+    const message: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 1,
+      role: 'assistant',
+      providerId: 'claude',
+      text: 'still typing',
+      at: '2026-08-24T00:00:00Z',
+    }
+    const { container } = render(
+      <MessageRow message={message} providers={providers} streaming />,
+    )
+    const editable = container.querySelector('[data-slate-editor]')
+    expect(editable).not.toBeNull()
+    expect(editable?.getAttribute('contenteditable')).toBe('false')
+  })
+
+  it('still renders the markdown correctly either way (emphasis, not asterisks)', () => {
+    const settled = row('assistant', 'the **descriptor** decides')
+    expect(settled.getByText('descriptor').closest('strong')).not.toBeNull()
+  })
+})
+
 describe('MessageRow memoization', () => {
   it('does not re-render when called twice with identical prop values', () => {
     const message: AgentChatMessage = {
