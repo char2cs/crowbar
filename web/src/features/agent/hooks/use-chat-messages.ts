@@ -16,8 +16,12 @@ function isAbort(error: unknown): boolean {
 // macrotask yield, not a frame — rAF never fires in an occluded/minimized
 // webview, which would otherwise wedge this loop until foregrounded again.
 function yieldToRenderer(): Promise<void> {
-  const yielder = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler?.yield
-  return yielder ? yielder() : new Promise((resolve) => setTimeout(resolve, 0))
+  // Called THROUGH `scheduler`, never as a detached reference — `yield` is a
+  // WebIDL native method, brand-checked against its receiver, so
+  // `scheduler.yield` extracted and invoked on its own throws "Illegal
+  // invocation" (the same trap as destructuring navigator.clipboard.writeText).
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
+  return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 // Sorted by displayOrder (dispatch order), NOT sequence (persist order) — an

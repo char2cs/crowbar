@@ -291,8 +291,10 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
 
   // global.setTimeout is a shared global — vi.spyOn on it in one test
   // otherwise keeps recording calls into the next test's spy instance.
+  // Also drops any globalThis.scheduler stub a test below installed.
   afterEach(() => {
     vi.restoreAllMocks()
+    delete (globalThis as { scheduler?: unknown }).scheduler
   })
 
   // A queued-evidence chat can recover up to EVIDENCE_RECOVERY_MAX_PAGES
@@ -349,6 +351,76 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
 
     expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0)
+  })
+
+  // REGRESSION: `scheduler.yield` is a WebIDL native method, brand-checked
+  // against its receiver — the same trap as `navigator.clipboard.writeText`.
+  // Extracting it (`scheduler.yield`) and calling the bare reference throws
+  // "Illegal invocation" in a real browser; a plain mock function wouldn't
+  // catch that, so this fixture's `yield` checks its own `this` the way the
+  // native method would, and fails the test if it's ever called detached.
+  it('calls scheduler.yield through its receiver, never as a detached reference', async () => {
+    const fakeScheduler = {
+      yield: vi.fn(function (this: unknown) {
+        if (this !== fakeScheduler) throw new TypeError('Illegal invocation')
+        return Promise.resolve()
+      }),
+    }
+    ;(globalThis as { scheduler?: unknown }).scheduler = fakeScheduler
+
+    listChatMessagesFn.mockImplementation(
+      async (_ws: string, _chat: string, opts?: { after?: number; before?: number }) => {
+        if (opts?.after === undefined && opts?.before === undefined) {
+          return { cursor: 0, oldestCursor: 0, hasMore: false, items: [] }
+        }
+        if (opts?.after === 1) {
+          return {
+            cursor: 2,
+            oldestCursor: 1,
+            hasMore: true,
+            items: [message(2, { text: 'recovered 1' })],
+          }
+        }
+        return {
+          cursor: 3,
+          oldestCursor: 1,
+          hasMore: false,
+          items: [message(3, { text: 'recovered 2' })],
+        }
+      },
+    )
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      // `visible: false` deliberately: the sibling polling effect fires
+      // `refresh()` once on mount whenever visible, and `refresh()` walks
+      // `cursorRef` forward through this SAME mocked API on its own loop
+      // that never calls `yieldToRenderer` — racing ahead of loadInitial's
+      // recovery loop and reaching `messages.length === 2` on its own,
+      // which would make that assertion true regardless of whether THIS
+      // loop's own yield call ever ran. Keeping visible false leaves
+      // loadInitial's recovery loop the only path to that state.
+      visible: false,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      onApply: () => {},
+      pendingEvidence: () => true,
+      pendingBaselines: (): number[] => [1],
+      onRecoveryExhausted: () => {},
+    }
+    const { result } = renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+    expect(fakeScheduler.yield).toHaveBeenCalled()
+    // A detached call would throw synchronously inside `yieldToRenderer`,
+    // which loadInitial's own try/catch turns into an error state — proof
+    // the mock wasn't just "called" (tinyspy records that unconditionally,
+    // before the implementation even runs) but actually RETURNED, letting
+    // the loop reach its second, message-bearing page.
+    expect(result.current.error).toBeNull()
   })
 
   // refresh() polls small pages on a 1s cadence — it must NOT pick up the
