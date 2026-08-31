@@ -28,10 +28,14 @@ interface AgentTerminalWaitBannerProps {
  *  falls back to saying only that input is wanted, which is all that is actually
  *  known.
  *
- *  STAYS a pane-level overlay rather than moving into the composer alongside
+ *  STAYS pane-level rather than moving into the composer alongside
  *  dormant/unsupported: the composer is unreachable for a chat with no messages
  *  yet, and a workspace-trust prompt is disproportionately a FIRST-TURN event —
- *  see the note where this renders in agent-chat-pane.tsx. */
+ *  see the note where this renders in agent-chat-pane.tsx. Rendered in NORMAL
+ *  FLOW there, not as an `absolute` overlay: a fixed offset under an absolute
+ *  box reserves no space for its own height, so whatever sat beneath it never
+ *  moved when this wrapped to more lines — measured as a real, worsening
+ *  overlap with the composer as the pane narrowed. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,

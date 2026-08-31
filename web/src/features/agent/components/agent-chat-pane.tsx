@@ -980,9 +980,41 @@ export function AgentChatPane({
                   // says that.
                   'relative min-h-0 min-w-0 shrink grow-0'
                 : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
+              // Only while the wait banner is up: it needs to sit ahead of
+              // AgentChatView in normal flow (below) rather than floating over
+              // it, so real layout reserves however tall it actually renders —
+              // see the banner's own block below for why. `.agent-chat.chat`
+              // (AgentChatView's own root) already carries `flex: 1;
+              // min-height: 0` for exactly this: its own doc comment notes it
+              // has to work as a flex item in more than one kind of parent.
+              waiting && 'flex flex-col',
             )}
             style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
           >
+            {/* The trust-banner's own doc comment: it STAYS a pane-level
+                overlay rather than moving into the composer, because the
+                composer is unreachable for a chat with no messages yet. That
+                is still true here — this renders regardless of whether
+                AgentChatView shows a real dock or AgentEmptyDocument's
+                composer handle — but it can no longer be an `absolute`
+                overlay: Task 1 measured it overlapping that handle by 7px at
+                1280px wide, because the banner's text wraps to more lines as
+                the pane narrows while an absolutely-positioned box reserves
+                no space for its own height, so whatever sat under it never
+                moved. Rendered BEFORE AgentChatView, in normal flow, so the
+                chat surface is pushed down by however tall the banner
+                actually is instead of sitting under it unchanged. */}
+            {waiting && (
+              <div className="mx-4 mt-2 mb-2 shrink-0 rounded-lg bg-popover shadow-sm">
+                <AgentTerminalWaitBanner
+                  kind={waitKind ?? ''}
+                  providerLabel={
+                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
+                  }
+                  onOpenTerminal={openTerminalFromBanner}
+                />
+              </div>
+            )}
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
               ref={chatViewRef}
@@ -1059,7 +1091,7 @@ export function AgentChatPane({
                 stands in for it there). A CLI dying before its first turn ever
                 lands is not a rare edge of that: it is the ordinary shape of
                 "opened a chat, picked a provider, the provider never came up."
-                Proven wrong once already for terminal_wait below (dropping it
+                Proven wrong once already for terminal_wait above (dropping it
                 outright broke `agent-chat-pane-terminal-wait.test.tsx`), and
                 the same test-first check for reviving/idle
                 (agent-chat-pane.test.tsx, "…for a chat with no messages yet")
@@ -1091,17 +1123,6 @@ export function AgentChatPane({
                 >
                   Resume
                 </Button>
-              </div>
-            )}
-            {waiting && (
-              <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
-                <AgentTerminalWaitBanner
-                  kind={waitKind ?? ''}
-                  providerLabel={
-                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
-                  }
-                  onOpenTerminal={openTerminalFromBanner}
-                />
               </div>
             )}
           </div>

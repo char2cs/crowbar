@@ -131,8 +131,7 @@ async function setWait(store: Store, wait: { kind: string } | null) {
  *  honest read is the toggle's own aria-pressed rather than a class. */
 const showing = () =>
   (surfaceToggle().getAttribute('aria-selected') === 'true' ? 'terminal' : 'chat') as
-    | 'chat'
-    | 'terminal'
+    'chat' | 'terminal'
 
 /** The Terminal half of the surface switcher. Named EXACTLY, because the banner's
  *  own call to action is "Open Terminal" and a loose match finds both. */
@@ -352,6 +351,40 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
+  })
+
+  // ── Doesn't overlap the composer ───────────────────────────────────
+
+  // Task 1 measured a real, live overlap that got WORSE as the window
+  // narrowed and the banner's own text wrapped to more lines (0px at 1056px
+  // wide, 7px at 1280px): the banner was pulled OUT of flow
+  // (`absolute top-2`) while whatever sat beneath it — here, the blank
+  // chat's own composer handle (AgentEmptyDocument stands in for the dock on
+  // a chat with no messages) — never moved to make room, because an
+  // absolutely-positioned box reserves no space for its own height. jsdom
+  // never lays anything out, so the regression guard that IS reachable here
+  // is structural: the banner has to be a normal-flow sibling ahead of the
+  // chat surface, not an absolute overlay, so REAL layout reserves however
+  // much space it actually renders at.
+  it('reserves space for the banner instead of floating over the composer', async () => {
+    const store = seed()
+    await renderPane(store)
+    await setWait(store, { kind: 'workspace_trust' })
+
+    const banner = screen.getByTestId('agent-terminal-wait')
+    const wrapper = banner.parentElement
+    expect(wrapper).not.toBeNull()
+    expect(wrapper?.className).not.toMatch(/\babsolute\b/)
+
+    // AgentEmptyDocument's `.dochandle` lives inside `.agent-chat.chat`
+    // (AgentChatView's own root) — the banner must come BEFORE it in
+    // document order for normal flow to stack them rather than overlap them.
+    const chatSection = document.querySelector('.agent-chat.chat')
+    expect(chatSection).not.toBeNull()
+    expect(
+      (wrapper as Node).compareDocumentPosition(chatSection as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
   // ── The quiet case ─────────────────────────────────────────────────
