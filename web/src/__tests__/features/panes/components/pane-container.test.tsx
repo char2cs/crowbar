@@ -7,6 +7,8 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { ROOT_PANE_POSITION, type PanePosition } from '@/features/panes/types/pane'
+import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { InternalDropZone } from '@/features/tabs/utils/internal-tab-drag'
 
@@ -29,6 +31,23 @@ vi.mock('@/features/tabs/utils/internal-tab-drag', async (importOriginal) => {
     ...actual,
     resolveDropTarget: (point: { x: number; y: number }) =>
       resolveDropTargetOverride.current ?? actual.resolveDropTarget(point),
+  }
+})
+
+// Task 9 (sidebar restyle recovery batch 2): lets a test force the sidebar
+// closed without standing up a real SidebarProvider (which drags in
+// useMediaQuery/matchMedia) — pane-container.tsx reads only
+// `useSidebarOptional()?.open`, so overriding that alone is enough to put a
+// pane against a REAL window edge (isWindowEdge's collapsed-sidebar branch),
+// not just the common sidebar-shielded case every other test in this file
+// exercises by default.
+const { sidebarOpenOverride } = vi.hoisted(() => ({ sidebarOpenOverride: { current: true } }))
+vi.mock('@/components/ui/sidebar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
+  return {
+    ...actual,
+    useSidebarOptional: (): ReturnType<typeof actual.useSidebarOptional> =>
+      ({ open: sidebarOpenOverride.current }) as ReturnType<typeof actual.useSidebarOptional>,
   }
 })
 
@@ -110,8 +129,12 @@ vi.mock('@/features/panes/components/new-tab-view', () => ({
 }))
 
 // TabBar drags in SidebarProvider/dnd-kit machinery irrelevant to hosting.
+// Renders a plain marker (rather than null) so Task 9's tests can find WHERE
+// in the tree the identity row lands — specifically, whether it is nested
+// inside the same painted/rounded box as the content, or an unstyled sibling
+// of it.
 vi.mock('@/features/tabs/components/tab-bar', () => ({
-  default: () => null,
+  default: () => createElement('div', { 'data-testid': 'tab-bar-marker' }),
 }))
 
 // Exposes the real onDrop handler PaneContainer wires up (handleSplitDrop) via
@@ -156,17 +179,26 @@ vi.mock('@/features/panes/components/split-drop-overlay', () => ({
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
 
-function PaneHost() {
+function PaneHost({ position }: { position?: PanePosition }) {
   // Task 26: panes are window-level now — read off windowPaneStore, not the
   // per-workspace WorkspaceStoreContext.
   const pane = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID])
   if (!pane) return null
-  return createElement(PaneContainer, { pane })
+  return createElement(PaneContainer, { pane, position })
 }
 
-async function renderPane(store: ReturnType<typeof createWorkspaceStore>) {
+// `position` defaults to ROOT_PANE_POSITION (PaneContainer's own default) for
+// every existing caller; Task 9's window-edge/interior-pane tests pass one
+// explicitly to control which of the pane's own edges are real window edges.
+async function renderPane(store: ReturnType<typeof createWorkspaceStore>, position?: PanePosition) {
   await act(async () => {
-    render(createElement(WorkspaceStoreContext.Provider, { value: store }, createElement(PaneHost)))
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(PaneHost, { position }),
+      ),
+    )
   })
 }
 
@@ -835,5 +867,122 @@ describe('PaneContainer — file-tree drop never creates a pane of its own (spec
 
     expect(handleFileOpen).not.toHaveBeenCalled()
     expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
+  })
+})
+
+// Task 9 (sidebar restyle recovery batch 2): a follow-up to Task 1
+// (c33a7a58), which fixed the tab styling INSIDE the identity row. The user's
+// own live follow-up on that fix flagged the row's CONTAINER: `data-pane-container`
+// painted no background at all, so the row showed the page body's translucent
+// `--chrome-bg` vibrancy tint through it, while `data-pane-content` directly
+// below painted an explicit opaque `bg-pane-background` fill AND was the only
+// box with rounded top corners — a two-tone "gray header over white rounded
+// content" look. The design canvas's ground truth is one shared background
+// across the row and the content, with rounding/border/shadow enclosing both.
+//
+// These tests extend Task 6's own gutter/rounding coverage (see the
+// `buildPaneContentStyle` describe blocks in pane-border.test.ts, whose
+// fixtures — a full-edge single pane, an interior (no-edge) pane, and a
+// collapsed sidebar — are reused here) up to the DOM: not just "does the pure
+// function return the right style object" but "does the element that ACTUALLY
+// carries that style object now enclose the tab bar too."
+describe("PaneContainer — the identity row shares the pane's background/rounding (Task 9)", () => {
+  afterEach(() => {
+    sidebarOpenOverride.current = true
+    setActiveWorkspaceStoreRef(null)
+  })
+
+  it('nests the tab-bar row inside the same painted box as the content — not an unstyled sibling of it', async () => {
+    const store = createWorkspaceStore('w1')
+    await renderPane(store)
+
+    const sharedBox = document.querySelector('[data-pane-content]')!
+    const row = screen.getByTestId('tab-bar-marker')
+    expect(sharedBox.contains(row)).toBe(true)
+    expect(sharedBox).toHaveClass('bg-pane-background')
+
+    // The outer shell (drag/drop mechanics, the pane-hit ring, PANE_DROP_ATTR)
+    // paints no background of its own — before this fix this is exactly where
+    // the page body's translucent --chrome-bg tint bled through behind the row.
+    const outer = document.querySelector('[data-pane-container]')!
+    expect(outer.className).not.toMatch(/\bbg-/)
+  })
+
+  it("the shared box's rounding/border/gutter — not just data-pane-content alone — matches buildPaneContentStyle for the pane's actual edges (single pane, open left sidebar: right+bottom are real window edges)", async () => {
+    const store = createWorkspaceStore('w1')
+    await renderPane(store, ROOT_PANE_POSITION)
+
+    const sharedBox = document.querySelector('[data-pane-content]')! as HTMLElement
+    // sidebarPosition defaults to 'left' (default-settings.ts); no
+    // SidebarProvider wraps this tree, so useSidebarOptional falls back to
+    // `?? true` — matching pane-container.tsx's own fallback exactly.
+    const expected = buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true)
+    const reference = document.createElement('div')
+    Object.assign(reference.style, expected)
+    expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
+
+    // Named corners, so a regression here reads as "which corner broke," not
+    // just "some style string changed": left/top are shielded/never-edge and
+    // stay rounded+inset; right/bottom are real window edges and square off —
+    // and the tab bar (inside sharedBox) is enclosed by all of it.
+    expect(sharedBox.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+    // jsdom's CSSOM normalizes a bare '0' length to '0px' on read-back (the
+    // object buildPaneContentStyle returns, asserted unitless in
+    // pane-border.test.ts, is unaffected — this is purely how the DOM
+    // serializes it once assigned).
+    expect(sharedBox.style.borderTopRightRadius).toBe('0px')
+    expect(sharedBox.style.marginLeft).toBe('4px')
+    expect(sharedBox.style.marginRight).toBe('0px')
+  })
+
+  it('an interior pane (touches no window edge) rounds and insets all four corners — the common multi-pane case', async () => {
+    const interior: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
+    const store = createWorkspaceStore('w1')
+    await renderPane(store, interior)
+
+    const sharedBox = document.querySelector('[data-pane-content]')! as HTMLElement
+    const expected = buildPaneContentStyle(interior, 'left', false, true)
+    const reference = document.createElement('div')
+    Object.assign(reference.style, expected)
+    expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
+    expect(sharedBox.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+    expect(sharedBox.style.borderBottomRightRadius).toBe('var(--radius-lg)')
+    expect(sharedBox.style.marginLeft).toBe('4px')
+    expect(sharedBox.style.marginBottom).toBe('4px')
+  })
+
+  // The regression this whole style object exists to prevent: a rounded,
+  // shadowed corner composited against the window's own rounded vibrant edge
+  // measured 8ms -> 106ms frames in WKWebView. Moving WHERE this style
+  // attaches must not turn a real window edge into a rounded one — proven
+  // here at the DOM level, not just against the pure function.
+  it('still flattens the corner at a REAL window edge once the sidebar collapses — not just the common shielded case', async () => {
+    sidebarOpenOverride.current = false
+    const store = createWorkspaceStore('w1')
+    await renderPane(store, ROOT_PANE_POSITION)
+
+    const sharedBox = document.querySelector('[data-pane-content]')! as HTMLElement
+    const expected = buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, false)
+    // Sanity on the fixture itself: a collapsed sidebar turns the left edge
+    // into a real window edge too.
+    expect(expected.borderTopLeftRadius).toBe('0')
+    expect(expected.marginLeft).toBe('0')
+
+    const reference = document.createElement('div')
+    Object.assign(reference.style, expected)
+    expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
+    expect(sharedBox.style.borderTopLeftRadius).toBe('0px') // see the unit note above
+    // The longhand, not the `borderLeft` shorthand: jsdom's shorthand getter
+    // doesn't reliably reconstruct a `border-style: none` sub-value (reports
+    // the width instead) — borderLeftStyle is unambiguous, and the full-string
+    // getAttribute('style') comparison above already proves the two elements'
+    // serialized styles are byte-for-byte identical either way.
+    expect(sharedBox.style.borderLeftStyle).toBe('none')
+    expect(sharedBox.style.marginLeft).toBe('0px')
+
+    // And the row is inside that exact, now-square box — not a separately
+    // rounded sibling that would read as a still-detached header.
+    const row = screen.getByTestId('tab-bar-marker')
+    expect(sharedBox.contains(row)).toBe(true)
   })
 })

@@ -653,15 +653,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         onDrop={handleSplitDrop}
         activeZoneOverride={internalHoverZone}
       />
-      <TabBar
-        paneId={pane.id}
-        onTabClick={handleTabClick}
-        disablePaneActions={pane.id === BOTTOM_PANE_ID}
-      />
       <div
         // Hook for the drag-time flattening rule in index.css — a rounded,
         // shadowed surface re-rasterised every frame is what makes dragging
-        // crawl.
+        // crawl. Wraps the identity row (TabBar) AND the content below it —
+        // ONE shared box, painted, rounded, bordered and shadowed together —
+        // not just the content alone. Before this, TabBar sat outside this
+        // div, against the unstyled `data-pane-container` shell, and showed
+        // the page body's translucent --chrome-bg tint through it: a
+        // two-tone "header band over rounded content" look, not the design's
+        // single `.pane` surface.
         data-pane-content=""
         className={cn(
           'relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background',
@@ -673,6 +674,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
         style={paneContentStyle}
       >
+        <TabBar
+          paneId={pane.id}
+          onTabClick={handleTabClick}
+          disablePaneActions={pane.id === BOTTOM_PANE_ID}
+        />
         {/* Spec §7.2's "two views": the chat view and the editor view, and how
             they're arranged.
 
