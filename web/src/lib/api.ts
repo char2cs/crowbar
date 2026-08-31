@@ -215,6 +215,20 @@ export function folderDTOFromWire(
  * There is no dedicated push channel for this any more — folders lost their
  * own REST+WS resource (backend plan closed; see app-sync-provider.tsx's
  * folders subscription for how a change now reaches the sidebar tree).
+ *
+ * KNOWN BACKEND LIMITATION, not fixed here: the daemon's `ListInRepo`
+ * (api/internal/app/usecases/chat/internal/tree/tree.go) never actually
+ * filters by its own `repoID` argument — it filters only by
+ * `Type == folder`, so `GET .../chats/folders` returns EVERY folder in the
+ * whole daemon, not just this repo's (already self-disclosed in the
+ * backend's own container.go comment on the folder push frame's repo
+ * scoping). `folderDTOFromWire` below stamps every row it gets back with
+ * THIS call's own `repoId`/`projectId` regardless of which repo the row
+ * really belongs to, since the wire carries neither — so with more than one
+ * repo open, each repo's folder list can end up claiming another repo's
+ * folders as its own. There is no correct frontend workaround (the wire row
+ * carries no real repoId to filter on); this needs a Go-side fix, out of
+ * scope for this task and the closed backend plan.
  */
 export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
   const rows = await apiFetch<ChatsFolderWireDTO[]>(

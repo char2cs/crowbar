@@ -173,6 +173,11 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     // delete's own `{folder, shifted}` response to the store directly, the
     // instant it lands. This signal only has to catch up everyone else,
     // eventually — which is what Task 34 asked for.
+    //
+    // KNOWN BACKEND LIMITATION carried by `fetchFolders` itself (see its own
+    // doc comment in lib/api.ts): the daemon's ListInRepo does not actually
+    // scope by repo, so a reseed here can ingest another repo's folder rows,
+    // each mis-stamped with THIS repo's id. Not fixable from here.
     function openFolderSubscription(projectId: string, repoId: string): () => void {
       let closed = false
       let generation = 0

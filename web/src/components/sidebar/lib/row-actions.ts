@@ -1,4 +1,5 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } from '@/lib/api'
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
 import { toast } from '@/features/window/stores/toast-store'
@@ -53,6 +54,16 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
  * closed), so the PATCH's `{folder, shifted}` answer is the only confirmation
  * this edit ever gets. Applying it is not optimistic — it is the daemon's own
  * already-committed state, arriving over the request instead of a stream.
+ *
+ * The direct `applyFolderDTO` write is instant visual feedback only — it
+ * touches `useSidebarStore`, never the `crowbar_folders` IndexedDB cache that
+ * every tree REBUILD reads from exclusively (`readVisibleRepoTree`). Without
+ * the `bump` below, the very next rebuild — which fires for reasons that have
+ * nothing to do with this edit, e.g. any repo's `defaultWorking` flipping —
+ * would silently revert it, because the cache was never told. `bump` routes
+ * through the same reseed mechanism `app-sync-provider.tsx` already built for
+ * "another window's change eventually catches up," which writes the cache
+ * authoritatively; the acting window now uses it too, immediately.
  */
 export async function performRenameFolder(folderId: string, name: string): Promise<void> {
   const repo = useSidebarStore
@@ -68,6 +79,7 @@ export async function performRenameFolder(folderId: string, name: string): Promi
     const apply = useSidebarStore.getState().applyFolderDTO
     apply(updated)
     shifted.forEach(apply)
+    useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
   }
@@ -172,7 +184,9 @@ export async function performCreateFolder(parentId: string): Promise<void> {
   try {
     // Applied directly for the same reason performRenameFolder does: no
     // dedicated push channel exists for folders any more, so the response IS
-    // the confirmation.
+    // the confirmation. `bump` (see performRenameFolder's doc) writes
+    // `crowbar_folders` too — without it, the new row survives only until the
+    // next unrelated tree rebuild silently drops it again.
     const { folder, shifted } = await createFolder(
       projectId,
       repo.id,
@@ -182,6 +196,7 @@ export async function performCreateFolder(parentId: string): Promise<void> {
     const apply = useSidebarStore.getState().applyFolderDTO
     apply(folder)
     shifted.forEach(apply)
+    useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }

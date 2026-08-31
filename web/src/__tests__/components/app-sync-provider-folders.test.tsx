@@ -244,6 +244,109 @@ describe('folders reseed-on-signal', () => {
     expect(fetchFolders).not.toHaveBeenCalled()
   })
 
+  // Fix round 1 (C1): a folder write applied ONLY through `applyFolderDTO`
+  // (useSidebarStore) is invisible to `crowbar_folders` — the IndexedDB cache
+  // every rebuild (readVisibleRepoTree) reads folders from exclusively. The
+  // real write sites (row-actions.ts, drop-actions.ts, removal-commit.ts)
+  // now also `bump` the repo's folder signal so the cache converges; these
+  // two tests simulate that same two-step effect (direct store write + bump)
+  // and prove a rebuild that has nothing to do with this folder — the same
+  // kind that fires routinely, e.g. any repo's `defaultWorking` flipping —
+  // does not revert it.
+  it('a folder created locally survives an unrelated rebuild once the write also bumps the signal', async () => {
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.folders).toBeUndefined()
+
+    // What row-actions.ts's performCreateFolder does on a successful create:
+    // apply the response directly (instant feedback) AND bump the signal
+    // (writes crowbar_folders).
+    fetchFolders.mockResolvedValue([folderDTO('f1', 'r1', { name: 'New folder' })])
+    act(() => {
+      useSidebarStore.getState().applyFolderDTO(folderDTO('f1', 'r1', { name: 'New folder' }))
+      useFolderSignalStore.getState().bump('r1')
+    })
+    await settle()
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.folders?.map((f) => f.id),
+    ).toEqual(['f1'])
+
+    // An unrelated rebuild — here, a second repo landing, which is what
+    // scheduleRebuild()'s isOpening branch fires on; any other reason a
+    // rebuild runs would exercise the same crowbar_folders read.
+    act(() => {
+      useSidebarStore
+        .getState()
+        .setRepos([...useSidebarStore.getState().repos, repoRow('r2', 'p1')])
+    })
+    await settle()
+
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.folders?.map((f) => f.id),
+    ).toEqual(['f1'])
+  })
+
+  it('a folder deleted locally stays gone after an unrelated rebuild once the write also bumps the signal', async () => {
+    fetchFolders.mockResolvedValue([folderDTO('f1', 'r1')])
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.folders?.map((f) => f.id),
+    ).toEqual(['f1'])
+
+    // What removal-commit.ts's sendRemoval does on a successful delete:
+    // tombstone the row directly AND bump the signal.
+    fetchFolders.mockResolvedValue([])
+    act(() => {
+      useSidebarStore.getState().applyFolderDTO({
+        id: 'f1',
+        repoId: 'r1',
+        projectId: 'p1',
+        name: '',
+        order: 0,
+        status: 'deleted',
+      })
+      useFolderSignalStore.getState().bump('r1')
+    })
+    await settle()
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.folders).toBeUndefined()
+
+    // An unrelated rebuild must not bring the deleted row back.
+    act(() => {
+      useSidebarStore
+        .getState()
+        .setRepos([...useSidebarStore.getState().repos, repoRow('r2', 'p1')])
+    })
+    await settle()
+
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.folders).toBeUndefined()
+  })
+
   it('drops the signal subscription on unmount', async () => {
     const { unmount } = render(
       <AppSyncProvider>

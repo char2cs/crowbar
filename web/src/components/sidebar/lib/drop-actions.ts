@@ -11,6 +11,7 @@ import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { applyPendingRemovals } from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
@@ -313,7 +314,10 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
     case 'folder': {
       // Applied directly, same as row-actions.ts's folder writes: there is no
       // dedicated push channel for folders any more (Task 34), so this
-      // response is the only confirmation the drop gets.
+      // response is the only confirmation the drop gets. `bump` also writes
+      // the `crowbar_folders` cache every tree rebuild reads from — without
+      // it the move survives only until the next unrelated rebuild reverts
+      // it (see row-actions.ts's performRenameFolder for the full story).
       const { folder, shifted } = await placeFolder(call.projectId, call.repoId, call.folderId, {
         parentId: call.parentId,
         order: call.order,
@@ -321,6 +325,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       const apply = useSidebarStore.getState().applyFolderDTO
       apply(folder)
       shifted.forEach(apply)
+      useFolderSignalStore.getState().bump(call.repoId)
       return
     }
     case 'chat':

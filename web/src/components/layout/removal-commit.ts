@@ -1,6 +1,7 @@
 import { deleteProject, deleteRepo, deleteWorkspace } from '@/lib/api'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -71,12 +72,19 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
     case 'workspace':
       return deleteWorkspace(entry.projectId, entry.repoId, entry.id, ...opts)
     case 'folder':
-      // Folders carry no dedicated push channel any more (Task 34), so
-      // nothing else ever tells the sidebar store this row is gone — apply
-      // the tombstone (and the promotion shift the delete triggers) straight
-      // off the DELETE's own response, the same way row-actions.ts's writes
-      // do. Without this, `releaseWhenGone` below never sees the folder leave
-      // `useSidebarStore` and the held tray row never releases.
+      // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
+      // above never checks `r.folders` at all, so `releaseWhenGone` below always
+      // finds a folder id already absent and releases the tray row IMMEDIATELY —
+      // it never subscribes for a folder kind, so there is no hang to worry about
+      // here. The real problem this guards against: the row is still sitting in
+      // `useSidebarStore` (nothing else removes it any more), so an immediate
+      // release without applying the tombstone would let it flash right back on
+      // screen the instant the tray hides it. Apply the tombstone (and the
+      // promotion shift the delete triggers) straight off the DELETE's own
+      // response, the same way row-actions.ts's writes do — and `bump` the repo's
+      // folder signal too, so the `crowbar_folders` cache every tree rebuild reads
+      // from agrees, or the deleted folder comes BACK on the next unrelated
+      // rebuild (see row-actions.ts's performRenameFolder for the full story).
       return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts).then((shifted) => {
         const apply = useSidebarStore.getState().applyFolderDTO
         apply({
@@ -88,6 +96,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
           status: 'deleted',
         })
         shifted.forEach(apply)
+        useFolderSignalStore.getState().bump(entry.repoId)
       })
     case 'repo':
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
