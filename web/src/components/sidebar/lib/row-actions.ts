@@ -2,9 +2,10 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } from '@/lib/api'
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
-import { renameChat } from '@/features/agent/api/agent-api'
+import { renameChat, promoteChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 
 /** What a folder is called until the user says otherwise (matches the
  *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
@@ -136,6 +137,43 @@ export async function performRenameChat(chatId: string, title: string): Promise<
     useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
+  }
+}
+
+/**
+ * Fire the chat-to-worktree promotion (model spec §3.5/§4.2): fills a
+ * bubble's empty workspace slot with a real worktree, keeping its id, title
+ * and every turn already on it. Gated on `row.kind === 'chat' &&
+ * !row.ownsWorktree && !row.working` at the call site (sidebar-row.tsx) — any
+ * bubble's cwd walk always terminates at a real worktree ancestor by
+ * construction, so there is no separate "is a parent available" check here.
+ *
+ * The `isChatWorking` re-check below exists because that row-level gate is
+ * decorative for a TREE chat row: `rows-from-repo.ts` seeds every chat row's
+ * `working` as always `false` ("ALWAYS FALSE, AND NOT AN OVERSIGHT" — a
+ * value seeded once would latch the spinner on a chat whose turn ended long
+ * ago), so the row can never actually know it live. `sidebar-drop-policy.ts`
+ * hit the exact same gap for dragging and closed it the same way: ask the
+ * live `agentChats.working` map at the moment of the action instead of
+ * trusting the row. `promote.go` does not refuse a working chat itself — it
+ * tears the running CLI down and respawns it regardless — so skipping this
+ * check would let an in-flight turn get silently cut off rather than merely
+ * producing an error toast.
+ *
+ * No optimistic write, same as every other perform* action above: the
+ * promoted row's ownsWorktree/workspaceId flip only once the daemon's own
+ * broadcast/reseed lands, not from anything this function does.
+ */
+export async function performPromoteChat(chatId: string): Promise<void> {
+  if (isChatWorking(chatId)) return
+  const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  if (!repo) return
+  const wsId = scopedWorkspaceIdOf(repo)
+  if (!wsId) return
+  try {
+    await promoteChat(wsId, chatId)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to promote chat')
   }
 }
 

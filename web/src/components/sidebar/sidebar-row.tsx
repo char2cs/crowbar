@@ -2,6 +2,12 @@ import { ArrowElbowDownRight, ChatsCircle, Folder, GitBranch, Trash } from '@pho
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
+import {
   ADD_GLYPH_PATH,
   DISCLOSURE_GLYPH_PATH,
   ROW_BASE,
@@ -13,6 +19,7 @@ import {
   ROW_SUB_ACTION_HOVER,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { performPromoteChat } from '@/components/sidebar/lib/row-actions'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -76,6 +83,16 @@ export function SidebarRow({
   // §3.1: "+" makes a workspace on a row that is itself git-capable, a thread
   // otherwise. `ownsWorktree` is the only fact this row carries that answers it.
   const createKind: 'workspace' | 'thread' = row.ownsWorktree ? 'workspace' : 'thread'
+  // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
+  // working can promote itself into one, straight from its own glyph — a
+  // bubble's cwd walk always terminates at a real worktree ancestor by
+  // construction, so there's no separate "is a parent available" check.
+  // Gated purely on the row's own fields, unlike the trailing cluster below,
+  // which only renders when a caller opts in with a handler prop: a working
+  // row does not move (§4.3), and the backend's own promote.go respawns the
+  // chat's CLI regardless of whether it is mid-turn, so refusing here up
+  // front is what keeps a click from round-tripping into a confusing error.
+  const promotable = row.kind === 'chat' && !row.ownsWorktree && !row.working
 
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
@@ -103,14 +120,43 @@ export function SidebarRow({
         {/* The only signal of ownership (spec §3.1): a git mark for a row that
             owns a worktree, a chat bubble for one that borrows its parent's,
             a folder mark for pure organisation. `working` swaps it for the
-            flip-dot spinner IN PLACE — never beside it (§3.2). */}
-        <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
-          {row.working ? (
-            <FlickerSpinner className="size-3.5" />
-          ) : (
-            <RowGlyph row={row} large={isProjectHome} />
-          )}
-        </span>
+            flip-dot spinner IN PLACE — never beside it (§3.2). A promotable
+            bubble's glyph doubles as the one-item "Make workspace" dropdown
+            (§3.5) — never for a worktree-owning, working, or non-chat row. */}
+        {promotable ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              data-testid="promote-dropdown"
+              aria-label={`Promote ${row.label} to a workspace`}
+              className={cn(
+                ROW_GLYPH_BOX,
+                'cursor-pointer rounded hover:bg-sidebar-element-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              )}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <RowGlyph row={row} large={false} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void performPromoteChat(row.id)
+                }}
+              >
+                Make workspace
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
+            {row.working ? (
+              <FlickerSpinner className="size-3.5" />
+            ) : (
+              <RowGlyph row={row} large={isProjectHome} />
+            )}
+          </span>
+        )}
 
         <span
           className={cn(

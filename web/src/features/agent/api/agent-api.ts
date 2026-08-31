@@ -980,6 +980,18 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
   })
 }
 
+// Fills a bubble's empty workspace slot (model spec §4.2): a new worktree
+// forked from its resolved fork parent, with its current provider respawned
+// there. No request body — the server resolves everything from the chat's
+// own id — and the response DTO is discarded here for the same reason every
+// other perform* action discards it (row-actions.ts): the daemon's own
+// broadcast/reseed is what the row actually repaints from.
+export async function promoteChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/promote`, {
+    method: 'POST',
+  })
+}
+
 // Deleting a chat CASCADES to the threads hanging off it — a thread exists to
 // continue the conversation above it, and leaving it behind strands it reading a
 // context that no longer exists.

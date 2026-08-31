@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import * as rowActions from '@/components/sidebar/lib/row-actions'
+
+vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof rowActions>()),
+  performPromoteChat: vi.fn().mockResolvedValue(undefined),
+}))
 
 const baseRow: SidebarRowType = {
   id: 'row-1',
@@ -68,9 +75,16 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['trash', 'create', 'fold'])
   })
 
-  it('no trailing controls render when no handler is passed for them', () => {
+  it('no HANDLER-driven trailing controls render when no handler is passed for them', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    // baseRow is itself a promotable bubble (chat, !ownsWorktree, !working), so
+    // its own intrinsic promote dropdown still renders on the glyph — it is
+    // driven by the row's own fields, unlike trash/create/fold, which only
+    // render when a caller opts in with a handler prop.
+    const handlerDriven = screen
+      .queryAllByRole('button')
+      .filter((b) => b.hasAttribute('data-control'))
+    expect(handlerDriven).toHaveLength(0)
   })
 
   it('the create control makes a thread on a row that owns no worktree', () => {
@@ -146,7 +160,7 @@ describe('SidebarRow', () => {
     expect(screen.getByTestId('trash-control')).toBeInTheDocument()
   })
 
-  it('a chat row shows all three trailing controls, trash included', () => {
+  it('a chat row shows all three HANDLER-driven trailing controls, trash included', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -157,7 +171,7 @@ describe('SidebarRow', () => {
         onToggleFold={vi.fn()}
       />,
     )
-    const controls = screen.getAllByRole('button')
+    const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['trash', 'create', 'fold'])
   })
 
@@ -191,5 +205,63 @@ describe('SidebarRow', () => {
     // happens via the browser's own `:hover` match.
     expect(trash).toHaveClass('hover:text-destructive')
     expect(trash).toHaveClass('hover:bg-destructive/10')
+  })
+
+  // §3.5/§4.2: a bubble chat's glyph is itself a promotion dropdown — gated
+  // purely on the row's own fields (row.kind === 'chat' && !row.ownsWorktree
+  // && !row.working), never on a caller-supplied handler.
+  describe('promotion dropdown', () => {
+    it('renders on a bubble chat row (chat, no worktree, not working)', () => {
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(screen.getByTestId('promote-dropdown')).toBeInTheDocument()
+    })
+
+    it('does not render on a chat row that already owns a worktree', () => {
+      render(
+        <SidebarRow row={{ ...baseRow, ownsWorktree: true }} depth={0} onOpen={vi.fn()} />,
+      )
+      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
+    })
+
+    it('does not render on a working chat row', () => {
+      render(<SidebarRow row={{ ...baseRow, working: true }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
+    })
+
+    it('does not render on a non-chat row', () => {
+      render(
+        <SidebarRow
+          row={{ ...baseRow, kind: 'folder', ownsWorktree: false }}
+          depth={0}
+          onOpen={vi.fn()}
+        />,
+      )
+      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
+    })
+
+    it('opens to a single "Make workspace" item', async () => {
+      const user = userEvent.setup()
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      await user.click(screen.getByTestId('promote-dropdown'))
+      expect(await screen.findByText('Make workspace')).toBeInTheDocument()
+    })
+
+    it('clicking "Make workspace" calls performPromoteChat with the row id, and does not fire onOpen', async () => {
+      const user = userEvent.setup()
+      const onOpen = vi.fn()
+      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+      await user.click(screen.getByTestId('promote-dropdown'))
+      await user.click(await screen.findByText('Make workspace'))
+      expect(rowActions.performPromoteChat).toHaveBeenCalledWith('row-1')
+      expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('clicking the dropdown trigger itself does not fire onOpen', async () => {
+      const user = userEvent.setup()
+      const onOpen = vi.fn()
+      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+      await user.click(screen.getByTestId('promote-dropdown'))
+      expect(onOpen).not.toHaveBeenCalled()
+    })
   })
 })
