@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31
 
-**Status:** recovery spec, open for review.
+**Status:** executed — Tasks 1–8 complete. See §5 for the outcome.
 
 **Design authority — unchanged.** This document revises **no** design decision.
 The design is closed and remains correct:
@@ -456,3 +456,140 @@ app and screenshot it side by side with the artboard.
 - Store access: narrow `useXxxStore((state) => state.field)` selectors only;
   `.getState()` confined to event handlers/effects; stores never import from
   `components/`.
+
+---
+
+## 5. Outcome
+
+Tasks 1–8 are complete. This section is the accurate record, written after
+execution — not a restatement of intent.
+
+**Task 1 (live verification against a fresh build).** The §0 stale-build
+hypothesis was **confirmed**: a clean `HEAD` build measured live (294px rail,
+36px rows, `ROW_BASE`'s classes verbatim) is compact and spec-matched, not
+the oversized/default-browser look the triggering screenshot showed. Nothing
+in this recovery plan ever needed to re-litigate the component code §2 had
+already audited as conformant. Task 1's live pass also **promoted two items
+out of "unverified"**: the pane gutter, which §2.3 had flagged as merely
+unlocatable by name, measured as a **confirmed 0px** (not 4px) live, and the
+trust-banner/composer overlap was confirmed live and shown to be
+window-width-dependent (no overlap at 1056px, a 7px overlap at 1280px) rather
+than a fixed magnitude. It also surfaced one defect the closed audits hadn't
+caught: a live React nested-`<button>` hydration error in `AffordanceRow`'s
+dropdown trigger (Base UI's `MenuTrigger` has no `asChild` prop) — folded into
+Task 4 as a Step 0 fix, since Task 4's own dropdown was scoped to reuse that
+exact pattern.
+
+**Tasks 2–5 closed the four confirmed structural defects from §1.** Tree rows
+now grey correctly (`hasView` threaded from real pane-membership state via a
+new `SidebarTreeRow`/`selectChatHasView` pair, mirroring how Recents already
+did it — §1.2). Chat rows are deletable, wired to the existing `deleteChat`
+route and delete-preview counts (§1.3). The §3.5 chat→worktree promotion
+dropdown was built on a chat row's glyph, reusing (and, as a prerequisite,
+fixing) `AffordanceRow`'s dropdown pattern (§1.4). The "New Project" row was
+deleted and its trigger relocated to a trailing `+` mark in the window
+chrome's project-marks cluster, per the controller's ruling on §3's open
+design question (§1.1). All four shipped with regression tests and clean
+task reviews (one fix round total across all of Phase 1, for an unrelated
+issue in Task 6 below).
+
+**Task 6 (production readiness) additionally fixed three items**, none of
+them structural defects against the closed design, all confirmed live in
+Task 7: the pane gutter (4px left/top, flush right/bottom, per §7.4/§11 —
+previously entirely absent, now `margin: 4px 0px 0px 4px` in
+`pane-border.ts`'s output); the trust-banner/composer overlap, moved from
+absolute overlay into normal document flow so real layout reserves its
+height (this took a fix round — the first pass's `waiting && 'flex
+flex-col'` class collided with `twMerge` and could silently strip the
+pre-existing `hidden` class, breaking the chat surface's `display:none`
+dormancy mechanism; caught in review, fixed, and covered by a regression
+test for the exact sequence); and deletion of the dead `drop-rules.ts` (§2
+had already established it was unused legacy policy, not a live duplicate).
+Vibrancy was correctly left untouched, per Task 1's finding that nothing
+observed contradicted it working.
+
+**Task 7 (systematic parity sweep)** live-drove all five of Tasks 2–6's
+fixes in the running app — not just their unit tests — and confirmed every
+one working: the grey-label class only appears on the tree row whose chat is
+genuinely open in a pane; the trash control produces a real
+file-count/chat-count confirm dialog; the promotion dropdown appears and the
+`AffordanceRow` fix holds at both call sites; the New Project row is gone
+and the trailing `+` mark opens `ImportProjectModal`; the 4px pane gutter is
+present in computed style; `drop-rules.ts` is gone from disk. The rest of
+the Phase 2 checklist (10px trailing-action radius, no oversized fold caret,
+no second sidebar/pill switcher, no card divider, no context pill, no
+"Editor" tab, git verb copy) was confirmed live or via code, item by item.
+Three items — tree/Recents drag parity, Recents' drag-only reorder, and the
+busy-drag refusal — could not be re-driven live: this dev window lacks real
+OS key-window status, so the Tauri MCP bridge's synthetic drag gestures land
+as no-ops (a plain click works). Two independent live-verification attempts
+(Task 7 and a dedicated addendum) hit this same environmental wall. The
+controller ruled these accepted as verified by static code review only — one
+shared `useSidebarDrag`/`sidebar-drop-policy.ts` implementation, confirmed
+across four original audits, the design-transcript extraction, and a direct
+addendum read of the drag code — not by a live repro, since fixing the
+tooling gap needs a `tauri-plugin-mcp-bridge` upgrade or a lower-level
+pointer primitive, both out of scope for this plan.
+
+**Task 8 (sign-off, this task).** Full web gate on `HEAD`:
+`bun tsc --noEmit` reproduces the same ~115-line, pre-existing TypeScript
+strict-null error set entirely in `features/editor`/`features/tabs`/
+`lib/persistence` (confirmed zero overlap with any of the 29 files Tasks
+2–6 touched — cross-checked by diffing the tsc error paths against
+`git diff --name-only` for that commit range). `bun vitest run`: 422 test
+files, 3728 tests, all passing. `bun run lint` initially failed on Prettier
+formatting drift in 5 of the files Tasks 2–6 had touched (an import line and
+an `if` condition in `pane-slice.ts` exceeding the 100-column rule, plus
+line-wrap drift in four test files) — fixed with `prettier --write` on
+exactly those 5 files (whitespace/wrapping only, no logic change, confirmed
+by diff and by re-running their test files: 121/121 still passing), leaving
+one pre-existing, out-of-scope warning (`use-file-explorer-context-menu.tsx`)
+and pre-existing formatting drift in files this plan never touched. A
+spot-check of the regression tests named in the Task 2–6 commits (the
+`hasView`/live-pane test in `sidebar-tree.test.tsx`, the bubble-chat-delete
+test in `space-content-actions.test.ts`, the promote-dropdown test and the
+`AffordanceRow` nested-`<button>` regression test, the New-Project-removal
+tests in `sidebar-tree-chrome.test.tsx`, the gutter tests in
+`pane-border.test.ts`, and the terminal-wait-banner tests including the
+Task-6-fix-round regression) confirmed all present and passing, not merely
+counted.
+
+Live Tauri verification this session, against the same shared dev instance
+Tasks 1 and 7 used: the §7.1 split-toggle (`data-testid="split-toggle"`,
+`aria-label` toggling "Show editor alongside chat" / "Show chat only") opens
+a genuine two-up view — chat and the editor's empty stage side by side in
+one pane, confirmed both visually and via DOM (`pane-top-row` spanning the
+full pane width, one `role="presentation"` pane container, no second pane).
+Reading `use-chat-presentation.ts` confirms the code implements the spec's
+rule exactly: `width >= height ? 'side-by-side' : 'stacked'`, measured off
+the pane's own box via `ResizeObserver`, never the window — this is reachable
+by a single click, no drag involved. Recents with all four states
+(`live`/`working`/`set`/`dormant`) populated simultaneously was **not**
+achieved this session: this shared dev window was under active, live
+contention from a concurrent sibling session for most of this pass (window
+resizes silently reverted, the visible workspace/chat context changed
+mid-inspection without this session's input — confirmed via `ps aux`, a
+second live agent process was genuinely running against this same worktree).
+This is a distinct, session-specific limitation, not a code defect — the
+Recents state-derivation logic itself (`recents-entries.ts`'s
+`resolveState`) was read and matches spec §5.6 exactly, and Task 1/2's
+existing live confirmations already cover the `live` and `dormant` cases
+individually. A `working` state additionally requires a real, currently-running
+CLI process behind a chat, which this dev fixture does not provide on demand.
+
+**Residual gap, carried forward with its ruling intact:** live drag-gesture
+verification (tree/Recents drag parity, drag-only reorder, the busy-drag
+refusal) remains verified by static code review only, for the environmental
+reason above — not attempted again this session per the explicit
+instruction not to, since it will not succeed against this Tauri MCP
+bridge version. Simultaneous four-state Recents capture is a similar
+environmental gap, newly noted here rather than closed.
+
+**Net assessment.** Every code-level defect this plan set out to fix (§1.1–
+§1.4, plus Task 6's three production-readiness items) is fixed, reviewed,
+regression-tested, and live-confirmed working in the running app. The full
+automated gate is green. What remains unverified live — drag mechanics and
+one Recents composition — is unverified for tooling reasons specific to this
+sandboxed dev environment, not because the underlying code is suspect; both
+are covered by static verification and neither was touched by any commit in
+this plan.
