@@ -26,9 +26,7 @@ describe('AffordanceRow', () => {
     const user = userEvent.setup()
     const onCreateThread = vi.fn()
     const onCreateWorkspace = vi.fn()
-    render(
-      <AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />,
-    )
+    render(<AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />)
     await user.click(screen.getByTestId('affordance-dropdown'))
     expect(await screen.findByText('Create thread')).toBeInTheDocument()
     expect(await screen.findByText('Create workspace')).toBeInTheDocument()
@@ -38,9 +36,7 @@ describe('AffordanceRow', () => {
     const user = userEvent.setup()
     const onCreateThread = vi.fn()
     const onCreateWorkspace = vi.fn()
-    render(
-      <AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />,
-    )
+    render(<AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />)
     await user.click(screen.getByTestId('affordance-dropdown'))
     await user.click(await screen.findByText('Create thread'))
     expect(onCreateThread).toHaveBeenCalledOnce()
@@ -50,9 +46,7 @@ describe('AffordanceRow', () => {
     const user = userEvent.setup()
     const onCreateThread = vi.fn()
     const onCreateWorkspace = vi.fn()
-    render(
-      <AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />,
-    )
+    render(<AffordanceRow onCreateThread={onCreateThread} onCreateWorkspace={onCreateWorkspace} />)
     await user.click(screen.getByTestId('affordance-dropdown'))
     await user.click(await screen.findByText('Create workspace'))
     expect(onCreateWorkspace).toHaveBeenCalledOnce()

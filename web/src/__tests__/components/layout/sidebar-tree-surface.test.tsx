@@ -235,9 +235,7 @@ describe('SidebarTreeSurface', () => {
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
 
     expect(useRemovalTrayStore.getState().entries).toEqual([])
-    expect(toastError).toHaveBeenCalledExactlyOnceWith(
-      expect.stringContaining('locked-one'),
-    )
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('locked-one'))
   })
 
   // `resolveRow` (space-content-actions.ts) cannot see a chat row, so

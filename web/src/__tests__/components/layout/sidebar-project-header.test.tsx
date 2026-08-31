@@ -88,13 +88,17 @@ describe('SidebarProjectHeader', () => {
 
   it('renders one icon-only mark per project in the chrome middle', () => {
     const projects = [makeProject('p1'), makeProject('p2')]
-    render(<SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />)
+    render(
+      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />,
+    )
     expect(screen.getAllByTestId('space-mark')).toHaveLength(2)
   })
 
   it('the current space mark is full strength, others muted', () => {
     const projects = [makeProject('p1'), makeProject('p2')]
-    render(<SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />)
+    render(
+      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />,
+    )
     const marks = screen.getAllByTestId('space-mark')
     expect(marks[0]).not.toHaveClass('opacity-60')
     expect(marks[1]).toHaveClass('opacity-60')
@@ -104,7 +108,11 @@ describe('SidebarProjectHeader', () => {
     const projects = [makeProject('p1'), makeProject('p2')]
     const onSelectProject = vi.fn()
     render(
-      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={onSelectProject} />,
+      <SidebarProjectHeader
+        projects={projects}
+        activeProjectId="p1"
+        onSelectProject={onSelectProject}
+      />,
     )
     const marks = screen.getAllByTestId('space-mark')
     await userEvent.click(marks[1])

@@ -217,9 +217,7 @@ describe('SidebarRow', () => {
     })
 
     it('does not render on a chat row that already owns a worktree', () => {
-      render(
-        <SidebarRow row={{ ...baseRow, ownsWorktree: true }} depth={0} onOpen={vi.fn()} />,
-      )
+      render(<SidebarRow row={{ ...baseRow, ownsWorktree: true }} depth={0} onOpen={vi.fn()} />)
       expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
     })
 

@@ -23,7 +23,10 @@ import {
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 import { syncSoleEditorTabCloseability } from './buffer-slice'
-import { getWorkspaceStore, isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getWorkspaceStore,
+  isChatWorking,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 
 export interface PaneActions {
@@ -227,11 +230,7 @@ export const createPaneSlice: StateCreator<
           const alreadyRemembered = state.dormantArrangements.some((e) =>
             closingPane?.chatId ? e.chatIds.includes(closingPane.chatId) : false,
           )
-          if (
-            closingPane?.chatId &&
-            !alreadyRemembered &&
-            !isChatWorking(closingPane.chatId)
-          ) {
+          if (closingPane?.chatId && !alreadyRemembered && !isChatWorking(closingPane.chatId)) {
             state.dormantArrangements.push({
               id: paneId,
               chatIds: [closingPane.chatId],
