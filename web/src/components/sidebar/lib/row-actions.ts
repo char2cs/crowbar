@@ -4,6 +4,7 @@ import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } f
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
 import { renameChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 /** What a folder is called until the user says otherwise (matches the
  *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
@@ -121,7 +122,13 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
   const chat = repo?.chats?.find((c) => c.id === chatId)
   if (!repo || !chat) return
-  if (chat.title === title) return
+  // The rename dialog seeds from the row's LABEL (rows-from-repo.ts's
+  // `chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so an
+  // untitled chat's placeholder is what a no-op Enter would send. Compare
+  // against the same fallback the dialog was actually seeded with, or a
+  // blank chat gets its title permanently locked to "Untitled chat" and
+  // the agent's real auto-title is rejected forever after.
+  if ((chat.title || UNTITLED_CHAT_LABEL) === title) return
   const wsId = scopedWorkspaceIdOf(repo)
   if (!wsId) return
   try {

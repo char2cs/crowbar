@@ -131,6 +131,26 @@ describe('row-actions', () => {
     expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
   })
 
+  // The rename dialog seeds its input from the row's LABEL
+  // (`chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so for an
+  // untitled chat, pressing Enter without editing sends the placeholder text
+  // itself. That must stay a no-op the same way re-submitting a real title
+  // does, or a blank chat's title gets permanently locked to "Untitled chat"
+  // and the agent's own auto-title is rejected forever after.
+  it('submitting an untitled chat’s placeholder label unedited is a no-op', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...useSidebarStore.getState().repos[0],
+          chats: [{ id: 'chat-1', repoId: 'repo-1', title: '', order: 0 }],
+        },
+      ],
+    })
+    await performRenameRow('chat-1', 'Untitled chat')
+    expect(agentApi.renameChat).not.toHaveBeenCalled()
+    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+  })
+
   // The URL is repo-scoped (Task 17), so any of the REPO's own recorded
   // workspaces builds it — but never the chat's own `workspaceId`, which spec
   // §9.2 allows to name a workspace in a different repo entirely.
