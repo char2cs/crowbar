@@ -2,6 +2,7 @@ import { RotateCcw } from 'lucide-react'
 import { CloseIcon, PencilIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { cn } from '@/lib/utils'
 
 /**
@@ -56,12 +57,17 @@ export function QueuedRow({
       data-first-turn={firstTurn ? 'true' : undefined}
       data-testid="queued-prompt"
     >
-      {/* THE PROMPT TEXT ALWAYS. An error is a second fact about this row, never
-          a replacement for the thing the person actually wrote — losing their
-          words to a failure message is how a retry becomes a retype. */}
-      <span className={firstTurn ? undefined : 'txt'} title={item.text}>
+      {/* THE PROMPT TEXT ALWAYS, through the same markdown pipeline every
+          confirmed message renders through (see message-row.tsx) — a queued
+          prompt is what it was sent as, and un-rendering it back to source
+          for the gap before the ledger confirms it would be the one row in
+          the transcript that looks like a different message. An error is a
+          second fact about this row, never a replacement for the thing the
+          person actually wrote — losing their words to a failure message is
+          how a retry becomes a retype. */}
+      <MarkdownMessageStatic className={firstTurn ? undefined : 'txt'}>
         {item.text}
-      </span>
+      </MarkdownMessageStatic>
       {item.error && <span className="err">{item.error}</span>}
       {showTerminalHint && (
         <Button

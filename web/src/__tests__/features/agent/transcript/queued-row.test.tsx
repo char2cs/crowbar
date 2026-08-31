@@ -35,6 +35,17 @@ describe('QueuedRow', () => {
     expect(container.querySelector('.frozen')).toBeNull()
   })
 
+  // REGRESSION: the queued row used to show `item.text` as a raw string —
+  // the one row in the transcript that didn't go through the same markdown
+  // pipeline every confirmed message renders through (message-row.tsx),
+  // so a prompt with **bold** or a `code span` showed its literal source
+  // for the whole gap between pressing send and ledger confirmation.
+  it('renders the queued prompt as markdown, not as literal source', () => {
+    draw({ item: item({ text: 'a **bold** word' }) })
+    expect(screen.getByText('bold').closest('strong')).not.toBeNull()
+    expect(screen.queryByText(/\*\*bold\*\*/)).toBeNull()
+  })
+
   // The chat's first-ever turn is kept in the frozen document's own hand for
   // the whole time it is pending — never the dashed pill every later prompt
   // gets — so sending it never flashes through a shape the reply won't match.
