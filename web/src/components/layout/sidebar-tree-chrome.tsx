@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { RenameDialog } from '@/components/sidebar/rename-dialog'
 import { performRenameRow, performImportBranches } from '@/components/sidebar/lib/row-actions'
@@ -39,6 +39,31 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
   const renamingLabel = rows.find((r) => r.id === renamingRowId)?.label ?? ''
   const importRepo = importRepoRowId != null ? resolveRow(repos, importRepoRowId)?.repo : undefined
+
+  // Double-click-to-rename, restored from the deleted tree's per-row inline
+  // editors (git history: cf422bc5). A native `dblclick` listener on the same
+  // `treeRef` ancestor SidebarRowContextMenu's own `contextmenu` listener
+  // already uses, for the same reason that component documents: opening the
+  // dialog from state that lived INSIDE the tree would re-render every row to
+  // draw a dialog that isn't part of the tree at all. `[data-sidebar-row-label]`
+  // (sidebar-row.tsx) scopes this to the label specifically — the trailing
+  // trash/create/fold controls stop `click`/`pointerdown` from reaching the
+  // row, but not `dblclick`, so without this a double-click on the trash icon
+  // would also open the rename dialog.
+  useEffect(() => {
+    const tree = treeRef.current
+    if (!tree) return
+    const onDoubleClick = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return
+      if (!e.target.closest('[data-sidebar-row-label]')) return
+      const el = e.target.closest<HTMLElement>('[role="treeitem"]')
+      const rowId = el?.getAttribute('data-sidebar-row-id')
+      if (!rowId || !rows.some((r) => r.id === rowId)) return
+      setRenamingRowId(rowId)
+    }
+    tree.addEventListener('dblclick', onDoubleClick)
+    return () => tree.removeEventListener('dblclick', onDoubleClick)
+  }, [treeRef, rows])
 
   return (
     <>

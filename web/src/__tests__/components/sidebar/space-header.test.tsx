@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SpaceHeader } from '@/components/sidebar/space-header'
+import * as rowActions from '@/components/sidebar/lib/row-actions'
 import type { Project } from '@/lib/types'
+
+vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof rowActions>()),
+  performRenameProject: vi.fn().mockResolvedValue(undefined),
+}))
 
 function makeProject(id: string): Project {
   return {
@@ -139,5 +145,57 @@ describe('SpaceHeader', () => {
     const row = screen.getByTestId('space-header-row')
     expect(row.className).toMatch(/border-transparent/)
     expect(row.className).toMatch(/hover:bg-accent/)
+  })
+
+  // Double-click-to-rename the project itself — restored from the deleted
+  // tree's project-home-row.tsx, which called the same `renameProject` API
+  // this reaches through the new `performRenameProject` wrapper. A project
+  // has no id in the row-based `SidebarRow[]`/`performRenameRow` space (a
+  // project is not a row at all), so this is a second, LOCAL rename target,
+  // not a duplicate of the row rename path — it reuses the same shared
+  // `RenameDialog` component, per that component's own doc: "the sidebar's
+  // one rename gesture."
+  describe('double-click-to-rename', () => {
+    it('double-clicking the project name opens the rename dialog prefilled with it', () => {
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.doubleClick(screen.getByText('p1'))
+      expect(screen.getByRole('textbox')).toHaveValue('p1')
+    })
+
+    it('confirming the dialog calls performRenameProject with the project id and new name', () => {
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.doubleClick(screen.getByText('p1'))
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New Name' } })
+      fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+      expect(rowActions.performRenameProject).toHaveBeenCalledWith('p1', 'New Name')
+    })
+
+    it('a single click on the name still folds the space, not just double-click', () => {
+      const onToggle = vi.fn()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={onToggle}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByText('p1'))
+      expect(onToggle).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -1,6 +1,12 @@
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } from '@/lib/api'
+import {
+  renameWorkspaceBranch,
+  renameRepo,
+  renameProject,
+  setWorkspaceLock,
+  importBranches,
+} from '@/lib/api'
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
 import { renameChat, promoteChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
@@ -192,6 +198,21 @@ export async function performRenameRepo(repoId: string, name: string): Promise<v
     await renameRepo(repo.projectId, repoId, name)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename repository')
+  }
+}
+
+/**
+ * Fire a project rename — the space header's own double-click gesture,
+ * restored from the deleted tree's `project-home-row.tsx`. A project is not a
+ * `SidebarRow` (it has no id in `useSidebarStore`'s repos-derived rows), so
+ * this can't route through `performRenameRow` below; `SpaceHeader` already
+ * holds `project` directly and calls this on its own.
+ */
+export async function performRenameProject(projectId: string, name: string): Promise<void> {
+  try {
+    await renameProject(projectId, name)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename project')
   }
 }
 

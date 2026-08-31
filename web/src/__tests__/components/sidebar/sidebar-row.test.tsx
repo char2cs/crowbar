@@ -135,6 +135,19 @@ describe('SidebarRow', () => {
     expect(onOpen).toHaveBeenCalledWith('row-1')
   })
 
+  // Double-click-to-rename (restored from the deleted tree's per-row inline
+  // editors) is wired via a DOM-delegated `dblclick` listener in
+  // sidebar-tree-chrome.tsx — the same "sibling, not a hook inside the tree"
+  // design row-context-menu.tsx's own `contextmenu` listener already uses, so
+  // opening the rename dialog does not force every row in the tree to
+  // re-render. `SidebarRow` itself only needs to mark which span is the
+  // trigger surface, so the delegated listener can tell a double-click on the
+  // label apart from one on the trailing trash/create/fold controls.
+  it('the label span carries the delegation marker double-click-to-rename targets', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+    expect(screen.getByText('Fix the thing')).toHaveAttribute('data-sidebar-row-label')
+  })
+
   it('a protected branch row has no trash, even though onTrash is supplied', () => {
     // spec §9: "a protected branch is the repo's own ground … not workspaces
     // you made" — structurally the one row rows-from-repo.ts ever gives a

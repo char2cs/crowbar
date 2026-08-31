@@ -159,6 +159,12 @@ export function SidebarRow({
         )}
 
         <span
+          // Double-click-to-rename's delegation marker (sidebar-tree-chrome.tsx):
+          // that listener sits on an ancestor of every project's rows, so it
+          // needs to tell a double-click on the label apart from one on the
+          // trailing trash/create/fold controls, which don't stop a bubbling
+          // `dblclick` the way they already stop `click`/`pointerdown`.
+          data-sidebar-row-label=""
           className={cn(
             'min-w-0 flex-1 truncate',
             row.kind === 'branch' && 'font-mono',
