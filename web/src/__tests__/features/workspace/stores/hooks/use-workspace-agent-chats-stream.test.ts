@@ -130,7 +130,10 @@ vi.mock('@/features/panes/stores/window-pane-store', () => ({
   },
 }))
 
-import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
+import {
+  useWorkspaceAgentChatsStream,
+  _resetProviderToastForTests,
+} from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import {
   beginProviderWrite,
   useAgentProvidersStore,
@@ -184,6 +187,7 @@ const fakeChatBase = (id: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  _resetProviderToastForTests()
   subscribe.mockReturnValue(() => {})
   chatBaseFn.mockImplementation(fakeChatBase)
   panes = {}
@@ -205,12 +209,14 @@ beforeEach(() => {
   })
   // The real slice mutates the pane in place; model that, so a second frame
   // (the idempotence cases) sees the state the first one left behind.
-  setPaneChat.mockImplementation((paneId: string, chatId: string | null, runnerId: string | null) => {
-    const pane = panes[paneId]
-    if (!pane) return
-    pane.chatId = chatId
-    pane.runnerId = runnerId
-  })
+  setPaneChat.mockImplementation(
+    (paneId: string, chatId: string | null, runnerId: string | null) => {
+      const pane = panes[paneId]
+      if (!pane) return
+      pane.chatId = chatId
+      pane.runnerId = runnerId
+    },
+  )
   forgetChat.mockImplementation((chatId: string) => {
     for (const pane of Object.values(panes)) {
       if (pane.chatId !== chatId) continue
@@ -307,6 +313,42 @@ describe('useWorkspaceAgentChatsStream', () => {
 
       expect(setAgentProviders).not.toHaveBeenCalled()
       expect(toastError).toHaveBeenCalled()
+    })
+
+    // The hook runs for every MOUNTED workspace now (WorkspaceView, up to
+    // RETENTION_CAP = 6), and the daemon being unreachable fails all of them
+    // at once — for the same machine-level list, with the same sentence. Its
+    // only previous mount point was a single sidebar panel, so the plain toast
+    // was correct then and would stack six identical copies now.
+    it('says it ONCE per outage, not once per mounted workspace', async () => {
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      renderHook(() => useWorkspaceAgentChatsStream('w2'))
+      renderHook(() => useWorkspaceAgentChatsStream('w3'))
+      await flush()
+
+      expect(toastError).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-arms the announcement once the daemon answers again', async () => {
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+      const first = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      expect(toastError).toHaveBeenCalledTimes(1)
+      first.unmount()
+
+      // Recovered...
+      listProvidersFn.mockResolvedValue(providers)
+      renderHook(() => useWorkspaceAgentChatsStream('w2'))
+      await flush()
+
+      // ...and down again: the user is told about the SECOND outage too.
+      listProvidersFn.mockRejectedValue(new Error('daemon is down again'))
+      renderHook(() => useWorkspaceAgentChatsStream('w3'))
+      await flush()
+
+      expect(toastError).toHaveBeenCalledTimes(2)
     })
 
     it('re-seeds providers when the socket reconnects', async () => {

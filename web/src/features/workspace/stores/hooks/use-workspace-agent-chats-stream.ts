@@ -34,6 +34,19 @@ function panesNow(): PaneGroup[] {
   return Object.values(windowPaneStore.getState().panes)
 }
 
+/** Whether the "could not load agent providers" toast is already on screen for
+ *  the current outage. MODULE scope, not per-hook: the provider list is
+ *  machine-level and every mounted workspace's copy of this hook fails at the
+ *  same moment for the same reason. Cleared by the next successful read. */
+let providersUnreachableAnnounced = false
+
+/** Test-only: module state outlives a `renderHook`, so a suite with a
+ *  deliberate provider outage in one case would silence the toast in every
+ *  later one. Same shape as `_resetTerminalFocusRegistryForTests`. */
+export function _resetProviderToastForTests(): void {
+  providersUnreachableAnnounced = false
+}
+
 // Where is this runner? Two independent answers, and we want the first that exists:
 //
 //   the CHAT LIST — the server's own placement, seeded and refetched. A chat is live
@@ -344,11 +357,20 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // (Project Home, the projects screen) shows the real list instead of
           // claiming the daemon has none.
           useAgentProvidersStore.getState().setProviders(providers)
+          providersUnreachableAnnounced = false
           return
         } catch {
           if (cancelled || seq !== providerSeq) return
         }
       }
+      // ONCE PER OUTAGE, NOT ONCE PER WORKSPACE. This hook runs for every
+      // MOUNTED workspace now (WorkspaceView, up to RETENTION_CAP = 6 at a
+      // time), and the daemon being unreachable fails all of them at once —
+      // for the same machine-level list, with the same sentence. Its only
+      // previous mount point was a single sidebar panel, so the plain toast
+      // was correct then and would stack six identical copies now.
+      if (providersUnreachableAnnounced) return
+      providersUnreachableAnnounced = true
       toast.error(
         'Could not load agent providers',
         'Crowbar could not reach the daemon. New chats are unavailable until it answers.',
@@ -398,9 +420,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // it", and §5.4's "closing the last pane empties it rather than refusing" already
       // names a chatless pane as a real state (the New Tab stage). The old code closed a
       // TAB here, which no longer has an analogue — the chat was the tab.
-      const evicted = Object.values(panes).filter(
-        (p) => p.chatId === entered && p.id !== taker.id,
-      )
+      const evicted = Object.values(panes).filter((p) => p.chatId === entered && p.id !== taker.id)
       for (const pane of evicted) paneActions.setPaneChat(pane.id, null, null)
 
       // The taker moves onto `entered`. `setPaneChat` archives whatever it held into
