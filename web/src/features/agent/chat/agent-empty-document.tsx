@@ -8,37 +8,23 @@ import {
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
-/** The lead the handle keeps below the caret when the document is empty: the
- *  doc's top padding plus one line, matching `.doc`'s 48px / 16px × 1.7. */
+/** The handle's own position on an empty document: the doc's top padding plus
+ *  one line, matching `.doc`'s 48px / 16px × 1.7. */
 const FIRST_LINE_TOP = 48 + 27.2
-/** The gap between the caret's line and the handle riding under it. */
+/** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 
 /**
- * Where the caret actually is.
- *
- * A COLLAPSED range usually reports no client rects at all — most often at the
- * end of a text node, which is where a caret spends nearly all its time. Without
- * the probe the handle silently falls back to the first line and parks itself on
- * top of everything written below it.
+ * Where the handle belongs: right under the LAST line of whatever is
+ * written, never wherever the caret happens to be. Clicking back into the
+ * middle of a paragraph to fix a word does not walk the controls up the page
+ * with it — they stay put, because the box under them is still what sends.
  */
-function caretRect(range: Range): DOMRect | null {
-  // Feature-detected, not assumed: jsdom implements neither Range geometry
-  // method, so an unguarded call throws inside every test that types a prompt.
-  const direct = typeof range.getClientRects === 'function' ? range.getClientRects()[0] : undefined
-  if (direct?.height) return direct
-  if (typeof range.insertNode !== 'function') return null
-  const probe = document.createElement('span')
-  // A zero-width space: it has a box to measure and no width to disturb the line.
-  probe.textContent = '\u200b'
-  range.insertNode(probe)
-  const rect = probe.getBoundingClientRect()
-  const parent = probe.parentNode
-  probe.remove()
-  // The insert split the text node in two; without this the block accumulates
-  // fragments and every later range walks a different tree than it did before.
-  parent?.normalize()
-  return rect.height ? rect : null
+export function lastLineTop(doc: HTMLElement): number {
+  const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
+  const last = editable?.lastElementChild
+  if (!last || !editable?.textContent) return FIRST_LINE_TOP
+  return last.getBoundingClientRect().bottom - doc.getBoundingClientRect().top
 }
 
 export interface AgentEmptyDocumentHandle {
@@ -86,8 +72,9 @@ export interface AgentEmptyDocumentProps {
  * measure and typographic size, and lets the controls come to the writing rather
  * than parking them in a bar at the bottom.
  *
- * The handle rides ONE LINE BELOW THE CARET, which is the whole trick: it never
- * sits on the words being typed, and it is always where the hand already is.
+ * The handle rides right under the LAST LINE, always — not the caret. Clicking
+ * back into an earlier sentence to fix it does not drag the send button up
+ * into the middle of the page with it; it stays where the document ends.
  *
  * Uncontrolled by design. React writes the text only when the incoming draft
  * genuinely differs from what the element holds — a controlled contenteditable
@@ -123,29 +110,18 @@ export function AgentEmptyDocument({
     const doc = docRef.current
     const handle = handleRef.current
     if (!doc || !handle) return
-    const selection = window.getSelection()
-    let top = FIRST_LINE_TOP
-    if (selection?.rangeCount && doc.contains(selection.anchorNode)) {
-      const range = selection.getRangeAt(0).cloneRange()
-      range.collapse(true)
-      const rect = caretRect(range)
-      if (rect?.height) top = rect.top - doc.getBoundingClientRect().top + rect.height
-    } else {
-      // No caret in the document — rest under the LAST line rather than the
-      // first, so an unfocused draft does not hide the text it belongs to.
-      const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
-      const last = editable?.lastElementChild
-      if (last && editable?.textContent) {
-        top = last.getBoundingClientRect().bottom - doc.getBoundingClientRect().top
-      }
-    }
+    const top = lastLineTop(doc)
     handle.style.transform = `translateY(${Math.round(top + HANDLE_LEAD)}px)`
   }, [])
 
   // Same frame as the text that moved it. An effect would paint the handle at the
-  // previous line for one frame, which reads as the bar lagging the caret.
+  // previous line for one frame, which reads as the bar lagging the content.
   useLayoutEffect(place)
 
+  // Typing fires `selectionchange` as a side effect (the collapsed selection
+  // moves with every keystroke) even though `place` itself no longer reads
+  // it — cheaper than a MutationObserver, and it already covers every way
+  // the last line can change: typing, deleting, pasting, undo.
   useEffect(() => {
     const onSelectionChange = () => place()
     document.addEventListener('selectionchange', onSelectionChange)
