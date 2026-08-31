@@ -228,3 +228,34 @@ git commit -m "feat(chat): CreateChild via POST /chats — finish Stage 5's chat
 ```bash
 git commit -m "fix(sidebar): create-workspace renders as one row, not a branch+chat split"
 ```
+
+---
+
+## Task 9: The pane's identity row must share one background with its content, not a distinct header band
+
+**Inserted mid-execution** after the user sent follow-up feedback (Image #10) on Task 1's own result. Task 1 fixed what's INSIDE the row (tab styling, pill → underline). This fixes the row's CONTAINER.
+
+**Files:**
+- Modify: `web/src/features/panes/components/pane-container.tsx` — move `paneContentStyle` (rounding, border, shadow, the 4px gutter from `web/src/features/panes/utils/pane-border.ts`'s `buildPaneContentStyle`) so it wraps the WHOLE pane (the identity row + the content together), not just `data-pane-content` alone. Add a shared `bg-pane-background` (or equivalent) at that same outer level so the row no longer shows the translucent `--chrome-bg` body tint through it.
+- Modify: `web/src/features/tabs/components/tab-bar.tsx` — remove whatever background the row inherits from being unstyled against the window backdrop (confirm after Step 1 below exactly what needs to change here, if anything, once the outer wrapper is fixed).
+- Test: `web/src/__tests__/features/panes/components/pane-container.test.tsx`.
+
+**Interfaces:** none new — this changes WHERE an existing style object (`buildPaneContentStyle`'s return value) is applied, not its logic. Do not change `pane-border.ts`/`buildPaneContentStyle` itself unless Step 1's investigation finds a genuine reason to.
+
+**Root cause, already confirmed by research:** `data-pane-container` (the outer div `pane-container.tsx:613`) paints no background at all, so the identity row shows the page body's translucent `--chrome-bg` vibrancy tint through it. `data-pane-content` (`pane-container.tsx:661`) paints an explicit opaque `bg-pane-background` fill AND gets the only rounded-top corners, via `style={paneContentStyle}`. That mismatch — different fill, only the lower box rounded — is exactly the "distinct gray header block over a white rounded content pane" the user is describing. The design canvas's ground truth (`Main.dc.html:675-688`, `.app .pane { background: var(--pane); border: 2px solid transparent; box-shadow: ...; }` / `.app .pnhead { ... no background, no border-bottom ... }`) is unambiguous: ONE shared background across the row and the content, with rounding/border/shadow on the outer pane box, not the inner content div alone. The only hairline anywhere in the row is a 1px *vertical* divider between the chat button and the tab strip (`.app .hdiv`) — never a horizontal seam under the whole row.
+
+- [ ] **Step 1: Read `pane-container.tsx` and `pane-border.ts`/`buildPaneContentStyle` in full.** Confirm precisely which element `paneContentStyle` currently attaches to, and trace how the 4px gutter, the corner-flattening-at-window-edges logic, and the active-pane focus ring currently behave — these were all deliberately built (first recovery plan, Task 6, and the original design work) to avoid a specific measured WKWebView performance regression (rounded+shadowed corners composited against the window's own vibrant edge: 8ms → 106ms frames). Moving where this style attaches must preserve that exact conditional behavior (flatten at a real window edge, keep it elsewhere) — it must not become "always round" or "never round."
+
+- [ ] **Step 2: Write the failing test(s) first.** Assert: (a) the identity row and the content area resolve to the SAME background color/token (not two different fills); (b) the pane's rounded corners, border, and shadow now visually enclose the row too, not just the content div, while still correctly flattening at a real window edge exactly as before (reuse/extend whatever test already covers Task 6 of the first recovery plan's gutter fix, don't write a parallel, disconnected assertion).
+
+- [ ] **Step 3: Implement** — move the `paneContentStyle` application (and the background fill) to wrap the whole pane. Adjust `tab-bar.tsx`'s own row styling only as needed once the outer wrapper is fixed (it may need nothing beyond what already exists, since it currently carries no background class of its own — confirm before adding anything).
+
+- [ ] **Step 4: Run the tests, confirm PASS.** Run the full `web/src/__tests__/features/panes/` directory to confirm no regression to the first recovery plan's gutter/border-flattening work.
+
+- [ ] **Step 5: Live-verify via the Tauri MCP** (load `mcp__tauri__*` via `ToolSearch` if deferred; confirm you're looking at this worktree's instance via `ipc_get_backend_state` before trusting anything you see) — screenshot a pane and confirm the row and content now read as one continuous surface with rounded corners enclosing both, not a two-tone header-over-content split. Also confirm a pane that sits against a real window edge still correctly flattens its corners there (don't just check the common case).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "fix(pane): identity row shares one background/rounding with its content, not a header band"
+```
