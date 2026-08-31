@@ -1,3 +1,4 @@
+import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
@@ -11,6 +12,8 @@ import { DropIndicator } from '@/components/layout/drop-indicator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { AffordanceRow } from '@/components/sidebar/affordance-row'
 import { useSidebarDrag, type SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { selectChatHasView } from '@/features/panes/stores/slices/pane-slice'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
@@ -29,6 +32,24 @@ interface SidebarTreeProps {
 }
 
 const byOrder = (a: SidebarRowType, b: SidebarRowType) => a.order - b.order
+
+/**
+ * `renderRow` below is a plain recursive function called inside `.map()`/
+ * recursion, not a component — calling a hook inside it would violate the
+ * rules of hooks (a varying call count/order as the tree's shape changes
+ * across renders). This is the real component `renderRow` defers to instead,
+ * mirroring `recents-band.tsx`'s `RecentsMemberRow`: it subscribes this ONE
+ * row to live pane membership and overrides the `hasView: false` every row
+ * arrives with from `rows-from-repo.ts` (a pure bridge that deliberately
+ * never seeds live state — see that file's own note by `working: false`).
+ */
+function SidebarTreeRow({
+  row,
+  ...rest
+}: { row: SidebarRowType } & Omit<React.ComponentProps<typeof SidebarRow>, 'row'>) {
+  const hasView = useStore(windowPaneStore, (s) => selectChatHasView(s, row.id))
+  return <SidebarRow row={{ ...row, hasView }} {...rest} />
+}
 
 /**
  * Walks a flat, parentId-linked `SidebarRow[]` into the real nested tree —
@@ -96,7 +117,7 @@ export function SidebarTree({
 
     return (
       <div key={row.id}>
-        <SidebarRow
+        <SidebarTreeRow
           row={row}
           depth={depth}
           onOpen={onOpen}

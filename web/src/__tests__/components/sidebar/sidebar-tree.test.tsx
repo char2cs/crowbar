@@ -8,6 +8,11 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
@@ -45,6 +50,7 @@ const rows: SidebarRow[] = [
 
 beforeEach(() => {
   useSidebarStore.setState({ collapsedChatRows: new Set<string>() })
+  resetWindowPaneStoreForTests()
 })
 
 describe('SidebarTree', () => {
@@ -162,5 +168,45 @@ describe('SidebarTree', () => {
       (el.getAttribute('class') ?? '').split(/\s+/).some((cls) => /^border-[tb](-|$)/.test(cls)),
     )
     expect(hasDividerUtility).toBe(false)
+  })
+
+  it('greys a chat row whose chat is live open in a pane, even though the row prop itself always arrives hasView: false', () => {
+    // Every row in `rows` is seeded with `hasView: false` (rows-from-repo.ts
+    // never seeds live state into the row object — see its own note). The
+    // grey has to come from a LIVE subscription to pane membership, not from
+    // the prop, so seed a pane holding chat-1's id directly on the window
+    // pane store rather than passing hasView: true into `rows`.
+    windowPaneStore.setState((s) => {
+      s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], chatId: 'chat-1' }
+      return s
+    })
+
+    render(
+      <SidebarTree
+        rows={rows}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
+
+    expect(screen.getByText('Fix the thing').className).toContain('text-muted-foreground')
+    // The folder row's chat never opened anywhere — no false-positive grey.
+    expect(screen.getByText('Bugs').className).not.toContain('text-muted-foreground')
+  })
+
+  it('does not grey a chat row whose chat is not open in any pane', () => {
+    render(
+      <SidebarTree
+        rows={rows}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
+
+    expect(screen.getByText('Fix the thing').className).not.toContain('text-muted-foreground')
   })
 })

@@ -133,6 +133,20 @@ function getLayoutKey(
   return paneId === BOTTOM_PANE_ID ? 'bottomLayout' : 'rootLayout'
 }
 
+/**
+ * §3.2: "a row with a view is grey" — true when some pane already holds
+ * `chatId`. `panes` is a flat `Record` (the split TREE lives only in
+ * `rootLayout`/`bottomLayout`, which this doesn't need), so no traversal.
+ * Meant to be subscribed per row, the way `sidebar-tree.tsx`'s
+ * `SidebarTreeRow` and `recents-band.tsx`'s `RecentsMemberRow` each read
+ * their own row's live state — never baked into a `SidebarRow` object ahead
+ * of render (see `rows-from-repo.ts`'s own note by `working: false`, which
+ * the same latch risk applies to for `hasView`).
+ */
+export function selectChatHasView(state: Pick<PaneSlice, 'panes'>, chatId: string): boolean {
+  return Object.values(state.panes).some((pane) => pane.chatId === chatId)
+}
+
 export const createPaneSlice: StateCreator<
   WindowPaneState,
   [['zustand/immer', never]],
