@@ -157,25 +157,32 @@ export function destroyWorkspaceStore(wsId: string): void {
           cleanupBufferHistoryTracking(buf.id)
           useHistoryStore.getState().actions.clearHistory(buf.id)
         }
-
-        // Dispose editor resources (only if the workspace ever armed the
-        // editor — a terminal/agent-only workspace never constructs the
-        // manager) — and only when NONE of this workspace's editor buffers
-        // are still open in a live pane. disposeAll() unmounts every pane
-        // this workspace's EditorManager has a Monaco editor mounted into
-        // and disposes its whole model registry; doing that while a buffer
-        // it owns is still visible would kill a live editor out from under
-        // the user (disposed model, wiped undo history) rather than merely
-        // freeing a resource nobody can see any more.
-        const hasSurvivingEditorBuffer = paneState.buffers.some(
-          (b) => b.workspaceId === wsId && isEditorContent(b) && openEditorTabIds.has(b.id),
-        )
-        if (!hasSurvivingEditorBuffer) {
-          store.editorManager?.disposeAll()
-        }
       }),
       'window-pane-store buffer teardown',
     )
+
+    // Dispose editor resources (only if the workspace ever armed the editor —
+    // a terminal/agent-only workspace never constructs the manager).
+    //
+    // Task 26 fix round 2 (I2 revisited): fix round 1 gated this on none of
+    // the workspace's editor buffers still being open in a live pane, on the
+    // theory that disposeAll() could kill a still-visible editor. Traced and
+    // found unreachable: WorkspaceHost only calls destroyWorkspaceStore AFTER
+    // this workspace's own React subtree (its own WorkspaceView, its own
+    // PaneContainer/EditorSurface instances) has already unmounted — see this
+    // file's own module doc and workspace-host.tsx's. A buffer that's still
+    // visible elsewhere is rendered by a DIFFERENT, still-mounted
+    // WorkspaceView, and editor-surface.tsx resolves ITS EditorManager from
+    // the ambient `useWorkspaceStore().editorManager` (that OTHER workspace's
+    // own manager) — never from `buf.workspaceId`'s manager — so this
+    // destroyed workspace's EditorManager was never the one backing that
+    // visible editor. The gate guarded against harm that can't happen, while
+    // — since this is the only caller of disposeAll(), and registry.delete
+    // below still runs unconditionally — permanently leaking the entire
+    // EditorManager/ModelRegistry whenever any of the workspace's editor
+    // buffers was still open anywhere, which this task's own hoist makes the
+    // common case. Reverted to run unconditionally, as before fix round 1.
+    store.editorManager?.disposeAll()
   }
 
   // Drop the warm-reactivation freshness ledger for this workspace so a future

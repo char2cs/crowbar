@@ -49,6 +49,11 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => {
 
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  getOrCreateWorkspaceStore,
+  destroyWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { EditorManager } from '@/features/editor/lib/editor-manager'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 
@@ -110,5 +115,41 @@ describe('workspace-store editor arming seam', () => {
       windowPaneStore.getState().bufferActions.closeBuffer(id)
     }).not.toThrow()
     expect(store.editorManager).toBeUndefined()
+  })
+
+  // Task 26 fix round 2 (I2 revisited): fix round 1 gated
+  // destroyWorkspaceStore's editorManager.disposeAll() call on none of the
+  // workspace's editor buffers still being open in a live pane — traced and
+  // found to guard against unreachable harm (WorkspaceHost only destroys a
+  // workspace store AFTER its own subtree has unmounted; a buffer still
+  // visible elsewhere is rendered by a DIFFERENT WorkspaceView using ITS OWN
+  // ambient editorManager, never this one) while creating a real, permanent
+  // leak: since destroyWorkspaceStore is disposeAll()'s only caller and
+  // registry.delete still runs unconditionally, the gate meant the
+  // EditorManager/ModelRegistry for a destroyed workspace leaked forever
+  // whenever any of its editor buffers was still open somewhere — the common
+  // case this whole task creates. Reverted to run unconditionally; this pins
+  // it so the gate cannot silently come back.
+  it('disposes the editor manager on destroy even when one of its buffers is still open in a live pane', async () => {
+    resetWindowPaneStoreForTests()
+    const wsId = 'arm-ws-dispose'
+    const store = getOrCreateWorkspaceStore(wsId)
+    await store.armEditor()
+    const disposeAll = vi.spyOn(store.editorManager!, 'disposeAll')
+
+    const bufferId = windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/still-open.ts',
+      name: 'still-open.ts',
+      content: 'hello',
+      workspaceId: wsId,
+    })
+    // Confirm the precondition is real: left attached to its pane, the exact
+    // "still surviving" case fix round 1's gate gave up disposal for.
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(bufferId)
+
+    destroyWorkspaceStore(wsId)
+
+    expect(disposeAll).toHaveBeenCalledTimes(1)
   })
 })
