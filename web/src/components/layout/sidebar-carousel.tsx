@@ -322,9 +322,19 @@ export function SidebarCarousel({
             divider. justify-start overrides the base tabs list's w-fit
             justify-center; the fold caret sits after the tabs at `ml-auto`,
             on the same head row. */}
-        <div className="flex shrink-0 items-center px-2 py-1">
+        <div data-testid="carousel-head" className="flex shrink-0 items-center px-2">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SidebarTab)}>
-            <TabsList variant="underline" data-testid="tabs-underline" className="justify-start">
+            {/* 28px flat, not 48px: TabsTab's own `sm:h-8` and TabsList's own
+                underline-variant `py-1` (ui/tabs.tsx) both win the cascade at
+                desktop widths, stacking with this row's padding to 48px.
+                `sm:h-7` and the `py-0` override defeat them locally — the
+                shared component keeps its defaults since this is the only
+                `variant="underline"` call site. */}
+            <TabsList
+              variant="underline"
+              data-testid="tabs-underline"
+              className="justify-start data-[orientation=horizontal]:py-0"
+            >
               {visibleHeadTabs.map(({ tab, label, Icon }) => {
                 const isActive = activeTab === tab
                 return (
@@ -333,7 +343,7 @@ export function SidebarCarousel({
                     value={tab}
                     aria-label={label}
                     className={cn(
-                      'h-7 flex-none justify-center px-2.5',
+                      'h-7 sm:h-7 flex-none justify-center px-2.5',
                       isActive ? 'text-foreground' : 'text-foreground/62',
                     )}
                   >

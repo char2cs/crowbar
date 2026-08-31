@@ -225,6 +225,36 @@ describe('SidebarCarousel', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
       expect(useSidebarStore.getState().activeTab).toBe('files')
     })
+
+    // Regression: a prior live-verification pass measured this head at 48px
+    // (tab buttons at 32px) against the design spec's flat 28px (§6.1/§11:
+    // "28px against the segmented bar's 36"). Root cause was two stacked
+    // bugs — TabsTab's own `sm:h-8` beating a local `h-7` override in the
+    // cascade, and TabsList's own underline-variant `py-1` doubling up with
+    // this row's own vertical padding (32 + 8 + 8 = 48). Each assertion
+    // below targets one of the three contributors so the whole head, not
+    // just the buttons, lands at 28px.
+    describe('the head is 28px flat, not 48px (spec §6.1/§11)', () => {
+      it('the head row carries no vertical padding of its own', () => {
+        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        const head = screen.getByTestId('carousel-head')
+        expect(head).not.toHaveClass('py-1')
+        expect(head).not.toHaveClass('py-0.5')
+      })
+
+      it("cancels the underline TabsList's own py-1 so it does not double the row's padding", () => {
+        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        const list = screen.getByTestId('tabs-underline')
+        expect(list).toHaveClass('data-[orientation=horizontal]:py-0')
+      })
+
+      it('locks each tab button at h-7 on every breakpoint, defeating sm:h-8', () => {
+        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        const tab = screen.getByRole('tab', { name: 'Files' })
+        expect(tab).toHaveClass('h-7')
+        expect(tab).toHaveClass('sm:h-7')
+      })
+    })
   })
 
   // Regression: hiding and re-showing the sidebar while the Files panel was
