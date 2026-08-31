@@ -71,13 +71,21 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
           // what puts the chat bubble on the row and makes its "+" a thread.
           ownsWorktree: false,
           workspaceId: node.chat.workspaceId ?? null,
-          // Turn state is deliberately NOT carried here. The tree answers "does
-          // this exist" and Recents answers "what is up right now" (spec §5.7),
-          // and a chat row has no cheap per-turn push to ride: the only live
-          // path is a full repo-scoped reseed, which on the hottest frame in the
+          // ALWAYS FALSE, AND NOT AN OVERSIGHT. The tree answers "does this
+          // exist" and Recents answers "what is up right now" (spec §5.7), and
+          // a chat row has no cheap per-turn push to ride: the only live path
+          // is a full repo-scoped reseed, which on the hottest frames in the
           // app (turn_started/turn_stopped) is a request storm. A value seeded
           // once would instead latch the flip-dot spinner on a chat whose turn
           // ended minutes ago, which is worse than not drawing one.
+          //
+          // The one place that genuinely needs the live answer asks for it
+          // itself: `sidebar-drop-policy.ts`'s chat branch calls
+          // `isChatWorking` at drag time, so refusing to drag a working chat
+          // does NOT depend on this field. Anything else that comes to need
+          // real turn state here must subscribe per row the way Recents does
+          // (`recents-band.tsx`'s RecentsMemberRow) — never seed it into the
+          // row object, which is the latch described above.
           working: false,
           hasView: false,
         })

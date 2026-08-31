@@ -32,7 +32,7 @@ import {
   handleTrash,
   handleCreate,
 } from '@/components/layout/space-content-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
@@ -110,6 +110,83 @@ describe('handleOpen', () => {
     const navigate = vi.fn()
     handleOpen('ghost', [repo()], navigate)
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // Chat rows are drawn in the tree now (design spec §3.1's fourth row kind).
+  // They looked exactly like every other row and did nothing at all, because
+  // `resolveRow` only ever searched workspaces/folders/the repo home.
+  describe('a chat row', () => {
+    const withChat = (chat: Partial<Chat> & { id: string }) =>
+      repo({
+        workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+        chats: [{ repoId: 'r1', title: 'a chat', order: 0, ...chat }],
+      })
+
+    it('navigates to the workspace a WORKTREE chat owns, like a branch row', () => {
+      const navigate = vi.fn()
+      handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },
+      })
+    })
+
+    it('navigates to the repo home when that is the workspace it owns', () => {
+      const navigate = vi.fn()
+      handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'home-1' })], navigate)
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'home-1' },
+      })
+    })
+
+    it('folds a BUBBLE instead of navigating — it owns no workspace to open', () => {
+      const navigate = vi.fn()
+      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      handleOpen('c1', [withChat({ id: 'c1' })], navigate)
+      expect(toggle).toHaveBeenCalledWith('c1')
+      expect(navigate).not.toHaveBeenCalled()
+    })
+
+    // Spec §9.2: a repo's chats are not a closed set, so a chat naming a
+    // workspace outside this repo is ordinary. Routing to /ide/:p/:r/:ws with a
+    // ws that is not under :r would be a URL nothing resolves.
+    it('folds rather than routing to a workspace that is not in this repo', () => {
+      const navigate = vi.fn()
+      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-in-another-repo' })], navigate)
+      expect(toggle).toHaveBeenCalledWith('c1')
+      expect(navigate).not.toHaveBeenCalled()
+    })
+  })
+})
+
+/**
+ * The two verbs a chat row must NOT answer wrongly.
+ *
+ * Both used to fall through to a path built for a different row kind and
+ * explain themselves in that kind's words — which is worse than doing nothing,
+ * because the explanation was false.
+ */
+describe('a chat row does not borrow another row kind’s refusal', () => {
+  const repoWithChat = () =>
+    repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
+
+  it('handleTrash refuses without claiming the chat is locked', () => {
+    useSidebarStore.setState({ repos: [repoWithChat()] })
+    // False, so the caller says "can't delete" rather than nothing — but it
+    // must never have reached the workspace path that blames a lock. Nothing
+    // is held either way.
+    expect(handleTrash('c1')).toBe(false)
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+  })
+
+  it('handleCreate is SILENT — never the folder’s "has none to run it in"', () => {
+    useSidebarStore.setState({ repos: [repoWithChat()] })
+    handleCreate('c1', 'thread')
+    expect(toastError).not.toHaveBeenCalled()
+    expect(createChat).not.toHaveBeenCalled()
+    expect(postWorkspace).not.toHaveBeenCalled()
   })
 })
 
@@ -211,7 +288,9 @@ describe('handleTrash', () => {
     useSidebarStore.setState({
       repos: [
         repo({
-          workspaces: [{ id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' }],
+          workspaces: [
+            { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+          ],
         }),
       ],
     })

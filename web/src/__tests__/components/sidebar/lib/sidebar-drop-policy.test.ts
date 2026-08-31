@@ -12,6 +12,10 @@ import {
   REORDER_MODES,
 } from '@/components/tree-dnd/drop-core'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
@@ -30,6 +34,11 @@ function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
 
 describe('SIDEBAR_DROP_POLICY', () => {
   beforeEach(() => {
+    // The workspace-store registry is MODULE state that outlives a test, and
+    // the chat cases below seed a live `agentChats.working` map into it — left
+    // behind, that would refuse a drag in a later case for a reason that case
+    // never set up.
+    destroyWorkspaceStore('ws-1')
     // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.
     useSidebarStore.setState({
       ...getInitialState(),
@@ -177,12 +186,16 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.edgeBandFor).toBe(edgeBandFor)
   })
 
-  // A chat is not in `repos` — `Repo` holds workspaces and folders, and
-  // `rows-from-repo.ts` emits only branch/folder rows — so the repo-scope walk
-  // resolved NOTHING for a chat subject or target and refused every mode. Since
-  // every chat row in the app is rendered by RecentsBand, that refused every
-  // Recents-entry drag there is, and left spec §8.1's own target table (middle
-  // of a Recents entry / above-below one) with no reachable implementation.
+  // The repo-scope walk resolved NOTHING for a chat subject or target and so
+  // refused every mode — which, back when every chat row in the app was drawn
+  // by RecentsBand, refused every Recents-entry drag there was and left spec
+  // §8.1's own target table (middle of a Recents entry / above-below one) with
+  // no reachable implementation.
+  //
+  // `Repo` does hold chats now, but the exemption is unchanged and is NOT an
+  // artifact of that: a chat is workspace-scoped for placement, and §8.3 makes
+  // cross-repo drag legal precisely for a row that owns no worktree — so
+  // resolving one against the same-repo rule would refuse what the spec allows.
   describe('chat rows are workspace-scoped, not repo-scoped', () => {
     const chatRow = (id: string, over: Partial<SidebarRow> = {}) =>
       makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: 'ws-1', ...over })
@@ -207,6 +220,47 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
     })
 
+    // A TREE chat row reports `working: false` always — it is built from the
+    // repo's reseeded chat list, which has no per-turn push to ride (see
+    // `rows-from-repo.ts`, where that is a decision, not an oversight). The
+    // refusal above therefore could not see it, and the same chat dragged from
+    // the tree instead of from Recents skipped the client-side refusal
+    // entirely, learning it only from a rejected round trip as a raw error
+    // toast. The live map Recents reads is asked for directly here.
+    it('refuses a tree chat row that IS working despite its row saying false', () => {
+      const store = getOrCreateWorkspaceStore('ws-1')
+      store.setState({
+        agentChats: { ...store.getState().agentChats, working: { 'chat-a': true } },
+      })
+      const subject = chatRow('chat-a', { working: false })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
+    })
+
+    it('allows a tree chat row whose live turn state says idle', () => {
+      const store = getOrCreateWorkspaceStore('ws-1')
+      store.setState({
+        agentChats: { ...store.getState().agentChats, working: { 'chat-a': false } },
+      })
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [chatRow('chat-a', { working: false })],
+          chatRow('chat-b'),
+        ),
+      ).toEqual(ALL_MODES)
+    })
+
+    // A chat whose workspace is not mounted has no live answer to give. It must
+    // stay draggable — the server refuses it if it is genuinely mid-turn — not
+    // be refused on the absence of information.
+    it('allows a chat no mounted workspace knows about', () => {
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [chatRow('chat-unknown', { working: false })],
+          chatRow('chat-b'),
+        ),
+      ).toEqual(ALL_MODES)
+    })
+
     it('still refuses dropping a chat onto itself', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], chatRow('chat-a'))).toEqual(
         NO_MODES,
@@ -216,9 +270,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     it('refuses a chat onto a tree row — different aggregates, nothing to land on', () => {
       // `planChatDrop` refuses a non-chat target too; refusing here means the
       // indicator never promises a move that would then quietly do nothing.
-      expect(SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' }))).toEqual(
-        NO_MODES,
-      )
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' })),
+      ).toEqual(NO_MODES)
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
           [chatRow('chat-a')],
@@ -228,9 +282,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
 
     it('refuses a tree row onto a chat — a branch is not one of a chat’s threads', () => {
-      expect(SIDEBAR_DROP_POLICY.allowedModes([makeRow({ id: 'ws-1' })], chatRow('chat-a'))).toEqual(
-        NO_MODES,
-      )
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([makeRow({ id: 'ws-1' })], chatRow('chat-a')),
+      ).toEqual(NO_MODES)
     })
   })
 })

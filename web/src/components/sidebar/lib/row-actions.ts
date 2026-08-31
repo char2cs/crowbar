@@ -1,7 +1,8 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { renameWorkspaceBranch, renameRepo, setWorkspaceLock, importBranches } from '@/lib/api'
 import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
+import { renameChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** What a folder is called until the user says otherwise (matches the
@@ -86,6 +87,52 @@ export async function performRenameFolder(folderId: string, name: string): Promi
 }
 
 /**
+ * Any workspace of `repo` whose scope is recorded — all `chatBase` needs.
+ *
+ * `.../chats` is REPO-scoped (Task 17), so which of a repo's workspaces the
+ * URL is built from cannot change the endpoint reached; `chatBase` only needs
+ * one whose project/repo scope was recorded, and `recordRepoScopes` records
+ * every one of these on each seed.
+ *
+ * The repo's OWN ids, never the chat's `workspaceId`: a chat may legitimately
+ * name a workspace in another repo (spec §9.2's open set), and building this
+ * repo's URL from that id would either 404 or address the wrong repo.
+ */
+function scopedWorkspaceIdOf(repo: Repo): string | undefined {
+  return repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
+}
+
+/**
+ * Fire a chat rename.
+ *
+ * A chat's title is a field on its own aggregate — no branch, no directory, no
+ * git — so this is the plain `POST .../chats/:id/rename`, not the branch
+ * rename's move-the-worktree-on-disk operation.
+ *
+ * Bumping the tree signal afterwards is the same reasoning
+ * `performRenameFolder` above records: the sidebar's copy of a chat row is
+ * rebuilt from the `crowbar_chats` cache, and only a reseed writes that. The
+ * daemon does broadcast `title_set`, which bumps the same signal — but only
+ * onto clients with a workspace of this repo mounted, and the acting user
+ * should not wait on a frame to see the name they just typed. A reseed that
+ * lands before the projection catches up is harmless: the frame bumps again.
+ */
+export async function performRenameChat(chatId: string, title: string): Promise<void> {
+  const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  const chat = repo?.chats?.find((c) => c.id === chatId)
+  if (!repo || !chat) return
+  if (chat.title === title) return
+  const wsId = scopedWorkspaceIdOf(repo)
+  if (!wsId) return
+  try {
+    await renameChat(wsId, chatId, title)
+    useFolderSignalStore.getState().bump(repo.id)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
+  }
+}
+
+/**
  * Fire a repo rename — the repo's own display name, not its checked-out
  * branch. The project-home row IS the repo's default workspace (its own
  * checkout); renaming that row names the repo, exactly as the deleted
@@ -116,11 +163,21 @@ export async function performRenameRepo(repoId: string, name: string): Promise<v
  * array (it's the header, not a tree row) — so it has to be checked before
  * falling through to the branch-rename path, which would otherwise silently
  * find no matching workspace and do nothing.
+ *
+ * A FOURTH id space is a chat, and it has to be checked for exactly the reason
+ * the third does — with a sharper failure. Renaming a chat row fell through to
+ * `performRenameWorkspaceBranch`, which found no workspace by that id and
+ * returned: no request, no error, and the name the user had just typed into
+ * the inline editor simply gone. A rename that silently discards what was
+ * typed is indistinguishable from one that worked and was then reverted.
  */
 export function performRenameRow(rowId: string, name: string): Promise<void> {
   const state = useSidebarStore.getState()
   const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === rowId)
   if (homeRepo) return performRenameRepo(homeRepo.id, name)
+  if (state.repos.some((r) => r.chats?.some((c) => c.id === rowId))) {
+    return performRenameChat(rowId, name)
+  }
   const isFolder = state.repos.some((r) => r.folders?.some((f) => f.id === rowId))
   return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(rowId, name)
 }

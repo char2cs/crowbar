@@ -9,6 +9,7 @@ import {
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
 import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -38,10 +39,12 @@ export interface RowScope {
  * `repos` yet. Every rule below refuses rather than guesses when this comes
  * back null, same posture the old policies took on an unrecognised selection.
  *
- * NOT a chat resolver, and never will be: `Repo` holds workspaces and folders,
- * not chats, so a chat id matches none of the three id spaces below. Chat rows
- * are handled by their own branch in `allowedModes` before this is reached —
- * see there.
+ * NOT a chat resolver, deliberately, even though `Repo.chats` now exists: a
+ * chat is not repo-scoped for DRAG purposes (spec §8.3 makes cross-repo drag
+ * legal precisely for a chat that owns no worktree), so resolving one here
+ * would only feed it to the same-repo rule it is exempt from. Chat rows are
+ * handled by their own branch in `allowedModes` before this is reached — see
+ * there.
  *
  * Takes `repos` rather than reading the store itself so one drag call reads
  * `getState()` once, not once per subject. `drop-dom.ts`'s own design note
@@ -102,12 +105,13 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
 
   // A CHAT IS NOT REPO-SCOPED, so the repo/project walk below does not apply to
   // it — and applying it anyway is what silently refused every single
-  // Recents-entry drag. `Repo` structurally holds no chats (`rows-from-repo.ts`
-  // emits branch and folder rows only), so `resolveRowRepo` can never resolve a
-  // chat id and returned null for every chat subject AND every chat target,
-  // taking the `!scope` refusal below — which made Task 33's `planChatDrop`,
-  // and with it spec §8.1's whole "middle of a Recents entry / above-below a
-  // Recents entry" row of the target table, unreachable dead code.
+  // Recents-entry drag: `resolveRowRepo` resolved null for every chat subject
+  // AND every chat target, taking the `!scope` refusal below, which made Task
+  // 33's `planChatDrop` — and with it spec §8.1's whole "middle of a Recents
+  // entry / above-below a Recents entry" row of the target table — unreachable
+  // dead code. `Repo` does carry chats now, and `resolveRowRepo` still declines
+  // to look at them ON PURPOSE (see its own note): resolving a chat there would
+  // hand it to the same-repo rule §8.3 exempts it from.
   //
   // The scope a chat DOES have is its workspace: its placement lives on the
   // `AgentChat` aggregate and is written by `setChatPlacement`, which is
@@ -125,6 +129,25 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // means the indicator never promises a move that would then do nothing.
   if (kind === 'chat' || target.kind === 'chat') {
     if (kind !== 'chat' || target.kind !== 'chat') return NO_MODES
+    // THE WORKING REFUSAL, ASKED AGAIN — because `s.working` above cannot
+    // answer it for a chat drawn in the TREE.
+    //
+    // A Recents chat row carries live turn state (its component subscribes per
+    // chat), so the blanket check above already refuses it. A TREE chat row is
+    // built by `rows-from-repo.ts` from the repo's reseeded chat list, which
+    // has no per-turn push to ride and therefore reports `working: false`
+    // always — deliberately, since a value seeded once would latch the spinner
+    // on a chat whose turn ended long ago. The cost was that the SAME chat
+    // dragged from the tree skipped this client-side refusal and learned it
+    // only from a rejected round trip, as a raw error toast.
+    //
+    // `isChatWorking` is the very map Recents reads (`agentChats.working`,
+    // scanned across mounted workspace stores), asked here rather than carried
+    // on the row: this runs from pointer-driven code, so it reads the truth at
+    // the instant of the drag and cannot go stale between renders. A chat whose
+    // workspace is not mounted answers false — the same answer the row already
+    // gave, and the server still refuses it.
+    if (subjects.some((s) => isChatWorking(s.id))) return NO_MODES
     return ALL_MODES
   }
 

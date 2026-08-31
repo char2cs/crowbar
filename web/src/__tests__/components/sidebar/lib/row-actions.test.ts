@@ -6,8 +6,15 @@ import {
   performCreateFolder,
 } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
+import * as agentApi from '@/features/agent/api/agent-api'
+
+vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof agentApi>()),
+  renameChat: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
@@ -52,9 +59,11 @@ describe('row-actions', () => {
           defaultWorking: false,
           workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
           folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
+          chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'Fix the parser', order: 0 }],
         },
       ],
     })
+    useFolderSignalStore.setState({ generations: {} })
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -94,6 +103,56 @@ describe('row-actions', () => {
   it('renaming the project-home row to its current name is a no-op', async () => {
     await performRenameRow('ws-home', 'repo')
     expect(api.renameRepo).not.toHaveBeenCalled()
+  })
+
+  // A chat is the FOURTH id space `performRenameRow` dispatches over, and the
+  // one whose fall-through was silent: it reached performRenameWorkspaceBranch,
+  // found no workspace by that id, and returned — no request, no error, and the
+  // name the user had just typed simply gone.
+  it('renaming a chat row calls renameChat, not renameWorkspaceBranch', async () => {
+    await performRenameRow('chat-1', 'Parser rewrite')
+    expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
+    expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
+    expect(sidebarPlacement.placeFolder).not.toHaveBeenCalled()
+  })
+
+  // The sidebar's copy of a chat row is rebuilt from the `crowbar_chats` cache,
+  // and only a reseed writes that. Without the bump the acting user waits on a
+  // `title_set` frame — which only arrives if a workspace of this repo is
+  // mounted — to see the name they just typed.
+  it('renaming a chat bumps its repo’s tree signal so the row actually reseeds', async () => {
+    await performRenameRow('chat-1', 'Parser rewrite')
+    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
+  })
+
+  it('renaming a chat to its current title is a no-op', async () => {
+    await performRenameRow('chat-1', 'Fix the parser')
+    expect(agentApi.renameChat).not.toHaveBeenCalled()
+    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+  })
+
+  // The URL is repo-scoped (Task 17), so any of the REPO's own recorded
+  // workspaces builds it — but never the chat's own `workspaceId`, which spec
+  // §9.2 allows to name a workspace in a different repo entirely.
+  it('builds the repo-scoped URL from the repo’s own workspace, not the chat’s', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...useSidebarStore.getState().repos[0],
+          chats: [
+            {
+              id: 'chat-1',
+              repoId: 'repo-1',
+              title: 'Fix the parser',
+              order: 0,
+              workspaceId: 'ws-in-another-repo',
+            },
+          ],
+        },
+      ],
+    })
+    await performRenameRow('chat-1', 'Parser rewrite')
+    expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
   })
 
   it('locking a workspace calls setWorkspaceLock with locked: true', async () => {

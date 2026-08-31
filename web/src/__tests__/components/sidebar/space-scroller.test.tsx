@@ -37,7 +37,7 @@ function makeProject(id: string): Project {
   }
 }
 
-function makeRow(id: string, label: string): SidebarRow {
+function makeRow(id: string, label: string, over: Partial<SidebarRow> = {}): SidebarRow {
   return {
     id,
     kind: 'chat',
@@ -48,6 +48,7 @@ function makeRow(id: string, label: string): SidebarRow {
     workspaceId: null,
     working: false,
     hasView: false,
+    ...over,
   }
 }
 
@@ -116,7 +117,12 @@ describe('SpaceScroller', () => {
     const onTrash = vi.fn()
     const onCreate = vi.fn()
     const projects = [makeProject('p1')]
-    const row = makeRow('row-1', 'Fix the thing')
+    // A BRANCH row, because this case needs all three controls on screen at
+    // once and a chat row deliberately carries no trash (nothing in the app
+    // deletes a chat yet — see `sidebar-row.tsx`). `ownsWorktree` stays false
+    // so the create control is still the thread variant this asserts on; what
+    // is under test is the prop threading, not the row's own semantics.
+    const row = makeRow('row-1', 'Fix the thing', { kind: 'branch', parentId: 'parent-1' })
     render(
       <SpaceScroller
         projects={projects}
@@ -333,14 +339,8 @@ describe('SpaceScroller', () => {
 
       fireEvent.click(headers[0])
 
-      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute(
-        'aria-expanded',
-        'false',
-      )
-      expect(screen.getAllByTestId('space-header-row')[1]).toHaveAttribute(
-        'aria-expanded',
-        'true',
-      )
+      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getAllByTestId('space-header-row')[1]).toHaveAttribute('aria-expanded', 'true')
     })
 
     // Spec §9: "every row that owns something carries a trash ... and the
@@ -357,10 +357,7 @@ describe('SpaceScroller', () => {
       expect(onTrashProject).toHaveBeenCalledWith('p1')
       // The overflow click must not also fold the space (SpaceHeader stops
       // propagation; this pins that the mount relies on it).
-      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute(
-        'aria-expanded',
-        'true',
-      )
+      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'true')
     })
   })
 })

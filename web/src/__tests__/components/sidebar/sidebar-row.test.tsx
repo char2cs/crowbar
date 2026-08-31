@@ -15,6 +15,23 @@ const baseRow: SidebarRowType = {
   hasView: false,
 }
 
+/**
+ * A row that actually carries a trash — a forked branch.
+ *
+ * The trailing-control cases below are about the CLUSTER (which controls, in
+ * what order, with what treatment), not about any one row kind, so they need a
+ * row the population rule admits a trash for. `baseRow` is a chat, and a chat
+ * row deliberately has none: nothing in the app deletes a chat yet, so the
+ * control is absent rather than present and lying (see `sidebar-row.tsx`).
+ */
+const deletableRow: SidebarRowType = {
+  ...baseRow,
+  kind: 'branch',
+  parentId: 'parent-1',
+  branchName: 'my-feature',
+  ownsWorktree: true,
+}
+
 describe('SidebarRow', () => {
   it('renders the label', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
@@ -40,7 +57,7 @@ describe('SidebarRow', () => {
   it('trailing controls are trash, +, chevron in that order, revealed on hover', () => {
     render(
       <SidebarRow
-        row={baseRow}
+        row={deletableRow}
         depth={0}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
@@ -92,7 +109,7 @@ describe('SidebarRow', () => {
   it('clicking the row body opens it, not the trailing controls', () => {
     const onOpen = vi.fn()
     const onTrash = vi.fn()
-    render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} onTrash={onTrash} />)
+    render(<SidebarRow row={deletableRow} depth={0} onOpen={onOpen} onTrash={onTrash} />)
     screen.getByRole('button', { name: /delete/i }).click()
     expect(onTrash).toHaveBeenCalledWith('row-1')
     expect(onOpen).not.toHaveBeenCalled()
@@ -122,10 +139,40 @@ describe('SidebarRow', () => {
     expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
   })
 
+  // Nothing in the app deletes a chat — `deleteChat` (agent-api.ts) has no
+  // caller and the removal tray has no chat subject to draft one with. Drawn,
+  // the control looked functional and then reported "may be locked", which is
+  // not why it failed and not true of the chat. Absent is the honest state.
+  it('a chat row has no trash, even though onTrash is supplied', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+    expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
+  })
+
+  it('a chat row keeps its other trailing controls — only the trash is withheld', () => {
+    render(
+      <SidebarRow
+        row={baseRow}
+        depth={0}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        onToggleFold={vi.fn()}
+      />,
+    )
+    const controls = screen.getAllByRole('button')
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['create', 'fold'])
+  })
+
   it('a non-home branch row still carries a trash', () => {
     render(
       <SidebarRow
-        row={{ ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', ownsWorktree: true }}
+        row={{
+          ...baseRow,
+          kind: 'branch',
+          parentId: 'parent-1',
+          branchName: 'my-feature',
+          ownsWorktree: true,
+        }}
         depth={0}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
@@ -135,7 +182,7 @@ describe('SidebarRow', () => {
   })
 
   it('trash takes the deny tint on hover', () => {
-    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+    render(<SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
     const trash = screen.getByTestId('trash-control')
     fireEvent.mouseEnter(trash)
     // The real token this codebase uses for a destructive/deny hover treatment

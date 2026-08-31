@@ -281,6 +281,46 @@ describe('buildSidebarTree — chats', () => {
     expect(ids(buildSidebarTree([], [], [chat('self', { parentId: 'self' })]))).toEqual(['self'])
   })
 
+  // A cycle that runs THROUGH BOTH structures — chat -> folder -> chat — is the
+  // case that justifies one placement authority over a second pass: a merge
+  // that placed chats after the fact would hold half this loop in each pass and
+  // neither would see it whole. Every row still renders; none is lost to it.
+  test('a chat -> folder -> chat cycle re-roots rather than looping forever', () => {
+    const tree = buildSidebarTree(
+      [],
+      [folder('f1', { parentId: 'c2' })],
+      [chat('c1', { parentId: 'f1' }), chat('c2', { parentId: 'c1' })],
+    )
+    const rendered = new Set<string>()
+    const collect = (nodes: SidebarTreeNode[]) => {
+      for (const node of nodes) {
+        rendered.add(node.id)
+        collect(node.children)
+      }
+    }
+    collect(tree)
+    expect(rendered).toEqual(new Set(['f1', 'c1', 'c2']))
+  })
+
+  // The same loop with a WORKSPACE in it, since a workspace resolves its parent
+  // by a different rule than a chat does and the guard has to hold across both.
+  test('a chat -> folder -> workspace cycle still renders every row', () => {
+    const tree = buildSidebarTree(
+      [ws('w1', { folderId: 'f1' })],
+      [folder('f1', { parentId: 'c1' })],
+      [chat('c1', { workspaceId: 'w1' })],
+    )
+    const rendered = new Set<string>()
+    const collect = (nodes: SidebarTreeNode[]) => {
+      for (const node of nodes) {
+        rendered.add(node.id)
+        collect(node.children)
+      }
+    }
+    collect(tree)
+    expect(rendered).toEqual(new Set(['w1', 'f1', 'c1']))
+  })
+
   test('passes every chat field through untouched', () => {
     const full = chat('c1', { workspaceId: 'w1', parentId: 'f1', order: 3 })
     const tree = buildSidebarTree([], [folder('f1')], [full])
