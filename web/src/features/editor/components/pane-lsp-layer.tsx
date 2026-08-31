@@ -193,7 +193,7 @@ export function PaneLspLayer({
     editorRef: overlayContainerRef,
     resolveEditorPosition,
   })
-  const rename = useRename(enableRichEditorServices ? filePath : undefined)
+  const rename = useRename(enableRichEditorServices ? filePath : undefined, paneId)
   const codeLenses = useCodeLens(
     enableDeferredRichServices ? filePath : undefined,
     enableDeferredRichServices,

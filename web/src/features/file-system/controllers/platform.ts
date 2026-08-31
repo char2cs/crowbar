@@ -41,6 +41,28 @@ export async function writeFile(path: string, content: string): Promise<void> {
   })
 }
 
+/**
+ * Write a file to an explicit workspace. Buffers are window-level now (Task
+ * 26) — a save/autosave/LSP-edit call site holds a `buffer.workspaceId` that
+ * can disagree with whichever workspace is merely ACTIVE right now (the user
+ * can switch workspaces while a different one's tab stays open, dirty, in
+ * the shared pane tree). `writeFile`'s implicit active-workspace resolution
+ * would silently write into the WRONG worktree's file in that case — mirrors
+ * `readWorkspaceFile`'s own reasoning; every real write path must use this,
+ * never `writeFile`, once a buffer's owning workspace is known.
+ */
+export async function writeWorkspaceFile(
+  wsId: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  await apiFetch(`${filesBaseFor(wsId)}/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  })
+}
+
 export async function readFile(path: string): Promise<string> {
   const payload = await apiFetch<FileContentPayload>(
     `${filesBase()}/content?path=${encodeURIComponent(path)}`,

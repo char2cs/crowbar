@@ -148,25 +148,38 @@ export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspT
 
 async function readEditableSource(
   filePath: string,
+  workspaceId: string,
 ): Promise<{ bufferId: string | null; content: string }> {
-  const [{ windowPaneStore }, { readFile }] = await Promise.all([
+  const [{ windowPaneStore }, { readWorkspaceFile }] = await Promise.all([
     import('@/features/panes/stores/window-pane-store'),
     import('@/features/file-system/controllers/platform'),
   ])
   const buffers = windowPaneStore.getState().buffers
+  // Task 26: buffers are window-level — a sibling worktree can hold a
+  // DIFFERENT file at this same relative path, so the lookup must be scoped
+  // to the workspace this edit actually belongs to, not just the path.
   const openBuffer = buffers.find(
-    (buffer) => buffer.type === 'editor' && !buffer.isVirtual && buffer.path === filePath,
+    (buffer) =>
+      buffer.type === 'editor' &&
+      !buffer.isVirtual &&
+      buffer.path === filePath &&
+      buffer.workspaceId === workspaceId,
   )
 
   if (openBuffer?.type === 'editor') {
     return { bufferId: openBuffer.id, content: openBuffer.content }
   }
 
-  return { bufferId: null, content: await readFile(filePath) }
+  return { bufferId: null, content: await readWorkspaceFile(workspaceId, filePath) }
 }
 
-async function writeEditableSource(filePath: string, bufferId: string | null, content: string) {
-  const [{ windowPaneStore }, { isEditorContent }, { writeFile }] = await Promise.all([
+async function writeEditableSource(
+  filePath: string,
+  bufferId: string | null,
+  content: string,
+  workspaceId: string,
+) {
+  const [{ windowPaneStore }, { isEditorContent }, { writeWorkspaceFile }] = await Promise.all([
     import('@/features/panes/stores/window-pane-store'),
     import('@/features/panes/types/pane-content'),
     import('@/features/file-system/controllers/platform'),
@@ -183,10 +196,16 @@ async function writeEditableSource(filePath: string, bufferId: string | null, co
     return
   }
 
-  await writeFile(filePath, content)
+  // Write to the edit's OWN workspace, never whichever one is merely active
+  // — a rename triggered from a background/hidden pane must not land in the
+  // wrong worktree.
+  await writeWorkspaceFile(workspaceId, filePath, content)
 }
 
-export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<WorkspaceEditApplyResult> {
+export async function applyWorkspaceEdit(
+  edit: WorkspaceEdit,
+  workspaceId: string,
+): Promise<WorkspaceEditApplyResult> {
   const editsByFile = collectWorkspaceTextEdits(edit)
 
   // Each file's read -> transform -> write is independent of every other
@@ -194,9 +213,9 @@ export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<Workspace
   // instead of one file at a time — a rename can touch many files.
   await Promise.all(
     Array.from(editsByFile, async ([filePath, edits]) => {
-      const source = await readEditableSource(filePath)
+      const source = await readEditableSource(filePath, workspaceId)
       const nextContent = applyTextEditsToContent(source.content, edits)
-      await writeEditableSource(filePath, source.bufferId, nextContent)
+      await writeEditableSource(filePath, source.bufferId, nextContent, workspaceId)
     }),
   )
 

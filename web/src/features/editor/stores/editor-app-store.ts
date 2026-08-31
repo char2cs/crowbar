@@ -12,7 +12,7 @@ import {
 } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
 import { createSelectors } from '@/utils/zustand-selectors'
-import { writeFile } from '@/features/file-system/controllers/platform'
+import { writeWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import type { Position, Range } from '../types/editor'
@@ -94,7 +94,12 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
     const result = window.prompt('Save as:', activeBuffer.name)
     if (!result) return false
 
-    await writeFile(result, activeBuffer.content)
+    // Buffers are window-level now (Task 26) — write to THIS buffer's own
+    // workspace, never the merely-active one (they can disagree: the user
+    // can switch workspaces while a different one's dirty tab stays open in
+    // the shared pane tree; writing against the active workspace would
+    // silently corrupt whichever workspace happens to be on screen).
+    await writeWorkspaceFile(activeBuffer.workspaceId, result, activeBuffer.content)
     updateBufferPath(activeBuffer.id, result)
     markBufferDirty(activeBuffer.id, false)
     return true
@@ -140,7 +145,8 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
       }
     }
 
-    await writeFile(activeBuffer.path, contentToSave)
+    // See the Save-As branch above: write to this buffer's OWN workspace.
+    await writeWorkspaceFile(activeBuffer.workspaceId, activeBuffer.path, contentToSave)
     const { LspClient } = await import('@/features/editor/lsp/lsp-client')
     await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave)
     markBufferDirty(activeBuffer.id, false)
@@ -280,7 +286,9 @@ export const useEditorAppStore = createSelectors(
               const newTimeoutId = setTimeout(async () => {
                 try {
                   markPendingSave(activeBuffer.path)
-                  await writeFile(activeBuffer.path, content)
+                  // See saveEditorBufferById: write to this buffer's OWN
+                  // workspace, not whichever one is merely active now.
+                  await writeWorkspaceFile(activeBuffer.workspaceId, activeBuffer.path, content)
                   windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)
@@ -328,6 +336,12 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSaveAll: async () => {
+          // Deliberately spans every workspace's dirty buffers, not just the
+          // active workspace's: buffers are one shared, window-level list now
+          // (Task 26), so "Save All" naturally means every dirty file
+          // currently open, whichever workspace's pane it's in — safe only
+          // because saveEditorBufferById below writes each one to its OWN
+          // buffer.workspaceId, never the merely-active workspace.
           const dirtyBufferIds = getDirtyEditorBuffers(windowPaneStore.getState().buffers).map(
             (buffer) => buffer.id,
           )

@@ -42,11 +42,12 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
   /**
    * Make `bufferId` visible, guaranteeing the pane can actually render it.
    *
-   * A pane renders `pane.bufferIds`-derived buffers only, resolving the active
-   * one as `paneBuffers.find((b) => b.id === pane.activeBufferId) ?? null` (see
-   * pane-container.tsx). `activatePaneBuffer` sets `activeBufferId` but never
-   * touches `bufferIds`, so activating a buffer the pane does not hold leaves it
-   * pointing at nothing and the editor renders BLANK.
+   * A pane renders `pane.editorTabIds`-derived buffers only, resolving the
+   * active one as `paneBuffers.find((b) => b.id === pane.activeEditorTabId) ??
+   * null` (see pane-container.tsx). `activateEditorTabInPane` sets
+   * `activeEditorTabId` but never touches `editorTabIds`, so activating a
+   * buffer the pane does not hold leaves it pointing at nothing and the
+   * editor renders BLANK.
    *
    * History navigation hits that routinely: the file's tab may have been closed
    * while its buffer stayed alive, or the buffer may live in another pane. So

@@ -131,7 +131,7 @@ export const useGoToDefinition = ({
                 scrollLeft: editorState.scrollLeft,
               })
             }
-            // A pane renders only the buffers in its own bufferIds, so activating
+            // A pane renders only the buffers in its own editorTabIds, so activating
             // one it does not hold leaves it pointing at nothing and the editor
             // goes blank. Reveal in the pane that actually holds the buffer, and
             // attach to the active pane only when none does.
