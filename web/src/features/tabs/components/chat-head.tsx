@@ -1,7 +1,6 @@
-import { Button } from '@/components/ui/button'
+import { Tab } from '@/components/ui/tabs'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { cn } from '@/utils/cn'
 
 interface ChatHeadProps {
   chatId: string
@@ -16,6 +15,12 @@ interface ChatHeadProps {
  * (`agentChats` by id, tab-bar-item.tsx's old `AgentChatTabIcon` pattern),
  * so the two surfaces can never show a different name or glyph for the same
  * chat.
+ *
+ * Renders through the same `Tab` primitive (`@/components/ui/tabs`,
+ * `variant="underline"`) that tab-bar-item.tsx uses for file tabs — flat, no
+ * radius, no fill at rest, a 2px `--primary` bottom bar when active (Main.dc
+ * .html's `.hitem`/`.hitem.is-on` rule) — so the chat head and file tabs can
+ * never drift into two different "this is what you're looking at" treatments.
  */
 export function ChatHead({ chatId, isActive, onSelect }: ChatHeadProps) {
   const title = useWorkspaceStoreContext(
@@ -29,19 +34,17 @@ export function ChatHead({ chatId, isActive, onSelect }: ChatHeadProps) {
   })
 
   return (
-    <Button
-      variant="ghost"
+    <Tab
       data-testid="chat-head"
       data-role="chat-head"
       aria-current={isActive ? 'true' : undefined}
       onClick={onSelect}
-      className={cn(
-        'h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-[13px]',
-        isActive ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
-      )}
+      isActive={isActive}
+      variant="underline"
+      className="h-8 shrink-0 gap-1.5 px-2.5 text-[13px]"
     >
       <AgentChatGlyph providerIcon={providerIcon} working={working} className="size-3.5" />
       <span className="max-w-[160px] truncate">{title}</span>
-    </Button>
+    </Tab>
   )
 }

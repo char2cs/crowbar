@@ -33,20 +33,33 @@ const shared = {
   handleTabPin: () => {},
 }
 
-describe('TabBarItem pill restyle', () => {
-  it('active tab is a filled rounded-full pill', () => {
+describe('TabBarItem underline restyle', () => {
+  it('active tab is flat, not a filled rounded pill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('bg-background')
-    expect(tab).toHaveClass('border-background')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-background')
+    expect(tab).not.toHaveClass('border-background')
   })
 
-  it('inactive tab has ghost variant classes', () => {
+  it('inactive tab is flat with muted text, no fill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('border-transparent')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-background')
+    expect(tab).toHaveClass('text-muted-foreground')
+  })
+
+  it('active tab carries the same 2px primary underline bar as the pane-head design (Main.dc.html .hitem.is-on::after)', () => {
+    render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
+    const bar = screen.getByTestId('tab-underline')
+    expect(bar).toHaveClass('bg-primary')
+    expect(bar).toHaveClass('h-0.5')
+  })
+
+  it('inactive tab has no underline bar', () => {
+    render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
+    expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
   })
 
   it('active tab does not have bg-foreground/85 (old pill style removed)', () => {

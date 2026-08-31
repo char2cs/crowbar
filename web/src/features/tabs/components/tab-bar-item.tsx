@@ -107,12 +107,17 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
+        variant="underline"
         className={cn(
           'h-8',
           'gap-1.5 pl-2.5 pr-8',
+          // Unsaved+active keeps its own distinct filled-pill signal (a
+          // separate rule from the general pill->underline restyle, so it
+          // needs its own rounded-full — the underline variant's base is
+          // flat) — untouched by this task's scope.
           isActive &&
             isDirtyEditor &&
-            'border-primary bg-primary text-primary-foreground shadow-primary/24',
+            'rounded-full border-primary bg-primary text-primary-foreground shadow-primary/24',
         )}
         onClick={handleClick}
         onMouseDown={onMouseDown}

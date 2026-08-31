@@ -78,7 +78,17 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   isActive?: boolean
   isDragged?: boolean
   action?: React.ReactNode
-  variant?: string
+  /**
+   * 'pill' (default, unchanged): the filled/rounded/shadowed treatment.
+   * 'underline': flat, no radius, no fill at rest — a static 2px `bg-primary`
+   * bar on the active tab, matching Main.dc.html's `.hitem`/`.hitem.is-on`
+   * rule. This is NOT the compound `TabsList variant="underline"` system
+   * (that one drives a single sliding indicator across `Tabs.Root`-managed
+   * children, which doesn't fit a dnd-kit-sortable, dynamically-mutating tab
+   * strip) — it's the same visual tokens (bg-primary, 2px), applied
+   * per-button so any standalone `Tab` can carry it.
+   */
+  variant?: 'pill' | 'underline'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   labelPosition?: 'start' | 'center' | 'end'
   maxWidth?: number
@@ -91,7 +101,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
       isActive,
       isDragged: _isDragged,
       action,
-      variant: _variant,
+      variant = 'pill',
       size: _size,
       labelPosition: _labelPosition,
       maxWidth: _maxWidth,
@@ -103,17 +113,32 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        'relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border font-medium text-sm outline-none transition-colors',
+        'relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap border font-medium text-sm outline-none transition-colors',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
         'disabled:pointer-events-none disabled:opacity-64',
-        isActive
-          ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+        variant === 'underline'
+          ? cn(
+              'border-transparent hover:bg-accent',
+              isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            )
+          : cn(
+              'rounded-full',
+              isActive
+                ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
+                : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+            ),
         className,
       )}
       {...props}
     >
       {children}
+      {variant === 'underline' && isActive && (
+        <span
+          aria-hidden="true"
+          data-testid="tab-underline"
+          className="pointer-events-none absolute inset-x-1.5 bottom-0 h-0.5 rounded-[1px] bg-primary"
+        />
+      )}
       {action}
     </button>
   ),
