@@ -259,3 +259,67 @@ git commit -m "fix(sidebar): create-workspace renders as one row, not a branch+c
 ```bash
 git commit -m "fix(pane): identity row shares one background/rounding with its content, not a header band"
 ```
+
+---
+
+## Task 10: Relocate the project selector to the sidebar's own footer
+
+**Inserted mid-execution.** User's explicit direction, overriding this recovery's own §3.1 flagged-not-acted-on placement AND the closed design spec's §4.1 window-chrome placement: *"It should be the last element on the sidebar, right down the file explorer, but not inside it, just outside, at the end of the sidebar."* This is a real, deliberate design override — not a bug fix. Implement it as stated; do not re-litigate window-chrome placement's original justification, that discussion already happened.
+
+**Files:**
+- Modify: `web/src/components/layout/sidebar-project-header.tsx` — remove the `marks`/`add-project-mark` cluster from the window-chrome row (keep the toggle and the back/forward/settings cluster; rebalance the row's layout once the marks are gone — likely reverts closer to its pre-Task-5-of-the-first-recovery-pass shape, a bare `flex-1` spacer).
+- Modify: `web/src/components/layout/ide-shell.tsx` (or wherever the first recovery pass's Task 5 lifted `importProjectOpen`/`ImportProjectModal` state to — confirm current location) — the lifted state stays, but what renders it moves.
+- Create or modify: a new sidebar-footer element, rendered AFTER (below) the floating file-explorer card, as the last element in the sidebar's own DOM/visual order — not inside the card, a sibling after it. Find the component that currently renders the sidebar's overall vertical stack (rail → spaces scroller → floating card) to know where to add this.
+- Test: corresponding files under `web/src/__tests__/components/layout/`.
+
+**Interfaces:** reuses `ImportProjectModal`/`importProjectAndSync` (unchanged, already correctly wired by the first recovery pass) and the space-mark rendering logic already built (`data-testid=space-mark`/`add-project-mark`, icon-only, current-vs-muted opacity) — this task moves WHERE that cluster renders, not what it looks like or does.
+
+- [ ] **Step 1: Find the component that lays out the sidebar's full vertical stack** (rail top-to-bottom) to identify exactly where a new "sidebar footer" element belongs, sitting after the floating file-explorer card in DOM order.
+
+- [ ] **Step 2: Write the failing test**: the project-marks cluster no longer renders inside the window-chrome's first-44px row; it renders as the last element in the sidebar, positioned after the file-explorer card, not inside it.
+
+- [ ] **Step 3: Implement** — extract the marks-cluster JSX from `sidebar-project-header.tsx` into wherever it now belongs (a new small component if that's cleanest, or inline at the new call site — match this codebase's existing granularity for similar small clusters), remove it from the window-chrome row, rebalance that row's layout.
+
+- [ ] **Step 4: Run tests, confirm PASS.** Run the full `web/src/__tests__/components/layout/` directory.
+
+- [ ] **Step 5: Live-verify via Tauri MCP** — screenshot the full sidebar top-to-bottom, confirm the marks cluster now sits below/after the file-explorer card as the sidebar's last element, and confirm the window-chrome row still looks balanced without it (no leftover dead space that reads as a mistake).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "fix(sidebar): relocate the project selector to the sidebar's own footer, below the file-explorer card"
+```
+
+---
+
+## Task 11: Rebuild real inline-edit rename (Task 4's modal was the wrong interaction)
+
+**Inserted mid-execution, supersedes part of Task 4.** User's direct correction: *"Double clicking to rename isn't working as in develop. It should work exactly like before. This new modal is a shortcut that isn't sticking in."*
+
+**Confirmed against `develop` directly (not assumed):** every pre-restyle renameable row (`workspace-tree-item.tsx`, `project-home-row.tsx`, `repo-section.tsx`, all on `develop`) used `WorkspaceInlineInput` — a real inline `<input>` that REPLACES the row's label in place on double-click, not a modal dialog. `onConfirm`/`onCancel` wire directly to the row's rename call (`renameProject`/`renameRepo`/branch rename); Enter confirms, Escape cancels, blur confirms unless already handled by Enter/Escape, and (for branch rows specifically) a `resolveExisting`/`onOpenExisting` pair suppresses a colliding rename and offers a hint to the row that already has that name. `workspace-inline-input.tsx` was deleted in the SAME tree-retirement commit (`f119a402`) that deleted the icon popovers — it does not exist anywhere in the current tree; this needs a fresh rebuild (per "no legacy"), using `develop`'s version as a behavioral reference only, not code to port verbatim.
+
+**Task 4 (commit `d02a47f6`, already merged) built double-click to open the EXISTING right-click-menu's modal `RenameDialog` instead.** That was the planning brief's own mistake — it assumed reusing the current right-click path was correct without checking what the original double-click interaction actually looked like. This task corrects it. **Leave the right-click menu's "Rename" item alone** (it can keep opening the modal — the user's complaint is specifically about double-click, not about removing the modal entirely); this task changes ONLY what double-click does.
+
+**Files:**
+- Create: `web/src/components/sidebar/inline-rename-input.tsx` (kebab-case, fresh build referencing `develop`'s `workspace-inline-input.tsx` for behavior — focus+select on mount, Enter/Escape/blur handling, optional collision hint for branch names).
+- Modify: `web/src/components/sidebar/sidebar-row.tsx`, `web/src/components/sidebar/space-header.tsx` — swap the label span for `InlineRenameInput` in place when in rename mode, driven by local/lifted state (owned by the parent, matching `develop`'s "owned by the parent" pattern), rather than opening `RenameDialog`.
+- Modify: `web/src/components/layout/sidebar-tree-chrome.tsx` — the double-click handler currently opens `RenameDialog` (Task 4's `renamingRowId`/`setRenamingRowId`); change it to enter inline-rename mode on the target row instead.
+- Test: update the tests Task 4 added (`sidebar-tree-chrome.test.tsx`, `sidebar-row.test.tsx`, `space-header.test.tsx`) to assert inline-edit behavior instead of modal-opening behavior.
+
+**Interfaces:** consumes `performRenameRow`/`performRenameProject` (already correct, from Task 4 — the ACTION being fired doesn't change, only how the user triggers text entry). Does NOT touch `RenameDialog`, `row-context-menu.tsx`'s "Rename" item, or `performRenameRow`/`performRenameProject` themselves.
+
+- [ ] **Step 1: Read `develop`'s `workspace-inline-input.tsx`, `workspace-tree-item.tsx`, `project-home-row.tsx`, `repo-section.tsx` in full** (`git show develop:<path>`) to fully understand the exact behavior being restored, including the collision-hint mechanic for branch rows.
+
+- [ ] **Step 2: Write the failing test(s) first**: double-clicking a row's label replaces it with a real, focused, pre-selected `<input>` in place (not a dialog); typing and pressing Enter calls the same rename action Task 4 already wired; Escape cancels with no call; blur behaves like Enter unless Escape already fired.
+
+- [ ] **Step 3: Build `InlineRenameInput`** fresh, matching `develop`'s behavior. Wire it into `sidebar-row.tsx`/`space-header.tsx` and `sidebar-tree-chrome.tsx`'s double-click handler, replacing the modal trigger.
+
+- [ ] **Step 4: Run tests, confirm PASS.** Run the full sidebar test directory.
+
+- [ ] **Step 5: Live-verify via Tauri MCP** — double-click a row, confirm it becomes a real editable input in place (not a popup), typing works, Enter commits, Escape cancels.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "fix(sidebar): double-click-rename edits inline, matching develop, not a modal"
+```
