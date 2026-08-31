@@ -138,6 +138,10 @@ import {
   beginProviderWrite,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
+// Unmocked, on purpose: the ordering registry is the SEAM the hook shares with
+// agent-chat-pane, and a fake here would test the fake rather than the contract that
+// keeps one caller's stale answer off another caller's fresh one.
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
@@ -771,6 +775,141 @@ describe('useWorkspaceAgentChatsStream', () => {
     // and the pane offers to Resume an agent that never left.
     expect(storeChats.find((c) => c.id === 'new')?.liveRunnerId).toBe('old-r')
     expect(storeChats.find((c) => c.id === 'new')?.terminalSessionId).toBe('old-pty')
+  })
+
+  // THE SAME RACE, ONE LEVEL DOWN: TWO SINGLE-CHAT READS OF ONE CHAT.
+  //
+  // The guard above sequences a LIST seed against per-chat reads. Nothing sequenced
+  // per-chat reads against EACH OTHER — and a spawn issues two of them, back to back,
+  // for the same chat: the runner store publishes `started` and then `session_bound`
+  // (api/internal/engine/agents/runner/internal/store: "started, session_bound, moved,
+  // exited"), and this hook refetches on both.
+  //
+  // `started`'s read goes out FIRST and can be served in the window before the runner
+  // placement is projected — the identical window the list seed's comment describes —
+  // so its payload says the chat is DORMANT. `session_bound`'s read is issued second,
+  // reads the truth, and lands first. When the first one finally arrives,
+  // `upsertAgentChat` applies it wholesale and blanks `liveRunnerId`/`terminalSessionId`
+  // on a chat with a live CLI sitting on it.
+  //
+  // Nothing refetches afterwards, so it LATCHES: the pane has already spent its one
+  // revive, so it renders "This agent has exited. Resume it…" over a CLI that is alive
+  // (typically parked at a first-run trust prompt, which is why the window is wide),
+  // and only a page reload repairs it. A read ISSUED earlier must never be APPLIED
+  // after one issued later.
+  it('a STALE single-chat read must not clobber a fresher read of the SAME chat', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('')
+
+    // `started`'s read: issued FIRST, answered from before the placement, held.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    // `session_bound`'s read: issued SECOND, fresh, resolves first.
+    getChatFn.mockResolvedValue(chat('c1'))
+
+    const onFrame = captureCb()
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'session_bound', runnerId: 'c1-r' })
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+
+    landStale(dormant)
+    await flush()
+
+    // Lose these and the pane offers to Resume an agent that never left.
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+    expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty')
+  })
+
+  // The other direction of the same ordering rule: a single-chat read issued BEFORE a
+  // list seed's request, and landing after it. chatWrites only ever asked "did a
+  // per-chat read land while I was in flight" — it never asked the reverse, so the
+  // stale read walked straight over the reconcile that had just repaired the list.
+  it('a STALE single-chat read must not clobber a fresher LIST seed', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // The per-chat read goes out first and is held.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    const onFrame = captureCb()
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    await flush()
+
+    // …then a reconnect reseed is issued, and lands, carrying the truth.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    onFrame({ reconnected: true })
+    await flush()
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+
+    landStale(dormant)
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+  })
+
+  // THE LIVE REPORT, EXACTLY — and the reason the ordering lives in a MODULE.
+  //
+  // The two racing reads belong to DIFFERENT callers. Opening a dormant chat makes the
+  // pane resume it; the daemon places the runner and publishes `started`, which THIS hook
+  // refetches on — usually issuing FIRST, because the socket push beats the POST response.
+  // The resume's own answer then comes back and agent-chat-pane's `adopt()` reads the chat
+  // for itself: issued later, answered truthfully, and it attaches the live PTY.
+  //
+  // Then the hook's earlier read lands, carrying the snapshot from before the placement.
+  // A guard private to this hook cannot see the pane's write, so it applied it — blanking
+  // liveRunnerId under an attached, living CLI. The pane's one revive is already spent, so
+  // the effect settles on `idle: 'exited'` and renders "This agent has exited. Resume it…"
+  // with a Resume button, for a chat the daemon still reports with a real liveRunnerId
+  // (typically parked at a first-run trust prompt, which sends no further frame to repair
+  // it). Only a reload cleared it.
+  //
+  // The pane is stood in for by the two registry calls it actually makes; its own half is
+  // exercised in agent-chat-pane.test.tsx.
+  it('a STALE refetch must not clobber a row another caller read more recently', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // `started` arrives first, so this hook asks first — and is answered from before the
+    // placement the frame announced. Held in flight.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    await flush()
+
+    // …then the pane's own post-resume read lands: issued later, and true.
+    const paneTicket = claimChatRead()
+    expect(acceptChatRead('w1', 'c1', paneTicket)).toBe(true)
+    upsertAgentChat(chat('c1'))
+
+    landStale(dormant)
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+    expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty')
   })
 
   it('moved ALSO invalidates the chat the runner LEFT — the frame names only the one it entered', async () => {

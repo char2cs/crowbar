@@ -19,6 +19,7 @@ import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -384,11 +385,27 @@ export function AgentChatPane({
   // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
   // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
   // this read says so, where waiting for a frame that is never coming would spin forever.
+  //
+  // IT IS ALSO ONE OF TWO RACERS. The resume this follows makes the daemon publish
+  // `started`, and use-workspace-agent-chats-stream refetches the same chat off that
+  // frame — usually ISSUING FIRST, since the socket push beats the POST response. The
+  // daemon can answer that first read from before the placement it just announced, so it
+  // can land LAST carrying "dormant" and overwrite the live row this one just wrote. The
+  // pane's one revive is spent by then, so it settles on "This agent has exited" over a
+  // CLI that is alive — the confirmed live bug. Both reads therefore go through the one
+  // ordering registry, and the loser is discarded rather than applied.
   const adopt = useCallback(async (): Promise<boolean> => {
-    const chat = await getChat(wsId, shownChatId)
+    const ticket = claimChatRead()
+    const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
-    s.upsertAgentChat(chat)
-    s.setAgentChatWorking(chat.id, chat.working === true)
+    if (acceptChatRead(wsId, fetched.id, ticket)) {
+      s.upsertAgentChat(fetched)
+      s.setAgentChatWorking(fetched.id, fetched.working === true)
+    }
+    // Settle on the STORE, not on our own payload: when a later-issued read has already
+    // applied, that row is the newer truth and this one is a snapshot of the past.
+    // Attaching off the older answer would seed a PTY the server has already moved past.
+    const chat = store.getState().agentChats.chats.find((c) => c.id === fetched.id) ?? fetched
     // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
     // A non-hotswap api-transport runner (codex) is legitimately live with nothing
     // attached: empty here means "no terminal to show right now", not "no runner".
@@ -401,12 +418,17 @@ export function AgentChatPane({
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
+  // Ordered against every other single-chat read for the same reason adopt is.
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
-    const chat = await getChat(wsId, shownChatId)
+    const ticket = claimChatRead()
+    const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
-    s.upsertAgentChat(chat)
-    s.setAgentChatWorking(chat.id, chat.working === true)
-    return chat.working === true
+    if (!acceptChatRead(wsId, fetched.id, ticket)) {
+      return s.agentChats.working[fetched.id] === true
+    }
+    s.upsertAgentChat(fetched)
+    s.setAgentChatWorking(fetched.id, fetched.working === true)
+    return fetched.working === true
   }, [store, wsId, shownChatId])
 
   // A selection the SERVER accepted. It is written here rather than inside the

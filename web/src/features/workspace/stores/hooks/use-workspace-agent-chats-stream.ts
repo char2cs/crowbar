@@ -8,6 +8,13 @@ import {
   listChatFolders,
   type AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
+import {
+  acceptChatRead,
+  chatReadsApplied,
+  claimChatRead,
+  forgetChatRead,
+  noteChatListRead,
+} from '@/features/agent/lib/chat-read-order'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
@@ -212,15 +219,25 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       if (repoId) useFolderSignalStore.getState().bump(repoId)
     }
 
-    // Every single-chat read that lands bumps this. A list seed captures it before it
-    // asks, and refuses to apply a snapshot that a fresher read has already overtaken —
-    // see seedChats.
-    let chatWrites = 0
+    // READ ORDERING LIVES IN A MODULE (chat-read-order), NOT IN THIS CLOSURE.
+    //
+    // Every single-chat read that lands bumps a counter there; a list seed captures it
+    // before it asks and refuses to publish a snapshot a fresher read has overtaken (see
+    // seedChats), and each read carries a ticket so an earlier-issued one can never be
+    // applied after a later-issued one (see refetchOne).
+    //
+    // It has to be shared because this hook is not the only thing that reads one chat and
+    // writes it: agent-chat-pane's `adopt()` does it too, right after a resume, and that
+    // write is the freshest fact in the app the moment it lands. A guard private to this
+    // effect cannot see it. That is the live bug — adopt() attaches the runner the resume
+    // just placed, then the `started` frame's refetch (issued FIRST, and answered from
+    // before that placement) lands and blanks liveRunnerId, and the pane, its one revive
+    // already spent, latches on "This agent has exited" over a CLI that is alive.
 
     // ONLY THE MOST-RECENTLY ISSUED SEED MAY WRITE — the same guard `latestFetch`
     // carries in lib/store/loadable-slice.ts, and needed here for the same reason.
-    // chatWrites protects a seed from being overtaken by a per-chat READ; nothing
-    // protected it from being overtaken by ANOTHER SEED. Two ⌘N presses issue two
+    // The applied-reads count protects a seed from being overtaken by a per-chat
+    // READ; nothing protected it from being overtaken by ANOTHER SEED. Two ⌘N issue two
     // list reads, resolution order is not issue order, and a seed is a full REPLACE
     // — so an older snapshot landing last reinstates the list as it was before the
     // newer chat existed, and that chat disappears from the sidebar with nothing
@@ -265,14 +282,15 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       const seq = ++listSeq
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const issuedAt = chatWrites
+          const issuedAt = chatReadsApplied(wsId)
+          const ticket = claimChatRead()
           const chats = await listChats(wsId)
           if (cancelled) return
           // A NEWER seed owns the list now: it asked later, so its answer is at
           // least as fresh as anything this one could ask for. Stand down entirely
           // (not `continue` — retrying would only race the newer seed again).
           if (seq !== listSeq) return
-          if (chatWrites !== issuedAt) continue // overtaken in flight — this snapshot is old news
+          if (chatReadsApplied(wsId) !== issuedAt) continue // overtaken in flight — old news
 
           const store = getOrCreateWorkspaceStore(wsId)
           const before = store.getState()
@@ -288,6 +306,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             store.getState().seedAgentChats(chats, { keepWorking: true })
           else store.getState().seedAgentChats(chats)
           needsReconnectReconcile = false
+          // Every chat in this snapshot now carries an answer as fresh as `ticket`, so a
+          // single-chat read ISSUED before this list request must no longer overwrite one.
+          // The overtaken check above only ever asked the opposite question ("did a
+          // per-chat read LAND while I was in flight"), which left a read issued before the
+          // seed and landing after it free to walk straight over the reconcile.
+          noteChatListRead(
+            wsId,
+            chats.map((c) => c.id),
+            ticket,
+          )
 
           // A chat deleted during the outage never delivered its `deleted` frame, so
           // clean up after it here exactly as that frame's handler would have.
@@ -394,14 +422,30 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // store has never heard of renders nothing at all.
     //
     // This is a POINT-IN-TIME read of ONE chat, and it outranks any list snapshot taken
-    // before it — hence the chatWrites bump, which is what lets seedChats know it has been
+    // before it — hence acceptChatRead, whose bump is what lets seedChats know it has been
     // overtaken (see there).
+    //
+    // It does NOT outrank a read of the same chat issued after it, and that is the whole
+    // reason for the ticket. A spawn issues two of these back to back (`started`, then
+    // `session_bound`) and a resume issues one here and one in the pane; the daemon can
+    // answer the FIRST from before the runner placement it has already announced, so an
+    // answer that arrives later can be older. Applied wholesale, it blanks liveRunnerId on
+    // a chat whose CLI is alive, and nothing asks again.
     const refetchOne = async (chatId: string): Promise<boolean> => {
+      const ticket = claimChatRead()
       try {
         const chat = await getChat(wsId, chatId)
         if (cancelled) return false
+        // Overtaken: a read issued LATER already applied, so the store holds a row fresher
+        // than this one and this answer is a snapshot of the past. Drop it — but answer the
+        // caller's actual question (is the chat in the store?) from the STORE, not from a
+        // payload we have just declared unfit to write.
+        if (!acceptChatRead(wsId, chatId, ticket)) {
+          return getOrCreateWorkspaceStore(wsId)
+            .getState()
+            .agentChats.chats.some((c) => c.id === chatId)
+        }
         getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat)
-        chatWrites++
         return true
       } catch {
         /* a not-found here is handled by the deleted frame path */
@@ -598,6 +642,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           return
         case 'deleted': {
           st.removeAgentChat(ev.chatId)
+          forgetChatRead(wsId, ev.chatId)
           // Spec §9: deletion "clears the layout of any pane holding a deleted
           // chat, plucks every arrangement in Recents that remembered one,
           // drops arrangements left empty." One window-level action does all
