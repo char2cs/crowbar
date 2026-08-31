@@ -11,6 +11,7 @@ import type {
 } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
   '\n',
@@ -30,6 +31,7 @@ function makeSource(path: string, content: string): EditorContent {
     isPreview: false,
     isActive: false,
     tokens: [],
+    workspaceId: 'w1',
   }
 }
 
@@ -44,12 +46,16 @@ function makePreview(path: string): MarkdownPreviewContent {
     isPinned: false,
     isPreview: false,
     isActive: false,
+    workspaceId: 'w1',
   }
 }
 
 /**
  * Store holding a markdown source plus its preview buffer, with the preview as
  * the pane's active tab — the state PaneContainer renders MarkdownPreview in.
+ * Task 26: panes/buffers are window-level now — seed `windowPaneStore`, not
+ * the per-workspace store `createWorkspaceStore` still returns (kept only
+ * because MarkdownPreview renders inside a WorkspaceStoreContext.Provider).
  */
 function setupStore(paths: string[]) {
   const store = createWorkspaceStore('w1')
@@ -57,18 +63,16 @@ function setupStore(paths: string[]) {
     makeSource(path, LONG_MARKDOWN),
     makePreview(path),
   ])
-  store.setState((s) => ({
-    ...s,
-    buffers,
-    panes: {
-      ...s.panes,
-      [ROOT_PANE_ID]: {
-        ...s.panes[ROOT_PANE_ID],
-        bufferIds: buffers.map((b) => b.id),
-        activeBufferId: `preview-${paths[0]}`,
-      },
-    },
-  }))
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    s.buffers = buffers
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      editorTabIds: buffers.map((b) => b.id),
+      activeEditorTabId: `preview-${paths[0]}`,
+    }
+    return s
+  })
   return store
 }
 
@@ -129,14 +133,14 @@ describe('MarkdownPreview scroll retention', () => {
 
   it('renders the buffer it was handed, not the active pane buffer', () => {
     const store = setupStore(['/repo/README.md', '/repo/CHANGELOG.md'])
-    store.setState((s) => ({
-      ...s,
-      buffers: s.buffers.map((b) =>
+    windowPaneStore.setState((s) => {
+      s.buffers = s.buffers.map((b) =>
         b.id === 'src-/repo/CHANGELOG.md'
           ? ({ ...b, content: '# Changelog only heading' } as typeof b)
           : b,
-      ),
-    }))
+      )
+      return s
+    })
 
     // The pane's active tab is the README preview; this instance is asked for
     // the CHANGELOG preview (the split-pane case).

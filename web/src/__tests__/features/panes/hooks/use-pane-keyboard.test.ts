@@ -91,6 +91,22 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStore: () => fakeStore,
 }))
 
+// Task 26: panes/buffers moved off the per-workspace store onto the
+// window-level singleton — usePaneKeyboard reads activePaneId/panes/buffers/
+// paneActions/bufferActions off `windowPaneStore` now, and only agentChats/
+// workspaceId/setActiveAgentChatId off `useWorkspaceStore()`. Both mocks point
+// at the SAME `fakeState` object (it already carries every field either read
+// site needs), so the `setPaneState`/`setBottomPaneState` helpers below that
+// mutate `fakeState.panes` etc. in place are observed by both.
+vi.mock('@/features/panes/stores/window-pane-store', () => ({
+  // Not a direct `fakeStore` reference: `vi.mock` factories run at import-
+  // hoist time, before this file's own `const fakeStore = ...` below has
+  // executed. Wrapping the read in a closure (mirroring `useWorkspaceStore`'s
+  // `() => fakeStore` just above) defers it until `getState()` is actually
+  // called, by which point `fakeState` exists.
+  windowPaneStore: { getState: () => fakeState },
+}))
+
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
     'tabs.closeActive': 'mod+w',

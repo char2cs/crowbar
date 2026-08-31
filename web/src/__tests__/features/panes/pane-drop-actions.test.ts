@@ -1,51 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
-
-const createMockStorage = () => {
-  const storage = new Map<string, string>()
-  return {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      storage.set(key, value)
-    },
-    removeItem: (key: string) => {
-      storage.delete(key)
-    },
-    clear: () => {
-      storage.clear()
-    },
-    key: (index: number) => Array.from(storage.keys())[index] ?? null,
-    get length() {
-      return storage.size
-    },
-  }
-}
 
 describe('pane drop actions', () => {
-  let wsStore: WorkspaceStore
-
   beforeEach(() => {
-    vi.stubGlobal('localStorage', createMockStorage())
-    vi.stubGlobal('window', {
-      __TAURI_INTERNALS__: {
-        invoke: vi.fn().mockResolvedValue([]),
-        metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
-      },
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })
-    wsStore = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreRef(wsStore)
-  })
-
-  afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
-    vi.unstubAllGlobals()
+    resetWindowPaneStoreForTests()
   })
 
   it('creates a split drop target from an edge zone', async () => {
@@ -55,16 +15,26 @@ describe('pane drop actions', () => {
 
     expect(targetPaneId).not.toBeNull()
     expect(targetPaneId).not.toBe(ROOT_PANE_ID)
-    const rootIds = getAllLeafIds(wsStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
     expect(rootIds).toHaveLength(2)
   })
 
   it('moves buffers through a pane drop target', async () => {
     const { moveBufferToPaneDropTarget } = await import('@/features/panes/utils/pane-drop-actions')
-    const paneActions = wsStore.getState().paneActions
+    const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-a', type: 'editor', name: 'a.ts' })
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-b', type: 'editor', name: 'b.ts' })
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'buffer-a',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'test-ws',
+    })
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'buffer-b',
+      type: 'editor',
+      name: 'b.ts',
+      workspaceId: 'test-ws',
+    })
 
     const targetPaneId = moveBufferToPaneDropTarget('buffer-a', ROOT_PANE_ID, {
       paneId: ROOT_PANE_ID,
@@ -75,15 +45,20 @@ describe('pane drop actions', () => {
     if (!targetPaneId) return
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-b'])
     expect(paneActions.getPaneById(targetPaneId)?.editorTabIds).toEqual(['buffer-a'])
-    expect(wsStore.getState().activePaneId).toBe(targetPaneId)
+    expect(windowPaneStore.getState().activePaneId).toBe(targetPaneId)
   })
 
   it('adds buffers without duplicating existing target entries', async () => {
     const { ensureBufferInPaneDropTarget } =
       await import('@/features/panes/utils/pane-drop-actions')
-    const paneActions = wsStore.getState().paneActions
+    const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, { id: 'buffer-a', type: 'editor', name: 'a.ts' })
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'buffer-a',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'test-ws',
+    })
 
     expect(ensureBufferInPaneDropTarget('buffer-a', { paneId: ROOT_PANE_ID, zone: 'center' })).toBe(
       ROOT_PANE_ID,

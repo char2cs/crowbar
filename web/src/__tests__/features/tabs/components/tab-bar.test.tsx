@@ -6,6 +6,7 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider
@@ -42,6 +43,7 @@ function makeEditorBuffer(i: number): EditorContent {
     isPreview: false,
     isActive: i === 0,
     tokens: [],
+    workspaceId: 'w1',
   }
 }
 
@@ -62,6 +64,9 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
 /** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
  *  `chatId` is set, a matching `agentChats.chats` fixture so ChatHead's title
  *  lookup resolves — mirrors how `recents-band.tsx` reads a chat's title. */
+// Task 26: panes/buffers moved off the per-workspace store onto the
+// window-level singleton — seed `windowPaneStore` for those; `agentChats`
+// stays on the workspace store returned here.
 function setupPaneStore({
   buffers = [],
   chatId = null,
@@ -74,21 +79,22 @@ function setupPaneStore({
   const store = createWorkspaceStore('w1')
   store.setState((s) => ({
     ...s,
-    buffers,
     agentChats: {
       ...s.agentChats,
       chats: chatId ? [makeChat({ id: chatId })] : s.agentChats.chats,
     },
-    panes: {
-      ...s.panes,
-      [ROOT_PANE_ID]: {
-        ...s.panes[ROOT_PANE_ID],
-        chatId,
-        editorTabIds: buffers.map((b) => b.id),
-        activeEditorTabId,
-      },
-    },
   }))
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    s.buffers = buffers
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      chatId,
+      editorTabIds: buffers.map((b) => b.id),
+      activeEditorTabId,
+    }
+    return s
+  })
   return store
 }
 
@@ -150,17 +156,11 @@ describe('TabBar "+" placement', () => {
     })
 
     act(() => {
-      store.setState((s) => ({
-        ...s,
-        buffers: [...s.buffers, makeEditorBuffer(1)],
-        panes: {
-          ...s.panes,
-          [ROOT_PANE_ID]: {
-            ...s.panes[ROOT_PANE_ID],
-            editorTabIds: [...s.panes[ROOT_PANE_ID].editorTabIds, 'buf-1'],
-          },
-        },
-      }))
+      windowPaneStore.setState((s) => {
+        s.buffers.push(makeEditorBuffer(1))
+        s.panes[ROOT_PANE_ID].editorTabIds.push('buf-1')
+        return s
+      })
     })
 
     const addButton = screen.getByRole('button', { name: 'New tab' })
@@ -183,7 +183,7 @@ describe('TabBar "+" click behaviour', () => {
     })
 
     act(() => {
-      store.getState().paneActions.setActivePane('some-other-pane-first')
+      windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
     })
 
     act(() => {
@@ -191,7 +191,7 @@ describe('TabBar "+" click behaviour', () => {
     })
 
     expect(onAddTab).toHaveBeenCalledWith(ROOT_PANE_ID)
-    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 
   it('does not render a dropdown menu on click', () => {
@@ -275,10 +275,10 @@ describe('TabBar pane-top-row anatomy', () => {
     act(() => {
       renderTabBar(store)
     })
-    expect(store.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(false)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(false)
     act(() => {
       fireEvent.click(screen.getByTestId('split-toggle'))
     })
-    expect(store.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(true)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(true)
   })
 })

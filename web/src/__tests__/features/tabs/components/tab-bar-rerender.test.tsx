@@ -5,6 +5,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 // ── Per-item render probe ────────────────────────────────────────────
 // Each TabBarItem renders FileExplorerIcon INLINE (it is not independently
@@ -58,24 +59,26 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
     isPreview: false,
     isActive: i === 0,
     tokens: [],
+    workspaceId: 'w1',
     ...overrides,
   }
 }
 
+// Task 26: panes/buffers moved off the per-workspace store onto the
+// window-level singleton — seed `windowPaneStore`, not the per-workspace
+// store `createWorkspaceStore` still returns (kept for WorkspaceStoreContext).
 function setupStore(buffers: EditorContent[]) {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    buffers,
-    panes: {
-      ...s.panes,
-      [ROOT_PANE_ID]: {
-        ...s.panes[ROOT_PANE_ID],
-        editorTabIds: buffers.map((b) => b.id),
-        activeEditorTabId: buffers[0]?.id ?? null,
-      },
-    },
-  }))
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    s.buffers = buffers
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      editorTabIds: buffers.map((b) => b.id),
+      activeEditorTabId: buffers[0]?.id ?? null,
+    }
+    return s
+  })
   return store
 }
 
@@ -115,12 +118,12 @@ describe('TabBar render isolation', () => {
     // object reference — only buf-2's identity changes, exactly as an immer
     // copy-on-write content flush would leave the untouched tabs shared.
     act(() => {
-      store.setState((s) => ({
-        ...s,
-        buffers: s.buffers.map((b) =>
+      windowPaneStore.setState((s) => {
+        s.buffers = s.buffers.map((b) =>
           b.id === 'buf-2' && b.type === 'editor' ? { ...b, isDirty: true } : b,
-        ),
-      }))
+        )
+        return s
+      })
     })
 
     // Exactly the mutated tab re-renders; the other four are memoized out.
@@ -152,7 +155,7 @@ describe('TabBar handler delegation', () => {
       fireEvent.click(tabs[3])
     })
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-3')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-3')
   })
 
   it('routes a double-click to the correct buffer (promotes that preview tab)', () => {
@@ -165,7 +168,7 @@ describe('TabBar handler delegation', () => {
     })
 
     expect(
-      (store.getState().buffers.find((b) => b.id === 'buf-1') as EditorContent).isPreview,
+      (windowPaneStore.getState().buffers.find((b) => b.id === 'buf-1') as EditorContent).isPreview,
     ).toBe(true)
 
     const tabs = screen.getAllByRole('tab')
@@ -174,7 +177,7 @@ describe('TabBar handler delegation', () => {
     })
 
     expect(
-      (store.getState().buffers.find((b) => b.id === 'buf-1') as EditorContent).isPreview,
+      (windowPaneStore.getState().buffers.find((b) => b.id === 'buf-1') as EditorContent).isPreview,
     ).toBe(false)
   })
 
@@ -205,7 +208,7 @@ describe('TabBar handler delegation', () => {
       fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
     })
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-1')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-1')
   })
 
   it('routes the close affordance to the correct buffer', () => {
@@ -222,8 +225,8 @@ describe('TabBar handler delegation', () => {
       fireEvent.click(closeBtn)
     })
 
-    expect(store.getState().buffers.some((b) => b.id === 'buf-2')).toBe(false)
-    expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain('buf-2')
+    expect(windowPaneStore.getState().buffers.some((b) => b.id === 'buf-2')).toBe(false)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain('buf-2')
   })
 })
 
@@ -269,12 +272,12 @@ describe('TabBar strip-level render isolation', () => {
     // every other buffer's reference — exactly an immer content flush. No
     // rendered field moves, so the strip must not commit again.
     act(() => {
-      store.setState((s) => ({
-        ...s,
-        buffers: s.buffers.map((b) =>
+      windowPaneStore.setState((s) => {
+        s.buffers = s.buffers.map((b) =>
           b.id === 'buf-2' && b.type === 'editor' ? { ...b, content: 'typed a char' } : b,
-        ),
-      }))
+        )
+        return s
+      })
     })
 
     expect(commits).toBe(baseline)

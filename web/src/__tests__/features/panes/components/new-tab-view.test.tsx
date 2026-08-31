@@ -114,6 +114,17 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStore: () => fakeStore,
 }))
 
+// Task 26: panes/buffers moved off the per-workspace store onto the
+// window-level singleton — NewTabView's activateThisPane/openTerminal/
+// openFile/createNewChat, and openAgentChat's reveal-vs-open decision (run for
+// real against this same fake store, per the comment above), all read
+// activePaneId/panes/paneActions/bufferActions off `windowPaneStore` now.
+// `fakeState` already carries every field either read site needs, so both
+// mocks point at the SAME store.
+vi.mock('@/features/panes/stores/window-pane-store', () => ({
+  windowPaneStore: fakeStore,
+}))
+
 vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
@@ -526,7 +537,9 @@ describe('NewTabView', () => {
       render(<NewTabView paneId={BOTTOM_PANE_ID} />)
       fireEvent.click(screen.getByRole('button', { name: /new terminal/i }))
       expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
-      expect(openContent).toHaveBeenCalledWith({ type: 'terminal' })
+      // Task 26: openContent's buffer spec also carries `workspaceId` now —
+      // objectContaining, not an exact match, mirroring the New File case below.
+      expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal' }))
       // Order matters: the pane must be focused BEFORE the buffer lands, or
       // openContent (which targets get().activePaneId) still races the OLD
       // active pane.

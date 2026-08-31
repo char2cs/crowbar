@@ -43,6 +43,7 @@ describe('getExplorerTargetPath', () => {
       isActive: true,
       content: '# Test',
       sourceFilePath: '/workspace/README.md',
+      workspaceId: 'w1',
     } satisfies PaneContent
 
     expect(getExplorerTargetPath(buffer)).toBe('/workspace/README.md')
@@ -58,6 +59,7 @@ describe('getExplorerTargetPath', () => {
       isPinned: false,
       isPreview: false,
       isActive: true,
+      workspaceId: 'w1',
     } satisfies PaneContent
 
     expect(getExplorerTargetPath(buffer)).toBeUndefined()

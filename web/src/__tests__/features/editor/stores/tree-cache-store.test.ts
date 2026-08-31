@@ -6,27 +6,34 @@ import {
   useTreeCacheStore,
   _resetTreeCacheSubscriptionForTesting,
 } from '@/features/editor/stores/tree-cache-store'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 describe('initTreeCacheSubscription', () => {
   beforeEach(() => {
     _resetTreeCacheSubscriptionForTesting()
-    setActiveWorkspaceStoreRef(null)
+    // Task 26: buffers are window-level now — reset the singleton, not a
+    // per-workspace store, before each test.
+    resetWindowPaneStoreForTests()
     useTreeCacheStore.setState({ trees: new Map() })
   })
 
   it('clears the tree cache entry when a buffer is closed', async () => {
-    const store = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreRef(store)
     initTreeCacheSubscription()
 
     const bufferId = 'test-buffer-1'
 
-    // Plant a fake buffer via workspace store buffers field directly
-    store.setState((state) => ({
+    // Plant a fake buffer via the window pane store's buffers field directly
+    windowPaneStore.setState((state) => ({
       ...state,
-      buffers: [{ id: bufferId, type: 'editor', path: '/test.ts', name: 'test.ts' } as PaneContent],
+      buffers: [
+        {
+          id: bufferId,
+          type: 'editor',
+          path: '/test.ts',
+          name: 'test.ts',
+          workspaceId: 'test-ws',
+        } as PaneContent,
+      ],
     }))
 
     useTreeCacheStore.setState((state) => {
@@ -41,8 +48,8 @@ describe('initTreeCacheSubscription', () => {
     })
     expect(useTreeCacheStore.getState().trees.has(bufferId)).toBe(true)
 
-    // Close the buffer by removing it from the workspace store
-    store.setState((state) => ({
+    // Close the buffer by removing it from the window pane store
+    windowPaneStore.setState((state) => ({
       ...state,
       buffers: state.buffers.filter((b) => b.id !== bufferId),
     }))

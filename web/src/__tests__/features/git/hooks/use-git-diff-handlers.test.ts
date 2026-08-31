@@ -5,9 +5,12 @@ import { useGitDiffHandlers } from '@/features/git/hooks/use-git-diff-handlers'
 const openContent = vi.fn()
 
 vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
-  getActiveWorkspaceStoreRef: () => ({
-    getState: () => ({ bufferActions: { openContent } }),
-  }),
+  // Task 26: only used as an existence check now (bufferActions moved to the
+  // window-level store below).
+  getActiveWorkspaceStoreRef: () => ({ getState: () => ({}) }),
+}))
+vi.mock('@/features/panes/stores/window-pane-store', () => ({
+  windowPaneStore: { getState: () => ({ bufferActions: { openContent } }) },
 }))
 
 vi.mock('@/components/ui/primitive-dialog-service', () => ({

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 vi.mock('@/features/editor/stores/state-store', () => ({
   useEditorStateStore: {
@@ -15,33 +15,33 @@ vi.mock('@/features/editor/stores/state-store', () => ({
   },
 }))
 
-function openFile(store: ReturnType<typeof createWorkspaceStore>, path: string) {
-  return store.getState().bufferActions.openContent({
+function openFile(workspaceId: string, path: string) {
+  return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
     path,
     name: path.split('/').pop()!,
     content: path,
+    workspaceId,
   })
 }
 
 beforeEach(() => {
   useJumpListStore.getState().actions.clear()
-})
-
-afterEach(() => {
-  setActiveWorkspaceStoreRef(null)
+  // Task 26: panes/buffers are window-level and never destroyed, so the
+  // singleton persists across tests — reset it to a pristine, empty store
+  // (mirroring createWindowPaneStore's own defaults) before each test.
+  resetWindowPaneStoreForTests()
+  setActiveWorkspaceId('w1')
 })
 
 describe('useNavigationHistory', () => {
   it('records a jump-list entry when the user switches files inside one workspace', () => {
-    const ws = createWorkspaceStore('w1')
-    const first = openFile(ws, '/src/a.ts')
-    setActiveWorkspaceStoreRef(ws)
+    const first = openFile('w1', '/src/a.ts')
 
     renderHook(() => useNavigationHistory())
 
     act(() => {
-      openFile(ws, '/src/b.ts')
+      openFile('w1', '/src/b.ts')
     })
 
     const entries = useJumpListStore.getState().entries
@@ -51,13 +51,11 @@ describe('useNavigationHistory', () => {
   })
 
   it('stamps the recording workspace onto every entry', () => {
-    const ws = createWorkspaceStore('w1')
-    openFile(ws, '/src/a.ts')
-    setActiveWorkspaceStoreRef(ws)
+    openFile('w1', '/src/a.ts')
     renderHook(() => useNavigationHistory())
 
     act(() => {
-      openFile(ws, '/src/b.ts')
+      openFile('w1', '/src/b.ts')
     })
 
     // Without this the (process-global) jump list cannot tell which checkout a
@@ -66,42 +64,46 @@ describe('useNavigationHistory', () => {
   })
 
   /**
-   * The failure this exists for: switching workspaces re-runs the effect once
-   * with the INCOMING workspace's activeBufferId while the origin ref still
-   * holds the OUTGOING workspace's buffer. That pushes a cross-workspace entry
-   * into a process-global list whose paths are workspace-relative — Back then
-   * silently opens the sibling worktree's file of the same name.
+   * The failure this exists for: two panes/buffers holding the SAME relative
+   * path in different workspaces must never be confused for one navigation —
+   * the jump list is a process-global singleton with workspace-relative
+   * paths, so recording across the boundary puts a foreign entry into a
+   * workspace's history. Back would then silently open the sibling
+   * worktree's file of the same name.
    *
    * A workspace switch is not a navigation. Nothing should be recorded.
    */
   it('records nothing when the ACTIVE WORKSPACE changed rather than the file', () => {
-    const a = createWorkspaceStore('w1')
-    openFile(a, '/src/app.ts')
-    setActiveWorkspaceStoreRef(a)
+    openFile('w1', '/src/app.ts')
     renderHook(() => useNavigationHistory())
 
-    const b = createWorkspaceStore('w2')
-    openFile(b, '/src/app.ts')
+    openFile('w2', '/src/app.ts')
     act(() => {
-      setActiveWorkspaceStoreRef(b)
+      setActiveWorkspaceId('w2')
+      windowPaneStore.getState().paneActions.activateEditorTabInPane(
+        windowPaneStore.getState().activePaneId,
+        windowPaneStore
+          .getState()
+          .buffers.find((b) => b.workspaceId === 'w2' && b.path === '/src/app.ts')!.id,
+      )
     })
 
     expect(useJumpListStore.getState().entries).toEqual([])
   })
 
   it('resumes recording normally inside the workspace it switched to', () => {
-    const a = createWorkspaceStore('w1')
-    openFile(a, '/src/app.ts')
-    setActiveWorkspaceStoreRef(a)
+    openFile('w1', '/src/app.ts')
     renderHook(() => useNavigationHistory())
 
-    const b = createWorkspaceStore('w2')
-    const bFirst = openFile(b, '/src/app.ts')
+    const bFirst = openFile('w2', '/src/app.ts')
     act(() => {
-      setActiveWorkspaceStoreRef(b)
+      setActiveWorkspaceId('w2')
+      windowPaneStore
+        .getState()
+        .paneActions.activateEditorTabInPane(windowPaneStore.getState().activePaneId, bFirst)
     })
     act(() => {
-      openFile(b, '/src/other.ts')
+      openFile('w2', '/src/other.ts')
     })
 
     const entries = useJumpListStore.getState().entries

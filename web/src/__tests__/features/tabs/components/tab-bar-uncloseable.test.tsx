@@ -5,6 +5,7 @@ import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 // I2: isUncloseable currently only hides the tab-bar-item's × button. Every
 // OTHER close affordance — middle-click, and the tab context menu's Close /
@@ -78,6 +79,7 @@ function makeEditorBuffer(i: number): EditorContent {
     isPreview: false,
     isActive: false,
     tokens: [],
+    workspaceId: 'w1',
   }
 }
 
@@ -100,6 +102,7 @@ function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
     isActive: false,
     tokens: [],
     isUncloseable,
+    workspaceId: 'w1',
   }
 }
 
@@ -115,18 +118,18 @@ function renderTabBar(store: ReturnType<typeof createWorkspaceStore>, paneId: st
 
 /** A single sole-editor-tab pane, mirroring pane-slice's
  *  syncSoleEditorTabCloseability (isUncloseable is true exactly when it is
- *  the pane's only editor tab). */
+ *  the pane's only editor tab). Task 26: panes/buffers are window-level now —
+ *  seed `windowPaneStore`, not the per-workspace store returned here (kept
+ *  for WorkspaceStoreContext). */
 function setupSoleTabStore() {
   const store = createWorkspaceStore('w1')
   const nt = makeSoleTab('nt-1', true)
-  store.setState((s) => ({
-    ...s,
-    buffers: [nt],
-    panes: {
-      ...s.panes,
-      [ROOT_PANE_ID]: { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' },
-    },
-  }))
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    s.buffers = [nt]
+    s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' }
+    return s
+  })
   return store
 }
 
@@ -138,25 +141,23 @@ function setupMultiPaneStore() {
   const store = createWorkspaceStore('w1')
   const editors = [0, 1, 2].map(makeEditorBuffer)
   const nt = makeSoleTab('nt-1', true)
-  store.setState((s) => ({
-    ...s,
-    buffers: [...editors, nt],
-    panes: {
-      ...s.panes,
-      [ROOT_PANE_ID]: { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' },
-      [BOTTOM_PANE_ID]: {
-        ...s.panes[BOTTOM_PANE_ID],
-        editorTabIds: editors.map((b) => b.id),
-        activeEditorTabId: editors[0].id,
-      },
-    },
-  }))
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState((s) => {
+    s.buffers = [...editors, nt]
+    s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' }
+    s.panes[BOTTOM_PANE_ID] = {
+      ...s.panes[BOTTOM_PANE_ID],
+      editorTabIds: editors.map((b) => b.id),
+      activeEditorTabId: editors[0].id,
+    }
+    return s
+  })
   return store
 }
 
-function expectSoleTabSurvived(store: ReturnType<typeof createWorkspaceStore>) {
-  expect(store.getState().buffers.some((b) => b.id === 'nt-1')).toBe(true)
-  expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('nt-1')
+function expectSoleTabSurvived(_store: ReturnType<typeof createWorkspaceStore>) {
+  expect(windowPaneStore.getState().buffers.some((b) => b.id === 'nt-1')).toBe(true)
+  expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('nt-1')
 }
 
 describe('TabBar honours isUncloseable (I2)', () => {

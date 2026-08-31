@@ -3,10 +3,8 @@ import {
   initViewStoreSubscription,
   _resetViewStoreUnsubscribeForTesting,
 } from '@/features/editor/stores/view-store'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 const createMockStorage = () => {
   const storage = new Map<string, string>()
@@ -30,9 +28,10 @@ const createMockStorage = () => {
 }
 
 describe('editor view store large files', () => {
-  let wsStore: WorkspaceStore
-
   beforeEach(() => {
+    // Task 26: panes/buffers are a window-level singleton now, never
+    // destroyed — reset it to a pristine store before each test.
+    resetWindowPaneStoreForTests()
     initViewStoreSubscription()
     vi.stubGlobal('localStorage', createMockStorage())
     vi.stubGlobal('window', {
@@ -47,13 +46,10 @@ describe('editor view store large files', () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     })
-    wsStore = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreRef(wsStore)
   })
 
   afterEach(async () => {
     _resetViewStoreUnsubscribeForTesting()
-    setActiveWorkspaceStoreRef(null)
     const { useEditorViewStore } = await import('@/features/editor/stores/view-store')
     useEditorViewStore.setState({
       lines: [''],
@@ -64,7 +60,7 @@ describe('editor view store large files', () => {
 
   it('tracks large active buffers by line count without storing every line', async () => {
     const { useEditorViewStore } = await import('@/features/editor/stores/view-store')
-    const { bufferActions, paneActions } = wsStore.getState()
+    const { bufferActions, paneActions } = windowPaneStore.getState()
     const content = Array.from({ length: 50_000 }, (_, index) => `line ${index}`).join('\n')
 
     const bufferId = bufferActions.openContent({
@@ -72,12 +68,18 @@ describe('editor view store large files', () => {
       path: '/workspace/sqlite.c',
       name: 'sqlite.c',
       content: '',
+      workspaceId: 'test-ws',
     })
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, bufferId)
-    paneActions.activatePaneBuffer(ROOT_PANE_ID, bufferId)
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: bufferId,
+      type: 'editor',
+      name: 'sqlite.c',
+      workspaceId: 'test-ws',
+    })
+    paneActions.activateEditorTabInPane(ROOT_PANE_ID, bufferId)
 
-    wsStore.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       ...state,
       buffers: state.buffers.map((b) =>
         b.id === bufferId && b.type === 'editor' ? { ...b, content, isDirty: true } : b,
