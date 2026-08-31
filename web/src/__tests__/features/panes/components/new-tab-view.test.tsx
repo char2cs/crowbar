@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { NewTabView } from '@/features/panes/components/new-tab-view'
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
@@ -39,74 +39,64 @@ interface FakeProvider {
 // Everything a mock factory below closes over must be `vi.hoisted` — mocked
 // modules (including the real imports at the bottom of this file, which the
 // transform hoists too) are linked before ordinary top-level `const`s run.
-const {
-  agentChats,
-  panes,
-  activePaneIdRef,
-  setActiveAgentChatId,
-  setActivePane,
-  setPaneChat,
-  openContent,
-  fakeStore,
-  createChat,
-  toastSpawnFailure,
-} = vi.hoisted(() => {
-  const agentChats = {
-    current: {
-      chats: [] as FakeChat[],
-      order: [] as string[],
-      working: {} as Record<string, boolean>,
-      providers: [] as FakeProvider[],
-    },
-  }
-  const setActiveAgentChatId = vi.fn()
-  // `activePaneId` mutates as a side effect of `setActivePane`, mirroring the
-  // real store — openAgentChat (the helper shared with the Chats sidebar) runs
-  // for REAL against this store rather than being mocked out, and its
-  // not-open-anywhere branch reads `st.activePaneId` AFTER the caller's own
-  // `setActivePane` call, so the fake must actually move it.
-  const activePaneId = { current: '' }
-  const setActivePane = vi.fn((id: string) => {
-    activePaneId.current = id
-  })
-  const openContent = vi.fn()
-  const setPaneChat = vi.fn()
-  // A stable fake store: `getState()` always returns the SAME object holding
-  // the SAME spy references, mirroring the real zustand store (a fresh object
-  // per call would make call-order assertions across two `getState()` reads
-  // impossible to write meaningfully).
-  // openAgentChat runs for real against this store, so these tests exercise
-  // the actual reveal-vs-open decision. That needs `panes` (a chat's pane is
-  // found by scanning `chatId`, not by a buffer lookup any more).
-  const panes = { current: {} as Record<string, { id: string; chatId: string | null }> }
+const { agentChats, panes, activePaneIdRef, setActivePane, setPaneChat, openContent, fakeStore } =
+  vi.hoisted(() => {
+    const agentChats = {
+      current: {
+        chats: [] as FakeChat[],
+        order: [] as string[],
+        working: {} as Record<string, boolean>,
+        providers: [] as FakeProvider[],
+      },
+    }
+    // openAgentChat (run for real against this store below) always calls this
+    // as part of its reveal-vs-open decision, so `fakeState` must carry it even
+    // though no test here asserts on it directly any more.
+    const setActiveAgentChatId = vi.fn()
+    // `activePaneId` mutates as a side effect of `setActivePane`, mirroring the
+    // real store — openAgentChat (the helper shared with the Chats sidebar) runs
+    // for REAL against this store rather than being mocked out, and its
+    // not-open-anywhere branch reads `st.activePaneId` AFTER the caller's own
+    // `setActivePane` call, so the fake must actually move it.
+    const activePaneId = { current: '' }
+    const setActivePane = vi.fn((id: string) => {
+      activePaneId.current = id
+    })
+    const openContent = vi.fn()
+    const setPaneChat = vi.fn()
+    // A stable fake store: `getState()` always returns the SAME object holding
+    // the SAME spy references, mirroring the real zustand store (a fresh object
+    // per call would make call-order assertions across two `getState()` reads
+    // impossible to write meaningfully).
+    // openAgentChat runs for real against this store, so these tests exercise
+    // the actual reveal-vs-open decision. That needs `panes` (a chat's pane is
+    // found by scanning `chatId`, not by a buffer lookup any more).
+    const panes = { current: {} as Record<string, { id: string; chatId: string | null }> }
 
-  const fakeState = {
-    agentChats: agentChats.current,
-    workspaceId: 'ws-1',
-    setActiveAgentChatId,
-    get activePaneId() {
-      return activePaneId.current
-    },
-    get panes() {
-      return panes.current
-    },
-    paneActions: { setActivePane, setPaneChat },
-    bufferActions: { openContent },
-  }
-  const fakeStore = { getState: () => fakeState }
-  return {
-    agentChats,
-    panes,
-    activePaneIdRef: activePaneId,
-    setActiveAgentChatId,
-    setActivePane,
-    setPaneChat,
-    openContent,
-    fakeStore,
-    createChat: vi.fn(),
-    toastSpawnFailure: vi.fn(),
-  }
-})
+    const fakeState = {
+      agentChats: agentChats.current,
+      workspaceId: 'ws-1',
+      setActiveAgentChatId,
+      get activePaneId() {
+        return activePaneId.current
+      },
+      get panes() {
+        return panes.current
+      },
+      paneActions: { setActivePane, setPaneChat },
+      bufferActions: { openContent },
+    }
+    const fakeStore = { getState: () => fakeState }
+    return {
+      agentChats,
+      panes,
+      activePaneIdRef: activePaneId,
+      setActivePane,
+      setPaneChat,
+      openContent,
+      fakeStore,
+    }
+  })
 
 vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStoreContext: (sel: (s: unknown) => unknown) =>
@@ -116,17 +106,14 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
 
 // Task 26: panes/buffers moved off the per-workspace store onto the
 // window-level singleton — NewTabView's activateThisPane/openTerminal/
-// openFile/createNewChat, and openAgentChat's reveal-vs-open decision (run for
-// real against this same fake store, per the comment above), all read
+// openFile, and openAgentChat's reveal-vs-open decision (run for real against
+// this same fake store, per the comment above), all read
 // activePaneId/panes/paneActions/bufferActions off `windowPaneStore` now.
 // `fakeState` already carries every field either read site needs, so both
 // mocks point at the SAME store.
 vi.mock('@/features/panes/stores/window-pane-store', () => ({
   windowPaneStore: fakeStore,
 }))
-
-vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
-vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
 const { setActiveTab, repos } = vi.hoisted(() => ({
   setActiveTab: vi.fn(),
@@ -189,24 +176,26 @@ beforeEach(() => {
 })
 
 describe('NewTabView', () => {
-  it('renders the three create actions', () => {
+  it('renders the two create actions — file and terminal, never chat', () => {
+    // Spec §7.2: the editor view's empty stage offers exactly file/terminal/
+    // branch-review as ways in. Chat is the pane's own permanent identity
+    // (pane.chatId, drawn at the head) — never something the editor view
+    // opens, so this surface must not offer it as an action.
     render(<NewTabView paneId={ROOT_PANE_ID} />)
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new terminal/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /new chat/i })).not.toBeInTheDocument()
   })
 
-  it('orders the create actions New Chat → New Terminal → New File', () => {
-    // Starting a conversation is what this app is opened to do, so it leads;
-    // New File is the rarest of the three and goes last. getAllByRole preserves
-    // DOM order, and with no chord map seeded each button's text is just the
-    // label. Presence alone (the test above) let any order pass.
+  it('orders the create actions New Terminal → New File', () => {
+    // getAllByRole preserves DOM order, and with no chord map seeded each
+    // button's text is just the label.
     render(<NewTabView paneId={ROOT_PANE_ID} />)
     const actions = screen
       .getAllByRole('button')
       .map((b) => b.textContent?.trim() ?? '')
-      .filter((t) => t === 'New File' || t === 'New Terminal' || t === 'New Chat')
-    expect(actions).toEqual(['New Chat', 'New Terminal', 'New File'])
+      .filter((t) => t === 'New File' || t === 'New Terminal')
+    expect(actions).toEqual(['New Terminal', 'New File'])
   })
 
   // The decoration must not be on the app's startup path. AsciiCrowbar carries a
@@ -358,112 +347,6 @@ describe('NewTabView', () => {
     })
   })
 
-  // ── I4: New Chat must actually CREATE a chat ────────────────────────
-  describe('New Chat action (I4)', () => {
-    it('clicking "New Chat" creates a chat with the first enabled provider and opens it', async () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
-        { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
-      ]
-      let resolveCreate!: (id: string) => void
-      createChat.mockReturnValue(
-        new Promise<string>((resolve) => {
-          resolveCreate = resolve
-        }),
-      )
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-      // Provider-agnostic: picks the FIRST ENABLED provider, the same one the
-      // sidebar's unified "New chat" row opens.
-      expect(createChat).toHaveBeenCalledWith('ws-1', 'p1')
-
-      agentChats.current.chats = [
-        {
-          id: 'chat-9',
-          title: 'New conversation',
-          activeProviderId: 'p1',
-          createdAt: '2020-01-01',
-        },
-      ]
-      await act(async () => {
-        resolveCreate('chat-9')
-        await Promise.resolve()
-      })
-
-      expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
-      expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
-      expect(openContent).not.toHaveBeenCalled()
-    })
-
-    it('picks the first ENABLED provider, skipping a disabled leading one', () => {
-      // p1 disabled, p2 enabled → New Chat must open p2, never the disabled p1.
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false },
-        { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
-      ]
-      createChat.mockResolvedValue('chat-1')
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-      expect(createChat).toHaveBeenCalledWith('ws-1', 'p2')
-    })
-
-    it('does nothing when every provider is disabled', () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false },
-      ]
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-      expect(createChat).not.toHaveBeenCalled()
-    })
-
-    // …and SAYS so. A live-looking row wearing a ⌘N badge that silently returns
-    // is worse than no row: the user presses it, presses the chord, and neither
-    // does anything or explains why.
-    it('DISABLES the row when every provider is disabled, and says why', () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false },
-      ]
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      const row = screen.getByRole('button', { name: /new chat/i })
-      expect(row).toBeDisabled()
-      // Named as the settings rail names it: Agents (spec §11).
-      expect(row.title).toMatch(/settings → agents/i)
-    })
-
-    it('leaves the row live while a provider is enabled', () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
-      ]
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      expect(screen.getByRole('button', { name: /new chat/i })).toBeEnabled()
-    })
-
-    it('reports a spawn failure via toast instead of swallowing it', async () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
-      ]
-      const err = new Error('boom')
-      createChat.mockRejectedValue(err)
-      render(<NewTabView paneId={ROOT_PANE_ID} />)
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-
-      expect(toastSpawnFailure).toHaveBeenCalledWith(err, 'Claude', 'start')
-    })
-  })
-
   // ── I5: "recent" must agree with the sidebar's own ordering ─────────
   describe('recent chats ordering (I5)', () => {
     it("shows the sidebar's own top three (orderedChats), not the raw array order", () => {
@@ -555,26 +438,6 @@ describe('NewTabView', () => {
       expect(openContent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'editor', isVirtual: true }),
       )
-    })
-
-    it("New Chat activates this surface's pane, not whatever pane is globally active", async () => {
-      agentChats.current.providers = [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
-      ]
-      createChat.mockResolvedValue('chat-1')
-      render(<NewTabView paneId={BOTTOM_PANE_ID} />)
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-
-      expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
-      // Called again right before the chat lands, guarding the async gap.
-      expect(setActivePane.mock.calls.every(([id]) => id === BOTTOM_PANE_ID)).toBe(true)
-      expect(setPaneChat).toHaveBeenCalledWith(BOTTOM_PANE_ID, 'chat-1', null)
-      expect(openContent).not.toHaveBeenCalled()
     })
   })
 })

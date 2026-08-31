@@ -1,21 +1,14 @@
 import { lazy, Suspense, useCallback, useMemo } from 'react'
-import { File as FileIcon, TerminalWindow, ChatCircle } from '@phosphor-icons/react'
+import { File as FileIcon, TerminalWindow } from '@phosphor-icons/react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
 import { ProjectIconMark, type ProjectIconSource } from '@/components/layout/project-icon-mark'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
-import { createChat } from '@/features/agent/api/agent-api'
-import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { formatChord } from '@/features/keymaps/utils/chord'
-import {
-  AGENT_NEW_CHAT,
-  SIDEBAR_TAB_CHATS,
-  TAB_NEW_FILE,
-  TAB_NEW_TERMINAL,
-} from '@/features/keymaps/registry'
+import { SIDEBAR_TAB_CHATS, TAB_NEW_FILE, TAB_NEW_TERMINAL } from '@/features/keymaps/registry'
 import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
@@ -235,37 +228,6 @@ export function NewTabView({ paneId }: { paneId: string }) {
     [activateThisPane, workspaceStore, wsId],
   )
 
-  // Provider-agnostic, per the design spec: this action does not ask which
-  // provider, it just starts one — the FIRST ENABLED provider in priority order,
-  // the same pick the sidebar's unified "New chat" row and the ⌘N chord make
-  // (selectEnabledProviders). A disabled provider is hidden entirely (spec §2.2),
-  // so it is never chosen even when it leads the list. Follows the sidebar panel's
-  // own createChat call pattern (agent-chats-panel.tsx's `newChat`).
-  // Whether ANY provider can start a chat. Same rule the sidebar's unified
-  // New-chat row follows (the first enabled provider in priority order), and the
-  // gate on this surface's own "New Chat" action — a row that stays live while
-  // its handler can only return is a button that lies.
-  const hasEnabledProvider = useMemo(() => providers.some((p) => p.enabled), [providers])
-
-  const createNewChat = useCallback(() => {
-    const provider = providers.find((p) => p.enabled)
-    if (!provider) return
-    // Focus this pane NOW (so the surface reacts immediately) and again right
-    // before the buffer actually lands (in case the user moved focus elsewhere
-    // while the request was in flight) — mirrors openTerminal/openFile, just
-    // split across the async boundary.
-    activateThisPane()
-    createChat(wsId, provider.id)
-      .then((chatId) => {
-        workspaceStore.getState().setActiveAgentChatId(chatId)
-        const paneActions = windowPaneStore.getState().paneActions
-        paneActions.setActivePane(paneId)
-        // A brand-new chat has no runner yet — null until it spawns one.
-        paneActions.setPaneChat(paneId, chatId, null)
-      })
-      .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
-  }, [activateThisPane, paneId, providers, workspaceStore, wsId])
-
   return (
     // `pane-cq` lives here (not on the pane's shared content wrapper) so size
     // containment — which makes this element the containing block for its
@@ -324,23 +286,14 @@ export function NewTabView({ paneId }: { paneId: string }) {
               still yields the same measure while a long one widens the rows to
               match the heading instead of leaving them pinned narrow. */}
           <div className="nt-cols flex w-full min-w-[300px] flex-col items-start">
-            {/* Ordered by how often the action is actually wanted: starting a
-                conversation is what this surface is opened to do (and it owns the
-                unshifted ⌘N), a terminal next, and a new file last. */}
+            {/* Spec §7.2: the editor view's empty stage offers exactly three
+                ways in — a file, a terminal, or the branch review — and never
+                chat. A chat is the pane's own permanent identity (pane.chatId,
+                drawn at the row's head), not something this view opens; ⌘N
+                still starts one (use-pane-keyboard.ts), it just no longer has
+                a row here. Ordered by how often the action is actually
+                wanted: a terminal first, a new file last. */}
             <div className="flex w-full flex-col gap-0.5">
-              <ActionRow
-                icon={<ChatCircle />}
-                label="New Chat"
-                commandId={AGENT_NEW_CHAT}
-                onClick={createNewChat}
-                // Same sentence the Chats sidebar shows in place of its New-chat
-                // row, so the two dead surfaces give the user one answer.
-                disabledReason={
-                  hasEnabledProvider
-                    ? undefined
-                    : 'No agents are enabled. Turn one on in Settings → Agents.'
-                }
-              />
               <ActionRow
                 icon={<TerminalWindow />}
                 label="New Terminal"
