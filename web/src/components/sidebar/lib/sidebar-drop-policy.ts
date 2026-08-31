@@ -34,10 +34,14 @@ export interface RowScope {
 
 /**
  * A row's owning repo/project, or null if nothing in the live store claims
- * this id — a race, or a row kind (`chat`, `workflow`) with no producer
- * feeding `repos` yet. Every rule below refuses rather than guesses when this
- * comes back null, same posture the old policies took on an unrecognised
- * selection.
+ * this id — a race, or a row kind (`workflow`) with no producer feeding
+ * `repos` yet. Every rule below refuses rather than guesses when this comes
+ * back null, same posture the old policies took on an unrecognised selection.
+ *
+ * NOT a chat resolver, and never will be: `Repo` holds workspaces and folders,
+ * not chats, so a chat id matches none of the three id spaces below. Chat rows
+ * are handled by their own branch in `allowedModes` before this is reached —
+ * see there.
  *
  * Takes `repos` rather than reading the store itself so one drag call reads
  * `getState()` once, not once per subject. `drop-dom.ts`'s own design note
@@ -83,6 +87,8 @@ export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope 
  * nest it. Lock state isn't a `SidebarRow` field; it's read the same way
  * `file-explorer-tree.tsx` already reads it, via `isWorkspaceLockedInSidebar`
  * against the row's `workspaceId`.
+ *
+ * A CHAT row is exempt from all of that — see the branch below.
  */
 export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
@@ -93,6 +99,34 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // rather than guess which class wins (carried over from both old policies).
   const kind = subjects[0].kind
   if (subjects.some((s) => s.kind !== kind)) return NO_MODES
+
+  // A CHAT IS NOT REPO-SCOPED, so the repo/project walk below does not apply to
+  // it — and applying it anyway is what silently refused every single
+  // Recents-entry drag. `Repo` structurally holds no chats (`rows-from-repo.ts`
+  // emits branch and folder rows only), so `resolveRowRepo` can never resolve a
+  // chat id and returned null for every chat subject AND every chat target,
+  // taking the `!scope` refusal below — which made Task 33's `planChatDrop`,
+  // and with it spec §8.1's whole "middle of a Recents entry / above-below a
+  // Recents entry" row of the target table, unreachable dead code.
+  //
+  // The scope a chat DOES have is its workspace: its placement lives on the
+  // `AgentChat` aggregate and is written by `setChatPlacement`, which is
+  // workspace-scoped. Cross-workspace is deliberately still ALLOWED here rather
+  // than refused: spec §8.3 makes cross-repo drag legal precisely for "a chat
+  // with no worktree", and `planChatDrop` answers the one case the backend has
+  // no endpoint for with an explicit toast (`UNSUPPORTED`) — a real explanation,
+  // where a silent policy refusal would be none until §8.3's refusal affordance
+  // (still unbuilt, parked in Task 21) exists to say why.
+  //
+  // The two classes do not MIX, in either direction: a repo/workspace folder
+  // and a chat folder are different aggregates sharing one `kind: 'folder'`
+  // tag, and a branch is not something a chat can become a thread of.
+  // `planChatDrop` refuses a non-chat target the same way; refusing here too
+  // means the indicator never promises a move that would then do nothing.
+  if (kind === 'chat' || target.kind === 'chat') {
+    if (kind !== 'chat' || target.kind !== 'chat') return NO_MODES
+    return ALL_MODES
+  }
 
   const repos = useSidebarStore.getState().repos
 

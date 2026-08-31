@@ -255,6 +255,19 @@ function planChatDrop(
   // `target.parentId` is always `null` there, so 'before'/'after' can only
   // ever place at the workspace root; only 'into' (making the subject one of
   // the target's own threads) reaches a real container.
+  //
+  // WHAT THIS DOES AND DOES NOT MOVE, stated plainly: this writes the chat's
+  // placement on its own workspace aggregate, which is the durable order every
+  // chat-tree reader sorts by. It does NOT move the row's slot in the RECENTS
+  // BAND, because that band has no order of its own to write to:
+  // `deriveRecentsEntries` computes it from `dormantArrangements` (a
+  // window-level "closed-but-idle views, remembered so the close is undoable"
+  // ledger, in memory only) followed by pane order then working order, and a
+  // live pane's row or a working-no-view row has no record in that ledger at
+  // all. Giving §8.1's "above / below a Recents entry → it moves to that slot"
+  // its own persistence means freezing the whole derived order into a store
+  // whose documented meaning is undo-a-close, which is a design change, not a
+  // fix. Left as real remaining work rather than half-built here.
   const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
   const lifted = new Set(subjects.map((s) => s.id))
   const rest = (siblings.get(containerId) ?? []).filter((id) => !lifted.has(id))

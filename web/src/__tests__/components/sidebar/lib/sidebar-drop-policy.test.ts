@@ -176,4 +176,61 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes).toBe(allowedModes)
     expect(SIDEBAR_DROP_POLICY.edgeBandFor).toBe(edgeBandFor)
   })
+
+  // A chat is not in `repos` — `Repo` holds workspaces and folders, and
+  // `rows-from-repo.ts` emits only branch/folder rows — so the repo-scope walk
+  // resolved NOTHING for a chat subject or target and refused every mode. Since
+  // every chat row in the app is rendered by RecentsBand, that refused every
+  // Recents-entry drag there is, and left spec §8.1's own target table (middle
+  // of a Recents entry / above-below one) with no reachable implementation.
+  describe('chat rows are workspace-scoped, not repo-scoped', () => {
+    const chatRow = (id: string, over: Partial<SidebarRow> = {}) =>
+      makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: 'ws-1', ...over })
+
+    it('allows a chat drop onto another chat, though neither is in any repo', () => {
+      expect(SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], chatRow('chat-b'))).toEqual(
+        ALL_MODES,
+      )
+    })
+
+    it('allows a cross-workspace chat drop — §8.3 makes it legal for a row with no worktree', () => {
+      // The one case with no backend endpoint is answered by planChatDrop's own
+      // explicit toast, not by a silent refusal here (§8.3's refusal affordance
+      // does not exist yet, so a refusal would explain nothing).
+      const subject = chatRow('chat-a', { workspaceId: 'ws-1' })
+      const target = chatRow('chat-b', { workspaceId: 'ws-2' })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
+    })
+
+    it('still refuses a WORKING chat — §8.3 outranks the exemption', () => {
+      const subject = chatRow('chat-a', { working: true })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
+    })
+
+    it('still refuses dropping a chat onto itself', () => {
+      expect(SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], chatRow('chat-a'))).toEqual(
+        NO_MODES,
+      )
+    })
+
+    it('refuses a chat onto a tree row — different aggregates, nothing to land on', () => {
+      // `planChatDrop` refuses a non-chat target too; refusing here means the
+      // indicator never promises a move that would then quietly do nothing.
+      expect(SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' }))).toEqual(
+        NO_MODES,
+      )
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [chatRow('chat-a')],
+          makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null }),
+        ),
+      ).toEqual(NO_MODES)
+    })
+
+    it('refuses a tree row onto a chat — a branch is not one of a chat’s threads', () => {
+      expect(SIDEBAR_DROP_POLICY.allowedModes([makeRow({ id: 'ws-1' })], chatRow('chat-a'))).toEqual(
+        NO_MODES,
+      )
+    })
+  })
 })
