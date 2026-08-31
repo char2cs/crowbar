@@ -269,6 +269,24 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     measureElement: (el) => el.getBoundingClientRect().height,
     getItemKey,
     observeElementRect: observeScrollRect,
+    // Off by design, not a default left alone. `measureElement`'s ref fires
+    // during React's own commit phase — a lifecycle callback — and whenever a
+    // row's real size differs enough from its estimate to need a scroll
+    // compensation (routine here: rows vary from a one-line reply to a table,
+    // ESTIMATED_ROW_HEIGHT is a single guess), react-virtual's default
+    // (`useFlushSync: true`) calls `flushSync` from inside that same
+    // callback — forcing a synchronous re-render while React is already
+    // mid-commit. That's the exact "flushSync was called from inside a
+    // lifecycle method" React throws — seen live in this app's console
+    // clustered around a message settling from the interactive streaming
+    // editor to MarkdownMessageStatic (message-row.tsx), itself a commit
+    // landing at the same moment nearby rows get their first real
+    // measurement. `false`
+    // routes the same update through a plain `useReducer` dispatch instead —
+    // identical scroll-adjustment math (virtual-core's `resizeItem` /
+    // `applyScrollAdjustment`), just learned about asynchronously, which is
+    // what removes the conflict rather than papering over its symptom.
+    useFlushSync: false,
   })
 
   return (
