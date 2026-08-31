@@ -10,11 +10,14 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-// Lets one animation frame paint between evidence-recovery pages so a chat
+// Lets the main thread breathe between evidence-recovery pages so a chat
 // opened with deep queued-evidence history (up to EVIDENCE_RECOVERY_MAX_PAGES
-// pages) doesn't apply all of it as one uninterrupted synchronous task.
+// pages) doesn't apply all of it as one uninterrupted synchronous task. A
+// macrotask yield, not a frame — rAF never fires in an occluded/minimized
+// webview, which would otherwise wedge this loop until foregrounded again.
 function yieldToRenderer(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+  const yielder = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler?.yield
+  return yielder ? yielder() : new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 // Sorted by displayOrder (dispatch order), NOT sequence (persist order) — an

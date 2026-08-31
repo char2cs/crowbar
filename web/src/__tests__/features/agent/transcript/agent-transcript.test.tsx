@@ -358,6 +358,27 @@ describe('AgentTranscript windowed history', () => {
     expect(rows[3].style.paddingBottom).toBe('0px')
   })
 
+  // REGRESSION coverage: the test above only ever exercises a message next to
+  // a DIVIDER, never two ordinary messages back to back — which is the
+  // spacing between essentially every pair of turns in a real conversation.
+  // A bug where `endsMessageGroup` always returned `false` for a `message`
+  // row would flatten every inter-message gap to zero and still pass that
+  // test. `hasOlder: true` keeps a first-turn divider from interfering.
+  it('puts the 18px gap between two ordinary messages with no divider between them', () => {
+    const { container } = draw(conversation(3), { hasOlder: true })
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    expect(rows).toHaveLength(3)
+    expect(rows[0].querySelector('[data-testid="agent-message-0"]')).not.toBeNull()
+    expect(rows[1].querySelector('[data-testid="agent-message-1"]')).not.toBeNull()
+    expect(rows[2].querySelector('[data-testid="agent-message-2"]')).not.toBeNull()
+
+    expect(rows[0].style.paddingBottom).toBe('18px')
+    expect(rows[1].style.paddingBottom).toBe('18px')
+    // Nothing after the last row.
+    expect(rows[2].style.paddingBottom).toBe('0px')
+  })
+
   // The composer is already showing this sentence; the transcript must not say
   // it twice. Survives the flattening — the whole group goes, dividers included.
   it('drops the row the composer is already showing', () => {

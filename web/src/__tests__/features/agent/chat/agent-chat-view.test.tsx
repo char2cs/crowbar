@@ -5,6 +5,7 @@ import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/a
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
+import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
   () => ({
@@ -240,12 +241,11 @@ async function enterPrompt(text: string) {
 // Everything else (the dock's own measurement, the composer handle's drag
 // geometry) keeps jsdom's zeros, so nothing but the window changes here.
 //
-// The row height deliberately MATCHES the transcript's own `estimateSize`, so
-// the first measurement of every row reports no change and the virtualiser
-// never notifies — one render pass for a 200-message ledger instead of two.
-// Drift in that constant costs these suites time, never correctness.
+// The row height deliberately MATCHES the transcript's own `estimateSize`
+// (imported above, not re-hardcoded), so the first measurement of every row
+// reports no change and the virtualiser never notifies — one render pass for
+// a 200-message ledger instead of two.
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
-const ESTIMATED_ROW_HEIGHT = 64
 
 function fakeRect(width: number, height: number): DOMRect {
   const rect = { top: 0, left: 0, right: width, bottom: height, width, height, x: 0, y: 0 }

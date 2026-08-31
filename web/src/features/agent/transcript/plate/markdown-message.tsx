@@ -22,10 +22,12 @@ interface MarkdownMessageProps {
  * renders cannot leave the other behind. It also means what an agent sends back
  * and what you type next are parsed by the same rules.
  *
- * Read-only rather than static: Plate ships no static components in this app, so
- * a `PlateStatic` render would need a second set of node components — a second
- * definition of what a heading looks like, which is the divergence this exists
- * to prevent. A read-only editor reuses the ones already here.
+ * A real, interactive editor only because this is the actively-streaming
+ * bubble: `applyStreamedValue` patches an existing Plate document in place as
+ * tokens arrive, which only works on a real `usePlateEditor` instance. Every
+ * settled message renders through `MarkdownMessageStatic` instead, over the
+ * same derived plugin set (`chatComposerPluginsStatic`) — so there is no
+ * second definition of what a heading looks like anywhere in this pair.
  */
 export function MarkdownMessage({ children, className }: MarkdownMessageProps) {
   // Parsed once, lazily, for the editor's initial value — a lazy ref rather

@@ -289,8 +289,8 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
     listChatMessagesFn.mockReset()
   })
 
-  // window.requestAnimationFrame is a shared global — vi.spyOn on it in one
-  // test otherwise keeps recording calls into the next test's spy instance.
+  // global.setTimeout is a shared global — vi.spyOn on it in one test
+  // otherwise keeps recording calls into the next test's spy instance.
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -299,8 +299,12 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
   // pages of MESSAGE_PAGE_SIZE messages in loadInitial's forward-from-baseline
   // branch. Without a yield between pages, applying all of them is one
   // uninterrupted synchronous task that blocks the main thread.
+  //
+  // Spies on setTimeout, not rAF: jsdom has no `globalThis.scheduler`, so the
+  // yield always takes the `setTimeout(0)` fallback here. `refresh`'s own
+  // poll uses `setInterval`, never `setTimeout`, so this can't conflate them.
   it('yields to the renderer between evidence-recovery pages instead of blocking synchronously', async () => {
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    const timeoutSpy = vi.spyOn(global, 'setTimeout')
     listChatMessagesFn.mockImplementation(
       async (_ws: string, _chat: string, opts?: { after?: number; before?: number }) => {
         // Initial page: nothing new, but leaves evidence pending so the
@@ -344,7 +348,7 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
 
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
 
-    expect(rafSpy).toHaveBeenCalled()
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0)
   })
 
   // refresh() polls small pages on a 1s cadence — it must NOT pick up the
@@ -372,7 +376,7 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
     const { result } = renderHook(() => useChatMessages(options))
     await waitFor(() => expect(result.current.messages).toHaveLength(1))
 
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    const timeoutSpy = vi.spyOn(global, 'setTimeout')
     listChatMessagesFn.mockResolvedValueOnce({
       cursor: 6,
       oldestCursor: 1,
@@ -381,7 +385,7 @@ describe('loadInitial: yields between evidence-recovery pages', () => {
     })
     await result.current.refresh()
 
-    expect(rafSpy).not.toHaveBeenCalled()
+    expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 0)
   })
 })
 

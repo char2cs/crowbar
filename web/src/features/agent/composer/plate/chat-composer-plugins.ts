@@ -109,7 +109,7 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
 }
 
 /**
- * `chatComposerPlugins`, derived — not hand-duplicated. A plugin added above
+ * `chatComposerPluginsStatic`, derived — not hand-duplicated. A plugin added above
  * flows through automatically; only registered exceptions (Link's toolbar,
  * Callout's icon picker — both need an interactive editor, neither is a
  * content difference, see callout-content.tsx/link-kit.tsx) get swapped.

@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
-import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
+import { AgentTranscript, ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
 
 /**
  * Scale gate for Task 5's virtualization of the historical transcript rows,
@@ -38,7 +38,9 @@ import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 // per-row measurement rather than one row that happens to fill the screen.
 const VIEWPORT_WIDTH = 768
 const VIEWPORT_HEIGHT = 800
-const ROW_HEIGHT = 64
+// Matches the transcript's own `estimateSize`, imported rather than
+// re-hardcoded — see agent-transcript.tsx for why it's 96, not 64.
+const ROW_HEIGHT = ESTIMATED_ROW_HEIGHT
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {

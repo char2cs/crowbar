@@ -86,10 +86,12 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
  *  offsets stay right. */
 const ROW_GAP = 18
 
-/** An unmeasured row's opening guess — roughly a short bubble plus its gap.
- *  Only ever wrong for a moment: every mounted row reports its real height
- *  through `measureElement`. */
-const ESTIMATED_ROW_HEIGHT = 64
+/** An unmeasured row's opening guess — a short assistant reply's real shape
+ *  (padding + one prose line + turnbar + its own group gap), not 64, because
+ *  a cold open's `scrollTop = scrollHeight` runs against this before anything
+ *  is measured. Exported so the tests standing in for jsdom's missing layout
+ *  engine can't drift from it. */
+export const ESTIMATED_ROW_HEIGHT = 96
 
 /**
  * Where the 18px actually went BEFORE this list was flattened.
