@@ -1,7 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import type { EditorTabBase } from '@/features/panes/types/pane-content'
+
+// Task 1 renamed the pane's tab list `bufferIds` -> `editorTabIds` and the
+// actions that write it (`addBufferToPane` -> `addEditorTabToPane`, which now
+// takes the tab OBJECT rather than a bare id; `activatePaneBuffer` ->
+// `activateEditorTabInPane`). `pane-command-actions.ts` itself was migrated in
+// Task 26's fix round; this suite was not, so every case threw
+// `addBufferToPane is not a function`. Same assertions, real API.
+
+/** The tab object `addEditorTabToPane` takes. Only `id` is read today, but
+ *  the object shape is the contract (see pane-container.tsx's own wrapper). */
+const tab = (id: string): EditorTabBase => ({
+  id,
+  type: 'editor',
+  path: `/workspace/${id}.ts`,
+  name: `${id}.ts`,
+  workspaceId: 'test-ws',
+})
 
 describe('pane command actions', () => {
   beforeEach(() => {
@@ -33,14 +54,14 @@ describe('pane command actions', () => {
       ],
     }))
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
     const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
     expect(rootIds).toHaveLength(2)
     for (const id of rootIds) {
-      expect(windowPaneStore.getState().panes[id]?.bufferIds).toContain('buffer-a')
+      expect(windowPaneStore.getState().panes[id]?.editorTabIds).toContain('buffer-a')
     }
   })
 
@@ -65,23 +86,23 @@ describe('pane command actions', () => {
       ],
     }))
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'terminal-a')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('terminal-a'))
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
     const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
     expect(rootIds).toHaveLength(2)
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.bufferIds).toEqual(['terminal-a'])
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toEqual(['terminal-a'])
     const newPaneId = rootIds.find((id) => id !== ROOT_PANE_ID)
     expect(newPaneId).toBeDefined()
-    if (newPaneId) expect(windowPaneStore.getState().panes[newPaneId]?.bufferIds).toEqual([])
+    if (newPaneId) expect(windowPaneStore.getState().panes[newPaneId]?.editorTabIds).toEqual([])
   })
 
   it('closes only when another editor group can receive the buffers', async () => {
     const { closeActiveEditorGroup } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
     expect(closeActiveEditorGroup()).toBe(false)
 
     const splitPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
@@ -92,26 +113,26 @@ describe('pane command actions', () => {
     expect(closeActiveEditorGroup()).toBe(true)
     const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
     expect(rootIds).toHaveLength(1)
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-a'])
   })
 
   it('closes other editor groups into the active editor group', async () => {
     const { closeOtherEditorGroups } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    paneActions.addBufferToPane(rightPaneId, 'buffer-b')
+    paneActions.addEditorTabToPane(rightPaneId, tab('buffer-b'))
     paneActions.setActivePane(ROOT_PANE_ID)
 
     expect(closeOtherEditorGroups()).toBe(true)
     const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
     expect(rootIds).toHaveLength(1)
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toContain('buffer-a')
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toContain('buffer-b')
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toContain('buffer-a')
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toContain('buffer-b')
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 
@@ -123,7 +144,9 @@ describe('pane command actions', () => {
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    const bottomRightPaneId = windowPaneStore.getState().paneActions.splitPane(rightPaneId, 'vertical')
+    const bottomRightPaneId = windowPaneStore
+      .getState()
+      .paneActions.splitPane(rightPaneId, 'vertical')
     expect(bottomRightPaneId).not.toBeNull()
     if (!bottomRightPaneId) return
 
@@ -146,22 +169,22 @@ describe('pane command actions', () => {
       await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    paneActions.addBufferToPane(ROOT_PANE_ID, 'buffer-b')
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
+    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-b'))
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    paneActions.activatePaneBuffer(ROOT_PANE_ID, 'buffer-a')
+    paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'buffer-a')
     expect(moveActiveEditorToAdjacentGroup('next')).toBe(true)
 
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual(['buffer-b'])
-    expect(paneActions.getPaneById(rightPaneId)?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-b'])
+    expect(paneActions.getPaneById(rightPaneId)?.editorTabIds).toEqual(['buffer-a'])
     expect(windowPaneStore.getState().activePaneId).toBe(rightPaneId)
 
     expect(moveActiveEditorToAdjacentGroup('previous')).toBe(true)
 
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toContain('buffer-a')
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toContain('buffer-a')
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 
@@ -174,12 +197,12 @@ describe('pane command actions', () => {
     } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addBufferToPane(BOTTOM_PANE_ID, 'terminal-a')
+    paneActions.addEditorTabToPane(BOTTOM_PANE_ID, tab('terminal-a'))
     const splitPaneId = paneActions.splitPane(BOTTOM_PANE_ID, 'horizontal')
     expect(splitPaneId).not.toBeNull()
     if (!splitPaneId) return
 
-    paneActions.addBufferToPane(splitPaneId, 'terminal-b')
+    paneActions.addEditorTabToPane(splitPaneId, tab('terminal-b'))
     paneActions.setActivePane(splitPaneId)
 
     expect(splitActiveEditorGroup('horizontal')).toBe(false)
