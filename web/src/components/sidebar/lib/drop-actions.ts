@@ -2,10 +2,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import {
-  getActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
@@ -378,23 +376,18 @@ export function performSidebarPaneDrop(
  */
 function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   if (!subject.workspaceId) return
-  // `paneId` was hit-tested off the DOM, which only ever renders the panes of
-  // the ACTIVE workspace's WorkspaceView (every other retained workspace sits
-  // hidden — display:none — and the hit test itself refuses a zero-size rect).
-  // `RecentsBand` spans every workspace a project retains (spec §4: "Recents
-  // is per space"), so a row belonging to some OTHER, off-screen workspace can
-  // absolutely be dragged while THIS workspace's panes are what's on screen.
-  // `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are literal constants shared by every
-  // workspace's own store (recents-for-project.ts documents this same trap),
-  // so resolving `paneId` against the CHAT's workspace instead of the PANE's
-  // real one does not fail — it silently mutates a workspace the user isn't
-  // even looking at. Refuse rather than guess: there is no sidebar-placement
-  // endpoint threading a `navigate` call through this far down yet, and a
-  // cross-workspace merge/open has no coherent single-pane-tree meaning to
-  // fall back to.
-  if (subject.workspaceId !== getActiveWorkspaceId()) return
-  const store = getOrCreateWorkspaceStore(subject.workspaceId)
-  const { panes, paneActions } = store.getState()
+  // Task 26 investigation (this refusal predates the hoist): the OLD reason
+  // to refuse a chat from some OTHER, off-screen workspace was that `paneId`
+  // could only be resolved correctly against the store the DOM's hit-tested
+  // pane actually belonged to — `ROOT_PANE_ID`/`BOTTOM_PANE_ID` were literal
+  // constants every PER-WORKSPACE store shared, so resolving `paneId` against
+  // the wrong store didn't fail, it silently mutated a workspace the user
+  // wasn't looking at. Panes are window-level now (one store, real
+  // `windowPaneStore.getState().panes[paneId]` lookup) — there is no more
+  // "wrong store" to guess between, so this is exactly the feature the hoist
+  // was for: a Recents row from a different, off-screen workspace can now
+  // land its chat into a pane the user is actually looking at, correctly.
+  const { panes, paneActions } = windowPaneStore.getState()
   const chatId = subject.id
 
   const existingPane = Object.values(panes).find((p) => p.chatId === chatId)

@@ -1,6 +1,6 @@
 import type { useNavigate } from '@tanstack/react-router'
 import { resolveRow } from '@/components/layout/space-content-actions'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { Repo } from '@/lib/store/sidebar'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 
@@ -23,7 +23,10 @@ export function focusRecent(
     to: '/ide/$projectId/$repoId/$wsId',
     params: { projectId: found.repo.projectId, repoId: found.repo.id, wsId: entry.workspaceId },
   })
-  const { paneActions } = getOrCreateWorkspaceStore(entry.workspaceId).getState()
+  // Task 26: panes are window-level now — chat ids are globally unique, so
+  // finding "the pane holding one of this entry's chats" no longer needs the
+  // entry's own workspace's store at all (there is only one pane store).
+  const { paneActions } = windowPaneStore.getState()
   const pane = paneActions
     .getAllPaneGroups()
     .find((p) => p.chatId != null && entry.chatIds.includes(p.chatId))
@@ -41,7 +44,7 @@ export function focusRecent(
  *   remembered arrangement outright.
  */
 export function closeRecent(entry: RecentsBandEntry): void {
-  const { paneActions } = getOrCreateWorkspaceStore(entry.workspaceId).getState()
+  const { paneActions } = windowPaneStore.getState()
   const panes = paneActions
     .getAllPaneGroups()
     .filter((p) => p.chatId != null && entry.chatIds.includes(p.chatId))
@@ -49,8 +52,10 @@ export function closeRecent(entry: RecentsBandEntry): void {
     for (const pane of panes) paneActions.closePane(pane.id)
     return
   }
-  // `entry.id` is workspace-qualified for cross-workspace display uniqueness
-  // (see recents-for-project.ts) — `localId` is the real id the owning
-  // store's own `dormantArrangements` are keyed by.
+  // `localId` equals `id` now that panes are window-level (Task 26 removed
+  // the old workspace-qualification these ids used to need — see
+  // recents-for-project.ts) — kept as its own field since RecentsBandEntry
+  // still declares it, and it's the id the one pane store's own
+  // `dormantArrangements` are keyed by.
   paneActions.forgetDormantArrangement(entry.localId)
 }

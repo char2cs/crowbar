@@ -3,6 +3,7 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { deriveRecentsEntries } from './recents-entries'
 import type { Repo } from '@/lib/store/sidebar'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
@@ -42,36 +43,57 @@ export function workspaceIdsForProject(repos: readonly Repo[], projectId: string
  *
  * Only workspaces that ALREADY have a live store — `getAllActiveWorkspaceIds`,
  * populated by `WorkspaceHost`'s active + keep-alive-retained set — are read.
- * A workspace nobody has opened this session has no panes, no working chats
- * and no dormant arrangements to show; calling `getOrCreateWorkspaceStore`
- * for one anyway would register a store WorkspaceHost never mounted and so
- * never destroys, leaking it for the life of the session.
+ * A workspace nobody has opened this session has no working/dormant chats to
+ * show.
  *
- * Every produced entry's `.id` is workspace-qualified (`${wsId}:${id}`):
- * `deriveRecentsEntries` keys an entry by a pane id or a dormant
- * arrangement's id, and `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are module-level
- * constants — identical across every workspace store. Two retained
- * workspaces under one project each holding a chat in their root pane would
- * otherwise both produce an entry literally id `'root-pane'`, a guaranteed
- * React-key/`data-testid` collision. `localId` carries the original,
- * workspace-scoped id through for any caller (e.g.
- * `paneActions.forgetDormantArrangement`) that needs to match it against the
- * owning store's own real stored state.
+ * Task 26: panes/dormantArrangements are WINDOW-level now (one flat store
+ * for the whole app, not one per workspace — see window-pane-store.ts), so
+ * this no longer aggregates N separate per-workspace stores' OWN pane trees.
+ * `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are no longer duplicated per workspace
+ * either (there is exactly one pane store), so the old workspace-qualified
+ * id (`${wsId}:${id}`) this function used to mint to dodge that collision is
+ * gone — every pane/dormant-arrangement id is already globally unique.
+ * What's left to do here is project SCOPING: this project's chats are
+ * spread across its own workspaces' `agentChats` (still per-workspace — a
+ * chat "belongs" to whichever workspace store's `agentChats.chats` names
+ * it), so a single project-wide chat-id set and merged `working` map are
+ * built from just `projectWsIds`, and `deriveRecentsEntries` is called ONCE
+ * against the one pane store's panes/dormantArrangements, filtered to that
+ * set — a pane or dormant arrangement holding some OTHER project's chat is
+ * excluded rather than resolved against the wrong store (there is no
+ * "wrong store" to resolve against any more, but a wrong PROJECT is still a
+ * real thing to guard against; two panes on screen can legitimately belong
+ * to different projects' workspaces at once).
  */
 export function recentsForProject(repos: readonly Repo[], projectId: string): RecentsBandEntry[] {
-  const projectWsIds = new Set(workspaceIdsForProject(repos, projectId))
-  const entries: RecentsBandEntry[] = []
-  for (const wsId of getAllActiveWorkspaceIds()) {
-    if (!projectWsIds.has(wsId)) continue
-    const state = getOrCreateWorkspaceStore(wsId).getState()
-    const perWorkspace = deriveRecentsEntries(
-      Object.values(state.panes),
-      state.agentChats.working,
-      state.dormantArrangements,
-    )
-    for (const entry of perWorkspace) {
-      entries.push({ ...entry, id: `${wsId}:${entry.id}`, localId: entry.id, workspaceId: wsId })
-    }
+  const projectWsIds = getAllActiveWorkspaceIds().filter((wsId) =>
+    workspaceIdsForProject(repos, projectId).includes(wsId),
+  )
+
+  // chatId -> the workspace whose store owns it (still per-workspace state —
+  // AgentChatsSlice did not move in Task 26). Every RecentsBandEntry needs
+  // this to render (recents-band.tsx resolves a chat's live data by it).
+  const chatWorkspace = new Map<string, string>()
+  const working: Record<string, boolean> = {}
+  for (const wsId of projectWsIds) {
+    const { agentChats } = getOrCreateWorkspaceStore(wsId).getState()
+    for (const chat of agentChats.chats) chatWorkspace.set(chat.id, wsId)
+    Object.assign(working, agentChats.working)
   }
-  return entries
+
+  const { panes, dormantArrangements } = windowPaneStore.getState()
+  const projectPanes = Object.values(panes).filter(
+    (p) => p.chatId != null && chatWorkspace.has(p.chatId),
+  )
+  const projectDormant = dormantArrangements.filter((e) =>
+    e.chatIds.some((id) => chatWorkspace.has(id)),
+  )
+
+  return deriveRecentsEntries(projectPanes, working, projectDormant).map((entry) => ({
+    ...entry,
+    // Ids are already globally unique (one pane store, real chat/nanoid ids)
+    // — no more workspace-qualification needed, so localId is just id.
+    localId: entry.id,
+    workspaceId: chatWorkspace.get(entry.chatIds[0]) ?? '',
+  }))
 }

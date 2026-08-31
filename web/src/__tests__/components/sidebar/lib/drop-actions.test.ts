@@ -38,6 +38,7 @@ import {
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
 
@@ -160,6 +161,9 @@ beforeEach(() => {
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  // Task 26: panes/buffers are a window-level singleton now, never destroyed
+  // by destroyWorkspaceStore — reset it to a pristine store between tests.
+  resetWindowPaneStoreForTests()
 })
 
 describe('performSidebarDrop — reordering (no lineage change)', () => {
@@ -564,12 +568,17 @@ describe('performSidebarDrop — chats', () => {
   })
 })
 
-// ── performSidebarPaneDrop — spec §8.1's other two targets (unchanged, Task 22) ──
+// ── performSidebarPaneDrop — spec §8.1's other two targets ──
+//
+// Task 26: panes are window-level now (`windowPaneStore`, one flat store for
+// every workspace — see window-pane-store.ts), not one of the many
+// per-workspace `getOrCreateWorkspaceStore(wsId)` stores. Every assertion
+// below moved from `getOrCreateWorkspaceStore('ws-1').getState()` to
+// `windowPaneStore.getState()` for that reason.
 
 describe('performSidebarPaneDrop — non-chat subjects', () => {
   it('ignores branch/folder/workflow rows — no pane has an "open into" meaning for them yet', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    const before = store.getState().panes[ROOT_PANE_ID]
+    const before = windowPaneStore.getState().panes[ROOT_PANE_ID]
 
     performSidebarPaneDrop(
       [
@@ -581,7 +590,7 @@ describe('performSidebarPaneDrop — non-chat subjects', () => {
       'center',
     )
 
-    expect(store.getState().panes[ROOT_PANE_ID]).toEqual(before)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]).toEqual(before)
   })
 
   it('is a no-op for a chat row with no owning workspace', () => {
@@ -597,129 +606,118 @@ describe('performSidebarPaneDrop — non-chat subjects', () => {
 
 describe('performSidebarPaneDrop — plain open (spec §8.1 "middle of a pane")', () => {
   it('opens a chat that is not up anywhere into an empty pane, and focuses it', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'center')
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
-    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 })
 
 describe('performSidebarPaneDrop — already up (spec §8.2)', () => {
   it('a chat already live in another pane goes TO it — reveal, never a second setPaneChat', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    const otherPane = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    store.getState().paneActions.setPaneChat(otherPane, 'c1', 'runner-1')
-    store.getState().paneActions.setActivePane(ROOT_PANE_ID)
+    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
 
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'center')
 
     // Never opened twice: ROOT_PANE_ID is untouched, and the reveal just
     // refocuses the pane that already has it.
-    expect(store.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
-    expect(store.getState().panes[otherPane]?.chatId).toBe('c1')
-    expect(store.getState().activePaneId).toBe(otherPane)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+    expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('c1')
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPane)
   })
 
   it('dropping a chat onto the exact pane already showing it is a harmless no-op', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'right')
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
-    expect(Object.keys(store.getState().panes)).toHaveLength(2) // root + bottom only — no split made
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(2) // root + bottom only — no split made
   })
 })
 
 describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2)', () => {
   it('an edge drop onto an EMPTY pane still splits, with nothing to merge into', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'right')
 
-    const panes = store.getState().panes
+    const panes = windowPaneStore.getState().panes
     const newPane = Object.values(panes).find((p) => p.chatId === 'c1')
     expect(newPane).toBeDefined()
     expect(newPane?.id).not.toBe(ROOT_PANE_ID)
-    expect(store.getState().dormantArrangements).toEqual([])
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
 
   it('a center drop onto an OCCUPIED pane never swaps — it merges instead (rule 1: every drop adds)', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'center')
 
     // c1 is still exactly where it was — nothing was evicted.
-    expect(store.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
-    const newPane = Object.values(store.getState().panes).find((p) => p.chatId === 'c2')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c2')
     expect(newPane).toBeDefined()
   })
 
   it('an edge drop onto an occupied pane groups both chats into one Recents entry ("side by side")', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right')
 
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    const [entry] = store.getState().dormantArrangements
+    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
+    const [entry] = windowPaneStore.getState().dormantArrangements
     expect([...entry.chatIds].sort()).toEqual(['c1', 'c2'])
   })
 
   it('merging into a pane already part of an arrangement GROWS it rather than nesting a second one', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now grouped
 
     performSidebarPaneDrop([chatRow('c3', 'ws-1')], ROOT_PANE_ID, 'bottom')
 
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    const [entry] = store.getState().dormantArrangements
+    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
+    const [entry] = windowPaneStore.getState().dormantArrangements
     expect([...entry.chatIds].sort()).toEqual(['c1', 'c2', 'c3'])
   })
 
   it('dropping an already-grouped chat elsewhere reveals it in place — the group is untouched', () => {
-    const store = getOrCreateWorkspaceStore('ws-1')
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now grouped
-    const grouped = store.getState().dormantArrangements
+    const grouped = windowPaneStore.getState().dormantArrangements
 
-    const freshPane = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'vertical')!
+    const freshPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'vertical')!
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], freshPane, 'center')
 
-    expect(store.getState().panes[freshPane]?.chatId).toBeNull()
-    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
-    expect(store.getState().dormantArrangements).toEqual(grouped)
+    expect(windowPaneStore.getState().panes[freshPane]?.chatId).toBeNull()
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(windowPaneStore.getState().dormantArrangements).toEqual(grouped)
   })
 })
 
-describe('performSidebarPaneDrop — cross-workspace safety (Fix round 1)', () => {
-  it('refuses a drop when the dragged chat belongs to a workspace other than the one whose pane was actually hit', () => {
-    const visible = getOrCreateWorkspaceStore('ws-visible')
-    const offscreen = getOrCreateWorkspaceStore('ws-offscreen')
+describe('performSidebarPaneDrop — cross-workspace (Task 26: panes are window-level now)', () => {
+  // Fix round 1 (Task 22) refused this — the per-workspace pane STORE gave no
+  // way to resolve `paneId` against the chat's own workspace without risking
+  // a silent mutation of an off-screen workspace's store. That "wrong store"
+  // no longer exists: there is exactly one pane store, so a Recents row from
+  // an off-screen workspace can now land its chat into whatever pane is
+  // actually on screen — the very capability the hoist exists to provide.
+  it('lands a chat from a different, off-screen workspace into the pane actually hit', () => {
     setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
-    visible.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
-    const visibleBefore = visible.getState()
-    const offscreenBefore = offscreen.getState()
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c1', 'ws-offscreen')], ROOT_PANE_ID, 'right')
 
-    expect(visible.getState().panes).toEqual(visibleBefore.panes)
-    expect(visible.getState().rootLayout).toEqual(visibleBefore.rootLayout)
-    expect(offscreen.getState().panes).toEqual(offscreenBefore.panes)
-    expect(offscreen.getState().rootLayout).toEqual(offscreenBefore.rootLayout)
-    expect(offscreen.getState().dormantArrangements).toEqual([])
+    const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')
+    expect(newPane).toBeDefined()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('already-here')
   })
 
   it('still works normally once the chat and the active workspace agree', () => {
-    const store = getOrCreateWorkspaceStore('ws-visible')
     setActiveWorkspaceId('ws-visible')
 
     performSidebarPaneDrop([chatRow('c1', 'ws-visible')], ROOT_PANE_ID, 'center')
 
-    expect(store.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
   })
 })

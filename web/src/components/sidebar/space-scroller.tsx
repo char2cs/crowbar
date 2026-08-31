@@ -9,6 +9,7 @@ import {
   getAllActiveWorkspaceIds,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
@@ -39,26 +40,26 @@ interface SpaceScrollerProps {
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
 }
 
-/** The four `WorkspaceState` fields Recents actually reads, compared by
- *  reference below (immer only replaces a slice's reference when that slice
- *  was actually mutated) - mirrors workspace-store-registry.ts's own
- *  persistence-subscribe idiom, so an unrelated store write (editor buffers,
- *  terminal output) never triggers a recompute. */
+/** The two `agentChats` fields Recents actually reads, compared by reference
+ *  below (immer only replaces a slice's reference when that slice was
+ *  actually mutated) - mirrors workspace-store-registry.ts's own
+ *  persistence-subscribe idiom, so an unrelated store write (LSP, terminal
+ *  output) never triggers a recompute. `panes`/`dormantArrangements` moved to
+ *  the window-level pane store (Task 26) — see the separate subscription
+ *  below, no longer one of these per-workspace fields. */
 function recentsSlice(state: WorkspaceState) {
   return {
-    panes: state.panes,
     working: state.agentChats.working,
     chats: state.agentChats.chats,
-    dormant: state.dormantArrangements,
   }
 }
 
 /**
- * Re-renders the caller whenever a currently-active workspace's panes,
- * working chats, chat list or dormant arrangements change, so a project's
- * Recents band recomputes with fresh data - a plain `.subscribe(listener)`
- * fires on EVERY store mutation, so the listener drops anything that did not
- * touch one of the four fields above.
+ * Re-renders the caller whenever a currently-active workspace's working
+ * chats or chat list change, OR the one window-level pane store's panes/
+ * dormant arrangements change, so a project's Recents band recomputes with
+ * fresh data - a plain `.subscribe(listener)` fires on EVERY store mutation,
+ * so the listener drops anything that did not touch one of these fields.
  *
  * `workspaceIds` need not already be filtered to active ones: subscribing is
  * skipped for an id with no live store rather than creating one (see
@@ -89,18 +90,30 @@ function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
         let prevSlice = recentsSlice(store.getState())
         return store.subscribe((state) => {
           const nextSlice = recentsSlice(state)
-          if (
-            nextSlice.panes === prevSlice.panes &&
-            nextSlice.working === prevSlice.working &&
-            nextSlice.chats === prevSlice.chats &&
-            nextSlice.dormant === prevSlice.dormant
-          ) {
+          if (nextSlice.working === prevSlice.working && nextSlice.chats === prevSlice.chats) {
             return
           }
           prevSlice = nextSlice
           setTick((t) => t + 1)
         })
       })
+    // One window-level pane store (Task 26) — panes/dormantArrangements no
+    // longer need a per-workspace subscription loop; any project's Recents
+    // could be affected by a pane change anywhere, so this fires on every
+    // pane/dormant-arrangement mutation regardless of `workspaceIds`.
+    let prevPaneSlice = {
+      panes: windowPaneStore.getState().panes,
+      dormant: windowPaneStore.getState().dormantArrangements,
+    }
+    unsubs.push(
+      windowPaneStore.subscribe((state) => {
+        if (state.panes === prevPaneSlice.panes && state.dormantArrangements === prevPaneSlice.dormant) {
+          return
+        }
+        prevPaneSlice = { panes: state.panes, dormant: state.dormantArrangements }
+        setTick((t) => t + 1)
+      }),
+    )
     return () => unsubs.forEach((u) => u())
   }, [idsKey, refreshSignal])
 }

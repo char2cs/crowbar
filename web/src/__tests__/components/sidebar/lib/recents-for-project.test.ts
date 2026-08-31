@@ -4,12 +4,16 @@ import {
   workspaceIdsForProject,
 } from '@/components/sidebar/lib/recents-for-project'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import type { Repo, Workspace } from '@/lib/store/sidebar'
 
+// Task 26: panes/dormantArrangements are window-level now (one flat store
+// for every workspace — see window-pane-store.ts), so this no longer needs
+// N separate fake per-workspace pane trees — the REAL windowPaneStore is
+// seeded directly per test instead. Only `agentChats` (still per-workspace —
+// AgentChatsSlice did not move) stays behind the registry mock.
 interface FakeWorkspaceStoreState {
-  panes: Record<string, { id: string; chatId: string | null }>
-  agentChats: { working: Record<string, boolean> }
-  dormantArrangements: { id: string; chatIds: string[]; state: string }[]
+  agentChats: { chats: { id: string }[]; working: Record<string, boolean> }
 }
 
 const { activeIds, storeStates, homeIds } = vi.hoisted(() => ({
@@ -23,9 +27,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: vi.fn((wsId: string) => ({
     getState: () =>
       storeStates.current.get(wsId) ?? {
-        panes: {},
-        agentChats: { working: {} },
-        dormantArrangements: [],
+        agentChats: { chats: [], working: {} },
       },
   })),
 }))
@@ -50,10 +52,19 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
+/** Seed the REAL window pane store with one pane holding `chatId`. */
+function seedLivePane(chatId: string) {
+  const { paneActions, activePaneId } = windowPaneStore.getState()
+  const target = paneActions.getPaneById(activePaneId)
+  const paneId = target?.chatId == null ? activePaneId : paneActions.splitPane(activePaneId, 'horizontal')!
+  paneActions.setPaneChat(paneId, chatId, null)
+}
+
 beforeEach(() => {
   activeIds.current = []
   storeStates.current = new Map()
   homeIds.current = new Map()
+  resetWindowPaneStoreForTests()
 })
 
 describe('workspaceIdsForProject', () => {
@@ -96,16 +107,10 @@ describe('workspaceIdsForProject', () => {
 describe('recentsForProject', () => {
   it("excludes another project's entries", () => {
     activeIds.current = ['ws-1', 'ws-2']
-    storeStates.current.set('ws-1', {
-      panes: { pane1: { id: 'pane1', chatId: 'chat-1' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
-    })
-    storeStates.current.set('ws-2', {
-      panes: { pane2: { id: 'pane2', chatId: 'chat-2' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
-    })
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
+    storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
+    seedLivePane('chat-1')
+    seedLivePane('chat-2')
     const repos = [
       makeTestRepo({
         id: 'r1',
@@ -128,16 +133,11 @@ describe('recentsForProject', () => {
 
   it('aggregates across MULTIPLE workspaces under the same project', () => {
     activeIds.current = ['ws-1', 'ws-2']
-    storeStates.current.set('ws-1', {
-      panes: { pane1: { id: 'pane1', chatId: 'chat-1' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
-    })
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
     storeStates.current.set('ws-2', {
-      panes: {},
-      agentChats: { working: { 'chat-2': true } },
-      dormantArrangements: [],
+      agentChats: { chats: [{ id: 'chat-2' }], working: { 'chat-2': true } },
     })
+    seedLivePane('chat-1')
     const repos = [
       makeTestRepo({
         id: 'r1',
@@ -160,10 +160,9 @@ describe('recentsForProject', () => {
     homeIds.current.set('p1', 'home-ws-p1')
     activeIds.current = ['home-ws-p1']
     storeStates.current.set('home-ws-p1', {
-      panes: { pane1: { id: 'pane1', chatId: 'home-chat-1' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
+      agentChats: { chats: [{ id: 'home-chat-1' }], working: {} },
     })
+    seedLivePane('home-chat-1')
     const repos = [makeTestRepo({ id: 'r1', projectId: 'p1' })] // no tree workspaces at all
 
     const entries = recentsForProject(repos, 'p1')
@@ -173,23 +172,17 @@ describe('recentsForProject', () => {
     expect(entries[0].chatIds).toEqual(['home-chat-1'])
   })
 
-  it("workspace-qualifies every entry's id so two retained workspaces sharing a literal pane id (e.g. ROOT_PANE_ID) never collide", () => {
-    // ROOT_PANE_ID/BOTTOM_PANE_ID are module-level constants, identical
-    // across EVERY workspace store — WorkspaceHost commonly retains several
-    // workspaces at once, each perfectly able to hold a chat in its own
-    // 'root-pane'. Without qualification both entries would carry the same
-    // literal `.id`, a guaranteed React-key/data-testid collision.
+  it('every entry id is real and globally unique — no workspace-qualification needed', () => {
+    // Task 26: panes are window-level now (ROOT_PANE_ID/BOTTOM_PANE_ID are no
+    // longer duplicated per workspace store — there is exactly one pane
+    // store), so unlike the pre-hoist version of this function, entry ids
+    // need no `${wsId}:` qualification to stay collision-free — the pane
+    // store already guarantees that.
     activeIds.current = ['ws-1', 'ws-2']
-    storeStates.current.set('ws-1', {
-      panes: { 'root-pane': { id: 'root-pane', chatId: 'chat-1' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
-    })
-    storeStates.current.set('ws-2', {
-      panes: { 'root-pane': { id: 'root-pane', chatId: 'chat-2' } },
-      agentChats: { working: {} },
-      dormantArrangements: [],
-    })
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
+    storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
+    seedLivePane('chat-1')
+    seedLivePane('chat-2')
     const repos = [
       makeTestRepo({
         id: 'r1',
@@ -206,12 +199,8 @@ describe('recentsForProject', () => {
     expect(entries).toHaveLength(2)
     const ids = entries.map((e) => e.id)
     expect(new Set(ids).size).toBe(2) // distinct — no collision
-    // Each entry still carries the REAL (unqualified) store id for callers
-    // (e.g. paneActions.forgetDormantArrangement) that must match it against
-    // the owning store's own state.
-    expect(entries.every((e) => e.localId === 'root-pane')).toBe(true)
-    expect(ids).toContain('ws-1:root-pane')
-    expect(ids).toContain('ws-2:root-pane')
+    // localId is just id now — no separate qualified/real pair to keep in sync.
+    expect(entries.every((e) => e.localId === e.id)).toBe(true)
   })
 
   it('a workspace with no live store contributes nothing, and none is created for it', () => {
