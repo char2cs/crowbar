@@ -7,7 +7,10 @@ import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { IndentPlugin } from '@platejs/indent/react'
 import { ListKit } from '@/components/editor/plugins/list-kit'
-import { LinkKit } from '@/components/editor/plugins/link-kit'
+import { LinkKit, LinkKitStatic } from '@/components/editor/plugins/link-kit'
+import { LinkPlugin } from '@platejs/link/react'
+import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static'
+import { CalloutPlugin } from '@platejs/callout/react'
 import {
   TableCellHeaderPlugin,
   TableCellPlugin,
@@ -99,3 +102,18 @@ export const chatComposerPlugins = [
     },
   }),
 ]
+
+const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]> = {
+  [LinkPlugin.key]: LinkKitStatic[0],
+  [CalloutPlugin.key]: CalloutKitStatic[0],
+}
+
+/**
+ * `chatComposerPlugins`, derived — not hand-duplicated. A plugin added above
+ * flows through automatically; only registered exceptions (Link's toolbar,
+ * Callout's icon picker — both need an interactive editor, neither is a
+ * content difference, see callout-content.tsx/link-kit.tsx) get swapped.
+ */
+export const chatComposerPluginsStatic = chatComposerPlugins.map(
+  (plugin) => STATIC_NODE_OVERRIDES[plugin.key] ?? plugin,
+)
