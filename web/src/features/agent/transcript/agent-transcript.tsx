@@ -20,6 +20,7 @@ import {
   flattenTranscriptRows,
   type TranscriptRow,
 } from '@/features/agent/transcript/lib/flatten-transcript-rows'
+import { SwitchDivider, type SwitchKind } from '@/features/agent/transcript/switch-divider'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
@@ -48,6 +49,11 @@ interface AgentTranscriptProps {
   /** A stopped turn, keyed the same way compactionBefore is: by the sequence of
    *  the first message AFTER it, the row the divider draws above. */
   interruptedBefore?: Record<number, true>
+  /** Provider/model/effort switches — Crowbar's own doing, keyed the same way
+   *  compactionBefore is. An ARRAY per sequence: a single SetChatSelection
+   *  call can change model and effort together, and both get their own
+   *  divider before the same next message. */
+  switchesBefore?: Record<number, Array<{ what: SwitchKind; detail: string }>>
   /** The most recent stop with no later CONFIRMED message loaded yet — nothing
    *  to key it before, so it draws right after the last confirmed/streaming
    *  content instead: above any still-queued prompt too, which has no
@@ -228,6 +234,8 @@ function TranscriptRowView({
       return <CompactionDivider trigger={row.trigger} />
     case 'interrupted-divider':
       return <InterruptedDivider />
+    case 'switch-divider':
+      return <SwitchDivider what={row.what} detail={row.detail} providers={providers} />
     case 'first-turn-divider':
       return <FirstTurnDivider />
     case 'message':
@@ -287,6 +295,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         messages,
         compactionBefore: props.compactionBefore,
         interruptedBefore: props.interruptedBefore,
+        switchesBefore: props.switchesBefore,
         firstTurnSequence,
         suppressSequence: props.suppressSequence,
       }),
@@ -294,6 +303,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       messages,
       props.compactionBefore,
       props.interruptedBefore,
+      props.switchesBefore,
       firstTurnSequence,
       props.suppressSequence,
     ],

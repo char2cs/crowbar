@@ -1143,6 +1143,53 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 	assert.Equal(t, "high", chat.Effort)
 }
 
+// TestSetChatSelection_RecordsChatSwitchInterruptions guards the new
+// InterruptModelChanged/InterruptEffortChanged markers this fix adds:
+// recorded independently, only when the corresponding value actually
+// changes, and never on a no-op re-application of the same selection.
+func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	t.Run("model and effort both change from empty", func(t *testing.T) {
+		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+
+		ints, err := f.activity.Interruptions(f.ctx, chatID)
+		require.NoError(t, err)
+		require.Len(t, ints, 2)
+		kinds := []string{ints[0].Kind, ints[1].Kind}
+		assert.Contains(t, kinds, engineagents.InterruptModelChanged)
+		assert.Contains(t, kinds, engineagents.InterruptEffortChanged)
+		for _, i := range ints {
+			if i.Kind == engineagents.InterruptModelChanged {
+				assert.Equal(t, "opus", i.Detail)
+			}
+			if i.Kind == engineagents.InterruptEffortChanged {
+				assert.Equal(t, "high", i.Detail)
+			}
+			assert.NotNil(t, i.ResolvedAt, "Crowbar's own doing: opened and resolved together")
+		}
+	})
+
+	t.Run("reapplying the same selection records nothing new", func(t *testing.T) {
+		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+
+		ints, err := f.activity.Interruptions(f.ctx, chatID)
+		require.NoError(t, err)
+		assert.Len(t, ints, 2, "no new interruption for a value that did not change")
+	})
+
+	t.Run("effort-only change records only InterruptEffortChanged", func(t *testing.T) {
+		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "low"))
+
+		ints, err := f.activity.Interruptions(f.ctx, chatID)
+		require.NoError(t, err)
+		require.Len(t, ints, 3)
+		assert.Equal(t, engineagents.InterruptEffortChanged, ints[2].Kind)
+		assert.Equal(t, "low", ints[2].Detail)
+	})
+}
+
 func TestSetChatSelection_ClearsBackToTheProviderDefault(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")

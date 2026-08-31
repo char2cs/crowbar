@@ -539,6 +539,57 @@ describe('AgentTranscript interrupted marker', () => {
   })
 })
 
+describe('AgentTranscript switch marker', () => {
+  const twoMessages = [
+    { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
+    { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'second', at: '' },
+  ]
+
+  it('draws a provider-switch divider, resolving the display name from the providers list', () => {
+    draw(twoMessages, {
+      switchesBefore: { 1: [{ what: 'provider', detail: 'codex' }] },
+      providers: [{ id: 'codex', displayName: 'Codex' } as never],
+    })
+
+    expect(screen.getByTestId('agent-provider-switch-divider')).toHaveTextContent('Switched to Codex')
+  })
+
+  it('draws a model-changed divider with the raw model id', () => {
+    draw(twoMessages, { switchesBefore: { 1: [{ what: 'model', detail: 'opus' }] } })
+
+    expect(screen.getByTestId('agent-model-switch-divider')).toHaveTextContent('Model: opus')
+  })
+
+  it('draws an effort-changed divider with the raw effort level', () => {
+    draw(twoMessages, { switchesBefore: { 1: [{ what: 'effort', detail: 'high' }] } })
+
+    expect(screen.getByTestId('agent-effort-switch-divider')).toHaveTextContent('Effort: high')
+  })
+
+  it('draws both dividers, in order, when model and effort change together', () => {
+    draw(twoMessages, {
+      switchesBefore: {
+        1: [
+          { what: 'model', detail: 'opus' },
+          { what: 'effort', detail: 'high' },
+        ],
+      },
+    })
+
+    const model = screen.getByTestId('agent-model-switch-divider')
+    const effort = screen.getByTestId('agent-effort-switch-divider')
+    expect(model.compareDocumentPosition(effort) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('draws nothing when nothing switched', () => {
+    draw(twoMessages, {})
+
+    expect(screen.queryByTestId('agent-provider-switch-divider')).toBeNull()
+    expect(screen.queryByTestId('agent-model-switch-divider')).toBeNull()
+    expect(screen.queryByTestId('agent-effort-switch-divider')).toBeNull()
+  })
+})
+
 // Regression: a message settling from the streaming bubble (a real,
 // unestimated DOM element) into this virtualized list used to start over at
 // the SAME flat guess regardless of how long its own text was — a real,

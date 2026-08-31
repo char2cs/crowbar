@@ -77,6 +77,15 @@ const (
 	// kind of durable, sequence-anchored divider a compaction gets instead of a
 	// client-side guess about what it just clicked.
 	InterruptStopped = "stopped"
+	// InterruptProviderSwitched, InterruptModelChanged and InterruptEffortChanged
+	// are ALSO Crowbar's own doing, same as InterruptStopped: nothing a provider
+	// reports, recorded the instant Crowbar itself commits to a provider switch or
+	// a model/effort selection change, so the transcript can mark it with the same
+	// durable, sequence-anchored divider. Detail carries the new value (the target
+	// provider id, model id, or effort level).
+	InterruptProviderSwitched = "provider_switched"
+	InterruptModelChanged     = "model_changed"
+	InterruptEffortChanged    = "effort_changed"
 )
 
 type InterruptEvent struct {

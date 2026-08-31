@@ -289,6 +289,27 @@ func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
 	return nil
 }
 
+// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
+// provider, model or effort — Crowbar's own doing, the same as RecordStop,
+// never something a provider hook reports. kind is one of
+// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged;
+// detail is the new value. Opened and resolved in the same call, back to
+// back, exactly like RecordStop: Crowbar already knows the full story the
+// instant it decides to make the change, so there is no later event to
+// close it on. The caller decides whether the value actually changed —
+// this method has no "old" to compare against, so it always records.
+func (t *Turns) RecordChatSwitch(ctx context.Context, chatID, kind, detail string) error {
+	now := time.Now()
+	id := "interrupt-" + fallbackID()
+	if err := t.activity.Interrupt(ctx, chatID, id, kind, detail, now); err != nil {
+		return fmt.Errorf("agent: record chat switch: interrupt: %w", err)
+	}
+	if err := t.activity.ResolveInterruption(ctx, chatID, id, kind, detail, now); err != nil {
+		return fmt.Errorf("agent: record chat switch: resolve interruption: %w", err)
+	}
+	return nil
+}
+
 func deriveTitle(prompt string) string {
 	for _, line := range strings.Split(prompt, "\n") {
 		line = strings.TrimSpace(line)

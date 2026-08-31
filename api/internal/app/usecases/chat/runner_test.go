@@ -159,6 +159,42 @@ func TestSwitchProvider_Broadcasts_NoChatEvent(t *testing.T) {
 	assert.Equal(t, []string{"displaced", "started", "exited"}, f.runnerKinds(t))
 }
 
+// TestSwitchProvider_RecordsAProviderSwitchedInterruption guards the new
+// InterruptProviderSwitched marker: recorded once the switch actually
+// commits, and only when the target differs from the chat's provider
+// beforehand — Crowbar's own doing, not something a provider hook reports.
+func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, "codex", ints[0].Detail)
+	assert.NotNil(t, ints[0].ResolvedAt, "Crowbar's own doing: opened and resolved together")
+}
+
+// TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing guards the
+// no-op case ResumeChat exercises every day: resuming into the provider the
+// chat is ALREADY on is not a switch worth marking.
+func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
+}
+
 // TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens drives
 // forward+back: spawn claude, bind its conversation, switch to codex, switch back. The
 // switch-back resumes claude's OWN conversation by expanding+tokenizing

@@ -40,6 +40,12 @@ func (rs *Runners) switchProviderLocked(
 	if err := rs.providers.RequireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
+	// Read BEFORE anything is torn down, purely to know whether this switch is
+	// actually a CHANGE — a resolve failure (a chat no provider has ever run on)
+	// means "unknown", not "none", so it is treated the same as "no change" and
+	// simply skips the marker rather than risk a false-positive divider on a
+	// chat's very first spawn.
+	previousProviderID, _ := rs.conversations.ChatProviderID(ctx, chatID)
 	for {
 		chat, err := rs.chats.GetChat(ctx, chatID)
 		if err != nil {
@@ -132,10 +138,26 @@ func (rs *Runners) switchProviderLocked(
 		// Resume args go first so a positional resume_context_inject — codex's `resume
 		// <id>` subcommand, or claude's own --resume value — precedes rather than
 		// follows the positional context pointer built from it.
-		return rs.spawnRunner(
+		runnerID, err := rs.spawnRunner(
 			ctx, chatID, chat.WorkspaceID, targetProviderID,
 			"", resumeSteps, nil, conversation, gapTurns, resuming, priorSessionID, false, "",
 		)
+		if err != nil {
+			return "", err
+		}
+		// Best-effort, after the switch has actually committed: a failed switch
+		// changed nothing, and this is Crowbar's own doing, never something to fail
+		// the switch itself over. Only recorded when the provider actually changed
+		// — resuming into the same provider it was already on is not a switch.
+		if previousProviderID != "" && previousProviderID != targetProviderID {
+			if err := rs.turns.RecordChatSwitch(
+				ctx, chatID, engineagents.InterruptProviderSwitched, targetProviderID,
+			); err != nil {
+				slog.WarnContext(ctx, "agent: switch provider: record chat switch (best-effort, continuing)",
+					"chat_id", chatID, "err", err)
+			}
+		}
+		return runnerID, nil
 	}
 }
 

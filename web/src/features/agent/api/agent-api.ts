@@ -432,7 +432,14 @@ export interface AgentSubagent {
 }
 
 export type InterruptionKind =
-  'permission' | 'notification' | 'elicitation' | 'compaction' | 'stopped'
+  | 'permission'
+  | 'notification'
+  | 'elicitation'
+  | 'compaction'
+  | 'stopped'
+  | 'provider_switched'
+  | 'model_changed'
+  | 'effort_changed'
 
 /** The agent blocked on, or interrupted by, something outside the turn. These
  *  are what make an apparently frozen agent legible. */

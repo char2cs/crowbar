@@ -352,6 +352,28 @@ export function AgentChatView({
     }
     return marks
   }, [stoppedInterruptions, ledger.messages])
+  // Provider/model/effort switches — Crowbar's own doing, drawn the exact same
+  // way compactionBefore is: anchored before the next message, an array per
+  // sequence because a single SetChatSelection call can change model AND
+  // effort together, and both need their own divider before the same message.
+  const switchesBefore = useMemo(() => {
+    const kindToWhat: Partial<Record<string, 'provider' | 'model' | 'effort'>> = {
+      provider_switched: 'provider',
+      model_changed: 'model',
+      effort_changed: 'effort',
+    }
+    const marks: Record<number, Array<{ what: 'provider' | 'model' | 'effort'; detail: string }>> = {}
+    for (const interruption of activity.interruptions) {
+      const what = kindToWhat[interruption.kind]
+      if (!what) continue
+      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
+      if (!next) continue
+      const list = marks[next.sequence] ?? []
+      list.push({ what, detail: interruption.detail ?? '' })
+      marks[next.sequence] = list
+    }
+    return marks
+  }, [activity.interruptions, ledger.messages])
   // The most recent stop with nothing after it yet: there is no next message to
   // anchor before, so this is the one case the divider still draws at the foot
   // of the transcript — exactly where the working line it replaced just was.
@@ -547,6 +569,7 @@ export function AgentChatView({
       compactionBefore={compactionBefore}
       suppressSequence={halted?.sequence}
       interruptedBefore={interruptedBefore}
+      switchesBefore={switchesBefore}
       trailingInterruption={trailingInterruption}
     />
   )

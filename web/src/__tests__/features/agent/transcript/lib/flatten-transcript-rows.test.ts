@@ -61,6 +61,80 @@ describe('flattenTranscriptRows', () => {
     expect(kinds).toEqual(['message', 'compaction-divider', 'interrupted-divider', 'message'])
   })
 
+  it('inserts a switch-divider row before the message it precedes', () => {
+    const rows = flattenTranscriptRows({
+      messages: [msg(1), msg(2)],
+      compactionBefore: {},
+      interruptedBefore: {},
+      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
+      firstTurnSequence: undefined,
+    })
+
+    const idx = rows.findIndex((r) => r.kind === 'switch-divider')
+    expect(idx).toBeGreaterThanOrEqual(0)
+    expect(rows[idx]).toMatchObject({
+      kind: 'switch-divider',
+      sequence: 2,
+      what: 'provider',
+      detail: 'codex',
+    })
+    expect(rows[idx + 1]).toMatchObject({ kind: 'message', message: { sequence: 2 } })
+  })
+
+  it('renders one row per entry when model and effort change together', () => {
+    const rows = flattenTranscriptRows({
+      messages: [msg(1), msg(2)],
+      compactionBefore: {},
+      interruptedBefore: {},
+      switchesBefore: {
+        2: [
+          { what: 'model', detail: 'opus' },
+          { what: 'effort', detail: 'high' },
+        ],
+      },
+      firstTurnSequence: undefined,
+    })
+
+    const switchRows = rows.filter((r) => r.kind === 'switch-divider')
+    expect(switchRows).toHaveLength(2)
+    expect(switchRows).toMatchObject([
+      { what: 'model', detail: 'opus' },
+      { what: 'effort', detail: 'high' },
+    ])
+  })
+
+  it('renders compaction, interrupted, then switch dividers, in that order', () => {
+    const rows = flattenTranscriptRows({
+      messages: [msg(1), msg(2)],
+      compactionBefore: { 2: 'auto' },
+      interruptedBefore: { 2: true },
+      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
+      firstTurnSequence: undefined,
+    })
+
+    const kinds = rows.map((r) => r.kind)
+    expect(kinds).toEqual([
+      'message',
+      'compaction-divider',
+      'interrupted-divider',
+      'switch-divider',
+      'message',
+    ])
+  })
+
+  it('drops a suppressed message and its switch dividers entirely', () => {
+    const rows = flattenTranscriptRows({
+      messages: [msg(1), msg(2), msg(3)],
+      compactionBefore: {},
+      interruptedBefore: {},
+      switchesBefore: { 2: [{ what: 'provider', detail: 'codex' }] },
+      firstTurnSequence: undefined,
+      suppressSequence: 2,
+    })
+
+    expect(rows.map((r) => r.kind)).toEqual(['message', 'message'])
+  })
+
   it('inserts a first-turn-divider row after the message matching firstTurnSequence', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],

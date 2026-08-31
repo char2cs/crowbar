@@ -107,6 +107,15 @@ type Turns interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
+	// provider, model or effort. kind is one of
+	// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged
+	// (engine/agents); detail is the new value. The caller is the one that
+	// knows whether the value actually changed — this always records.
+	RecordChatSwitch(
+		ctx context.Context,
+		chatID, kind, detail string,
+	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
 	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
 	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
