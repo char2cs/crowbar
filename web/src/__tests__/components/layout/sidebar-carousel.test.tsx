@@ -50,6 +50,8 @@ vi.mock('@phosphor-icons/react', () => ({
       'data-size': size,
       'data-weight': weight,
     }),
+  CaretDown: ({ className, ...rest }: { className?: string }) =>
+    React.createElement('svg', { 'data-icon': 'caret-down', className, ...rest }),
 }))
 
 // @base-ui/react ships pure ESM (.mjs) and pnpm gives it its own React copy
@@ -498,6 +500,93 @@ describe('SidebarCarousel', () => {
           vi.useRealTimers()
         }
       })
+    })
+  })
+
+  describe('folding the card (spec §6.4)', () => {
+    function foldToggle(): HTMLElement {
+      return screen.getByTestId('carousel-fold-toggle')
+    }
+
+    function caret(): HTMLElement {
+      return screen.getByTestId('carousel-fold-caret')
+    }
+
+    function carousel(): HTMLElement {
+      return screen.getByTestId('panel-files').closest('[data-sidebar-carousel]') as HTMLElement
+    }
+
+    it('renders the caret unrotated, body visible, before any click', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      expect(caret()).not.toHaveClass('rotate-180')
+      expect(carousel()).not.toHaveClass('hidden')
+      expect(carousel()).toHaveClass('flex')
+    })
+
+    it('clicking the caret folds the card: hides the body, keeps the head and its tab selection', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+      expect(useSidebarStore.getState().activeTab).toBe('git')
+
+      fireEvent.click(foldToggle())
+
+      expect(carousel()).toHaveClass('hidden')
+      expect(carousel()).not.toHaveClass('flex')
+      // The head survives folding: both glyphs stay, and the tab you were on
+      // is still the one showing as selected — folding doesn't lose it.
+      expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Git' })).toHaveAttribute('aria-selected', 'true')
+      expect(caret()).toHaveClass('rotate-180')
+    })
+
+    it('keeps both panels mounted while folded — not unmounted', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      fireEvent.click(foldToggle())
+      expect(screen.getAllByTestId('carousel-panel')).toHaveLength(2)
+    })
+
+    it('clicking again unfolds it: same DOM node, scroll position not reset', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      const before = carousel()
+      Object.defineProperty(before, 'scrollLeft', {
+        value: 137,
+        configurable: true,
+        writable: true,
+      })
+
+      fireEvent.click(foldToggle()) // fold
+      fireEvent.click(foldToggle()) // unfold
+
+      const after = carousel()
+      expect(after).toBe(before) // never unmounted/remounted
+      expect(after.scrollLeft).toBe(137) // a remount would have reset this to 0
+      expect(after).not.toHaveClass('hidden')
+      expect(caret()).not.toHaveClass('rotate-180')
+    })
+
+    it('collapses the card height to just the head while folded, and restores it on unfold', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+
+      fireEvent.click(foldToggle())
+      // React clears a dropped style prop by emptying `style.cssText`, which
+      // jsdom reflects as an empty (not absent) `style` attribute — assert
+      // the actual computed property rather than attribute presence.
+      expect(screen.getByTestId('carousel-card').style.height).toBe('')
+
+      fireEvent.click(foldToggle())
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+    })
+
+    it('hides the resize handle while folded — there is nothing to drag', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      expect(screen.getByTestId('carousel-resize-handle')).toBeInTheDocument()
+
+      fireEvent.click(foldToggle())
+      expect(screen.queryByTestId('carousel-resize-handle')).not.toBeInTheDocument()
+
+      fireEvent.click(foldToggle())
+      expect(screen.getByTestId('carousel-resize-handle')).toBeInTheDocument()
     })
   })
 })

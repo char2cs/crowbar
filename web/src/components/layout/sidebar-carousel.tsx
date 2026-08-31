@@ -1,9 +1,10 @@
 import { useCallback, useLayoutEffect, useEffect, useRef, useState, Suspense } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useMatch } from '@tanstack/react-router'
-import { FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
@@ -110,6 +111,14 @@ export function SidebarCarousel({
     sidebarHeight != null && sidebarHeight > 0
       ? Math.round(sidebarHeight * heightFraction)
       : undefined
+
+  // Fold state (spec §6.4): "the card keeps its head and drops everything
+  // under it." In-memory only, deliberately not persisted — unlike
+  // `heightFraction` above, which spec §6 explicitly asks to survive a
+  // resize, nothing in §6.4 asks a fold to survive a reload. This mirrors
+  // space-scroller.tsx's own `SpacePanel` fold precedent exactly (its
+  // `folded` state, same reasoning, a different surface).
+  const [folded, setFolded] = useState(false)
 
   // The RESTING value (mount, sidebarHeight resize, or the recompute a
   // completed drag's committed `heightFraction` triggers) — never fired
@@ -292,23 +301,27 @@ export function SidebarCarousel({
       ref={cardRef}
       data-testid="carousel-card"
       className="absolute inset-x-2 bottom-2 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
-      style={cardHeightPx != null ? { height: `${cardHeightPx}px` } : undefined}
+      style={cardHeightPx != null && !folded ? { height: `${cardHeightPx}px` } : undefined}
     >
       {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own
           `h-1.5`/`w-1.5` literally rather than a new value. Lands on the
           card's own top edge (already drawn by its rounded corners/border),
-          not a separate visible sash. */}
-      <div
-        data-testid="carousel-resize-handle"
-        onPointerDown={handleResizePointerDown}
-        className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize touch-none"
-      />
+          not a separate visible sash. Hidden while folded: there is no
+          dragged height to adjust when the body isn't showing, and the
+          card's own height then collapses to the head's (point 4, spec
+          §6.4) rather than reserving the last-dragged height. */}
+      {!folded && (
+        <div
+          data-testid="carousel-resize-handle"
+          onPointerDown={handleResizePointerDown}
+          className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize touch-none"
+        />
+      )}
       <NavStack>
         {/* The head (spec §6.1): underline variant, icon only, no labels, no
             divider. justify-start overrides the base tabs list's w-fit
-            justify-center — the fold control that belongs on ml-auto here has
-            no live home to relocate from today (see task-15-report.md), so
-            this head reserves the layout but renders no fold affordance yet. */}
+            justify-center; the fold caret sits after the tabs at `ml-auto`,
+            on the same head row. */}
         <div className="flex shrink-0 items-center px-2 py-1">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SidebarTab)}>
             <TabsList variant="underline" data-testid="tabs-underline" className="justify-start">
@@ -330,14 +343,41 @@ export function SidebarCarousel({
               })}
             </TabsList>
           </Tabs>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid="carousel-fold-toggle"
+            aria-pressed={folded}
+            aria-label={folded ? 'Expand file explorer' : 'Collapse file explorer'}
+            tooltip={folded ? 'Expand file explorer' : 'Collapse file explorer'}
+            tooltipSide="bottom"
+            onClick={() => setFolded((f) => !f)}
+            className="ml-auto shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+          >
+            <CaretDown
+              aria-hidden="true"
+              data-testid="carousel-fold-caret"
+              className={cn('transition-transform', folded && 'rotate-180')}
+            />
+          </Button>
         </div>
+        {/* The body (spec §6.4): folding "drops everything under [the head]" —
+            `hidden` (display:none), never a conditional unmount. Both
+            Files and Git panels stay mounted the whole time regardless of
+            fold (spec §6.2), the same dormancy the pane's own chat/terminal
+            surfaces use (agent-chat-pane.tsx) — unmounting here would lose
+            each panel's scroll position and re-trigger FileExplorerTree's/
+            GitPanel's measured init logic on every unfold. */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
           onWheel={armUserGesture}
           onTouchStart={armUserGesture}
           data-sidebar-carousel=""
-          className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={cn(
+            'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            folded ? 'hidden' : 'flex',
+          )}
         >
           {/* Files panel */}
           <div
