@@ -1,10 +1,10 @@
 import { assetURL } from '@/lib/api'
-import type { Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
-import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
+import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
+import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // Re-export the canonical §5 DTOs so existing importers (workspace-list, tests)
 // keep a single source of truth instead of a divergent local shape.
-export type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
+export type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const AVATAR_COLORS = [
   'bg-indigo-700',
@@ -98,13 +98,33 @@ export function toSidebarFolder(folder: FolderDTO): Folder {
   }
 }
 
+/** `ChatDTO` -> the sidebar's own `Chat`. Every field present, never
+ *  conditionally spread — same rule as `toSidebarFolder` above: a chat dragged
+ *  out to the root arrives as an empty parentId and has to overwrite the id it
+ *  used to hold. */
+export function toSidebarChat(chat: ChatDTO): Chat {
+  return {
+    id: chat.id,
+    repoId: chat.repoId,
+    parentId: chat.parentId || undefined,
+    workspaceId: chat.workspaceId || undefined,
+    title: chat.title,
+    order: chat.order ?? 0,
+  }
+}
+
 export function toSidebarRepo(
   repo: RepoDTO,
   workspaces: WorkspaceDTO[],
   folders: Folder[] = [],
+  chats: Chat[] = [],
 ): Repo {
   const repoWs = workspaces.filter((ws) => ws.repoId === repo.id)
   const repoFolders = folders.filter((folder) => folder.repoId === repo.id)
+  // The cross-repo guard, and the reason a chat row carries a repoId at all:
+  // the entity cache is deliberately cross-repo and long-lived, so an
+  // unfiltered read would hand every repo every other repo's chats.
+  const repoChats = chats.filter((chat) => chat.repoId === repo.id)
   const defaultWs = repoWs.find((ws) => ws.isDefault)
   const sidebarWorkspaces: Workspace[] = []
   for (const ws of repoWs) {
@@ -125,6 +145,10 @@ export function toSidebarRepo(
     // Omitted entirely when the repo has none, so a repo built from a backend
     // that does not emit folders yet is byte-identical to what it was before.
     ...(repoFolders.length > 0 ? { folders: repoFolders } : {}),
+    // Same rule as `folders` above — omitted entirely when the repo has none,
+    // so a repo whose chat seed has not landed is byte-identical to what it was
+    // before this pipeline existed.
+    ...(repoChats.length > 0 ? { chats: repoChats } : {}),
     // The default (repo-home) workspace is filtered out of `workspaces` above —
     // it is the repo header, not a tree row — so its live `working` overlay would
     // be dropped with it. Lift it onto the repo as defaultWorking so the header
@@ -183,10 +207,11 @@ export function buildRepoTree(
   repos: RepoDTO[],
   workspaces: WorkspaceDTO[],
   folders: Folder[] = [],
+  chats: Chat[] = [],
 ): Repo[] {
   // Ordered here rather than left to the caller: the entity cache this is
   // usually built from is a key-value store with no order of its own, so an
   // unsorted rebuild would paint the user's arrangement in whatever sequence
   // IndexedDB happened to yield.
-  return sortReposByOrder(repos.map((repo) => toSidebarRepo(repo, workspaces, folders)))
+  return sortReposByOrder(repos.map((repo) => toSidebarRepo(repo, workspaces, folders, chats)))
 }

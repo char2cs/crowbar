@@ -1,9 +1,9 @@
 import { dataOf } from '@/lib/loadable'
 import { getAllEntities } from '@/lib/persistence/entity-cache'
-import { buildRepoTree, toSidebarFolder } from '@/lib/store/build-repo-tree'
+import { buildRepoTree, toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
+import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
 // Which projects the sidebar is currently SHOWING THE INSIDE OF.
@@ -72,10 +72,11 @@ export function getVisibleProjectIds(): Set<string> {
  * from projects the user has collapsed away.
  */
 export async function readVisibleRepoTree(): Promise<Repo[]> {
-  const [repos, workspaces, folders] = await Promise.all([
+  const [repos, workspaces, folders, chats] = await Promise.all([
     getAllEntities<RepoDTO>('crowbar_repos'),
     getAllEntities<WorkspaceDTO>('crowbar_workspaces'),
     getAllEntities<FolderDTO>('crowbar_folders'),
+    getAllEntities<ChatDTO>('crowbar_chats'),
   ])
   const visible = getVisibleProjectIds()
   if (visible.size === 0) return EMPTY_REPOS
@@ -84,9 +85,14 @@ export async function readVisibleRepoTree(): Promise<Repo[]> {
   // reaches it is a folder that never reaches the sidebar at all. They need no
   // project filter of their own — toSidebarRepo keeps only the ones whose
   // repoId matches a repo that survived the filter above.
+  // Chats are read and filtered exactly as folders are — no project filter of
+  // their own, because `toSidebarRepo` keeps only the rows whose repoId matches
+  // a repo that survived the filter above. That repoId match is the whole
+  // cross-repo guard: the cache holds every repo's rows at once.
   return buildRepoTree(
     repos.filter((repo) => visible.has(repo.projectId)),
     workspaces,
     folders.map(toSidebarFolder),
+    chats.map(toSidebarChat),
   )
 }

@@ -118,6 +118,35 @@ export interface FolderDTO {
   status?: string
 }
 
+/**
+ * A conversation row of the sidebar forest — design spec §3.1's `chat` kind,
+ * the one row type the tree was built around and never emitted.
+ *
+ * Two facts decide which of §3.1's two chat rows this is: a WORKTREE chat owns
+ * `workspaceId`, a BUBBLE chat leaves it empty and borrows an ancestor's ground.
+ * Neither is a Recents-only concept — both are tree rows on equal footing with
+ * branches and folders.
+ *
+ * `repoId`/`projectId` are stamped from the URL the row was read through, as
+ * `FolderDTO`'s are: no chat row carries a repo id on the wire, and none should
+ * (api/internal/app/usecases/chat/repo_scope.go — a row's repo is the workspace
+ * its cwd walk lands on, derived server-side, never stored).
+ */
+export interface ChatDTO {
+  id: string
+  repoId: string
+  projectId: string
+  /** The workspace this chat OWNS, or '' for a bubble that owns none. */
+  workspaceId: string
+  /** Another CHAT (this one is a thread of it), a FOLDER, or '' for the root of
+   *  whatever workspace `workspaceId` names. */
+  parentId?: string
+  title: string
+  /** Dense sibling sort key, SHARED with folders and workspaces at the same
+   *  level — compared against FolderDTO.order / WorkspaceDTO.order. */
+  order: number
+}
+
 export interface ProjectDTO {
   id: string
   name: string

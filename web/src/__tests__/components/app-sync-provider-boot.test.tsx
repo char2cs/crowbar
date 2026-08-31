@@ -14,10 +14,11 @@ import { IDBFactory } from 'fake-indexeddb'
 // Real timers throughout, deliberately: fake-indexeddb schedules its own work,
 // and every assertion below blocks on the real signal (the tree contents) via
 // waitFor rather than on an elapsed duration.
-const { fetchRepos, fetchWorkspaces, fetchFolders, subscribe } = vi.hoisted(() => ({
+const { fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats, subscribe } = vi.hoisted(() => ({
   fetchRepos: vi.fn(),
   fetchWorkspaces: vi.fn(),
   fetchFolders: vi.fn(),
+  fetchRepoChats: vi.fn().mockResolvedValue([]),
   subscribe: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/lib/api', () => ({
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
+  fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
   fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
 }))

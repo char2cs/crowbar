@@ -14,6 +14,7 @@ import { describe, expect, test } from 'vitest'
 import {
   buildSidebarTree,
   type PlacedWorkspace,
+  type SidebarChat,
   type SidebarFolder,
   type SidebarTreeNode,
 } from '@/components/layout/workspace-tree-utils'
@@ -28,6 +29,12 @@ const ws = (id: string, over: Partial<PlacedWorkspace> = {}): PlacedWorkspace =>
 const folder = (id: string, over: Partial<SidebarFolder> = {}): SidebarFolder => ({
   id,
   name: id,
+  ...over,
+})
+
+const chat = (id: string, over: Partial<SidebarChat> = {}): SidebarChat => ({
+  id,
+  title: id,
   ...over,
 })
 
@@ -181,5 +188,103 @@ describe('buildSidebarTree — corrupt input degrades, never hangs', () => {
     const full = ws('x', { status: 'pr-open', added: 100, deleted: 5, order: 3 })
     const tree = buildSidebarTree([full])
     expect(tree[0].kind === 'workspace' && tree[0].workspace).toEqual(full)
+  })
+})
+
+/**
+ * Chats are the tree's fourth row kind (design spec §3.1) and are placed by ONE
+ * edge (§3.2), not by the workspace rule: no branch means no fork lineage for a
+ * folder edge to split, so there are no anchors to check.
+ */
+describe('buildSidebarTree — chats', () => {
+  test('is byte-identical when no chats are passed — the two other callers', () => {
+    const workspaces = [ws('root'), ws('kid', { parentId: 'root' })]
+    const folders = [folder('f1')]
+    expect(buildSidebarTree(workspaces, folders, [])).toEqual(buildSidebarTree(workspaces, folders))
+  })
+
+  test('a chat filed nowhere and owning nothing sits at the repo root', () => {
+    expect(ids(buildSidebarTree([], [], [chat('c1')]))).toEqual(['c1'])
+  })
+
+  test('a chat nests under the workspace it owns when it is filed nowhere', () => {
+    const tree = buildSidebarTree([ws('w1')], [], [chat('c1', { workspaceId: 'w1' })])
+    expect(ids(childOf(tree, 'w1'))).toEqual(['c1'])
+  })
+
+  test('parentId beats workspaceId — a filed chat sits where it is filed', () => {
+    const tree = buildSidebarTree(
+      [ws('w1')],
+      [folder('f1')],
+      [chat('c1', { workspaceId: 'w1', parentId: 'f1' })],
+    )
+    expect(ids(childOf(tree, 'f1'))).toEqual(['c1'])
+    expect(childOf(tree, 'w1')).toHaveLength(0)
+  })
+
+  test('a chat threads under another chat, arbitrarily deep', () => {
+    const tree = buildSidebarTree(
+      [],
+      [],
+      [
+        chat('c1'),
+        chat('c2', { parentId: 'c1' }),
+        chat('c3', { parentId: 'c2' }),
+        chat('c4', { parentId: 'c3' }),
+      ],
+    )
+    expect(ids(tree)).toEqual(['c1'])
+    expect(ids(childOf(tree, 'c3'))).toEqual(['c4'])
+  })
+
+  test('a folder inside a chat still anchors a fork child to the right workspace', () => {
+    // The anchor walk has to step THROUGH the chat: stopping there would report
+    // no anchor and drop the folder edge, re-rooting the row it holds.
+    const tree = buildSidebarTree(
+      [ws('w1'), ws('kid', { parentId: 'w1', folderId: 'f1' })],
+      [folder('f1', { parentId: 'c1' })],
+      [chat('c1', { workspaceId: 'w1' })],
+    )
+    expect(ids(childOf(tree, 'f1'))).toEqual(['kid'])
+  })
+
+  test('chats share the one sibling order with folders and workspaces', () => {
+    const tree = buildSidebarTree(
+      [ws('w', { order: 1 })],
+      [folder('f', { order: 2 })],
+      [chat('c', { order: 0 })],
+    )
+    expect(ids(tree)).toEqual(['c', 'w', 'f'])
+  })
+
+  test('on an order TIE a chat sorts below folders and branches', () => {
+    // Every row still holding 0 is the whole tree on a daemon that has placed
+    // nothing — and it must read the same way the Chats panel does.
+    const tree = buildSidebarTree([ws('w')], [folder('f')], [chat('c')])
+    expect(ids(tree)).toEqual(['f', 'w', 'c'])
+  })
+
+  test('a chat parented to nothing that exists re-roots rather than vanishing', () => {
+    expect(ids(buildSidebarTree([], [], [chat('c1', { parentId: 'gone' })]))).toEqual(['c1'])
+  })
+
+  test('a chat cycle re-roots rather than looping forever', () => {
+    const tree = buildSidebarTree(
+      [],
+      [],
+      [chat('c1', { parentId: 'c2' }), chat('c2', { parentId: 'c1' })],
+    )
+    expect(tree).toHaveLength(2)
+  })
+
+  test('a chat parented to itself re-roots', () => {
+    expect(ids(buildSidebarTree([], [], [chat('self', { parentId: 'self' })]))).toEqual(['self'])
+  })
+
+  test('passes every chat field through untouched', () => {
+    const full = chat('c1', { workspaceId: 'w1', parentId: 'f1', order: 3 })
+    const tree = buildSidebarTree([], [folder('f1')], [full])
+    const node = findNode(tree, 'c1')
+    expect(node?.kind === 'chat' && node.chat).toEqual(full)
   })
 })

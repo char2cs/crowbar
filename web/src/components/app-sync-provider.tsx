@@ -7,12 +7,12 @@ import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
-import { fetchFolders, fetchRepos, fetchWorkspaces } from '@/lib/api'
+import { fetchFolders, fetchRepoChats, fetchRepos, fetchWorkspaces } from '@/lib/api'
 import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream'
 import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { maybeWipeOnVersionChange } from '@/lib/persistence/idb'
-import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
+import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // §7 startup sequence, subscribed BY VISIBILITY rather than by existence.
 //
@@ -22,7 +22,7 @@ import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 //   a repo's workspaces                     while that repo is expanded, holds the
 //                                           active workspace, or has live work to
 //                                           report on its header
-//   a repo's folders                        while that repo is expanded or holds
+//   a repo's tree rows (folders + chats)    while that repo is expanded or holds
 //                                           the active workspace
 //
 // Cost is then proportional to what is on screen instead of to how much work
@@ -55,9 +55,10 @@ const reposKey = (projectId: string): string => `repos${KEY_SEP}${projectId}`
 /** One repo's workspace list stream. */
 const workspacesKey = (projectId: string, repoId: string): string =>
   `workspaces${KEY_SEP}${projectId}${KEY_SEP}${repoId}`
-/** One repo's sidebar folder list stream. */
-const foldersKey = (projectId: string, repoId: string): string =>
-  `folders${KEY_SEP}${projectId}${KEY_SEP}${repoId}`
+/** One repo's sidebar tree rows — its folders AND its chats, on one reseed
+ *  loop watching one signal (see `openRepoTreeSubscription`). */
+const treeKey = (projectId: string, repoId: string): string =>
+  `tree${KEY_SEP}${projectId}${KEY_SEP}${repoId}`
 
 interface ActiveSubscription {
   dispose: () => void
@@ -154,58 +155,105 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       useSidebarStore.getState().applyWorkspaceDTO(change.frame as unknown as WorkspaceDTO)
     }
 
-    // -- folders: reseed-on-signal, no dedicated push channel (Task 34) ----
+    // -- the repo's TREE ROWS: reseed-on-signal, no push channel (Task 34/D) --
+    //
+    // Both halves of a repo's tree — its FOLDERS and its CHAT rows — are read
+    // this way, on one loop watching one signal, because they are one tree over
+    // one backend aggregate: a folder IS a domain.Chat row (design spec §3.1),
+    // both are served off the same repo-scoped .../chats mount, and both are
+    // invalidated by the same frames.
     //
     // The backend's dedicated folders REST+WS resource was deleted (its own
-    // plan is closed): a folder is a domain.Chat row now, read only through
-    // .../chats/folders, and its only live-update path is an id-only
-    // invalidation frame on a WORKSPACE's chats WS (no snapshot, no row —
-    // "the tree moved, read it again"). There is nothing repo-scoped left to
-    // open a WS subscription against, so this is a plain reseed loop instead
+    // plan is closed), and chats never had one: their only live-update path is
+    // an id-only invalidation frame on a WORKSPACE's chats WS (no snapshot, no
+    // row — "the tree moved, read it again"). There is nothing repo-scoped left
+    // to open a WS subscription against, so this is a plain reseed loop instead
     // of `subscribeEntityStream`: seed once on open, and again every time
     // `useFolderSignalStore`'s generation for this repo moves (bumped by
-    // use-workspace-agent-chats-stream.ts whenever it sees a folder_* frame,
-    // or a reconnect, for a workspace of this repo).
+    // use-workspace-agent-chats-stream.ts on a folder_* frame, on a STRUCTURAL
+    // chat frame, or on a reconnect, for a workspace of this repo).
     //
     // That only fires while some workspace of this repo is mounted — the
-    // acceptable half of the tradeoff, because the acting user's OWN edits
-    // never depend on it: sidebar-placement.ts applies a create/rename/move/
-    // delete's own `{folder, shifted}` response to the store directly, the
-    // instant it lands. This signal only has to catch up everyone else,
-    // eventually — which is what Task 34 asked for.
+    // acceptable half of the tradeoff for folders, because the acting user's
+    // OWN folder edits never depend on it: sidebar-placement.ts applies a
+    // create/rename/move/delete's own `{folder, shifted}` response to the store
+    // directly, the instant it lands. A CHAT edit has no such local apply and
+    // does depend on the frame — which is fine, because a chat can only be
+    // created, renamed or moved from a surface that has that workspace mounted.
     //
-    // KNOWN BACKEND LIMITATION carried by `fetchFolders` itself (see its own
-    // doc comment in lib/api.ts): the daemon's ListInRepo does not actually
-    // scope by repo, so a reseed here can ingest another repo's folder rows,
-    // each mis-stamped with THIS repo's id. Not fixable from here.
-    function openFolderSubscription(projectId: string, repoId: string): () => void {
+    // KNOWN BACKEND LIMITATION, folders half only (see `fetchFolders`'s own doc
+    // comment in lib/api.ts): the daemon's ListInRepo does not actually scope by
+    // repo, so a reseed here can ingest another repo's folder rows, each
+    // mis-stamped with THIS repo's id. Not fixable from here. The CHATS half has
+    // no such flaw — `ListChatsInRepo` resolves each row's owning repo server
+    // side and serves only this repo's.
+    function openRepoTreeSubscription(projectId: string, repoId: string): () => void {
       let closed = false
       let generation = 0
 
+      /**
+       * Replace THIS repo's rows in one entity store, leaving every other
+       * repo's alone — exactly like subscribeEntityStream's own `pruneScope`,
+       * because these stores are deliberately cross-repo and pruning wholesale
+       * would wipe the siblings on each reseed.
+       *
+       * `live` is re-checked after every await: a reseed superseded mid-flight
+       * must not finish writing a snapshot the newer one has already replaced.
+       */
+      async function replaceRepoScope<T extends { id: string; repoId: string }>(
+        store: 'crowbar_folders' | 'crowbar_chats',
+        items: T[],
+        live: () => boolean,
+      ): Promise<void> {
+        const cached = await getAllEntities<T>(store)
+        if (!live()) return
+        const fresh = new Set(items.map((item) => item.id))
+        const stale = cached
+          .filter((row) => row.repoId === repoId && !fresh.has(row.id))
+          .map((row) => row.id)
+        await Promise.all(stale.map((id) => removeEntity(store, id)))
+        await Promise.all(items.map((item) => upsertEntity(store, item)))
+      }
+
+      /**
+       * One half of the reseed, isolated from the other's failure on purpose: a
+       * transient error reading chats must not also discard folders that came
+       * back fine (and vice versa), because the next signal may be a long way
+       * off. Returns whether it wrote anything worth rebuilding for.
+       */
+      async function reseedHalf<T extends { id: string; repoId: string }>(
+        label: string,
+        store: 'crowbar_folders' | 'crowbar_chats',
+        read: () => Promise<T[]>,
+        live: () => boolean,
+      ): Promise<boolean> {
+        try {
+          const items = await read()
+          if (!live()) return false
+          await replaceRepoScope(store, items, live)
+          return live()
+        } catch (err) {
+          console.error(`app-sync-provider: ${label} reseed failed for repo ${repoId}`, err)
+          return false
+        }
+      }
+
       async function reseed(): Promise<void> {
         const gen = ++generation
-        try {
-          const items = await fetchFolders(projectId, repoId)
-          if (disposed || closed || gen !== generation) return
-          const cached = await getAllEntities<FolderDTO>('crowbar_folders')
-          if (disposed || closed || gen !== generation) return
-          const fresh = new Set(items.map((item) => item.id))
-          // Authoritative over THIS repo's folders only, exactly like
-          // subscribeEntityStream's own pruneScope — crowbar_folders holds
-          // every other repo's rows too.
-          const stale = cached
-            .filter((folder) => folder.repoId === repoId && !fresh.has(folder.id))
-            .map((folder) => folder.id)
-          await Promise.all(stale.map((id) => removeEntity('crowbar_folders', id)))
-          await Promise.all(items.map((item) => upsertEntity('crowbar_folders', item)))
-          if (!disposed && !closed) scheduleRebuild()
-        } catch (err) {
-          console.error(`app-sync-provider: folders reseed failed for repo ${repoId}`, err)
-        }
+        const live = () => !disposed && !closed && gen === generation
+        const wrote = await Promise.all([
+          reseedHalf('folders', 'crowbar_folders', () => fetchFolders(projectId, repoId), live),
+          reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
+        ])
+        if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 
       void reseed()
       const unsubscribeSignal = useFolderSignalStore.subscribe(
+        // Keyed by THIS repo's own generation — the cross-repo guard on the
+        // read side, matching the bump side's own workspace-scoped repo id: a
+        // chat or folder frame in repo A moves only A's counter, so B's
+        // subscriber is never woken and B never refetches.
         (state) => state.generations[repoId] ?? 0,
         () => {
           if (!disposed && !closed) void reseed()
@@ -235,8 +283,8 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
           pruneScope: (repo) => repo.projectId === projectId,
         })
       }
-      if (kind === 'folders') {
-        return openFolderSubscription(projectId, repoId)
+      if (kind === 'tree') {
+        return openRepoTreeSubscription(projectId, repoId)
       }
       return subscribeEntityStream<WorkspaceDTO>({
         endpoint: `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
@@ -308,10 +356,12 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         if (showsRows || hasLiveWorkToReport) {
           keys.add(workspacesKey(projectId, repo.id))
         }
-        // Folders are pure structure — they carry no spinner, no status, nothing
-        // a collapsed repo still paints — so they stop at `showsRows` rather than
-        // following the workspace stream's live-work exemption above.
-        if (showsRows) keys.add(foldersKey(projectId, repo.id))
+        // Folders and chat rows are pure structure — they carry no spinner, no
+        // status, nothing a collapsed repo still paints — so they stop at
+        // `showsRows` rather than following the workspace stream's live-work
+        // exemption above. (A chat row deliberately carries no `working` either;
+        // see rows-from-repo.ts.)
+        if (showsRows) keys.add(treeKey(projectId, repo.id))
       }
       return keys
     }

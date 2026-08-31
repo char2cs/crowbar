@@ -4,15 +4,15 @@ import { render, waitFor, act } from '@testing-library/react'
 // §7 startup is driven by GET seeds + subscribeEntityStream subscriptions and a
 // one-time maybeWipeOnVersionChange() BEFORE seeding. We mock those seams and
 // assert the provider wires them up and tears every subscription down on unmount.
-const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces, fetchFolders } = vi.hoisted(
-  () => ({
+const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats } =
+  vi.hoisted(() => ({
     wipe: vi.fn().mockResolvedValue(undefined),
     subscribeEntityStream: vi.fn(),
     fetchRepos: vi.fn(),
     fetchWorkspaces: vi.fn(),
     fetchFolders: vi.fn(),
-  }),
-)
+    fetchRepoChats: vi.fn(),
+  }))
 
 vi.mock('@/lib/persistence/idb', async () => {
   const actual =
@@ -29,6 +29,7 @@ vi.mock('@/lib/api', () => ({
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
+  fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
   fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
 }))
@@ -117,6 +118,7 @@ beforeEach(() => {
   fetchRepos.mockResolvedValue([])
   fetchWorkspaces.mockResolvedValue([])
   fetchFolders.mockResolvedValue([])
+  fetchRepoChats.mockResolvedValue([])
   useProjectStore.setState({ activeProjectId: 'p1' })
   // Two KNOWN projects. Visibility is now "every known project minus the folded
   // ones", so p2 starts open and a `toggleProject` folds it away.

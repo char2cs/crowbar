@@ -5,7 +5,7 @@ import type {
   ReviewThread,
   MergeStrategy,
 } from '@/features/workspace/stores/slices/branch-review-slice'
-import type { ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
+import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
@@ -142,4 +142,8 @@ export interface CrowbarDB extends DBSchema {
   // opened at a version that ran its upgrade, so adding one is a version bump —
   // see idb.ts.
   crowbar_folders: { key: string; value: FolderDTO }
+  // Sidebar chat rows (v9). Same rule as crowbar_folders above — its own
+  // version bump, because a store that never ran its upgrade branch is not an
+  // error at runtime, it is an empty list forever.
+  crowbar_chats: { key: string; value: ChatDTO }
 }

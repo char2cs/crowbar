@@ -82,7 +82,7 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
 }
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 8, {
+  return openDB<CrowbarDB>('crowbar', 9, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
@@ -142,6 +142,12 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         // at compile time (an empty folder list forever).
         db.createObjectStore('crowbar_folders', { keyPath: 'id' })
       }
+      if (oldVersion < 9) {
+        // Sidebar chat rows, for exactly the reason above: an object store is
+        // only created inside an upgrade, so this needs its own version rather
+        // than riding v8's branch (an install already at v8 would never run it).
+        db.createObjectStore('crowbar_chats', { keyPath: 'id' })
+      }
     },
   })
 }
@@ -169,6 +175,7 @@ const ENTITY_STORES = [
   'crowbar_workspaces',
   'crowbar_threads',
   'crowbar_folders',
+  'crowbar_chats',
 ] as const
 
 /** Clears every crowbar_* entity store. Best-effort: IDB failures no-op. */

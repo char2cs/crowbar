@@ -1,5 +1,6 @@
 /**
- * The folders reseed-on-signal mechanism (Task 34).
+ * The per-repo TREE reseed-on-signal mechanism — folders (Task 34) and the chat
+ * rows that ride the same loop (Task D).
  *
  * The backend's dedicated folders REST+WS resource was deleted (its own plan
  * is closed) — folders are `domain.Chat` rows now, read only through
@@ -14,23 +15,23 @@
  * Unlike `app-sync-provider.test.tsx` (which mocks `useWorkspaceListStore`'s
  * `fetch` to a no-op spy and only checks call counts), this file lets the
  * REAL rebuild pipeline run — seeding the entity-cache IndexedDB stores
- * directly and reading `Repo.folders` back off the real assembled tree — so
- * it proves the row a signal-triggered reseed writes actually reaches the
- * sidebar, not just that a function was called.
+ * directly and reading `Repo.folders` / `Repo.chats` back off the real
+ * assembled tree — so it proves the row a signal-triggered reseed writes
+ * actually reaches the sidebar, not just that a function was called.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import { IDBFactory } from 'fake-indexeddb'
 
-const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces, fetchFolders } = vi.hoisted(
-  () => ({
+const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats } =
+  vi.hoisted(() => ({
     wipe: vi.fn().mockResolvedValue(undefined),
     subscribeEntityStream: vi.fn(),
     fetchRepos: vi.fn(),
     fetchWorkspaces: vi.fn(),
     fetchFolders: vi.fn(),
-  }),
-)
+    fetchRepoChats: vi.fn(),
+  }))
 
 vi.mock('@/lib/persistence/idb', async () => {
   const actual =
@@ -39,7 +40,7 @@ vi.mock('@/lib/persistence/idb', async () => {
 })
 
 // repos/workspaces never need to be real here — this file only exercises the
-// FOLDERS path, which touches no WS at all. A no-op recorder keeps their
+// per-repo TREE path, which touches no WS at all. A no-op recorder keeps their
 // subscriptions inert without dragging a real WebSocket into the test.
 vi.mock('@/lib/ws/entity-stream', () => ({
   subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
@@ -50,6 +51,7 @@ vi.mock('@/lib/api', () => ({
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
+  fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
   fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
 }))
@@ -61,7 +63,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { resetDB } from '@/lib/persistence/idb'
-import type { FolderDTO, Project, RepoDTO } from '@/lib/types'
+import type { ChatDTO, FolderDTO, Project, RepoDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
   id,
@@ -92,7 +94,18 @@ const folderDTO = (id: string, repoId: string, over: Partial<FolderDTO> = {}): F
   ...over,
 })
 
-/** A minimal `Repo` row — just enough for desiredKeys() to open r1's folders
+const chatDTO = (id: string, repoId: string, over: Partial<ChatDTO> = {}): ChatDTO => ({
+  id,
+  repoId,
+  projectId: 'p1',
+  workspaceId: '',
+  parentId: '',
+  title: id,
+  order: 0,
+  ...over,
+})
+
+/** A minimal `Repo` row — just enough for desiredKeys() to open r1's tree
  *  subscription. The REAL rebuild (readVisibleRepoTree) supersedes this from
  *  the entity cache on the very next settle(); it only bootstraps "r1 is a
  *  known, expanded repo" the way a live repos stream normally would. */
@@ -122,6 +135,7 @@ beforeEach(async () => {
   fetchRepos.mockResolvedValue([])
   fetchWorkspaces.mockResolvedValue([])
   fetchFolders.mockResolvedValue([])
+  fetchRepoChats.mockResolvedValue([])
 
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1')]) })
@@ -367,5 +381,198 @@ describe('folders reseed-on-signal', () => {
     await settle()
 
     expect(fetchFolders).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The CHAT half of the same per-repo tree subscription (Task D).
+ *
+ * Chat rows reach `Repo.chats` — and therefore `rows-from-repo.ts`'s tree — the
+ * same way folders reach `Repo.folders`: one repo-scoped GET on open, replayed
+ * whenever this repo's tree generation moves. Same file, same real rebuild
+ * pipeline, because the point is the same: proving the row a reseed writes
+ * actually lands on the repo, not merely that a function was called.
+ */
+describe('chat rows on the same reseed loop', () => {
+  it("seeds a repo's chats once on open, and they reach Repo.chats", async () => {
+    fetchRepoChats.mockResolvedValue([chatDTO('c1', 'r1', { title: 'Fix the parser' })])
+
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+
+    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1')
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.chats).toEqual([
+      {
+        id: 'c1',
+        repoId: 'r1',
+        parentId: undefined,
+        workspaceId: undefined,
+        title: 'Fix the parser',
+        order: 0,
+      },
+    ])
+  })
+
+  it('a structural chat frame’s signal reseeds this repo and the new row lands', async () => {
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.chats).toBeUndefined()
+
+    // The signal use-workspace-agent-chats-stream.ts fires on created /
+    // deleted / title_set / placement_set / order_set.
+    fetchRepoChats.mockResolvedValue([chatDTO('c1', 'r1', { parentId: 'f1' })])
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
+    await settle()
+
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.chats?.map((c) => [c.id, c.parentId]),
+    ).toEqual([['c1', 'f1']])
+  })
+
+  it('a reseed drops a chat the fresh list no longer carries', async () => {
+    fetchRepoChats.mockResolvedValue([chatDTO('c1', 'r1')])
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.chats?.map((c) => c.id),
+    ).toEqual(['c1'])
+
+    fetchRepoChats.mockResolvedValue([])
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
+    await settle()
+
+    expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.chats).toBeUndefined()
+  })
+
+  it('a folders failure does not discard chats that came back fine', async () => {
+    // The two halves are read in parallel and settled independently: the next
+    // signal may be a long way off, so one half's transient error must not cost
+    // the other half's fresh rows.
+    fetchFolders.mockRejectedValue(new Error('boom'))
+    fetchRepoChats.mockResolvedValue([chatDTO('c1', 'r1')])
+
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+
+    expect(
+      useSidebarStore
+        .getState()
+        .repos.find((r) => r.id === 'r1')
+        ?.chats?.map((c) => c.id),
+    ).toEqual(['c1'])
+  })
+
+  // The bug class tasks 21/22/26/34 each found a version of, checked end to end
+  // through the real cache: a frame for one repo must not reseed another, and a
+  // cache holding both repos' rows must not hand either the other's.
+  describe('cross-repo isolation', () => {
+    it('a signal for a DIFFERENT repo does not reseed this one’s chats', async () => {
+      fetchRepoChats.mockResolvedValue([chatDTO('c1', 'r1')])
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+      })
+      await settle()
+      fetchRepoChats.mockClear()
+
+      act(() => {
+        useFolderSignalStore.getState().bump('r2')
+      })
+      await settle()
+
+      expect(fetchRepoChats).not.toHaveBeenCalled()
+    })
+
+    it('one repo’s chats never land on another repo, and a reseed never prunes them', async () => {
+      // A SECOND real repo in the entity cache — beforeEach seeds only r1, and
+      // the rebuild reads repos from there, so a bootstrap row alone would not
+      // survive the first rebuild. Seeded on real timers for the same reason
+      // beforeEach does: fake-indexeddb's completion rides scheduling.
+      vi.useRealTimers()
+      await upsertEntity('crowbar_repos', repoDTO('r2', 'p1'))
+      vi.useFakeTimers()
+
+      fetchRepoChats.mockImplementation((_projectId: string, repoId: string) =>
+        Promise.resolve([chatDTO(`${repoId}-chat`, repoId)]),
+      )
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1'), repoRow('r2', 'p1')])
+      })
+      await settle()
+
+      const chatsOf = (id: string) =>
+        useSidebarStore
+          .getState()
+          .repos.find((r) => r.id === id)
+          ?.chats?.map((c) => c.id)
+      expect(chatsOf('r1')).toEqual(['r1-chat'])
+      expect(chatsOf('r2')).toEqual(['r2-chat'])
+
+      // r1 reseeds to nothing. Its prune is authoritative over ITS rows only —
+      // wiping the whole store here is what would take r2's row with it.
+      fetchRepoChats.mockImplementation((_projectId: string, repoId: string) =>
+        Promise.resolve(repoId === 'r1' ? [] : [chatDTO('r2-chat', 'r2')]),
+      )
+      act(() => {
+        useFolderSignalStore.getState().bump('r1')
+      })
+      await settle()
+
+      expect(chatsOf('r1')).toBeUndefined()
+      expect(chatsOf('r2')).toEqual(['r2-chat'])
+    })
   })
 })

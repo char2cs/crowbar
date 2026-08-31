@@ -14,6 +14,7 @@ export type EntityStoreName =
   | 'crowbar_workspaces'
   | 'crowbar_threads'
   | 'crowbar_folders'
+  | 'crowbar_chats'
 
 export async function upsertEntity<T extends { id: string }>(
   store: EntityStoreName,

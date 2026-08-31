@@ -27,6 +27,7 @@ const ENTITY_STORES = [
   'crowbar_workspaces',
   'crowbar_threads',
   'crowbar_folders',
+  'crowbar_chats',
 ] as const
 
 // A fresh factory rather than `deleteDB`: the module keeps its connection open
@@ -85,7 +86,7 @@ describe('a database at the right version but missing a store', () => {
     // An object store only comes into existence inside an upgrade. A database
     // that reached this version without running the branch that adds a store
     // can never acquire it on its own, because the version no longer changes.
-    const partial = await openDB('crowbar', 8, {
+    const partial = await openDB('crowbar', 9, {
       upgrade(db) {
         for (const name of ENTITY_STORES) {
           if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
@@ -110,7 +111,7 @@ describe('a database at the right version but missing a store', () => {
   it('leaves everything else in place — healing is not wiping', async () => {
     // The entity stores re-seed from GET; editor state and layout do not. A
     // delete-and-recreate would cost the user real work to repair a cache.
-    const partial = await openDB('crowbar', 8, {
+    const partial = await openDB('crowbar', 9, {
       upgrade(db) {
         for (const name of ENTITY_STORES) {
           if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
@@ -134,7 +135,7 @@ describe('concurrent callers', () => {
     // startup begin its own open. That is harmless until an open has to change
     // the version — then the second connection blocks the upgrade, the upgrade
     // holds the second open, and every cache read hangs for the session.
-    const partial = await openDB('crowbar', 8, {
+    const partial = await openDB('crowbar', 9, {
       upgrade(db) {
         for (const name of ENTITY_STORES) {
           if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })

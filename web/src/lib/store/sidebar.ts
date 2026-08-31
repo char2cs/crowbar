@@ -41,6 +41,34 @@ export interface Folder {
  */
 export const EMPTY_FOLDERS: Folder[] = []
 
+/**
+ * A conversation row of the sidebar tree — design spec §3.1's `chat` kind.
+ *
+ * `parentId` is the ONE edge (§3.2): another chat (this one is a thread of it),
+ * a folder, or absent for the root of whatever workspace `workspaceId` names.
+ * It is deliberately not split into "fork parent" and "folder edge" the way a
+ * `Workspace`'s is — a chat has no branch, so it has no lineage a folder could
+ * split.
+ *
+ * `workspaceId` is the workspace this chat OWNS, and absent is a real answer:
+ * that is a BUBBLE, which borrows the ground of its nearest ancestor that owns
+ * one. Both kinds are tree rows; neither is Recents-only.
+ */
+export interface Chat {
+  id: string
+  repoId: string
+  /** A chat id, a folder id, or undefined/'' for the root of `workspaceId`. */
+  parentId?: string
+  /** The workspace this chat owns, or undefined/'' for a bubble. */
+  workspaceId?: string
+  title: string
+  /** Sibling sort key, SHARED with folders and workspaces at the same level. */
+  order: number
+}
+
+/** Stable empty chat list — same rule as EMPTY_FOLDERS above. */
+export const EMPTY_CHATS: Chat[] = []
+
 export interface Workspace {
   id: string
   branch: string
@@ -91,6 +119,13 @@ export interface Repo {
   /** Grouping folders declared inside this repo. Optional: the backend that
    *  emits them lands in parallel, and an older frame carries none. */
   folders?: Folder[]
+  /** Chat rows that resolve to this repo. Optional for the same reason
+   *  `folders?` is, and one more: they arrive on their own reseed loop
+   *  (app-sync-provider's per-repo tree subscription), so a repo whose seed has
+   *  not landed yet — or one whose section is folded away, and therefore has no
+   *  subscription open at all — legitimately has none, and every consumer must
+   *  read that as "not yet", never as "this repo has no chats". */
+  chats?: Chat[]
   /** Real id of the IsDefault workspace (the imported repo folder); the repo
    *  header opens it and the context pill labels it "default". Its branch is
    *  exposed as `defaultBranch` (below) so create-input validation can reserve
@@ -321,6 +356,7 @@ function sameRepoFields(existing: Repo, incoming: Repo): boolean {
   const keys = new Set([...Object.keys(existing), ...Object.keys(incoming)])
   keys.delete('workspaces')
   keys.delete('folders')
+  keys.delete('chats')
   for (const key of keys as Set<keyof Repo>) {
     if (existing[key] !== incoming[key]) return false
   }
@@ -337,14 +373,26 @@ function reconcileRepos(existing: Repo[], incoming: Repo[]): Repo[] {
       repo.folders === undefined
         ? undefined
         : reconcileRows(current.folders ?? EMPTY_FOLDERS, repo.folders)
+    // Chats reconcile exactly as folders do, and for the same reason: their
+    // reseed loop rebuilds every row from a fresh IndexedDB read, so handing
+    // those identities straight to Zustand makes a no-op reseed look like a
+    // change to every chat row in the tree.
+    const chats =
+      repo.chats === undefined ? undefined : reconcileRows(current.chats ?? EMPTY_CHATS, repo.chats)
     if (
       workspaces === current.workspaces &&
       folders === current.folders &&
+      chats === current.chats &&
       sameRepoFields(current, repo)
     ) {
       return current
     }
-    return { ...repo, workspaces, ...(folders === undefined ? {} : { folders }) }
+    return {
+      ...repo,
+      workspaces,
+      ...(folders === undefined ? {} : { folders }),
+      ...(chats === undefined ? {} : { chats }),
+    }
   })
   return next.length === existing.length && next.every((repo, index) => repo === existing[index])
     ? existing

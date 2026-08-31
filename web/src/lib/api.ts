@@ -1,4 +1,4 @@
-import type { FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { ChatDTO, FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 
@@ -235,6 +235,64 @@ export async function fetchFolders(projectId: string, repoId: string): Promise<F
     `/v0/projects/${projectId}/repos/${repoId}/chats/folders`,
   )
   return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
+}
+
+/**
+ * The wire shape of one row GET .../repos/:r/chats returns — the conversation
+ * half of the same `dto.AgentChatDTO` `.../chats/folders` serves the folder half
+ * of. Only the fields a TREE row needs are declared: every runner-derived field
+ * on that DTO (liveRunnerId, terminalSessionId, activeProviderId, telemetry) is
+ * about a PROCESS, and the tree answers "does this exist", not "what is up right
+ * now" (design spec §5.7 — the live half is Recents' question, off the workspace
+ * store's own live chat list).
+ */
+export interface RepoChatWireDTO {
+  id: string
+  workspaceId: string
+  parentId: string
+  title: string
+  order: number
+}
+
+/** `RepoChatWireDTO` -> the sidebar's own `ChatDTO`, filling in the repo/project
+ *  scope the wire row doesn't carry (the URL is the only place either is known —
+ *  the same rule `folderDTOFromWire` follows). */
+export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId: string): ChatDTO {
+  return {
+    id: row.id,
+    repoId,
+    projectId,
+    workspaceId: row.workspaceId ?? '',
+    parentId: row.parentId,
+    title: row.title,
+    order: row.order ?? 0,
+  }
+}
+
+/**
+ * One repo's chat rows, in sidebar order.
+ *
+ * Genuinely repo-scoped, unlike `fetchFolders` above: the daemon's
+ * `ListChatsInRepo` (api/internal/app/usecases/chat/repo_scope.go) resolves each
+ * row's owning repo by walking its ancestry to the nearest provisioned workspace
+ * and keeps only the rows that land in THIS repo. A row whose whole ancestry owns
+ * no workspace resolves to no repo and is served to none — so a root bubble the
+ * spec's §9.1 open question flags as unplaceable never arrives here at all,
+ * rather than arriving in every repo's list at once.
+ *
+ * Stamping this call's own repoId/projectId onto the rows is therefore honest
+ * here, where the same line in `fetchFolders` is the documented cross-repo bleed:
+ * the server already guaranteed every row belongs to the repo in the URL.
+ *
+ * Live updates ride `folder-signal.ts`'s per-repo generation, which
+ * `use-workspace-agent-chats-stream.ts` bumps on the structural chat frames
+ * (created / deleted / title_set / moved) as well as the folder ones — one
+ * signal, because chats and folders are ONE aggregate (`domain.Chat`) and one
+ * tree.
+ */
+export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
+  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
+  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
 export function fetchWorkspace(
