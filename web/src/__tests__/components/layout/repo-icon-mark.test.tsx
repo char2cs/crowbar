@@ -1,6 +1,13 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { RepoIconMark, EditableRepoIcon, type RepoIconSource } from '@/components/layout/repo-icon-mark'
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiFetch,
+}))
 
 /**
  * A repo's mark is ONE component across the repo home row, the context pill, the
@@ -78,5 +85,86 @@ describe('RepoIconMark', () => {
       <RepoIconMark repo={{ ...repo, avatarURL: '/i?v=3' }} size="lg" version={7} />,
     ).container.querySelector('img')!
     expect(versioned.getAttribute('src')).toBe('/i?v=3&v=7')
+  })
+})
+
+/**
+ * The repo home row's click-to-edit icon — the reconnection Task 5 (icon
+ * personalization) restores. Built in cf422bc5 as `repo-icon-popover.tsx`,
+ * deleted in the tree retirement along with the row that hosted it; this is
+ * a fresh, thin wrapper against today's IconPopover/RepoIconMark, not a
+ * resurrection of the deleted file.
+ */
+describe('EditableRepoIcon', () => {
+  const repo: RepoIconSource = {
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiFetch.mockResolvedValue(undefined)
+  })
+
+  it('draws the same mark RepoIconMark draws, read-only surfaces included', () => {
+    const { container } = render(
+      <EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />,
+    )
+    expect(container.textContent).toBe('C')
+  })
+
+  it('clicking the mark opens the picker, without navigating the row it sits in', async () => {
+    const user = userEvent.setup()
+    const onRowClick = vi.fn()
+    render(
+      <div onClick={onRowClick}>
+        <EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />
+      </div>,
+    )
+    await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+    expect(await screen.findByText('Icon')).toBeInTheDocument()
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it('offers the GitHub owner-avatar action a repo has, that a project does not', async () => {
+    const user = userEvent.setup()
+    render(<EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />)
+    await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+    expect(await screen.findByRole('button', { name: /github/i })).toBeInTheDocument()
+  })
+
+  it('setting an emoji PUTs it to this repo’s own REST base and persists it', async () => {
+    const user = userEvent.setup()
+    render(<EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />)
+    await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+    await user.click(await screen.findByRole('button', { name: /emoji/i }))
+    await user.type(screen.getByPlaceholderText('Type an emoji…'), '🚀')
+    await user.keyboard('{Enter}')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/icon/emoji', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji: '🚀' }),
+    })
+  })
+
+  it('splits an emoji avatarURL into IconPopover’s separate emoji prop, not iconUrl', async () => {
+    const user = userEvent.setup()
+    render(
+      <EditableRepoIcon
+        repo={{ ...repo, avatarURL: 'emoji:🛰️' }}
+        projectId="p1"
+        repoId="r1"
+        size="lg"
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+    // The preview Avatar shows the emoji directly (not an <img>) only when
+    // IconPopover was handed `emoji`, not a raw `emoji:` iconUrl it would try
+    // to fetch as an image. Two matches are expected — the trigger mark
+    // (still mounted with the popover open) and the popup's own preview.
+    await screen.findByText('Icon') // wait for the popup to be open
+    expect(screen.getAllByText('🛰️').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 })

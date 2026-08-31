@@ -86,6 +86,49 @@ describe('rowsFromRepo', () => {
   it('produces no rows for a repo with nothing yet', () => {
     expect(rowsFromRepo(makeTestRepo())).toEqual([])
   })
+
+  // Task 5 (icon personalization): the home row's own icon
+  // (EditableRepoIcon, repo-icon-mark.tsx) needs the repo's ids and avatar
+  // fields to reach the right REST base — see SidebarRow's own doc on the
+  // `repoIcon` field.
+  describe('the home row’s repoIcon', () => {
+    it('carries the repo’s own identity once its owning project has seeded', () => {
+      const repo = makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'ws-home',
+        avatarLabel: 'C',
+        avatarColor: 'bg-indigo-700',
+        avatarURL: 'emoji:🚀',
+      })
+      const home = rowsFromRepo(repo).find((r) => r.id === 'ws-home')
+      expect(home?.repoIcon).toEqual({
+        repoId: 'r1',
+        projectId: 'p1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: 'bg-indigo-700',
+        avatarURL: 'emoji:🚀',
+      })
+    })
+
+    it('is absent when the repo has no projectId yet — no REST base to build', () => {
+      const repo = makeTestRepo({ id: 'r1', defaultWorkspaceId: 'ws-home' })
+      const home = rowsFromRepo(repo).find((r) => r.id === 'ws-home')
+      expect(home?.repoIcon).toBeUndefined()
+    })
+
+    it('is absent on every non-home row', () => {
+      const repo = makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'ws-home',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'feature/x' })],
+      })
+      const child = rowsFromRepo(repo).find((r) => r.id === 'ws-1')
+      expect(child?.repoIcon).toBeUndefined()
+    })
+  })
 })
 
 /**

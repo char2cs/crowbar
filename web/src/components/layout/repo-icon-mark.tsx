@@ -1,4 +1,5 @@
 import { RepoAvatarImg } from './repo-avatar'
+import { IconPopover } from './icon-popover'
 import { cn } from '@/lib/utils'
 
 /** What a repo carries for its mark. `avatarURL` holds BOTH custom shapes: an
@@ -45,6 +46,10 @@ interface RepoIconMarkProps {
  * as an `emoji:` sentinel. Two representations of one three-state mark meant a
  * repo with an emoji icon showed the emoji on its own row and a letter tile in
  * the pill directly above it.
+ *
+ * The row's own route through IconPopover was severed in the tree
+ * retirement; EditableRepoIcon below reconnects it onto this same read-only
+ * mark rather than a resurrected, separately-drifting copy.
  */
 export function RepoIconMark({ repo, size, version }: RepoIconMarkProps) {
   const { box, text, emoji } = SIZES[size]
@@ -88,6 +93,39 @@ export function RepoIconMark({ repo, size, version }: RepoIconMarkProps) {
       alt={repo.name}
       className={cn('shrink-0 rounded-md object-cover', box)}
       fallback={letterTile}
+    />
+  )
+}
+
+interface EditableRepoIconProps {
+  repo: RepoIconSource
+  projectId: string
+  repoId: string
+  size: keyof typeof SIZES
+}
+
+/**
+ * The repo home row's own icon, click-to-edit — reconnects RepoIconMark to
+ * IconPopover. The daemon exposes the same four icon routes under a repo as
+ * under a project (icon-popover.tsx's own doc), so this only supplies the
+ * REST base and splits `avatarURL`'s two shapes into IconPopover's separate
+ * `emoji`/`iconUrl` props; RepoIconMark itself draws every visible state —
+ * the live trigger AND both popover previews, since `fallback`/`fallbackLarge`
+ * are only ever reached when there is nothing custom to show, which is
+ * exactly when RepoIconMark's own default (the letter tile) kicks in anyway.
+ */
+export function EditableRepoIcon({ repo, projectId, repoId, size }: EditableRepoIconProps) {
+  const isEmoji = repo.avatarURL?.startsWith(EMOJI_PREFIX)
+  return (
+    <IconPopover
+      base={`/v0/projects/${projectId}/repos/${repoId}`}
+      name={repo.name}
+      emoji={isEmoji ? repo.avatarURL!.slice(EMOJI_PREFIX.length) : undefined}
+      iconUrl={isEmoji ? undefined : repo.avatarURL}
+      fallback={<RepoIconMark repo={repo} size={size} />}
+      fallbackLarge={<RepoIconMark repo={repo} size="xl" />}
+      trigger={(version) => <RepoIconMark repo={repo} size={size} version={version} />}
+      github
     />
   )
 }

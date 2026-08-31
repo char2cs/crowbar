@@ -120,9 +120,16 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 
 // SidebarRow carries no id-bearing attribute yet (Part D's drag wiring adds
 // one) — read the tree back by the labels it draws, in document order, which
-// is exactly the hierarchical order the tree renders in.
+// is exactly the hierarchical order the tree renders in. Scoped to
+// `[data-sidebar-row-label]` (sidebar-row.tsx's own double-click-to-rename
+// delegation marker), not the whole treeitem's textContent: since Task 5
+// (icon personalization) the project-home row's glyph draws real text too —
+// the repo's own letter tile (e.g. "C" for crowbar) — so the unscoped
+// textContent would read "Ccrowbar" instead of "crowbar".
 const rows = () =>
-  Array.from(document.querySelectorAll('[role="treeitem"]')).map((el) => el.textContent?.trim())
+  Array.from(document.querySelectorAll('[role="treeitem"] [data-sidebar-row-label]')).map(
+    (el) => el.textContent?.trim(),
+  )
 
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
 function hold(...subjects: DragSubject[]) {

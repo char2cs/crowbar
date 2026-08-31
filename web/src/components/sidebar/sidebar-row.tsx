@@ -20,6 +20,7 @@ import {
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performPromoteChat } from '@/components/sidebar/lib/row-actions'
+import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -122,7 +123,14 @@ export function SidebarRow({
             a folder mark for pure organisation. `working` swaps it for the
             flip-dot spinner IN PLACE — never beside it (§3.2). A promotable
             bubble's glyph doubles as the one-item "Make workspace" dropdown
-            (§3.5) — never for a worktree-owning, working, or non-chat row. */}
+            (§3.5) — never for a worktree-owning, working, or non-chat row.
+            The project-home row's glyph is a THIRD thing the static
+            RowGlyph can't be: the repo's own personalizable icon — clicking
+            it (and only it; the click is stopped from reaching the row,
+            same as the promote dropdown above) reopens the icon picker the
+            tree retirement severed. `repoIcon` is absent until the repo's
+            owning project has seeded, in which case this falls back to the
+            plain glyph rather than guessing at a REST base it can't build. */}
         {promotable ? (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -152,6 +160,13 @@ export function SidebarRow({
           <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
             {row.working ? (
               <FlickerSpinner className="size-3.5" />
+            ) : isProjectHome && row.repoIcon ? (
+              <EditableRepoIcon
+                repo={row.repoIcon}
+                projectId={row.repoIcon.projectId}
+                repoId={row.repoIcon.repoId}
+                size="lg"
+              />
             ) : (
               <RowGlyph row={row} large={isProjectHome} />
             )}

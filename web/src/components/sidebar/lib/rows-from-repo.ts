@@ -39,6 +39,18 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
       working: repo.defaultWorking ?? false,
       hasView: false,
       branchName: repo.defaultBranch,
+      // Only once the repo's owning project has seeded — see the field's own
+      // doc on SidebarRow. Its icon route needs both ids.
+      repoIcon: repo.projectId
+        ? {
+            repoId: repo.id,
+            projectId: repo.projectId,
+            name: repo.name,
+            avatarLabel: repo.avatarLabel,
+            avatarColor: repo.avatarColor,
+            avatarURL: repo.avatarURL,
+          }
+        : undefined,
     })
   }
 

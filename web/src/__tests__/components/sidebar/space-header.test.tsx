@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SpaceHeader } from '@/components/sidebar/space-header'
@@ -8,6 +8,12 @@ import type { Project } from '@/lib/types'
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
   performRenameProject: vi.fn().mockResolvedValue(undefined),
+}))
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiFetch,
 }))
 
 function makeProject(id: string): Project {
@@ -34,7 +40,16 @@ describe('SpaceHeader', () => {
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
-  it('on hover the mark slot becomes a chevron, overflow appears', () => {
+  // Task 5 (icon personalization) turned the resting-state mark into a real
+  // click target (EditableProjectIcon), which the OLD hover behaviour here
+  // broke: hovering the row swapped the mark for the chevron before a click
+  // could ever land on it, making the icon reachable in principle but
+  // unclickable in practice — the exact conflict this codebase's own
+  // history (project-home-row.tsx, deleted in the tree retirement, git
+  // history cf422bc5) already hit and fixed by decoupling the fold-chevron
+  // from hover entirely. Hover now only reveals the overflow control; the
+  // mark stays put (and clickable) regardless of hover.
+  it('on hover the overflow button appears; the mark stays, not a chevron', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
@@ -44,11 +59,11 @@ describe('SpaceHeader', () => {
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
-    expect(screen.getByTestId('chevron')).toBeInTheDocument()
+    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
     expect(screen.getByTestId('overflow')).toBeInTheDocument()
   })
 
-  it('mouse leave reverts the chevron and overflow away again', () => {
+  it('mouse leave reverts the overflow button away again', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
@@ -60,8 +75,21 @@ describe('SpaceHeader', () => {
     const row = screen.getByTestId('space-header-row')
     fireEvent.mouseEnter(row)
     fireEvent.mouseLeave(row)
-    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
     expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
+  })
+
+  it('the chevron shows only once folded, never merely from hover', () => {
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={true}
+        onToggleFold={vi.fn()}
+        onOverflow={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('chevron')).toBeInTheDocument()
+    fireEvent.mouseLeave(screen.getByTestId('space-header-row'))
+    expect(screen.getByTestId('chevron')).toBeInTheDocument()
   })
 
   it('clicking folds: chevron stays, rotated', () => {
@@ -196,6 +224,54 @@ describe('SpaceHeader', () => {
       )
       fireEvent.click(screen.getByText('p1'))
       expect(onToggle).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // Task 5 (icon personalization): the leading mark is EditableProjectIcon,
+  // wired to the SAME icon-popover primitive the repo home row's own mark
+  // uses (repo-icon-mark.tsx's EditableRepoIcon) — see that file's own test
+  // suite for the parallel coverage.
+  describe('click-to-edit icon', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      apiFetch.mockResolvedValue(undefined)
+    })
+
+    it('clicking the mark opens the icon picker, not onToggleFold', async () => {
+      const user = userEvent.setup()
+      const onToggle = vi.fn()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={onToggle}
+          onOverflow={vi.fn()}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
+      expect(await screen.findByText('Icon')).toBeInTheDocument()
+      expect(onToggle).not.toHaveBeenCalled()
+    })
+
+    it('setting an emoji persists it to this project’s own REST base', async () => {
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onOverflow={vi.fn()}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
+      await user.click(await screen.findByRole('button', { name: /emoji/i }))
+      await user.type(screen.getByPlaceholderText('Type an emoji…'), '🛰️')
+      await user.keyboard('{Enter}')
+      expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/icon/emoji', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji: '🛰️' }),
+      })
     })
   })
 })

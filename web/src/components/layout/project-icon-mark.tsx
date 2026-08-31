@@ -1,5 +1,6 @@
 import { Library } from 'lucide-react'
 import { RepoAvatarImg } from './repo-avatar'
+import { IconPopover } from './icon-popover'
 import { assetURL } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -79,6 +80,31 @@ export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps
       alt={project.name}
       className={cn('rounded-md object-cover', box)}
       fallback={fallback}
+    />
+  )
+}
+
+interface EditableProjectIconProps {
+  project: ProjectIconSource & { id: string }
+  size: keyof typeof SIZES
+}
+
+/**
+ * The space header's own icon, click-to-edit — mirrors EditableRepoIcon
+ * (repo-icon-mark.tsx). The daemon's four icon routes are identical under a
+ * project, minus the GitHub owner-avatar button: a project has no origin
+ * remote to read one from.
+ */
+export function EditableProjectIcon({ project, size }: EditableProjectIconProps) {
+  return (
+    <IconPopover
+      base={`/v0/projects/${project.id}`}
+      name={project.name}
+      emoji={project.avatarEmoji}
+      iconUrl={project.avatarUrl ? assetURL(project.avatarUrl) : undefined}
+      fallback={<ProjectIconMark project={project} size={size} />}
+      fallbackLarge={<ProjectIconMark project={project} size="xl" />}
+      trigger={(version) => <ProjectIconMark project={project} size={size} version={version} />}
     />
   )
 }

@@ -7,7 +7,7 @@ import {
   ROW_INACTIVE,
   ROW_SUB_ACTION,
 } from '@/components/layout/workspace-row-base'
-import { ProjectIconMark } from '@/components/layout/project-icon-mark'
+import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { RenameDialog } from '@/components/sidebar/rename-dialog'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import type { Project } from '@/lib/types'
@@ -27,14 +27,30 @@ interface SpaceHeaderProps {
  * row's interaction is a LEADING-slot swap (mark -> chevron) that SidebarRow's
  * trailing-controls-only model has no shape for.
  *
- * Hover is tracked in state, not CSS `group-hover`, because the swap replaces
- * the mark's CONTENT, not just a control's visibility.
+ * Hover is tracked in state, not CSS `group-hover`, because the overflow
+ * button below is a CONTENT swap (nothing renders at rest), not just a
+ * visibility toggle. The leading mark's own swap (icon -> chevron) no longer
+ * rides this same hover state — see `showChevron`'s own doc.
  */
 export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
   // Folded reports a state rather than offering one (spec §4): the chevron
   // stays even once the pointer, or focus, has moved on.
-  const showChevron = active || folded
+  //
+  // Unlike an EARLIER version of this row (and its ancestor,
+  // project-home-row.tsx, deleted in the tree retirement — git history
+  // cf422bc5), the chevron does NOT also swap in on mere hover any more. That
+  // row's own doc explains why it was removed there: "the leading slot was
+  // itself the collapse button, swapping Library⇄chevron on hover... [which]
+  // made the sidebar's most-repeated control mean two different things one
+  // row apart." Task 5 (icon personalization) reintroduces the SAME
+  // conflict one layer down: hovering the row set `active` before a click
+  // could ever land, so the icon this glyph now doubles as (EditableProjectIcon)
+  // was swapped out from under the pointer before a real user could reach
+  // it — clickable in principle, unclickable in practice. Gating the swap on
+  // `folded` alone (state, not hover) is what that old fix already proved
+  // out; `active` still gates the overflow button below, unchanged.
+  const showChevron = folded
   // Double-click-to-rename the project itself — restored from the deleted
   // tree's project-home-row.tsx, which called the same `renameProject` API
   // through `startRenaming`/`isRenaming` state it owned locally, exactly like
@@ -82,7 +98,7 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
               className={cn('size-4 transition-transform', folded && 'rotate-180')}
             />
           ) : (
-            <ProjectIconMark project={project} size="lg" />
+            <EditableProjectIcon project={project} size="lg" />
           )}
         </span>
 

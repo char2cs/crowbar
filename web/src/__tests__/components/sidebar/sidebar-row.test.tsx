@@ -119,6 +119,59 @@ describe('SidebarRow', () => {
     expect(container.querySelector('.size-5')).toBeInTheDocument()
   })
 
+  // Task 5 (icon personalization): the project-home row's glyph is the
+  // repo's own click-to-edit icon (EditableRepoIcon, repo-icon-mark.tsx)
+  // once `repoIcon` has seeded, not the static GitBranch mark every other
+  // branch row draws.
+  describe('project-home row icon', () => {
+    const repoIcon = {
+      repoId: 'r1',
+      projectId: 'p1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+    }
+    const homeRow: SidebarRowType = {
+      ...baseRow,
+      kind: 'branch',
+      parentId: null,
+      ownsWorktree: true,
+      repoIcon,
+    }
+
+    it('draws the repo mark instead of the static GitBranch glyph once repoIcon has seeded', () => {
+      const { container } = render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
+      expect(
+        screen.getByRole('button', { name: /edit crowbar icon/i }),
+      ).toBeInTheDocument()
+      // The letter tile — RepoIconMark's own default, drawn as the popover's
+      // trigger content, in place of the plain GitBranch mark.
+      expect(container.textContent).toContain('C')
+    })
+
+    it('falls back to the static glyph when repoIcon has not seeded yet', () => {
+      render(<SidebarRow row={{ ...homeRow, repoIcon: undefined }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByRole('button', { name: /edit crowbar icon/i })).not.toBeInTheDocument()
+    })
+
+    it('clicking the icon opens the picker, not onOpen', async () => {
+      const user = userEvent.setup()
+      const onOpen = vi.fn()
+      render(<SidebarRow row={homeRow} depth={0} onOpen={onOpen} />)
+      await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+      expect(await screen.findByText('Icon')).toBeInTheDocument()
+      expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('a working project-home row still shows the spinner, not the icon', () => {
+      const { container } = render(
+        <SidebarRow row={{ ...homeRow, working: true }} depth={0} onOpen={vi.fn()} />,
+      )
+      expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /edit crowbar icon/i })).not.toBeInTheDocument()
+    })
+  })
+
   it('clicking the row body opens it, not the trailing controls', () => {
     const onOpen = vi.fn()
     const onTrash = vi.fn()
