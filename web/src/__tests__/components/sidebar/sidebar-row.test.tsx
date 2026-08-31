@@ -1,14 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
+import {
+  getInitialInlineRenameState,
+  useSidebarInlineRenameStore,
+} from '@/lib/store/sidebar-inline-rename'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
   performPromoteChat: vi.fn().mockResolvedValue(undefined),
+  performRenameRow: vi.fn().mockResolvedValue(undefined),
 }))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
+})
 
 const baseRow: SidebarRowType = {
   id: 'row-1',
@@ -141,9 +151,7 @@ describe('SidebarRow', () => {
 
     it('draws the repo mark instead of the static GitBranch glyph once repoIcon has seeded', () => {
       const { container } = render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
-      expect(
-        screen.getByRole('button', { name: /edit crowbar icon/i }),
-      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /edit crowbar icon/i })).toBeInTheDocument()
       // The letter tile — RepoIconMark's own default, drawn as the popover's
       // trigger content, in place of the plain GitBranch mark.
       expect(container.textContent).toContain('C')
@@ -326,6 +334,85 @@ describe('SidebarRow', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
       await user.click(screen.getByTestId('promote-dropdown'))
       expect(onOpen).not.toHaveBeenCalled()
+    })
+  })
+
+  // Task 11: double-click-to-rename is a real inline `<input>` replacing the
+  // label in place — restored to match `develop`'s actual behavior, not the
+  // modal Task 4 wrongly built. Driven by `sidebar-inline-rename.ts`'s store
+  // (set by the delegated dblclick listener in sidebar-tree-chrome.tsx), read
+  // here the same way a real double-click would leave it.
+  describe('inline rename', () => {
+    it('renders the real, focused input in place of the label when this row is the one renaming', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      const input = screen.getByRole('textbox') as HTMLInputElement
+      expect(input).toHaveValue('Fix the thing')
+      expect(input).toHaveFocus()
+    })
+
+    it('a different row renaming leaves this row showing its plain label', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('some-other-row')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      expect(screen.getByText('Fix the thing')).toBeInTheDocument()
+    })
+
+    it('confirming (Enter) calls performRenameRow with the row id and stops renaming', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'New title' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
+      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    })
+
+    it('Escape cancels with no call to performRenameRow', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'New title' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(rowActions.performRenameRow).not.toHaveBeenCalled()
+      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    })
+
+    it('blur without Enter/Escape commits the rename, matching develop', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Blurred title' } })
+      fireEvent.blur(input)
+      expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'Blurred title')
+    })
+
+    it('unchanged value does not call performRenameRow', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      expect(rowActions.performRenameRow).not.toHaveBeenCalled()
+    })
+
+    it('clicking inside the input does not fire onOpen', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      const onOpen = vi.fn()
+      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+      fireEvent.click(screen.getByRole('textbox'))
+      expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('a branch row renames with a monospace input, matching its label', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(
+        <SidebarRow
+          row={{ ...baseRow, kind: 'branch', parentId: 'p1', ownsWorktree: true }}
+          depth={0}
+          onOpen={vi.fn()}
+        />,
+      )
+      expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
   })
 })

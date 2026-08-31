@@ -2,6 +2,7 @@ import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { RenameDialog } from '@/components/sidebar/rename-dialog'
 import { performRenameRow, performImportBranches } from '@/components/sidebar/lib/row-actions'
+import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { resolveRow } from './space-content-actions'
 import type { Repo } from '@/lib/store/sidebar'
 import { RemovalTray } from './removal-tray'
@@ -33,23 +34,31 @@ interface SidebarTreeChromeProps {
  * with its modal state lifted to `IDEShell` alongside it.
  */
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
-  // Rename and branch-import both need a dialog rather than the row-context-menu's
-  // direct-fire actions (lock/new-folder) — one row id (or none) at a time.
-  const [renamingRowId, setRenamingRowId] = useState<string | null>(null)
+  // The right-click menu's "Rename" item still opens this modal — untouched
+  // by Task 11. Branch-import needs a dialog too, for the same
+  // row-context-menu-can't-fire-it-directly reason.
+  const [modalRenamingRowId, setModalRenamingRowId] = useState<string | null>(null)
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
-  const renamingLabel = rows.find((r) => r.id === renamingRowId)?.label ?? ''
+  const modalRenamingLabel = rows.find((r) => r.id === modalRenamingRowId)?.label ?? ''
   const importRepo = importRepoRowId != null ? resolveRow(repos, importRepoRowId)?.repo : undefined
 
   // Double-click-to-rename, restored from the deleted tree's per-row inline
-  // editors (git history: cf422bc5). A native `dblclick` listener on the same
-  // `treeRef` ancestor SidebarRowContextMenu's own `contextmenu` listener
-  // already uses, for the same reason that component documents: opening the
-  // dialog from state that lived INSIDE the tree would re-render every row to
-  // draw a dialog that isn't part of the tree at all. `[data-sidebar-row-label]`
-  // (sidebar-row.tsx) scopes this to the label specifically — the trailing
-  // trash/create/fold controls stop `click`/`pointerdown` from reaching the
-  // row, but not `dblclick`, so without this a double-click on the trash icon
-  // would also open the rename dialog.
+  // editors (git history: cf422bc5) — as a REAL inline `<input>` in place of
+  // the row's label (sidebar-row.tsx), matching `develop`'s actual behavior,
+  // not the modal above. This listener only starts the inline-rename store
+  // (sidebar-inline-rename.ts); the row that reads `renamingRowId` off it and
+  // actually draws the input lives several components away (SpaceScroller's
+  // own tree), so the two can't share a prop chain — a store, not this
+  // component's own state, is what lets both sides reach the same value.
+  //
+  // A native `dblclick` listener on the same `treeRef` ancestor
+  // SidebarRowContextMenu's own `contextmenu` listener already uses, for the
+  // same reason that component documents: reacting from state that lived
+  // INSIDE the tree would re-render every row for an edit that only one of
+  // them needs to draw. `[data-sidebar-row-label]` (sidebar-row.tsx) scopes
+  // this to the label specifically — the trailing trash/create/fold controls
+  // stop `click`/`pointerdown` from reaching the row, but not `dblclick`, so
+  // without this a double-click on the trash icon would also start a rename.
   useEffect(() => {
     const tree = treeRef.current
     if (!tree) return
@@ -59,7 +68,7 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
       const el = e.target.closest<HTMLElement>('[role="treeitem"]')
       const rowId = el?.getAttribute('data-sidebar-row-id')
       if (!rowId || !rows.some((r) => r.id === rowId)) return
-      setRenamingRowId(rowId)
+      useSidebarInlineRenameStore.getState().startRenaming(rowId)
     }
     tree.addEventListener('dblclick', onDoubleClick)
     return () => tree.removeEventListener('dblclick', onDoubleClick)
@@ -72,17 +81,17 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
       <SidebarRowContextMenu
         treeRef={treeRef}
         rows={rows}
-        onRename={setRenamingRowId}
+        onRename={setModalRenamingRowId}
         onImport={setImportRepoRowId}
       />
       <RenameDialog
-        open={renamingRowId != null}
-        initialValue={renamingLabel}
+        open={modalRenamingRowId != null}
+        initialValue={modalRenamingLabel}
         onOpenChange={(open) => {
-          if (!open) setRenamingRowId(null)
+          if (!open) setModalRenamingRowId(null)
         }}
         onConfirm={(name) => {
-          if (renamingRowId) void performRenameRow(renamingRowId, name)
+          if (modalRenamingRowId) void performRenameRow(modalRenamingRowId, name)
         }}
       />
       <RepoImportDialog

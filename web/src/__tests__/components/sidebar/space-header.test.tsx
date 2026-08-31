@@ -25,6 +25,10 @@ function makeProject(id: string): Project {
   }
 }
 
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
 describe('SpaceHeader', () => {
   it('at rest shows the project mark and name, no controls', () => {
     render(
@@ -180,11 +184,14 @@ describe('SpaceHeader', () => {
   // this reaches through the new `performRenameProject` wrapper. A project
   // has no id in the row-based `SidebarRow[]`/`performRenameRow` space (a
   // project is not a row at all), so this is a second, LOCAL rename target,
-  // not a duplicate of the row rename path — it reuses the same shared
-  // `RenameDialog` component, per that component's own doc: "the sidebar's
-  // one rename gesture."
+  // not a duplicate of the row rename path.
+  //
+  // Task 11: this is a REAL inline `<input>` replacing the name in place —
+  // develop's actual behavior — not the modal `RenameDialog` Task 4 wrongly
+  // built. `RenameDialog` itself is untouched; this row just no longer opens
+  // it on double-click.
   describe('double-click-to-rename', () => {
-    it('double-clicking the project name opens the rename dialog prefilled with it', () => {
+    it('double-clicking the project name replaces it with a focused input, not a dialog', () => {
       render(
         <SpaceHeader
           project={makeProject('p1')}
@@ -194,10 +201,13 @@ describe('SpaceHeader', () => {
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
-      expect(screen.getByRole('textbox')).toHaveValue('p1')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      const input = screen.getByRole('textbox') as HTMLInputElement
+      expect(input).toHaveValue('p1')
+      expect(input).toHaveFocus()
     })
 
-    it('confirming the dialog calls performRenameProject with the project id and new name', () => {
+    it('Enter confirms and calls performRenameProject with the project id and new name', () => {
       render(
         <SpaceHeader
           project={makeProject('p1')}
@@ -207,9 +217,50 @@ describe('SpaceHeader', () => {
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
-      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New Name' } })
-      fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'New Name' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameProject).toHaveBeenCalledWith('p1', 'New Name')
+      // No optimistic write (performRenameRow's own documented pattern): the
+      // label only actually updates once the renamed DTO arrives over the
+      // projects WS stream and the parent re-supplies a new `project` prop —
+      // this component just closes the editor and falls back to whatever it
+      // was handed, unchanged here since the mocked action does nothing.
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      expect(screen.getByText('p1')).toBeInTheDocument()
+    })
+
+    it('Escape cancels with no call, restoring the plain label', () => {
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.doubleClick(screen.getByText('p1'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'New Name' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(rowActions.performRenameProject).not.toHaveBeenCalled()
+      expect(screen.getByText('p1')).toBeInTheDocument()
+    })
+
+    it('blur without Enter/Escape commits the rename, matching develop', () => {
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.doubleClick(screen.getByText('p1'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Blurred Name' } })
+      fireEvent.blur(input)
+      expect(rowActions.performRenameProject).toHaveBeenCalledWith('p1', 'Blurred Name')
     })
 
     it('a single click on the name still folds the space, not just double-click', () => {
@@ -224,6 +275,21 @@ describe('SpaceHeader', () => {
       )
       fireEvent.click(screen.getByText('p1'))
       expect(onToggle).toHaveBeenCalledTimes(1)
+    })
+
+    it('clicking inside the input while renaming does not toggle the fold', () => {
+      const onToggle = vi.fn()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={onToggle}
+          onOverflow={vi.fn()}
+        />,
+      )
+      fireEvent.doubleClick(screen.getByText('p1'))
+      fireEvent.click(screen.getByRole('textbox'))
+      expect(onToggle).not.toHaveBeenCalled()
     })
   })
 

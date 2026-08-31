@@ -19,8 +19,10 @@ import {
   ROW_SUB_ACTION_HOVER,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { performPromoteChat } from '@/components/sidebar/lib/row-actions'
+import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
+import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -94,6 +96,12 @@ export function SidebarRow({
   // chat's CLI regardless of whether it is mid-turn, so refusing here up
   // front is what keeps a click from round-tripping into a confusing error.
   const promotable = row.kind === 'chat' && !row.ownsWorktree && !row.working
+  // Double-click-to-rename (sidebar-tree-chrome.tsx's delegated `dblclick`
+  // listener) starts this row's turn in `sidebar-inline-rename.ts`'s store —
+  // real inline editing in place, matching `develop`, not the modal Task 4
+  // wrongly opened. A narrow selector: this row only cares whether IT is the
+  // one renaming, not who else might be.
+  const renaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
 
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
@@ -108,8 +116,13 @@ export function SidebarRow({
           isDragging && 'opacity-40',
           'group pr-2.5',
         )}
-        onClick={() => onOpen(row.id)}
-        onPointerDown={onPointerDownDrag}
+        onClick={() => {
+          // A click inside the inline editor (or on the space it just
+          // vacated before React re-renders) must not open the row.
+          if (renaming) return
+          onOpen(row.id)
+        }}
+        onPointerDown={renaming ? undefined : onPointerDownDrag}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
@@ -173,24 +186,36 @@ export function SidebarRow({
           </span>
         )}
 
-        <span
-          // Double-click-to-rename's delegation marker (sidebar-tree-chrome.tsx):
-          // that listener sits on an ancestor of every project's rows, so it
-          // needs to tell a double-click on the label apart from one on the
-          // trailing trash/create/fold controls, which don't stop a bubbling
-          // `dblclick` the way they already stop `click`/`pointerdown`.
-          data-sidebar-row-label=""
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            row.kind === 'branch' && 'font-mono',
-            row.labelProvisional && 'italic',
-            // A row with a view is grey — focused or not (§3.2). The mark above
-            // keeps full strength either way.
-            row.hasView && 'text-muted-foreground',
-          )}
-        >
-          {row.label}
-        </span>
+        {renaming ? (
+          <InlineRenameInput
+            defaultValue={row.label}
+            mono={row.kind === 'branch'}
+            onConfirm={(name) => {
+              useSidebarInlineRenameStore.getState().stopRenaming()
+              if (name !== row.label) void performRenameRow(row.id, name)
+            }}
+            onCancel={() => useSidebarInlineRenameStore.getState().stopRenaming()}
+          />
+        ) : (
+          <span
+            // Double-click-to-rename's delegation marker (sidebar-tree-chrome.tsx):
+            // that listener sits on an ancestor of every project's rows, so it
+            // needs to tell a double-click on the label apart from one on the
+            // trailing trash/create/fold controls, which don't stop a bubbling
+            // `dblclick` the way they already stop `click`/`pointerdown`.
+            data-sidebar-row-label=""
+            className={cn(
+              'min-w-0 flex-1 truncate',
+              row.kind === 'branch' && 'font-mono',
+              row.labelProvisional && 'italic',
+              // A row with a view is grey — focused or not (§3.2). The mark above
+              // keeps full strength either way.
+              row.hasView && 'text-muted-foreground',
+            )}
+          >
+            {row.label}
+          </span>
+        )}
 
         {onTrash && !isProjectHome && deletable && (
           <button

@@ -20,6 +20,10 @@ vi.mock('@tanstack/react-router', () => ({
 import { SidebarTreeChrome } from '@/components/layout/sidebar-tree-chrome'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import {
+  getInitialInlineRenameState,
+  useSidebarInlineRenameStore,
+} from '@/lib/store/sidebar-inline-rename'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -32,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
+  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
 })
 
 function renderChrome() {
@@ -52,6 +57,13 @@ describe('the leftover "New Project" row is gone', () => {
   })
 })
 
+// Task 11: double-click now enters INLINE rename mode (a real input drawn by
+// SidebarRow itself, several components away) rather than opening the modal
+// RenameDialog Task 4 wrongly wired here — SidebarTreeChrome doesn't render
+// any row markup, so it can't draw the input; it only has to start the
+// inline-rename store, which the row this DOM belongs to reads from
+// independently. See sidebar-row.test.tsx's own "inline rename" suite for
+// the input itself.
 describe('double-click-to-rename', () => {
   const rows: SidebarRow[] = [
     {
@@ -88,23 +100,22 @@ describe('double-click-to-rename', () => {
     return label
   }
 
-  it('double-clicking a row label opens the rename dialog prefilled with its label', () => {
+  it('double-clicking a row label starts inline rename for that row id in the store', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'chat-1')
     fireEvent.doubleClick(label)
-    expect(screen.getByRole('textbox')).toHaveValue('Fix the thing')
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('chat-1')
   })
 
-  it('confirming the dialog after a double-click calls performRenameRow with the row id', () => {
+  it('double-clicking does NOT open the modal RenameDialog', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'chat-1')
     fireEvent.doubleClick(label)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New title' } })
-    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
-    expect(rowActions.performRenameRow).toHaveBeenCalledWith('chat-1', 'New title')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('double-clicking a trailing control (not the label) does not open the rename dialog', () => {
+  it('double-clicking a trailing control (not the label) does not start inline rename', () => {
     const treeRef = renderChromeWithRows()
     const item = document.createElement('div')
     item.setAttribute('role', 'treeitem')
@@ -114,13 +125,62 @@ describe('double-click-to-rename', () => {
     item.appendChild(trash)
     treeRef.current.appendChild(item)
     fireEvent.doubleClick(trash)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
   })
 
   it('double-clicking a label for an id not in `rows` is a no-op', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'nonexistent')
     fireEvent.doubleClick(label)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+  })
+})
+
+// The right-click menu's Rename item is UNTOUCHED by this task: it still
+// opens the modal RenameDialog, via its own separate local state — entirely
+// independent of the inline-rename store the double-click path now drives.
+describe('right-click Rename still opens the modal, unaffected by double-click', () => {
+  const rows: SidebarRow[] = [
+    {
+      id: 'chat-1',
+      kind: 'chat',
+      parentId: null,
+      order: 0,
+      label: 'Fix the thing',
+      ownsWorktree: false,
+      workspaceId: null,
+      working: false,
+      hasView: false,
+    },
+  ]
+
+  function rightClick(tree: HTMLElement, rowId: string) {
+    const item = document.createElement('div')
+    item.setAttribute('role', 'treeitem')
+    item.setAttribute('data-sidebar-row-id', rowId)
+    tree.appendChild(item)
+    fireEvent.contextMenu(item)
+  }
+
+  it('right-click Rename opens the modal dialog prefilled with the label', () => {
+    const treeRef = { current: document.createElement('div') }
+    document.body.appendChild(treeRef.current)
+    render(<SidebarTreeChrome treeRef={treeRef} rows={rows} repos={[]} />)
+    rightClick(treeRef.current, 'chat-1')
+    fireEvent.click(screen.getByText('Rename'))
+    expect(screen.getByRole('textbox')).toHaveValue('Fix the thing')
+    // Untouched by whatever the inline-rename store holds.
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+  })
+
+  it('confirming the modal calls performRenameRow with the row id', () => {
+    const treeRef = { current: document.createElement('div') }
+    document.body.appendChild(treeRef.current)
+    render(<SidebarTreeChrome treeRef={treeRef} rows={rows} repos={[]} />)
+    rightClick(treeRef.current, 'chat-1')
+    fireEvent.click(screen.getByText('Rename'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New title' } })
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    expect(rowActions.performRenameRow).toHaveBeenCalledWith('chat-1', 'New title')
   })
 })
