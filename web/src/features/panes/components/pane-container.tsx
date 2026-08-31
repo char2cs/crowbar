@@ -263,28 +263,20 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       const target = resolveDropTarget(point)
       if (target.paneId !== pane.id) return
 
-      // Use workspace store for split creation so the new pane renders correctly.
-      const splitOptions = getPaneSplitDropOptions(target.zone)
-      const targetPaneId = splitOptions
-        ? (windowPaneStore
-            .getState()
-            .paneActions.splitPane(
-              pane.id,
-              splitOptions.direction,
-              undefined,
-              splitOptions.placement,
-            ) ?? pane.id)
-        : pane.id
-
-      windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
+      // Spec §6.3/§7.2: a file dropped on a pane never gets a pane of its
+      // own, regardless of which zone (edge or center) it lands in — it
+      // always opens as a tab in the EXISTING pane it was dropped on. Unlike
+      // a chat/tab-row drop (handleSplitDrop below), zone is not consulted
+      // here at all.
+      windowPaneStore.getState().paneActions.setActivePane(pane.id)
 
       try {
         await handleFileOpen(fileDragData.path, false)
         const openedTabId =
           windowPaneStore.getState().paneActions.getActivePane()?.activeEditorTabId ?? null
         if (openedTabId) {
-          addExistingTabToPane(targetPaneId, openedTabId)
-          windowPaneStore.getState().paneActions.activateEditorTabInPane(targetPaneId, openedTabId)
+          addExistingTabToPane(pane.id, openedTabId)
+          windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, openedTabId)
         }
       } catch (error) {
         console.error('Failed to open file from file tree drop:', error)

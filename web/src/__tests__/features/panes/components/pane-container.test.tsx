@@ -1,12 +1,36 @@
 import { createElement, Fragment, useEffect } from 'react'
 import { useStore } from 'zustand'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import type { InternalDropZone } from '@/features/tabs/utils/internal-tab-drag'
+
+// Task F: lets a test stand in an edge zone (left/right/top/bottom) for a
+// file-tree drop's resolved target without faking `document.elementsFromPoint`
+// geometry — `resolveDropTarget`'s real geometry math already has its own
+// dedicated coverage (pane-drop-zones.test.ts); this file only needs to prove
+// what PaneContainer DOES with whatever zone it resolves to. Falls through to
+// the real implementation whenever a test hasn't set an override, so every
+// other test in this file (none of which drag files) is unaffected.
+const { resolveDropTargetOverride } = vi.hoisted(() => ({
+  resolveDropTargetOverride: {
+    current: null as { paneId: string | null; zone: InternalDropZone } | null,
+  },
+}))
+vi.mock('@/features/tabs/utils/internal-tab-drag', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/tabs/utils/internal-tab-drag')>()
+  return {
+    ...actual,
+    resolveDropTarget: (point: { x: number; y: number }) =>
+      resolveDropTargetOverride.current ?? actual.resolveDropTarget(point),
+  }
+})
 
 // Fix round 1 (Task 18 review): a mount counter, not just a DOM-identity
 // check, for the "does toggling pane.chatId remount a live terminal" test
@@ -672,5 +696,144 @@ describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
     await renderPane(store)
 
     expect(document.querySelector('[data-pane-removal]')).toBeNull()
+  })
+})
+
+// Task F: a file dragged from the Files panel and dropped on a pane's EDGE
+// zone used to fall into openFileTreeDropInPane's `getPaneSplitDropOptions`/
+// `splitPane` branch — copied from the legitimate row/chat-drag split
+// mechanic (handleSplitDrop below, spec §8.1) onto a path where it is
+// explicitly forbidden. Spec §6.3: "Clicking a file opens it in the editor
+// view of the focused pane, never in a pane of its own." Spec §7.2: "Nothing
+// lands in a pane of its own; everything lands in the editor view." A file
+// drop must always resolve to the EXISTING pane it was dropped on, regardless
+// of zone.
+describe('PaneContainer — file-tree drop never creates a pane of its own (spec §6.3/§7.2, Task F)', () => {
+  afterEach(() => {
+    setActiveWorkspaceStoreRef(null)
+    delete (window as unknown as { __fileDragData?: unknown }).__fileDragData
+    useFileSystemStore.setState({ handleFileOpen: null })
+    resolveDropTargetOverride.current = null
+  })
+
+  it("dropping a file on a pane's EDGE zone opens it as a tab in that SAME pane — no new pane is created", async () => {
+    const store = createWorkspaceStore('w1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+    // Stands in for the real handler wired by use-workspace-effects.ts
+    // (openFileContent → bufferActions.openContent) minus the network fetch —
+    // it exercises the REAL openContent/addEditorTabToPane pane-routing logic,
+    // which is exactly what a regression in openFileTreeDropInPane's target
+    // pane selection would misroute.
+    useFileSystemStore.setState({
+      handleFileOpen: async (path: string) => {
+        windowPaneStore.getState().bufferActions.openContent({
+          type: 'editor',
+          path,
+          name: path.split('/').pop() ?? path,
+          content: '',
+          workspaceId: 'w1',
+        })
+      },
+    })
+
+    await renderPane(store)
+
+    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
+    const tabCountBefore = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds.length ?? 0
+
+    // The resolved drop target names ROOT_PANE_ID but at zone 'left' — an
+    // EDGE zone, the exact zone that used to route through splitPane() for a
+    // file drop (Task F's root cause). A file drop must ignore this zone
+    // entirely and still land in ROOT_PANE_ID.
+    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'left' }
+    window.__fileDragData = { type: 'file', path: '/dropped.ts', name: 'dropped.ts', isDir: false }
+
+    const container = document.querySelector('[data-pane-container]')!
+    await act(async () => {
+      fireEvent.mouseUp(container, { clientX: 5, clientY: 200 })
+      // openFileTreeDropInPane's body runs after an `await handleFileOpen(...)`
+      // — flush the microtask queue so its post-await work (addExistingTabToPane
+      // /activateEditorTabInPane) has committed before assertions run.
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // No new pane was created — the pane tree shape is byte-for-byte unchanged.
+    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
+
+    // The file landed as a NEW tab in the SAME pane it was dropped on, not a
+    // freshly split one.
+    const openedBuffer = windowPaneStore.getState().buffers.find((b) => b.path === '/dropped.ts')
+    expect(openedBuffer).toBeDefined()
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(tabCountBefore + 1)
+    expect(pane?.editorTabIds).toContain(openedBuffer!.id)
+    expect(pane?.activeEditorTabId).toBe(openedBuffer!.id)
+  })
+
+  it("dropping a file on a pane's CENTER zone still opens it as a tab in that same pane (unchanged behavior)", async () => {
+    const store = createWorkspaceStore('w1')
+
+    useFileSystemStore.setState({
+      handleFileOpen: async (path: string) => {
+        windowPaneStore.getState().bufferActions.openContent({
+          type: 'editor',
+          path,
+          name: path.split('/').pop() ?? path,
+          content: '',
+          workspaceId: 'w1',
+        })
+      },
+    })
+
+    await renderPane(store)
+
+    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
+
+    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'center' }
+    window.__fileDragData = {
+      type: 'file',
+      path: '/center-dropped.ts',
+      name: 'center-dropped.ts',
+      isDir: false,
+    }
+
+    const container = document.querySelector('[data-pane-container]')!
+    await act(async () => {
+      fireEvent.mouseUp(container, { clientX: 400, clientY: 300 })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
+    const openedBuffer = windowPaneStore
+      .getState()
+      .buffers.find((b) => b.path === '/center-dropped.ts')
+    expect(openedBuffer).toBeDefined()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(
+      openedBuffer!.id,
+    )
+  })
+
+  it('a directory drop is ignored entirely — no tab, no pane change', async () => {
+    const store = createWorkspaceStore('w1')
+    const handleFileOpen = vi.fn(async () => {})
+    useFileSystemStore.setState({ handleFileOpen })
+
+    await renderPane(store)
+
+    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
+    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'left' }
+    window.__fileDragData = { type: 'file', path: '/some-dir', name: 'some-dir', isDir: true }
+
+    const container = document.querySelector('[data-pane-container]')!
+    await act(async () => {
+      fireEvent.mouseUp(container, { clientX: 5, clientY: 200 })
+      await Promise.resolve()
+    })
+
+    expect(handleFileOpen).not.toHaveBeenCalled()
+    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
   })
 })
