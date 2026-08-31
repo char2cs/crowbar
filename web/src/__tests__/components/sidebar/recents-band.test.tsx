@@ -211,7 +211,7 @@ describe('RecentsBand', () => {
     expect(classesOf(rowWrapper)).not.toContain('-my-0.5')
   })
 
-  it('a set shell does not re-add the margin its members already carry, but each member keeps its own (the pill separation §5.3 asks for)', () => {
+  it('a set shell keeps its own external gutter (mx-1.5 my-0.5) AND its members keep their own margin (the pill separation §5.3 asks for)', () => {
     const entries: RecentsBandEntry[] = [
       {
         id: 'e1',
@@ -224,11 +224,16 @@ describe('RecentsBand', () => {
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
 
-    // The shell's own `mx-1.5 my-0.5` was pure dead weight (every member
-    // already carries it via ROW_BASE) — gone now, only the real 2px padding
-    // shell (§5.3) remains.
-    expect(classesOf(shell)).not.toContain('mx-1.5')
-    expect(classesOf(shell)).not.toContain('my-0.5')
+    // Unlike a solo-active row (whose outer wrapper is unstyled — the
+    // painted box is the row itself, one level in), a SET's shell div IS
+    // the painted box: there is no other element to carry its left/right
+    // gutter. Vertical margins between adjoining siblings collapse either
+    // way, so `my-0.5` here is belt-and-suspenders — but horizontal margins
+    // NEVER collapse, so `mx-1.5` is the shell's ONLY source of external
+    // gutter. Dropping it (an earlier, wrong pass at this fix) rendered the
+    // shell flush against the sidebar's edges, visibly misaligned against
+    // every other row in the list.
+    expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5']))
     expect(classesOf(shell)).toContain('p-0.5')
     expect(classesOf(shell)).toContain('rounded-xl')
 

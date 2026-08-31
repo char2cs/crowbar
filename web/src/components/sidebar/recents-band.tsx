@@ -193,11 +193,17 @@ function RecentsEntryRow({
         // A SET's shell is a real container (§5.3): its own ground, radius,
         // and 2px of padding around member rows that each keep their own
         // margin — that's what separates one member's pill from the next.
-        // Only the shell's OWN `mx-1.5 my-0.5` was ever redundant here (every
-        // member already carries that same margin via `ROW_BASE`, and
-        // adjoining vertical margins collapse regardless, so the shell's copy
-        // added nothing but a stray, un-collapsible horizontal inset).
-        isSet && 'rounded-xl p-0.5',
+        // Unlike a solo-active entry (below), the shell div here IS the
+        // painted box — there's no separate unstyled wrapper the way
+        // SidebarRow's own outer div is for a solo row — so its `mx-1.5
+        // my-0.5` is its ONLY source of external gutter, not a redundant
+        // copy of anything. Vertical margins between this shell and its
+        // siblings collapse regardless of whether the shell states its own
+        // `my-0.5` (so height was never at stake either way), but horizontal
+        // margins never collapse — dropping `mx-1.5` here (an earlier,
+        // wrong pass at this fix) deleted the shell's only left/right
+        // gutter and rendered it flush against the sidebar's edges.
+        isSet && 'mx-1.5 my-0.5 rounded-xl p-0.5',
         isSet && (isLive ? ROW_ACTIVE : 'bg-sidebar-element-idle'),
         soloActive && cn('mx-1.5 my-0.5 rounded-lg', ROW_ACTIVE),
       )}
