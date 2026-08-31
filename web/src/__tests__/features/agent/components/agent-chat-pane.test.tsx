@@ -1500,4 +1500,43 @@ describe('AgentChatPane', () => {
       expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
     })
   })
+
+  // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the
+  // composer's own `signpost` (reason: 'terminal_wait', via `resolveComposerState`)
+  // both render off the SAME `waiting` signal — but only the banner is meant to
+  // survive once the composer can actually show it. Before this test existed, both
+  // rendered at once for any chat with messages, which is exactly the duplication
+  // "one box, one occupant, never two stacked" (composer-state.ts) already forbids
+  // for every OTHER reason. The banner earns its keep only for a blank, first-turn
+  // chat, where AgentChatView renders AgentEmptyDocument instead of AgentComposer
+  // and there is no composer slot to mutate — see agent-chat-pane-terminal-wait.test.tsx
+  // for that half.
+  describe('terminal_wait on a chat that already has messages', () => {
+    it('mutates the composer into a signpost instead of duplicating a pane-level banner', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      // The default beforeEach's listMessagesFn returns one message, so this chat
+      // is NOT blank — AgentComposer, not AgentEmptyDocument, is mounted.
+      expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+
+      await act(async () => {
+        store.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+      })
+
+      // The composer itself became the signpost...
+      expect(
+        screen.getByText(/waiting for you to trust the workspace/i),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+      // ...and the separate pane-level banner did NOT also render.
+      expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
+      // The input itself is gone — one occupant, not an input rendered dead
+      // beneath the question.
+      expect(
+        screen.queryByRole('textbox', { name: /message the agent/i }),
+      ).not.toBeInTheDocument()
+    })
+  })
 })

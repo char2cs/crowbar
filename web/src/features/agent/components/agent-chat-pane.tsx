@@ -1094,7 +1094,7 @@ export function AgentChatPane({
                 </Button>
               </div>
             )}
-            {waiting && (
+            {waiting && chatBlank && (
               <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
                 <AgentTerminalWaitBanner
                   kind={waitKind ?? ''}
