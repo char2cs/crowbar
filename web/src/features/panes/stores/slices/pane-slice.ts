@@ -23,7 +23,7 @@ import {
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 import { syncSoleEditorTabCloseability } from './buffer-slice'
-import { getOrCreateWorkspaceStore, isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore, isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 
 export interface PaneActions {
@@ -138,8 +138,12 @@ export const createPaneSlice: StateCreator<
   // path, and giving them one shared Monaco model would silently mix their
   // content. `buf.workspaceId` (set on every buffer, see pane-content.ts) is
   // what resolves which workspace's manager a given tab's model lives on.
-  const editorManagerFor = (workspaceId: string) =>
-    getOrCreateWorkspaceStore(workspaceId).editorManager
+  // I3: never CREATE a workspace store just to look up its editor manager —
+  // a buffer's owning workspace can already be evicted (buffers outlive
+  // their workspace's destroy by design). getOrCreateWorkspaceStore here
+  // would silently re-register a store WorkspaceHost never mounted and will
+  // never destroy: a leak for the rest of the session.
+  const editorManagerFor = (workspaceId: string) => getWorkspaceStore(workspaceId)?.editorManager
 
   /** Release the held Monaco model for `tabId` in `paneId` (editor tabs only). A
    *  no-op when the tab isn't an editor or the pane didn't hold it (the manager

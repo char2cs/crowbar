@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   getOrCreateWorkspaceStore,
+  getWorkspaceStore,
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
 } from '@/features/workspace/stores/workspace-store-registry'
@@ -53,5 +54,28 @@ describe('workspace-store-registry', () => {
     const ids = getAllActiveWorkspaceIds()
     expect(ids).toContain('ws-1')
     expect(ids).toContain('ws-2')
+  })
+
+  // Fix round 1 (I3): getWorkspaceStore must NEVER mint a store for a
+  // workspace nobody registered — editorManagerFor (pane-slice.ts/
+  // buffer-slice.ts) uses this to resolve a buffer's Monaco manager by
+  // workspaceId, and a buffer can outlive its owning workspace's eviction.
+  // The old getOrCreateWorkspaceStore-based lookup would silently
+  // re-register (and leak, for the rest of the session) a store
+  // WorkspaceHost never mounted and will never destroy.
+  it('getWorkspaceStore returns undefined for an unregistered workspace, without creating one', () => {
+    expect(getWorkspaceStore('ws-never-registered')).toBeUndefined()
+    expect(getAllActiveWorkspaceIds()).not.toContain('ws-never-registered')
+  })
+
+  it('getWorkspaceStore returns the same instance getOrCreateWorkspaceStore already made', () => {
+    const created = getOrCreateWorkspaceStore('ws-already-there')
+    expect(getWorkspaceStore('ws-already-there')).toBe(created)
+  })
+
+  it('getWorkspaceStore returns undefined again once the workspace is destroyed', () => {
+    getOrCreateWorkspaceStore('ws-evicted')
+    destroyWorkspaceStore('ws-evicted')
+    expect(getWorkspaceStore('ws-evicted')).toBeUndefined()
   })
 })

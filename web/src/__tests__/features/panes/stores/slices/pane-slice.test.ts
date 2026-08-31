@@ -427,10 +427,13 @@ describe('pane-slice — switchToNextEditorTab / switchToPreviousEditorTab', () 
 // store object (the same place `createWorkspaceStore` Object.assign's it).
 describe('pane-slice → editorManager model release (C1)', () => {
   // Task 26: the editor manager is resolved BY WORKSPACE now
-  // (`getOrCreateWorkspaceStore(buf.workspaceId).editorManager`, since
-  // Monaco models stay per-workspace to avoid mixing two retained
-  // workspaces' same-relative-path files) rather than read straight off the
-  // slice's own `api` — mock the registry lookup instead of stubbing `api`.
+  // (`getWorkspaceStore(buf.workspaceId)?.editorManager`, since Monaco models
+  // stay per-workspace to avoid mixing two retained workspaces'
+  // same-relative-path files) rather than read straight off the slice's own
+  // `api` — mock the registry lookup instead of stubbing `api`. Fix round 1
+  // (I3): this must be the non-creating `getWorkspaceStore`, never
+  // `getOrCreateWorkspaceStore` — the latter would silently re-register a
+  // store for an already-evicted workspace and leak it for the session.
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -438,9 +441,9 @@ describe('pane-slice → editorManager model release (C1)', () => {
   async function makeStoreWithManager() {
     const closeBuffer = vi.fn()
     const registry = await import('@/features/workspace/stores/workspace-store-registry')
-    vi.spyOn(registry, 'getOrCreateWorkspaceStore').mockReturnValue({
+    vi.spyOn(registry, 'getWorkspaceStore').mockReturnValue({
       editorManager: { closeBuffer },
-    } as unknown as ReturnType<typeof registry.getOrCreateWorkspaceStore>)
+    } as unknown as ReturnType<typeof registry.getWorkspaceStore>)
 
     type S = PaneSlice & {
       buffers: Array<{ id: string; type: string; path: string; workspaceId: string }>

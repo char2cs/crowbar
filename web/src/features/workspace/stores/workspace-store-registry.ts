@@ -37,6 +37,22 @@ export function getActiveWorkspaceId(): string | null {
   return _activeWorkspaceId
 }
 
+/**
+ * A registered workspace store, or `undefined` if none exists — never
+ * creates one. Task 26 fix round 1 (I3): `editorManagerFor(workspaceId)`
+ * (pane-slice.ts/buffer-slice.ts) resolves a buffer's per-workspace Monaco
+ * manager by id, and a buffer can outlive its owning workspace's eviction
+ * (buffers are window-level now, panes/tabs can still reference one whose
+ * workspace was already destroyed). Looking that id up with
+ * `getOrCreateWorkspaceStore` would silently re-register a store
+ * `WorkspaceHost` never mounted and will never destroy — a real per-session
+ * leak. Callers that only want to read an existing store, never mint one,
+ * must use this instead.
+ */
+export function getWorkspaceStore(wsId: string): WorkspaceStore | undefined {
+  return registry.get(wsId)
+}
+
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
     // Task 26: pane/buffer layout no longer lives on this per-workspace
@@ -79,7 +95,22 @@ export function destroyWorkspaceStore(wsId: string): void {
     // very module).
     bestEffort(
       import('@/features/panes/stores/window-pane-store').then(({ windowPaneStore }) => {
-        const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === wsId)
+        const paneState = windowPaneStore.getState()
+        // Task 26 fix round 1 (I2): a buffer belonging to this workspace can
+        // still be open in a pane RIGHT NOW — buffers/panes are window-level
+        // and outlive this workspace's own destroy by design (that is the
+        // whole point of the hoist). Tearing down its live resources anyway
+        // would leave a still-visible terminal with a detached transport, or
+        // a still-open editor with a disposed Monaco model and wiped undo
+        // history. Only buffers no pane currently references (closed
+        // everywhere, just not yet swept from the flat list) are safe to
+        // tear down here.
+        const openEditorTabIds = new Set(
+          Object.values(paneState.panes).flatMap((pane) => pane.editorTabIds),
+        )
+        const buffers = paneState.buffers.filter(
+          (b) => b.workspaceId === wsId && !openEditorTabIds.has(b.id),
+        )
 
         // Detach (not kill) pane terminal PTY sessions on workspace switch.
         // The PTY stays alive in the daemon; the WS transport is closed and the
@@ -126,13 +157,25 @@ export function destroyWorkspaceStore(wsId: string): void {
           cleanupBufferHistoryTracking(buf.id)
           useHistoryStore.getState().actions.clearHistory(buf.id)
         }
+
+        // Dispose editor resources (only if the workspace ever armed the
+        // editor — a terminal/agent-only workspace never constructs the
+        // manager) — and only when NONE of this workspace's editor buffers
+        // are still open in a live pane. disposeAll() unmounts every pane
+        // this workspace's EditorManager has a Monaco editor mounted into
+        // and disposes its whole model registry; doing that while a buffer
+        // it owns is still visible would kill a live editor out from under
+        // the user (disposed model, wiped undo history) rather than merely
+        // freeing a resource nobody can see any more.
+        const hasSurvivingEditorBuffer = paneState.buffers.some(
+          (b) => b.workspaceId === wsId && isEditorContent(b) && openEditorTabIds.has(b.id),
+        )
+        if (!hasSurvivingEditorBuffer) {
+          store.editorManager?.disposeAll()
+        }
       }),
       'window-pane-store buffer teardown',
     )
-
-    // Dispose editor resources (only if the workspace ever armed the editor —
-    // a terminal/agent-only workspace never constructs the manager).
-    store.editorManager?.disposeAll()
   }
 
   // Drop the warm-reactivation freshness ledger for this workspace so a future

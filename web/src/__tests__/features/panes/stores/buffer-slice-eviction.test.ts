@@ -95,6 +95,86 @@ describe('buffer slice auto-eviction', () => {
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
   })
 
+  // Task 26 fix round 1 (Critical 3): buffers are one flat, window-level
+  // list shared across every retained workspace — the cap and the evictee
+  // search must stay scoped to the buffer's OWN workspace, or opening a file
+  // in workspace A silently discards workspace B's tab (a workspace the user
+  // may not even be looking at).
+  it('does not evict a buffer belonging to a DIFFERENT workspace at the cap', () => {
+    const store = createWindowPaneStore()
+    store.setState({ maxOpenTabs: 2 })
+
+    store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/a.ts',
+      name: 'a.ts',
+      content: '',
+      workspaceId: 'ws-a',
+    })
+    store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/x.ts',
+      name: 'x.ts',
+      content: '',
+      workspaceId: 'ws-b',
+    })
+    // ws-b is nowhere near its own cap (only 1 buffer) — ws-a opening a
+    // second file must never touch ws-b's tab.
+    store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/b.ts',
+      name: 'b.ts',
+      content: '',
+      workspaceId: 'ws-a',
+    })
+
+    const names = store.getState().buffers.map((b) => b.name)
+    expect(names).toContain('a.ts')
+    expect(names).toContain('b.ts')
+    expect(names).toContain('x.ts')
+  })
+
+  it('never auto-evicts a DIRTY buffer, even when it is the only otherwise-eligible candidate', () => {
+    const store = createWindowPaneStore()
+    store.setState({ maxOpenTabs: 2 })
+
+    const idA = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/a.ts',
+      name: 'a.ts',
+      content: 'unsaved edits',
+      workspaceId: 'test-ws',
+    })
+    store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/b.ts',
+      name: 'b.ts',
+      content: '',
+      workspaceId: 'test-ws',
+    })
+    store.setState((s) => {
+      s.buffers = s.buffers.map((b) =>
+        b.id === idA && b.type === 'editor' ? { ...b, isDirty: true } : b,
+      )
+      return s
+    })
+
+    // a.ts is dirty and would otherwise be the least-recent evictable
+    // candidate — it must survive, and the new buffer still opens (this is a
+    // silent-data-loss guard, not a hard cap).
+    store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/c.ts',
+      name: 'c.ts',
+      content: '',
+      workspaceId: 'test-ws',
+    })
+
+    const names = store.getState().buffers.map((b) => b.name)
+    expect(names).toContain('a.ts')
+    expect(names).toContain('c.ts')
+  })
+
   it('proceeds with buffer creation when no evictable buffer exists (all protected or pinned)', () => {
     const store = createWindowPaneStore()
     store.setState({ maxOpenTabs: 1 })

@@ -24,7 +24,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 // synchronous way to release the buffer's rich/source preference.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { getActiveWorkspaceId, getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getActiveWorkspaceId, getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 
@@ -88,9 +88,10 @@ export const createBufferSlice: StateCreator<
   BufferSlice
 > = (set, get) => {
   // See pane-slice for why the editor manager stays keyed by workspaceId
-  // rather than living on this (now window-level) store.
-  const editorManagerFor = (workspaceId: string) =>
-    getOrCreateWorkspaceStore(workspaceId).editorManager
+  // rather than living on this (now window-level) store. I3: never CREATE a
+  // workspace store just to look this up — see the matching comment in
+  // pane-slice.ts.
+  const editorManagerFor = (workspaceId: string) => getWorkspaceStore(workspaceId)?.editorManager
 
   return {
     buffers: [],
@@ -206,11 +207,24 @@ export const createBufferSlice: StateCreator<
         // buffer list and closed tabs through the pane's own close handler — so
         // it only bit below the engine budget, and with two panes open BOTH tab
         // bars trimmed the same shared list.
+        //
+        // Task 26 fix round 1 (Critical 3): buffers are one flat window-wide
+        // list now, shared across every workspace WorkspaceHost keeps
+        // retained (up to RETENTION_CAP). Scoping the count AND the evictee
+        // search to THIS buffer's own workspace keeps the cap per-workspace,
+        // as it always was — otherwise opening a file in workspace A could
+        // silently discard a tab (or, without the isDirty guard below,
+        // unsaved work) belonging to workspace B, C, ... which the user isn't
+        // even looking at.
         const settingCap = useSettingsStore.getState().settings.maxOpenTabs
         const cap = settingCap > 0 ? Math.min(get().maxOpenTabs, settingCap) : get().maxOpenTabs
-        if (get().buffers.length >= cap) {
-          const evictee = get().buffers.find(
-            (b) => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type),
+        const workspaceBuffers = get().buffers.filter((b) => b.workspaceId === workspaceId)
+        if (workspaceBuffers.length >= cap) {
+          const evictee = workspaceBuffers.find(
+            (b) =>
+              !b.isPinned &&
+              !AUTO_EVICTION_PROTECTED.has(b.type) &&
+              !(isEditorContent(b) && b.isDirty),
           )
           if (evictee) {
             const allPanes = Object.values(get().panes)
