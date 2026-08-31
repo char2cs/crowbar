@@ -54,19 +54,28 @@ func (rs *Runners) closeAbandonedTurn(
 	if chatID == "" {
 		return
 	}
-	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); err == nil {
-		return // someone else is on this chat now: its turn is not ours to close
-	}
-	// Salvage whatever runner had already streamed before abandoning the turn
-	// below — a user Stop or a losing provider Switch otherwise discards text
-	// Crowbar had already received and broadcast live via message_delta, with
-	// nothing left behind but a bare "stopped" interruption marker. Best-effort:
-	// a salvage failure must never block the abandon it precedes.
+	// Salvage whatever THIS runner had already streamed — UNCONDITIONALLY, before
+	// the "is its turn still mine to close" guard below. Runner-scoped (see
+	// AbandonMessageForRunner/salvageUnfinished's own runner filter), so this
+	// can never sweep up a successor's turn; it is best-effort, and about
+	// recording text Crowbar already broadcast live via message_delta, not
+	// about the CHAT's current turn state at all. Gating it behind the same
+	// guard as the turn-state abandon below used to mean: whenever a successor
+	// had ALREADY taken the chat by the time this runner's belated exit landed
+	// (a provider switch racing its own outgoing CLI's death — SIGTERM is not
+	// synchronous), the salvage never ran, so that already-streamed text was
+	// recorded nowhere — and with no real message id ever landing in the
+	// ledger for it, the frontend's streaming bubble (matched by the streamed
+	// message's own id, see use-chat-messages.ts) could never be dismissed: a
+	// real, reported duplicate, live 2026-08-31.
 	if rs.turns != nil {
 		if _, err := rs.turns.AbandonMessageForRunner(ctx, chatID, runner); err != nil {
 			slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
 				"chat_id", chatID, "runner_id", runner.ID, "err", err)
 		}
+	}
+	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); err == nil {
+		return // someone else is on this chat now: its TURN STATE is not ours to close
 	}
 	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
 	// async work it last reported outstanding, and a plain StopTurn would leave that
