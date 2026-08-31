@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { apiFetch, ApiError, fetchHomeWorkspace } from '@/lib/api'
+import { apiFetch, ApiError, fetchFolders, fetchHomeWorkspace } from '@/lib/api'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
 // fast while still exercising the real attempt-counting logic.
@@ -164,5 +164,42 @@ describe('fetchHomeWorkspace', () => {
       new Response(JSON.stringify({ success: false, error: 'not found' }), { status: 404 }),
     )
     await expect(fetchHomeWorkspace('p1')).rejects.toThrow()
+  })
+})
+
+describe('fetchFolders', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // Task 34: the dedicated `/folders` resource was deleted from the backend
+  // (11b72c72) — folders are Chat rows now, served only via .../chats/folders,
+  // whose wire DTO names its text field `title`, not `name`. Both the route and
+  // the reshape are load-bearing: hitting the dead route 404s, and reading `name`
+  // off the real DTO renders every folder blank.
+  it('GETs .../chats/folders and reshapes the title-named wire DTO into a FolderDTO', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: [{ id: 'f1', parentId: 'f0', title: 'Spikes', order: 2 }],
+        }),
+        { status: 200 },
+      ),
+    )
+    const folders = await fetchFolders('p1', 'r1')
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('/v0/projects/p1/repos/r1/chats/folders')
+    expect(vi.mocked(fetch).mock.calls[0][0]).not.toContain('/repos/r1/folders')
+    expect(folders).toEqual([
+      { id: 'f1', repoId: 'r1', projectId: 'p1', parentId: 'f0', name: 'Spikes', order: 2 },
+    ])
+  })
+
+  it('returns [] when the backend responds with no body', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    expect(await fetchFolders('p1', 'r1')).toEqual([])
   })
 })

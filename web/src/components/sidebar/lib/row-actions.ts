@@ -46,9 +46,13 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
  *
  * A folder holds no branch and no worktree, so renaming one moves nothing on
  * disk: it is the same PATCH that files a folder somewhere else, carrying the
- * one field that changed. Like the branch rename there is no optimistic write —
- * the updated FolderDTO arrives on the stream, and relabelling the row here
- * would only mean showing a name the daemon may not have taken.
+ * one field that changed.
+ *
+ * Unlike the branch rename, this DOES apply its own response: folders lost
+ * their dedicated push channel (Task 34 — the backend plan that carried it is
+ * closed), so the PATCH's `{folder, shifted}` answer is the only confirmation
+ * this edit ever gets. Applying it is not optimistic — it is the daemon's own
+ * already-committed state, arriving over the request instead of a stream.
  */
 export async function performRenameFolder(folderId: string, name: string): Promise<void> {
   const repo = useSidebarStore
@@ -58,7 +62,12 @@ export async function performRenameFolder(folderId: string, name: string): Promi
   if (!repo?.projectId || !folder) return
   if (folder.name === name) return
   try {
-    await placeFolder(repo.projectId, repo.id, folderId, { name })
+    const { folder: updated, shifted } = await placeFolder(repo.projectId, repo.id, folderId, {
+      name,
+    })
+    const apply = useSidebarStore.getState().applyFolderDTO
+    apply(updated)
+    shifted.forEach(apply)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
   }
@@ -161,7 +170,18 @@ export async function performCreateFolder(parentId: string): Promise<void> {
   if (!repo || !projectId) return
   const folderParentId = parentId === repo.defaultWorkspaceId ? '' : parentId
   try {
-    await createFolder(projectId, repo.id, NEW_FOLDER_NAME, folderParentId)
+    // Applied directly for the same reason performRenameFolder does: no
+    // dedicated push channel exists for folders any more, so the response IS
+    // the confirmation.
+    const { folder, shifted } = await createFolder(
+      projectId,
+      repo.id,
+      NEW_FOLDER_NAME,
+      folderParentId,
+    )
+    const apply = useSidebarStore.getState().applyFolderDTO
+    apply(folder)
+    shifted.forEach(apply)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }

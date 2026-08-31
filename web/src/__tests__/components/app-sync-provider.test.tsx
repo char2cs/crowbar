@@ -39,8 +39,9 @@ import { useProjectStore } from '@/lib/store/projects'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { EntityChange } from '@/lib/ws/entity-stream'
-import type { FolderDTO, Project, WorkspaceDTO } from '@/lib/types'
+import type { Project, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
   id,
@@ -98,10 +99,6 @@ function wsDTO(id: string, repoId: string, overrides: Partial<WorkspaceDTO> = {}
   }
 }
 
-function folderDTO(id: string, repoId: string, overrides: Partial<FolderDTO> = {}): FolderDTO {
-  return { id, repoId, projectId: 'p1', name: id, order: 0, ...overrides }
-}
-
 /** Let the provider's queued work (seed promises + its one-frame rebuild batch) settle. */
 async function settle(ms = 20): Promise<void> {
   await act(async () => {
@@ -129,6 +126,7 @@ beforeEach(() => {
     collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
+  useFolderSignalStore.setState({ generations: {} })
   vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
   vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
   vi.spyOn(useWorkspaceListStore.getState(), 'fetch').mockResolvedValue(undefined)
@@ -359,7 +357,14 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/workspaces')
   })
 
-  it("subscribes an expanded repo's folders, and drops them when it collapses", async () => {
+  // Task 34: folders no longer open a WS subscription at all (their dedicated
+  // REST+WS resource is gone) — they fetch once on open and again whenever
+  // useFolderSignalStore's per-repo generation moves. "Subscribed" therefore
+  // means "reacts to that repo's signal", checked by bumping it and watching
+  // fetchFolders fire (or not). The reseed mechanism itself is covered in
+  // app-sync-provider-folders.test.tsx; these tests only cover WHEN it is
+  // wired up — the same visibility rule the workspace streams already prove.
+  it("fetches an expanded repo's folders, and stops reacting to its signal once it collapses", async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -371,22 +376,29 @@ describe('AppSyncProvider subscribes by visibility', () => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p1')])
     })
     await settle()
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r1/folders')
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r2/folders')
+    expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
+    expect(fetchFolders).toHaveBeenCalledWith('p1', 'r2')
 
     act(() => {
       useSidebarStore.getState().toggleRepo('r2')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
+    fetchFolders.mockClear()
 
-    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/folders')
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/folders')
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+      useFolderSignalStore.getState().bump('r2')
+    })
+    await settle()
+
+    expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
+    expect(fetchFolders).not.toHaveBeenCalledWith('p1', 'r2')
   })
 
   it('costs nothing for a repo nobody has expanded yet', async () => {
     // Folders follow the lazy rule the workspace streams established: cost is
-    // proportional to what is on screen, so a collapsed repo pays for no folder
-    // stream at all.
+    // proportional to what is on screen, so a collapsed repo is never fetched
+    // at all.
     useSidebarStore.setState({ collapsedRepos: new Set(['r1']) })
     render(
       <AppSyncProvider>
@@ -398,10 +410,10 @@ describe('AppSyncProvider subscribes by visibility', () => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1')])
     })
     await settle()
-    expect(endpoints()).not.toContain('/v0/projects/p1/repos/r1/folders')
+    expect(fetchFolders).not.toHaveBeenCalledWith('p1', 'r1')
   })
 
-  it('does not keep a collapsed repo’s folders open for a working agent', async () => {
+  it('does not keep reacting to a collapsed repo’s folder signal for a working agent', async () => {
     // The workspace stream stays up so the avatar spinner can stop; a folder
     // reports nothing live, so it has no reason to.
     render(
@@ -417,7 +429,13 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle(SUBSCRIPTION_GRACE_MS)
 
     expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/workspaces')
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r1/folders')
+    fetchFolders.mockClear()
+
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
+    await settle()
+    expect(fetchFolders).not.toHaveBeenCalled()
   })
 
   it('keeps a collapsed repo subscribed while its repo-home agent is working', async () => {
@@ -507,133 +525,14 @@ describe('AppSyncProvider merges frames incrementally', () => {
     expect(rebuild).not.toHaveBeenCalled()
   })
 
-  it('merges a folder frame by id without rebuilding the whole tree', async () => {
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
-    })
-    await settle()
-
-    const folders = streamFor('/v0/projects/p1/repos/r1/folders')!
-    const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
-    rebuild.mockClear()
-
-    act(() => {
-      folders.options.onChange!({ kind: 'frame', frame: folderDTO('f1', 'r1', { name: 'spikes' }) })
-    })
-    await settle()
-
-    expect(useSidebarStore.getState().repos[0].folders).toEqual([
-      { id: 'f1', repoId: 'r1', parentId: undefined, name: 'spikes', order: 0 },
-    ])
-    expect(rebuild).not.toHaveBeenCalled()
-  })
-
-  it('merges a second folder frame in rather than replacing the set', async () => {
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
-    })
-    await settle()
-    const folders = streamFor('/v0/projects/p1/repos/r1/folders')!
-
-    act(() => {
-      folders.options.onChange!({ kind: 'frame', frame: folderDTO('f1', 'r1') })
-    })
-    await settle()
-    act(() => {
-      folders.options.onChange!({
-        kind: 'frame',
-        frame: folderDTO('f2', 'r1', { order: 1, parentId: 'f1' }),
-      })
-    })
-    await settle()
-
-    expect(useSidebarStore.getState().repos[0].folders!.map((f) => f.id)).toEqual(['f1', 'f2'])
-    // A frame is one folder, so the one it does not name keeps its identity —
-    // the row is not re-rendered for a sibling's move.
-    act(() => {
-      folders.options.onChange!({ kind: 'frame', frame: folderDTO('f2', 'r1', { order: 5 }) })
-    })
-    await settle()
-    const [f1, f2] = useSidebarStore.getState().repos[0].folders!
-    expect(f1.name).toBe('f1')
-    expect(f2.order).toBe(5)
-    // ...and the move out of f1 back to the repo root cleared parentId rather
-    // than silently keeping it.
-    expect(f2.parentId).toBeUndefined()
-  })
-
-  it('applies a folder tombstone incrementally', async () => {
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore
-        .getState()
-        .setRepos([
-          repo('r1', 'p1', { folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] }),
-        ])
-    })
-    await settle()
-
-    const folders = streamFor('/v0/projects/p1/repos/r1/folders')!
-    const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
-    rebuild.mockClear()
-
-    act(() => {
-      folders.options.onChange!({
-        kind: 'frame',
-        frame: folderDTO('f1', 'r1', { status: 'deleted' }),
-      })
-    })
-    await settle()
-
-    expect(useSidebarStore.getState().repos[0].folders).toEqual([])
-    expect(rebuild).not.toHaveBeenCalled()
-  })
-
-  it('a no-op folder frame hands out the same repos array', async () => {
-    // Every sidebar subscriber re-derives on identity, so a duplicate push (or a
-    // reconnect replay) must not cost a render pass across the whole tree.
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
-    })
-    await settle()
-    const folders = streamFor('/v0/projects/p1/repos/r1/folders')!
-
-    act(() => {
-      folders.options.onChange!({ kind: 'frame', frame: folderDTO('f1', 'r1') })
-    })
-    await settle()
-    const before = useSidebarStore.getState().repos
-
-    act(() => {
-      folders.options.onChange!({ kind: 'frame', frame: folderDTO('f1', 'r1') })
-    })
-    await settle()
-
-    expect(useSidebarStore.getState().repos).toBe(before)
-  })
+  // Folders no longer carry a live per-DTO push frame at all (Task 34 — the
+  // backend's dedicated folders resource is gone) — there is nothing left to
+  // "merge by id" or "no-op" incrementally the way a workspace frame does.
+  // Every folder change is a full reseed instead; that mechanism (seed on
+  // open, reseed on useFolderSignalStore's per-repo signal, tombstones
+  // dropped by diffing the fresh list against the cache) is covered in
+  // app-sync-provider-folders.test.tsx, alongside this file's own
+  // subscribes-by-visibility folders coverage above.
 
   it('still rebuilds from the cache on a seed (which is authoritative and prunes)', async () => {
     render(

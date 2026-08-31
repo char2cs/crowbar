@@ -71,7 +71,24 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
     case 'workspace':
       return deleteWorkspace(entry.projectId, entry.repoId, entry.id, ...opts)
     case 'folder':
-      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts)
+      // Folders carry no dedicated push channel any more (Task 34), so
+      // nothing else ever tells the sidebar store this row is gone — apply
+      // the tombstone (and the promotion shift the delete triggers) straight
+      // off the DELETE's own response, the same way row-actions.ts's writes
+      // do. Without this, `releaseWhenGone` below never sees the folder leave
+      // `useSidebarStore` and the held tray row never releases.
+      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts).then((shifted) => {
+        const apply = useSidebarStore.getState().applyFolderDTO
+        apply({
+          id: entry.id,
+          repoId: entry.repoId,
+          projectId: entry.projectId,
+          name: '',
+          order: 0,
+          status: 'deleted',
+        })
+        shifted.forEach(apply)
+      })
     case 'repo':
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':

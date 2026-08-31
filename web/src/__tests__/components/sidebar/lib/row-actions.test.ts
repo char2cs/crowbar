@@ -19,8 +19,20 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
   ...(await importOriginal<typeof sidebarPlacement>()),
-  createFolder: vi.fn().mockResolvedValue({ id: 'folder-new' }),
-  placeFolder: vi.fn().mockResolvedValue(undefined),
+  createFolder: vi.fn().mockResolvedValue({
+    folder: {
+      id: 'folder-new',
+      repoId: 'repo-1',
+      projectId: 'proj-1',
+      name: 'New folder',
+      order: 0,
+    },
+    shifted: [],
+  }),
+  placeFolder: vi.fn().mockResolvedValue({
+    folder: { id: 'folder-1', repoId: 'repo-1', projectId: 'proj-1', name: 'Fixes', order: 0 },
+    shifted: [],
+  }),
 }))
 
 describe('row-actions', () => {
@@ -56,6 +68,16 @@ describe('row-actions', () => {
       name: 'Fixes',
     })
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
+  })
+
+  // Task 34: folders carry no dedicated push channel any more — the PATCH's
+  // own {folder, shifted} response is applied to the sidebar store directly,
+  // or the rename would never show up anywhere.
+  it('renaming a folder applies the response to the sidebar store', async () => {
+    await performRenameRow('folder-1', 'Fixes')
+    expect(useSidebarStore.getState().repos[0].folders).toEqual([
+      { id: 'folder-1', repoId: 'repo-1', parentId: undefined, name: 'Fixes', order: 0 },
+    ])
   })
 
   // Fix round 1: the project-home row's id is `repo.defaultWorkspaceId`,
@@ -97,6 +119,9 @@ describe('row-actions', () => {
       'New folder',
       'ws-1',
     )
+    // Applied straight to the store — no dedicated push channel exists for
+    // folders any more (Task 34), so this response is the only confirmation.
+    expect(useSidebarStore.getState().repos[0].folders?.map((f) => f.id)).toContain('folder-new')
   })
 
   it('creating a folder under the project-home row roots it at the repo instead', async () => {

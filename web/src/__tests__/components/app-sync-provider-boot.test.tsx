@@ -39,6 +39,7 @@ import { success } from '@/lib/loadable'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
@@ -165,6 +166,7 @@ beforeEach(async () => {
     collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
+  useFolderSignalStore.setState({ generations: {} })
   vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
   vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
 })
@@ -211,16 +213,28 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(folderIdsOf('r2')).toEqual([])
   })
 
-  it('a live folder frame adds the row the daemon just created', async () => {
-    // What the user actually does: create a folder from a row's `+`. The POST
-    // answers with an id and the FolderDTO arrives on this stream.
+  // Task 34: the dedicated folders REST+WS resource is gone (the backend plan
+  // that carried it is closed) — there is no per-DTO push frame left to
+  // deliver a folder change. use-workspace-agent-chats-stream.ts bumps
+  // useFolderSignalStore's per-repo generation on a folder_* frame instead,
+  // and app-sync-provider.tsx's folders subscription reseeds (a full
+  // fetchFolders re-run, not a merge) whenever that generation moves — proven
+  // here the same end-to-end way the workspace frames above are.
+  it('a folder_* signal reseeds the repo, and the row the daemon just created appears', async () => {
+    // What the user actually does: create a folder from a row's `+`. The
+    // create's own response lands it immediately (sidebar-placement.ts); this
+    // proves the OTHER path — a change made elsewhere reaching this client via
+    // the signal + reseed.
     await boot()
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
 
-    await push(
-      '/v0/projects/p1/repos/r1/folders',
+    fetchFolders.mockResolvedValue([
+      folderDTO('f1', 'r1', 'p1', { name: 'spikes' }),
       folderDTO('f2', 'r1', 'p1', { name: 'nested', parentId: 'f1', order: 1 }),
-    )
+    ])
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1', 'f2']))
     const nested = useSidebarStore
       .getState()
@@ -229,18 +243,14 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(nested).toMatchObject({ name: 'nested', parentId: 'f1', order: 1 })
   })
 
-  it('a live folder tombstone removes the row', async () => {
+  it('a folder_* signal reseed drops a row the fresh list no longer carries', async () => {
     await boot()
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
 
-    await push(
-      '/v0/projects/p1/repos/r1/folders',
-      folderDTO('f1', 'r1', 'p1', { status: 'deleted' }),
-    )
-    await waitFor(() => expect(folderIdsOf('r1')).toEqual([]))
-    // ...and it is gone from the cache too, so the next rebuild cannot resurrect it.
     fetchFolders.mockResolvedValue([])
-    await push('/v0/projects/p1/repos/r1/folders', { reconnected: true })
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
     await waitFor(() => expect(folderIdsOf('r1')).toEqual([]))
     // The repo's workspace rows are untouched by any of it.
     expect(workspaceIdsOf('r1')).toEqual(['w1'])

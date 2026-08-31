@@ -140,6 +140,20 @@ export interface AgentChatFolder {
 }
 
 /**
+ * The wire shape of one .../chats/folders row: a folder-typed domain.Chat
+ * rendered through dto.AgentChatDTO, which names its display text `title` —
+ * not `name`. Only the fields a folder row carries values in; every
+ * runner-derived AgentChatDTO field is honestly empty on one and unused here.
+ */
+interface AgentChatFolderWire {
+  id: string
+  workspaceId: string
+  parentId: string
+  title: string
+  order: number
+}
+
+/**
  * The rows a dense renumber MOVED that the caller did not ask about.
  *
  * Every placement write renumbers the level it touched, so a client that applies
@@ -148,7 +162,7 @@ export interface AgentChatFolder {
  * next time anything re-renders. Apply these.
  */
 export interface FolderShift {
-  shifted: AgentChatFolder[]
+  shifted: AgentChatFolderWire[]
 }
 
 export interface AgentChatDetail extends AgentChat {
@@ -345,12 +359,12 @@ function mapChat(c: AgentChat): AgentChat {
   }
 }
 
-function mapFolder(f: AgentChatFolder): AgentChatFolder {
+function mapFolder(f: AgentChatFolderWire): AgentChatFolder {
   return {
     id: f.id,
     workspaceId: f.workspaceId,
     parentId: f.parentId ?? '',
-    name: f.name,
+    name: f.title,
     order: f.order ?? 0,
   }
 }
@@ -845,7 +859,12 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, parentId }),
+    // The repo-scoped mount binds no :wsId (Task 17), so wsId has to travel in
+    // the body — the backend's Create falls back to body.workspaceId exactly
+    // when the URL carries none. Omitting it anchors the chat to "", and a
+    // top-level "" chat has no ancestor to resolve a cwd workspace from, so its
+    // runner spawn 404s (agentchat: not found) even though the chat minted.
+    body: JSON.stringify({ provider, parentId, workspaceId: wsId }),
   })
   return res.id
 }
@@ -988,7 +1007,7 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
 // asked about. Apply both halves or the level paints in its old order.
 
 export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
-  const raw = await apiFetch<AgentChatFolder[]>(`${chatBase(wsId)}/folders`)
+  const raw = await apiFetch<AgentChatFolderWire[]>(`${chatBase(wsId)}/folders`)
   return (raw ?? []).map(mapFolder)
 }
 
@@ -997,7 +1016,7 @@ export async function createChatFolder(
   name: string,
   parentId: string,
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
     `${chatBase(wsId)}/folders`,
     {
       method: 'POST',
@@ -1014,7 +1033,7 @@ export async function updateChatFolder(
   folderId: string,
   patch: { name?: string; parentId?: string; order?: number },
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
     `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
     {
       method: 'PATCH',

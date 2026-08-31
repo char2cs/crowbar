@@ -9,6 +9,8 @@ import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
 import { fetchFolders, fetchRepos, fetchWorkspaces } from '@/lib/api'
 import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream'
+import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { maybeWipeOnVersionChange } from '@/lib/persistence/idb'
 import type { FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -152,16 +154,63 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       useSidebarStore.getState().applyWorkspaceDTO(change.frame as unknown as WorkspaceDTO)
     }
 
-    function onFoldersChange(change: EntityChange): void {
-      if (disposed) return
-      if (change.kind === 'seed') {
-        scheduleRebuild()
-        return
+    // -- folders: reseed-on-signal, no dedicated push channel (Task 34) ----
+    //
+    // The backend's dedicated folders REST+WS resource was deleted (its own
+    // plan is closed): a folder is a domain.Chat row now, read only through
+    // .../chats/folders, and its only live-update path is an id-only
+    // invalidation frame on a WORKSPACE's chats WS (no snapshot, no row —
+    // "the tree moved, read it again"). There is nothing repo-scoped left to
+    // open a WS subscription against, so this is a plain reseed loop instead
+    // of `subscribeEntityStream`: seed once on open, and again every time
+    // `useFolderSignalStore`'s generation for this repo moves (bumped by
+    // use-workspace-agent-chats-stream.ts whenever it sees a folder_* frame,
+    // or a reconnect, for a workspace of this repo).
+    //
+    // That only fires while some workspace of this repo is mounted — the
+    // acceptable half of the tradeoff, because the acting user's OWN edits
+    // never depend on it: sidebar-placement.ts applies a create/rename/move/
+    // delete's own `{folder, shifted}` response to the store directly, the
+    // instant it lands. This signal only has to catch up everyone else,
+    // eventually — which is what Task 34 asked for.
+    function openFolderSubscription(projectId: string, repoId: string): () => void {
+      let closed = false
+      let generation = 0
+
+      async function reseed(): Promise<void> {
+        const gen = ++generation
+        try {
+          const items = await fetchFolders(projectId, repoId)
+          if (disposed || closed || gen !== generation) return
+          const cached = await getAllEntities<FolderDTO>('crowbar_folders')
+          if (disposed || closed || gen !== generation) return
+          const fresh = new Set(items.map((item) => item.id))
+          // Authoritative over THIS repo's folders only, exactly like
+          // subscribeEntityStream's own pruneScope — crowbar_folders holds
+          // every other repo's rows too.
+          const stale = cached
+            .filter((folder) => folder.repoId === repoId && !fresh.has(folder.id))
+            .map((folder) => folder.id)
+          await Promise.all(stale.map((id) => removeEntity('crowbar_folders', id)))
+          await Promise.all(items.map((item) => upsertEntity('crowbar_folders', item)))
+          if (!disposed && !closed) scheduleRebuild()
+        } catch (err) {
+          console.error(`app-sync-provider: folders reseed failed for repo ${repoId}`, err)
+        }
       }
-      // Same incremental path as a workspace frame, and for the same reason: a
-      // folder frame carries a complete DTO, so it merges into exactly one repo
-      // by id and leaves every row it does not name alone.
-      useSidebarStore.getState().applyFolderDTO(change.frame as unknown as FolderDTO)
+
+      void reseed()
+      const unsubscribeSignal = useFolderSignalStore.subscribe(
+        (state) => state.generations[repoId] ?? 0,
+        () => {
+          if (!disposed && !closed) void reseed()
+        },
+      )
+
+      return () => {
+        closed = true
+        unsubscribeSignal()
+      }
     }
 
     // -- keyed subscription registry ---------------------------------------
@@ -182,16 +231,7 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         })
       }
       if (kind === 'folders') {
-        return subscribeEntityStream<FolderDTO>({
-          endpoint: `/v0/projects/${projectId}/repos/${repoId}/folders`,
-          store: 'crowbar_folders',
-          seed: () => fetchFolders(projectId, repoId),
-          onChange: onFoldersChange,
-          // Authoritative over THIS repo's folders only — crowbar_folders holds
-          // every other repo's rows too, so pruning the whole store would wipe
-          // sibling repos' folders on each reseed.
-          pruneScope: (folder) => folder.repoId === repoId,
-        })
+        return openFolderSubscription(projectId, repoId)
       }
       return subscribeEntityStream<WorkspaceDTO>({
         endpoint: `/v0/projects/${projectId}/repos/${repoId}/workspaces`,

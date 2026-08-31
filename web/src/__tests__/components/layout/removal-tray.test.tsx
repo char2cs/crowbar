@@ -49,11 +49,25 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 vi.mock('@/lib/api/sidebar-placement', () => ({
   placeWorkspace: vi.fn(() => Promise.resolve()),
-  placeFolder: vi.fn(() => Promise.resolve()),
+  placeFolder: vi.fn(() =>
+    Promise.resolve({
+      folder: { id: 'f1', repoId: 'r1', projectId: 'p1', name: 'spikes', order: 0 },
+      shifted: [],
+    }),
+  ),
   placeRepo: vi.fn(() => Promise.resolve()),
   placeProject: vi.fn(() => Promise.resolve()),
-  createFolder: vi.fn(() => Promise.resolve({ id: 'new-folder' })),
-  deleteFolder: vi.fn(() => Promise.resolve()),
+  createFolder: vi.fn(() =>
+    Promise.resolve({
+      folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
+      shifted: [],
+    }),
+  ),
+  // Task 34: DELETE .../chats/folders/:folderId answers {shifted: [...]},
+  // not void — commitRemoval applies it (and the deletion's own tombstone)
+  // to the sidebar store directly, since folders have no dedicated push
+  // channel any more.
+  deleteFolder: vi.fn(() => Promise.resolve([])),
 }))
 
 import { deleteRepo, deleteWorkspace } from '@/lib/api'

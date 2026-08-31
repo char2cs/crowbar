@@ -176,10 +176,51 @@ export function fetchWorkspaces(projectId: string, repoId: string): Promise<Work
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
 }
 
-/** One repo's sidebar folders, in sidebar order. The seed half of the folders
- *  stream — a WebSocket upgrade on this same path gets the live frames. */
-export function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/folders`)
+/**
+ * The wire shape of one row GET .../chats/folders returns: a folder-typed
+ * domain.Chat rendered through dto.AgentChatDTO (Task 34 — the dedicated
+ * `/folders` resource was deleted; folders are Chat rows now). Neither repoId
+ * nor projectId travel on it — the URL is the only place either is known —
+ * and its display text is `title`, not `name`.
+ */
+export interface ChatsFolderWireDTO {
+  id: string
+  parentId: string
+  title: string
+  order: number
+}
+
+/** `ChatsFolderWireDTO` -> the sidebar's own `FolderDTO`, filling in the
+ *  repo/project scope the wire row doesn't carry. Shared by `fetchFolders`
+ *  and `sidebar-placement.ts`'s write verbs, which read the same rows back
+ *  off their own mutation responses. */
+export function folderDTOFromWire(
+  row: ChatsFolderWireDTO,
+  projectId: string,
+  repoId: string,
+): FolderDTO {
+  return {
+    id: row.id,
+    repoId,
+    projectId,
+    parentId: row.parentId,
+    name: row.title,
+    order: row.order,
+  }
+}
+
+/**
+ * One repo's sidebar folders, in sidebar order.
+ *
+ * There is no dedicated push channel for this any more — folders lost their
+ * own REST+WS resource (backend plan closed; see app-sync-provider.tsx's
+ * folders subscription for how a change now reaches the sidebar tree).
+ */
+export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(
+    `/v0/projects/${projectId}/repos/${repoId}/chats/folders`,
+  )
+  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
 }
 
 export function fetchWorkspace(

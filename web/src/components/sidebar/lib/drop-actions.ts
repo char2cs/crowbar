@@ -310,11 +310,19 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
       })
-    case 'folder':
-      return placeFolder(call.projectId, call.repoId, call.folderId, {
+    case 'folder': {
+      // Applied directly, same as row-actions.ts's folder writes: there is no
+      // dedicated push channel for folders any more (Task 34), so this
+      // response is the only confirmation the drop gets.
+      const { folder, shifted } = await placeFolder(call.projectId, call.repoId, call.folderId, {
         parentId: call.parentId,
         order: call.order,
       })
+      const apply = useSidebarStore.getState().applyFolderDTO
+      apply(folder)
+      shifted.forEach(apply)
+      return
+    }
     case 'chat':
       return setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,

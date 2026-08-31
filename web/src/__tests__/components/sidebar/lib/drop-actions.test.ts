@@ -15,7 +15,28 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 vi.mock('@/lib/api/sidebar-placement', () => ({
   placeWorkspace: vi.fn().mockResolvedValue(undefined),
-  placeFolder: vi.fn().mockResolvedValue(undefined),
+  // Echoes the call's own args back as the {folder, shifted} envelope the
+  // real .../chats/folders PATCH answers with (Task 34) — fireRowPlacementCall
+  // applies `folder` straight to the sidebar store, so this has to resolve to
+  // something shaped like a real FolderDTO rather than `undefined`.
+  placeFolder: vi.fn(
+    async (
+      projectId: string,
+      repoId: string,
+      folderId: string,
+      placement: { parentId?: string; order?: number },
+    ) => ({
+      folder: {
+        id: folderId,
+        repoId,
+        projectId,
+        name: folderId,
+        parentId: placement.parentId ?? '',
+        order: placement.order ?? 0,
+      },
+      shifted: [],
+    }),
+  ),
 }))
 vi.mock('@/lib/api/workspace', () => ({
   reparentWorkspace: vi.fn(),
@@ -38,7 +59,10 @@ import {
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
 

@@ -257,8 +257,20 @@ describe('agent-api', () => {
     // omission — one shape on the wire whether or not the chat is a thread.
     expect(init).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({ provider: 'codex', parentId: '' }),
+      body: JSON.stringify({ provider: 'codex', parentId: '', workspaceId: 'w1' }),
     })
+  })
+
+  // Regression: the repo-scoped mount (Task 17) binds no :wsId, so the ONLY
+  // way the backend's Create learns which workspace to anchor a top-level
+  // chat to is body.workspaceId. Omitting it minted the chat fine but left it
+  // anchored to "" — a chat with no ancestor to resolve a cwd workspace from —
+  // and its runner spawn 404'd (confirmed live: "agentchat: not found").
+  it('createChat sends workspaceId in the body, not just the URL', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.workspaceId).toBe('w1')
   })
 
   it('createChat carries the PARENT, so the edge exists before the runner starts', async () => {
@@ -268,7 +280,7 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     await api.createChat('w1', 'codex', 'parent-chat')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
-      body: JSON.stringify({ provider: 'codex', parentId: 'parent-chat' }),
+      body: JSON.stringify({ provider: 'codex', parentId: 'parent-chat', workspaceId: 'w1' }),
     })
     // ONE call: no follow-up placement to leave an orphan at the root if it
     // failed.
@@ -706,15 +718,18 @@ describe('agent-api', () => {
 
   describe('chat folders + placement', () => {
     it('listChatFolders GETs the workspace-scoped folders list and grounds parentId/order', async () => {
+      // The wire DTO (dto.AgentChatDTO) names its text field `title`, not
+      // `name` — a fixture using `name` here would be asserting the same wire
+      // lie the production bug shared.
       apiFetch.mockResolvedValueOnce([
-        { id: 'f1', workspaceId: 'w1', name: 'Folder 1', parentId: 'f0', order: 2 },
-        { id: 'f2', workspaceId: 'w1', name: 'Folder 2' }, // parentId/order omitted
+        { id: 'f1', workspaceId: 'w1', title: 'Folder 1', parentId: 'f0', order: 2 },
+        { id: 'f2', workspaceId: 'w1', title: 'Folder 2' }, // parentId/order omitted
       ])
       const folders = await api.listChatFolders('w1')
       expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/folders')
-      expect(folders[0]).toMatchObject({ id: 'f1', parentId: 'f0', order: 2 })
+      expect(folders[0]).toMatchObject({ id: 'f1', name: 'Folder 1', parentId: 'f0', order: 2 })
       // A root/never-placed folder grounds the same way mapChat does.
-      expect(folders[1]).toMatchObject({ id: 'f2', parentId: '', order: 0 })
+      expect(folders[1]).toMatchObject({ id: 'f2', name: 'Folder 2', parentId: '', order: 0 })
     })
 
     it('listChatFolders returns [] when the backend responds with no body', async () => {
@@ -724,8 +739,8 @@ describe('agent-api', () => {
 
     it('createChatFolder POSTs {name, parentId} and unwraps {folder, shifted}', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'New folder', parentId: '', order: 0 },
-        shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }],
+        folder: { id: 'f9', workspaceId: 'w1', title: 'New folder', parentId: '', order: 0 },
+        shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 1 }],
       })
       const { folder, shifted } = await api.createChatFolder('w1', 'New folder', '')
       expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/folders')
@@ -733,14 +748,14 @@ describe('agent-api', () => {
         method: 'POST',
         body: JSON.stringify({ name: 'New folder', parentId: '' }),
       })
-      expect(folder).toMatchObject({ id: 'f9', order: 0 })
+      expect(folder).toMatchObject({ id: 'f9', name: 'New folder', order: 0 })
       // The dense renumber's collateral — every sibling it displaced.
       expect(shifted).toEqual([{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }])
     })
 
     it('createChatFolder defaults shifted to [] when the backend omits the field', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'X', parentId: '', order: 0 },
+        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
       })
       const { shifted } = await api.createChatFolder('w1', 'X', '')
       expect(shifted).toEqual([])
@@ -748,7 +763,7 @@ describe('agent-api', () => {
 
     it('createChatFolder defaults shifted to [] when the backend sends shifted: null', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'X', parentId: '', order: 0 },
+        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
         shifted: null,
       })
       const { shifted } = await api.createChatFolder('w1', 'X', '')
@@ -757,7 +772,7 @@ describe('agent-api', () => {
 
     it('updateChatFolder PATCHes only the named fields (a partial patch) and unwraps the same envelope', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', name: 'Renamed', parentId: '', order: 0 },
+        folder: { id: 'f1', workspaceId: 'w1', title: 'Renamed', parentId: '', order: 0 },
         shifted: [],
       })
       const { folder } = await api.updateChatFolder('w1', 'f1', { name: 'Renamed' })
@@ -771,7 +786,7 @@ describe('agent-api', () => {
 
     it('updateChatFolder PATCHes a re-parent + reorder patch verbatim', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', name: 'F1', parentId: 'f2', order: 3 },
+        folder: { id: 'f1', workspaceId: 'w1', title: 'F1', parentId: 'f2', order: 3 },
         shifted: [],
       })
       await api.updateChatFolder('w1', 'f1', { parentId: 'f2', order: 3 })
@@ -792,7 +807,7 @@ describe('agent-api', () => {
 
     it('deleteChatFolder returns the promoted-children shift the delete triggered', async () => {
       apiFetch.mockResolvedValueOnce({
-        shifted: [{ id: 'f2', workspaceId: 'w1', name: 'F2', parentId: '', order: 0 }],
+        shifted: [{ id: 'f2', workspaceId: 'w1', title: 'F2', parentId: '', order: 0 }],
       })
       const shifted = await api.deleteChatFolder('w1', 'f1')
       expect(shifted).toEqual([{ id: 'f2', workspaceId: 'w1', name: 'F2', parentId: '', order: 0 }])
@@ -810,7 +825,7 @@ describe('agent-api', () => {
           createdAt: '2026-01-01T00:00:00Z',
           // parentId/order omitted on the wire chat — grounded by mapChat below.
         },
-        shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 3 }],
+        shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 3 }],
       })
       const { chat, shifted } = await api.setChatPlacement('w1', 'c1', { parentId: 'f1', order: 2 })
       expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/c1/placement')

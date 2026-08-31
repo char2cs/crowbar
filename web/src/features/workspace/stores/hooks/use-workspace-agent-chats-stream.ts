@@ -8,6 +8,8 @@ import {
   listChatFolders,
   type AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
@@ -199,6 +201,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     let cancelled = false
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
+
+    // Tells app-sync-provider.tsx's per-repo folders subscription (Task 34:
+    // the sidebar's folders resource has no dedicated push channel of its
+    // own any more) that THIS repo's folders may have moved. Only every other
+    // window/tab needs this — the acting client's own edits are applied
+    // straight from their mutation's own response (sidebar-placement.ts).
+    const bumpFolderSignal = () => {
+      const repoId = getWorkspaceScope(wsId)?.repoId
+      if (repoId) useFolderSignalStore.getState().bump(repoId)
+    }
 
     // Every single-chat read that lands bumps this. A list seed captures it before it
     // asks, and refuses to apply a snapshot that a fresher read has already overtaken —
@@ -523,6 +535,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         // every folder frame dropped during the outage is a rearrangement this
         // client never heard about, and nothing else would ever ask again.
         void seedFolders()
+        // ...and the SIDEBAR's own folders pipeline, which watches this same
+        // signal rather than this hook's own AgentChatFolder state.
+        bumpFolderSignal()
         // Providers too: the outage that dropped the socket is the same one that
         // can have emptied them, and this is the app's own signal that the daemon
         // is answering again. Without it a workspace that lost its providers
@@ -544,6 +559,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // here: the arrangement is not what this client thinks it is.
       if (ev.folderId) {
         void seedFolders()
+        bumpFolderSignal()
         return
       }
       if (!ev.chatId) return

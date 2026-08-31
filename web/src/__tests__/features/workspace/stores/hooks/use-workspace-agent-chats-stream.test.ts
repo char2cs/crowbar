@@ -138,6 +138,8 @@ import {
   beginProviderWrite,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
+import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
 type Frame = {
   chatId?: string
@@ -230,6 +232,12 @@ beforeEach(() => {
   )
   listProvidersFn.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
   listChatFoldersFn.mockResolvedValue([FOLDER])
+  // Mirrors fakeChatBase's own repo mapping so bumpFolderSignal's real
+  // getWorkspaceScope('w1') lookup (unmocked — it's a dependency-free registry)
+  // resolves the same repo the WS URL is scoped to.
+  __resetWorkspaceScopesForTest()
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+  useFolderSignalStore.setState({ generations: {} })
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
@@ -1198,6 +1206,34 @@ describe('useWorkspaceAgentChatsStream', () => {
         expect(seedAgentChatFolders).toHaveBeenCalledWith([FOLDER])
       },
     )
+
+    // Task 34: the sidebar's own folders pipeline has no dedicated push
+    // channel any more — it watches useFolderSignalStore's per-repo
+    // generation, bumped here, instead of a WS frame of its own.
+    it.each(['folder_created', 'folder_updated', 'folder_deleted'])(
+      'bumps the repo-scoped folder signal on %s',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(folderFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+      },
+    )
+
+    it('bumps the folder signal on the reconnect sentinel too', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+      captureCb()({ reconnected: true })
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+    })
 
     it('leaves the chat list alone — the tree moved, the conversations did not', async () => {
       renderHook(() => useWorkspaceAgentChatsStream('w1'))

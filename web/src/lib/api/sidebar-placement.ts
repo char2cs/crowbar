@@ -1,4 +1,5 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch, folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api'
+import type { FolderDTO } from '@/lib/types'
 
 /**
  * Where a row sits in the sidebar, for every level of it.
@@ -50,25 +51,49 @@ export interface FolderPlacement {
   order?: number
 }
 
+/** One folder mutation's answer: the row asked about, plus every sibling a
+ *  dense renumber moved alongside it (folders and workspaces share one
+ *  sibling space). Apply both — matches `agent-api.ts`'s `createChatFolder`/
+ *  `updateChatFolder`, which read the same `{folder, shifted}` envelope off
+ *  the same backend route family. */
+interface FolderWriteResult {
+  folder: FolderDTO
+  shifted: FolderDTO[]
+}
+
+function toFolderWriteResult(
+  raw: { folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] },
+  projectId: string,
+  repoId: string,
+): FolderWriteResult {
+  return {
+    folder: folderDTOFromWire(raw.folder, projectId, repoId),
+    shifted: (raw.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)),
+  }
+}
+
 /**
- * Create a folder, and answer with its id.
+ * Create a folder, and answer with the created row plus its collateral.
  *
- * The FolderDTO itself arrives on the folders stream like every other entity —
- * the id comes back here only because filing rows INTO a new folder needs
- * something to address, and waiting for the stream first would make grouping a
- * two-round-trip gesture with a visible gap in the middle.
+ * There is no dedicated push channel for folders any more (Task 34), so this
+ * is not a seed for a later stream frame — it is the only confirmation the
+ * caller gets. `row-actions.ts`'s `performCreateFolder` applies it to
+ * `useSidebarStore` directly.
  */
 export function createFolder(
   projectId: string,
   repoId: string,
   name: string,
   parentId: string,
-): Promise<{ id: string }> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders`, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ name, parentId }),
-  })
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${repoBase(projectId, repoId)}/chats/folders`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name, parentId }),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
 export function placeFolder(
@@ -76,26 +101,30 @@ export function placeFolder(
   repoId: string,
   folderId: string,
   placement: FolderPlacement,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, {
-    method: 'PATCH',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(placement),
-  })
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${repoBase(projectId, repoId)}/chats/folders/${folderId}`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(placement),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
-/** Delete a folder. Its children reparent to the folder's own parent — a
- *  folder holds no worktrees, so removing one is not removing what it held. */
+/** Delete a folder, and answer with the rows its children's promotion moved.
+ *  Its children reparent to the folder's own parent — a folder holds no
+ *  worktrees, so removing one is not removing what it held. */
 export function deleteFolder(
   projectId: string,
   repoId: string,
   folderId: string,
   init?: RequestInit,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, {
-    method: 'DELETE',
-    ...init,
-  })
+): Promise<FolderDTO[]> {
+  return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
+    `${repoBase(projectId, repoId)}/chats/folders/${folderId}`,
+    { method: 'DELETE', ...init },
+  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)))
 }
 
 /** A repo's owning project and its index within that project's section. */
