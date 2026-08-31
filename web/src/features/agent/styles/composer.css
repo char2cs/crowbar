@@ -105,6 +105,16 @@
   height: var(--dissolve-h);
   z-index: 1;
   pointer-events: none;
+  /* Every child here is `position: absolute; inset` within this box (none of
+     them paint outside it, none of them are affected by anything outside
+     it) — `contain: paint` is a fact about this layout, not a guess, and it
+     bounds the invalidation region the browser has to consider whenever any
+     one of the 7 backdrop-filter children below repaints. Without it, an
+     un-isolated backdrop-filter stack this size is exactly the kind of thing
+     that can starve OTHER GPU-composited layers sharing the same window —
+     the native sidebar's own vibrancy view among them — of frames under
+     load, not just cost this element its own. */
+  contain: paint;
 }
 .agent-chat .dissolve-layer {
   position: absolute;
