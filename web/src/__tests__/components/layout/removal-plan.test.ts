@@ -8,9 +8,12 @@
  * children, and a repo takes every worktree under it.
  */
 import { describe, it, expect } from 'vitest'
-import { applyPendingRemovals, planRemoval } from '@/components/layout/removal-plan'
+import {
+  applyPendingRemovals,
+  planRemoval,
+  type DragSubject,
+} from '@/components/layout/removal-plan'
 import type { Repo } from '@/lib/store/sidebar'
-import type { DragSubject } from '@/components/layout/drop-rules'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',

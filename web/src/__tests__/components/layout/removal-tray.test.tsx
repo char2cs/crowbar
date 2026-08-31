@@ -79,8 +79,7 @@ import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
-import { planRemoval } from '@/components/layout/removal-plan'
-import type { DragSubject } from '@/components/layout/drop-rules'
+import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
 
 const project: Project = {

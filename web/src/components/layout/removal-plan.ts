@@ -6,12 +6,34 @@ import {
   type Repo,
 } from '@/lib/store/sidebar'
 import type { RemovalDraft } from '@/lib/store/sidebar-removal'
-import type { DragSubject } from './drop-rules'
+import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 
 /** The little a removal needs to know about a project: which one, and its label. */
 export interface ProjectRow {
   id: string
   name: string
+}
+
+/** The four movable classes. They do not mix. */
+export type DropKind = 'workspace' | 'folder' | 'repo' | 'project'
+
+/**
+ * A row as a removal/drag subject — which class of thing it is, which one it
+ * is, and enough of its placement to resolve its owning repo.
+ *
+ * Formerly `components/layout/drop-rules.ts`'s type (that module's policy
+ * logic went with the unified sidebar's `sidebar-drop-policy.ts`, but this
+ * shape lives on: `space-content-actions.ts`'s `resolveRow` still builds one
+ * per row and hands it here to plan a removal).
+ */
+export interface DragSubject extends DragSubjectBase {
+  kind: DropKind
+  /** Repo scope, for the same-repo rule. Absent on repos and projects. */
+  repoId?: string
+  /** A protected branch: reorders among its own siblings and nothing else. */
+  locked?: boolean
+  /** Its current parent, for the locked same-parent rule. */
+  parentId?: string
 }
 
 /**

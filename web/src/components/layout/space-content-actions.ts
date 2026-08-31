@@ -3,13 +3,12 @@ import { useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
-import { planRemoval } from './removal-plan'
+import { planRemoval, type DragSubject } from './removal-plan'
 import { postWorkspace } from '@/lib/api'
 import { createChat, deleteChat } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { scopedWorkspaceIdOf } from '@/components/sidebar/lib/row-actions'
 import { toast } from '@/features/window/stores/toast-store'
-import type { DragSubject } from './drop-rules'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
 export interface ResolvedRow {
