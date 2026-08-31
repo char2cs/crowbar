@@ -23,6 +23,30 @@
  *
  * Ticket, not timestamp: a clock can tie, and two reads issued in one tick are exactly
  * the case that matters.
+ *
+ * ── WHAT THIS DOES NOT SETTLE ────────────────────────────────────────────────────
+ *
+ * ISSUE ORDER IS A PROXY FOR FRESHNESS, NOT A MEASURE OF IT. The premise above cuts both
+ * ways and this registry only honours it in one direction: `noteChatListRead` stamps every
+ * chat in a list response with the LIST's ticket, which treats a later-issued list read as
+ * unconditionally fresher than an earlier-issued per-chat read. But `seedChats`'s own
+ * long-standing comment says a list read can be served pre-placement too — so that is an
+ * assumption, not a fact.
+ *
+ * The window it needs is narrow: a seed landing INSIDE a per-chat read's round trip, and
+ * answering from before a placement the per-chat read did see. Concretely — `adopt()`
+ * claims T1; a `created`/reconnect reseed claims T2 > T1; the list answers pre-placement,
+ * lands first, seeds the chat dormant and stamps mark = T2; `adopt()`'s later-landing TRUE
+ * answer is then refused as stale. Before this registry existed that read would have
+ * applied and self-corrected, so in that one sequence this is a regression: the pane can
+ * reach `idle: 'failed'` with its retry budget spent.
+ *
+ * It is not fixable from the client. Deciding it properly needs the server to stamp each
+ * chat row with its own revision, so freshness is compared on the ANSWER rather than on
+ * when we asked; the ticket would then only break ties. Until then this trades a narrow,
+ * self-announcing failure (a Resume button that works when pressed) for the wide, silent,
+ * latching one it was written to end (a dead pane over a live CLI that no button repairs).
+ * Do not read the guarantees below as a settled precedence between the two kinds of read.
  */
 
 /** Monotonic issue clock. NEVER reset — not even between tests. Every ticket handed out
@@ -32,7 +56,13 @@ let issued = 0
 
 /** Workspace to chat to the issue ticket of the newest read APPLIED to that chat. Nested
  *  rather than a composite string key so no id can be parsed back out wrong, and so a
- *  workspace's whole set is reachable for the list read's prune. */
+ *  workspace's whole set is reachable for the list read's prune.
+ *
+ *  DELIBERATELY NOT CLEARED when a workspace store is destroyed, even though that leaves
+ *  a bounded amount of dead state behind. Clearing it would set every mark back to 0 and
+ *  re-admit any read still in flight over the workspace's next mount — reinstating exactly
+ *  the stale write this exists to refuse. Pruning happens where it is SAFE instead: a list
+ *  read drops the chats its snapshot no longer carries, and `deleted` drops one by id. */
 const appliedAt = new Map<string, Map<string, number>>()
 
 /** Workspace to how many single-chat reads have been applied in it. A list seed snapshots
@@ -40,12 +70,31 @@ const appliedAt = new Map<string, Map<string, number>>()
  *  counted per workspace so one workspace's traffic cannot burn another's seed retries. */
 const appliedCount = new Map<string, number>()
 
+/**
+ * Workspace to the ticket of the newest LIST read applied in it — the floor under every
+ * chat's mark, including chats no entry is held for.
+ *
+ * Without it, forgetting a chat (a list snapshot that dropped it, or a `deleted` frame)
+ * resets its mark to 0 and re-admits any read of that id still in flight, resurrecting a
+ * row the reconcile had just removed. A chat the newest list did not carry cannot have an
+ * answer older than that list worth applying, so the floor is the honest default.
+ */
+const listFloor = new Map<string, number>()
+
 function chatsOf(wsId: string): Map<string, number> {
   const known = appliedAt.get(wsId)
   if (known) return known
   const fresh = new Map<string, number>()
   appliedAt.set(wsId, fresh)
   return fresh
+}
+
+/** The newest answer we hold about this chat, expressed as the ticket of the read that
+ *  produced it — falling back to the workspace's list floor, then to nothing. */
+function markOf(wsId: string, chatId: string): number {
+  const own = appliedAt.get(wsId)?.get(chatId)
+  if (own !== undefined) return own
+  return listFloor.get(wsId) ?? 0
 }
 
 /** Take a ticket for a read about to be ISSUED. Call it immediately before the request,
@@ -65,9 +114,8 @@ export function claimChatRead(): number {
  * decline to write it, or the seed will stand down for a write that never happened.
  */
 export function acceptChatRead(wsId: string, chatId: string, ticket: number): boolean {
-  const chats = chatsOf(wsId)
-  if ((chats.get(chatId) ?? 0) > ticket) return false
-  chats.set(chatId, ticket)
+  if (markOf(wsId, chatId) > ticket) return false
+  chatsOf(wsId).set(chatId, ticket)
   appliedCount.set(wsId, (appliedCount.get(wsId) ?? 0) + 1)
   return true
 }
@@ -75,6 +123,18 @@ export function acceptChatRead(wsId: string, chatId: string, ticket: number): bo
 /** Single-chat reads applied in this workspace so far — the seed's overtaken check. */
 export function chatReadsApplied(wsId: string): number {
   return appliedCount.get(wsId) ?? 0
+}
+
+/**
+ * The issue ticket of the newest answer held about this chat (the workspace's list floor
+ * when no per-chat entry survives).
+ *
+ * Read by `upsertAgentChat`'s cross-chat eviction, which is the one write that changes a
+ * chat OTHER than the one it was handed. `acceptChatRead` cannot answer that question —
+ * it asks about the row being written, and eviction is about the row being trampled.
+ */
+export function chatReadMark(wsId: string, chatId: string): number {
+  return markOf(wsId, chatId)
 }
 
 /**
@@ -96,6 +156,7 @@ export function noteChatListRead(wsId: string, chatIds: readonly string[], ticke
     // and rolling it back would re-open the door this closes.
     if ((chats.get(chatId) ?? 0) < ticket) chats.set(chatId, ticket)
   }
+  if ((listFloor.get(wsId) ?? 0) < ticket) listFloor.set(wsId, ticket)
 }
 
 /** Drop a deleted chat's entry. Its id is never reused, so keeping it would only leak. */

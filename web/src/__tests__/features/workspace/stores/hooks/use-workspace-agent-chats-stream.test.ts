@@ -141,6 +141,13 @@ import {
 // Unmocked, on purpose: the ordering registry is the SEAM the hook shares with
 // agent-chat-pane, and a fake here would test the fake rather than the contract that
 // keeps one caller's stale answer off another caller's fresh one.
+//
+// It is MODULE state with no reset hook, and every case below reuses ('w1', 'c1'). That
+// is safe, and safe for a reason worth knowing before adding a case: the issue clock is
+// monotonic for the life of the process, so a ticket claimed in this case is always
+// greater than every ticket an earlier case applied, and a fresh read can never be
+// mistaken for a stale one. Do NOT add a reset that rewinds the clock — it would make
+// exactly the ordering these tests pin unrepresentable.
 import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -596,7 +603,13 @@ describe('useWorkspaceAgentChatsStream', () => {
       await flush()
 
       expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
-      expect(upsertAgentChat).toHaveBeenCalledWith({ ...chat('c1'), conversations: [] })
+      // The read's own chat-read-order ticket rides along: `upsertAgentChat`'s cross-chat
+      // runner eviction needs it to tell a current claim from a superseded one, and a
+      // refetch that dropped it would silently get the unconditional old behaviour.
+      expect(upsertAgentChat).toHaveBeenCalledWith(
+        { ...chat('c1'), conversations: [] },
+        expect.any(Number),
+      )
     },
   )
 
@@ -1458,6 +1471,88 @@ describe('useWorkspaceAgentChatsStream', () => {
       // A workspace switch is not a reason to write one workspace's tree into
       // another's store.
       expect(seedAgentChatFolders).not.toHaveBeenCalled()
+    })
+  })
+
+  // Task D: a chat is a TREE row (design spec §3.1), so the sidebar's per-repo
+  // tree subscription has to hear about a chat that appeared, was renamed, was
+  // moved or is gone — through the same signal a folder frame bumps, because
+  // both halves are one tree over one aggregate.
+  describe('the repo tree signal on chat frames', () => {
+    const chatFrame = (kind: string, over: Partial<Frame> = {}): Frame => ({
+      chatId: 'c1',
+      workspaceId: 'w1',
+      kind,
+      ...over,
+    })
+
+    it.each(['created', 'deleted', 'title_set', 'placement_set', 'order_set'])(
+      'bumps the repo-scoped tree signal on %s',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(chatFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+      },
+    )
+
+    // The hottest frames on the feed. Reseeding a whole repo's chat list on each
+    // one is a request storm per agent turn — this is the guard against that.
+    it.each(['turn_started', 'turn_stopped', 'message_delta', 'terminal_wait', 'session_bound'])(
+      'does NOT bump on %s — it says nothing about the tree',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(chatFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1 ?? 0).toBe(before)
+      },
+    )
+
+    // A RUNNER frame is about a process, not a row: it is routed before the
+    // chat branch is reached, so it must move no tree generation either.
+    it('does not bump on a runner frame', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+      captureCb()(chatFrame('started', { runnerId: 'r-1' }))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1 ?? 0).toBe(before)
+    })
+
+    // THE CROSS-REPO GUARD. The repo id comes from this workspace's own
+    // recorded scope, never from the frame or from a broad broadcast, so a chat
+    // frame arriving on repo r1's feed can only ever move r1's generation —
+    // which is what keeps repo r2's subscription from refetching.
+    it('moves ONLY this workspace’s own repo generation', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      captureCb()(chatFrame('created'))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1).toBe(1)
+      expect(useFolderSignalStore.getState().generations.r2).toBeUndefined()
+    })
+
+    it('bumps nothing when the workspace has no recorded scope to name a repo', async () => {
+      __resetWorkspaceScopesForTest()
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      captureCb()(chatFrame('created'))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations).toEqual({})
     })
   })
 

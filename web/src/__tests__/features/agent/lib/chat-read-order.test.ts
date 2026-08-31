@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   acceptChatRead,
+  chatReadMark,
   chatReadsApplied,
   claimChatRead,
   forgetChatRead,
@@ -79,26 +80,56 @@ describe('chat read ordering', () => {
   })
 
   // The seed is a full reconcile, so it is also the natural place to stop tracking chats
-  // the server no longer has — otherwise the map only ever grows.
-  it('a list read forgets chats the snapshot does not carry', () => {
-    const applied = claimChatRead()
-    expect(acceptChatRead('w1', 'pruned', applied)).toBe(true)
+  // the server no longer has — otherwise the map only ever grows. Forgetting must not
+  // mean forgetting EVERYTHING, though: a read of that id can still be in flight, and
+  // re-admitting it resurrects the row the reconcile just dropped. The list floor is what
+  // keeps a pruned chat from falling back to "no answer at all".
+  it('a list read forgets a dropped chat WITHOUT re-admitting a read older than the list', () => {
+    const inFlight = claimChatRead()
+    expect(acceptChatRead('w2-prune', 'pruned', inFlight)).toBe(true)
 
-    noteChatListRead('w1', ['survivor'], claimChatRead())
+    noteChatListRead('w2-prune', ['survivor'], claimChatRead())
 
-    // Untracked again: an ancient ticket is now the newest thing known about it, which
-    // is exactly what "we hold no answer for this chat" means.
-    expect(acceptChatRead('w1', 'pruned', applied)).toBe(true)
+    // The entry is gone, but the list that dropped it is still the newer answer.
+    expect(acceptChatRead('w2-prune', 'pruned', inFlight)).toBe(false)
+    // A read issued after that list is newer than it, and lands.
+    expect(acceptChatRead('w2-prune', 'pruned', claimChatRead())).toBe(true)
   })
 
-  it('forgetChatRead drops a deleted chat', () => {
-    const applied = claimChatRead()
-    const older = claimChatRead()
-    expect(acceptChatRead('w1', 'deleted', older)).toBe(true)
-    expect(acceptChatRead('w1', 'deleted', applied)).toBe(false)
+  it('the list floor covers a chat no read has ever been applied to', () => {
+    const before = claimChatRead()
+    noteChatListRead('w2-floor', ['known'], claimChatRead())
 
-    forgetChatRead('w1', 'deleted')
-    expect(acceptChatRead('w1', 'deleted', applied)).toBe(true)
+    expect(acceptChatRead('w2-floor', 'never-seen', before)).toBe(false)
+    expect(acceptChatRead('w2-floor', 'never-seen', claimChatRead())).toBe(true)
+  })
+
+  it('forgetChatRead drops a deleted chat without re-admitting a pre-list read', () => {
+    const older = claimChatRead()
+    const newer = claimChatRead()
+    expect(acceptChatRead('w2-del', 'deleted', newer)).toBe(true)
+    expect(acceptChatRead('w2-del', 'deleted', older)).toBe(false)
+
+    forgetChatRead('w2-del', 'deleted')
+    // No list has been applied in this workspace, so there is no floor and the entry is
+    // genuinely gone — the honest answer when nothing else is known.
+    expect(acceptChatRead('w2-del', 'deleted', older)).toBe(true)
+  })
+
+  // ── chatReadMark: what upsertAgentChat's cross-chat eviction asks ──────────
+  // Eviction writes a chat OTHER than the one handed in, so `acceptChatRead` — which
+  // asks about the row being written — cannot speak for it.
+  it('chatReadMark reports the newest answer held about a chat', () => {
+    expect(chatReadMark('w2-mark', 'untouched')).toBe(0)
+
+    const ticket = claimChatRead()
+    acceptChatRead('w2-mark', 'touched', ticket)
+    expect(chatReadMark('w2-mark', 'touched')).toBe(ticket)
+
+    // …and falls through to the floor for a chat with no entry of its own.
+    const list = claimChatRead()
+    noteChatListRead('w2-mark', ['touched'], list)
+    expect(chatReadMark('w2-mark', 'no-entry')).toBe(list)
   })
 
   // What a list seed snapshots before it asks. Counted per workspace so a busy workspace

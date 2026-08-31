@@ -1,12 +1,15 @@
 import { createElement } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { nanoid } from 'nanoid'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
@@ -158,6 +161,11 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 }))
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+// Unmocked: this registry is the SEAM the pane shares with
+// use-workspace-agent-chats-stream, and the two tests below stand in for that hook by
+// making the exact calls it makes. A fake would test the fake.
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
+import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -308,7 +316,13 @@ type Store = ReturnType<typeof seedWorkspace>
 // `_name` is vestigial — it was the fake buffer's tab label, and a chat has no
 // buffer to label any more (ChatHead reads the title straight off the store).
 // Kept in the signature so the ~50 call sites below stay unchanged.
-function openChatPane(_store: Store, chatId: string, runnerId: string, _name = 'Chat', wsId = 'w1') {
+function openChatPane(
+  _store: Store,
+  chatId: string,
+  runnerId: string,
+  _name = 'Chat',
+  wsId = 'w1',
+) {
   const id = nanoid()
   windowPaneStore.setState((s) => {
     s.panes[id] = {
@@ -578,6 +592,111 @@ describe('AgentChatPane', () => {
       await act(async () => {
         resumed.resolve('r9')
       })
+    })
+
+    // ── THE PANE'S HALF OF THE READ-ORDERING FIX ────────────────────
+    //
+    // The confirmed live bug had TWO racers in TWO files. A resume makes the daemon place
+    // the runner and publish `started`; use-workspace-agent-chats-stream refetches the
+    // chat off that frame — usually ISSUING FIRST, because the socket push beats the POST
+    // response — while `adopt()` below reads the same chat after the POST returns. The
+    // daemon can answer either read from before the placement it has already announced,
+    // so the one that lands last is not the one that knows most.
+    //
+    // Both therefore go through chat-read-order, and these two cases are the PANE's side
+    // of that contract: without them, neutralising the registry leaves this whole suite
+    // green while the second half of the fix is silently gone.
+
+    it('adopt() discards its own overtaken answer and settles on the STORE row', async () => {
+      // adopt()'s read, held: it was served before the runner that actually came up.
+      const staleRead = deferred<AgentChatDetail>()
+      getChatFn.mockReturnValue(staleRead.promise)
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      const paneId = openChatPane(store, 'c1', '')
+      await renderPane(store, paneId) // auto-revive → resumeChat → adopt(), now in flight
+      await waitFor(() => expect(getChatFn).toHaveBeenCalledWith('w1', 'c1'))
+
+      // The WS hook's read of the same chat: ISSUED LATER, and it lands FIRST with the
+      // runner the daemon really placed.
+      await act(async () => {
+        const ticket = claimChatRead()
+        expect(acceptChatRead('w1', 'c1', ticket)).toBe(true)
+        store
+          .getState()
+          .upsertAgentChat(liveChat({ id: 'c1', runnerId: 'r-fresh', pty: 'pty-fresh' }), ticket)
+      })
+
+      // …and only now does adopt()'s own, older answer arrive.
+      await act(async () => {
+        staleRead.resolve(detail(liveChat({ id: 'c1', runnerId: 'r-stale', pty: 'pty-stale' })))
+        await staleRead.promise
+      })
+
+      // It must neither be written to the store nor attached to: seeding `pty-stale`
+      // hands XtermTerminal a PTY the server has already moved past, which
+      // resolveTerminalConnection answers by spawning a BARE SHELL in the agent pane.
+      expect(store.getState().agentChats.chats.find((c) => c.id === 'c1')).toMatchObject({
+        liveRunnerId: 'r-fresh',
+        terminalSessionId: 'pty-fresh',
+      })
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-fresh')
+      expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r-fresh' })
+      expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+    })
+
+    // The queue's chat_busy barrier is released ONLY by a server-folded idle answer, and
+    // `refreshChatWorking` is the read that supplies it. An overtaken payload saying
+    // "still working" would wedge the FIFO on a turn that is already over — nothing else
+    // re-asks, because the barrier is what the re-ask is gated on.
+    it('refreshChatWorking() answers from the STORE when its own read is overtaken', async () => {
+      const clientRequestId = '11111111-1111-4111-8111-111111111111'
+      localStorage.setItem(
+        promptQueueStorageKey('w1', 'c1'),
+        JSON.stringify({
+          version: 1,
+          items: [
+            {
+              clientRequestId,
+              text: 'survive reload',
+              state: 'queued',
+              createdAt: '2026-08-16T00:00:00Z',
+              baselineSequence: 0,
+              waitForIdleEpoch: 1,
+            },
+          ],
+        }),
+      )
+      // The recheck's own read, held. It was served while the turn was still running.
+      const staleRead = deferred<AgentChatDetail>()
+      getChatFn.mockReturnValue(staleRead.promise)
+
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      await waitFor(() => expect(getChatFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(submitPromptFn).not.toHaveBeenCalled() // barrier holds the head
+
+      // A later-issued read of the same chat lands first. It writes the same row (the
+      // store's `working` is deliberately NOT touched — a turn frame would release the
+      // barrier by itself and prove nothing about this read).
+      await act(async () => {
+        const ticket = claimChatRead()
+        expect(acceptChatRead('w1', 'c1', ticket)).toBe(true)
+        store
+          .getState()
+          .upsertAgentChat(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }), ticket)
+      })
+
+      await act(async () => {
+        staleRead.resolve(
+          detail({ ...liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }), working: true }),
+        )
+        await staleRead.promise
+      })
+
+      // Believe the overtaken payload and the prompt never goes out.
+      await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+      expect(submitPromptFn.mock.calls[0]?.slice(2)).toEqual(['survive reload', clientRequestId])
     })
 
     it('fails honestly when the revived CLI dies on startup (resumed, but nothing on the chat)', async () => {

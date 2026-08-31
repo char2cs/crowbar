@@ -377,6 +377,19 @@ export function AgentChatPane({
   // is already coming.
   const switchingRef = useRef(false)
 
+  // Is this pane still on screen? Both reads below can land after it is gone — a workspace
+  // switch, a closed pane — and applying one then writes into a torn-down store AND spends
+  // a chat-read-order slot, which makes a live seed elsewhere retry for a write nobody can
+  // see. Set on every mount, not just once, so StrictMode's double-effect does not leave it
+  // false for the run that survives. The hook's own reads have `cancelled` for this.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   // adopt reads the chat back and settles the pane on what the SERVER says: attach to the
   // runner now on it, or report that there still is none (false). It only ever READS, so
   // it cannot spawn anything; the caller has already done the spawning.
@@ -397,9 +410,10 @@ export function AgentChatPane({
   const adopt = useCallback(async (): Promise<boolean> => {
     const ticket = claimChatRead()
     const fetched = await getChat(wsId, shownChatId)
+    if (!mountedRef.current) return false
     const s = store.getState()
     if (acceptChatRead(wsId, fetched.id, ticket)) {
-      s.upsertAgentChat(fetched)
+      s.upsertAgentChat(fetched, ticket)
       s.setAgentChatWorking(fetched.id, fetched.working === true)
     }
     // Settle on the STORE, not on our own payload: when a later-issued read has already
@@ -423,10 +437,12 @@ export function AgentChatPane({
     const ticket = claimChatRead()
     const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
+    // Torn down mid-flight: report the store's answer, write nothing, spend no slot.
+    if (!mountedRef.current) return s.agentChats.working[fetched.id] === true
     if (!acceptChatRead(wsId, fetched.id, ticket)) {
       return s.agentChats.working[fetched.id] === true
     }
-    s.upsertAgentChat(fetched)
+    s.upsertAgentChat(fetched, ticket)
     s.setAgentChatWorking(fetched.id, fetched.working === true)
     return fetched.working === true
   }, [store, wsId, shownChatId])

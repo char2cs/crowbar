@@ -56,6 +56,32 @@ export function _resetProviderToastForTests(): void {
   providersUnreachableAnnounced = false
 }
 
+/**
+ * The chat frames that say NOTHING about the tree's shape.
+ *
+ * Listed as the exception rather than listing the structural kinds, and that
+ * direction is the point: every one of these is either a turn in flight or a
+ * question about which PROCESS is on a chat, and both sets are closed and
+ * well-known. Everything else a chat aggregate can emit — created, deleted,
+ * title_set, placement_set, order_set, and any placement kind a newer daemon
+ * mints — has moved, renamed or removed a ROW, and the sidebar has to be told.
+ * Defaulting the unknown kind to "the tree moved" costs one repo-scoped reseed;
+ * defaulting it the other way is a row that silently never appears, which is
+ * exactly how folders came to not sync across windows.
+ *
+ * `turn_started`/`turn_stopped`/`message_delta` in particular MUST stay out of
+ * the structural set: they are the hottest frames on the feed, and reseeding a
+ * whole repo's chat list on each one is a request storm per agent turn.
+ */
+const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
+  'turn_started',
+  'turn_stopped',
+  'message_delta',
+  'terminal_wait',
+  'prompt_settled',
+  'session_bound',
+])
+
 // Where is this runner? Two independent answers, and we want the first that exists:
 //
 //   the CHAT LIST — the server's own placement, seeded and refetched. A chat is live
@@ -83,7 +109,8 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // THREE vocabularies ride it:
 //
 //   CHAT frames    — created / turn_started / turn_stopped / title_set / session_bound /
-//                    deleted. About the conversation. They name no process.
+//                    placement_set / order_set / deleted. About the conversation. They name
+//                    no process.
 //   RUNNER frames  — started / session_bound / moved / displaced / exited. About the
 //                    vendor-CLI PROCESS, which is a thing that moves between chats.
 //   FOLDER frames  — folder_created / folder_updated / folder_deleted. About the tree the
@@ -112,6 +139,13 @@ interface AgentStreamEvent {
     | 'prompt_settled'
     | 'message_delta'
     | 'title_set'
+    // A row MOVED in the tree — dragged into a folder, threaded under another
+    // chat, or renumbered by the dense renumber a sibling's move triggered.
+    // Both come off the chat aggregate's own commands (set_placement.go /
+    // set_order.go); neither carries the new placement, for the same reason a
+    // folder frame does not: the list is the answer, and it is refetched.
+    | 'placement_set'
+    | 'order_set'
     | 'deleted'
     | 'started'
     | 'moved'
@@ -209,12 +243,19 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
 
-    // Tells app-sync-provider.tsx's per-repo folders subscription (Task 34:
-    // the sidebar's folders resource has no dedicated push channel of its
-    // own any more) that THIS repo's folders may have moved. Only every other
-    // window/tab needs this — the acting client's own edits are applied
-    // straight from their mutation's own response (sidebar-placement.ts).
-    const bumpFolderSignal = () => {
+    // Tells app-sync-provider.tsx's per-repo TREE subscription (Task 34: the
+    // sidebar's folders resource has no dedicated push channel of its own any
+    // more; Task D: neither do its chat rows) that THIS repo's tree may have
+    // moved. Folders and chats ride ONE signal because they are one aggregate
+    // and one tree — a folder IS a `domain.Chat` row (design spec §3.1) — and a
+    // second near-identical store would only be two things to keep in step.
+    //
+    // SCOPED TO THIS WORKSPACE'S OWN REPO, and that is the cross-repo guard:
+    // the id comes from the frame's own workspace scope, never from a broader
+    // "something changed" broadcast, so a chat frame for repo A can never
+    // reseed repo B. A workspace whose scope was never recorded bumps nothing
+    // rather than guessing at a repo.
+    const bumpTreeSignal = () => {
       const repoId = getWorkspaceScope(wsId)?.repoId
       if (repoId) useFolderSignalStore.getState().bump(repoId)
     }
@@ -445,7 +486,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             .getState()
             .agentChats.chats.some((c) => c.id === chatId)
         }
-        getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat)
+        getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat, ticket)
         return true
       } catch {
         /* a not-found here is handled by the deleted frame path */
@@ -579,9 +620,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         // every folder frame dropped during the outage is a rearrangement this
         // client never heard about, and nothing else would ever ask again.
         void seedFolders()
-        // ...and the SIDEBAR's own folders pipeline, which watches this same
-        // signal rather than this hook's own AgentChatFolder state.
-        bumpFolderSignal()
+        // ...and the SIDEBAR's own tree pipeline (folders AND chat rows), which
+        // watches this same signal rather than this hook's own workspace-store
+        // state. Every frame dropped during the outage is a rearrangement this
+        // client never heard about, chat rows included.
+        bumpTreeSignal()
         // Providers too: the outage that dropped the socket is the same one that
         // can have emptied them, and this is the app's own signal that the daemon
         // is answering again. Without it a workspace that lost its providers
@@ -603,10 +646,17 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // here: the arrangement is not what this client thinks it is.
       if (ev.folderId) {
         void seedFolders()
-        bumpFolderSignal()
+        bumpTreeSignal()
         return
       }
       if (!ev.chatId) return
+      // A chat row is a TREE row (design spec §3.1), so the sidebar has to hear
+      // about it exactly as it hears about a folder. Read before the switch
+      // below rather than repeated inside four of its branches: the question
+      // "did this move the tree?" is about the frame's kind alone, and the
+      // branches below are about what the WORKSPACE STORE does with it, which
+      // is a different question with a different answer per kind.
+      if (!NON_STRUCTURAL_CHAT_KINDS.has(ev.kind)) bumpTreeSignal()
       const st = stateOf()
       switch (ev.kind) {
         case 'turn_started':

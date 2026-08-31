@@ -7,6 +7,9 @@ import {
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
+// Unmocked: the eviction below compares the ticket driving a write against the mark the
+// registry holds for the chat being trampled, so a fake would defeat the thing under test.
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 
 const chat = (id: string, createdAt: string): AgentChat => ({
   id,
@@ -108,6 +111,72 @@ describe('agent-chats-slice', () => {
     const chats = s.getState().agentChats.chats
     expect(chats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('r1')
     expect(chats.find((c) => c.id === 'c2')?.liveRunnerId).toBe('r2')
+  })
+
+  // ── THE EVICTION IS A WRITE TO A CHAT NOBODY ASKED ABOUT ──────────────────
+  //
+  // chat-read-order stops a stale read overwriting the row it names. The eviction above
+  // is the one write here that touches a DIFFERENT row, so accepting the read says
+  // nothing about whether it may trample that one — and reaching the same live symptom
+  // ("This agent has exited" over a running CLI) through this door needs no stale write
+  // to the shown chat at all.
+  //
+  // Reachable sequence: runner R spawns onto A, so `started` refetches A at ticket T1 and
+  // that read goes in flight. R then moves to B. At the moment the move is handled NO
+  // chat claims R yet and no pane follows it, so the hook resolves no chat it left and A
+  // is never refetched — A's mark stays at the seed's. B is read at T2 and correctly
+  // claims R. Then T1 lands: legitimately accepted for A, and its eviction blanks R off
+  // B, which is the chat the pane is showing.
+  //
+  // Resolved by comparing answers ABOUT THE RUNNER: B holds it under a newer mark, so the
+  // arriving claim is the stale one. The row still lands; only the claim is dropped, so
+  // no two chats ever hold one runner.
+  it('upsert does not evict a runner from a chat holding it under a NEWER read', () => {
+    const s = createWorkspaceStore('w1')
+    const staleTicket = claimChatRead() // A's read: issued first, lands last
+
+    s.getState().seedAgentChats([
+      chat('a', '2026-01-01T00:00:00Z'),
+      chat('b', '2026-01-02T00:00:00Z'),
+    ])
+
+    // B's read: issued later, lands first, and truthfully claims R.
+    const freshTicket = claimChatRead()
+    expect(acceptChatRead('w1', 'b', freshTicket)).toBe(true)
+    s.getState().upsertAgentChat(liveChat('b', 'R', 'R-pty'), freshTicket)
+
+    // A's read finally lands, saying R was on A — true when it was served, not now.
+    s.getState().upsertAgentChat(liveChat('a', 'R', 'R-pty'), staleTicket)
+
+    const chats = s.getState().agentChats.chats
+    expect(chats.find((c) => c.id === 'b')).toMatchObject({
+      liveRunnerId: 'R',
+      terminalSessionId: 'R-pty',
+    })
+    // Exactly one claimant, and it is the one with the newest answer.
+    expect(chats.filter((c) => c.liveRunnerId === 'R').map((c) => c.id)).toEqual(['b'])
+    expect(chats.find((c) => c.id === 'a')).toMatchObject({
+      liveRunnerId: '',
+      terminalSessionId: '',
+    })
+  })
+
+  it('upsert with no ticket behind it evicts exactly as before', () => {
+    const s = createWorkspaceStore('w1')
+    const fresh = claimChatRead()
+    s.getState().seedAgentChats([
+      chat('a', '2026-01-01T00:00:00Z'),
+      chat('b', '2026-01-02T00:00:00Z'),
+    ])
+    acceptChatRead('w1', 'b', fresh)
+    s.getState().upsertAgentChat(liveChat('b', 'R', 'R-pty'), fresh)
+
+    // No read behind it — a caller with nothing to compare gets the old, unconditional
+    // rule rather than a silent new one.
+    s.getState().upsertAgentChat(liveChat('a', 'R', 'R-pty'))
+
+    const chats = s.getState().agentChats.chats
+    expect(chats.filter((c) => c.liveRunnerId === 'R').map((c) => c.id)).toEqual(['a'])
   })
 
   it('upsert leaves OTHER runners alone', () => {

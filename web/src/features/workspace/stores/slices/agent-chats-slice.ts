@@ -7,6 +7,7 @@ import type {
   AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+import { chatReadMark } from '@/features/agent/lib/chat-read-order'
 
 // The queue that reads these is itself capped, so an id older than this window is
 // already unreachable by anything that could act on it.
@@ -145,7 +146,10 @@ export interface AgentChatsSlice {
    * independent of the reconnect GET so even a failed/superseded read cannot
    * hide a complete idle-to-idle turn that happened while disconnected. */
   notifyAgentChatMessages: () => void
-  upsertAgentChat: (chat: AgentChat) => void
+  /** Upsert one chat from a single-chat read. `readTicket` is that read's
+   *  chat-read-order ticket; pass it whenever there is one, so the cross-chat runner
+   *  eviction can tell a stale claim from a current one (see the implementation). */
+  upsertAgentChat: (chat: AgentChat, readTicket?: number) => void
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
   setAgentChatWorking: (chatId: string, working: boolean) => void
@@ -346,11 +350,52 @@ export const createAgentChatsSlice: StateCreator<
   // This can only ever CLEAR a claim that a newer backend read contradicts — it never
   // invents liveness. terminalSessionId goes with it: a chat with no runner has no PTY
   // to attach, and leaving one behind would let a pane attach a dead session.
-  upsertAgentChat: (chat) =>
+  //
+  // `readTicket` is the chat-read-order ticket of the READ this row came from, and it is
+  // what keeps the eviction below from re-opening the bug the registry closes. Eviction
+  // is the one write here that touches a chat OTHER than the one handed in, so
+  // `acceptChatRead` — which asks only about the row being written — cannot cover it.
+  // The reachable sequence: runner R spawns onto A (`started` refetches A at ticket T1,
+  // in flight); R then moves to B before T1 lands. At that moment NO chat claims R and no
+  // pane follows it, so `chatOfRunner` resolves nothing and A is never refetched — A's
+  // mark stays at the seed's T0. B is read at T2 and correctly claims R. T1 then lands,
+  // is legitimately accepted for A (T1 > T0), and its eviction blanked R off B without
+  // ever consulting B — the same "This agent has exited" over a live CLI, through a door
+  // the read ordering never saw.
+  //
+  // Resolved by asking WHICH ANSWER ABOUT THIS RUNNER IS NEWER. If some other chat holds
+  // it under a mark newer than the ticket driving this write, that chat is the newer fact
+  // and THIS claim is the stale one: the row still lands (its title, ordering, provider
+  // are all fine), but it does not take a runner it has already lost, and it evicts
+  // nobody. The one-runner-one-chat invariant holds either way — which is why this is
+  // dropping the claim rather than simply skipping the eviction, since skipping would
+  // leave two chats claiming R and a pane resolving to whichever came first in the array.
+  //
+  // Omitting the ticket keeps the pre-ordering behaviour exactly, for callers with no
+  // read behind them.
+  upsertAgentChat: (chat, readTicket) =>
     set((s) => {
       const idx = s.agentChats.chats.findIndex((c) => c.id === chat.id)
       if (idx === -1) s.agentChats.chats.push(chat)
       else s.agentChats.chats[idx] = chat
+
+      if (chat.liveRunnerId && readTicket !== undefined) {
+        const wsId = get().workspaceId
+        const newerClaimant = s.agentChats.chats.some(
+          (c) =>
+            c.id !== chat.id &&
+            c.liveRunnerId === chat.liveRunnerId &&
+            chatReadMark(wsId, c.id) > readTicket,
+        )
+        if (newerClaimant) {
+          const landed = s.agentChats.chats[idx === -1 ? s.agentChats.chats.length - 1 : idx]
+          if (landed) {
+            landed.liveRunnerId = ''
+            landed.terminalSessionId = ''
+          }
+          return
+        }
+      }
 
       // terminalWaits is deliberately NOT written here, exactly as `working` is
       // not: both are frame-driven maps, and a single-chat REFETCH is a snapshot
