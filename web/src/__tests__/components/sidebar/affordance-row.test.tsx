@@ -9,6 +9,20 @@ describe('AffordanceRow', () => {
     expect(screen.queryByTestId('affordance-dropdown')).not.toBeInTheDocument()
   })
 
+  it('renders the single-icon trigger visible at rest, not hidden until hover', () => {
+    render(<AffordanceRow onCreateThread={vi.fn()} />)
+    const trigger = screen.getByRole('button')
+    expect(trigger).not.toHaveClass('hidden')
+    expect(getComputedStyle(trigger).display).not.toBe('none')
+  })
+
+  it('renders the dropdown trigger visible at rest, not hidden until hover', () => {
+    render(<AffordanceRow onCreateThread={vi.fn()} onCreateWorkspace={vi.fn()} />)
+    const trigger = screen.getByTestId('affordance-dropdown')
+    expect(trigger).not.toHaveClass('hidden')
+    expect(getComputedStyle(trigger).display).not.toBe('none')
+  })
+
   it('shows a split-control dropdown when a workspace is also legal', () => {
     render(<AffordanceRow onCreateThread={vi.fn()} onCreateWorkspace={vi.fn()} />)
     expect(screen.getByTestId('affordance-dropdown')).toBeInTheDocument()
