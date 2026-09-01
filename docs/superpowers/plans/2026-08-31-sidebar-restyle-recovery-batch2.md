@@ -361,3 +361,39 @@ Per the ledger, these tasks landed on unit-test evidence only, with no confirmed
 - [ ] **Step 9: Run the full web gate** (`bun tsc --noEmit`, `bun vitest run`, lint) and report a final live-verification status for every item in Part B, ticked or flagged.
 
 - [ ] **Step 10: Commit** (Part A's fix as its own commit; each Part B fix, if any, as its own commit).
+
+---
+
+## Task 13: chat-head's title fallback drops empty strings, and Recents may be entirely unreachable for chats under an unvisited workspace
+
+**Inserted mid-execution**, two more live findings from the user and the controller's own follow-up investigation.
+
+### Part A — `chat-head.tsx`'s title fallback, already root-caused
+
+`web/src/features/tabs/components/chat-head.tsx:27`:
+```ts
+const title = useWorkspaceStoreContext(
+  (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title ?? 'Chat',
+)
+```
+`??` (nullish coalescing) only replaces `null`/`undefined` — NOT an empty string, which is exactly what an untitled chat's `title` field actually is. Live-confirmed via Tauri MCP DOM snapshot: the pane's own `[data-testid=chat-head]` label span renders completely empty for an untitled open chat — this is a DIFFERENT surface than Task 12's Recents fix (`recents-band.tsx`), a separate instance of the same bug class, introduced independently by Task 1 of this plan. Swept the whole `web/src` tree for the same `?? '...'`-on-a-title pattern — no other UI-display instance found; this is isolated to `chat-head.tsx`.
+
+**Fix:** import `UNTITLED_CHAT_LABEL` from `@/features/agent/lib/chat-label` (the same source `rows-from-repo.ts` and the now-fixed `recents-band.tsx` use) and change `?? 'Chat'` to `|| UNTITLED_CHAT_LABEL`, matching both surfaces exactly — same fallback text everywhere a chat's name can be blank, not a third, different placeholder string.
+
+**Files:** `web/src/features/tabs/components/chat-head.tsx`. Test: `web/src/__tests__/features/tabs/components/chat-head.test.tsx`.
+
+### Part B — Recents may not be reachable at all for a chat under a never-separately-navigated workspace
+
+**Not yet root-caused as bug-or-by-design — this needs real investigation first.** Live-observed: a chat visibly `hasView:true` in the tree (greyed label, confirmed genuinely open in a pane) produces ZERO Recents entries — the whole band doesn't render (`recents-band.tsx`'s own `if (entries.length === 0) return null` is firing). `recents-for-project.ts`'s own doc comment states the likely cause outright: *"Only workspaces that ALREADY have a live store — `getAllActiveWorkspaceIds`, populated by `WorkspaceHost`'s active + keep-alive-retained set — are read. A workspace nobody has opened this session has no working/dormant chats to show."* If the chat in question is a bubble borrowing an ancestor workspace's store, and that ancestor's workspace route was never separately navigated-into this session (only the chat's OWN row was clicked, or it was reached via drag/pane manipulation without a sidebar navigation to its specific workspace), its data may be structurally unreachable to `deriveRecentsEntries` — which would undermine the entire point of Recents (per spec §5, "is this up right now" — answered independently of navigation history, not gated on it).
+
+**Files to read first, in full, before deciding anything:** `web/src/components/sidebar/lib/recents-for-project.ts`, `web/src/features/workspace/stores/workspace-store-registry.ts` (`getAllActiveWorkspaceIds`, what makes a workspace's store "active" — is it keyed on navigation, on any chat of that workspace being referenced by a live pane, or something else?), `web/src/features/workspace/components/workspace-host.tsx` (the "active + keep-alive-retained set" the comment names).
+
+- [ ] **Step 1: Reproduce and confirm precisely.** Live, via Tauri MCP: find a chat that is genuinely `hasView:true` (open in a pane) whose owning/ancestor workspace has NOT been separately navigated to this session (reachable via drag-drop from the tree into an existing pane, or via the New Tab stage's recent-chat list, without ever clicking that workspace's own row) — confirm Recents shows nothing for it. Then navigate directly into that workspace (click its row) and confirm whether Recents THEN picks it up (proving the "unvisited workspace" gate is the actual cause, not something else).
+
+- [ ] **Step 2: Decide bug vs. by-design, backed by evidence, not a guess.** If `getAllActiveWorkspaceIds`'s "active" set can be extended to include any workspace that owns a chat currently referenced by a LIVE pane (`windowPaneStore`, which is genuinely global/window-level already, per `recents-for-project.ts`'s own comment) — regardless of navigation history — that's very likely the correct fix, since it makes Recents answer "what's up right now" independently of how you got there, matching the design's own stated purpose. If there's a real reason this gate exists (e.g. a workspace store needs real initialization/connection state that can't be cheaply created just to read `agentChats` for Recents), STOP and report the constraint clearly rather than forcing a fix that could mount expensive per-workspace resources just to populate a sidebar list.
+
+- [ ] **Step 3: If it's a real, fixable gap** — write the failing test first (a chat live in a pane, under a workspace never separately activated, should still produce a Recents entry), implement, confirm GREEN, run the full sidebar/workspace test directories, live-verify via Tauri MCP that the previously-missing Recents band now appears for this exact scenario.
+
+- [ ] **Step 4: If it's genuinely by-design or too costly to fix safely**, report precisely why, and do not force a change — this becomes a documented, deliberate limitation for the controller to decide whether to accept or escalate.
+
+- [ ] **Step 5: Commit** each part separately.
