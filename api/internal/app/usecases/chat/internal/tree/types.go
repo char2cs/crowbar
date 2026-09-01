@@ -160,6 +160,18 @@ type WorkspaceGitStatus interface {
 	) (added, deleted int, err error)
 }
 
+// WorkspaceRoster is the boot backfill's census: every workspace the daemon
+// knows, across every repo, tombstones included (they are filtered here — see
+// liveWorkspaces). It is a second port rather than a method on
+// WorkspaceGitStatus because the two are asked at opposite moments for
+// opposite reasons: one answers a per-row question on a hot user path, this
+// one is read exactly once, at startup.
+type WorkspaceRoster interface {
+	List(
+		ctx context.Context,
+	) ([]domain.Workspace, error)
+}
+
 // CreateInput carries the fields needed to create a folder. ParentID is a
 // chat id, another folder's id, or "" for the panel root; the new folder is
 // appended at the end of that sibling space. RepoID is carried rather than a
@@ -321,6 +333,14 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
+	// BackfillOwningChats mints the owning chat row of every workspace that has
+	// none, once, at startup. It is the migration for every workspace made
+	// before a workspace and the chat that owns it were minted in one breath:
+	// the sidebar addresses a workspace's placement BY that row, so a workspace
+	// without one exists on disk and nowhere in the tree. See backfill.go.
+	BackfillOwningChats(
+		ctx context.Context,
+	) error
 	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
 	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
 	// row in the subtree, and the working-tree file count summed across every

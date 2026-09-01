@@ -160,6 +160,7 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
+	backfillOwningChats(ctx, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 
 	rt := realtime.New(
@@ -655,6 +656,34 @@ func reconcileAgentRunners(
 	}
 	if err := ucs.AgentRunner.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
+	}
+}
+
+// backfillOwningChats gives every workspace that has no chat row the one that
+// owns it. Every workspace made before a workspace and its chat were minted in
+// one breath is in that state, and the sidebar addresses a workspace's
+// placement BY that row — so until this runs those workspaces exist on disk and
+// nowhere in the tree, and every placement against one is answered not-found.
+//
+// It runs SYNCHRONOUSLY, here, for the same reason the boot sweep and the
+// runner reconcile above do: app.New returns before internal.Run serves, so a
+// live create-chat request cannot arrive mid-backfill and race it into minting
+// a second row for the same workspace. It is also placed AFTER the boot sweep,
+// which purges the workspaces a crashed delete left tombstoned — reconciling
+// against the census that sweep leaves behind rather than the one it found.
+//
+// Best-effort: a failure is logged and the daemon still boots. It is idempotent
+// and runs on every boot, so whatever it could not write this time is planned
+// again on the next one, and refusing to start over it would be strictly worse.
+func backfillOwningChats(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.AgentChatFolder == nil {
+		return
+	}
+	if err := ucs.AgentChatFolder.BackfillOwningChats(context.WithoutCancel(ctx)); err != nil {
+		slog.WarnContext(ctx, "app: backfill owning chats on boot", "err", err)
 	}
 }
 

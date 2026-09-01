@@ -272,6 +272,7 @@ func newAgentWiring(
 		chat,
 		chat.Work(),
 		workspaceGitStatusReader{workspace: workspaceUsecase},
+		repos.Workspace,
 	)
 	return agentWiring{
 		chat:     chat,

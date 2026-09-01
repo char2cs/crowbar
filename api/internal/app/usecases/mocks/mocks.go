@@ -1442,3 +1442,26 @@ func (s *AgentWorkspaceGitStatus) WorkingTreeSummary(
 	pair := s.Summaries[workspaceID]
 	return pair[0], pair[1], nil
 }
+
+// AgentWorkspaceRoster fakes the chat tree usecase's WorkspaceRoster seam: the
+// daemon's whole workspace census, answered in the order it was seeded — which
+// is deliberately NOT sorted, since the backfill's own root-first ordering is
+// the thing under test.
+type AgentWorkspaceRoster struct {
+	Rows []domain.Workspace
+	Err  error
+}
+
+// NewAgentWorkspaceRoster returns a roster holding no workspaces.
+func NewAgentWorkspaceRoster() *AgentWorkspaceRoster {
+	return &AgentWorkspaceRoster{}
+}
+
+func (s *AgentWorkspaceRoster) List(
+	ctx context.Context,
+) ([]domain.Workspace, error) {
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	return s.Rows, nil
+}
