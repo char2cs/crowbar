@@ -86,6 +86,21 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     let rebuildTimer: ReturnType<typeof setTimeout> | undefined
     let rebuildInFlight = false
     let rebuildQueued = false
+    /**
+     * Repos whose chats have been written to the cache but whose rows are not
+     * in the STORE yet.
+     *
+     * The distance between those two is the whole reason this exists.
+     * `openRepoTreeSubscription` writes IndexedDB and then only ARMS a
+     * rebuild — `scheduleRebuild`'s 16ms timer, then an `await` on the
+     * workspace list — so announcing "this repo's tree has been read" at the
+     * moment the fetch resolved would open the gate while `repos` still held
+     * the PRE-seed chats. `SidebarTreeSurface` re-rendering in that window
+     * would ask `rows-from-repo.ts` to identify a branch row out of chats
+     * that carry no `type` at all, which throws in render — and on a first
+     * load after this ships, EVERY cached chat predates that field.
+     */
+    const seededPendingRebuild = new Set<string>()
 
     async function rebuildSidebar(): Promise<void> {
       if (rebuildInFlight) {
@@ -97,7 +112,15 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       await useWorkspaceListStore.getState().fetch()
       if (!disposed) {
         const repos = dataOf(useWorkspaceListStore.getState().data)
-        if (repos) useSidebarStore.getState().setRepos(repos)
+        if (repos) {
+          useSidebarStore.getState().setRepos(repos)
+          // Only now — the rows these repos were waiting for are in the store,
+          // so the gate opens onto data that exists. Cleared either way: a
+          // rebuild that produced no repos leaves them pending for the next.
+          const seeded = useFolderSignalStore.getState().markTreeSeeded
+          for (const repoId of seededPendingRebuild) seeded(repoId)
+          seededPendingRebuild.clear()
+        }
       }
       rebuildInFlight = false
       // A seed that landed while IndexedDB was being read may not be present in
@@ -246,13 +269,15 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
           reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
         ])
         const [, chatsWrote] = wrote
-        // The repo's rows can now be drawn: its chat list has actually come
-        // back, so an empty one finally means empty rather than "not yet".
-        // Keyed on the CHATS half alone — a workspace's row is identified by
-        // the chat that owns it, and a folders-only success answers nothing
-        // about that. A failed read stays unseeded and is retried on the next
-        // signal, rather than publishing a list the daemon never confirmed.
-        if (chatsWrote && live()) useFolderSignalStore.getState().markTreeSeeded(repoId)
+        // QUEUED, not announced. The chat list is in the CACHE now, which is
+        // not where the sidebar reads rows from — `rebuildSidebar` opens the
+        // gate once these rows are actually in the store (see
+        // `seededPendingRebuild`). Keyed on the CHATS half alone: a workspace's
+        // row is identified by the chat that owns it, and a folders-only
+        // success answers nothing about that. A failed read queues nothing and
+        // is retried on the next signal, rather than publishing a list the
+        // daemon never confirmed.
+        if (chatsWrote && live()) seededPendingRebuild.add(repoId)
         if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 

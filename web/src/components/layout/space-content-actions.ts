@@ -33,6 +33,15 @@ type NavigateFn = ReturnType<typeof useNavigate>
  * Callers must consult THIS FIRST. `resolveRow` cannot see a chat, and every
  * one of its callers treats "not found" as "do nothing" — which is how a chat
  * row came to look like every other row while silently doing nothing.
+ *
+ * AND it deliberately does NOT match a `branch` row, even though one lives in
+ * the chat id space: `rows-from-repo.ts` gives a locked branch and a repo home
+ * the id of the chat that owns their workspace, because that is what the daemon
+ * places by. Such a row is a WORKSPACE — `resolveRow` answers for it, via
+ * `workspaceIdOfBranchRow`. Matching it here sent every verb down the chat
+ * path, which is not a hypothetical: it made a locked branch's "+" silently
+ * inert, pointed its trash at `deleteChat`, and turned renaming the repo-home
+ * row into retitling a conversation. A new caller must handle both clauses.
  */
 export function resolveChatRow(
   repos: readonly Repo[],

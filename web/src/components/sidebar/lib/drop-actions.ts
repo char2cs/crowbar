@@ -9,6 +9,7 @@ import {
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -120,30 +121,43 @@ function planTreeRowDrop(
   if (!repo || !scope?.projectId) return []
   const { repoId, projectId } = scope
 
+  // Everything below this line is the WORKSPACE/FOLDER id space: `roots` is
+  // built from `repo.workspaces`, and `placeWorkspace`/`reparentWorkspace`/
+  // `placeFolder` all address rows by those ids. A branch row arrives here
+  // carrying the id of the CHAT that owns it (`rows-from-repo.ts`), so it is
+  // translated once, at this boundary, rather than at each of the six places
+  // an id is compared below — the same move `resolveRowRepo` above makes.
+  const wsSpace = (id: string) => workspaceIdOfBranchRow(repos, id) ?? id
+  const targetId = wsSpace(target.id)
+
   const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [])
   // The repo's own checkout (`rows-from-repo.ts`'s tree root) is a row but
   // never a node in `roots` — its rendered children ARE `roots` itself.
-  const isHomeTarget = target.id === repo.defaultWorkspaceId
-  const targetNode = isHomeTarget ? undefined : findNode(roots, target.id)
+  const isHomeTarget = targetId === repo.defaultWorkspaceId
+  const targetNode = isHomeTarget ? undefined : findNode(roots, targetId)
   const hasChildren = isHomeTarget ? roots.length > 0 : (targetNode?.children.length ?? 0) > 0
+  // Keyed by the ROW id, not the translated one — the collapse set holds what
+  // the tree draws (`SidebarTreeSurface`/`toggleChatRow`), which is the row.
   const expanded = !collapsedChatRows.has(target.id)
   const firstChild =
     mode !== 'into' &&
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
-  const requested = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
+  const requested =
+    mode === 'into' || firstChild ? targetId : target.parentId ? wsSpace(target.parentId) : ''
   const containerNode = requested === '' ? undefined : findNode(roots, requested)
   const containerId = requested !== '' && !containerNode ? '' : requested
   const containerKind = containerNode?.kind ?? 'root'
 
-  const lifted = new Set(subjects.map((s) => s.id))
+  const lifted = new Set(subjects.map((s) => wsSpace(s.id)))
   const rest = membersOf(roots, containerId)
     .map((n) => n.id)
     .filter((id) => !lifted.has(id))
-  const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, target.id, mode)
+  const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []
-  subjects.forEach((subject, i) => {
+  subjects.forEach((row, i) => {
     const order = at + i
+    const subject = { kind: row.kind, id: wsSpace(row.id) }
     // Nothing for `placeWorkspace`/`reparentWorkspace` to address — the
     // repo's own checkout is not a member of `repo.workspaces`.
     if (subject.id === repo.defaultWorkspaceId) return

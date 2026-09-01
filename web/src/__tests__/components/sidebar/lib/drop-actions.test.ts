@@ -750,3 +750,103 @@ describe('performSidebarPaneDrop — cross-workspace (Task 26 fix round 1, Criti
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
   })
 })
+
+/**
+ * The FOURTH id-space consumer of a branch row's id, after
+ * `resolveChatRow`/`resolveRow`/`performRenameRow`. A branch row is addressed
+ * by the chat that owns its workspace (`rows-from-repo.ts`), and everything
+ * this file computes with — `buildSidebarTree`'s nodes, `placeWorkspace`,
+ * `reparentWorkspace` — is in the WORKSPACE id space. Untranslated,
+ * `resolveRowRepo` returned null for the repo-home row and every locked
+ * branch, `planTreeRowDrop` returned `[]`, and the drop the indicator had just
+ * promised fired no request at all.
+ */
+describe('performSidebarDrop — a branch row is addressed by its owning chat', () => {
+  /** The repo above, plus the `branch` rows the boot backfill mints: one for
+   *  the home workspace, one for the locked branch `ws-a`. */
+  function repoWithBranchRows(): Repo {
+    const base = makeRepo()
+    return {
+      ...base,
+      workspaces: base.workspaces.map((w) => (w.id === 'ws-a' ? { ...w, status: 'locked' } : w)),
+      chats: [
+        {
+          id: 'home-row',
+          repoId: 'repo-1',
+          type: 'branch',
+          workspaceId: 'home-1',
+          title: '',
+          order: 0,
+        },
+        {
+          id: 'ws-a-row',
+          repoId: 'repo-1',
+          type: 'branch',
+          workspaceId: 'ws-a',
+          title: '',
+          order: 0,
+        },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    useSidebarStore.setState({ ...getInitialState(), repos: [repoWithBranchRows()] })
+  })
+
+  it('dropping INTO the repo-home row places at the repo root, not silently nothing', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('home-row', { workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledOnce()
+    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-c', {
+      folderId: '',
+      order: expect.any(Number),
+    })
+  })
+
+  it('dropping INTO a locked branch row reparents onto its WORKSPACE, not its chat id', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a-row', { workspaceId: 'ws-a', parentId: 'home-row' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', 'ws-a')
+  })
+
+  it('a branch row as the SUBJECT is placed by its workspace id', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-a-row', { workspaceId: 'ws-a' })],
+      folderRow('folder-1', { parentId: 'home-row' }),
+      'into',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledWith(
+      'proj-1',
+      'repo-1',
+      'ws-a',
+      expect.objectContaining({ folderId: 'folder-1' }),
+    )
+  })
+
+  it('reordering BEFORE a branch row lands in its real sibling space', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a-row', { workspaceId: 'ws-a', parentId: 'home-row' }),
+      'before',
+    )
+
+    // ws-a sits at index 0 of the repo root, so `ws-c` takes that slot — the
+    // index is only computable if the target resolved to `ws-a` at all.
+    expect(placeWorkspace).toHaveBeenCalledWith(
+      'proj-1',
+      'repo-1',
+      'ws-c',
+      expect.objectContaining({ order: 0 }),
+    )
+  })
+})

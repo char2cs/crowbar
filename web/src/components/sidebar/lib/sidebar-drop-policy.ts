@@ -10,6 +10,7 @@ import {
 } from '@/components/tree-dnd/drop-core'
 import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -58,11 +59,17 @@ export interface RowScope {
  * copy of the same id-space walk.
  */
 export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope | null {
+  // A BRANCH row is addressed by the id of the chat that owns its workspace
+  // (`rows-from-repo.ts`), so it matches none of the three id spaces below on
+  // its own. Left untranslated, the repo-home row and every locked branch
+  // resolved to null and a drop onto them became a silent no-op — the drag
+  // indicator promising a move that fired no request at all.
+  const id = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   const repo = repos.find(
     (r) =>
-      r.defaultWorkspaceId === rowId ||
-      r.workspaces.some((w) => w.id === rowId) ||
-      r.folders?.some((f) => f.id === rowId),
+      r.defaultWorkspaceId === id ||
+      r.workspaces.some((w) => w.id === id) ||
+      r.folders?.some((f) => f.id === id),
   )
   return repo ? { repoId: repo.id, projectId: repo.projectId } : null
 }

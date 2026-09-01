@@ -414,7 +414,10 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
 
   const lockedRepo = () =>
     repo({
-      workspaces: [{ id: 'ws-locked', branch: 'develop', age: '', status: 'locked' }],
+      workspaces: [
+        { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
+        { id: 'ws-open', branch: 'feature/x', age: '' },
+      ],
       chats: [branchRow('home-row', 'home-1'), branchRow('develop-row', 'ws-locked')],
     })
 
@@ -465,11 +468,20 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude')
   })
 
-  it('its trash goes to the removal tray, never deleteChat', () => {
+  it('its trash takes the WORKSPACE path — refused as locked, never deleteChat', () => {
     useSidebarStore.setState({ repos: [lockedRepo()] })
 
-    handleTrash('develop-row')
+    // A branch row can only ever be a locked branch or a repo home, and
+    // `planRemoval`'s `draftFor` refuses both — so the tray staying empty is
+    // the REFUSAL, and on its own it is indistinguishable from doing nothing.
+    // The ordinary workspace below is what tells those two apart: the same
+    // call, in the same repo, does reach the tray.
+    expect(handleTrash('develop-row')).toBe(false)
+    expect(deleteChat).not.toHaveBeenCalled()
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
 
+    expect(handleTrash('ws-open')).toBe(true)
+    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
     expect(deleteChat).not.toHaveBeenCalled()
   })
 })

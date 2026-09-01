@@ -59,7 +59,7 @@ vi.mock('@/lib/api', () => ({
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { success } from '@/lib/loadable'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { resetDB } from '@/lib/persistence/idb'
@@ -599,6 +599,44 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
     await settle()
 
     expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+  })
+
+  // Fix round 2, Critical: the flag used to be raised the moment the chats
+  // FETCH resolved. That is only a cache write — `scheduleRebuild` then arms a
+  // 16ms timer and awaits the workspace list before `setRepos` puts the rows in
+  // the store. A render landing in that window saw the repo marked seeded while
+  // `repos` still held the PRE-seed chats (no `type` at all, on any cached row
+  // written before the field existed), and `rows-from-repo.ts` throws on those.
+  it('does not raise the flag until the rebuilt rows are actually in the store', async () => {
+    fetchRepoChats.mockResolvedValue([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+
+    // The state of the sidebar store AT THE INSTANT the gate opened — the only
+    // thing a consumer could have read on that render.
+    const opened: { repos: Repo[] | null } = { repos: null }
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (opened.repos === null && state.seededRepoIds.has('r1')) {
+        opened.repos = useSidebarStore.getState().repos
+      }
+    })
+
+    try {
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+      })
+      await settle()
+
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+      const chats = opened.repos?.find((r) => r.id === 'r1')?.chats
+      expect(chats).toEqual([expect.objectContaining({ id: 'b1', type: 'branch' })])
+    } finally {
+      unsubscribe()
+    }
   })
 
   it('leaves it unseeded when the chats read FAILS — an unread tree is not an empty one', async () => {
