@@ -58,6 +58,47 @@ runtime:
     format: json
 `
 
+// otherSwitchableStubProviderDescriptorYAML is switchableStubProviderDescriptorYAML
+// under a different id and DISJOINT model/effort catalogues — neither
+// sonnet/opus nor low/high appear here — so a stale value surviving the
+// switch from switchablestub is unambiguously wrong, not coincidentally
+// still valid. See
+// TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare.
+const otherSwitchableStubProviderDescriptorYAML = `id: otherswitchablestub
+spawn:
+  cmd: "cat"
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+model:
+  available: [haiku]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+effort:
+  available:
+    "*": [minimal, maximal]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
 type interruptionDTO struct {
 	ID     string `json:"id"`
 	Kind   string `json:"kind"`
@@ -164,6 +205,49 @@ func TestRegression_SelectionChangeOfOnlyOneHalfRecordsOneMarker(t *testing.T) {
 	require.Len(t, interruptions, 1)
 	assert.Equal(t, "effort_changed", interruptions[0].Kind)
 	assert.Equal(t, "low", interruptions[0].Detail)
+}
+
+// TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare is
+// the actual reported bug behind a screenshot: a chat on codex with model
+// "gpt-5.4-mini" switched to claude, and claude was spawned with THAT SAME
+// model string verbatim — invalid for claude, so it rejected the turn with
+// "model_not_found". The switch's OWN divider claimed the new selection was
+// claude's default the whole time, because that marker comes from a separate,
+// later write that never reaches the CLI already spawned (and already dead)
+// by then. ChatSelection reads the chat's raw stored model/effort for a
+// switch (unlike a fresh mint, which reads them as "the provider's own
+// default") — nothing validated that value against the INCOMING provider
+// before handing it to spawn's argv.
+func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "switchablestub", switchableStubProviderDescriptorYAML)
+	writeProviderDescriptor(t, h, "otherswitchablestub", otherSwitchableStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h)
+	chatID, _ := createStubChat(t, h, imported, "switchablestub")
+
+	// "opus" is valid for switchablestub, and invalid for otherswitchablestub
+	// (which only declares "haiku") — the exact shape of the live bug.
+	resp := h.raw(http.MethodPatch, wsBase(imported)+"/chats/"+chatID+"/selection",
+		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
+	_ = resp.Body.Close()
+	h.Quiesce()
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	h.post(wsBase(imported)+"/chats/"+chatID+"/switch",
+		map[string]string{"provider": "otherswitchablestub"}, http.StatusOK, &result)
+	h.QuiesceReactors()
+
+	runner, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	require.NoError(t, err, "the switch must leave a live runner on the chat")
+	assert.Empty(t, runner.LaunchModel,
+		"otherswitchablestub does not declare \"opus\" — the switch must not hand it "+
+			"the outgoing provider's model verbatim, or the new provider rejects the "+
+			"spawn exactly like the reported model_not_found bug")
+	assert.Empty(t, runner.LaunchEffort,
+		"effort is validated per-model (Efforts(model)), so a cleared model must clear "+
+			"the stale effort with it rather than leave a mismatched pair")
 }
 
 // orderedMessage is recordedMessage plus DisplayOrder, which the transcript

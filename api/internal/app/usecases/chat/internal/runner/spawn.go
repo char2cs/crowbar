@@ -100,15 +100,9 @@ func (rs *Runners) spawnRunner(
 	// business knowing that.
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
-	// Resolved against THIS provider, never the chat's own raw stored intent
-	// directly: a level the provider does not declare is not offered for it
-	// at all (an explicit SetChatPermissionLevel already refuses one), but
-	// the chat's own durable choice — the global default it was seeded
-	// with, or an earlier provider's own valid pick — can still name one
-	// this provider cannot reach, and a spawn must run under SOMETHING
-	// rather than fail. Never written back: the chat's own stored intent is
-	// untouched, so switching providers again resolves fresh each time.
-	sel.PermissionLevel = resolvePermissionLevel(descriptor.PermissionLevels(), sel.PermissionLevel)
+	// Never the chat's own raw stored intent directly — see
+	// resolveSelectionForSpawn (selection.go) for why.
+	sel = resolveSelectionForSpawn(descriptor, sel)
 
 	tctx, inject := rs.renderSpawnContext(spawnContext{
 		chatID:          chatID,
