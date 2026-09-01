@@ -79,95 +79,74 @@ func ForkParentID(
 	return CwdWorkspaceID(t, chats, node.ParentID)
 }
 
-// ResolveForkParent is ForkParentID over a fresh read of every row the daemon
-// knows, rather than a plan a caller already has in memory. Promote is the one
-// caller that reaches this from OUTSIDE a placement operation — it has no
-// snapshot of its own to walk — so this is the read+build step every other
-// caller of ForkParentID gets for free from its own in-progress plan.
+// freshForest reads every row the daemon knows and builds the tree.Tree plus
+// id->row map every Resolve* walk below needs, with rowID's OWN row corrected
+// from LoadChat's log fold first — exactly as globalSnapshotAround/
+// workspaceSnapshotAround already do for a placement plan (see corrected's own
+// doc, plan.go).
+//
+// rowID may have been minted AND placed microseconds ago in this SAME call —
+// CreateChat's ownWorktree path mints, places, then immediately resolves the
+// new row's fork parent, and Promote's caller resolved a chat some earlier,
+// already-settled request placed — so ListChats' asynchronous projection can
+// still be serving rowID's state from BEFORE that placement, or omit it
+// entirely. Every row ABOVE rowID came from an earlier, unrelated write and is
+// read from the list safely; only rowID itself needs the log-true answer.
+//
+// This is the one read+build step every Resolve* walk below needs and no
+// caller with its own in-progress plan does — PlaceChat and friends already
+// hold a snapshot to walk instead.
+func freshForest(
+	ctx context.Context,
+	chats Chats,
+	rowID string,
+) (tree.Tree, map[string]domain.Chat, error) {
+	subject, err := chats.LoadChat(ctx, rowID)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := chats.ListChats(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows = corrected(rows, subject)
+	nodes := make([]tree.Node, len(rows))
+	byID := make(map[string]domain.Chat, len(rows))
+	for i, row := range rows {
+		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		byID[row.ID] = row
+	}
+	return tree.New(nodes), byID, nil
+}
+
+// ResolveForkParent is ForkParentID over freshForest's log-corrected read of
+// every row the daemon knows, for a caller with no snapshot of its own to walk
+// (Promote, own_worktree.go).
 func ResolveForkParent(
 	ctx context.Context,
 	chats Chats,
 	rowID string,
 ) (string, bool, error) {
-	rows, err := chats.ListChats(ctx)
+	t, byID, err := freshForest(ctx, chats, rowID)
 	if err != nil {
 		return "", false, err
 	}
-	nodes := make([]tree.Node, len(rows))
-	byID := make(map[string]domain.Chat, len(rows))
-	for i, row := range rows {
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
-		byID[row.ID] = row
-	}
-	id, ok := ForkParentID(tree.New(nodes), byID, rowID)
+	id, ok := ForkParentID(t, byID, rowID)
 	return id, ok, nil
 }
 
-// ResolveCwdWorkspaceID is CwdWorkspaceID over a fresh read of every row the
-// daemon knows, for a caller with no snapshot of its own — the spawn path's
-// own read+build step, alongside ResolveForkParent's for Promote.
-//
-// rowID's own row is corrected from LoadChat's log fold before the walk runs,
-// exactly as globalSnapshotAround/workspaceSnapshotAround already do for a
-// placement plan (see corrected's own doc, plan.go): rowID is the row whatever
-// just placed it wrote a moment ago, so it is the one row ListChats' asynchronous
-// projection can still be serving the placement it had BEFORE — a spawn
-// following its own placement by microseconds needs the log-true answer, not a
-// snapshot that has not folded that write yet. Every row above rowID came from
-// an earlier, unrelated write and is read from the list safely.
+// ResolveCwdWorkspaceID is CwdWorkspaceID over freshForest's log-corrected
+// read — the spawn path's own read+build step, alongside ResolveForkParent's.
 func ResolveCwdWorkspaceID(
 	ctx context.Context,
 	chats Chats,
 	rowID string,
 ) (string, bool, error) {
-	subject, err := chats.LoadChat(ctx, rowID)
+	t, byID, err := freshForest(ctx, chats, rowID)
 	if err != nil {
 		return "", false, err
 	}
-	rows, err := chats.ListChats(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	rows = corrected(rows, subject)
-	nodes := make([]tree.Node, len(rows))
-	byID := make(map[string]domain.Chat, len(rows))
-	for i, row := range rows {
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
-		byID[row.ID] = row
-	}
-	id, ok := CwdWorkspaceID(tree.New(nodes), byID, rowID)
-	return id, ok, nil
-}
-
-// ResolveForkParentFresh is ResolveForkParent, log-corrected the same way
-// ResolveCwdWorkspaceID is: rowID's own row is folded from LoadChat before the
-// walk runs, because rowID may have been minted AND placed microseconds ago in
-// this SAME call (CreateChat's ownWorktree path, own_worktree.go) — the list
-// projection can still be serving rowID's pre-placement state, or not listing
-// it at all. ResolveForkParent's plain list read is safe for Promote, whose
-// rowID was placed in an earlier, already-settled request; it is NOT safe
-// here.
-func ResolveForkParentFresh(
-	ctx context.Context,
-	chats Chats,
-	rowID string,
-) (string, bool, error) {
-	subject, err := chats.LoadChat(ctx, rowID)
-	if err != nil {
-		return "", false, err
-	}
-	rows, err := chats.ListChats(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	rows = corrected(rows, subject)
-	nodes := make([]tree.Node, len(rows))
-	byID := make(map[string]domain.Chat, len(rows))
-	for i, row := range rows {
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
-		byID[row.ID] = row
-	}
-	id, ok := ForkParentID(tree.New(nodes), byID, rowID)
+	id, ok := CwdWorkspaceID(t, byID, rowID)
 	return id, ok, nil
 }
 

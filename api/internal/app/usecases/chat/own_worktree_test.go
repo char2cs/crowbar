@@ -123,3 +123,30 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
 		"the workspace a failed create made must not survive it")
 }
+
+// TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscardsTheWorkspace
+// is the fix for the double fault a review caught: on a StartRunner failure,
+// Promote's own unpromote (promote.go) deliberately KEEPS the workspace when
+// the slot-clear write itself also fails, because Promote's chat SURVIVES a
+// failed promotion and that surviving row still names it. This path has no
+// surviving row — CreateChat's ownWorktree branch (tree/chats.go) purges
+// chatID outright on ANY error this method returns, clear-failure included —
+// so "leave it, a row still points at it" is false here even when the clear
+// fails, and the old code (reusing unpromote verbatim) orphaned the workspace
+// exactly this way: nothing could ever reach it again, since the only door to
+// a workspace is the row that owns it, and that row was about to be gone
+// either way.
+func TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
+	f, chats, _ := newFaultFixture(t)
+	rootChatID, _ := f.spawn(t, "claude")
+	bubbleID := seedPlacedBubble(t, f, rootChatID)
+	f.term.err = errOwnWorktreeBoom
+	chats.failClearWorkspace = errors.New("own worktree: the slot-clear also failed")
+
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+
+	require.Error(t, err)
+	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
+		"the workspace must be discarded even when the slot-clear itself fails — "+
+			"nothing survives this path to still claim it")
+}

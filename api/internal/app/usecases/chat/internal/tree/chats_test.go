@@ -255,7 +255,17 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 // unplaced-spawn shortcut does not apply here, since ownWorktree still needs a
 // row that exists (and is placed, when it has somewhere to go) before it can
 // resolve a fork parent from it.
-func TestCreateChat_OwnWorktree_AtTheRootMintsWithNoPlacement(t *testing.T) {
+//
+// This is an ORCHESTRATION test only: it proves CreateChat skips PlaceChat for
+// parentID=="" and forwards exactly the right arguments to
+// agent.SpawnChatWithOwnWorktree, using the fake Agent's unconditional
+// success — it does not prove a root-level ownWorktree create succeeds in
+// PRODUCTION. It never does: a chat with no parent has no ancestor to resolve
+// a fork parent from, and the REAL SpawnChatWithOwnWorktree (own_worktree.go)
+// refuses that with ErrNoForkParent, exactly as
+// TestSpawnChatWithOwnWorktree_NoForkParent_Refuses (own_worktree_test.go)
+// pins at the layer that actually resolves one.
+func TestCreateChat_OwnWorktree_AtTheRootSkipsPlacementBeforeFillingTheSlot(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
@@ -269,8 +279,6 @@ func TestCreateChat_OwnWorktree_AtTheRootMintsWithNoPlacement(t *testing.T) {
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, "c-new", chats.SpawnedOwnWorktree[0].ChatID)
 	assert.Equal(t, "claude", chats.SpawnedOwnWorktree[0].ProviderID)
-	assert.Equal(t, "ws-child-c-new", chatRow(t, chats, "c-new").WorkspaceID,
-		"the slot must actually be filled, not merely asked to be")
 }
 
 // THE ORDERING, ownWorktree's own version of TestCreateChat_PlacesTheChatBeforeStartingItsCLI:
