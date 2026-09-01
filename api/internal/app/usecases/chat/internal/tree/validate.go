@@ -55,17 +55,22 @@ func (u *chatFolderUsecase) checkFolderContainer(
 
 // checkChatMove refuses a chat move onto a container that does not exist,
 // belongs to another workspace, or lies inside the moved chat's own subtree.
+//
+// ownWorktree is threaded straight from placeChat: true only for its
+// own-worktree-creation caller, createOwnWorktreeChat (see placeChat's doc
+// comment) — never for an ordinary move, which always passes false.
 func (u *chatFolderUsecase) checkChatMove(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	workspaceID string,
 	id string,
 	destination string,
+	ownWorktree bool,
 ) error {
 	if destination == id {
 		return fmt.Errorf("agent chat folder: move %s onto itself: %w", id, ErrCycle)
 	}
-	if err := u.checkChatContainer(ctx, snapshot, workspaceID, destination); err != nil {
+	if err := u.checkChatContainer(ctx, snapshot, workspaceID, destination, ownWorktree); err != nil {
 		return err
 	}
 	if snapshot.plan.Reaches(destination, id) {
@@ -77,26 +82,30 @@ func (u *chatFolderUsecase) checkChatMove(
 // checkChatContainer validates a chat's parent id: "" is the panel root, a
 // FOLDER or a BRANCH is accepted unconditionally (neither carries a workspace
 // to conflict with — a branch row is a process boundary, not a workspace one),
-// and a CHAT must belong to workspaceID. A row that resolves to a DIFFERENT
-// workspace is reported as a cross-workspace edge rather than as a missing
-// row, because the two are fixed in different ways.
+// and a CHAT must belong to workspaceID — unless ownWorktree names an
+// own-worktree creation forking off a chat that already owns a worktree of its
+// own, which is legal for the same reason forking off a BRANCH row is (see
+// checkParentKind). A row that resolves to a DIFFERENT workspace is reported
+// as a cross-workspace edge rather than as a missing row, because the two are
+// fixed in different ways.
 func (u *chatFolderUsecase) checkChatContainer(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	workspaceID string,
 	parentID string,
+	ownWorktree bool,
 ) error {
 	if parentID == "" {
 		return nil
 	}
 	if row := snapshot.row(parentID); row != nil {
-		return checkParentKind(*row, workspaceID, parentID)
+		return checkParentKind(*row, workspaceID, parentID, ownWorktree)
 	}
 	row, err := u.chats.Get(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
 	}
-	return checkParentKind(row, workspaceID, parentID)
+	return checkParentKind(row, workspaceID, parentID, ownWorktree)
 }
 
 // checkParentKind is the second half of checkChatContainer, split out because
@@ -107,12 +116,25 @@ func (u *chatFolderUsecase) checkChatContainer(
 // the workspace list only heals a model that is entirely empty — so the
 // authoritative answer here can name a row the snapshot's list did not carry.
 // Refusing it would reject a drop onto a chat the user can see.
+//
+// ownWorktree is true only for an own-worktree CREATION (never a move, and
+// never an ordinary thread): forking a new workspace off a row that already
+// carries one is legal regardless of that row's kind, exactly as it already is
+// off a BRANCH row — the new chat has no workspace yet to conflict with
+// anything, so a worktree-owning CHAT parent is accepted the same way a
+// FOLDER or BRANCH parent is. An ordinary thread still enforces the
+// same-workspace rule against a CHAT parent: it inherits that parent's cwd, so
+// one claiming a different workspace than its parent is meaningless.
 func checkParentKind(
 	row domain.Chat,
 	workspaceID string,
 	parentID string,
+	ownWorktree bool,
 ) error {
 	if row.Type == domain.ChatTypeFolder || row.Type == domain.ChatTypeBranch {
+		return nil
+	}
+	if ownWorktree && row.WorkspaceID != "" {
 		return nil
 	}
 	if row.WorkspaceID == workspaceID {

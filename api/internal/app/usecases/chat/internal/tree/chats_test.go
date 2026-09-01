@@ -287,10 +287,6 @@ func TestCreateChat_OwnWorktree_AtTheRootSkipsPlacementBeforeFillingTheSlot(t *t
 // SpawnChatWithOwnWorktree runs first — reads the row's OWN ParentID.
 func TestCreateChat_OwnWorktree_PlacesTheChatBeforeFillingItsSlot(t *testing.T) {
 	chats, uc := newUsecase(t)
-	// A folder, not a workspace-owning chat: checkNewChatParent still enforces
-	// the same-workspace rule for a CHAT parent (see
-	// TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace below),
-	// and this test is about ordering, not that guard.
 	seedFolder(chats, "spikes", "")
 	chats.NextID = "c-new"
 
@@ -328,14 +324,40 @@ func TestCreateChat_OwnWorktree_RefusesAnUnknownParentWithoutMintingAnything(t *
 	assert.Empty(t, chats.SpawnedOwnWorktree)
 }
 
-// A chat parent that already owns a DIFFERENT workspace is refused the same
-// way an ordinary bubble thread is refused today — see createOwnWorktreeChat's
-// own doc comment on why this task does not relax that restriction.
-func TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
+// A chat parent that already OWNS a worktree in a different workspace is an
+// acceptable fork point, the same way a BRANCH parent already is below: "under
+// a row that carries a branch [or, since this widening, a worktree] the new
+// row is a worktree" (model spec §4.1). This is the regular-forked-workspace
+// case — a chat parent's own WorkspaceID can never equal the new chat's (it is
+// "" here, since the new chat's workspace does not exist yet), so the
+// cross-workspace refusal below must not fire for THIS caller, even though it
+// still must for an ordinary thread naming the same parent (see
+// TestCreateChat_RefusesAChatParentInAnotherWorkspace).
+func TestCreateChat_OwnWorktree_AcceptsAWorktreeOwningChatParentInAnotherWorkspace(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", true)
+	assert.NoError(t, err)
+	assert.Equal(t, "c-other", chatRow(t, chats, "c-new").ParentID)
+}
+
+// The bypass above is keyed on THIS BEING AN OWN-WORKTREE CREATION, not on the
+// new chat's workspaceID happening to be "". An ordinary (non-ownWorktree)
+// thread can ALSO be created with workspaceID=="" (a workspace-less bubble
+// thread — see handlers.Create's own doc comment), and for THAT caller the
+// cross-workspace refusal must still fire: a thread inherits its parent's cwd,
+// and a thread claiming no workspace of its own placed under a chat that owns
+// a DIFFERENT one is exactly the meaningless case ErrCrossWorkspace exists to
+// catch. A fix that bypassed the check whenever workspaceID == "" — rather
+// than whenever the caller is actually creating an own-worktree chat — would
+// wrongly let this one through too.
+func TestCreateChat_RefusesAChatParentInAnotherWorkspaceEvenWithNoWorkspaceOfItsOwn(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", true)
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", false)
 	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
 	assert.Empty(t, chats.Minted)
 }

@@ -308,7 +308,11 @@ type Usecase interface {
 	// slot is filled with a fresh worktree forked from its resolved fork parent
 	// and its CLI is started in it, in ONE call — there is never a chat-less
 	// workspace, nor a workspace-less chat waiting to be promoted, observable in
-	// between. See createOwnWorktreeChat (chats.go) and agent.SpawnChatWithOwnWorktree.
+	// between. Because the new chat has no workspace to conflict with yet, the
+	// cross-workspace refusal above does not apply to it: a parentID naming a
+	// chat that already owns a worktree of its own is an acceptable fork point
+	// here, the same way a BRANCH parent already is. See createOwnWorktreeChat
+	// (chats.go) and agent.SpawnChatWithOwnWorktree.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,

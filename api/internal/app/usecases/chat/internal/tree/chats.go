@@ -26,7 +26,7 @@ func (u *chatFolderUsecase) CreateChat(
 	if parentID == "" {
 		return u.agent.SpawnChat(ctx, workspaceID, providerID)
 	}
-	if err := u.checkNewChatParent(ctx, workspaceID, parentID); err != nil {
+	if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
 		return "", "", err
 	}
 	chatID, err := u.agent.MintChat(ctx, workspaceID)
@@ -53,11 +53,11 @@ func (u *chatFolderUsecase) CreateChat(
 // Reusing the workspace-less scope for placement (rather than inventing one
 // keyed on the not-yet-minted workspace) is deliberate: checkNewChatParent's
 // same-workspace rule then applies exactly as it already does to an ordinary
-// bubble thread — a folder or another workspace-less chat is an acceptable
-// parent, a chat that already owns a different workspace is refused, same as
-// today (see promote.go's own seedBubbleChat fixture, which hits the identical
-// restriction). Relaxing that restriction for a worktree-owning parent is a
-// separate, larger change this task does not make.
+// bubble thread, EXCEPT that this caller passes ownWorktree=true, so a parent
+// that already owns a worktree of its own — a CHAT as well as a BRANCH — is
+// also an acceptable fork point (model spec §4.1: "under a row that carries a
+// branch the new row is a worktree"). A folder or another workspace-less chat
+// remains acceptable too; only a nonexistent parent is refused.
 //
 // Placement happens BEFORE the workspace is minted, mirroring the thread
 // path's own reason: a chat's lineage — and here, the fork parent its walk
@@ -68,7 +68,7 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	parentID string,
 ) (string, string, error) {
 	if parentID != "" {
-		if err := u.checkNewChatParent(ctx, "", parentID); err != nil {
+		if err := u.checkNewChatParent(ctx, "", parentID, true); err != nil {
 			return "", "", err
 		}
 	}
@@ -77,7 +77,7 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
 	if parentID != "" {
-		if _, _, pErr := u.PlaceChat(ctx, "", chatID, PlaceInput{ParentID: &parentID}); pErr != nil {
+		if _, _, pErr := u.placeChat(ctx, "", chatID, PlaceInput{ParentID: &parentID}, true); pErr != nil {
 			return "", "", u.discard(ctx, chatID, pErr)
 		}
 	}
@@ -89,9 +89,15 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 }
 
 // checkNewChatParent refuses a destination a new chat cannot be born into, BEFORE
-// anything is minted: a row that does not exist, or a CHAT belonging to another
-// workspace. It is the same guard a move makes, minus the cycle test — a chat
-// that does not exist yet cannot be inside its own subtree.
+// anything is minted: a row that does not exist, or (for an ordinary thread) a
+// CHAT belonging to another workspace. It is the same guard a move makes, minus
+// the cycle test — a chat that does not exist yet cannot be inside its own
+// subtree.
+//
+// ownWorktree is threaded straight through to checkChatContainer: it is true
+// only for createOwnWorktreeChat's own call, and it is what lets that caller
+// name a worktree-owning CHAT parent the same-workspace rule would otherwise
+// refuse.
 //
 // It runs first so the ordinary failure costs nothing. Leaving it to PlaceChat
 // would mint a chat, broadcast it, refuse the placement and then purge it again,
@@ -100,12 +106,13 @@ func (u *chatFolderUsecase) checkNewChatParent(
 	ctx context.Context,
 	workspaceID string,
 	parentID string,
+	ownWorktree bool,
 ) error {
 	snapshot, err := u.workspaceSnapshot(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID)
+	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID, ownWorktree)
 }
 
 // discard takes a just-minted chat back out when the create failed after minting
@@ -134,6 +141,23 @@ func (u *chatFolderUsecase) PlaceChat(
 	chatID string,
 	in PlaceInput,
 ) (domain.Chat, []domain.Chat, error) {
+	return u.placeChat(ctx, workspaceID, chatID, in, false)
+}
+
+// placeChat is PlaceChat's body, taking one extra argument PlaceChat's own
+// exported signature does not carry: ownWorktree, true only for
+// createOwnWorktreeChat's own call. That caller's placement is a second
+// destination check on the SAME parentID checkNewChatParent already cleared
+// (loadChat/workspaceSnapshotAround resolve a fresh snapshot, so the check is
+// re-run rather than trusted), and it has to see the same ownWorktree signal
+// checkNewChatParent did or it refuses the exact case Task 7 exists to allow.
+func (u *chatFolderUsecase) placeChat(
+	ctx context.Context,
+	workspaceID string,
+	chatID string,
+	in PlaceInput,
+	ownWorktree bool,
+) (domain.Chat, []domain.Chat, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -146,7 +170,7 @@ func (u *chatFolderUsecase) PlaceChat(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
+	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
 	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
