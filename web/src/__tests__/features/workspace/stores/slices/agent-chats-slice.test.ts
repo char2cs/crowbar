@@ -96,6 +96,58 @@ describe('agent-chats-slice', () => {
     ])
   })
 
+  // ── pruneAgentChatStreamingMessages: the bounded-growth fix ───────────────
+  // streamingMessages[chatId] only ever grew: entries land via
+  // setAgentChatStreamingMessage, and nothing removed one once its content
+  // was durably confirmed in the ledger — a real unbounded-memory-growth
+  // issue over a very long chat session. This is the targeted prune the
+  // store side needed instead of a blanket clear on a turn boundary (that
+  // was tried and reverted: an interrupted runner's stream can legitimately
+  // keep growing after a new turn starts, so wiping the whole array there
+  // deleted a reply still arriving).
+
+  it('pruneAgentChatStreamingMessages drops only the given ids, keeping the rest', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm3', text: 'third' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1', 'm3'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm2', text: 'second' }])
+  })
+
+  it('pruneAgentChatStreamingMessages deletes the chat entry entirely once it empties out', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+  })
+
+  it('pruneAgentChatStreamingMessages is a no-op for an id that is not present', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['not-there'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm1', text: 'first' }])
+  })
+
+  it('pruneAgentChatStreamingMessages does not touch another chat', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
+    s.getState().setAgentChatStreamingMessage('c2', { id: 'm1', text: 'chat two' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+    expect(s.getState().agentChats.streamingMessages['c2']).toEqual([
+      { id: 'm1', text: 'chat two' },
+    ])
+  })
+
   // ── The sticky model / effort selection ───────────────────────────────────
   // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
   // is the only thing that brings an accepted pair back into the store.

@@ -446,6 +446,17 @@ export function AgentChatPane({
     [store, shownChatId],
   )
 
+  // Bounds streamingMessages[shownChatId]: once useChatMessages reports an id
+  // the ledger now confirms for real, its store-side entry is dead weight —
+  // see pruneAgentChatStreamingMessages' own doc comment for why this is safe
+  // where clearing the whole array on a turn boundary was not.
+  const handleStreamingSettled = useCallback(
+    (ids: string[]) => {
+      store.getState().pruneAgentChatStreamingMessages(shownChatId, ids)
+    },
+    [store, shownChatId],
+  )
+
   const handlePromptSpawned = useCallback(async () => {
     await adopt()
   }, [adopt])
@@ -1027,6 +1038,7 @@ export function AgentChatPane({
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
               streamingMessages={streamingMessages}
+              onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)

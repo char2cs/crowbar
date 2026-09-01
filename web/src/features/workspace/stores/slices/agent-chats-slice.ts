@@ -191,6 +191,16 @@ export interface AgentChatsSlice {
     chatId: string,
     message: { id: string; text: string } | null,
   ) => void
+  /** Drop the given ids' entries once the ledger has recorded them for real —
+   *  see useChatMessages' streamingBubbles for the matching id computation
+   *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
+   *  that was tried and reverted (use-workspace-agent-chats-stream.ts),
+   *  because an interrupted runner's stream can legitimately keep growing
+   *  after a new turn starts, and wiping the array on turn_stopped/started
+   *  deleted a reply that was still arriving. Pruning by CONFIRMED id instead
+   *  is what keeps the array bounded without that regression: an entry is
+   *  only ever removed once its own content is durably persisted elsewhere. */
+  pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -457,6 +467,18 @@ export const createAgentChatsSlice: StateCreator<
       const existing = list.find((m) => m.id === message.id)
       if (existing) existing.text = message.text
       else list.push(message)
+    }),
+
+  pruneAgentChatStreamingMessages: (chatId, ids) =>
+    set((s) => {
+      if (ids.length === 0) return
+      const list = s.agentChats.streamingMessages[chatId]
+      if (!list) return
+      const drop = new Set(ids)
+      const kept = list.filter((m) => !drop.has(m.id))
+      if (kept.length === list.length) return
+      if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
+      else s.agentChats.streamingMessages[chatId] = kept
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

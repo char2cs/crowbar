@@ -530,3 +530,107 @@ describe('streamingBubbles: suppressed by id, not by text', () => {
     expect(result.current.streamingBubbles[0].text).toBe('still being said')
   })
 })
+
+// onStreamingSettled is the store-side twin of streamingBubbles' suppression
+// above: streamingMessages[chatId] only ever grew (nothing removed an entry
+// once it was confirmed) — a real unbounded-memory-growth issue over a very
+// long chat session. It must fire ONLY for an id the ledger has actually
+// recorded, on the identical "msg-"+id match streamingBubbles already uses —
+// never on a turn boundary, which is the blanket-clear approach that was
+// tried and reverted because an interrupted runner's stream can legitimately
+// keep growing after a new turn starts.
+describe('onStreamingSettled: prunes confirmed ids, never a still-streaming one', () => {
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+  })
+
+  it('reports an id once the ledger records its message, matching by id not text', async () => {
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 5,
+      oldestCursor: 1,
+      hasMore: false,
+      items: [
+        message(5, { role: 'assistant', turnId: 'msg-delta-1', text: 'the reconciled text' }),
+      ],
+    })
+    const onStreamingSettled = vi.fn()
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [{ id: 'delta-1', text: 'the streamed text, missing a word' }],
+      onStreamingSettled,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(onStreamingSettled).toHaveBeenCalledWith(['delta-1']))
+  })
+
+  // The exact scenario the turn-boundary clear got reverted over: a message
+  // still being streamed, with no ledger row for it yet, must NEVER be
+  // reported as settled — pruning it here would be the same data loss under
+  // a different trigger.
+  it('never reports an id the ledger has not recorded yet', async () => {
+    listChatMessagesFn.mockResolvedValueOnce({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+    const onStreamingSettled = vi.fn()
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: true,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [{ id: 'delta-1', text: 'still being said' }],
+      onStreamingSettled,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    const { result } = renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(result.current.streamingBubbles).toHaveLength(1))
+    expect(onStreamingSettled).not.toHaveBeenCalled()
+  })
+
+  it('reports only the confirmed id when one of several is still streaming', async () => {
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 5,
+      oldestCursor: 1,
+      hasMore: false,
+      items: [message(5, { role: 'assistant', turnId: 'msg-delta-1', text: 'done' })],
+    })
+    const onStreamingSettled = vi.fn()
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: true,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [
+        { id: 'delta-1', text: 'done' },
+        { id: 'delta-2', text: 'still going' },
+      ],
+      onStreamingSettled,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(onStreamingSettled).toHaveBeenCalledWith(['delta-1']))
+    expect(onStreamingSettled).not.toHaveBeenCalledWith(expect.arrayContaining(['delta-2']))
+  })
+})

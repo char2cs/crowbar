@@ -61,6 +61,14 @@ export interface ChatMessagesOptions {
    *  turn can have more than one open item (Codex; Claude is always 0-or-1)
    *  — see agent-chats-slice.ts. */
   streamingMessages?: { id: string; text: string }[]
+  /** Ids from `streamingMessages` the ledger has now confirmed for real —
+   *  see the `streamingBubbles` computation below, which this mirrors to
+   *  prune the STORE side instead of just hiding the render. Their content
+   *  now lives in `messages` too, so keeping the store's own copy around
+   *  only grows `streamingMessages[chatId]` without bound over a long chat.
+   *  Optional: a caller with no prune action (a test, a fixture) simply
+   *  keeps the old behaviour. */
+  onStreamingSettled?: (ids: string[]) => void
   /** Every applied page, for queue reconciliation. Called SYNCHRONOUSLY inside
    *  the recovery walk, which then re-reads `pendingEvidence` — an async
    *  reconciliation would make the walk read its own stale answer and page to
@@ -91,6 +99,7 @@ export function useChatMessages(options: ChatMessagesOptions) {
     turnRevision,
     awaiting,
     streamingMessages,
+    onStreamingSettled,
     onApply,
     pendingEvidence,
     pendingBaselines,
@@ -303,6 +312,21 @@ export function useChatMessages(options: ChatMessagesOptions) {
     }
     return bubbles.length ? bubbles : EMPTY_MESSAGES
   }, [streamingMessages, messages, providerId])
+
+  // The store-side twin of the suppression above: once a streamed message is
+  // confirmed (same `"msg-" + id` match), its entry in streamingMessages[chatId]
+  // is dead weight — the real copy lives in `messages` now. Recomputed on every
+  // change rather than diffed against "previously confirmed", because
+  // pruneAgentChatStreamingMessages is already a no-op when nothing in its id
+  // list is still present, so a redundant call here costs a cheap early return,
+  // never a wasted re-render loop.
+  useEffect(() => {
+    if (!streamingMessages?.length || !onStreamingSettled) return
+    const confirmed = streamingMessages
+      .filter((m) => messages.some((r) => r.role === 'assistant' && r.turnId === `msg-${m.id}`))
+      .map((m) => m.id)
+    if (confirmed.length > 0) onStreamingSettled(confirmed)
+  }, [streamingMessages, messages, onStreamingSettled])
 
   const getCursor = useCallback(() => cursorRef.current, [])
 

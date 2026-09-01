@@ -80,6 +80,10 @@ export interface AgentChatViewProps {
   settledPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
   streamingMessages?: { id: string; text: string }[]
+  /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
+   *  see useChatMessages' onStreamingSettled for why this is safe where a
+   *  turn-boundary clear was not. */
+  onStreamingSettled?: (ids: string[]) => void
   onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
@@ -172,6 +176,7 @@ export function AgentChatView({
   terminalWaitKind,
   settledPrompts,
   streamingMessages,
+  onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
@@ -289,6 +294,7 @@ export function AgentChatView({
     turnRevision,
     awaiting: prompts.deliveryPending,
     streamingMessages,
+    onStreamingSettled,
     onApply: prompts.reconcile,
     pendingEvidence: prompts.pendingEvidence,
     pendingBaselines: prompts.pendingBaselines,
