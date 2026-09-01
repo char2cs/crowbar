@@ -112,6 +112,22 @@ type Agent interface {
 		chatID string,
 		providerID string,
 	) (string, error)
+	// SpawnChatWithOwnWorktree is StartRunner's ownWorktree counterpart: chatID
+	// has already been minted and placed (so its lineage — and here, the fork
+	// parent its own walk resolves — is fixed before its first CLI exists,
+	// exactly like the plain thread path above), but has never had a runner. This
+	// fills its empty workspace slot with a fresh worktree forked from its
+	// resolved fork parent, then starts providerID's CLI in it — composing the
+	// SAME worktree-provisioning port Promote uses (model spec §4.2) for a chat
+	// with no existing runner to tear down and respawn.
+	//
+	// It refuses with ErrNoForkParent (see promote.go) when chatID's own walk
+	// resolves no ancestor carrying a workspace — there is nothing to fork from.
+	SpawnChatWithOwnWorktree(
+		ctx context.Context,
+		chatID string,
+		providerID string,
+	) (runnerID string, err error)
 	// PurgeChat erases one chat outright — the aggregate, the CLI pointed at it,
 	// its conversation history and its on-disk ledger. This usecase decides WHICH
 	// chats a delete takes and knows nothing about how one is torn down.
@@ -251,11 +267,20 @@ type Usecase interface {
 	// anything is minted or spawned, with the errors placement already returns. A
 	// failure after the mint takes the chat back out: a create the user was told
 	// failed must not leave a chat behind.
+	//
+	// ownWorktree is model spec §4.1/§5.1's atomic create: the new chat is minted
+	// and placed exactly as the workspace-less case above (workspaceID is ignored
+	// — the row is a plain bubble until its worktree exists), then its workspace
+	// slot is filled with a fresh worktree forked from its resolved fork parent
+	// and its CLI is started in it, in ONE call — there is never a chat-less
+	// workspace, nor a workspace-less chat waiting to be promoted, observable in
+	// between. See createOwnWorktreeChat (chats.go) and agent.SpawnChatWithOwnWorktree.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
+		ownWorktree bool,
 	) (chatID, runnerID string, err error)
 	// PlaceChat moves a chat within the tree and reorders it in its new level. It
 	// returns the placed chat plus every row the densify shifted.

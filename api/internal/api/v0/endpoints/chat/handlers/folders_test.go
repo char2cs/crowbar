@@ -92,14 +92,15 @@ func (f *fakeChatTree) Delete(
 	return f.shifted, f.err
 }
 
-// createChatCall is the argument triple a chat create carries, recorded whole:
-// which provider, and WHERE the chat is born. The parent is the half that decides
-// whether the new chat is a thread, so a handler that dropped it would still look
-// like a working create.
+// createChatCall is the argument quadruple a chat create carries, recorded
+// whole: which provider, WHERE the chat is born, and whether it asked for its
+// own worktree. The parent is the half that decides whether the new chat is a
+// thread, so a handler that dropped it would still look like a working create.
 type createChatCall struct {
 	WorkspaceID string
 	ProviderID  string
 	ParentID    string
+	OwnWorktree bool
 }
 
 func (f *fakeChatTree) CreateChat(
@@ -107,8 +108,11 @@ func (f *fakeChatTree) CreateChat(
 	workspaceID string,
 	providerID string,
 	parentID string,
+	ownWorktree bool,
 ) (string, string, error) {
-	f.gotCreate2 = createChatCall{WorkspaceID: workspaceID, ProviderID: providerID, ParentID: parentID}
+	f.gotCreate2 = createChatCall{
+		WorkspaceID: workspaceID, ProviderID: providerID, ParentID: parentID, OwnWorktree: ownWorktree,
+	}
 	return f.placed.ID, "runner-1", f.err
 }
 

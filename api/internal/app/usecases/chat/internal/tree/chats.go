@@ -18,7 +18,11 @@ func (u *chatFolderUsecase) CreateChat(
 	workspaceID string,
 	providerID string,
 	parentID string,
+	ownWorktree bool,
 ) (string, string, error) {
+	if ownWorktree {
+		return u.createOwnWorktreeChat(ctx, providerID, parentID)
+	}
 	if parentID == "" {
 		return u.agent.SpawnChat(ctx, workspaceID, providerID)
 	}
@@ -33,6 +37,51 @@ func (u *chatFolderUsecase) CreateChat(
 		return "", "", u.discard(ctx, chatID, pErr)
 	}
 	runnerID, err := u.agent.StartRunner(ctx, chatID, providerID)
+	if err != nil {
+		return "", "", u.discard(ctx, chatID, err)
+	}
+	return chatID, runnerID, nil
+}
+
+// createOwnWorktreeChat is CreateChat's ownWorktree branch. It mints the chat
+// and places it under parentID exactly as the plain-bubble path above does —
+// always in the workspace-less ("") scope, since the row IS a plain bubble
+// until agent.SpawnChatWithOwnWorktree fills its slot — then, instead of a bare
+// StartRunner, forks a fresh worktree from the chat's own resolved fork parent
+// and starts providerID's CLI in it.
+//
+// Reusing the workspace-less scope for placement (rather than inventing one
+// keyed on the not-yet-minted workspace) is deliberate: checkNewChatParent's
+// same-workspace rule then applies exactly as it already does to an ordinary
+// bubble thread — a folder or another workspace-less chat is an acceptable
+// parent, a chat that already owns a different workspace is refused, same as
+// today (see promote.go's own seedBubbleChat fixture, which hits the identical
+// restriction). Relaxing that restriction for a worktree-owning parent is a
+// separate, larger change this task does not make.
+//
+// Placement happens BEFORE the workspace is minted, mirroring the thread
+// path's own reason: a chat's lineage — and here, the fork parent its walk
+// resolves — must be fixed before its first CLI exists.
+func (u *chatFolderUsecase) createOwnWorktreeChat(
+	ctx context.Context,
+	providerID string,
+	parentID string,
+) (string, string, error) {
+	if parentID != "" {
+		if err := u.checkNewChatParent(ctx, "", parentID); err != nil {
+			return "", "", err
+		}
+	}
+	chatID, err := u.agent.MintChat(ctx, "")
+	if err != nil {
+		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
+	}
+	if parentID != "" {
+		if _, _, pErr := u.PlaceChat(ctx, "", chatID, PlaceInput{ParentID: &parentID}); pErr != nil {
+			return "", "", u.discard(ctx, chatID, pErr)
+		}
+	}
+	runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, providerID)
 	if err != nil {
 		return "", "", u.discard(ctx, chatID, err)
 	}

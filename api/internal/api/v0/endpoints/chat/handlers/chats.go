@@ -36,6 +36,14 @@ import (
 //
 // A parentId that names nothing, or a row in another workspace, is refused with the
 // same errors a placement returns, and nothing is created.
+//
+// ownWorktree (model spec §4.1/§5.1) asks for the atomic create: a fresh
+// workspace forked from the new chat's resolved fork parent, minted and set on
+// the row in the SAME request — see ChatTreeUsecase.CreateChat. It only ever
+// applies when the request names no workspace at all: a wsID resolved from
+// either the path (:wsId, the home mount) or the body's workspaceId means the
+// caller asked to attach to an EXISTING workspace, and that path is unchanged
+// regardless of what ownWorktree says.
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
@@ -45,6 +53,7 @@ func (h *Handlers) Create(
 		Provider    string `json:"provider"`
 		ParentID    string `json:"parentId"`
 		WorkspaceID string `json:"workspaceId"`
+		OwnWorktree bool   `json:"ownWorktree"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
@@ -55,8 +64,9 @@ func (h *Handlers) Create(
 	if wsID == "" {
 		wsID = body.WorkspaceID
 	}
+	ownWorktree := body.OwnWorktree && wsID == ""
 
-	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID)
+	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, ownWorktree)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

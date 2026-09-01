@@ -152,6 +152,69 @@ func TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess(
 	assert.Equal(t, createChatCall{ProviderID: "vendor-a"}, tree.gotCreate2)
 }
 
+// TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount proves ownWorktree reaches
+// the tree usecase when the request names no workspace at all — the one shape
+// (model spec §5.1) that is actually allowed to mean "fork me a fresh one".
+func TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t,
+		createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true},
+		tree.gotCreate2)
+}
+
+// TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace proves the single
+// most important thing to get right here: a request that still names a
+// workspace (the home mount's injected :wsId) takes the EXISTING
+// attach-to-existing-workspace path unchanged, whatever the body's
+// ownWorktree says.
+func TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","ownWorktree":true}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2,
+		"ownWorktree must not survive a request that also names a workspace")
+}
+
+// TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace is the same
+// refusal at the repo-scoped mount, where workspaceId arrives in the body
+// instead of the path.
+func TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2,
+		"ownWorktree must not survive a request that also names a workspace")
+}
+
 // configurableListGetUsecase is a configurable agent-port double dedicated to
 // the List/Get handlers: each test dials in the chats or errors it needs to
 // exercise a given branch. SpawnChat/IngestHook are not exercised through this

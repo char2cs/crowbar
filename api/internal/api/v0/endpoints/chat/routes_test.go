@@ -43,6 +43,7 @@ func (stubChatTree) CreateChat(
 	_ string,
 	_ string,
 	_ string,
+	_ bool,
 ) (string, string, error) {
 	return "c1", "run-1", nil
 }

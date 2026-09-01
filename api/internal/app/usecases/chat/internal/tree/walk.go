@@ -139,6 +139,38 @@ func ResolveCwdWorkspaceID(
 	return id, ok, nil
 }
 
+// ResolveForkParentFresh is ResolveForkParent, log-corrected the same way
+// ResolveCwdWorkspaceID is: rowID's own row is folded from LoadChat before the
+// walk runs, because rowID may have been minted AND placed microseconds ago in
+// this SAME call (CreateChat's ownWorktree path, own_worktree.go) — the list
+// projection can still be serving rowID's pre-placement state, or not listing
+// it at all. ResolveForkParent's plain list read is safe for Promote, whose
+// rowID was placed in an earlier, already-settled request; it is NOT safe
+// here.
+func ResolveForkParentFresh(
+	ctx context.Context,
+	chats Chats,
+	rowID string,
+) (string, bool, error) {
+	subject, err := chats.LoadChat(ctx, rowID)
+	if err != nil {
+		return "", false, err
+	}
+	rows, err := chats.ListChats(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	rows = corrected(rows, subject)
+	nodes := make([]tree.Node, len(rows))
+	byID := make(map[string]domain.Chat, len(rows))
+	for i, row := range rows {
+		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		byID[row.ID] = row
+	}
+	id, ok := ForkParentID(tree.New(nodes), byID, rowID)
+	return id, ok, nil
+}
+
 // ChatLineage answers what rowID reads: its CHAT ancestors, nearest first,
 // stepping through every folder between them transparently. It is the same
 // traversal internal/lineage.Walk already runs for the tree's own placement

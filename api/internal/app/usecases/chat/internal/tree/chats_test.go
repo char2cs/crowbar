@@ -78,7 +78,7 @@ func TestCreateChat_AtTheRootTakesTheUnplacedSpawn(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "")
+	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -99,7 +99,7 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -117,7 +117,7 @@ func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
 	seedFolder(chats, "spikes", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "spikes")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "spikes", false)
 	require.NoError(t, err)
 	assert.Equal(t, "spikes", chatRow(t, chats, "c-new").ParentID)
 }
@@ -130,7 +130,7 @@ func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
 	seedThread(chats, "c2", "c1", 2)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, chatRow(t, chats, "c-new").Order)
 }
@@ -144,7 +144,7 @@ func TestCreateChat_StillGoesThroughThePlacementPath(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	require.NoError(t, err)
 	assert.Positive(t, chats.SetCalls, "the placement is written through the chat aggregate, like any other")
 }
@@ -156,7 +156,7 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "nowhere")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "nowhere", false)
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
 	assert.Empty(t, chats.Started)
@@ -171,7 +171,7 @@ func TestCreateChat_AcceptsAFolderParentRegardlessOfProvenance(t *testing.T) {
 	seedFolder(chats, "f-other", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other", false)
 	assert.NoError(t, err)
 }
 
@@ -180,7 +180,7 @@ func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other", false)
 	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
 	assert.Empty(t, chats.Minted)
 }
@@ -189,7 +189,7 @@ func TestCreateChat_SurfacesASnapshotFailure(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.ListErr = errors.New("folders down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	assert.ErrorContains(t, err, "folders down")
 	assert.Empty(t, chats.Minted)
 }
@@ -199,7 +199,7 @@ func TestCreateChat_SurfacesAMintFailure(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.MintErr = errors.New("mint down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	assert.ErrorContains(t, err, "mint down")
 	assert.Empty(t, chats.Purged, "nothing was minted, so there is nothing to take back")
 }
@@ -212,7 +212,7 @@ func TestCreateChat_TakesTheChatBackOutWhenThePlacementFails(t *testing.T) {
 	chats.NextID = "c-new"
 	chats.SetErr = errors.New("placement down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	assert.ErrorContains(t, err, "placement down")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 	assert.Empty(t, chats.Started, "and no CLI is started on a chat that is about to be erased")
@@ -224,7 +224,7 @@ func TestCreateChat_TakesTheChatBackOutWhenTheCLIFailsToStart(t *testing.T) {
 	chats.NextID = "c-new"
 	chats.StartErr = errors.New("claude is not installed")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	assert.ErrorContains(t, err, "claude is not installed")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
@@ -239,9 +239,111 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 	chats.StartErr = errors.New("claude is not installed")
 	chats.PurgeErr = errors.New("purge down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	assert.ErrorContains(t, err, "claude is not installed")
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// CreateChat's ownWorktree branch (model spec §4.1/§5.1): mint and place the
+// chat exactly as the plain-bubble path above does, then fill its workspace
+// slot and start its CLI through agent.SpawnChatWithOwnWorktree instead of a
+// bare StartRunner. workspaceID is passed as something OTHER than "" in every
+// test below specifically to prove it is ignored: the row is a bubble until
+// its own worktree exists, regardless of what the caller named.
+
+// At the panel root there is nowhere to place the chat — the ordinary
+// unplaced-spawn shortcut does not apply here, since ownWorktree still needs a
+// row that exists (and is placed, when it has somewhere to go) before it can
+// resolve a fork parent from it.
+func TestCreateChat_OwnWorktree_AtTheRootMintsWithNoPlacement(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.NextID = "c-new"
+
+	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "", true)
+	require.NoError(t, err)
+	assert.Equal(t, "c-new", chatID)
+	assert.Equal(t, "runner-c-new", runnerID)
+	assert.Equal(t, []string{""}, chats.Minted, "the row is minted as a plain bubble, not into the caller's workspaceID")
+	assert.Empty(t, chats.Placed, "there is nowhere to place a root-level chat")
+	assert.Empty(t, chats.Spawned, "the ordinary unplaced SpawnChat is not the path ownWorktree takes")
+	require.Len(t, chats.SpawnedOwnWorktree, 1)
+	assert.Equal(t, "c-new", chats.SpawnedOwnWorktree[0].ChatID)
+	assert.Equal(t, "claude", chats.SpawnedOwnWorktree[0].ProviderID)
+	assert.Equal(t, "ws-child-c-new", chatRow(t, chats, "c-new").WorkspaceID,
+		"the slot must actually be filled, not merely asked to be")
+}
+
+// THE ORDERING, ownWorktree's own version of TestCreateChat_PlacesTheChatBeforeStartingItsCLI:
+// a chat under another row must carry the parent edge before its fork parent is
+// resolved and its CLI started, because ResolveForkParent — the walk
+// SpawnChatWithOwnWorktree runs first — reads the row's OWN ParentID.
+func TestCreateChat_OwnWorktree_PlacesTheChatBeforeFillingItsSlot(t *testing.T) {
+	chats, uc := newUsecase(t)
+	// A folder, not a workspace-owning chat: checkNewChatParent still enforces
+	// the same-workspace rule for a CHAT parent (see
+	// TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace below),
+	// and this test is about ordering, not that guard.
+	seedFolder(chats, "spikes", "")
+	chats.NextID = "c-new"
+
+	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "spikes", true)
+	require.NoError(t, err)
+	assert.Equal(t, "c-new", chatID)
+	assert.Equal(t, "runner-c-new", runnerID)
+	assert.Equal(t, "spikes", chatRow(t, chats, "c-new").ParentID)
+	require.Len(t, chats.SpawnedOwnWorktree, 1)
+	assert.Equal(t, "spikes", chats.SpawnedOwnWorktree[0].ParentAtStart,
+		"the fork-parent walk must see the placement, or it resolves nothing")
+}
+
+// A folder parent takes the identical path, exactly as it does for a plain
+// bubble thread.
+func TestCreateChat_OwnWorktree_InAFolderPlacesItThereToo(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "spikes", "")
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", true)
+	require.NoError(t, err)
+	assert.Equal(t, "spikes", chatRow(t, chats, "c-new").ParentID)
+}
+
+// A parent that does not exist is refused before anything is minted or spawned,
+// the same guarantee the plain-bubble path already gives.
+func TestCreateChat_OwnWorktree_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "nowhere", true)
+	require.Error(t, err)
+	assert.Empty(t, chats.Minted)
+	assert.Empty(t, chats.SpawnedOwnWorktree)
+}
+
+// A chat parent that already owns a DIFFERENT workspace is refused the same
+// way an ordinary bubble thread is refused today — see createOwnWorktreeChat's
+// own doc comment on why this task does not relax that restriction.
+func TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", true)
+	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
+	assert.Empty(t, chats.Minted)
+}
+
+// A create the user was told FAILED must not leave a chat behind — the same
+// contract the plain-bubble path's own discard tests pin, now covering the
+// failure that is unique to this branch: the slot never got filled at all.
+func TestCreateChat_OwnWorktree_TakesTheChatBackOutWhenFillingTheSlotFails(t *testing.T) {
+	chats, uc := newUsecase(t)
+	seedFolder(chats, "spikes", "")
+	chats.NextID = "c-new"
+	chats.SpawnOwnWorktreeErr = errors.New("no fork parent")
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", true)
+	assert.ErrorContains(t, err, "no fork parent")
+	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
 
 // A drop onto another chat is the moment a chat BECOMES a thread, and it is the
@@ -433,7 +535,7 @@ func TestCreateChat_TheNewChatIsWrittenAsAPlacement(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1")
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", false)
 	require.NoError(t, err)
 
 	require.Len(t, chats.Placed, 1)

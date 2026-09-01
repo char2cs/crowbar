@@ -690,6 +690,12 @@ type harnessUsecase struct {
 type testFixture struct {
 	ctx     context.Context
 	usecase *harnessUsecase
+	// own is the SAME usecase as usecase, held at its concrete type for the
+	// handful of methods (SpawnChatWithOwnWorktree) that are a seam reached only
+	// through tree.Agent — not part of any of the five public ports harnessUsecase
+	// embeds — so a test exercising them directly needs the concrete type to call
+	// through.
+	own *agentusecase.Usecase
 	// chats/runners are the REAL concrete EventStores, used for test reads; the
 	// usecase may be built over a fault-injecting wrapper of them (newFaultFixture)
 	// but writes still land here.
@@ -1226,6 +1232,7 @@ func newFixtureUsing(
 			AnswerUsecase:   u,
 			ProviderUsecase: u,
 		},
+		own:           u,
 		chats:         realChats,
 		runners:       realRunners,
 		waitFn:        func() { waitChats(); waitRunners(); waitActivity() },

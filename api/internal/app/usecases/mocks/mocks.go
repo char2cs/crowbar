@@ -1039,21 +1039,29 @@ type AgentChatPlacements struct {
 	Spawned   []string
 	Minted    []string
 	Started   []StartCall
-	ListErr   error
-	GetErr    error
-	LoadErr   error
-	SetErr    error
-	OrderErr  error
-	PurgeErr  error
-	ForgetErr error
-	CreateErr error
-	TitleErr  error
-	NoteErr   error
-	SpawnErr  error
-	MintErr   error
-	StartErr  error
-	SetCalls  int
-	MissingID string
+	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call, in the SAME
+	// StartCall shape Started uses (including ParentAtStart) — CreateChat's
+	// ownWorktree counterpart to Started above, and provable ordering for the
+	// identical reason: the placement must land before this call, not after.
+	SpawnedOwnWorktree []StartCall
+	ListErr            error
+	GetErr             error
+	LoadErr            error
+	SetErr             error
+	OrderErr           error
+	PurgeErr           error
+	ForgetErr          error
+	CreateErr          error
+	TitleErr           error
+	NoteErr            error
+	SpawnErr           error
+	MintErr            error
+	StartErr           error
+	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
+	// fails StartRunner.
+	SpawnOwnWorktreeErr error
+	SetCalls            int
+	MissingID           string
 	// Placed and Ordered record the two placement writes SEPARATELY, because the
 	// difference between them is the contract: a renumber may write an index and
 	// must be unable to write a parent.
@@ -1359,6 +1367,32 @@ func (s *AgentChatPlacements) StartRunner(
 		ProviderID:    providerID,
 		ParentAtStart: s.parentOf(chatID),
 	})
+	return "runner-" + chatID, nil
+}
+
+// SpawnChatWithOwnWorktree fakes agentusecase.Usecase.SpawnChatWithOwnWorktree:
+// it records the call and, on success, fills the row's WorkspaceID — as the
+// real one does via WorktreeCreator.CreateChildWorkspace + Chats.SetWorkspace —
+// so a test can assert the row actually ended up owning a workspace, not merely
+// that the call happened.
+func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	if s.SpawnOwnWorktreeErr != nil {
+		return "", s.SpawnOwnWorktreeErr
+	}
+	s.SpawnedOwnWorktree = append(s.SpawnedOwnWorktree, StartCall{
+		ChatID:        chatID,
+		ProviderID:    providerID,
+		ParentAtStart: s.parentOf(chatID),
+	})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = "ws-child-" + chatID
+		}
+	}
 	return "runner-" + chatID, nil
 }
 
