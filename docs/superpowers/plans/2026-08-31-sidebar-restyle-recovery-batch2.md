@@ -397,3 +397,34 @@ const title = useWorkspaceStoreContext(
 - [ ] **Step 4: If it's genuinely by-design or too costly to fix safely**, report precisely why, and do not force a change — this becomes a documented, deliberate limitation for the controller to decide whether to accept or escalate.
 
 - [ ] **Step 5: Commit** each part separately.
+
+---
+
+## Task 14: AffordanceRow's icon is invisible until hover — make it always visible
+
+**Inserted mid-execution.** Controller root-caused this live via Tauri MCP geometry inspection (not a guess): what looked in a user screenshot like large, dead, empty gaps between tree rows are actually the empty-container affordance rows (spec §3.5) rendering with entirely correct layout and spacing — the row itself is 36px tall, correctly positioned. The problem is that its icon has `display: none` at rest and only becomes visible on `:hover`, so an empty container (a workspace/folder with nothing in it yet) looks like a completely blank, unclickable void until the user's mouse happens to land exactly on that row.
+
+**Root cause, exact:** `web/src/components/sidebar/affordance-row.tsx`'s trigger button(s) use `ROW_SUB_ACTION_HOVER` (`web/src/components/layout/workspace-row-base.ts:128`), whose `hidden ... group-hover:inline-flex group-focus-within:inline-flex group-data-[active]:inline-flex` is a deliberate, documented recipe for a row's SECONDARY/TRAILING controls (trash/create/chevron on an otherwise-populated row) — spec §3.1: "Trailing controls are revealed on row hover." `AffordanceRow` reuses this exact token for its PRIMARY AND ONLY content, which spec §3.5 describes as meant to always be visible: "No subtitles, no descriptions, no visible dropdown chrome — just the icon." A row whose entire content is a secondary-style hover-revealed control is, in practice, invisible and undiscoverable.
+
+**Files:**
+- Modify: `web/src/components/sidebar/affordance-row.tsx` — its trigger button(s) need a variant that keeps `ROW_SUB_ACTION_HOVER`'s padding/radius/color/hover-background treatment but drops the `hidden`/`group-*:inline-flex` visibility gating, so the icon renders at rest, every time, not just on hover.
+- Possibly modify: `web/src/components/layout/workspace-row-base.ts` — if the cleanest fix is a new exported token (e.g. `ROW_SUB_ACTION` without the `_HOVER` visibility gate — check whether one already exists under a different name before adding a new one; if `ROW_SUB_ACTION_HOVER` was built by stacking gating onto a base recipe, the base without the gate may already be exported and reusable here).
+- Test: `web/src/__tests__/components/sidebar/affordance-row.test.tsx`.
+
+**Do not touch `ROW_SUB_ACTION_HOVER` itself or any of its other call sites** (trash/create/chevron on populated rows) — those correctly want hover-only visibility per spec §3.1; this task is scoped to `AffordanceRow` alone.
+
+- [ ] **Step 1: Read `workspace-row-base.ts` in full** to find or confirm there's no existing always-visible variant of this recipe already exported under a different name. Read `affordance-row.tsx` in full to see both of its trigger-button call sites (the plain single-icon case and the dropdown case).
+
+- [ ] **Step 2: Write the failing test** — the affordance row's icon/trigger button, rendered at rest (no hover, no focus), has a computed `display` other than `none` (or equivalently, does not carry the `hidden` class at all) — i.e. it's visible without any interaction, for both the single-icon and dropdown variants.
+
+- [ ] **Step 3: Implement** — add or reuse an always-visible variant of the sub-action recipe (same padding/radius/color/hover-background as `ROW_SUB_ACTION_HOVER`, without the `hidden`/`group-*:inline-flex` gate) and apply it to `AffordanceRow`'s trigger button(s).
+
+- [ ] **Step 4: Run the test, confirm PASS.** Run the full `web/src/__tests__/components/sidebar/` directory to confirm no regression to trailing-control hover behavior on populated rows (which must still hide-until-hover, unaffected by this change).
+
+- [ ] **Step 5: Live-verify via Tauri MCP** — find an empty container in the live tree (or fold/create one), screenshot it at rest with the mouse elsewhere, confirm the affordance icon is now visible without hovering. Also confirm hovering it still shows the correct hover background treatment, and clicking it still opens the create-thread/create-workspace action correctly.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "fix(sidebar): AffordanceRow's icon is always visible, not hidden until hover"
+```
