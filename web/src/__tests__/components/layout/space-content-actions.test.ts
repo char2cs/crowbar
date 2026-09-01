@@ -233,7 +233,9 @@ describe('creating a workspace off the repo-home row', () => {
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  it('names the clicked row as parentId for a non-home workspace row too', async () => {
+  // The clicked row's own id is the fallback, not the rule — see the regular-fork
+  // block below, where the workspace names a real owning chat to place by.
+  it('falls back to the clicked row id for a workspace that names no owning chat', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -273,6 +275,59 @@ describe('creating a workspace off the repo-home row', () => {
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(postWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A REGULAR fork is the one row whose id is NOT the id the daemon places by.
+ * Its owning chat is `type: 'chat'` (`tree/backfill.go`'s `owningChatType`) and
+ * is already drawn as its own conversation beside it, so the row cannot take
+ * that id the way a locked branch's does — one id would land on two rows, one
+ * of them its own parent. The workspace names it instead
+ * (`WorkspaceDTO.owningChatId`), and the create reads it from there.
+ */
+describe('creating a workspace off a REGULAR fork row', () => {
+  const forkRepo = () =>
+    repo({
+      workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' }],
+      chats: [
+        { id: 'c-owner', repoId: 'r1', type: 'chat', workspaceId: 'ws-a', title: '', order: 0 },
+      ],
+    })
+
+  it('names the workspace’s OWNING CHAT, never the clicked row id', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('ws-a', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'c-owner',
+    )
+  })
+
+  // The thread half is a different question with a different answer: it opens
+  // that workspace's own store and posts to its chats mount, so it wants the
+  // WORKSPACE and never a chat id.
+  it('its thread "+" still runs in the workspace, not in the owning chat', () => {
+    useSidebarStore.setState({ repos: [forkRepo()] })
+    getOrCreateWorkspaceStore('ws-a').setState({
+      agentChats: {
+        ...getOrCreateWorkspaceStore('ws-a').getState().agentChats,
+        providers: [{ id: 'claude', enabled: true }] as never,
+      },
+    })
+
+    handleCreate('ws-a', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
   })
 })
 

@@ -269,11 +269,11 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // .../chats {ownWorktree: true} — backend Task 7) instead of the old
     // chat-less postWorkspace, which produced a bare branch row now and a
     // separate child chat row only once something else later started a
-    // conversation in it. `parentId` is the clicked row's own id, same as
-    // the old fork-parent mapping (a folder is the one exception the old
-    // `placement` distinguished — that split has no counterpart on this
+    // conversation in it. The parent named below is the clicked row's own
+    // fork parent, same as the old mapping (a folder is the one exception the
+    // old `placement` distinguished — that split has no counterpart on this
     // endpoint's single `parentId`, so a folder click also just names
-    // itself here).
+    // itself here) — resolved to the chat that owns it, see below.
     //
     // A generated branch name is no longer minted client-side either: the
     // server names it the same way Promote's spontaneous create already
@@ -281,9 +281,20 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // to name the branch" shape.
     const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
     if (!provider) return
-    createChatWithOwnWorktree(projectId, repo.id, provider.id, parentId).catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
-    })
+    // The daemon places by CHAT id, and the clicked row's own id is only that
+    // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
+    // draws those AS their owning `branch` chat). A REGULAR fork's row is id'd
+    // from its `Workspace`, because its owner is an ordinary conversation
+    // already drawn beside it, so its owning chat has to be read off the
+    // workspace record instead. Falls back to the clicked row for the ids that
+    // name no workspace of this repo (the repo home, a folder) and for a frame
+    // that carries no owner yet.
+    const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
+    createChatWithOwnWorktree(projectId, repo.id, provider.id, owningChatId || parentId).catch(
+      (err: unknown) => {
+        toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
+      },
+    )
     return
   }
 

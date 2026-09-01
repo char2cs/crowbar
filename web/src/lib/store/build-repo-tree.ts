@@ -80,6 +80,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     heldByPath: ws.heldByPath ?? '',
     age: '',
     localPath: ws.localPath || undefined,
+    owningChatId: ws.owningChatId ?? '',
   }
 }
 

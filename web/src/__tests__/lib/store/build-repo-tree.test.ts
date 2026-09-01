@@ -225,6 +225,24 @@ describe('toSidebarWorkspace heldByPath', () => {
   })
 })
 
+/**
+ * The chat row that owns this workspace — the id the daemon resolves a
+ * placement against (`WorkspaceDTO.owningChatId`). Mapped unconditionally like
+ * every other field here: a frame that names none has to overwrite a stale id,
+ * not silently keep it.
+ */
+describe('toSidebarWorkspace owningChatId', () => {
+  it('carries the owning chat id from the DTO', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1', { owningChatId: 'c-owner' }))
+    expect(w.owningChatId).toBe('c-owner')
+  })
+
+  it('maps to "" when the frame names none — an older cached row, or one the daemon could not resolve', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1'))
+    expect(w.owningChatId).toBe('')
+  })
+})
+
 describe('toSidebarRepo defaultBranch', () => {
   it('sets defaultBranch from the isDefault workspace', () => {
     const out = toSidebarRepo(baseRepo, [

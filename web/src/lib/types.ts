@@ -84,6 +84,11 @@ export interface WorkspaceDTO {
   /** Dense sibling sort key within its level. Absent on frames from a daemon
    *  that predates ordering. */
   order?: number
+  /** The chat row that OWNS this workspace — the row the daemon resolves a
+   *  placement against, so it is what a create under this workspace must name
+   *  as its parent. The daemon always sends the key (`""` when it could resolve
+   *  none); absent only on a row cached before the field existed. */
+  owningChatId?: string
 }
 
 export interface RepoDTO {

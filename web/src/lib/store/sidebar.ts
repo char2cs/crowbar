@@ -106,6 +106,23 @@ export interface Workspace {
    *  branch is protected); drives the reconstructed reason and whether the
    *  Detach… action is offered. */
   heldByPath?: string
+  /**
+   * The CHAT row that owns this workspace, straight from the daemon
+   * (`WorkspaceDTO.owningChatId`) — never guessed here. Every placement the
+   * daemon accepts is addressed by a chat id, so this is what a create under
+   * this workspace names as its parent (`handleCreate`).
+   *
+   * It is NOT this workspace's row id. For a locked branch or a repo home the
+   * two coincide — `rows-from-repo.ts` draws those rows AS their owning
+   * `branch` row — but a regular fork's owner is an ordinary conversation that
+   * already renders as its own row beside it, so the workspace points at it
+   * rather than becoming it.
+   *
+   * `''` when the daemon resolved none; absent on a row cached before the
+   * field existed. Both mean "nothing to place by yet", and callers fall back
+   * to the row they were handed.
+   */
+  owningChatId?: string
 }
 
 export interface Repo {

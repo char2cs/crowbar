@@ -174,6 +174,17 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
         // put the same id on two rows, one of them its own parent. So a regular
         // fork keeps the workspace id, and that is a statement about what the
         // row IS, not a stand-in for data that has not arrived.
+        //
+        // `node.workspace.owningChatId` names that conversation and is NOT
+        // read here on purpose. Sourcing the row's id from it needs the chat
+        // WITHHELD from the weave above to avoid the duplicate — which deletes
+        // a real conversation row, the merge this file's own header defers to
+        // the task that replaces it — and would drop the row into `chat` id
+        // space, where `resolveChatRow` claims it (it passes everything that is
+        // not `type: 'branch'`) and `workspaceIdOfBranchRow` does not: the "+"
+        // goes inert, trash deletes the conversation, rename retitles it. The
+        // one caller that needs the placement id reads it off the WORKSPACE
+        // instead (`space-content-actions.ts`'s `handleCreate`).
         const rowId = node.workspace.status === 'locked' ? branchRowIdFor(node.id) : node.id
         rows.push({
           id: rowId,

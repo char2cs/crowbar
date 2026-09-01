@@ -516,6 +516,26 @@ describe('rowsFromRepo — a regular fork is not identified by its conversation'
     expect(rows.every((r) => r.parentId !== r.id)).toBe(true)
   })
 
+  // …and the workspace NAMING that conversation (Task 5's
+  // `WorkspaceDTO.owningChatId`) does not change the answer. The daemon places
+  // by that id and `handleCreate` reads it from the WORKSPACE record for
+  // exactly that reason (space-content-actions.ts); sourcing the ROW's id from
+  // it instead is what would draw one id twice.
+  it('keeps the workspace id even when the workspace names its owning chat', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'feature/x', owningChatId: 'c-1' })],
+      chats: [makeTestChat({ id: 'c-1', title: 'Talk', type: 'chat', workspaceId: 'ws-1' })],
+    })
+    const rows = rowsFromRepo(repo)
+
+    expect(rows.find((r) => r.workspaceId === 'ws-1' && r.kind === 'branch')?.id).toBe('ws-1')
+    expect(rows.find((r) => r.id === 'c-1')?.kind).toBe('chat')
+    const ids = rows.map((r) => r.id)
+    expect(ids).toEqual([...new Set(ids)])
+    expect(rows.every((r) => r.parentId !== r.id)).toBe(true)
+  })
+
   it('a workspace chatted in several times still yields one stable branch row', () => {
     // Every chat started inside a worktree carries its workspace id, so N
     // conversations all name `ws-1`. None of them may become the row's identity
