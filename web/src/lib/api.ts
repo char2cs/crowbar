@@ -1,4 +1,12 @@
-import type { ChatDTO, FolderDTO, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type {
+  ChatDTO,
+  ChatType,
+  FolderDTO,
+  Project,
+  Prerequisites,
+  RepoDTO,
+  WorkspaceDTO,
+} from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 
@@ -252,6 +260,10 @@ export interface RepoChatWireDTO {
   parentId: string
   title: string
   order: number
+  /** The row's own kind. Always sent by the daemon (dto.AgentChatDTO.Type is
+   *  never omitted — "" is not a real ChatType), so an absent value here only
+   *  ever means a frame older than the field. */
+  type?: ChatType
 }
 
 /** `RepoChatWireDTO` -> the sidebar's own `ChatDTO`, filling in the repo/project
@@ -262,6 +274,7 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
     id: row.id,
     repoId,
     projectId,
+    type: row.type,
     workspaceId: row.workspaceId ?? '',
     parentId: row.parentId,
     title: row.title,

@@ -119,6 +119,14 @@ export interface FolderDTO {
 }
 
 /**
+ * A row's own kind in the sidebar forest (Go's `domain.ChatType`). One aggregate
+ * carries all four: `folder` rows are what `.../chats/folders` serves, `branch`
+ * rows ARE the workspaces they own (a locked branch, a repo home, a project
+ * home), and `chat` is an ordinary conversation.
+ */
+export type ChatType = 'chat' | 'branch' | 'folder' | 'workflow'
+
+/**
  * A conversation row of the sidebar forest — design spec §3.1's `chat` kind,
  * the one row type the tree was built around and never emitted.
  *
@@ -136,6 +144,12 @@ export interface ChatDTO {
   id: string
   repoId: string
   projectId: string
+  /** This row's own kind in the sidebar forest (domain.ChatType). A `branch`
+   *  row IS the workspace it owns — a locked branch, a repo home, a project
+   *  home — which is what lets a client tell one apart from an ordinary chat
+   *  inside the same repo-scoped list. Optional only because a row cached
+   *  before the daemon emitted it carries none. */
+  type?: ChatType
   /** The workspace this chat OWNS, or '' for a bubble that owns none. */
   workspaceId: string
   /** Another CHAT (this one is a thread of it), a FOLDER, or '' for the root of

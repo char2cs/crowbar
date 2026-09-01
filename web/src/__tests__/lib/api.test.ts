@@ -270,6 +270,26 @@ describe('fetchRepoChats', () => {
     ])
   })
 
+  // The one fact that tells a locked-branch or repo-home row apart from an
+  // ordinary conversation inside the SAME repo-scoped list. `dto.AgentChatDTO`
+  // never omits it ("" is not a real ChatType), and dropping it here left the
+  // sidebar unable to tell which chat row IS a workspace's row.
+  it('carries the row’s own type through the reshape', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: [
+            { id: 'b1', workspaceId: 'ws1', parentId: '', title: '', order: 0, type: 'branch' },
+            { id: 'c1', workspaceId: 'ws1', parentId: '', title: 'Talk', order: 1, type: 'chat' },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+    expect((await fetchRepoChats('p1', 'r1')).map((c) => c.type)).toEqual(['branch', 'chat'])
+  })
+
   it('stamps THIS call’s repo/project on every row — the wire carries neither', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(

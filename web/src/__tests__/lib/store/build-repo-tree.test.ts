@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepoTree, toSidebarRepo, toSidebarWorkspace } from '@/lib/store/build-repo-tree'
+import {
+  buildRepoTree,
+  toSidebarChat,
+  toSidebarRepo,
+  toSidebarWorkspace,
+} from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -285,5 +290,37 @@ describe('folders and order', () => {
     const w = toSidebarWorkspace(ws('w1', 'r1'))
     expect(w.folderId).toBe('')
     expect(w.order).toBe(0)
+  })
+})
+
+// A `branch` row IS the workspace it owns — a locked branch, a repo home — and
+// the sidebar can only tell one from an ordinary conversation by this field.
+// Dropping it in the reshape is what made every chat row look alike.
+describe('toSidebarChat carries the row’s type', () => {
+  it('keeps a branch row’s type through the reshape', () => {
+    const chat = toSidebarChat({
+      id: 'b1',
+      repoId: 'r1',
+      projectId: 'p1',
+      type: 'branch',
+      workspaceId: 'ws1',
+      parentId: '',
+      title: '',
+      order: 0,
+    })
+    expect(chat.type).toBe('branch')
+  })
+
+  it('leaves it undefined on a row cached before the daemon emitted it', () => {
+    const chat = toSidebarChat({
+      id: 'c1',
+      repoId: 'r1',
+      projectId: 'p1',
+      workspaceId: 'ws1',
+      parentId: '',
+      title: 'Talk',
+      order: 0,
+    })
+    expect(chat.type).toBeUndefined()
   })
 })

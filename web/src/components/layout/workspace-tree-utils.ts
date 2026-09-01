@@ -1,5 +1,6 @@
 import { indexFromParents, type TreeIndex } from './keep-set'
 import type { Workspace } from '@/lib/store/sidebar'
+import type { ChatType } from '@/lib/types'
 
 /**
  * A folder as the sidebar needs it. Organisation only — no branch, no git
@@ -36,6 +37,11 @@ export type PlacedWorkspace = Workspace & { folderId?: string; order?: number }
  */
 export interface SidebarChat {
   id: string
+  /** This row's own kind. Carried so a caller can tell an ordinary conversation
+   *  from a `branch` row — which IS a workspace's row, not a chat beside it —
+   *  before handing the list here. The builder itself places all four kinds
+   *  identically. */
+  type?: ChatType
   /** Another chat (this row is a thread of it), or a folder. */
   parentId?: string
   /** The workspace this chat owns; absent on a bubble, which owns none. */

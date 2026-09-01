@@ -106,6 +106,7 @@ export function toSidebarChat(chat: ChatDTO): Chat {
   return {
     id: chat.id,
     repoId: chat.repoId,
+    type: chat.type,
     parentId: chat.parentId || undefined,
     workspaceId: chat.workspaceId || undefined,
     title: chat.title,

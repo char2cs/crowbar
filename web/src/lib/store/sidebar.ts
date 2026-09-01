@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import type { FolderDTO, WorkspaceDTO } from '@/lib/types'
+import type { ChatType, FolderDTO, WorkspaceDTO } from '@/lib/types'
 import {
   sortReposByOrder,
   toSidebarFolder,
@@ -57,6 +57,11 @@ export const EMPTY_FOLDERS: Folder[] = []
 export interface Chat {
   id: string
   repoId: string
+  /** This row's own kind. `branch` is the one the tree reads structurally: such
+   *  a row IS the workspace it owns (a locked branch, a repo home), and it is
+   *  that row's id — not the workspace's — that every placement is addressed
+   *  by. Undefined only on a row cached before the daemon emitted the field. */
+  type?: ChatType
   /** A chat id, a folder id, or undefined/'' for the root of `workspaceId`. */
   parentId?: string
   /** The workspace this chat owns, or undefined/'' for a bubble. */
