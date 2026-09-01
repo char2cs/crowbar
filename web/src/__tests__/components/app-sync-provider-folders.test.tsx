@@ -46,6 +46,21 @@ vi.mock('@/lib/ws/entity-stream', () => ({
   subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
 }))
 
+// The workspace-list cache lookup `loadable-slice.fetch` awaits BEFORE its
+// first supersede check. Wrapped so one test can be inside that exact window
+// when a newer fetch is issued — the only way to reach the early return that
+// publishes nothing at all. Defaults straight through to the real one.
+const { loadCacheSpy, realLoadCache } = vi.hoisted(() => ({
+  loadCacheSpy: vi.fn(),
+  realLoadCache: { fn: null as null | ((...a: unknown[]) => Promise<unknown>) },
+}))
+
+vi.mock('@/lib/persistence/cache-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/persistence/cache-store')>()
+  realLoadCache.fn = actual.loadCache as (...a: unknown[]) => Promise<unknown>
+  return { ...actual, loadCache: (...a: unknown[]) => loadCacheSpy(...a) }
+})
+
 // The sidebar's cache READ, wrapped so one test can hold it open mid-flight and
 // land another repo's chats write inside that window. Defaults straight through
 // to the real implementation, so every other test in this file is unaffected.
@@ -158,6 +173,7 @@ beforeEach(async () => {
   globalThis.indexedDB = new IDBFactory()
 
   readTree.mockImplementation(() => realRead.fn!())
+  loadCacheSpy.mockImplementation((...a: unknown[]) => realLoadCache.fn!(...a))
   subscribeEntityStream.mockImplementation(() => vi.fn())
   fetchRepos.mockResolvedValue([])
   fetchWorkspaces.mockResolvedValue([])
@@ -815,6 +831,70 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       unsubscribe()
       mine.resolve()
       newer.resolve()
+    }
+  })
+
+  // Fix round 4, the third path: `loadable-slice.fetch` checks for a supersede
+  // ONCE MORE, earlier, right after its cache lookup — and giving up there
+  // publishes nothing at all, so the store still holds the `success(old)` it
+  // held before the rebuild started waiting. That is a settled snapshot that
+  // nonetheless predates the write the claim was taken for, and status alone
+  // cannot tell it from a fresh one. `workspace:updated` calls `fetch()`
+  // (lib/events/connect.ts), so the overlap is routine.
+  it('does not open the gate when a supersede leaves the store on its OLD success', async () => {
+    const r1Chats = deferred<ChatDTO[]>()
+    fetchRepoChats.mockImplementation(() => r1Chats.promise)
+
+    const opened: { repos: Repo[] | null } = { repos: null }
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (opened.repos === null && state.seededRepoIds.has('r1')) {
+        opened.repos = useSidebarStore.getState().repos
+      }
+    })
+
+    try {
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+      })
+      await settle()
+
+      // The precondition the whole path rests on: a SETTLED snapshot, taken
+      // before r1's chats existed, sitting in the store.
+      const stale = useWorkspaceListStore.getState().data
+      expect(stale.status).toBe('success')
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(false)
+
+      // Supersede the next rebuild's fetch from INSIDE its cache lookup, before
+      // it has published anything of its own. Once only — the competing fetch
+      // runs the same lookup.
+      let armed = true
+      loadCacheSpy.mockImplementation(async (...a: unknown[]) => {
+        const result = await realLoadCache.fn!(...a)
+        if (armed) {
+          armed = false
+          void useWorkspaceListStore.getState().fetch()
+        }
+        return result
+      })
+
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      await settle()
+      await settle()
+
+      // It opened — a losing read must strand nothing — but only onto rows
+      // that carry the seed, never the stale success it started from.
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+      expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
+        expect.objectContaining({ id: 'b1', type: 'branch' }),
+      ])
+    } finally {
+      unsubscribe()
     }
   })
 

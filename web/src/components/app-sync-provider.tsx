@@ -127,28 +127,48 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       // stays pending instead, for the follow-up `scheduleRebuild` its own
       // reseed already armed.
       const claimed = [...seededPendingRebuild]
+      // The snapshot this rebuild starts from, so a FRESH one can be told apart
+      // from it afterwards. Taken here rather than derived later because
+      // nothing else can distinguish them: `success(old)` and `success(new)`
+      // are the same shape, and only object identity says which one the read
+      // actually produced. Safe to compare against everything that lands after
+      // this line — `fetch()` bumps `latestFetch` synchronously, so every
+      // older in-flight fetch is already barred from writing.
+      const before = useWorkspaceListStore.getState().data
       await useWorkspaceListStore.getState().fetch()
       let opened = false
+      let awaitingNewerRead = false
       if (!disposed) {
         const loaded = useWorkspaceListStore.getState().data
         const repos = dataOf(loaded)
-        if (repos) {
-          useSidebarStore.getState().setRepos(repos)
-          // A SETTLED read is the other half of the claim. `fetch` returns
-          // early when a newer caller supersedes it (loadable-slice's
-          // `latestFetch` guard — hydration-gate and events/connect both call
-          // it), and `dataOf` then hands back the PREVIOUS snapshot, which can
-          // predate the write these ids were claimed for. `success` means
-          // either our own read won, or a newer one already landed — both are
-          // reads that happened after the claim, and nothing else is.
-          if (loaded.status === 'success') {
-            const seeded = useFolderSignalStore.getState().markTreeSeeded
-            for (const repoId of claimed) {
-              seeded(repoId)
-              seededPendingRebuild.delete(repoId)
-            }
-            opened = true
+        if (repos) useSidebarStore.getState().setRepos(repos)
+        // A read that BOTH settled and moved is the other half of the claim.
+        //
+        // `fetch` returns early whenever a newer caller supersedes it
+        // (loadable-slice's `latestFetch` guard — hydration-gate and
+        // events/connect's `workspace:updated` both call it), and it can do so
+        // at two different points. Give up after its own read and it has
+        // already published `loading`, whose `dataOf` is the previous snapshot.
+        // But give up in the earlier check, inside `loadCache`, and it
+        // publishes NOTHING — the store still holds the `success(old)` it held
+        // before we started waiting, which predates the write this claim was
+        // taken for. Status alone cannot see that; identity can.
+        //
+        // `loaded !== before` therefore means some read that began after the
+        // claim published this, and `success` means it finished. Neither is
+        // sufficient alone.
+        if (loaded !== before && loaded.status === 'success' && repos) {
+          const seeded = useFolderSignalStore.getState().markTreeSeeded
+          for (const repoId of claimed) {
+            seeded(repoId)
+            seededPendingRebuild.delete(repoId)
           }
+          opened = true
+        } else {
+          // Both ways a supersede leaves the store, and only these: a newer
+          // read is on its way and has yet to publish anything of its own.
+          awaitingNewerRead =
+            loaded.status === 'loading' || (loaded === before && loaded.status === 'success')
         }
       }
       rebuildInFlight = false
@@ -159,12 +179,12 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       // `rebuildQueued`). Without this, those repos would sit unopened, drawing
       // no rows, until some unrelated frame happened to rebuild.
       //
-      // Only `loading`, and only a few times. `loading` is the one state that
-      // resolves itself — a newer read is genuinely in flight — where `error`
-      // and `idle` can persist, and retrying into either is a 16ms spin. Those
-      // ids stay pending instead and ride the next reseed or frame out.
+      // Only a supersede, and only a few times. A newer read resolves itself,
+      // so trying again reaches it; `error` and `idle` can persist, and
+      // retrying into either is a 16ms spin. Those ids stay pending instead
+      // and ride the next reseed or frame out.
       if (!opened && claimed.length > 0) {
-        if (useWorkspaceListStore.getState().data.status === 'loading') {
+        if (awaitingNewerRead) {
           if (supersededRetries < MAX_SUPERSEDED_RETRIES) {
             supersededRetries++
             rebuildQueued = true
