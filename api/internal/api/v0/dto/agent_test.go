@@ -121,6 +121,24 @@ func TestAgentChatDTOFrom_NeverRanIsAllEmpty(t *testing.T) {
 	assert.Empty(t, got.ActiveProviderID)
 }
 
+// TestAgentChatDTOFrom_CarriesTheRowType proves the DTO's own missing fact: a
+// client reading GET .../repos/:repoId/chats could not tell a locked-branch or
+// repo-home row (domain.ChatTypeBranch) apart from an ordinary chat
+// (domain.ChatTypeChat) in the same list, because the wire shape dropped Type
+// entirely. It is always present rather than omitted — every row this DTO ever
+// serializes has a real Type, so there is no meaningful absent case to
+// distinguish, unlike ParentID/Order's documented ""/0-is-meaningful pattern.
+func TestAgentChatDTOFrom_CarriesTheRowType(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", Type: domain.ChatTypeBranch},
+		dto.ChatRuntime{})
+
+	assert.Equal(t, domain.ChatTypeBranch, got.Type)
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"type":"branch"`)
+}
+
 // TestAgentChatDTOList_IsNonNil keeps the envelope carrying [] rather than null, and
 // proves each row derives from ITS OWN runtime: the map is keyed by chat id, and a chat
 // missing from it (in neither runner projection) reads as dormant with no history.

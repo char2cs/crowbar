@@ -78,6 +78,15 @@ type AgentChatDTO struct {
 	WorkspaceID string `json:"workspaceId"`
 	Title       string `json:"title"`
 
+	// Type is the row's own kind in the sidebar forest (domain.ChatType — chat,
+	// branch, folder, workflow), always present rather than omitted: unlike
+	// ParentID/Order's ""/0-is-meaningful pattern, "" is not a real ChatType
+	// value, but every row this DTO ever serializes has a real Type, so there
+	// is no meaningful absent case to distinguish. It is what lets a client
+	// tell a locked-branch or repo-home row apart from an ordinary chat within
+	// the same GET .../repos/:repoId/chats list.
+	Type domain.ChatType `json:"type"`
+
 	// LiveRunnerID is the id of the runner placed on this chat, or "" when the chat
 	// is dormant. This IS the liveness answer — do not look for another.
 	LiveRunnerID string `json:"liveRunnerId"`
@@ -149,6 +158,7 @@ func AgentChatDTOFrom(
 		ID:               c.ID,
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
+		Type:             c.Type,
 		ActiveProviderID: activeProviderID(rt),
 		Working:          c.Working,
 		ParentID:         c.ParentID,
