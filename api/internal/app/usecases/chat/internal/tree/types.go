@@ -365,6 +365,16 @@ type Usecase interface {
 	BackfillOwningChats(
 		ctx context.Context,
 	) error
+	// EnsureOwningChat is BackfillOwningChats narrowed to ONE workspace, for the
+	// moment a workspace changes character while the daemon is RUNNING rather
+	// than between boots — a branch the user locks, or one a provider poll
+	// reports protected, is branch-destined from that instant and everything
+	// downstream expects its branch row to be there already. It takes the same
+	// decision by the same code; see backfill.go.
+	EnsureOwningChat(
+		ctx context.Context,
+		ws domain.Workspace,
+	) error
 	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
 	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
 	// row in the subtree, and the working-tree file count summed across every

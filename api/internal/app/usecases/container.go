@@ -178,6 +178,13 @@ func New(
 	// call site the chat usecase does not exist yet to hand over. See
 	// workspace.Usecase.SetChatObserver's doc comment.
 	workspaceUsecase.SetChatObserver(agentic.chat)
+	// Both ways a branch becomes locked at RUNTIME — the user's own lock, and a
+	// provider poll reporting the branch protected — hand the workspace to the
+	// same reconciler, so its owning row is a branch row from that instant
+	// rather than from the next boot's backfill. Wired here for the same reason
+	// as the observer above: the chat tree is built after both of them.
+	workspaceUsecase.SetOwningChatReconciler(agentic.chatTree)
+	providerSync.SetOwningChatReconciler(agentic.chatTree)
 	return &Container{
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,

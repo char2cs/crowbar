@@ -55,11 +55,41 @@ type Usecase interface {
 		state engineprovider.ProviderState,
 		now time.Time,
 	) error
+	// SetOwningChatReconciler wires the chat-tree surface this usecase notifies
+	// when a poll turns a workspace locked. It is a post-construction setter
+	// because the chat side is built after this usecase is.
+	SetOwningChatReconciler(reconciler OwningChatReconciler)
+}
+
+// OwningChatReconciler brings one workspace's owning chat row into line with
+// what that workspace now IS — see workspace.OwningChatReconciler, the same
+// surface named by its other caller.
+//
+// A poll is the OTHER way a branch becomes locked: the provider reports it
+// protected and the status follows, with no user action anywhere. A workspace
+// that acquires its lock this way is owed its branch row just as immediately as
+// one the user locked by hand.
+type OwningChatReconciler interface {
+	EnsureOwningChat(
+		ctx context.Context,
+		ws domain.Workspace,
+	) error
 }
 
 type providerSyncUsecase struct {
 	workspaces WorkspaceRepo
 	engine     Engine
+	// owningChats is notified when a poll locks a workspace. Nil until the
+	// composition root wires it; a nil one reconciles nothing and leaves the
+	// next boot's pass to catch up.
+	owningChats OwningChatReconciler
+}
+
+// SetOwningChatReconciler implements Usecase.
+func (u *providerSyncUsecase) SetOwningChatReconciler(
+	reconciler OwningChatReconciler,
+) {
+	u.owningChats = reconciler
 }
 
 // New builds a Usecase from the workspace repo and provider engine.
@@ -115,9 +145,11 @@ func (u *providerSyncUsecase) SyncFromState(
 		in.PRTitle = state.PR.Title
 		in.PRTargetBranch = state.PR.TargetBranch
 	}
-	if _, err := u.workspaces.SyncProviderState(ctx, in, now); err != nil {
+	synced, err := u.workspaces.SyncProviderState(ctx, in, now)
+	if err != nil {
 		return fmt.Errorf("provider sync: sync from state: %w", err)
 	}
+	u.reconcileOwningChat(ctx, current.Status, synced)
 
 	// A protected (locked) branch is a branch-tree root and is never reparented,
 	// no matter what a PR says — the same invariant the user-facing reparent path
@@ -139,6 +171,33 @@ func (u *providerSyncUsecase) SyncFromState(
 		u.maybeReparentFromPR(ctx, current, state.PR.TargetBranch)
 	}
 	return nil
+}
+
+// reconcileOwningChat gives a workspace a poll has JUST turned locked the
+// branch row it is owed, before the sweep moves on.
+//
+// It fires on the TRANSITION, not the state, which matters more here than on
+// the user-facing lock path: the background sweep re-polls a workspace on a
+// cadence, and reconciling on every poll of every locked branch would read the
+// whole chat forest each time to decide there is nothing to do.
+//
+// A failure is logged rather than returned, mirroring the lock path: the
+// provider state has already been applied and stands, and the next boot's pass
+// reconciles the same workspace anyway.
+func (u *providerSyncUsecase) reconcileOwningChat(
+	ctx context.Context,
+	before domain.WorkspaceStatus,
+	after domain.Workspace,
+) {
+	if u.owningChats == nil ||
+		after.Status != domain.WorkspaceStatusLocked ||
+		before == domain.WorkspaceStatusLocked {
+		return
+	}
+	if err := u.owningChats.EnsureOwningChat(ctx, after); err != nil {
+		slog.WarnContext(ctx, "provider sync: reconcile the owning chat row",
+			"workspace_id", after.ID, "err", err)
+	}
 }
 
 // maybeReparentFromPR looks up the workspace in the same repo whose branch

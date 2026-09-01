@@ -540,3 +540,102 @@ func TestWorkspaceUsecase_SetLockSurfacesAFailedWrite(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// recordingReconciler stands in for the chat tree's owning-row reconciler,
+// recording which workspaces SetLock handed it.
+type recordingReconciler struct {
+	Ensured []string
+	Err     error
+}
+
+func (r *recordingReconciler) EnsureOwningChat(
+	_ context.Context,
+	ws domain.Workspace,
+) error {
+	r.Ensured = append(r.Ensured, ws.ID)
+	return r.Err
+}
+
+// A workspace becomes locked while the daemon is RUNNING, and from that instant
+// it is branch-destined: its owning row has to be a branch row. Waiting for the
+// next boot's backfill would leave every reader that assumes a locked workspace
+// has one — the sidebar above all — looking at a workspace that has none.
+func TestWorkspaceUsecase_SetLockReconcilesTheOwningChatRow(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	reconciler := &recordingReconciler{}
+	uc.SetOwningChatReconciler(reconciler)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusNew}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, id string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+
+	lock := true
+	_, err := uc.SetLock(context.Background(), "w1", &lock)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"w1"}, reconciler.Ensured)
+}
+
+// It watches the TRANSITION, not the state. Re-locking a workspace that is
+// already locked changes nothing about what its row should be, and reconciling
+// anyway would read the whole chat forest to decide there is nothing to do.
+func TestWorkspaceUsecase_SetLockReconcilesNothingWhenItWasAlreadyLocked(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	reconciler := &recordingReconciler{}
+	uc.SetOwningChatReconciler(reconciler)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, id string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+
+	lock := true
+	_, err := uc.SetLock(context.Background(), "w1", &lock)
+
+	require.NoError(t, err)
+	assert.Empty(t, reconciler.Ensured)
+}
+
+// Unlocking reconciles nothing: this path exists to guarantee a LOCKED
+// workspace has its branch row, and nothing else about a row's kind can change
+// under a write.
+func TestWorkspaceUsecase_SetLockReconcilesNothingOnAnUnlock(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	reconciler := &recordingReconciler{}
+	uc.SetOwningChatReconciler(reconciler)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, id string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusNew}, nil
+	}
+
+	unlock := false
+	_, err := uc.SetLock(context.Background(), "w1", &unlock)
+
+	require.NoError(t, err)
+	assert.Empty(t, reconciler.Ensured)
+}
+
+// The lock has already been committed by the time the reconcile runs, so a
+// reconcile that fails must not report an error for a change that happened and
+// stands. The next boot's backfill catches the row up.
+func TestWorkspaceUsecase_SetLockSurvivesAFailedReconcile(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	uc.SetOwningChatReconciler(&recordingReconciler{Err: errors.New("boom: the forest read failed")})
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusNew}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, id string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+
+	lock := true
+	got, err := uc.SetLock(context.Background(), "w1", &lock)
+
+	require.NoError(t, err, "the lock stands whatever the reconcile did")
+	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
+}

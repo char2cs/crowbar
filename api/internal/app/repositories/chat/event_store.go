@@ -209,6 +209,15 @@ type EventStore interface {
 	// workspace changing character — an ordinary worktree becoming a locked
 	// branch — without a second row being minted to claim the same workspace.
 	// See commands.SetType, which refuses a retype across the folder boundary.
+	//
+	// It is on the SendWait path, like Create above and for the same reason: a
+	// retype happens because the workspace JUST became locked, and the client
+	// that locked it re-reads the chat list off the READ MODEL as soon as the
+	// call returns — expecting the branch row the lock entitles it to. On the
+	// ordinary async Send path that read can still serve the pre-retype row, so
+	// the guarantee "a locked workspace has a branch row" would hold in the
+	// event log and not on the wire. Retypes are rare (a lock, not a keystroke),
+	// so the barrier costs nothing worth saving.
 	SetType(
 		ctx context.Context,
 		chatID string,
@@ -475,12 +484,13 @@ func (r *eventSourced) SetWorkspace(
 	return evt.Aggregate, nil
 }
 
+// SetType is deliberately on the SendWait path — see the interface doc.
 func (r *eventSourced) SetType(
 	ctx context.Context,
 	chatID string,
 	chatType domain.ChatType,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetType{ID: chatID, Type: chatType})
+	evt, err := occSend(ctx, r.ax.SendWait, commands.SetType{ID: chatID, Type: chatType})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}

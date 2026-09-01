@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -307,6 +308,46 @@ func lockWorkspace(
 	_, err := h.app.Repositories.Workspace.SetLock(context.Background(), wsID, &locked, false)
 	require.NoError(t, err)
 	h.Quiesce()
+}
+
+// TestRegression_LockingAWorkspaceGivesItABranchRowWithoutARestart closes the
+// gap the boot pass alone leaves open.
+//
+// A workspace's character can change while the daemon is RUNNING: the user
+// locks a branch, or a provider poll reports one protected. From that instant it
+// is branch-destined, and everything reading it — the sidebar above all, which
+// resolves a locked row's identity from its owning chat and has no fallback by
+// design — is entitled to find a branch row there. Reconciling only at startup
+// would leave that true as of the LAST boot and false until the next one.
+//
+// Driven through the real HTTP lock route, not the aggregate, because the
+// guarantee is about what a client sees after the call it actually makes.
+func TestRegression_LockingAWorkspaceGivesItABranchRowWithoutARestart(t *testing.T) {
+	home := t.TempDir()
+	first := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, first)
+	first.shutdown()
+
+	// The boot pass gives the imported open worktree the ordinary chat row an
+	// unlocked workspace owns. That is the row the lock has to find and change.
+	h := newHarnessAt(t, home)
+	h.Quiesce()
+	before := owningChat(t, h, imported.workspaceID)
+	require.Equal(t, domain.ChatTypeChat, before.Type, "precondition: an unlocked worktree owns a chat row")
+
+	locked := true
+	resp := h.raw(http.MethodPost, wsBase(imported)+"/lock",
+		map[string]*bool{"locked": &locked}, http.StatusNoContent)
+	require.NoError(t, resp.Body.Close())
+
+	// No restart, and deliberately no Quiesce: the retype is on the SendWait
+	// path, so the row is right ON THE READ MODEL by the time the client holds
+	// its 204. A barrier here would hide exactly what this test is for — under
+	// load, an async retype loses that race and the client re-reads the row it
+	// locked and finds it unchanged.
+	after := owningChat(t, h, imported.workspaceID)
+	assert.Equal(t, before.ID, after.ID, "the row it already had, adopted in place")
+	assert.Equal(t, domain.ChatTypeBranch, after.Type, "and it is a branch row the moment the lock lands")
 }
 
 // TestRegression_StartupBackfillDoesNotDoubleMintOnASecondBoot is the other half:

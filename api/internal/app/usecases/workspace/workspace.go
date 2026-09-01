@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -262,13 +263,44 @@ type Usecase interface {
 	// because the chat usecase itself depends on this one (Promote forks a
 	// workspace through it) — see hierarchy.Usecase.SetChatObserver.
 	SetChatObserver(observer ChatWorkObserver)
+	// SetOwningChatReconciler wires the chat-tree surface SetLock notifies when
+	// a workspace becomes locked. Like SetChatObserver it is a post-construction
+	// setter, and for the same reason: the chat side depends on this usecase, so
+	// it does not exist yet at this one's own call site.
+	SetOwningChatReconciler(reconciler OwningChatReconciler)
+}
+
+// OwningChatReconciler brings one workspace's owning chat row into line with
+// what that workspace now IS.
+//
+// A workspace's owning row is typed for its character — a locked branch owns a
+// BRANCH row, an open worktree owns a chat row — and that character can change
+// at runtime, long after the row was made. The boot pass reconciles every
+// workspace at startup; this is what closes the gap in between, so a branch
+// locked at 3pm has its branch row at 3pm and not at the next restart.
+type OwningChatReconciler interface {
+	EnsureOwningChat(
+		ctx context.Context,
+		ws domain.Workspace,
+	) error
 }
 
 type workspaceUsecase struct {
 	repo   WorkspaceLifecycleRepo
 	git    WorkingTreeGitEngine
 	rollup ProjectActivityRollup
+	// owningChats is notified when SetLock locks a workspace. Nil until the
+	// composition root wires it, and a nil one simply reconciles nothing — the
+	// next boot's pass still catches up.
+	owningChats OwningChatReconciler
 	hierarchy.Usecase
+}
+
+// SetOwningChatReconciler implements Usecase.
+func (u *workspaceUsecase) SetOwningChatReconciler(
+	reconciler OwningChatReconciler,
+) {
+	u.owningChats = reconciler
 }
 
 // New builds a Usecase from the workspace repo, the git engine, and the
@@ -377,7 +409,41 @@ func (u *workspaceUsecase) SetLock(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set lock: %w", err)
 	}
+	u.reconcileOwningChat(ctx, ws.Status, updated)
 	return updated, nil
+}
+
+// reconcileOwningChat gives a workspace that has JUST become locked the branch
+// row it is owed, there and then.
+//
+// It fires on the TRANSITION and not on the state, so re-locking an already
+// locked workspace costs nothing. Only the lock direction is watched: what a
+// workspace is besides locked — the repo home, the project home — is fixed at
+// creation and cannot change under a write.
+//
+// Synchronous, so the row exists before the caller is told the lock succeeded:
+// every reader downstream of that answer is entitled to assume a locked
+// workspace has a branch row, and a reconcile racing the response would hand
+// them a window in which it does not.
+//
+// A failure is logged, never returned. The lock itself has already been
+// committed and stands, so failing the call would report an error for a change
+// that happened — and the boot pass reconciles the same workspace on the next
+// start regardless.
+func (u *workspaceUsecase) reconcileOwningChat(
+	ctx context.Context,
+	before domain.WorkspaceStatus,
+	after domain.Workspace,
+) {
+	if u.owningChats == nil ||
+		after.Status != domain.WorkspaceStatusLocked ||
+		before == domain.WorkspaceStatusLocked {
+		return
+	}
+	if err := u.owningChats.EnsureOwningChat(ctx, after); err != nil {
+		slog.WarnContext(ctx, "workspace: set lock: reconcile the owning chat row",
+			"workspace_id", after.ID, "err", err)
+	}
 }
 
 // SyncWorkingTreeState recomputes the working-tree summary from git, issues the

@@ -379,6 +379,51 @@ func TestBackfillOwningChats_AdoptsTheSilentRowBesideASpokenOne(t *testing.T) {
 	assert.Equal(t, domain.ChatTypeChat, chatRow(t, chats, "conversation").Type)
 }
 
+// A workspace that becomes locked while the daemon is RUNNING takes the same
+// adopt decision, on the spot, without waiting for the next boot.
+func TestEnsureOwningChat_AdoptsTheRowOfAWorkspaceLockedAtRuntime(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	ctx := context.Background()
+	seedWorkspace(roster, "ws-turned", "", 1)
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	owned := ownedRow(t, chats, "ws-turned")
+
+	roster.Rows[0].Status = domain.WorkspaceStatusLocked
+	require.NoError(t, uc.EnsureOwningChat(ctx, roster.Rows[0]))
+
+	after := ownedRow(t, chats, "ws-turned")
+	assert.Equal(t, owned.ID, after.ID)
+	assert.Equal(t, domain.ChatTypeBranch, after.Type)
+}
+
+// It is narrowed to the workspace it was asked about. The DECISION is still
+// taken across the whole daemon — a row's parent is its fork parent's own row,
+// which cannot be resolved for one workspace in isolation — but locking one
+// branch must not quietly reconcile every other workspace on its way through.
+func TestEnsureOwningChat_TouchesNoOtherWorkspace(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	seedWorkspace(roster, "ws-asked", "", 1)
+	seedWorkspace(roster, "ws-bystander", "", 2)
+
+	require.NoError(t, uc.EnsureOwningChat(context.Background(), roster.Rows[0]))
+
+	assert.Len(t, ownedRows(chats, "ws-asked"), 1)
+	assert.Empty(t, ownedRows(chats, "ws-bystander"), "the bystander is left for the boot pass")
+}
+
+// A workspace locked at runtime that has never been backfilled at all still
+// ends up owning a row — the ensure path mints as well as adopts.
+func TestEnsureOwningChat_MintsWhenTheWorkspaceOwnsNothingYet(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-fresh", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+	})
+
+	require.NoError(t, uc.EnsureOwningChat(context.Background(), roster.Rows[0]))
+
+	assert.Equal(t, domain.ChatTypeBranch, ownedRow(t, chats, "ws-fresh").Type)
+}
+
 // Running the backfill twice over the same daemon mints nothing the second
 // time — the restart case, since it runs on every boot.
 func TestBackfillOwningChats_MintsNothingOnASecondRun(t *testing.T) {

@@ -10,9 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-var (
-	_ asynxModels.Command[domain.Chat] = commands.SetType{}
-)
+var _ asynxModels.Command[domain.Chat] = commands.SetType{}
 
 func TestSetType_EmitEvent_RewritesTheKind(t *testing.T) {
 	chat := &domain.Chat{ID: "chat-1", Type: domain.ChatTypeChat}
