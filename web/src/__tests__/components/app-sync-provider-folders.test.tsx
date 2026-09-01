@@ -46,6 +46,20 @@ vi.mock('@/lib/ws/entity-stream', () => ({
   subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
 }))
 
+// The sidebar's cache READ, wrapped so one test can hold it open mid-flight and
+// land another repo's chats write inside that window. Defaults straight through
+// to the real implementation, so every other test in this file is unaffected.
+const { readTree, realRead } = vi.hoisted(() => ({
+  readTree: vi.fn(),
+  realRead: { fn: null as null | (() => Promise<unknown>) },
+}))
+
+vi.mock('@/lib/store/project-visibility', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/store/project-visibility')>()
+  realRead.fn = actual.readVisibleRepoTree
+  return { ...actual, readVisibleRepoTree: () => readTree() }
+})
+
 vi.mock('@/lib/api', () => ({
   API_BASE: '',
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
@@ -61,6 +75,7 @@ import { success } from '@/lib/loadable'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { resetDB } from '@/lib/persistence/idb'
 import type { ChatDTO, FolderDTO, Project, RepoDTO } from '@/lib/types'
@@ -118,6 +133,17 @@ const repoRow = (id: string, projectId: string) => ({
   workspaces: [],
 })
 
+/** A promise the test resolves by hand. The standard `withResolvers` is not in
+ *  this project's TS lib target, and these tests need to hold an async step open
+ *  at an exact point. */
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 async function settle(ms = 40): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms)
@@ -131,6 +157,7 @@ beforeEach(async () => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
 
+  readTree.mockImplementation(() => realRead.fn!())
   subscribeEntityStream.mockImplementation(() => vi.fn())
   fetchRepos.mockResolvedValue([])
   fetchWorkspaces.mockResolvedValue([])
@@ -636,6 +663,158 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       expect(chats).toEqual([expect.objectContaining({ id: 'b1', type: 'branch' })])
     } finally {
       unsubscribe()
+    }
+  })
+
+  // Fix round 3, Important: the flush was not tied to the read that produced the
+  // rows it was opening the gate onto. A repo whose chats land WHILE a rebuild
+  // is mid-read was added to the pending set after that read had already passed
+  // the chats table — and the rebuild then flushed it anyway, against rows that
+  // predate its seed. Same throw in render as before, one await narrower.
+  it('does not open a repo added to the queue WHILE a rebuild was already reading', async () => {
+    const r2Chats = deferred<ChatDTO[]>()
+    fetchRepoChats.mockImplementation((_projectId: string, repoId: string) =>
+      repoId === 'r1'
+        ? Promise.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+        : r2Chats.promise,
+    )
+
+    const opened: { r2: Repo[] | null } = { r2: null }
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (opened.r2 === null && state.seededRepoIds.has('r2')) {
+        opened.r2 = useSidebarStore.getState().repos
+      }
+    })
+
+    const held = deferred()
+    let holdRead = false
+    readTree.mockImplementation(async () => {
+      const rows = await realRead.fn!()
+      if (holdRead) await held.promise
+      return rows
+    })
+
+    try {
+      // The cache is what a rebuild actually reads — r2 has to exist there, not
+      // just in the store, or no rebuild can ever publish a row for it.
+      const seedR2 = upsertEntity('crowbar_repos', repoDTO('r2', 'p1'))
+      await settle()
+      await seedR2
+
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1'), repoRow('r2', 'p1')])
+      })
+      await settle()
+
+      // r1 is through; r2's chats are still in flight, so its gate is shut.
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r2')).toBe(false)
+
+      // Put a rebuild in flight and hold it open just past its own read.
+      holdRead = true
+      act(() => {
+        useFolderSignalStore.getState().bump('r1')
+      })
+      await settle()
+
+      // r2's chats land INSIDE that window — written to the cache, queued, but
+      // not in the rows the held read already took.
+      r2Chats.resolve([chatDTO('b2', 'r2', { type: 'branch', workspaceId: 'ws-2' })])
+      await settle()
+
+      holdRead = false
+      held.resolve()
+      await settle()
+      // ...and again, for the follow-up rebuild that is allowed to open it.
+      await settle()
+
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r2')).toBe(true)
+      expect(opened.r2?.find((r) => r.id === 'r2')?.chats).toEqual([
+        expect.objectContaining({ id: 'b2', type: 'branch' }),
+      ])
+    } finally {
+      unsubscribe()
+      held.resolve()
+    }
+  })
+
+  // The other half of the same finding: `loadable-slice`'s `latestFetch` guard
+  // makes a superseded `fetch()` return EARLY without writing, so `dataOf` hands
+  // back the previous snapshot — which can predate the write the queued repo was
+  // claimed for. hydration-gate and events/connect both call `fetch()`, so this
+  // is a real overlap, not a contrived one.
+  it('does not open the gate from a read that lost to a newer fetch', async () => {
+    const r1Chats = deferred<ChatDTO[]>()
+    fetchRepoChats.mockImplementation(() => r1Chats.promise)
+
+    const mine = deferred()
+    const newer = deferred()
+
+    const opened: { repos: Repo[] | null } = { repos: null }
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (opened.repos === null && state.seededRepoIds.has('r1')) {
+        opened.repos = useSidebarStore.getState().repos
+      }
+    })
+
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+
+    // Boot is done; from here, hold the rebuild's own read, then the read of
+    // the fetch that supersedes it.
+    let reads = 0
+    readTree.mockImplementation(async () => {
+      const n = ++reads
+      const rows = await realRead.fn!()
+      if (n === 1) await mine.promise
+      if (n === 2) await newer.promise
+      return rows
+    })
+
+    try {
+      // r1's chats land and queue it; the rebuild that follows holds on read #1.
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      await settle()
+
+      // Somebody else fetches — the store's `latestFetch` moves, so the held
+      // rebuild's own fetch is already doomed to return without writing.
+      void useWorkspaceListStore.getState().fetch()
+      await settle()
+
+      // The rebuild's own fetch is now doomed to return without writing: its
+      // seq is stale, so `dataOf` will hand it the PREVIOUS snapshot — the boot
+      // one, taken before r1's chats existed.
+      mine.resolve()
+      await settle()
+      newer.resolve()
+      readTree.mockImplementation(() => realRead.fn!())
+      await settle()
+      await settle()
+
+      // It opens — a losing read must not strand the repo either — but only
+      // ever onto rows that actually carry the seed.
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+      expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
+        expect.objectContaining({ id: 'b1', type: 'branch' }),
+      ])
+    } finally {
+      unsubscribe()
+      mine.resolve()
+      newer.resolve()
     }
   })
 

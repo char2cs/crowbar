@@ -46,6 +46,11 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
  */
 export const SUBSCRIPTION_GRACE_MS = 2000
 const REBUILD_BATCH_MS = 16
+/** How many times a rebuild whose read lost to a newer fetch will try again
+ *  before leaving its claimed repos to the next reseed or frame. Two is enough
+ *  for a real supersede — the winning read settles — and small enough that a
+ *  store wedged in `loading` costs a handful of reads, not a permanent loop. */
+const MAX_SUPERSEDED_RETRIES = 2
 
 const KEY_SEP = '|'
 /** The project-home workspace tracker for the ACTIVE project (see below). */
@@ -101,6 +106,10 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
      * load after this ships, EVERY cached chat predates that field.
      */
     const seededPendingRebuild = new Set<string>()
+    /** Consecutive rebuilds whose read lost to a newer fetch, so the retry
+     *  below can never become a permanent 16ms loop. Reset by any rebuild that
+     *  actually opens something. */
+    let supersededRetries = 0
 
     async function rebuildSidebar(): Promise<void> {
       if (rebuildInFlight) {
@@ -109,20 +118,61 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       }
       rebuildInFlight = true
       rebuildQueued = false
+      // CLAIMED BEFORE THE READ, and only these are ever opened by this
+      // rebuild. A repo whose chats land while the read below is in flight was
+      // written AFTER that read reached the chats table, so this rebuild's
+      // rows do not contain them — flushing "whatever is pending when I
+      // finish" would open its gate onto pre-seed chats, which is the same
+      // throw-in-render this queue exists to prevent, one await narrower. It
+      // stays pending instead, for the follow-up `scheduleRebuild` its own
+      // reseed already armed.
+      const claimed = [...seededPendingRebuild]
       await useWorkspaceListStore.getState().fetch()
+      let opened = false
       if (!disposed) {
-        const repos = dataOf(useWorkspaceListStore.getState().data)
+        const loaded = useWorkspaceListStore.getState().data
+        const repos = dataOf(loaded)
         if (repos) {
           useSidebarStore.getState().setRepos(repos)
-          // Only now — the rows these repos were waiting for are in the store,
-          // so the gate opens onto data that exists. Cleared either way: a
-          // rebuild that produced no repos leaves them pending for the next.
-          const seeded = useFolderSignalStore.getState().markTreeSeeded
-          for (const repoId of seededPendingRebuild) seeded(repoId)
-          seededPendingRebuild.clear()
+          // A SETTLED read is the other half of the claim. `fetch` returns
+          // early when a newer caller supersedes it (loadable-slice's
+          // `latestFetch` guard — hydration-gate and events/connect both call
+          // it), and `dataOf` then hands back the PREVIOUS snapshot, which can
+          // predate the write these ids were claimed for. `success` means
+          // either our own read won, or a newer one already landed — both are
+          // reads that happened after the claim, and nothing else is.
+          if (loaded.status === 'success') {
+            const seeded = useFolderSignalStore.getState().markTreeSeeded
+            for (const repoId of claimed) {
+              seeded(repoId)
+              seededPendingRebuild.delete(repoId)
+            }
+            opened = true
+          }
         }
       }
       rebuildInFlight = false
+      // Nothing else republishes what a losing read dropped: the fetch that
+      // superseded ours writes the store's data but never calls `setRepos`, and
+      // a claim taken BEFORE this rebuild started has no follow-up of its own
+      // armed (one taken during it does — its own `scheduleRebuild` set
+      // `rebuildQueued`). Without this, those repos would sit unopened, drawing
+      // no rows, until some unrelated frame happened to rebuild.
+      //
+      // Only `loading`, and only a few times. `loading` is the one state that
+      // resolves itself — a newer read is genuinely in flight — where `error`
+      // and `idle` can persist, and retrying into either is a 16ms spin. Those
+      // ids stay pending instead and ride the next reseed or frame out.
+      if (!opened && claimed.length > 0) {
+        if (useWorkspaceListStore.getState().data.status === 'loading') {
+          if (supersededRetries < MAX_SUPERSEDED_RETRIES) {
+            supersededRetries++
+            rebuildQueued = true
+          }
+        }
+      } else if (opened) {
+        supersededRetries = 0
+      }
       // A seed that landed while IndexedDB was being read may not be present in
       // that snapshot. Run one debounced follow-up, never one fetch per seed.
       if (rebuildQueued && !disposed) scheduleRebuild()
