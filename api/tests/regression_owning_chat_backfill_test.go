@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,14 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Every workspace on disk today predates the atomic create-chat path and so
 // owns NO chat row at all, which leaves the sidebar's placement machinery
-// (resolveOwningChat) with nothing to find. These two tests pin the boot-time
-// backfill that mints the missing rows.
+// (resolveOwningChat) with nothing to find. The tests below pin the boot-time
+// backfill that mints the missing rows — and, for a workspace whose own
+// character has changed since, adopts the row it already has.
 
 // unbackfilledWorkspaces is the three-row fork chain the backfill has to
 // reconstruct: a repo home, a locked branch forked off it, and an ordinary
@@ -67,6 +70,10 @@ func writeUnbackfilledWorkspaces(
 		{ID: seeded.child, RepoID: "repo-1", ProjectID: "prj-1", Branch: "feature", ParentID: seeded.locked},
 	}
 	for i, in := range rows {
+		// Every managed git workspace has a worktree, and the lock command
+		// refuses one that does not — so the seed carries a path even though no
+		// test here touches the disk behind it.
+		in.WorktreePath = filepath.Join(h.home, "seeded", in.ID, "worktree")
 		_, err := h.app.Repositories.Workspace.Create(ctx, in, born.Add(time.Duration(i)*time.Minute))
 		require.NoError(t, err)
 	}
@@ -228,19 +235,76 @@ const legacyChatID = "legacy-conversation"
 // plantLegacyChat writes an ordinary conversation against wsID — the row any
 // workspace that has actually been used carries, in the same shape the daemon's
 // own spawn path writes it (MintChat stamps the workspace id onto every chat
-// started inside one).
+// started inside one) — and SPEAKS in it.
+//
+// The turn is not decoration. It is the only thing separating a conversation
+// from a structural owning row, which are otherwise the same shape, and it is
+// what the backfill refuses to adopt: a branch row does not open as a
+// conversation, so a row with words in it gets a branch row minted beside it
+// rather than being turned into one.
 func plantLegacyChat(
 	t *testing.T,
 	h *harness,
 	wsID string,
 ) {
 	t.Helper()
-	_, err := h.app.Repositories.AgentChat.Create(context.Background(), agentchat.CreateInput{
+	ctx := context.Background()
+	_, err := h.app.Repositories.AgentChat.Create(ctx, agentchat.CreateInput{
 		ID:          legacyChatID,
 		WorkspaceID: wsID,
 		Type:        domain.ChatTypeChat,
 		Now:         time.Now().UTC(),
 	})
+	require.NoError(t, err)
+	require.NoError(t, h.app.Repositories.AgentActivity.AppendTurn(ctx, activity.TurnInput{
+		ChatID: legacyChatID, TurnID: "turn-1", Role: "user", ProviderID: "claude",
+		RunnerID: "r1", SessionID: "s1", Text: "something the user said", Now: time.Now().UTC(),
+	}))
+	h.Quiesce()
+}
+
+// TestRegression_StartupAdoptsTheOwningRowOfAWorkspaceThatBecameLocked is the
+// three-boot sequence a running install actually goes through: a worktree is
+// backfilled as an ordinary chat row, the branch is later locked (the user
+// locks it, or a provider poll reports it protected), and the daemon restarts
+// again.
+//
+// The workspace is branch-destined from the lock onwards, but it is not
+// UNOWNED — it has the row the first boot gave it. That row must become the
+// branch row, keeping its id and its placement, because minting a second one
+// would leave two rows claiming a single workspace, which is the invariant this
+// whole backfill exists to establish.
+func TestRegression_StartupAdoptsTheOwningRowOfAWorkspaceThatBecameLocked(t *testing.T) {
+	home := t.TempDir()
+	seeded := seedUnbackfilledWorkspaces(t, home)
+
+	first := newHarnessAt(t, home)
+	first.Quiesce()
+	before := owningChat(t, first, seeded.child)
+	require.Equal(t, domain.ChatTypeChat, before.Type, "precondition: an unlocked worktree owns a chat row")
+	lockWorkspace(t, first, seeded.child)
+	first.shutdown()
+
+	second := newHarnessAt(t, home)
+	second.Quiesce()
+
+	after := owningChat(t, second, seeded.child)
+	assert.Equal(t, before.ID, after.ID, "the SAME row, adopted — not a second one minted beside it")
+	assert.Equal(t, domain.ChatTypeBranch, after.Type, "and it is a branch row now that the workspace is locked")
+	assert.Equal(t, before.ParentID, after.ParentID, "the retype keeps the placement the row already had")
+	assert.Equal(t, before.Order, after.Order)
+}
+
+// lockWorkspace flips a workspace to locked through the workspace aggregate's
+// own lock command — the same write the user's lock toggle makes.
+func lockWorkspace(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) {
+	t.Helper()
+	locked := true
+	_, err := h.app.Repositories.Workspace.SetLock(context.Background(), wsID, &locked, false)
 	require.NoError(t, err)
 	h.Quiesce()
 }

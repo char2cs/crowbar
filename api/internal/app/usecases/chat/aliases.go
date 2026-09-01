@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"context"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -139,6 +141,25 @@ func NewTree(
 // ChatUsecase: only the composition root wiring the tree usecase needs it.
 func (u *Usecase) Work() *inflight.Work {
 	return u.work
+}
+
+// HasTurns reports whether anything was ever SAID in a chat.
+//
+// Here rather than in one of the five responsibility files for the same reason
+// as Work and Working above: the only caller is the tree usecase built on top
+// of this one, whose boot backfill asks it before adopting a row into a
+// different kind (see tree.Agent.HasTurns). It is the same "has this chat said
+// anything yet" test NoteThreadLineage already makes, kept to one read of the
+// turn record rather than rendering a log nobody reads.
+func (u *Usecase) HasTurns(
+	ctx context.Context,
+	chatID string,
+) (bool, error) {
+	turns, err := u.conversations.ChatTurns(ctx, chatID)
+	if err != nil {
+		return false, err
+	}
+	return len(turns) > 0, nil
 }
 
 // Working reports whether chatID is currently working — the SAME live,

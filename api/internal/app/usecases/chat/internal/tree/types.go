@@ -67,6 +67,17 @@ type Chats interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
+	// SetType rewrites which KIND of row a chat is and touches nothing else —
+	// same id, same placement, same conversation. The backfill needs it because
+	// what a workspace IS can change after its owning row is minted: an ordinary
+	// worktree that is later locked owns a BRANCH row from then on, and retyping
+	// the row it already has is what keeps that workspace from acquiring a
+	// second one.
+	SetType(
+		ctx context.Context,
+		chatID string,
+		chatType domain.ChatType,
+	) (domain.Chat, error)
 	// Forget erases a row outright. A folder holds no runner and no ledger, so
 	// this is the whole of what deleting one means — unlike Agent.PurgeChat,
 	// which also tears down the CLI and the conversation a CHAT row carries.
@@ -135,6 +146,17 @@ type Agent interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	// HasTurns reports whether anything was ever SAID in a chat. The boot
+	// backfill asks it before adopting a row into a different kind, and it is
+	// the only question that separates the two rows this package cannot
+	// otherwise tell apart: an owning row the backfill itself minted for a
+	// worktree, and an ordinary conversation that merely started inside the same
+	// workspace. Both are chat-typed and both carry the workspace id; only one
+	// of them has anybody's words in it.
+	HasTurns(
+		ctx context.Context,
+		chatID string,
+	) (bool, error)
 	// NoteThreadLineage records, in a chat's own conversation, that a move has just
 	// made it a thread of the chats named. It exists because re-parenting takes
 	// effect FROM THE MOVE ONWARD: a chat that gains an ancestor does not
@@ -333,11 +355,13 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
-	// BackfillOwningChats mints the owning chat row of every workspace that has
-	// none, once, at startup. It is the migration for every workspace made
-	// before a workspace and the chat that owns it were minted in one breath:
-	// the sidebar addresses a workspace's placement BY that row, so a workspace
-	// without one exists on disk and nowhere in the tree. See backfill.go.
+	// BackfillOwningChats gives every workspace the owning chat row it is owed,
+	// once, at startup — minting one where there is none, and adopting the row a
+	// workspace already has where that workspace has since become something
+	// else. It is the migration for every workspace made before a workspace and
+	// the chat that owns it were minted in one breath: the sidebar addresses a
+	// workspace's placement BY that row, so a workspace without one exists on
+	// disk and nowhere in the tree. See backfill.go.
 	BackfillOwningChats(
 		ctx context.Context,
 	) error

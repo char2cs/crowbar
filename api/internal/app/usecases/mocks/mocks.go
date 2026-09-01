@@ -1067,6 +1067,15 @@ type AgentChatPlacements struct {
 	// must be unable to write a parent.
 	Placed  []PlacementWrite
 	Ordered []OrderWrite
+	// Retyped records each SetType call, so a test can tell a row ADOPTED into a
+	// new kind from a fresh row minted beside the old one — the two leave the
+	// same type behind on the workspace and only this says which happened.
+	Retyped []TypeWrite
+	TypeErr error
+	// Spoken names the rows something was actually SAID in, which is what tells
+	// an owning row the backfill minted apart from somebody's conversation.
+	Spoken   map[string]bool
+	TurnsErr error
 	// Stale is the PROJECTED placement of a chat — what ListByWorkspace, ListChats
 	// and Get answer while the read model is behind the log. A placement write
 	// returns as soon as the aggregate has it, so this is the daemon's ordinary
@@ -1105,6 +1114,13 @@ type PlacementWrite struct {
 type OrderWrite struct {
 	ChatID string
 	Order  int
+}
+
+// TypeWrite is one recorded call to SetType: the row whose kind was rewritten,
+// and what it became.
+type TypeWrite struct {
+	ChatID string
+	Type   domain.ChatType
 }
 
 // LineageNote is one recorded call to NoteThreadLineage: which chat was told,
@@ -1246,6 +1262,27 @@ func (s *AgentChatPlacements) SetOrder(
 	return domain.Chat{}, nil
 }
 
+// SetType rewrites a row's kind and touches nothing else, like the command it
+// stands in for. Retyped records the calls so a test can prove a workspace's
+// row was ADOPTED rather than replaced.
+func (s *AgentChatPlacements) SetType(
+	ctx context.Context,
+	chatID string,
+	chatType domain.ChatType,
+) (domain.Chat, error) {
+	if s.TypeErr != nil {
+		return domain.Chat{}, s.TypeErr
+	}
+	s.Retyped = append(s.Retyped, TypeWrite{ChatID: chatID, Type: chatType})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].Type = chatType
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Chat{}, apperr.ErrNotFound
+}
+
 // Create mints a bare, unplaced row — the panel-root folder MintChat already
 // mints a bare, unplaced chat as.
 func (s *AgentChatPlacements) Create(
@@ -1314,6 +1351,18 @@ func (s *AgentChatPlacements) PurgeChat(
 	}
 	s.Rows = kept
 	return nil
+}
+
+// HasTurns answers whether anything was said in a chat. A row no test named in
+// Spoken answers false — the state a row the backfill just minted is in.
+func (s *AgentChatPlacements) HasTurns(
+	ctx context.Context,
+	chatID string,
+) (bool, error) {
+	if s.TurnsErr != nil {
+		return false, s.TurnsErr
+	}
+	return s.Spoken[chatID], nil
 }
 
 func (s *AgentChatPlacements) NoteThreadLineage(

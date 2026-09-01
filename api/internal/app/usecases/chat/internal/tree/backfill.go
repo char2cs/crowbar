@@ -18,13 +18,18 @@ import (
 // made before the atomic create — a workspace and the chat that owns it minted
 // in one breath — the owning row it never got.
 //
-// It mints and places, and nothing else. Every workspace it processes already
-// has its worktree on disk (or is a home row, which has none by design), so
-// the worktree-provisioning half of the atomic create has no counterpart here.
+// It mints, places and retypes, and nothing else. Every workspace it processes
+// already has its worktree on disk (or is a home row, which has none by
+// design), so the worktree-provisioning half of the atomic create has no
+// counterpart here.
 
-// BackfillOwningChats mints the owning chat row of every workspace that has
-// none. It is safe to run on every boot: a workspace that already owns a row is
-// passed over, so a second run over the same daemon mints nothing.
+// BackfillOwningChats gives every workspace the owning chat row it is owed:
+// minting one where there is none, and ADOPTING the row a workspace already has
+// where that workspace has since become something else — a worktree that was
+// locked after its row was minted owns a branch row from then on (see adopt).
+//
+// It is safe to run on every boot: a workspace whose row is already right is
+// passed over, so a second run over the same daemon writes nothing.
 func (u *chatFolderUsecase) BackfillOwningChats(
 	ctx context.Context,
 ) error {
@@ -36,7 +41,70 @@ func (u *chatFolderUsecase) BackfillOwningChats(
 	if err != nil {
 		return fmt.Errorf("agent chat folder: backfill owning chats: chats: %w", err)
 	}
-	return u.mintAll(ctx, planBackfill(workspaces, rows, uuid.NewString))
+	spoken, err := u.spokenIn(ctx, adoptCandidates(workspaces, rows))
+	if err != nil {
+		return err
+	}
+	plan := planBackfill(workspaces, rows, spoken, uuid.NewString)
+	return errors.Join(u.adoptAll(ctx, plan.Adopt), u.mintAll(ctx, plan.Mint))
+}
+
+// spokenIn asks, of each row the plan might adopt, whether anything was ever
+// said in it. It is asked HERE rather than inside the plan so the plan stays a
+// pure function of what it was handed, and only of rows that are actually
+// candidates — a boot does not read the turn record of every chat in the
+// daemon.
+func (u *chatFolderUsecase) spokenIn(
+	ctx context.Context,
+	candidates []string,
+) (map[string]bool, error) {
+	spoken := make(map[string]bool, len(candidates))
+	for _, id := range candidates {
+		said, err := u.agent.HasTurns(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("agent chat folder: backfill owning chats: turns of %s: %w", id, err)
+		}
+		spoken[id] = said
+	}
+	return spoken, nil
+}
+
+// adoptCandidates names the rows the plan may ask about: the owning row of a
+// branch-destined workspace that is not already a branch row. Every other
+// workspace either needs nothing or needs a row minted, and neither asks.
+func adoptCandidates(
+	workspaces []domain.Workspace,
+	rows []domain.Chat,
+) []string {
+	live := liveWorkspaces(workspaces)
+	owners := owningRows(rows)
+	ids := make([]string, 0)
+	for _, ws := range rootsFirst(live) {
+		owner := owners[ws.ID]
+		if owningChatType(ws) == domain.ChatTypeBranch &&
+			owner.ID != "" &&
+			owner.Type != domain.ChatTypeBranch {
+			ids = append(ids, owner.ID)
+		}
+	}
+	return ids
+}
+
+// adoptAll rewrites the kind of each row the plan decided to adopt. Like
+// mintAll it carries on past a failure: the rows are independent, and a row it
+// could not adopt this boot is planned again on the next one.
+func (u *chatFolderUsecase) adoptAll(
+	ctx context.Context,
+	ids []string,
+) error {
+	failures := make([]error, 0)
+	for _, id := range ids {
+		if _, err := u.chats.SetType(ctx, id, domain.ChatTypeBranch); err != nil {
+			failures = append(failures,
+				fmt.Errorf("agent chat folder: backfill: adopt %s as a branch row: %w", id, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 // mintAll writes the planned rows in the order they were planned — roots
@@ -97,30 +165,52 @@ type backfillStep struct {
 	Order       int
 }
 
+// backfillPlan is everything one boot decided to do: rows to mint, and rows
+// already standing whose KIND is now wrong and must be rewritten in place.
+//
+// Adopt carries chat ids and no order, because a retype changes nothing a later
+// step reads — the row keeps its id, its placement and its conversation, so
+// nothing depends on when it happens relative to a mint.
+type backfillPlan struct {
+	Mint  []backfillStep
+	Adopt []string
+}
+
 // planBackfill decides the whole backfill from one census of the workspaces and
-// one read of the forest, minting nothing.
+// one read of the forest, writing nothing.
 //
 // Deciding first and writing second is what makes the root-first walk possible:
 // a row's ParentID is the chat id its FORK PARENT is about to be minted under,
 // which is known here and could not be read back out of a projection that
 // trails every write.
+//
+// spoken answers, for a row that might be adopted, whether anything was ever
+// said in it. See adopt.
 func planBackfill(
 	workspaces []domain.Workspace,
 	rows []domain.Chat,
+	spoken map[string]bool,
 	newID func() string,
-) []backfillStep {
+) backfillPlan {
 	live := liveWorkspaces(workspaces)
 	owners := owningRows(rows)
 	slots := siblingCounts(rows)
-	steps := make([]backfillStep, 0, len(live))
+	plan := backfillPlan{Mint: make([]backfillStep, 0, len(live)), Adopt: make([]string, 0)}
 	for _, ws := range rootsFirst(live) {
 		kind := owningChatType(ws)
-		if alreadyOwned(owners[ws.ID], kind) {
+		owner := owners[ws.ID]
+		if adopt(owner, kind, spoken) {
+			plan.Adopt = append(plan.Adopt, owner.ID)
+			owner.Type = domain.ChatTypeBranch
+			owners[ws.ID] = owner
+			continue
+		}
+		if alreadyOwned(owner, kind) {
 			continue
 		}
 		parentID := owners[forkParentOf(ws, live)].ID
 		id := newID()
-		steps = append(steps, backfillStep{
+		plan.Mint = append(plan.Mint, backfillStep{
 			ChatID:      id,
 			WorkspaceID: ws.ID,
 			Type:        kind,
@@ -130,7 +220,39 @@ func planBackfill(
 		slots[parentID]++
 		owners[ws.ID] = domain.Chat{ID: id, Type: kind, WorkspaceID: ws.ID}
 	}
-	return steps
+	return plan
+}
+
+// adopt reports whether a workspace's existing owning row should simply BECOME
+// the branch row rather than have one minted beside it.
+//
+// It exists because what a workspace IS can change after its row is minted: a
+// worktree backfilled as an ordinary chat row is locked a week later, by the
+// user or by the provider reporting its branch protected, and is branch-destined
+// from then on. Minting a second row there would leave two rows claiming one
+// workspace — the exact invariant this backfill exists to establish — so the row
+// it already has is rewritten in place, keeping its id, its placement and its
+// history.
+//
+// The guard is that NOTHING WAS EVER SAID in the row, and it is the whole reason
+// this is safe. An owning row the backfill minted and a conversation somebody
+// started inside the same workspace are the same shape — chat-typed, carrying
+// the workspace id — and no field tells them apart. Turns do. A branch row does
+// not open as a conversation, so adopting one that holds somebody's words would
+// hide them; a row with words in it therefore gets a branch row minted beside it
+// instead, exactly as a workspace with several candidate rows does.
+func adopt(
+	owner domain.Chat,
+	kind domain.ChatType,
+	spoken map[string]bool,
+) bool {
+	if kind != domain.ChatTypeBranch || owner.ID == "" {
+		return false
+	}
+	if owner.Type == domain.ChatTypeBranch {
+		return false
+	}
+	return !spoken[owner.ID]
 }
 
 // alreadyOwned is the idempotency gate, and it asks a DIFFERENT question of the

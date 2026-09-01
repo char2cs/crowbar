@@ -88,7 +88,9 @@ func branchRow(
 
 // seedLegacyChat appends the row a pre-backfill install is full of: an ordinary
 // conversation started inside a workspace, which carries that workspace's id
-// exactly as an owning row would.
+// exactly as an owning row would. It has been SPOKEN IN, which is what makes it
+// a conversation rather than a structural row — the distinction the backfill's
+// adopt decision turns on.
 func seedLegacyChat(
 	chats *mocks.AgentChatPlacements,
 	id string,
@@ -101,6 +103,10 @@ func seedLegacyChat(
 		WorkspaceID: wsID,
 		CreatedAt:   time.Unix(createdAtSec, 0).UTC(),
 	})
+	if chats.Spoken == nil {
+		chats.Spoken = map[string]bool{}
+	}
+	chats.Spoken[id] = true
 }
 
 // A workspace's row hangs off its FORK PARENT's own row, which for a chain
@@ -264,6 +270,113 @@ func TestBackfillOwningChats_LeavesARegularWorkspaceWithALegacyChatAlone(t *test
 	require.NoError(t, uc.BackfillOwningChats(context.Background()))
 
 	assert.Equal(t, "legacy", ownedRow(t, chats, "ws-plain").ID)
+}
+
+// What a workspace IS can change after its owning row is minted: an ordinary
+// worktree backfilled as a chat row is LOCKED a week later, by the user or by
+// the provider reporting its branch protected, and is branch-destined from then
+// on. The next boot must ADOPT the row it already has rather than mint a second
+// one beside it — two rows claiming one workspace is the exact invariant this
+// whole backfill exists to establish.
+func TestBackfillOwningChats_RetypesTheOwningRowOfAWorkspaceThatBecameLocked(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	ctx := context.Background()
+	seedWorkspace(roster, "ws-turned", "", 1)
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	owned := ownedRow(t, chats, "ws-turned")
+	require.Equal(t, domain.ChatTypeChat, owned.Type, "precondition: it was an ordinary worktree")
+
+	roster.Rows[0].Status = domain.WorkspaceStatusLocked
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+
+	after := ownedRow(t, chats, "ws-turned")
+	assert.Equal(t, owned.ID, after.ID, "the SAME row, adopted — not a replacement")
+	assert.Equal(t, domain.ChatTypeBranch, after.Type)
+	assert.Equal(t, []mocks.TypeWrite{{ChatID: owned.ID, Type: domain.ChatTypeBranch}}, chats.Retyped)
+}
+
+// The retype leaves everything that is not the type exactly as it stands. A row
+// re-placed instead of retyped would lose the level it was filed into, and a
+// row replaced outright would take its children's parent id with it.
+func TestBackfillOwningChats_RetypeKeepsThePlacementTheRowAlreadyHad(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	ctx := context.Background()
+	seedFolder(chats, "folder-1", "")
+	seedWorkspace(roster, "ws-turned", "", 1)
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	before := ownedRow(t, chats, "ws-turned")
+	chats.Placed = nil
+
+	roster.Rows[0].Status = domain.WorkspaceStatusLocked
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+
+	after := ownedRow(t, chats, "ws-turned")
+	assert.Equal(t, before.ParentID, after.ParentID)
+	assert.Equal(t, before.Order, after.Order)
+	assert.Empty(t, chats.Placed, "a retype writes no placement at all")
+}
+
+// Once adopted, the row satisfies the branch gate like any other branch row, so
+// a third boot does nothing. Without this the retype would simply repeat.
+func TestBackfillOwningChats_RetypesOnlyOnce(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	ctx := context.Background()
+	seedWorkspace(roster, "ws-turned", "", 1)
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	roster.Rows[0].Status = domain.WorkspaceStatusLocked
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	chats.Retyped = nil
+
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+
+	assert.Empty(t, chats.Retyped, "the third pass has nothing left to adopt")
+	assert.Len(t, ownedRows(chats, "ws-turned"), 1)
+}
+
+// The adopt path stops at anything somebody has SPOKEN IN. A branch row does
+// not open as a conversation, so adopting a row that holds words would hide
+// them — the branch row is minted beside it instead. This is the round-1
+// behaviour, and it is what keeps the retype above from reaching a real chat.
+func TestBackfillOwningChats_AdoptsNothingThatHasBeenSpokenIn(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-locked", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+	})
+	seedLegacyChat(chats, "legacy", "ws-locked", 1)
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	assert.Empty(t, chats.Retyped, "no conversation is turned into a branch row")
+	assert.NotEqual(t, "legacy", branchRow(t, chats, "ws-locked").ID)
+	assert.Equal(t, domain.ChatTypeChat, chatRow(t, chats, "legacy").Type,
+		"the conversation keeps its kind and stays openable")
+}
+
+// A row nothing was ever said in is adopted even when it is not the only row
+// carrying the workspace: an owning row the backfill minted for a worktree that
+// has since been chatted in is still the row that owns it, and the conversation
+// beside it is untouched.
+func TestBackfillOwningChats_AdoptsTheSilentRowBesideASpokenOne(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	ctx := context.Background()
+	seedWorkspace(roster, "ws-turned", "", 1)
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+	owning := ownedRow(t, chats, "ws-turned")
+	// The conversation starts AFTER the owning row exists, which is the only
+	// order this case can happen in — you cannot chat in a workspace before it
+	// has a row to chat in.
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID: "conversation", Type: domain.ChatTypeChat, WorkspaceID: "ws-turned",
+		CreatedAt: time.Now().Add(time.Hour),
+	})
+	chats.Spoken = map[string]bool{"conversation": true}
+
+	roster.Rows[0].Status = domain.WorkspaceStatusLocked
+	require.NoError(t, uc.BackfillOwningChats(ctx))
+
+	assert.Equal(t, owning.ID, branchRow(t, chats, "ws-turned").ID)
+	assert.Len(t, ownedRows(chats, "ws-turned"), 2, "nothing new is minted")
+	assert.Equal(t, domain.ChatTypeChat, chatRow(t, chats, "conversation").Type)
 }
 
 // Running the backfill twice over the same daemon mints nothing the second

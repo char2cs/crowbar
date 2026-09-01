@@ -204,6 +204,16 @@ type EventStore interface {
 		chatID string,
 		workspaceID string,
 	) (domain.Chat, error)
+	// SetType rewrites which KIND of row a chat is, leaving its id, placement,
+	// workspace and conversation untouched. It is how a row survives its
+	// workspace changing character — an ordinary worktree becoming a locked
+	// branch — without a second row being minted to claim the same workspace.
+	// See commands.SetType, which refuses a retype across the folder boundary.
+	SetType(
+		ctx context.Context,
+		chatID string,
+		chatType domain.ChatType,
+	) (domain.Chat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -461,6 +471,18 @@ func (r *eventSourced) SetWorkspace(
 	evt, err := occSend(ctx, r.ax.SendWait, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetType(
+	ctx context.Context,
+	chatID string,
+	chatType domain.ChatType,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetType{ID: chatID, Type: chatType})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}
 	return evt.Aggregate, nil
 }
