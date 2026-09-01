@@ -121,3 +121,76 @@ func TestRegression_ATurnStopThatBeatsItsOwnFinalDeltaDoesNotMintADuplicateMessa
 	require.True(t, gotStreamedID,
 		"the STREAMED message's own id must win — never a synthesized hook-<record-id> fallback racing ahead of it")
 }
+
+// TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream
+// is the bug reported live 2026-09-01: a full, multi-paragraph reply was
+// visible on screen while the turn was still streaming, but once it closed
+// under a Stop hook whose own ev.Message carried only the reply's LAST
+// paragraph, closeAssistantTurn's reconciliation unconditionally trusted the
+// shorter hook text over the longer, already-broadcast streamed text —
+// silently deleting the rest of the reply from the persisted transcript
+// (and so from every reload, unlike a still-visible-until-refresh bug).
+func TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream(t *testing.T) {
+	activity := &recordingActivity{}
+	turns := &Turns{messages: stream.New(), activity: activity}
+
+	chat := domain.Chat{ID: "c"}
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
+	const full = "First paragraph, with real content.\n\nSecond paragraph, also real content."
+	const truncated = "Second paragraph, also real content."
+
+	turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "message_delta",
+		Delta: &engineagents.MessageDelta{
+			TurnID: "t", MessageID: "m1", Index: 0, Sequenced: true,
+			Final: true, Text: full,
+		},
+	})
+
+	err := turns.closeAssistantTurn(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "turn_stop", Message: truncated,
+	})
+	require.NoError(t, err)
+
+	activity.mu.Lock()
+	defer activity.mu.Unlock()
+	got, ok := activity.turns["msg-m1"]
+	require.True(t, ok)
+	require.Equal(t, full, got.Text,
+		"the fuller, already-streamed text must win over a shorter terminating-hook report")
+}
+
+// TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins is the
+// PATTERN test above must not break: the reconciliation exists because a
+// delta race can genuinely drop increments, leaving the streamed text
+// shorter than what the provider actually said — the hook's own fuller
+// report is the correct one to trust in that direction.
+func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *testing.T) {
+	activity := &recordingActivity{}
+	turns := &Turns{messages: stream.New(), activity: activity}
+
+	chat := domain.Chat{ID: "c"}
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
+	const dropped = "First paragraph, with real content."
+	const complete = "First paragraph, with real content.\n\nSecond paragraph, also real content."
+
+	turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "message_delta",
+		Delta: &engineagents.MessageDelta{
+			TurnID: "t", MessageID: "m1", Index: 0, Sequenced: true,
+			Final: true, Text: dropped,
+		},
+	})
+
+	err := turns.closeAssistantTurn(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "turn_stop", Message: complete,
+	})
+	require.NoError(t, err)
+
+	activity.mu.Lock()
+	defer activity.mu.Unlock()
+	got, ok := activity.turns["msg-m1"]
+	require.True(t, ok)
+	require.Equal(t, complete, got.Text,
+		"a hook report that is FULLER than the stream must still win — the reconciliation's original purpose")
+}

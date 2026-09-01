@@ -120,7 +120,20 @@ func (t *Turns) closeAssistantTurn(
 					"chat_id", chat.ID, "message_id", message.ID,
 					"streamed_bytes", len(text), "hook_bytes", len(ev.Message))
 			}
-			text = ev.Message
+			// The hook's own report can legitimately be the fuller answer — a
+			// delta race can drop increments (see awaitStreamed's own doc
+			// comment) — but it can also be a truncated SUBSET of what was
+			// actually streamed and already shown to the user: confirmed live
+			// 2026-09-01, a full multi-paragraph reply closed under a Stop
+			// hook that reported only its last paragraph, silently deleting
+			// the rest from the persisted transcript. Never let a SHORTER
+			// hook report overwrite text the user already saw — prefer
+			// whichever is longer, the same "don't discard visible content"
+			// rule AbandonMessageForRunner already applies to a torn-down
+			// turn.
+			if len(ev.Message) > len(text) {
+				text = ev.Message
+			}
 		}
 		if text == "" || text == message.RecordedText && !last {
 			continue
