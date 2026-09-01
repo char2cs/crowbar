@@ -1,4 +1,5 @@
 import { Tab } from '@/components/ui/tabs'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
@@ -24,7 +25,7 @@ interface ChatHeadProps {
  */
 export function ChatHead({ chatId, isActive, onSelect }: ChatHeadProps) {
   const title = useWorkspaceStoreContext(
-    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title ?? 'Chat',
+    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title || UNTITLED_CHAT_LABEL,
   )
   const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
   const providerIcon = useWorkspaceStoreContext((s) => {

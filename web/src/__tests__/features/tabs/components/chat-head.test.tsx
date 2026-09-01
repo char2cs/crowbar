@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatHead } from '@/features/tabs/components/chat-head'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -83,5 +84,25 @@ describe('ChatHead underline restyle', () => {
     expect(screen.getByText('My Chat')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('chat-head'))
     expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  // An untitled chat's `title` field is an empty string, not null/undefined —
+  // `??` doesn't catch it. Same bug class Task 12 fixed in recents-band.tsx;
+  // this is chat-head.tsx's own instance of it (spec §7.1: the pane's chat
+  // head must never render a blank label).
+  it('falls back to UNTITLED_CHAT_LABEL when the chat title is an empty string', () => {
+    const store = createWorkspaceStore('w1')
+    store.setState((s) => ({
+      ...s,
+      agentChats: { ...s.agentChats, chats: [makeChat({ id: 'chat-1', title: '' })] },
+    }))
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(ChatHead, { chatId: 'chat-1', isActive: false, onSelect: () => {} }),
+      ),
+    )
+    expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
 })
