@@ -4,6 +4,7 @@ package agent_test
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +123,7 @@ func awaitHook[T any](
 //   - claude STILL shows this dialog, but its DEFAULT-SELECTED row flipped
 //     from "Yes, I trust this folder" to "No, exit" — the needle (the footer
 //     hint) still matches, but the blind Enter that used to accept trust now
-//     DECLINES it. See claudeTrustYesSelected below.
+//     DECLINES it. See claudeTrustYesMarker below.
 //   - codex no longer shows this dialog AT ALL under
 //     --dangerously-bypass-hook-trust (the flag this harness always passes) —
 //     it now goes straight to its composer. See codexReadyNeedle below.
@@ -131,12 +132,36 @@ var trustNeedle = map[string]string{
 	"codex":  "Press enter to continue",
 }
 
-// claudeTrustYesSelected is present on screen only when "Yes, I trust this
+// claudeTrustYesMarker is present on screen only when "Yes, I trust this
 // folder" is the currently-highlighted row of claude's trust dialog. Its
 // absence — the needle above still matched, so the dialog IS showing, just
 // with "No, exit" highlighted instead — is what tells settleCLI it must move
 // the selection before acknowledging.
-const claudeTrustYesSelected = "❯ Yes, I trust this folder"
+//
+// This can NEVER be checked with tap.Contains: Contains matches on
+// squeeze()'d bare alphanumerics, which throws away the "❯" glyph — the ONE
+// character that distinguishes the selected row from the unselected one.
+// "Yes, I trust this folder" is on screen, unselected, from the dialog's very
+// first paint, so tap.Contains(claudeTrustYesMarker) is true before any key
+// is ever sent — confirmed live 2026-09-01: it short-circuited settleCLI's
+// arrow-key branch entirely, sent a blind Enter onto the untouched default
+// ("No, exit"), and produced exactly the trust-declined hang this whole
+// mechanism exists to prevent. kit.Readable strips ANSI but keeps the glyph;
+// check the selection against that instead (see claudeSelectedYes).
+//
+// The gap between "❯" and "Yes" is NOT a stable single space either: claude's
+// FULL initial paint prints it as a literal space (kit.Readable keeps it),
+// but its INCREMENTAL repaint on the arrow key moves the cursor there with a
+// column jump instead of a printed space — kit.Readable has nothing to keep,
+// so the same selected row reads "❯Yes, I trust this folder" with no gap at
+// all. Confirmed against both real captures (see claudeSelectedYesRe).
+const claudeTrustYesMarker = "Yes, I trust this folder"
+
+// claudeSelectedYesRe matches claudeTrustYesMarker only when directly preceded
+// by the "❯" selection glyph, tolerating either gap kit.Readable can produce
+// between them (a literal space from a full paint, or none at all from an
+// incremental repaint — see claudeTrustYesMarker).
+var claudeSelectedYesRe = regexp.MustCompile(`❯\s*` + regexp.QuoteMeta(claudeTrustYesMarker))
 
 // codexReadyNeedle is codex's own composer placeholder — the ready signal
 // for the case trustNeedle can no longer detect: codex 0.149.1 (unlike
@@ -306,16 +331,32 @@ func settleCLI(
 			return "", false
 		}, tap.Signal(), h.hooks.sig)
 
-	// KNOWN BROKEN as of 2026-09-01, tracked separately: claude 2.1.257
-	// (unlike 2.1.207) defaults this dialog's SELECTION to "No, exit"
-	// instead of "Yes, I trust this folder" — the needle above only proves
-	// the dialog is SHOWING, not which row is highlighted, so the blind
-	// Enter below now DECLINES trust for a fresh claude. A fix needs claude
-	// to actually move its selection first (an arrow keystroke verified
-	// live to reach the PTY but produce no visible reaction from claude's
-	// TUI — not yet root-caused), and/or a retry primitive this suite does
-	// not have anywhere else: kit.Await only re-invokes its predicate on a
-	// NEW pty signal, so a write with no visible effect never gets retried.
+	// claude 2.1.257 (unlike 2.1.207) defaults this dialog's SELECTION to
+	// "No, exit" instead of "Yes, I trust this folder" — the needle above
+	// only proves the dialog is SHOWING, not which row is highlighted, so a
+	// blind Enter now DECLINES trust for a fresh claude. Move the selection
+	// down first when it is not already on "Yes" — see claudeTrustYesMarker
+	// for why that check reads kit.Readable(tap.Screen()) rather than
+	// tap.Contains. Verified live (a bare pty, no test-harness involved)
+	// that "\x1b[B" does move claude's highlighted row.
+	claudeSelectedYes := func() bool {
+		return claudeSelectedYesRe.MatchString(kit.Readable(tap.Screen()))
+	}
+	if outcome == sawNeedle && provider == "claude" && !claudeSelectedYes() {
+		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\x1b[B")); err != nil {
+			t.Fatalf("settleCLI: move %s's trust-dialog selection: %v", provider, err)
+		}
+		selCtx, selCancel := context.WithTimeout(context.Background(), backstop)
+		kit.Await(t, selCtx, provider+"'s trust-dialog selection to move to \"Yes\"",
+			func() (bool, bool) {
+				if claudeSelectedYes() {
+					return true, true
+				}
+				requireCLIAlive(t, h, tap, termSessID, provider, "while moving the trust-dialog selection")
+				return false, false
+			}, tap.Signal())
+		selCancel()
+	}
 	if outcome == sawNeedle {
 		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\r")); err != nil {
 			t.Fatalf("settleCLI: acknowledge %s's %q: %v", provider, needle, err)
@@ -340,6 +381,18 @@ func settleCLI(
 	//
 	// No test hit this before because every existing claude driver crosses
 	// awaitSessionBound first, and that wait happens to outlast the remount.
+	//
+	// KNOWN BROKEN as of 2026-09-01, tracked separately from the selection bug
+	// above (which IS fixed and verified: settleCLI's own screen capture right
+	// after Enter shows "❯ Yes, I trust this folder" correctly selected).
+	// Confirmed live, repeatedly: claude repaints ONE more time after Enter —
+	// the dialog's plain, unselected default state — then produces NOT ONE
+	// further byte for 5+ minutes. No hook subprocess is running as its child
+	// (checked live via pgrep) and the process itself is still alive, just
+	// silent. Root cause not yet found; candidates not yet ruled out: a
+	// network call (update check, auth/license) hanging in this test's
+	// isolated CLAUDE_CONFIG_DIR, or a genuine claude 2.1.257 regression
+	// unrelated to the selection fix above.
 	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
 }
 
