@@ -50,6 +50,16 @@ type WorkspaceDTO struct {
 	// usecases/chat/internal/tree), so a client merging its cache falls back to
 	// creation order rather than whatever the map happened to yield.
 	CreatedAt time.Time `json:"createdAt"`
+	// OwningChatID is the id of the chat row this workspace owns — the SAME row
+	// its sidebar placement is addressed by (see CreatedAt above). It is
+	// resolved with usecases/chat/internal/tree's own branch-preferring
+	// backfill logic (never re-derived here), and is a plain pointer FROM the
+	// workspace rather than a second copy of the chat row: a regular fork's
+	// owning chat is ALSO an independently-rendered conversation, and merging
+	// it into this list the way a locked row's owning chat is resolved would
+	// collide the two under one id. Empty only for a workspace this backfill
+	// has not reached, which should not happen for any row this route serves.
+	OwningChatID string `json:"owningChatId"`
 }
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
@@ -60,6 +70,7 @@ type WorkspaceDTO struct {
 func WorkspaceDTOFrom(
 	w domain.Workspace,
 	elig workspace.MergeEligibility,
+	owningChatID string,
 ) WorkspaceDTO {
 	return WorkspaceDTO{
 		ID:              w.ID,
@@ -85,6 +96,7 @@ func WorkspaceDTOFrom(
 		LocalPath:       w.WorktreePath,
 		HeldByPath:      w.HeldByPath,
 		CreatedAt:       w.CreatedAt,
+		OwningChatID:    owningChatID,
 	}
 }
 
@@ -106,8 +118,10 @@ func effectiveStatus(base domain.WorkspaceStatus, mergeConflicts bool) domain.Wo
 // WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs in
 // sidebar order, resolving each row's merge eligibility through eligFn
 // (typically a closure over MergeEligibilityFor bound to the same sibling
-// slice). It returns a non-nil empty slice when the input is empty so the
-// envelope carries [].
+// slice) and its real owning chat id through owningChatIDFn (typically a
+// closure resolving Task 3's own branch-preferring backfill logic over that
+// row's chats). It returns a non-nil empty slice when the input is empty so
+// the envelope carries [].
 //
 // The sort lives HERE, in the converter both the REST list handler and the WS
 // snapshot go through, because those are the two answers to the same question
@@ -116,10 +130,11 @@ func effectiveStatus(base domain.WorkspaceStatus, mergeConflicts bool) domain.Wo
 func WorkspaceDTOList(
 	workspaces []domain.Workspace,
 	eligFn func(domain.Workspace) workspace.MergeEligibility,
+	owningChatIDFn func(domain.Workspace) string,
 ) []WorkspaceDTO {
 	dtos := make([]WorkspaceDTO, 0, len(workspaces))
 	for _, w := range workspaces {
-		dtos = append(dtos, WorkspaceDTOFrom(w, eligFn(w)))
+		dtos = append(dtos, WorkspaceDTOFrom(w, eligFn(w), owningChatIDFn(w)))
 	}
 	slices.SortFunc(dtos, compareWorkspaceDTOs)
 	return dtos

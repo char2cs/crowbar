@@ -293,6 +293,28 @@ func owningRows(
 	return owners
 }
 
+// ResolveOwningChat picks the row that owns a workspace from its candidate
+// chat rows — typically everything Chats.ListByWorkspace(workspaceID)
+// returns — applying the SAME branch-preference tiebreak BackfillOwningChats
+// enforces (preferred, below). It is exported so a caller outside this
+// package that already holds a workspace's chat rows can answer "which one
+// owns it" without re-deriving that rule: the workspace wire DTO's
+// owningChatId field is the first such caller.
+func ResolveOwningChat(
+	rows []domain.Chat,
+) (domain.Chat, bool) {
+	if len(rows) == 0 {
+		return domain.Chat{}, false
+	}
+	owner := rows[0]
+	for _, row := range rows[1:] {
+		if !preferred(owner, row) {
+			owner = row
+		}
+	}
+	return owner, true
+}
+
 // preferred reports whether held keeps the workspace against challenger.
 //
 // A BRANCH row always wins. Once one exists it IS the workspace's row — what

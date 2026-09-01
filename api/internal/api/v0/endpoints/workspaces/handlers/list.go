@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -27,7 +28,8 @@ func (h *Handlers) List(
 		return
 	}
 	h.applyWorking(filtered)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(c.Request.Context(), filtered)))
+	ctx := c.Request.Context()
+	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(ctx, filtered), h.owningChatIDIn(ctx)))
 }
 
 // Detail handles
@@ -51,7 +53,8 @@ func (h *Handlers) Detail(
 	}
 	elig := h.reader.MergeEligibilityFor(c.Request.Context(), ws, siblings)
 	ws.Working = h.working.WorkingFor(ws.ID)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
+	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws.ID)
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig, owningChatID))
 }
 
 // applyWorking stamps the derived working overlay onto the rows so REST reads
@@ -84,4 +87,38 @@ func (h *Handlers) siblingsOf(
 	ws domain.Workspace,
 ) ([]domain.Workspace, error) {
 	return h.reader.ListInRepo(c.Request.Context(), ws.ProjectID, ws.RepoID)
+}
+
+// owningChatIDIn returns a per-row owning-chat-id resolver bound to ctx,
+// mirroring eligibilityIn's per-row closure shape for WorkspaceDTOList.
+func (h *Handlers) owningChatIDIn(
+	ctx context.Context,
+) func(domain.Workspace) string {
+	return func(ws domain.Workspace) string {
+		return h.resolveOwningChatID(ctx, ws.ID)
+	}
+}
+
+// resolveOwningChatID answers wsID's real owning chat id for the wire DTO
+// (WorkspaceDTO.OwningChatID), reusing Task 3's own branch-preferring
+// resolution (agentusecase.ResolveOwningChat) over THIS handler's own read of
+// the workspace's chat rows — never a second, independently derived answer.
+// h.chats being unwired (a test that never called WithPlacer) or the read
+// turning up nothing degrades to "", matching an unresolvable workspace.
+func (h *Handlers) resolveOwningChatID(
+	ctx context.Context,
+	wsID string,
+) string {
+	if h.chats == nil {
+		return ""
+	}
+	rows, err := h.chats.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		return ""
+	}
+	owner, ok := agentusecase.ResolveOwningChat(rows)
+	if !ok {
+		return ""
+	}
+	return owner.ID
 }

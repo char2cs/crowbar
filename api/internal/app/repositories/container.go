@@ -24,6 +24,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -490,7 +491,32 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ws, elig)
+	return dto.WorkspaceDTOFrom(ws, elig, c.owningChatIDFor(ctx, ws.ID))
+}
+
+// owningChatIDFor resolves wsID's real owning chat id for the wire DTO,
+// reusing Task 3's own branch-preferring resolution
+// (agentusecase.ResolveOwningChat) over this container's own AgentChat read —
+// never a second, independently derived answer. An unwired AgentChat (a test
+// Container built with only the fields its own assertion needs, matching
+// eligibilityFor's own zero-value tolerance below), an unresolvable read, or
+// a workspace this backfill has not reached yet all degrade to "".
+func (c *Container) owningChatIDFor(
+	ctx context.Context,
+	wsID string,
+) string {
+	if c.AgentChat == nil {
+		return ""
+	}
+	rows, err := c.AgentChat.ListByWorkspace(ctx, wsID)
+	if err != nil {
+		return ""
+	}
+	owner, ok := agentusecase.ResolveOwningChat(rows)
+	if !ok {
+		return ""
+	}
+	return owner.ID
 }
 
 // broadcastWorkspace enriches ws and pushes it to the hub. It backs the

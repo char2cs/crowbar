@@ -20,6 +20,12 @@ func noElig(
 	return workspace.MergeEligibility{}
 }
 
+func noOwningChatID(
+	_ domain.Workspace,
+) string {
+	return ""
+}
+
 // TestWorkspaceDTOFrom_EffectiveStatus covers the read-time status overlay:
 // a predicted conflict folds into pr-conflicts, but a terminal/locked base
 // status takes precedence and a non-conflicting read keeps the base status.
@@ -41,6 +47,7 @@ func TestWorkspaceDTOFrom_EffectiveStatus(t *testing.T) {
 			got := dto.WorkspaceDTOFrom(
 				domain.Workspace{ID: "w", Status: tc.base},
 				workspace.MergeEligibility{MergeConflicts: tc.conflict},
+				"",
 			)
 			assert.Equal(t, tc.want, got.Status)
 			assert.Equal(t, tc.conflict, got.MergeConflicts)
@@ -68,7 +75,7 @@ func TestWorkspaceDTOFrom(
 		PRTargetBranch: "main",
 		Working:        true,
 		LastError:      "boom",
-	}, workspace.MergeEligibility{})
+	}, workspace.MergeEligibility{}, "chat-1")
 	assert.Equal(t, "w1", got.ID)
 	assert.Equal(t, "r1", got.RepoID)
 	assert.Equal(t, "p1", got.ProjectID)
@@ -89,6 +96,7 @@ func TestWorkspaceDTOFrom(
 	// values.
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "", got.ParentBranch)
+	assert.Equal(t, "chat-1", got.OwningChatID)
 }
 
 // TestWorkspaceDTOFrom_MapsEligibility pins that the resolved merge-eligibility
@@ -99,7 +107,7 @@ func TestWorkspaceDTOFrom_MapsEligibility(
 	got := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1", ParentID: "w0"}, workspace.MergeEligibility{
 		CanMergeLocally: true,
 		ParentBranch:    "main",
-	})
+	}, "")
 	assert.True(t, got.CanMergeLocally)
 	assert.Equal(t, "main", got.ParentBranch)
 }
@@ -116,19 +124,20 @@ func TestWorkspaceDTO_WireFields(
 		Working:      true,
 		LastError:    "oops",
 		WorktreePath: "/wt",
-	}, workspace.MergeEligibility{}))
+	}, workspace.MergeEligibility{}, "chat-1"))
 	require.NoError(t, err)
 
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 
-	for _, key := range []string{"working", "lastError", "canMergeLocally", "localPath"} {
+	for _, key := range []string{"working", "lastError", "canMergeLocally", "localPath", "owningChatId"} {
 		_, present := decoded[key]
 		assert.Truef(t, present, "expected wire key %q to be present", key)
 	}
 	assert.Equal(t, true, decoded["working"])
 	assert.Equal(t, "oops", decoded["lastError"])
 	assert.Equal(t, false, decoded["canMergeLocally"])
+	assert.Equal(t, "chat-1", decoded["owningChatId"])
 
 	for _, key := range []string{
 		"locked",
@@ -143,12 +152,27 @@ func TestWorkspaceDTO_WireFields(
 	}
 }
 
+// TestWorkspaceDTO_OwningChatIDNeverOmitted pins that owningChatId, unlike
+// parentBranch, stays on the wire even when it is the empty string: a client
+// must be able to tell "this workspace genuinely has no owning chat yet" (a
+// bug post-Task-3) apart from "the field was never sent".
+func TestWorkspaceDTO_OwningChatIDNeverOmitted(t *testing.T) {
+	raw, err := json.Marshal(dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1"}, workspace.MergeEligibility{}, ""))
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	value, present := decoded["owningChatId"]
+	assert.True(t, present, "owningChatId must be present even when empty")
+	assert.Equal(t, "", value)
+}
+
 // TestWorkspaceDTO_ParentBranchOmitEmpty pins that parentBranch is emitted when
 // non-empty and omitted when empty.
 func TestWorkspaceDTO_ParentBranchOmitEmpty(
 	t *testing.T,
 ) {
-	dtoVal := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1"}, workspace.MergeEligibility{})
+	dtoVal := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1"}, workspace.MergeEligibility{}, "")
 	dtoVal.CanMergeLocally = true
 	dtoVal.ParentBranch = "main"
 
@@ -164,7 +188,7 @@ func TestWorkspaceDTO_ParentBranchOmitEmpty(
 func TestWorkspaceDTOListEmptyNonNil(
 	t *testing.T,
 ) {
-	got := dto.WorkspaceDTOList(nil, noElig)
+	got := dto.WorkspaceDTOList(nil, noElig, noOwningChatID)
 	require.NotNil(t, got)
 	assert.Len(t, got, 0)
 }
@@ -175,7 +199,7 @@ func TestWorkspaceDTOList(
 	got := dto.WorkspaceDTOList([]domain.Workspace{
 		{ID: "w1"},
 		{ID: "w2"},
-	}, noElig)
+	}, noElig, noOwningChatID)
 	require.Len(t, got, 2)
 	assert.Equal(t, "w1", got[0].ID)
 	assert.Equal(t, "w2", got[1].ID)
@@ -193,7 +217,7 @@ func TestWorkspaceDTOList_OrdersByCreatedAt(
 		{ID: "c", CreatedAt: time.Unix(1, 0).UTC()},
 		{ID: "b", CreatedAt: time.Unix(3, 0).UTC()},
 		{ID: "a", CreatedAt: time.Unix(2, 0).UTC()},
-	}, noElig)
+	}, noElig, noOwningChatID)
 	require.Len(t, got, 3)
 	assert.Equal(t, []string{"c", "a", "b"}, []string{got[0].ID, got[1].ID, got[2].ID})
 }
@@ -206,7 +230,7 @@ func TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage(
 ) {
 	got := dto.WorkspaceDTOFrom(domain.Workspace{
 		ID: "w1", ParentID: "",
-	}, workspace.MergeEligibility{})
+	}, workspace.MergeEligibility{}, "")
 
 	assert.Empty(t, got.ParentID, "a folder id must never leak into the fork lineage")
 }
@@ -225,7 +249,7 @@ func TestWorkspaceDTOList_AppliesEligFn(
 	got := dto.WorkspaceDTOList([]domain.Workspace{
 		{ID: "w1"},
 		{ID: "w2"},
-	}, eligFn)
+	}, eligFn, noOwningChatID)
 	require.Len(t, got, 2)
 	assert.True(t, got[0].CanMergeLocally)
 	assert.Equal(t, "main", got[0].ParentBranch)
@@ -233,16 +257,37 @@ func TestWorkspaceDTOList_AppliesEligFn(
 	assert.Equal(t, "", got[1].ParentBranch)
 }
 
+// TestWorkspaceDTOList_AppliesOwningChatIDFn pins that the per-row
+// owning-chat-id resolver is invoked and its result mapped onto each DTO,
+// mirroring TestWorkspaceDTOList_AppliesEligFn's shape for the new field.
+func TestWorkspaceDTOList_AppliesOwningChatIDFn(
+	t *testing.T,
+) {
+	owningChatIDFn := func(w domain.Workspace) string {
+		if w.ID == "w1" {
+			return "chat-1"
+		}
+		return ""
+	}
+	got := dto.WorkspaceDTOList([]domain.Workspace{
+		{ID: "w1"},
+		{ID: "w2"},
+	}, noElig, owningChatIDFn)
+	require.Len(t, got, 2)
+	assert.Equal(t, "chat-1", got[0].OwningChatID)
+	assert.Equal(t, "", got[1].OwningChatID)
+}
+
 func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 	got := dto.WorkspaceDTOFrom(
 		domain.Workspace{ID: "w1", RepoID: "r1", ProjectID: "p1", IsDefault: true},
-		workspace.MergeEligibility{},
+		workspace.MergeEligibility{}, "",
 	)
 	assert.True(t, got.IsDefault)
 
 	got2 := dto.WorkspaceDTOFrom(
 		domain.Workspace{ID: "w2", RepoID: "r1", ProjectID: "p1"},
-		workspace.MergeEligibility{},
+		workspace.MergeEligibility{}, "",
 	)
 	assert.False(t, got2.IsDefault)
 }
@@ -253,7 +298,7 @@ func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 func TestWorkspaceDTOFrom_MapsHeldByPath(t *testing.T) {
 	got := dto.WorkspaceDTOFrom(
 		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj"},
-		workspace.MergeEligibility{},
+		workspace.MergeEligibility{}, "",
 	)
 	assert.Equal(t, "/Users/me/proj", got.HeldByPath)
 }

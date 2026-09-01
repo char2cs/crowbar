@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -37,8 +38,33 @@ func workspacesSnapshot(
 		eligFn := func(w domain.Workspace) workspace.MergeEligibility {
 			return appContainer.Usecases.Workspace.MergeEligibilityFor(context.Background(), w, siblings)
 		}
-		return dto.WorkspaceDTOList(siblings, eligFn)
+		owningChatIDFn := func(w domain.Workspace) string {
+			return resolveOwningChatID(context.Background(), appContainer, w.ID)
+		}
+		return dto.WorkspaceDTOList(siblings, eligFn, owningChatIDFn)
 	}
+}
+
+// resolveOwningChatID answers wsID's real owning chat id for the wire DTO,
+// reusing Task 3's own branch-preferring resolution
+// (agentusecase.ResolveOwningChat) over the chat usecase's own read of the
+// workspace's chat rows — never a second, independently derived answer. An
+// unresolvable read (or a workspace this backfill has not reached yet)
+// degrades to "".
+func resolveOwningChatID(
+	ctx context.Context,
+	appContainer *app.Container,
+	wsID string,
+) string {
+	rows, err := appContainer.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		return ""
+	}
+	owner, ok := agentusecase.ResolveOwningChat(rows)
+	if !ok {
+		return ""
+	}
+	return owner.ID
 }
 
 // parseRepoScope splits a hierarchical subscription prefix ("p", "p/r", or

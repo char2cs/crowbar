@@ -121,6 +121,17 @@ type TerminalEngine interface {
 	Attach(ctx context.Context, sessionID string, conn WSConn) error
 }
 
+// ChatResolver resolves the chat rows a workspace id owns, mirroring the
+// workspaces handlers' own ChatResolver (workspacehandlers.ChatResolver): the
+// home workspace's GET is a second wire-DTO call site, and needs the same
+// read to resolve WorkspaceDTO.OwningChatID.
+type ChatResolver interface {
+	ListChatsByWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) ([]domain.Chat, error)
+}
+
 // WorkSignal is the read half of the daemon's working overlay, the same seam the
 // workspaces handlers stamp their REST reads from (workspacehandlers.WorkSignal,
 // which the repositories Container satisfies). The home workspace is served by
@@ -144,6 +155,7 @@ type Handlers struct {
 	files      Files
 	termEng    TerminalEngine
 	working    WorkSignal
+	chats      ChatResolver
 }
 
 // New builds Handlers.
@@ -161,6 +173,19 @@ func New(
 		termEng:    termEng,
 		working:    working,
 	}
+}
+
+// WithChats wires the chat-row resolver Get needs to answer
+// WorkspaceDTO.OwningChatID for the home workspace, mirroring the workspaces
+// handlers' WithPlacer. A nil chats leaves it unwired, and Get degrades to an
+// empty owningChatId rather than panicking.
+func (h *Handlers) WithChats(
+	chats ChatResolver,
+) *Handlers {
+	if chats != nil {
+		h.chats = chats
+	}
+	return h
 }
 
 // resolveHome fetches the home workspace for the project. If not yet

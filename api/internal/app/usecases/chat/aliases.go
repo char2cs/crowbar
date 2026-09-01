@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -119,6 +120,16 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
+
+// ResolveOwningChat picks the chat that owns a workspace from its candidate
+// rows — typically ListChatsByWorkspace's result — applying the tree
+// package's own branch-preference tiebreak (see tree.ResolveOwningChat).
+// Re-exported through this door so a caller with no other business in this
+// feature (the workspace wire DTO, wiring owningChatId) can answer "which
+// chat owns this workspace" without re-deriving that rule a second time.
+func ResolveOwningChat(rows []domain.Chat) (domain.Chat, bool) {
+	return tree.ResolveOwningChat(rows)
+}
 
 // NewTree builds the sidebar forest's tree usecase. work is the chat
 // usecase's own in-flight tracker (see Usecase.Work) — the tree's move and

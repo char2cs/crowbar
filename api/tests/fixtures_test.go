@@ -236,6 +236,7 @@ type workspaceDTO struct {
 	PRUrl           string `json:"prUrl"`
 	PRTitle         string `json:"prTitle"`
 	PRTargetBranch  string `json:"prTargetBranch"`
+	OwningChatID    string `json:"owningChatId"`
 }
 
 func listWorkspaces(

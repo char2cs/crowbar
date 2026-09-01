@@ -50,7 +50,9 @@ func Register(
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := homehandlers.New(workspaces, projects, files, termEng, working)
+	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
+	// no new dependency to thread through Register, only to wire in here.
+	h := homehandlers.New(workspaces, projects, files, termEng, working).WithChats(agentChats)
 	th := threadhandlers.New(threadStore, threadBroadcast)
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
