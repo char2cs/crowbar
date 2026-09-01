@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -42,6 +43,20 @@ func seedUnbackfilledWorkspaces(
 ) unbackfilledWorkspaces {
 	t.Helper()
 	h := newHarnessAt(t, home)
+	seeded := writeUnbackfilledWorkspaces(t, h)
+	h.shutdown()
+	return seeded
+}
+
+// writeUnbackfilledWorkspaces plants the fork chain into an ALREADY BOOTED
+// daemon, so a caller that also has to plant pre-backfill chats can do both in
+// the same daemon's life. A second boot would not do: it runs the backfill on
+// the way up, and the rows would be owned before the plant landed.
+func writeUnbackfilledWorkspaces(
+	t *testing.T,
+	h *harness,
+) unbackfilledWorkspaces {
+	t.Helper()
 	ctx := context.Background()
 	born := time.Now().UTC()
 
@@ -62,7 +77,6 @@ func seedUnbackfilledWorkspaces(
 		require.NoError(t, err)
 		require.Empty(t, chats, "precondition: %s must own no chat before the backfill boot", id)
 	}
-	h.shutdown()
 	return seeded
 }
 
@@ -168,6 +182,67 @@ func describeWorkspace(
 	default:
 		return "open-worktree"
 	}
+}
+
+// TestRegression_StartupMintsABranchRowALegacyChatDoesNotStandInFor is the case
+// a real install is full of and a fresh one never produces: a locked branch that
+// has been CHATTED IN before this backfill existed.
+//
+// An ordinary conversation started inside a workspace carries that workspace's
+// id, exactly as an owning row does, so "this workspace has a chat" cannot be
+// the signal for a branch-destined workspace — none of those conversations is
+// drawn as a branch row, and until Task 2 none was even an acceptable parent.
+// The branch row is owed regardless, and the child forked off the branch has to
+// hang off THAT row rather than off the older conversation.
+func TestRegression_StartupMintsABranchRowALegacyChatDoesNotStandInFor(t *testing.T) {
+	home := t.TempDir()
+	first := newHarnessAt(t, home)
+	seeded := writeUnbackfilledWorkspaces(t, first)
+	plantLegacyChat(t, first, seeded.locked)
+	first.shutdown()
+
+	h := newHarnessAt(t, home)
+	h.Quiesce()
+
+	rows, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(context.Background(), seeded.locked)
+	require.NoError(t, err)
+	require.Len(t, rows, 2, "the legacy conversation is kept and the branch row joins it")
+
+	branches := make([]domain.Chat, 0, 1)
+	for _, row := range rows {
+		if row.Type == domain.ChatTypeBranch {
+			branches = append(branches, row)
+		}
+	}
+	require.Len(t, branches, 1, "the locked workspace is owed exactly one branch row")
+	assert.NotEqual(t, legacyChatID, branches[0].ID)
+
+	assert.Equal(t, branches[0].ID, owningChat(t, h, seeded.child).ParentID,
+		"the child hangs off the branch row, not off the conversation that predates it")
+}
+
+// legacyChatID names the pre-backfill conversation the test above plants, so the
+// assertion can say which row it must NOT have been mistaken for.
+const legacyChatID = "legacy-conversation"
+
+// plantLegacyChat writes an ordinary conversation against wsID — the row any
+// workspace that has actually been used carries, in the same shape the daemon's
+// own spawn path writes it (MintChat stamps the workspace id onto every chat
+// started inside one).
+func plantLegacyChat(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) {
+	t.Helper()
+	_, err := h.app.Repositories.AgentChat.Create(context.Background(), agentchat.CreateInput{
+		ID:          legacyChatID,
+		WorkspaceID: wsID,
+		Type:        domain.ChatTypeChat,
+		Now:         time.Now().UTC(),
+	})
+	require.NoError(t, err)
+	h.Quiesce()
 }
 
 // TestRegression_StartupBackfillDoesNotDoubleMintOnASecondBoot is the other half:

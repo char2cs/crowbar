@@ -41,6 +41,20 @@ func seedWorkspace(
 	})
 }
 
+// ownedRows is every chat row carrying wsID.
+func ownedRows(
+	chats *mocks.AgentChatPlacements,
+	wsID string,
+) []domain.Chat {
+	owned := make([]domain.Chat, 0, 1)
+	for _, row := range chats.Rows {
+		if row.WorkspaceID == wsID {
+			owned = append(owned, row)
+		}
+	}
+	return owned
+}
+
 // ownedRow is the single chat row wsID owns. "Exactly one" is the invariant the
 // backfill exists to establish, so both zero and two are a failure.
 func ownedRow(
@@ -49,14 +63,44 @@ func ownedRow(
 	wsID string,
 ) domain.Chat {
 	t.Helper()
-	owned := make([]domain.Chat, 0, 1)
-	for _, row := range chats.Rows {
-		if row.WorkspaceID == wsID {
-			owned = append(owned, row)
-		}
-	}
+	owned := ownedRows(chats, wsID)
 	require.Len(t, owned, 1, "workspace %s must own exactly one row", wsID)
 	return owned[0]
+}
+
+// branchRow is the single BRANCH-typed row carrying wsID, whatever ordinary
+// rows sit beside it.
+func branchRow(
+	t *testing.T,
+	chats *mocks.AgentChatPlacements,
+	wsID string,
+) domain.Chat {
+	t.Helper()
+	branches := make([]domain.Chat, 0, 1)
+	for _, row := range ownedRows(chats, wsID) {
+		if row.Type == domain.ChatTypeBranch {
+			branches = append(branches, row)
+		}
+	}
+	require.Len(t, branches, 1, "workspace %s must own exactly one branch row", wsID)
+	return branches[0]
+}
+
+// seedLegacyChat appends the row a pre-backfill install is full of: an ordinary
+// conversation started inside a workspace, which carries that workspace's id
+// exactly as an owning row would.
+func seedLegacyChat(
+	chats *mocks.AgentChatPlacements,
+	id string,
+	wsID string,
+	createdAtSec int64,
+) {
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID:          id,
+		Type:        domain.ChatTypeChat,
+		WorkspaceID: wsID,
+		CreatedAt:   time.Unix(createdAtSec, 0).UTC(),
+	})
 }
 
 // A workspace's row hangs off its FORK PARENT's own row, which for a chain
@@ -128,6 +172,98 @@ func TestBackfillOwningChats_LeavesAWorkspaceThatAlreadyOwnsARowAlone(t *testing
 	assert.Equal(t, "existing", ownedRow(t, chats, "ws-root").ID, "no second row is minted for it")
 	assert.Equal(t, "existing", ownedRow(t, chats, "ws-child").ParentID,
 		"a child resolves onto the row its parent already had")
+}
+
+// The gate asks a DIFFERENT question of a branch-destined workspace, and this is
+// the case that forces it: a locked branch carrying ordinary conversations from
+// before the backfill existed. Those rows carry its workspace id exactly as an
+// owning row would — a chat started inside a workspace always has — but none of
+// them is drawn as a branch row, so "some chat mentions this workspace" would
+// leave the branch permanently without the row the sidebar addresses it by.
+func TestBackfillOwningChats_MintsTheBranchRowALegacyChatDoesNotStandInFor(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-locked", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+	})
+	seedLegacyChat(chats, "legacy", "ws-locked", 1)
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	minted := branchRow(t, chats, "ws-locked")
+	assert.NotEqual(t, "legacy", minted.ID, "the legacy conversation is not the branch row")
+	assert.Len(t, ownedRows(chats, "ws-locked"), 2, "and it is left standing beside the new one")
+}
+
+// The other half of the same gate: once a branch row exists it is never minted
+// again, whatever ordinary rows sit beside it.
+func TestBackfillOwningChats_LeavesALockedWorkspaceThatAlreadyHasItsBranchRowAlone(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-locked", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+	})
+	seedLegacyChat(chats, "legacy", "ws-locked", 1)
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID: "branch", Type: domain.ChatTypeBranch, WorkspaceID: "ws-locked",
+		CreatedAt: time.Unix(2, 0).UTC(),
+	})
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	assert.Equal(t, "branch", branchRow(t, chats, "ws-locked").ID)
+	assert.Len(t, ownedRows(chats, "ws-locked"), 2, "nothing new is minted")
+}
+
+// A child hangs off the BRANCH row, never off a legacy conversation that
+// happens to predate it. Resolving to the older row would quietly make the
+// child's workspace a thread of somebody's old chat.
+func TestBackfillOwningChats_ChildrenHangOffTheBranchRowNotALegacyChat(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-locked", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+		CreatedAt: time.Unix(1, 0).UTC(),
+	})
+	seedWorkspace(roster, "ws-child", "ws-locked", 2)
+	seedLegacyChat(chats, "legacy", "ws-locked", 1)
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	assert.Equal(t, branchRow(t, chats, "ws-locked").ID, ownedRow(t, chats, "ws-child").ParentID)
+}
+
+// The same answer on the boot AFTER the branch row and the legacy chat start
+// coexisting — the state this gate deliberately creates — where the branch row
+// is no longer the one this pass minted but the one it reads back.
+func TestBackfillOwningChats_ChildrenHangOffAnAlreadyStandingBranchRow(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows, domain.Workspace{
+		ID: "ws-locked", RepoID: repoID, Status: domain.WorkspaceStatusLocked,
+		CreatedAt: time.Unix(1, 0).UTC(),
+	})
+	seedWorkspace(roster, "ws-child", "ws-locked", 2)
+	// The legacy chat is the OLDER row, so a plain creation-order tiebreak picks
+	// it over the branch row.
+	seedLegacyChat(chats, "legacy", "ws-locked", 1)
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID: "branch", Type: domain.ChatTypeBranch, WorkspaceID: "ws-locked",
+		CreatedAt: time.Unix(9, 0).UTC(),
+	})
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	assert.Equal(t, "branch", ownedRow(t, chats, "ws-child").ParentID)
+}
+
+// A REGULAR workspace keeps the original gate. Any chat at all is already what
+// resolveOwningChat treats as its owner, so minting a second row would recreate
+// the ambiguity the gate exists to prevent.
+func TestBackfillOwningChats_LeavesARegularWorkspaceWithALegacyChatAlone(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	seedWorkspace(roster, "ws-plain", "", 1)
+	seedLegacyChat(chats, "legacy", "ws-plain", 1)
+
+	require.NoError(t, uc.BackfillOwningChats(context.Background()))
+
+	assert.Equal(t, "legacy", ownedRow(t, chats, "ws-plain").ID)
 }
 
 // Running the backfill twice over the same daemon mints nothing the second

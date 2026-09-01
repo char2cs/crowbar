@@ -110,26 +110,53 @@ func planBackfill(
 	newID func() string,
 ) []backfillStep {
 	live := liveWorkspaces(workspaces)
-	owning := owningChatIDs(rows)
+	owners := owningRows(rows)
 	slots := siblingCounts(rows)
 	steps := make([]backfillStep, 0, len(live))
 	for _, ws := range rootsFirst(live) {
-		if _, owned := owning[ws.ID]; owned {
+		kind := owningChatType(ws)
+		if alreadyOwned(owners[ws.ID], kind) {
 			continue
 		}
-		parentID := owning[forkParentOf(ws, live)]
+		parentID := owners[forkParentOf(ws, live)].ID
 		id := newID()
 		steps = append(steps, backfillStep{
 			ChatID:      id,
 			WorkspaceID: ws.ID,
-			Type:        owningChatType(ws),
+			Type:        kind,
 			ParentID:    parentID,
 			Order:       slots[parentID],
 		})
 		slots[parentID]++
-		owning[ws.ID] = id
+		owners[ws.ID] = domain.Chat{ID: id, Type: kind, WorkspaceID: ws.ID}
 	}
 	return steps
+}
+
+// alreadyOwned is the idempotency gate, and it asks a DIFFERENT question of the
+// two row kinds.
+//
+// For a workspace owed a BRANCH row — locked, repo home, project home — the
+// question is whether a BRANCH row owns it, because type is structural there. An
+// ordinary chat left over from before this backfill carries the workspace id
+// exactly as an owning row does (every chat started inside a workspace does),
+// but it is not drawn as a branch row and was not even an acceptable parent
+// until checkParentKind was widened — so "some chat mentions this workspace"
+// would leave the branch permanently without the row the sidebar addresses it
+// by. Nothing in this daemon writes a branch row except this backfill, so on an
+// install that never had one the narrower question is the same question.
+//
+// For every other workspace it is the original question — any chat at all —
+// because that is already what resolveOwningChat answers with, so a second row
+// would only recreate the ambiguity this gate exists to prevent.
+func alreadyOwned(
+	owner domain.Chat,
+	kind domain.ChatType,
+) bool {
+	if kind == domain.ChatTypeBranch {
+		return owner.Type == domain.ChatTypeBranch
+	}
+	return owner.ID != ""
 }
 
 // liveWorkspaces indexes every workspace the backfill may mint for. A
@@ -179,43 +206,48 @@ func forkParentOf(
 	return ws.ParentID
 }
 
-// owningChatIDs maps each workspace to the chat row that ALREADY owns it — the
-// gate the whole backfill turns on, and the answer a child's placement resolves
-// against when its fork parent was backfilled on an earlier boot.
+// owningRows maps each workspace to the row that ALREADY owns it — what the
+// gate is asked about, and what a child's placement resolves against when its
+// fork parent was backfilled on an earlier boot.
 //
 // Rows carrying no workspace (folders, and chats still waiting for one) own
-// nothing and are left out, so a lookup for the empty workspace id answers ""
-// — the panel root — rather than some unrelated bubble's id. Where a workspace
-// somehow carries several rows the EARLIEST wins, matching the creation-order
-// tiebreak the rest of the tree sorts on.
-func owningChatIDs(
+// nothing and are left out, so a lookup for the empty workspace id answers the
+// zero row — the panel root — rather than some unrelated bubble's id.
+func owningRows(
 	rows []domain.Chat,
-) map[string]string {
+) map[string]domain.Chat {
 	owners := make(map[string]domain.Chat, len(rows))
 	for _, row := range rows {
 		if row.WorkspaceID == "" {
 			continue
 		}
-		if held, ok := owners[row.WorkspaceID]; ok && earlier(held, row) {
+		if held, ok := owners[row.WorkspaceID]; ok && preferred(held, row) {
 			continue
 		}
 		owners[row.WorkspaceID] = row
 	}
-	ids := make(map[string]string, len(owners))
-	for wsID, row := range owners {
-		ids[wsID] = row.ID
-	}
-	return ids
+	return owners
 }
 
-func earlier(
-	a domain.Chat,
-	b domain.Chat,
+// preferred reports whether held keeps the workspace against challenger.
+//
+// A BRANCH row always wins. Once one exists it IS the workspace's row — what
+// the sidebar draws and what a child has to hang off — and a locked branch that
+// was chatted in before this backfill has ordinary rows OLDER than it, so a
+// plain creation-order tiebreak would quietly make that branch's children
+// threads of somebody's old conversation. Between rows of the same standing the
+// earlier one wins, matching the tiebreak the rest of the tree sorts on.
+func preferred(
+	held domain.Chat,
+	challenger domain.Chat,
 ) bool {
-	if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+	if (held.Type == domain.ChatTypeBranch) != (challenger.Type == domain.ChatTypeBranch) {
+		return held.Type == domain.ChatTypeBranch
+	}
+	if c := held.CreatedAt.Compare(challenger.CreatedAt); c != 0 {
 		return c < 0
 	}
-	return a.ID < b.ID
+	return held.ID < challenger.ID
 }
 
 // siblingCounts is how many rows already sit in each sibling space, which is
