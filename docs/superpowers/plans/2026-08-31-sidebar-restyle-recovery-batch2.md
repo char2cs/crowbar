@@ -323,3 +323,41 @@ git commit -m "fix(sidebar): relocate the project selector to the sidebar's own 
 ```bash
 git commit -m "fix(sidebar): double-click-rename edits inline, matching develop, not a modal"
 ```
+
+---
+
+## Task 12: Fix Recents' blank untitled-chat label, then live-verify every batch-2 task that shipped without a Tauri check
+
+**Inserted mid-execution.** User spotted a live bug (a blank pill in Recents, icon only, no text — Image #11) and asked directly whether every task in this plan was actually verified via the Tauri MCP. Honest answer: not all of them were. This task closes both gaps in one pass.
+
+**Part A — the blank-label bug, already root-caused:**
+
+`web/src/components/sidebar/recents-band.tsx:291` — `RecentsMemberRow` builds its row as `label: chat.title`, with no fallback. `web/src/components/sidebar/lib/rows-from-repo.ts` (the tree's equivalent) correctly does `node.chat.title || UNTITLED_CHAT_LABEL` (imported from `web/src/features/agent/lib/chat-label.ts`) AND sets `labelProvisional: !node.chat.title` for the italic treatment. Recents currently does neither — an untitled chat that's live/working/dormant in Recents renders as a bare pill with no visible label at all, not even a placeholder.
+
+**Files:**
+- Modify: `web/src/components/sidebar/recents-band.tsx` — import `UNTITLED_CHAT_LABEL` from `web/src/features/agent/lib/chat-label.ts`, apply the same `chat.title || UNTITLED_CHAT_LABEL` fallback and `labelProvisional: !chat.title` that the tree row already uses, so a Recents entry for an untitled chat matches the tree's own treatment exactly.
+- Test: `web/src/__tests__/components/sidebar/recents-band.test.tsx`.
+
+**Part B — live-verify what wasn't:**
+
+Per the ledger, these tasks landed on unit-test evidence only, with no confirmed Tauri MCP live check: Task 1 (chat-head pill→underline), Task 3 (New Tab "New Chat" removal), the original Task 4 rename attempt (superseded by Task 11, but the SURFACE it touches — the right-click-menu path — was never itself live-checked), and Task 6 (lock-at-import, explicitly disclosed as mocked-API-only). Drive the live app (Tauri MCP) through each of these specific behaviors and confirm they actually work as shipped, not just as unit-tested. This is not a re-implementation of any of them — only a live confirmation pass, filing any real bug found as its own small, TDD'd fix rather than guessing.
+
+- [ ] **Step 1: Write the failing test for Part A** — a Recents entry for a chat with an empty/falsy `title` renders `UNTITLED_CHAT_LABEL`, italic, exactly matching the tree row's fixture/assertion shape in `sidebar-row.test.tsx` or `rows-from-repo.test.ts` if one exists to mirror.
+
+- [ ] **Step 2: Implement the fallback in `recents-band.tsx`.** Run the test, confirm PASS, run the full `web/src/__tests__/components/sidebar/` directory.
+
+- [ ] **Step 3: Live-verify Part A** via Tauri MCP — get an untitled chat into a Recents-visible state (open it into a pane, or leave it working/dormant per whichever is easiest to reach), screenshot, confirm the label now reads "Untitled chat" in italic, not blank.
+
+- [ ] **Step 4: Live-verify chat-head (Task 1)** — open a pane, confirm the flat-underline treatment renders correctly live (not just via the unit test's class assertions), matching the file tabs beside it.
+
+- [ ] **Step 5: Live-verify New Tab "New Chat" removal (Task 3)** — open a pane's New Tab stage live, confirm only New Terminal/New File show, and confirm the recent-chat-history list's click behavior is what the code review found (opens the chat's own pane, doesn't load into the current editor view).
+
+- [ ] **Step 6: Live-verify rename's right-click path (Task 4's surviving surface)** — right-click a row, click "Rename," confirm the modal opens and a rename round-trips against the real backend. (Double-click's own inline path was already live-verified by Task 11 — this step is specifically the right-click/modal path, which never got its own live check.)
+
+- [ ] **Step 7: Live-verify lock-at-import (Task 6)** — import a branch with the lock choice set, confirm live that the resulting workspace is actually locked (check its row's lock indicator / attempt an action that a locked workspace should refuse), against the real backend, not mocks.
+
+- [ ] **Step 8: For anything found broken in Steps 4-7**, file it as its own small, TDD'd fix (failing test first, real fix, commit) rather than batching unrelated fixes into one commit — same pattern as every other task in this plan.
+
+- [ ] **Step 9: Run the full web gate** (`bun tsc --noEmit`, `bun vitest run`, lint) and report a final live-verification status for every item in Part B, ticked or flagged.
+
+- [ ] **Step 10: Commit** (Part A's fix as its own commit; each Part B fix, if any, as its own commit).
