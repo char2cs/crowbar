@@ -15,6 +15,7 @@ import {
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 // Re-exported for existing importers — the type itself lives in
 // features/panes/types/recents-entry.ts so pane-slice.ts (a store) can hold
@@ -288,7 +289,12 @@ function RecentsMemberRow({
     kind: 'chat',
     parentId: null,
     order: 0,
-    label: chat.title,
+    // Same fallback the tree's own row builder uses (rows-from-repo.ts) — the
+    // tree row and this one render the same chat, so they must agree on what
+    // an unnamed one is called, not one showing a placeholder and the other
+    // showing nothing at all.
+    label: chat.title || UNTITLED_CHAT_LABEL,
+    labelProvisional: !chat.title,
     ownsWorktree: false,
     workspaceId: chat.workspaceId,
     working,
@@ -301,7 +307,10 @@ function RecentsMemberRow({
   return (
     <div
       data-testid={`recents-row-${chat.id}`}
-      className={cn(reserveClose && RECENTS_ROW_CLOSE_RESERVE, cancelOwnMargin && '-mx-1.5 -my-0.5')}
+      className={cn(
+        reserveClose && RECENTS_ROW_CLOSE_RESERVE,
+        cancelOwnMargin && '-mx-1.5 -my-0.5',
+      )}
     >
       <SidebarRow
         row={row}

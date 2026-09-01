@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { RecentsBand, type RecentsBandEntry } from '@/components/sidebar/recents-band'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
 // enough for every test below, none of which exercises a live drag.
@@ -277,6 +278,29 @@ describe('RecentsBand', () => {
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const rowWrapper = screen.getByTestId('recents-row-chat-1')
     expect(rowWrapper.className).not.toMatch(/\bpr-10\b/)
+  })
+
+  // Part A regression (Task 12): the tree's equivalent row builder
+  // (rows-from-repo.ts) falls back to UNTITLED_CHAT_LABEL and marks the row
+  // `labelProvisional` (→ italic, sidebar-row.tsx) whenever `chat.title` is
+  // falsy. RecentsMemberRow built its row straight from `chat.title` with no
+  // fallback, so an untitled chat rendered as a bare pill with no visible
+  // label at all — not even a placeholder.
+  it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback, italic, matching the tree row', () => {
+    setWs1([{ id: 'chat-1', workspaceId: 'ws-1', title: '' }])
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const row = screen.getByTestId('recents-row-chat-1')
+    expect(row).toHaveTextContent(UNTITLED_CHAT_LABEL)
+    const label = row.querySelector('[data-sidebar-row-label]')
+    expect(label).not.toBeNull()
+    expect(label!.className).toMatch(/\bitalic\b/)
   })
 
   it('resolves each entry through its OWN workspace store, not one shared assumption', () => {
