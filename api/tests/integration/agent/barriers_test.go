@@ -384,15 +384,44 @@ func settleCLI(
 	//
 	// KNOWN BROKEN as of 2026-09-01, tracked separately from the selection bug
 	// above (which IS fixed and verified: settleCLI's own screen capture right
-	// after Enter shows "❯ Yes, I trust this folder" correctly selected).
-	// Confirmed live, repeatedly: claude repaints ONE more time after Enter —
-	// the dialog's plain, unselected default state — then produces NOT ONE
-	// further byte for 5+ minutes. No hook subprocess is running as its child
-	// (checked live via pgrep) and the process itself is still alive, just
-	// silent. Root cause not yet found; candidates not yet ruled out: a
-	// network call (update check, auth/license) hanging in this test's
-	// isolated CLAUDE_CONFIG_DIR, or a genuine claude 2.1.257 regression
-	// unrelated to the selection fix above.
+	// after Enter shows "❯ Yes, I trust this folder" correctly selected). Two
+	// CONFIRMED, INDEPENDENT facts, both root-caused live:
+	//
+	//  1. The daemon never learns claude bound: runner.CurrentSession stays ""
+	//     forever. Root cause CONFIRMED by manually re-running claude's own
+	//     SessionStart hook command (copied verbatim out of its --settings
+	//     file, same CROWBAR_HOME) against a hung test — CurrentSession
+	//     flipped to the manually-supplied session id within 2s. So the
+	//     daemon, socket, segment and token are all reachable and correct;
+	//     claude's ORIGINAL automatic delivery attempt failed once
+	//     (transient — most likely a race with the runner row not yet being
+	//     queryable at the exact moment SessionStart fires), and NOTHING
+	//     ever retries it here. In production this self-heals within 1s via
+	//     `go drainHookSpoolLoop(ctx, host)` (cmd/crowbar/main.go, started by
+	//     `crowbar serve`) — but this harness builds its daemon in-process
+	//     (newHarness) and never runs `serve`, so that retry loop never
+	//     starts. A real fix needs the client-side spool/drain logic in
+	//     cmd/crowbar/hook_spool.go (currently unexported, package main)
+	//     moved to an importable package so the test harness can run its own
+	//     copy of the retry loop — a moderate refactor, not attempted here.
+	//
+	//  2. claude's OWN terminal output freezes regardless of (1): manually
+	//     firing the retry above makes CurrentSession correct immediately,
+	//     but claude still never paints another byte — confirmed by watching
+	//     for 30+ seconds after the manual retry succeeded. So claude is not
+	//     blocked on the daemon learning about it; whatever it's stuck on is
+	//     a second, independent problem. `sample`ing the live claude process
+	//     mid-hang shows its main thread genuinely idle in kevent64 (not
+	//     spinning, not crashed) with several established HTTPS connections
+	//     (Anthropic API, GitHub CDN, a googleusercontent IP) — consistent
+	//     with claude legitimately waiting on some network response, but
+	//     WHICH one, and why only in this environment, is not yet found.
+	//     Ruled out as the cause: a hanging/slow SessionStart hook alone
+	//     (tolerated fine up to several seconds in a bare-pty replay), a
+	//     hanging MCP server alone or combined with hooks (also tolerated
+	//     fine), and inherited CLAUDE_CODE_MESSAGING_SOCKET/BRIDGE_SESSION_ID
+	//     env vars from the parent Claude Code session (explicitly unset and
+	//     the hang still reproduced identically).
 	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
 }
 
