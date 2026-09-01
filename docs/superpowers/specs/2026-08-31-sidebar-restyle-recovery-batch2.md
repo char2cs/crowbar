@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-31
 
-**Status:** open for execution.
+**Status:** executed — Tasks 1–6 and 9–11 complete, reviewed, and (where a
+review found something) fix-looped to clean. See §5 for the outcome.
 
 **Relationship to the first recovery pass.** `2026-08-31-sidebar-restyle-recovery.md` (Tasks 1-8) is complete and closed — its four confirmed defects and three production-readiness items are fixed, reviewed, and live-verified. This document does not reopen or re-litigate that work. It exists because the user sent nine additional, direct pieces of feedback (with screenshots) after that pass closed. Each item below was re-grounded against primary sources (the design canvas's actual CSS/annotations, pre-restyle git history, and live re-verification) before being written down — none of it is taken on the screenshots' word alone.
 
@@ -94,3 +95,76 @@
 ## 4. Constraint carried through every task above
 
 **Preserve Recents' reorder animations and styling.** The user's own words: "the animations and styling for reordering the view, should be preserve as chats can now be rearrange as the user wants it to be." None of the tasks above are expected to touch Recents' drag/reorder code directly, but §2's row-unification work changes what counts as a "workspace row" vs. a "chat row" feeding into Recents — verify no animation/reorder regression as part of that task's own testing, not as an afterthought.
+
+---
+
+## 5. Outcome
+
+All nine originally-confirmed items are fixed, reviewed, and live-verified;
+two more (the pane-header container styling and the rename-interaction
+correction) were found and closed mid-execution from the user's own live
+follow-up testing.
+
+- **§1.1 chat-head pill → flat underline** — fixed by extending the shared
+  `Tab` primitive with a `pill`/`underline` variant (the compound
+  `TabsList` variant didn't structurally fit the pane's tab row).
+- **§1.2 file-explorer card head 48px → 28px** — a two-part cascade/padding
+  bug (`sm:h-8` beating `h-7`, plus doubled `py-1` padding), fixed locally
+  in `sidebar-carousel.tsx` without touching the shared primitive.
+- **§1.3 "New Chat" removed from the New Tab empty stage** — the
+  recent-chat-history list was checked and found already correct (routes
+  through the chat view's own slot, never the editor view).
+- **§1.4 double-click rename and icon personalization restored** — icon
+  personalization rebuilt on the still-present `IconPopover` primitive with
+  real, previously-dead backend persistence reconnected. Rename went
+  through a real correction mid-stream: the first attempt (Task 4) reused
+  the right-click menu's modal, which the user caught live as wrong —
+  confirmed directly against `develop`'s actual inline-edit-in-place
+  implementation and rebuilt properly (Task 11), including finding and
+  fixing a genuine race (a live chat renders through two `SidebarRow`
+  instances — its tree row and its Recents twin — that shared one
+  rename-store key).
+- **§1.5 branch lock at import time** — shipped as a frontend-only
+  follow-up-call sequence (the backend mints workspace ids async in a
+  background goroutine, ruling out a trivial atomic extension); one real
+  ordering bug found and fixed (the arrival-watch baseline was captured
+  after the import request instead of before, unlike the codebase's own
+  established `watchReparent` pattern).
+- **§2 workspace/chat unification** — NOT executed in this pass. Confirmed
+  real and comparable in size to the rest of this plan combined (the
+  backend's own code comments admit "Stage 5" was never finished); still
+  queued, not started.
+- **§3.1 project-selector placement** — the user gave a direct, precise
+  correction after this spec's own flagged-not-acted-on placement: moved
+  to the sidebar's own footer, the true last element, below the floating
+  file-explorer card. Verified the card's resize/anchor behavior is
+  unregressed via a live drag test (grew and shrank correctly, stayed
+  anchored to the rail bottom).
+- **Mid-execution addition (not in the original nine):** the pane's
+  identity row shared no background with its content (showed the window's
+  translucent chrome tint while the content below painted an opaque fill
+  with rounded corners only on itself) — fixed by nesting the row inside
+  the already-correctly-styled content box rather than duplicating its
+  styling, preserving the perf-motivated corner-flattening logic
+  (8ms→106ms WKWebView regression) untouched and re-verified at a real
+  window edge.
+- **Follow-up queued, not started:** exposing Files/Git/etc. under
+  `/repos/:rid/chats/:chatId/...` instead of requiring a workspace id up
+  front — user-approved, directly fixes the model spec's own §1.6
+  diagnosis ("the frontend resolves one global 33 times"), sequenced after
+  §2's workspace/chat unification lands. Needs its own scoping pass before
+  a plan can be written.
+
+**Gate at close:** `bun vitest run` 3807/3807 passing across 427 files.
+`bun tsc --noEmit` shows 67 errors, confirmed identical to the pre-restyle
+baseline (`588ae600`) and unrelated to any file this plan touched — every
+task's own review independently confirmed zero new tsc errors in its
+touched files. `bun run lint`'s Prettier check flags ~62 files repo-wide;
+spot-checked against the pre-restyle baseline and confirmed pre-existing,
+long-standing drift (e.g. `ide-shell.tsx` already failed the same check at
+`588ae600`), not something this plan introduced — out of scope to mass-fix
+here.
+
+**What's left, in order:** the workspace/chat unification (§2, backend
+then frontend, the largest remaining piece), then the chat-scoped API
+follow-up queued above.
