@@ -350,6 +350,58 @@ func TestRegression_LockingAWorkspaceGivesItABranchRowWithoutARestart(t *testing
 	assert.Equal(t, domain.ChatTypeBranch, after.Type, "and it is a branch row the moment the lock lands")
 }
 
+// TestRegression_LockingInsideARepoImportedSinceBootParentsTheRowForReal is the
+// runtime trigger's own edge, and the damage it would do is permanent.
+//
+// A repo imported while the daemon is running brings in a whole chain no boot
+// pass has seen. Locking a branch inside it plans a row whose parent is a row
+// the SAME plan mints for its fork parent — so a reconcile that wrote only the
+// locked workspace's own row would file it under an id nothing answers to.
+// Nothing would ever notice: SetPlacement validates no parent, and the workspace
+// then reads as owned on every later boot, so no backfill repairs it.
+func TestRegression_LockingInsideARepoImportedSinceBootParentsTheRowForReal(t *testing.T) {
+	h := newHarnessAt(t, t.TempDir())
+	ctx := context.Background()
+
+	// Written while the daemon RUNS, so the boot pass never saw either of them —
+	// what an import lands mid-session.
+	born := time.Now().UTC()
+	for i, in := range []wsrepo.CreateInput{
+		{ID: "ws-home", RepoID: "repo-1", ProjectID: "prj-1", Branch: "main", IsDefault: true},
+		{ID: "ws-child", RepoID: "repo-1", ProjectID: "prj-1", Branch: "release", ParentID: "ws-home"},
+	} {
+		in.WorktreePath = filepath.Join(h.home, "imported", in.ID, "worktree")
+		_, err := h.app.Repositories.Workspace.Create(ctx, in, born.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+	}
+	h.Quiesce()
+	require.Empty(t, ownedChats(t, h, "ws-home"), "precondition: the parent owns no row yet")
+
+	locked := true
+	_, err := h.app.Usecases.Workspace.SetLock(ctx, "ws-child", &locked)
+	require.NoError(t, err)
+	h.Quiesce()
+
+	child := owningChat(t, h, "ws-child")
+	assert.Equal(t, domain.ChatTypeBranch, child.Type)
+	require.NotEmpty(t, child.ParentID, "the locked branch hangs off its repo home, not the panel root")
+	assert.Equal(t, owningChat(t, h, "ws-home").ID, child.ParentID,
+		"and off a row that EXISTS — a parent id naming nothing is written happily and never repaired")
+}
+
+// ownedChats is every chat row carrying wsID, for the preconditions that need to
+// see none rather than exactly one.
+func ownedChats(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) []domain.Chat {
+	t.Helper()
+	chats, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(context.Background(), wsID)
+	require.NoError(t, err)
+	return chats
+}
+
 // TestRegression_StartupBackfillDoesNotDoubleMintOnASecondBoot is the other half:
 // the backfill runs on EVERY boot, so a second one over already-backfilled rows
 // must mint nothing. Without the per-workspace gate each restart would add

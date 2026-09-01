@@ -47,19 +47,37 @@ type adoptStep struct {
 }
 
 // forWorkspace narrows a whole-daemon plan to the one workspace a runtime
-// trigger asked about.
+// trigger asked about, PLUS every row that workspace's own placement depends on.
 //
 // The plan is computed across every workspace either way, and it has to be: a
 // row's ParentID is its fork parent's own owning row, so the decision cannot be
 // taken for one workspace in isolation. What narrows is only what gets WRITTEN
 // — a user locking one branch does not silently reconcile every other workspace
 // in the daemon on its way through.
+//
+// The ancestors are the exception, and they are not a courtesy. A repo imported
+// since the last boot has a whole chain nothing has backfilled, so the target's
+// ParentID can name a row this same plan is about to mint for its fork parent.
+// Writing the target without that parent files it under an id nothing answers
+// to — and the damage is PERMANENT: SetPlacement validates no parent, so the
+// phantom is written happily, and alreadyOwned then reports the workspace
+// satisfied on every later boot, so no backfill ever repairs it. mintAll's own
+// guard does not catch this either; it skips a child whose parent step FAILED,
+// and a step that was never in the slice fails nothing.
+//
+// Only MINT steps are pulled in. An ancestor that merely needs retyping already
+// has its row, so the target's ParentID names something real whether or not that
+// retype happens, and the boot pass will take it.
 func (p backfillPlan) forWorkspace(
 	workspaceID string,
 ) backfillPlan {
-	narrowed := backfillPlan{Mint: make([]backfillStep, 0, 1), Adopt: make([]adoptStep, 0, 1)}
+	needed := p.mintsBehind(workspaceID)
+	narrowed := backfillPlan{Mint: make([]backfillStep, 0, len(needed)), Adopt: make([]adoptStep, 0, 1)}
+	// Ranged over the ORIGINAL slice, so the survivors keep the root-first order
+	// planBackfill put them in — which is what lets mintAll rely on a parent
+	// being written before the row that names it.
 	for _, step := range p.Mint {
-		if step.WorkspaceID == workspaceID {
+		if needed[step.ChatID] {
 			narrowed.Mint = append(narrowed.Mint, step)
 		}
 	}
@@ -69,6 +87,35 @@ func (p backfillPlan) forWorkspace(
 		}
 	}
 	return narrowed
+}
+
+// mintsBehind is the set of planned rows workspaceID's own row cannot be written
+// without: its own, and the unbroken chain of planned ancestors it hangs off.
+//
+// The walk stops as soon as a ParentID names something the plan is NOT minting,
+// which is the ordinary case — that id is a row already standing.
+func (p backfillPlan) mintsBehind(
+	workspaceID string,
+) map[string]bool {
+	planned := make(map[string]backfillStep, len(p.Mint))
+	for _, step := range p.Mint {
+		planned[step.ChatID] = step
+	}
+	needed := make(map[string]bool, len(p.Mint))
+	for _, step := range p.Mint {
+		if step.WorkspaceID != workspaceID {
+			continue
+		}
+		for at := step; !needed[at.ChatID]; {
+			needed[at.ChatID] = true
+			parent, ok := planned[at.ParentID]
+			if !ok {
+				break
+			}
+			at = parent
+		}
+	}
+	return needed
 }
 
 // planBackfill decides the whole backfill from one census of the workspaces and

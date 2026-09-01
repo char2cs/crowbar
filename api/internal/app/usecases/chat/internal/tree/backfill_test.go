@@ -411,6 +411,62 @@ func TestEnsureOwningChat_TouchesNoOtherWorkspace(t *testing.T) {
 	assert.Empty(t, ownedRows(chats, "ws-bystander"), "the bystander is left for the boot pass")
 }
 
+// The narrowing keeps what the target's OWN placement depends on. A repo
+// imported since the last boot has a whole chain nothing has backfilled, so a
+// lock on a branch inside it plans a row whose ParentID is a row the same plan
+// is about to mint for its fork parent — and dropping that parent's step would
+// file the child under an id nothing answers to.
+//
+// The damage would be permanent, which is what makes this worth a test of its
+// own: SetPlacement validates no parent, so the phantom is written happily, and
+// alreadyOwned then reports the workspace satisfied on every later boot, so
+// nothing ever repairs it.
+func TestEnsureOwningChat_MintsTheAncestorRowsItsOwnPlacementNeeds(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows,
+		domain.Workspace{
+			ID: "ws-home", RepoID: repoID, IsDefault: true, CreatedAt: time.Unix(1, 0).UTC(),
+		},
+		domain.Workspace{
+			ID: "ws-child", RepoID: repoID, ParentID: "ws-home",
+			Status: domain.WorkspaceStatusLocked, CreatedAt: time.Unix(2, 0).UTC(),
+		},
+	)
+
+	require.NoError(t, uc.EnsureOwningChat(context.Background(), roster.Rows[1]))
+
+	home := ownedRow(t, chats, "ws-home")
+	child := ownedRow(t, chats, "ws-child")
+	assert.Equal(t, home.ID, child.ParentID, "the child hangs off a row that actually exists")
+	assert.NotEmpty(t, child.ParentID, "and it is not left at the root either")
+}
+
+// The chain is pulled in as far as it goes, not one level.
+func TestEnsureOwningChat_MintsAWholeUnownedAncestorChain(t *testing.T) {
+	chats, uc, roster := newUsecaseWithRoster(t)
+	roster.Rows = append(roster.Rows,
+		domain.Workspace{
+			ID: "ws-home", RepoID: repoID, IsDefault: true, CreatedAt: time.Unix(1, 0).UTC(),
+		},
+		domain.Workspace{
+			ID: "ws-mid", RepoID: repoID, ParentID: "ws-home", CreatedAt: time.Unix(2, 0).UTC(),
+		},
+		domain.Workspace{
+			ID: "ws-leaf", RepoID: repoID, ParentID: "ws-mid",
+			Status: domain.WorkspaceStatusLocked, CreatedAt: time.Unix(3, 0).UTC(),
+		},
+	)
+
+	require.NoError(t, uc.EnsureOwningChat(context.Background(), roster.Rows[2]))
+
+	home := ownedRow(t, chats, "ws-home")
+	mid := ownedRow(t, chats, "ws-mid")
+	leaf := ownedRow(t, chats, "ws-leaf")
+	assert.Equal(t, "", home.ParentID)
+	assert.Equal(t, home.ID, mid.ParentID)
+	assert.Equal(t, mid.ID, leaf.ParentID)
+}
+
 // A workspace locked at runtime that has never been backfilled at all still
 // ends up owning a row — the ensure path mints as well as adopts.
 func TestEnsureOwningChat_MintsWhenTheWorkspaceOwnsNothingYet(t *testing.T) {
