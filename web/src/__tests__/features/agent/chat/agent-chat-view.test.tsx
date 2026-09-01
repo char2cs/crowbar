@@ -1448,6 +1448,44 @@ describe('AgentChatView non-conversational roles', () => {
       expect(divider.textContent).toMatch(/compacted automatically/i)
     })
   })
+
+  // REGRESSION: a provider's own failure notice ("model_not_found") rendered
+  // AFTER a later "Switched to Claude" divider — as if the OLD provider's
+  // error belonged to the NEW session. The failure happened, and was fully
+  // recorded, strictly BEFORE the switch (its sequence is lower), so the row
+  // must sit above the divider that follows it.
+  describe('a stale provider failure and a later switch', () => {
+    it('keeps the failure notice ABOVE the switch that came after it', async () => {
+      initialMessages = [
+        roleMessage(1, 'notice', "There's an issue with the selected model (gpt-5.4-mini)."),
+      ]
+      activityFn.mockResolvedValue({
+        ...emptyActivity,
+        interruptions: [
+          {
+            id: 'sw-1',
+            turnId: '',
+            seq: 2,
+            kind: 'provider_switched' as const,
+            detail: 'claude',
+            at: '2026-08-16T00:00:02Z',
+            resolvedAt: '2026-08-16T00:00:02Z',
+          },
+        ],
+      })
+      // A message after the switch is what gives its divider something to
+      // anchor before, and what stops the notice being the LAST message —
+      // haltedBy suppresses a trailing notice into the bar, not a row, so
+      // without this the notice would never reach the transcript at all.
+      initialMessages.push(message(3, 'assistant', 'hi from claude', 'claude'))
+      setup()
+
+      const notice = await screen.findByText(/model_not_found|gpt-5\.4-mini/i)
+      const divider = await screen.findByTestId('agent-event-divider')
+      expect(divider.textContent).toMatch(/Switched to Claude/i)
+      expect(notice.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
 })
 
 describe('AgentChatView surface hotswap', () => {
