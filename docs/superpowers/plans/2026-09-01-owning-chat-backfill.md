@@ -216,7 +216,35 @@ git commit -m "fix(sidebar): a regular forked workspace's + action resolves its 
 
 ---
 
-## Task 7: Live verification and full-gate close-out
+## Task 7 (inserted mid-execution): Backend — allow forking an own-worktree chat from a worktree-owning chat parent
+
+**Why inserted:** Task 6's implementer wired the frontend to send a regular forked workspace's real `owningChatId` as `parentId` — but the backend still refuses it. `checkParentKind` (widened by Task 2 to accept `ChatTypeFolder`/`ChatTypeBranch` parents unconditionally) still requires `row.WorkspaceID == workspaceID` for a `ChatTypeChat` parent — and for an own-worktree creation, the new chat's target `workspaceID` is `""` at validation time (the workspace doesn't exist yet), which can never equal the parent's real `WorkspaceID`. So a regular forked workspace's "+" → "Create workspace" (fork a NEW own-worktree chat from an EXISTING worktree-owning chat) is refused with `ErrCrossWorkspace`, pinned by the existing `TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace`. This is the last piece needed to close all three cases from the original bug report (repo-home, locked branch, regular forked workspace).
+
+**The narrow, correct widening — do not widen further than this:** an ORDINARY thread (not an own-worktree creation) placed under a worktree-owning `ChatTypeChat` parent must still be refused if it doesn't share that parent's workspace — that invariant is real and load-bearing (a thread inherits its parent's cwd; a thread claiming a different workspace than its parent is meaningless). Only the OWN-WORKTREE-creation case should bypass the check, and only when the parent itself already carries a worktree (`row.WorkspaceID != ""`) — i.e., forking a new workspace FROM an existing worktree-owning row is legal (matches model spec §4.1: "Under a row that carries a branch the new row is a worktree"), exactly like it already is from a `ChatTypeBranch` row.
+
+**Files:**
+- Modify: `api/internal/app/usecases/chat/internal/tree/validate.go` (`checkParentKind`, and/or `checkChatContainer` if that's where the own-worktree-vs-ordinary-thread distinction needs to be threaded through — read both in full first, per Task 2's own established pattern)
+- Test: alongside the existing tests for `checkParentKind`/`checkChatContainer`.
+
+**Interfaces:** none new — widens existing internal validation, same as Task 2.
+
+- [ ] **Step 1: Read `checkParentKind` and `checkChatContainer` in full** (current HEAD, post Task 3's several rounds of changes to this package — re-read, don't rely on Task 2's now-stale read). Find exactly how "this is an own-worktree creation, not an ordinary thread" is signaled at the point `checkParentKind` runs — trace it from `createOwnWorktreeChat`/`checkNewChatParent` (named in Task 6's report as the call path that currently refuses this case) down to `checkParentKind` itself, so you know what parameter or context already distinguishes the two cases (or needs to, if it doesn't yet).
+
+- [ ] **Step 2: Write the failing test.** Mirror `TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace`'s exact shape, but for the own-worktree-creation path specifically: a new own-worktree chat, forked from an EXISTING worktree-owning `ChatTypeChat` parent in a different workspace, must now SUCCEED (not refuse). Also write (or confirm already exists and still passes) a test proving the ORDINARY-thread case is UNCHANGED: a plain thread (not own-worktree) placed under a worktree-owning `ChatTypeChat` parent in a different workspace must still be refused with `ErrCrossWorkspace`. Confirm the first fails and the second already passes against current code before implementing.
+
+- [ ] **Step 3: Implement the narrowest widening that makes both tests pass** — informed by Step 1's tracing, not guessed.
+
+- [ ] **Step 4: Run the full test suite for the `tree` package**, confirm PASS, confirm the pre-existing `ChatTypeFolder`/`ChatTypeBranch` bypass tests and the ordinary-thread-cross-workspace-refusal test are all unaffected.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "fix(chat): an own-worktree chat can fork from a worktree-owning chat, not just a branch"
+```
+
+---
+
+## Task 8: Live verification and full-gate close-out
 
 **Files:** none modified — verification only. If this task finds a real defect, fix it in the smallest possible diff to the file(s) actually at fault and note the fix in the commit; do not expand scope beyond what verification reveals broken.
 
