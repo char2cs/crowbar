@@ -340,6 +340,22 @@ func TestCreateChat_OwnWorktree_RefusesAChatParentInAnotherWorkspace(t *testing.
 	assert.Empty(t, chats.Minted)
 }
 
+// A BRANCH parent, unlike a CHAT parent, carries no workspace to conflict
+// with: a locked branch or repo-home row is a process boundary, not a
+// workspace boundary ("Locked means no commits and no branches here, not no
+// process here" — 2026-08-23-unified-sidebar-design.md §3.1). A bubble
+// placed under one runs in that branch's own worktree regardless of which
+// workspace minted it, so the cross-workspace refusal above must NOT fire
+// here.
+func TestCreateChat_OwnWorktree_AcceptsABranchParentInAnotherWorkspace(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "b-other", Type: domain.ChatTypeBranch, WorkspaceID: "ws-2"})
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", "b-other", true)
+	assert.NoError(t, err)
+}
+
 // A create the user was told FAILED must not leave a chat behind — the same
 // contract the plain-bubble path's own discard tests pin, now covering the
 // failure that is unique to this branch: the slot never got filled at all.

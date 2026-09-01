@@ -75,10 +75,11 @@ func (u *chatFolderUsecase) checkChatMove(
 }
 
 // checkChatContainer validates a chat's parent id: "" is the panel root, a
-// FOLDER is accepted unconditionally (it carries no workspace to conflict
-// with), and a CHAT must belong to workspaceID. A row that resolves to a
-// DIFFERENT workspace is reported as a cross-workspace edge rather than as a
-// missing row, because the two are fixed in different ways.
+// FOLDER or a BRANCH is accepted unconditionally (neither carries a workspace
+// to conflict with — a branch row is a process boundary, not a workspace one),
+// and a CHAT must belong to workspaceID. A row that resolves to a DIFFERENT
+// workspace is reported as a cross-workspace edge rather than as a missing
+// row, because the two are fixed in different ways.
 func (u *chatFolderUsecase) checkChatContainer(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -111,7 +112,7 @@ func checkParentKind(
 	workspaceID string,
 	parentID string,
 ) error {
-	if row.Type == domain.ChatTypeFolder {
+	if row.Type == domain.ChatTypeFolder || row.Type == domain.ChatTypeBranch {
 		return nil
 	}
 	if row.WorkspaceID == workspaceID {
