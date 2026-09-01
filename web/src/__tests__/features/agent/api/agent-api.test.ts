@@ -287,6 +287,31 @@ describe('agent-api', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
+  // Task 8: the sidebar's "create workspace" affordance — no workspace exists
+  // yet to derive a chatBase scope from, so this is built straight off
+  // project+repo instead.
+  it('createChatWithOwnWorktree POSTs ownWorktree:true with no workspaceId, and returns the new id', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    const id = await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1')
+    expect(id).toBe('c9')
+    const [url, init] = apiFetch.mock.calls[0]
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats')
+    expect(init).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ provider: 'codex', parentId: 'home-1', ownWorktree: true }),
+    })
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body).not.toHaveProperty('workspaceId')
+  })
+
+  it('createChatWithOwnWorktree defaults parentId to the panel root', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex')
+    expect(apiFetch.mock.calls[0][1]).toMatchObject({
+      body: JSON.stringify({ provider: 'codex', parentId: '', ownWorktree: true }),
+    })
+  })
+
   it('switchProvider POSTs to /switch and returns the NEW RUNNER id', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')

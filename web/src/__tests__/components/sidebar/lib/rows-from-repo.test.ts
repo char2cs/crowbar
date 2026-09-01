@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {
@@ -331,5 +332,73 @@ describe('rowsFromRepo — chat rows', () => {
       expect(row?.parentId).toBe('ws-home')
       expect(row?.workspaceId).toBe('ws-in-r2')
     })
+  })
+})
+
+/**
+ * Task 8: the sidebar's "create workspace" affordance now mints the
+ * workspace AND its first chat in ONE atomic backend call
+ * (`POST .../chats {ownWorktree: true}`, space-content-actions.ts's
+ * `handleCreate`) instead of the old, chat-less `postWorkspace` — a bare
+ * branch row on its own, with a conversation appearing under it only later,
+ * from a SEPARATE user action. This pins that once both land, the chat half
+ * of that atomic create renders as a REAL, complete `chat`-kind row —
+ * labelled, correctly typed, carrying the workspace it owns — not dropped or
+ * misrouted into looking like a second, empty branch.
+ */
+describe('rowsFromRepo — an atomically-created own-worktree chat', () => {
+  it('the fresh workspace and its owning chat both render, together, the moment they land', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'workspace-abc123' })],
+      chats: [makeTestChat({ id: 'c-1', title: '', workspaceId: 'ws-1' })],
+    })
+    const rows = rowsFromRepo(repo)
+
+    const chatRow = rows.find((r) => r.id === 'c-1')
+    expect(chatRow?.kind).toBe('chat')
+    expect(chatRow?.workspaceId).toBe('ws-1')
+    expect(chatRow?.label).toBe(UNTITLED_CHAT_LABEL)
+
+    const branchRow = rows.find((r) => r.id === 'ws-1')
+    expect(branchRow?.kind).toBe('branch')
+
+    // Unlike the old two-step flow, there is no repo state where the fresh
+    // workspace exists with nothing running in it: both rows come from the
+    // SAME repo snapshot, in the SAME render.
+    expect(rows.filter((r) => r.id === 'ws-1' || r.id === 'c-1')).toHaveLength(2)
+  })
+})
+
+/**
+ * Constraint from the plan: the three protected/locked-branch rows (develop,
+ * main, project home) never go through `handleCreate`'s create-workspace
+ * path — but this is the one case the migration must never touch, so it gets
+ * an explicit regression test proving they still render exactly as before:
+ * chat-less `branch`-kind rows, even in a repo that otherwise has chats.
+ */
+describe('rowsFromRepo — protected branches stay chat-less branch rows', () => {
+  it('the project-home row stays chat-less and branch-kind', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      defaultBranch: 'main',
+      chats: [makeTestChat({ id: 'c-1', title: 'unrelated', workspaceId: 'ws-1' })],
+    })
+    const home = rowsFromRepo(repo).find((r) => r.id === 'ws-home')
+    expect(home?.kind).toBe('branch')
+    expect(home?.ownsWorktree).toBe(true)
+  })
+
+  it('a locked branch (develop) stays chat-less and branch-kind, even with other chats in the repo', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'develop', branch: 'develop', status: 'locked' })],
+      chats: [makeTestChat({ id: 'c-1', title: 'unrelated', workspaceId: 'ws-home' })],
+    })
+    const rows = rowsFromRepo(repo)
+    const develop = rows.find((r) => r.id === 'develop')
+    expect(develop?.kind).toBe('branch')
+    expect(develop?.ownsWorktree).toBe(true)
+    expect(rows.some((r) => r.kind === 'chat' && r.workspaceId === 'develop')).toBe(false)
   })
 })

@@ -8,12 +8,15 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const { postWorkspace, createChat, deleteChat, toastError } = vi.hoisted(() => ({
-  postWorkspace: vi.fn(() => Promise.resolve()),
-  createChat: vi.fn(() => Promise.resolve('chat-1')),
-  deleteChat: vi.fn(() => Promise.resolve()),
-  toastError: vi.fn(),
-}))
+const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
+  () => ({
+    postWorkspace: vi.fn(() => Promise.resolve()),
+    createChat: vi.fn(() => Promise.resolve('chat-1')),
+    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+    deleteChat: vi.fn(() => Promise.resolve()),
+    toastError: vi.fn(),
+  }),
+)
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
@@ -22,6 +25,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
   createChat,
+  createChatWithOwnWorktree,
   deleteChat,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -37,6 +41,7 @@ import {
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -55,6 +60,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
+  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
+  // CLI, unlike the old chat-less postWorkspace) — the global provider store
+  // (agent-providers-store.ts), not a per-workspace one, since there is no
+  // workspace yet to scope a per-workspace read through.
+  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
 describe('resolveRow', () => {
@@ -196,22 +206,37 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 })
 
+// Task 8: "create workspace" now mints the workspace AND its first chat
+// atomically (POST .../chats {ownWorktree: true}) instead of the old
+// chat-less postWorkspace — a bare branch row today, with a separate child
+// chat row only once something ELSE later starts a conversation in it. One
+// call now produces both at once (model spec §4.1, "one command replaces
+// every create path").
 describe('creating a workspace off the repo-home row', () => {
-  it('posts with the repo-home id as parentId, never an empty placement', async () => {
+  it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
     useSidebarStore.setState({ repos: [repo()] })
 
     handleCreate('home-1', 'workspace')
     await Promise.resolve()
 
-    expect(postWorkspace).toHaveBeenCalledExactlyOnceWith(
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
       'p1',
       'r1',
-      expect.stringMatching(/^workspace-/),
-      { parentId: 'home-1' },
+      'claude',
+      'home-1',
     )
+    expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  it('posts a real fork parent for a non-home workspace row too', async () => {
+  it('names the clicked row as parentId for a non-home workspace row too', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
@@ -219,12 +244,34 @@ describe('creating a workspace off the repo-home row', () => {
     handleCreate('ws-a', 'workspace')
     await Promise.resolve()
 
-    expect(postWorkspace).toHaveBeenCalledExactlyOnceWith(
-      'p1',
-      'r1',
-      expect.stringMatching(/^workspace-/),
-      { parentId: 'ws-a' },
-    )
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'claude', 'ws-a')
+  })
+
+  it('picks the first ENABLED provider from the global provider store', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'disabled-one', enabled: false },
+        { id: 'codex', enabled: true },
+      ] as never,
+    })
+    useSidebarStore.setState({ repos: [repo()] })
+
+    handleCreate('home-1', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'codex', 'home-1')
+  })
+
+  it('is a silent no-op with no enabled provider loaded yet', async () => {
+    useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+    useSidebarStore.setState({ repos: [repo()] })
+
+    handleCreate('home-1', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+    expect(postWorkspace).not.toHaveBeenCalled()
   })
 })
 

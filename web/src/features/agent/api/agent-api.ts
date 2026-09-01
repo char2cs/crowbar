@@ -869,6 +869,39 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
   return res.id
 }
 
+/**
+ * Create a chat AND mint a fresh workspace for it to own, atomically (model
+ * spec §4.1's "own worktree" create; backend Task 7,
+ * `chat/handlers/chats.go`'s `Create`). Used by the sidebar's "create
+ * workspace" affordance (space-content-actions.ts's `handleCreate`) in place
+ * of the old two-step `postWorkspace` (a bare, chat-less workspace) plus a
+ * later, separate chat create — this is ONE request, so the row that results
+ * already has its first conversation running.
+ *
+ * Unlike `createChat`, this names NO workspace at all — there is none to name
+ * yet — so it is built straight off project+repo rather than through
+ * `chatBase`'s workspace-scope resolution, which requires an EXISTING
+ * workspace to resolve a scope from. `workspaceId` is omitted from the body
+ * entirely: the backend's `ownWorktree` only takes effect when the request
+ * names no workspace, and an omitted key is the same "" its Go struct would
+ * bind anyway.
+ */
+export async function createChatWithOwnWorktree(
+  projectId: string,
+  repoId: string,
+  provider: string,
+  parentId = '',
+): Promise<string> {
+  const p = encodeURIComponent(projectId)
+  const r = encodeURIComponent(repoId)
+  const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, parentId, ownWorktree: true }),
+  })
+  return res.id
+}
+
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.

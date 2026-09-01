@@ -4,9 +4,9 @@ import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
-import { postWorkspace } from '@/lib/api'
-import { createChat, deleteChat } from '@/features/agent/api/agent-api'
+import { createChat, createChatWithOwnWorktree, deleteChat } from '@/features/agent/api/agent-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { scopedWorkspaceIdOf } from '@/components/sidebar/lib/row-actions'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -242,17 +242,23 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   if (!projectId) return
 
   if (kind === 'workspace') {
-    // §3.4: a new workspace is minted with a generated slug, not a typed
-    // name — SidebarRow's "+" has no naming step. The slug settles later
-    // (an agent renames the branch); this bridge only mints it.
-    const branch = `workspace-${crypto.randomUUID().slice(0, 8)}`
-    // Matches the old placementFor exactly: a folder is placement only, and
-    // every other row — the repo-home row included — is the FORK PARENT.
-    // The repo-home id is a real, correct parentId to send: dropping it
-    // (posting with no parentId at all) is what silently lost merge-back
-    // eligibility (MergeEligibility keys on ws.ParentID != "").
-    const placement = subject.kind === 'folder' ? { folderId: parentId } : { parentId }
-    postWorkspace(projectId, repo.id, branch, placement).catch((err: unknown) => {
+    // Task 8: mints the workspace AND its first chat in ONE call (POST
+    // .../chats {ownWorktree: true} — backend Task 7) instead of the old
+    // chat-less postWorkspace, which produced a bare branch row now and a
+    // separate child chat row only once something else later started a
+    // conversation in it. `parentId` is the clicked row's own id, same as
+    // the old fork-parent mapping (a folder is the one exception the old
+    // `placement` distinguished — that split has no counterpart on this
+    // endpoint's single `parentId`, so a folder click also just names
+    // itself here).
+    //
+    // A generated branch name is no longer minted client-side either: the
+    // server names it the same way Promote's spontaneous create already
+    // does (model spec §4.1), since this is the same "nothing of its own
+    // to name the branch" shape.
+    const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
+    if (!provider) return
+    createChatWithOwnWorktree(projectId, repo.id, provider.id, parentId).catch((err: unknown) => {
       toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
     })
     return
