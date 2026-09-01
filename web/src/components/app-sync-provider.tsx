@@ -132,8 +132,11 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       // nothing else can distinguish them: `success(old)` and `success(new)`
       // are the same shape, and only object identity says which one the read
       // actually produced. Safe to compare against everything that lands after
-      // this line — `fetch()` bumps `latestFetch` synchronously, so every
-      // older in-flight fetch is already barred from writing.
+      // this line — `fetch()` bumps `latestFetch` synchronously, and
+      // loadable-slice re-checks it on BOTH sides of its cache write, so every
+      // older in-flight fetch is barred from publishing. Drop the check after
+      // that write and this gate silently reads a pre-claim snapshot as a
+      // brand-new one.
       const before = useWorkspaceListStore.getState().data
       await useWorkspaceListStore.getState().fetch()
       let opened = false

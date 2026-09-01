@@ -46,19 +46,28 @@ vi.mock('@/lib/ws/entity-stream', () => ({
   subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
 }))
 
-// The workspace-list cache lookup `loadable-slice.fetch` awaits BEFORE its
-// first supersede check. Wrapped so one test can be inside that exact window
-// when a newer fetch is issued — the only way to reach the early return that
-// publishes nothing at all. Defaults straight through to the real one.
-const { loadCacheSpy, realLoadCache } = vi.hoisted(() => ({
+// The two cache calls `loadable-slice.fetch` awaits around its supersede
+// checks: the lookup BEFORE the first one, and the WRITE after the last one.
+// Wrapped so one test each can be inside that exact window when a newer fetch
+// is issued — the lookup reaches the early return that publishes nothing at
+// all, the write reaches the late publication that happens anyway. Both
+// default straight through to the real ones.
+const { loadCacheSpy, realLoadCache, saveCacheSpy, realSaveCache } = vi.hoisted(() => ({
   loadCacheSpy: vi.fn(),
   realLoadCache: { fn: null as null | ((...a: unknown[]) => Promise<unknown>) },
+  saveCacheSpy: vi.fn(),
+  realSaveCache: { fn: null as null | ((...a: unknown[]) => Promise<void>) },
 }))
 
 vi.mock('@/lib/persistence/cache-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/persistence/cache-store')>()
   realLoadCache.fn = actual.loadCache as (...a: unknown[]) => Promise<unknown>
-  return { ...actual, loadCache: (...a: unknown[]) => loadCacheSpy(...a) }
+  realSaveCache.fn = actual.saveCache as (...a: unknown[]) => Promise<void>
+  return {
+    ...actual,
+    loadCache: (...a: unknown[]) => loadCacheSpy(...a),
+    saveCache: (...a: unknown[]) => saveCacheSpy(...a),
+  }
 })
 
 // The sidebar's cache READ, wrapped so one test can hold it open mid-flight and
@@ -174,6 +183,7 @@ beforeEach(async () => {
 
   readTree.mockImplementation(() => realRead.fn!())
   loadCacheSpy.mockImplementation((...a: unknown[]) => realLoadCache.fn!(...a))
+  saveCacheSpy.mockImplementation((...a: unknown[]) => realSaveCache.fn!(...a))
   subscribeEntityStream.mockImplementation(() => vi.fn())
   fetchRepos.mockResolvedValue([])
   fetchWorkspaces.mockResolvedValue([])
@@ -895,6 +905,111 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       ])
     } finally {
       unsubscribe()
+    }
+  })
+
+  // Fix round 4 (second review), the FOURTH path — and the one the identity
+  // check above was assumed to have closed. Its soundness rested on "a fetch
+  // in flight from before the claim is already barred from writing", which
+  // `latestFetch` does not quite guarantee: the last check sits BEFORE the
+  // cache write, and the store write comes AFTER it. A pre-claim fetch that was
+  // inside that write when a newer one superseded it publishes `success(stale)`
+  // anyway, LAST — a brand-new object carrying a read that predates the chats.
+  // Identity cannot see that either, so the gate opened onto pre-seed rows and
+  // `rows-from-repo.ts` threw in render, exactly as in the three rounds before.
+  it('does not open the gate from a pre-claim read that wrote LATE, after its own supersede', async () => {
+    const r1Chats = deferred<ChatDTO[]>()
+    fetchRepoChats.mockImplementation(() => r1Chats.promise)
+
+    const opened: { repos: Repo[] | null } = { repos: null }
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (opened.repos === null && state.seededRepoIds.has('r1')) {
+        opened.repos = useSidebarStore.getState().repos
+      }
+    })
+
+    const parked = deferred()
+    const mine = deferred()
+    const newer = deferred()
+    let reachedWrite = false
+
+    try {
+      render(
+        <AppSyncProvider>
+          <div />
+        </AppSyncProvider>,
+      )
+      await settle()
+      act(() => {
+        useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+      })
+      await settle()
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(false)
+
+      // A fetch issued BEFORE r1's chats exist, held inside its cache write —
+      // past the last supersede check, so releasing it publishes whatever it
+      // read back then. `workspace:updated` (lib/events/connect.ts) and the
+      // hydration gate both issue exactly this.
+      let armed = true
+      saveCacheSpy.mockImplementation(async (...a: unknown[]) => {
+        if (armed && a[0] === 'workspaces-data') {
+          armed = false
+          reachedWrite = true
+          await parked.promise
+        }
+        return realSaveCache.fn!(...a)
+      })
+      void useWorkspaceListStore.getState().fetch()
+      await settle()
+      // The precondition the whole path rests on, asserted rather than assumed.
+      expect(reachedWrite).toBe(true)
+
+      // Hold the next two reads: the rebuild's own fetch, and the fetch that
+      // supersedes it — so neither can publish over the late write below.
+      let reads = 0
+      readTree.mockImplementation(async () => {
+        const n = ++reads
+        const rows = await realRead.fn!()
+        if (n === 1) await mine.promise
+        if (n === 2) await newer.promise
+        return rows
+      })
+
+      // r1's chats land and queue it. The rebuild that follows claims r1, takes
+      // its `before` snapshot and holds on read #1.
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      await settle()
+
+      // Somebody else fetches: the rebuild's own fetch is now doomed to return
+      // without writing, and this one is held on read #2.
+      void useWorkspaceListStore.getState().fetch()
+      await settle()
+
+      // The pre-claim fetch finally writes — after both of them.
+      parked.resolve()
+      await settle()
+
+      // The rebuild's fetch gives up, publishing nothing, and the store is left
+      // holding that late stale success.
+      mine.resolve()
+      await settle()
+
+      newer.resolve()
+      readTree.mockImplementation(() => realRead.fn!())
+      await settle()
+      await settle()
+
+      // It opens — a losing read must strand nothing — but only onto rows that
+      // actually carry the seed.
+      expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+      expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
+        expect.objectContaining({ id: 'b1', type: 'branch' }),
+      ])
+    } finally {
+      unsubscribe()
+      parked.resolve()
+      mine.resolve()
+      newer.resolve()
     }
   })
 
