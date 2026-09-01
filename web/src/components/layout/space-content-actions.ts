@@ -8,6 +8,7 @@ import { createChat, createChatWithOwnWorktree, deleteChat } from '@/features/ag
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { scopedWorkspaceIdOf } from '@/components/sidebar/lib/row-actions'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -38,7 +39,13 @@ export function resolveChatRow(
   id: string,
 ): { repo: Repo; chat: Chat } | null {
   for (const repo of repos) {
-    const chat = repo.chats?.find((c) => c.id === id)
+    // A `branch` row lives in the chat id space but is NOT a chat row: it is
+    // how a locked branch or a repo home is drawn, and `rows-from-repo.ts`
+    // gives that workspace's row this id precisely so the daemon can place
+    // under it. Matching it here would send every verb down the chat path —
+    // "+" would go silently inert, trash would delete the branch's own row,
+    // and rename would retitle it instead of moving the git branch.
+    const chat = repo.chats?.find((c) => c.id === id && c.type !== 'branch')
     if (chat) return { repo, chat }
   }
   return null
@@ -75,14 +82,19 @@ function openableWorkspaceOf(repo: Repo, chat: Chat): string | null {
  * first.
  */
 export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | null {
+  // A branch row is addressed by its owning chat's id, but everything downstream
+  // of here — the drag matrix, `planRemoval`, `RemovalDraft` — is about the
+  // WORKSPACE. Translate once, at the boundary, so none of them has to know two
+  // id spaces exist.
+  const rowId = workspaceIdOfBranchRow(repos, id) ?? id
   for (const repo of repos) {
-    const ws = repo.workspaces.find((w) => w.id === id)
+    const ws = repo.workspaces.find((w) => w.id === rowId)
     if (ws) {
       return {
         repo,
         subject: {
           kind: 'workspace',
-          id,
+          id: rowId,
           repoId: repo.id,
           locked: ws.status === 'locked',
           parentId: ws.parentId,
@@ -93,11 +105,11 @@ export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | nu
     if (folder) {
       return { repo, subject: { kind: 'folder', id, repoId: repo.id, parentId: folder.parentId } }
     }
-    if (repo.defaultWorkspaceId === id) {
+    if (repo.defaultWorkspaceId === rowId) {
       // Not a real drag/removal subject — `draftFor` finds no matching row in
       // `repo.workspaces` for this id and returns null, which is what makes
       // trashing the repo-home row a safe no-op below rather than a delete.
-      return { repo, subject: { kind: 'workspace', id, repoId: repo.id } }
+      return { repo, subject: { kind: 'workspace', id: rowId, repoId: repo.id } }
     }
   }
   return null
@@ -152,7 +164,9 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   if (!found.repo.projectId) return
   void navigate({
     to: '/ide/$projectId/$repoId/$wsId',
-    params: { projectId: found.repo.projectId, repoId: found.repo.id, wsId: id },
+    // `subject.id`, never the row's — a branch row is addressed by its owning
+    // chat, and only `resolveRow` knows which workspace that names.
+    params: { projectId: found.repo.projectId, repoId: found.repo.id, wsId: found.subject.id },
   })
 }
 
@@ -273,7 +287,10 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     return
   }
-  const wsId = parentId
+  // `subject.id`, not the clicked row's — this one needs the WORKSPACE (it
+  // opens that workspace's store and posts to its chats mount), and a branch
+  // row's own id is the chat that owns it.
+  const wsId = subject.id
   const store = getOrCreateWorkspaceStore(wsId)
   const provider = store.getState().agentChats.providers.find((p) => p.enabled)
   if (!provider) return

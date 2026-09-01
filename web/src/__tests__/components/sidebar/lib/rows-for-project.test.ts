@@ -6,8 +6,12 @@ function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: stri
   return { age: '', ...over }
 }
 
+/** The id of the `branch` row a repo's home workspace owns — see
+ *  rows-from-repo.test.ts's HOME_ROW_ID for why every fixture carries one. */
+const homeRowIdOf = (repoId: string) => `${repoId}-home-row`
+
 function makeTestRepo(over: Partial<Repo> = {}): Repo {
-  return {
+  const repo: Repo = {
     id: 'r1',
     projectId: 'p1',
     name: 'crowbar',
@@ -15,6 +19,21 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
     avatarColor: 'bg-indigo-700',
     workspaces: [],
     ...over,
+  }
+  if (!repo.defaultWorkspaceId) return repo
+  return {
+    ...repo,
+    chats: [
+      {
+        id: homeRowIdOf(repo.id),
+        repoId: repo.id,
+        type: 'branch',
+        workspaceId: repo.defaultWorkspaceId,
+        title: '',
+        order: 0,
+      },
+      ...(repo.chats ?? []),
+    ],
   }
 }
 
@@ -36,11 +55,11 @@ describe('rowsForProject', () => {
     ]
 
     const p1Rows = rowsForProject(repos, 'p1')
-    expect(p1Rows.map((r) => r.id)).toEqual(['home-1', 'ws-1'])
-    expect(p1Rows.some((r) => r.id === 'home-2' || r.id === 'ws-2')).toBe(false)
+    expect(p1Rows.map((r) => r.id)).toEqual([homeRowIdOf('r1'), 'ws-1'])
+    expect(p1Rows.some((r) => r.id === homeRowIdOf('r2') || r.id === 'ws-2')).toBe(false)
 
     const p2Rows = rowsForProject(repos, 'p2')
-    expect(p2Rows.map((r) => r.id)).toEqual(['home-2', 'ws-2'])
+    expect(p2Rows.map((r) => r.id)).toEqual([homeRowIdOf('r2'), 'ws-2'])
   })
 
   it('a repo with no projectId yet belongs to no space', () => {
@@ -62,6 +81,6 @@ describe('rowsForProject', () => {
       rowsForProject(repos, 'p1')
         .map((r) => r.id)
         .sort(),
-    ).toEqual(['home-1', 'home-2'])
+    ).toEqual([homeRowIdOf('r1'), homeRowIdOf('r2')].sort())
   })
 })

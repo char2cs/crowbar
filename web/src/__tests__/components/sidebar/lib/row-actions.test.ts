@@ -222,7 +222,10 @@ describe('row-actions', () => {
       const repo = useSidebarStore.getState().repos[0]
       useSidebarStore.setState({
         repos: [
-          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }] },
+          {
+            ...repo,
+            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
+          },
         ],
       })
 
@@ -253,7 +256,10 @@ describe('row-actions', () => {
       const repo = useSidebarStore.getState().repos[0]
       useSidebarStore.setState({
         repos: [
-          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }] },
+          {
+            ...repo,
+            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
+          },
         ],
       })
       expect(api.setWorkspaceLock).not.toHaveBeenCalled()
@@ -268,7 +274,10 @@ describe('row-actions', () => {
       const repo = useSidebarStore.getState().repos[0]
       useSidebarStore.setState({
         repos: [
-          { ...repo, workspaces: [...repo.workspaces, { id: 'ws-other', branch: 'other', age: '' }] },
+          {
+            ...repo,
+            workspaces: [...repo.workspaces, { id: 'ws-other', branch: 'other', age: '' }],
+          },
         ],
       })
       expect(api.setWorkspaceLock).not.toHaveBeenCalled()
@@ -278,7 +287,10 @@ describe('row-actions', () => {
         repos: [
           {
             ...repoAfterNoise,
-            workspaces: [...repoAfterNoise.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
+            workspaces: [
+              ...repoAfterNoise.workspaces,
+              { id: 'ws-new', branch: 'feature-a', age: '' },
+            ],
           },
         ],
       })
@@ -298,7 +310,10 @@ describe('row-actions', () => {
         const repo = useSidebarStore.getState().repos[0]
         useSidebarStore.setState({
           repos: [
-            { ...repo, workspaces: [...repo.workspaces, { id: 'ws-race', branch: 'feature-a', age: '' }] },
+            {
+              ...repo,
+              workspaces: [...repo.workspaces, { id: 'ws-race', branch: 'feature-a', age: '' }],
+            },
           ],
         })
       })
@@ -377,5 +392,63 @@ describe('row-actions', () => {
     vi.mocked(agentApi.promoteChat).mockRejectedValueOnce(new Error('no fork parent'))
     await expect(performPromoteChat('chat-1')).resolves.toBeUndefined()
     expect(toast.error).toHaveBeenCalledWith('no fork parent')
+  })
+})
+
+/**
+ * A FIFTH id space, and the one that overlaps a fourth: a `branch` row's id is
+ * the id of the CHAT that owns its workspace (`rows-from-repo.ts`). Without
+ * translating first, the repo-home row stops matching `defaultWorkspaceId`,
+ * falls into the chat branch, and renaming the repo silently retitles a
+ * conversation instead — while a locked branch's rename retitles its own row
+ * rather than moving the git branch.
+ */
+describe('performRenameRow — a branch row is not a chat', () => {
+  beforeEach(() => {
+    useSidebarStore.setState({
+      ...getInitialState(),
+      repos: [
+        {
+          id: 'repo-1',
+          projectId: 'proj-1',
+          name: 'repo',
+          avatarLabel: 'R',
+          avatarColor: 'bg-indigo-700',
+          defaultWorkspaceId: 'ws-home',
+          defaultBranch: 'main',
+          workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
+          chats: [
+            {
+              id: 'home-row',
+              repoId: 'repo-1',
+              type: 'branch',
+              workspaceId: 'ws-home',
+              title: '',
+              order: 0,
+            },
+            {
+              id: 'ws-1-row',
+              repoId: 'repo-1',
+              type: 'branch',
+              workspaceId: 'ws-1',
+              title: '',
+              order: 0,
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('renaming the repo-home row still renames the REPO', async () => {
+    await performRenameRow('home-row', 'renamed-repo')
+    expect(api.renameRepo).toHaveBeenCalledWith('proj-1', 'repo-1', 'renamed-repo')
+    expect(agentApi.renameChat).not.toHaveBeenCalled()
+  })
+
+  it('renaming a branch row still moves the git BRANCH', async () => {
+    await performRenameRow('ws-1-row', 'feature-y')
+    expect(api.renameWorkspaceBranch).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', 'feature-y')
+    expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 })

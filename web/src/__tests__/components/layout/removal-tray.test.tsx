@@ -77,6 +77,7 @@ import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
@@ -115,6 +116,19 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
     { id: 'b', branch: 'beta', status: 'new', age: '', order: 1 },
   ],
   folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 2 }],
+  // The `branch` row the boot backfill mints for the home workspace. The tree
+  // is only built for a repo whose chat seed has landed, and by then every
+  // home owns one — see rows-from-repo.ts's `branchRowIdFor`.
+  chats: [
+    {
+      id: 'w-default-row',
+      repoId: 'r1',
+      type: 'branch',
+      workspaceId: 'w-default',
+      title: '',
+      order: 0,
+    },
+  ],
   ...over,
 })
 
@@ -127,8 +141,8 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 // the repo's own letter tile (e.g. "C" for crowbar) — so the unscoped
 // textContent would read "Ccrowbar" instead of "crowbar".
 const rows = () =>
-  Array.from(document.querySelectorAll('[role="treeitem"] [data-sidebar-row-label]')).map(
-    (el) => el.textContent?.trim(),
+  Array.from(document.querySelectorAll('[role="treeitem"] [data-sidebar-row-label]')).map((el) =>
+    el.textContent?.trim(),
   )
 
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
@@ -165,6 +179,9 @@ beforeEach(() => {
     collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
+  // Rows are only built for a repo whose tree has been read back — see
+  // SidebarTreeSurface's own gate.
+  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
 })
 
 afterEach(() => {

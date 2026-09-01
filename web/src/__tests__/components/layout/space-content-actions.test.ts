@@ -33,6 +33,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import {
+  resolveChatRow,
   resolveRow,
   handleOpen,
   handleTrash,
@@ -390,5 +391,85 @@ describe('handleTrash', () => {
       expect(deleteChat).not.toHaveBeenCalled()
       expect(useRemovalTrayStore.getState().entries).toEqual([])
     })
+  })
+})
+
+/**
+ * A `branch` row's id is the id of the CHAT that owns its workspace
+ * (`rows-from-repo.ts`), which puts it in the chat id space while making it no
+ * chat at all. Every dispatcher here picks its behaviour by which space an id
+ * falls in, so each one has to be able to tell the two apart — the bug this
+ * closes is a locked branch's "+" going silently inert because `resolveChatRow`
+ * matched its row and returned early.
+ */
+describe('a branch row is addressed by its owning chat, and is still a workspace', () => {
+  const branchRow = (id: string, workspaceId: string): Chat => ({
+    id,
+    repoId: 'r1',
+    type: 'branch',
+    workspaceId,
+    title: '',
+    order: 0,
+  })
+
+  const lockedRepo = () =>
+    repo({
+      workspaces: [{ id: 'ws-locked', branch: 'develop', age: '', status: 'locked' }],
+      chats: [branchRow('home-row', 'home-1'), branchRow('develop-row', 'ws-locked')],
+    })
+
+  it('is not a chat row', () => {
+    expect(resolveChatRow([lockedRepo()], 'develop-row')).toBeNull()
+  })
+
+  it('resolves to the WORKSPACE it draws, so drag and removal see one id space', () => {
+    const found = resolveRow([lockedRepo()], 'develop-row')
+    expect(found?.subject).toMatchObject({ kind: 'workspace', id: 'ws-locked', locked: true })
+  })
+
+  it('the repo-home row resolves to the default workspace', () => {
+    expect(resolveRow([lockedRepo()], 'home-row')?.subject).toMatchObject({
+      kind: 'workspace',
+      id: 'home-1',
+    })
+  })
+
+  it('its "+" creates a workspace under the OWNING CHAT id — the id the daemon places by', () => {
+    useSidebarStore.setState({ repos: [lockedRepo()] })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('develop-row', 'workspace')
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'develop-row',
+    )
+  })
+
+  it('its thread "+" runs in the WORKSPACE, not in the row id', () => {
+    useSidebarStore.setState({ repos: [lockedRepo()] })
+    getOrCreateWorkspaceStore('ws-locked').setState({
+      agentChats: {
+        ...getOrCreateWorkspaceStore('ws-locked').getState().agentChats,
+        providers: [{ id: 'claude', enabled: true }] as never,
+      },
+    })
+
+    handleCreate('develop-row', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude')
+  })
+
+  it('its trash goes to the removal tray, never deleteChat', () => {
+    useSidebarStore.setState({ repos: [lockedRepo()] })
+
+    handleTrash('develop-row')
+
+    expect(deleteChat).not.toHaveBeenCalled()
   })
 })

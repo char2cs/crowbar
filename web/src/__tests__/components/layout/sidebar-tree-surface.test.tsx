@@ -53,23 +53,48 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
 }))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import type { Project } from '@/lib/types'
 
 const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
 const projectB: Project = { id: 'p2', name: 'proj-b', path: '/p2', lastActivity: new Date(0) }
 
-const repo = (over: Partial<Repo> = {}): Repo => ({
-  id: 'r1',
-  projectId: 'p1',
-  name: 'crowbar',
-  avatarLabel: 'C',
-  avatarColor: 'bg-indigo-700',
-  defaultWorkspaceId: 'home-1',
-  workspaces: [],
-  ...over,
-})
+/**
+ * A repo as the tree actually receives one: its home workspace already owns the
+ * `branch` row the daemon's boot backfill mints, because `SidebarTreeSurface`
+ * only builds rows for a repo whose chat seed has landed (`seededRepoIds`), and
+ * by then it always does.
+ */
+const repo = (over: Partial<Repo> = {}): Repo => {
+  const base: Repo = {
+    id: 'r1',
+    projectId: 'p1',
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'home-1',
+    workspaces: [],
+    ...over,
+  }
+  const home: Chat = {
+    id: `${base.id}-home-row`,
+    repoId: base.id,
+    type: 'branch',
+    workspaceId: base.defaultWorkspaceId,
+    title: '',
+    order: 0,
+  }
+  return { ...base, chats: [home, ...(base.chats ?? [])] }
+}
+
+/** Put repos in the store AND declare their trees read, which is the only state
+ *  in which rows are drawn at all. */
+const seedRepos = (repos: Repo[]) => {
+  useSidebarStore.setState({ repos })
+  useFolderSignalStore.setState({ seededRepoIds: new Set(repos.map((r) => r.id)) })
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -79,16 +104,15 @@ beforeEach(() => {
   HTMLElement.prototype.scrollTo = vi.fn()
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
+  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
 })
 
 describe('SidebarTreeSurface', () => {
   it("shows each project's own repo, excluding the other project's", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' }),
-        repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-b', name: 'repo-b' }),
-      ],
-    })
+    seedRepos([
+      repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' }),
+      repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-b', name: 'repo-b' }),
+    ])
 
     render(
       <SidebarTreeSurface
@@ -107,12 +131,10 @@ describe('SidebarTreeSurface', () => {
   })
 
   it('mounts the hoisted chrome (RemovalTray) once, not once per project', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({ id: 'r1', projectId: 'p1' }),
-        repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' }),
-      ],
-    })
+    seedRepos([
+      repo({ id: 'r1', projectId: 'p1' }),
+      repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' }),
+    ])
     useRemovalTrayStore.setState({
       entries: [
         {
@@ -147,16 +169,14 @@ describe('SidebarTreeSurface', () => {
   })
 
   it('a row held in the removal tray disappears from its own project panel', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'r1',
-          projectId: 'p1',
-          defaultWorkspaceId: 'home-a',
-          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'home-a',
+        workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+      }),
+    ])
     useRemovalTrayStore.setState({ hiddenIds: new Set(['ws-a']) })
 
     render(
@@ -174,16 +194,14 @@ describe('SidebarTreeSurface', () => {
   // row immediately any more — it has to open the confirm dialog first and
   // wait on a real Delete click.
   it('a trash click opens the confirm dialog instead of holding the row immediately', async () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'r1',
-          projectId: 'p1',
-          defaultWorkspaceId: 'home-a',
-          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'home-a',
+        workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+      }),
+    ])
 
     render(
       <SidebarTreeSurface
@@ -208,18 +226,28 @@ describe('SidebarTreeSurface', () => {
   // must say so rather than silently doing nothing after walking the user
   // through a real confirm dialog.
   it("confirming a locked workspace's delete reports it instead of silently no-opping", async () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'r1',
-          projectId: 'p1',
-          defaultWorkspaceId: 'home-a',
-          workspaces: [
-            { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
-          ],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'home-a',
+        workspaces: [
+          { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+        ],
+        // A locked branch owns a `branch` row too — same backfill guarantee the
+        // `repo()` factory above bakes in for the home workspace.
+        chats: [
+          {
+            id: 'locked-one-row',
+            repoId: 'r1',
+            type: 'branch',
+            workspaceId: 'ws-locked',
+            title: '',
+            order: 0,
+          },
+        ],
+      }),
+    ])
 
     render(
       <SidebarTreeSurface
@@ -243,16 +271,14 @@ describe('SidebarTreeSurface', () => {
   // dialog's `projectId` comes back undefined and the real preview fetch is
   // skipped for a chat specifically, degrading to the generic fallback copy.
   it("a chat row's trash resolves its owning repo, so the real delete-preview fires", async () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          id: 'r1',
-          projectId: 'p1',
-          defaultWorkspaceId: 'home-a',
-          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'home-a',
+        chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+      }),
+    ])
 
     render(
       <SidebarTreeSurface
@@ -269,5 +295,54 @@ describe('SidebarTreeSurface', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
     await waitFor(() => expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-a', 'c1'))
+  })
+})
+
+/**
+ * `Repo.chats`'s own contract: an absent chat list means "not yet", never
+ * "this repo has no chats" — the chats/folders reseed loop is independent of
+ * the repo and workspace streams. A branch row's identity comes from the chat
+ * that owns its workspace, so building rows during that window would hand out
+ * ids that change the moment the seed lands. A row id is the React key, the
+ * collapse key and the selection key: the tree would silently drop the user's
+ * folds a beat after painting. So it draws nothing until the seed is in.
+ */
+describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
+  it('draws no rows for a repo whose chat seed has not landed', () => {
+    useSidebarStore.setState({
+      repos: [repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' })],
+    })
+    // Deliberately NOT marked seeded.
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('repo-a')).not.toBeInTheDocument()
+  })
+
+  it('draws them once the seed lands, and only for the repo that seeded', () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' }),
+        repo({ id: 'r2', projectId: 'p1', defaultWorkspaceId: 'home-b', name: 'repo-b' }),
+      ],
+    })
+    useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('repo-a')).toBeInTheDocument()
+    expect(screen.queryByText('repo-b')).not.toBeInTheDocument()
   })
 })

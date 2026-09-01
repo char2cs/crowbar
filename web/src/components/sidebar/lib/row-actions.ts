@@ -12,6 +12,7 @@ import { renameChat, promoteChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 
 /** What a folder is called until the user says otherwise (matches the
  *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
@@ -239,13 +240,19 @@ export async function performRenameProject(projectId: string, name: string): Pro
  */
 export function performRenameRow(rowId: string, name: string): Promise<void> {
   const state = useSidebarStore.getState()
-  const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === rowId)
+  // A branch row's id is the chat that OWNS its workspace, so it sits in the
+  // chat id space while being no chat at all. Translating first is what keeps
+  // the three cases below meaning what they say: without it the repo-home row
+  // stops matching `defaultWorkspaceId`, falls into the chat branch, and
+  // renaming the repo silently retitles a conversation instead.
+  const wsId = workspaceIdOfBranchRow(state.repos, rowId) ?? rowId
+  const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === wsId)
   if (homeRepo) return performRenameRepo(homeRepo.id, name)
-  if (state.repos.some((r) => r.chats?.some((c) => c.id === rowId))) {
+  if (state.repos.some((r) => r.chats?.some((c) => c.id === rowId && c.type !== 'branch'))) {
     return performRenameChat(rowId, name)
   }
   const isFolder = state.repos.some((r) => r.folders?.some((f) => f.id === rowId))
-  return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(rowId, name)
+  return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(wsId, name)
 }
 
 /**
@@ -324,7 +331,10 @@ function armImportLockWatch(repoId: string, branches: string[]): () => void {
   if (branches.length === 0) return () => {}
   const pending = new Set(branches)
   const before = new Set(
-    useSidebarStore.getState().repos.find((r) => r.id === repoId)?.workspaces.map((w) => w.id) ?? [],
+    useSidebarStore
+      .getState()
+      .repos.find((r) => r.id === repoId)
+      ?.workspaces.map((w) => w.id) ?? [],
   )
 
   return () => {

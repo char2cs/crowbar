@@ -245,6 +245,14 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
           reseedHalf('folders', 'crowbar_folders', () => fetchFolders(projectId, repoId), live),
           reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
         ])
+        const [, chatsWrote] = wrote
+        // The repo's rows can now be drawn: its chat list has actually come
+        // back, so an empty one finally means empty rather than "not yet".
+        // Keyed on the CHATS half alone — a workspace's row is identified by
+        // the chat that owns it, and a folders-only success answers nothing
+        // about that. A failed read stays unseeded and is retried on the next
+        // signal, rather than publishing a list the daemon never confirmed.
+        if (chatsWrote && live()) useFolderSignalStore.getState().markTreeSeeded(repoId)
         if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 

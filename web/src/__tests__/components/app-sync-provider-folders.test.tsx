@@ -144,7 +144,7 @@ beforeEach(async () => {
     collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
-  useFolderSignalStore.setState({ generations: {} })
+  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
   // Seeded with REAL timers still active — fake-indexeddb's open/transaction
   // completion relies on scheduling that vi.useFakeTimers() would otherwise
   // have to be manually advanced through, and this write has nothing to do
@@ -574,5 +574,47 @@ describe('chat rows on the same reseed loop', () => {
       expect(chatsOf('r1')).toBeUndefined()
       expect(chatsOf('r2')).toEqual(['r2-chat'])
     })
+  })
+})
+
+/**
+ * The other thing the chats half of a reseed produces: the record that this
+ * repo's tree has been READ, which is what lets a consumer tell an empty chat
+ * list apart from one that has not arrived (`Repo.chats`'s own "not yet"
+ * contract). `rows-from-repo.ts` cannot identify a branch row without it.
+ */
+describe('the chats reseed records that the repo’s tree has been read', () => {
+  it('marks the repo seeded once its chats come back — even when there are none', async () => {
+    fetchRepoChats.mockResolvedValue([])
+
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+
+    expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
+  })
+
+  it('leaves it unseeded when the chats read FAILS — an unread tree is not an empty one', async () => {
+    fetchRepoChats.mockRejectedValue(new Error('offline'))
+
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+    act(() => {
+      useSidebarStore.getState().setRepos([repoRow('r1', 'p1')])
+    })
+    await settle()
+
+    expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(false)
   })
 })

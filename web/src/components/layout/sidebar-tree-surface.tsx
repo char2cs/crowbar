@@ -20,6 +20,7 @@ import { applyPendingRemovals } from './removal-plan'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import type { Project } from '@/lib/types'
@@ -56,15 +57,31 @@ export function SidebarTreeSurface({
   const allRepos = useSidebarStore((s) => s.repos)
   const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
+  // ROWS come only from repos whose tree has actually been read back.
+  //
+  // A row's identity is the chat that owns its workspace, and a repo's chats
+  // arrive on their own reseed loop — independent of the repo and workspace
+  // streams that put `repos` above into the store. Drawing during that window
+  // would give every row an id that changes the moment the seed lands, and a
+  // row id is the React key, the `collapsedWorkspaces` key and the selection
+  // key: the tree would silently drop the user's folds and selection a beat
+  // after painting. So a repo's rows appear once, with final ids. Everything
+  // else here still reads the FULL `repos` — resolving, opening and dropping a
+  // row are questions about the repo, not about its rows.
+  const seededRepoIds = useFolderSignalStore((s) => s.seededRepoIds)
+  const treeRepos = useMemo(
+    () => repos.filter((r) => seededRepoIds.has(r.id)),
+    [repos, seededRepoIds],
+  )
   // Every row across every project — SidebarRowContextMenu/RenameDialog look
   // up a row by id regardless of which project's panel drew it (a row's id
   // is never ambiguous by project), so the chrome mounted once below needs
   // the whole set, not any one project's slice.
-  const allRows = useMemo(() => repos.flatMap(rowsFromRepo), [repos])
+  const allRows = useMemo(() => treeRepos.flatMap(rowsFromRepo), [treeRepos])
 
   const rowsForProjectFn = useCallback(
-    (projectId: string) => rowsForProject(repos, projectId),
-    [repos],
+    (projectId: string) => rowsForProject(treeRepos, projectId),
+    [treeRepos],
   )
   const recentsForProjectFn = useCallback(
     (projectId: string) => recentsForProject(repos, projectId),
