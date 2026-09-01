@@ -148,7 +148,14 @@ func (t *Turns) closeAssistantTurn(
 		lastRecorded = text
 	}
 
-	if ev.Message != "" && ev.Message != lastRecorded {
+	// lastRecorded != ev.Message is NOT the right test any more: keeping the
+	// longer streamed text over a shorter hook report (above) means the two
+	// can legitimately differ even though the stream's own content was
+	// already recorded in full — that used to be impossible, because a
+	// mismatch always meant text got overwritten to ev.Message before being
+	// recorded. This fallback exists for the one case that still means
+	// "nothing of the hook's content made it in": nothing streamed at all.
+	if ev.Message != "" && lastRecorded == "" {
 		return t.recordAssistantMessage(
 			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false,
 		)

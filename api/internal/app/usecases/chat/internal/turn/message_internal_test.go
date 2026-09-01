@@ -154,6 +154,9 @@ func TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream(
 
 	activity.mu.Lock()
 	defer activity.mu.Unlock()
+	require.Len(t, activity.turns, 1,
+		"keeping the streamed text must not ALSO leave the hook's shorter report recorded a second time "+
+			"under a synthesized id — that was the second bug this exact scenario surfaced")
 	got, ok := activity.turns["msg-m1"]
 	require.True(t, ok)
 	require.Equal(t, full, got.Text,
@@ -189,6 +192,7 @@ func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *test
 
 	activity.mu.Lock()
 	defer activity.mu.Unlock()
+	require.Len(t, activity.turns, 1)
 	got, ok := activity.turns["msg-m1"]
 	require.True(t, ok)
 	require.Equal(t, complete, got.Text,
