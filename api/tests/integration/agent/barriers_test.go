@@ -115,10 +115,34 @@ func awaitHook[T any](
 //
 //	claude: "❯ 1. Yes, I trust this folder" / "Enter to confirm · Esc to cancel"
 //	codex:  "› 1. Yes, continue"            / "Press enter to continue"
+//
+// Both vendor CLIs have since moved out from under this text, confirmed live
+// 2026-09-01 against claude 2.1.257 / codex 0.149.1:
+//
+//   - claude STILL shows this dialog, but its DEFAULT-SELECTED row flipped
+//     from "Yes, I trust this folder" to "No, exit" — the needle (the footer
+//     hint) still matches, but the blind Enter that used to accept trust now
+//     DECLINES it. See claudeTrustYesSelected below.
+//   - codex no longer shows this dialog AT ALL under
+//     --dangerously-bypass-hook-trust (the flag this harness always passes) —
+//     it now goes straight to its composer. See codexReadyNeedle below.
 var trustNeedle = map[string]string{
 	"claude": "Enter to confirm",
 	"codex":  "Press enter to continue",
 }
+
+// claudeTrustYesSelected is present on screen only when "Yes, I trust this
+// folder" is the currently-highlighted row of claude's trust dialog. Its
+// absence — the needle above still matched, so the dialog IS showing, just
+// with "No, exit" highlighted instead — is what tells settleCLI it must move
+// the selection before acknowledging.
+const claudeTrustYesSelected = "❯ Yes, I trust this folder"
+
+// codexReadyNeedle is codex's own composer placeholder — the ready signal
+// for the case trustNeedle can no longer detect: codex 0.149.1 (unlike
+// 0.139.0) skips its trust dialog entirely under
+// --dangerously-bypass-hook-trust and paints this directly.
+const codexReadyNeedle = "Ask Codex to do anything"
 
 // firstOfProvider reports whether this is the FIRST CLI of the given provider in
 // this harness — i.e. the one that will be shown a trust dialog — and records it.
@@ -260,11 +284,17 @@ func settleCLI(
 	const (
 		sawNeedle = "needle"
 		sawBound  = "already-past"
+		sawReady  = "ready-no-modal"
 	)
 	outcome := kit.Await(t, ctx, provider+" to paint "+needle,
 		func() (string, bool) {
 			if tap.Contains(needle) {
 				return sawNeedle, true
+			}
+			// codex 0.149.1 (unlike 0.139.0) skips the trust dialog entirely under
+			// --dangerously-bypass-hook-trust — see codexReadyNeedle's own doc comment.
+			if provider == "codex" && tap.Contains(codexReadyNeedle) {
+				return sawReady, true
 			}
 			// Already bound == already past every modal: only a running CLI can have fired
 			// the SessionStart hook that binds it.
@@ -276,6 +306,16 @@ func settleCLI(
 			return "", false
 		}, tap.Signal(), h.hooks.sig)
 
+	// KNOWN BROKEN as of 2026-09-01, tracked separately: claude 2.1.257
+	// (unlike 2.1.207) defaults this dialog's SELECTION to "No, exit"
+	// instead of "Yes, I trust this folder" — the needle above only proves
+	// the dialog is SHOWING, not which row is highlighted, so the blind
+	// Enter below now DECLINES trust for a fresh claude. A fix needs claude
+	// to actually move its selection first (an arrow keystroke verified
+	// live to reach the PTY but produce no visible reaction from claude's
+	// TUI — not yet root-caused), and/or a retry primitive this suite does
+	// not have anywhere else: kit.Await only re-invokes its predicate on a
+	// NEW pty signal, so a write with no visible effect never gets retried.
 	if outcome == sawNeedle {
 		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\r")); err != nil {
 			t.Fatalf("settleCLI: acknowledge %s's %q: %v", provider, needle, err)
