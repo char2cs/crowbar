@@ -311,6 +311,13 @@ function RecentsMemberRow({
         isDragging={drag.draggingIds.has(row.id)}
         isNestTarget={drag.nestTargetId === row.id}
         onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
+        // A live chat (hasView) renders here AND as its own tree row, sharing
+        // one id — see `inlineRenameDisabled`'s own doc in sidebar-row.tsx.
+        // Without this, double-click-to-rename flips both instances into
+        // rename mode at once; the second one's mount-time focus() steals
+        // focus from the first and its unhandled blur commits the (unchanged)
+        // value, cancelling the rename before it's ever visible.
+        inlineRenameDisabled
       />
     </div>
   )

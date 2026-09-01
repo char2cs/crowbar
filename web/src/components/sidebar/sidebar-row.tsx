@@ -44,6 +44,22 @@ interface SidebarRowProps {
   isNestTarget?: boolean
   /** Arms a press-and-hold-to-drag on this row (Task 21's `useSidebarDrag`). */
   onPointerDownDrag?: (e: React.PointerEvent) => void
+  /** A chat that is the live pane (`row.hasView`) renders through TWO
+   *  `SidebarRow` instances at once — its own tree row, and a second one
+   *  `RecentsMemberRow` builds for the same chat id (§5: "what is up").
+   *  `sidebar-inline-rename.ts`'s store is keyed only by row id, with no
+   *  notion of which DOM instance is "the" one being edited — so without
+   *  this, double-clicking either one flips BOTH into rename mode. Two
+   *  `InlineRenameInput`s then mount, the second one's own focus+select
+   *  effect steals focus from the first, and that unhandled blur commits
+   *  (matching develop — see `inline-rename-input.tsx`'s `handleBlur`) with
+   *  the unchanged value, cancelling the rename before it's ever visible.
+   *  Recents already renders `SidebarRow` with reduced affordances of its
+   *  own (no trash, no create, no fold — see `recents-band.tsx`), so opting
+   *  its instance out of inline-rename here rather than teaching the store
+   *  which instance "wins" keeps the tree as the one place a chat's name is
+   *  actually edited. */
+  inlineRenameDisabled?: boolean
 }
 
 /**
@@ -69,6 +85,7 @@ export function SidebarRow({
   isDragging,
   isNestTarget,
   onPointerDownDrag,
+  inlineRenameDisabled,
 }: SidebarRowProps) {
   // The project-home row is `branch` with no parent — the sidebar's one 20px
   // glyph exception outside the project header itself (spec §3.1), and also
@@ -100,8 +117,11 @@ export function SidebarRow({
   // listener) starts this row's turn in `sidebar-inline-rename.ts`'s store —
   // real inline editing in place, matching `develop`, not the modal Task 4
   // wrongly opened. A narrow selector: this row only cares whether IT is the
-  // one renaming, not who else might be.
-  const renaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
+  // one renaming, not who else might be. `inlineRenameDisabled` (see its own
+  // doc above) keeps a second same-id instance — Recents mirroring a live
+  // pane — from ALSO answering yes and fighting the tree row for focus.
+  const isThisRowRenaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
+  const renaming = !inlineRenameDisabled && isThisRowRenaming
 
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>

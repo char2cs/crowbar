@@ -414,5 +414,32 @@ describe('SidebarRow', () => {
       )
       expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
+
+    // A chat that is the live pane (row.hasView) renders through TWO
+    // SidebarRow instances at once — its tree row, and a second one
+    // recents-band.tsx's RecentsMemberRow builds for the same chat id.
+    // Both used to read the SAME `renamingRowId === row.id` with no
+    // notion of which DOM instance was actually double-clicked: starting
+    // a rename flipped BOTH into rename mode, the second one's own
+    // mount-time focus()+select() stole focus from the first (jsdom fires
+    // real focus/blur here, same as a browser), and that unhandled blur
+    // committed the unchanged value — cancelling the rename before it was
+    // ever visible. `inlineRenameDisabled` is what recents-band.tsx now
+    // sets on its own instance to keep this from happening.
+    it('a second same-id instance (Recents mirroring a live pane) does not steal focus and cancel the tree row rename', () => {
+      useSidebarInlineRenameStore.getState().startRenaming('row-1')
+      render(
+        <>
+          <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
+          <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} inlineRenameDisabled />
+        </>,
+      )
+      const input = screen.getByRole('textbox') as HTMLInputElement
+      expect(input).toHaveFocus()
+      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('row-1')
+      fireEvent.change(input, { target: { value: 'New title' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
+    })
   })
 })
