@@ -1,16 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import type { Project } from '@/lib/types'
-
-function makeProject(id: string): Project {
-  return {
-    id,
-    name: id,
-    path: `/repos/${id}`,
-    lastActivity: new Date('2026-08-28T00:00:00Z'),
-  }
-}
 
 const toggleSidebar = vi.fn()
 vi.mock('@/components/ui/sidebar', () => ({
@@ -86,78 +76,15 @@ describe('SidebarProjectHeader', () => {
     expect(container.querySelector('.w-\\[52px\\]')).toBeNull()
   })
 
-  it('renders one icon-only mark per project in the chrome middle', () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />,
-    )
-    expect(screen.getAllByTestId('space-mark')).toHaveLength(2)
-  })
-
-  it('the current space mark is full strength, others muted', () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SidebarProjectHeader projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />,
-    )
-    const marks = screen.getAllByTestId('space-mark')
-    expect(marks[0]).not.toHaveClass('opacity-60')
-    expect(marks[1]).toHaveClass('opacity-60')
-  })
-
-  it('clicking a mark calls onSelectProject with that project id', async () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    const onSelectProject = vi.fn()
-    render(
-      <SidebarProjectHeader
-        projects={projects}
-        activeProjectId="p1"
-        onSelectProject={onSelectProject}
-      />,
-    )
-    const marks = screen.getAllByTestId('space-mark')
-    await userEvent.click(marks[1])
-    expect(onSelectProject).toHaveBeenCalledWith('p2')
-  })
-
-  it('renders no marks and behaves as the bare spacer when no projects are given', () => {
+  // task-10 (sidebar-restyle-recovery-batch2): the project-marks cluster
+  // moved out of this window-chrome row entirely, to SidebarFooter — the
+  // sidebar's own true last element, below the floating file-explorer card.
+  // This component takes no project-related props any more; it degrades to
+  // exactly its pre-marks shape (a bare `flex-1` spacer between the toggle
+  // and the back/forward/settings cluster).
+  it('renders no project marks in the window-chrome row', () => {
     render(<SidebarProjectHeader />)
     expect(screen.queryAllByTestId('space-mark')).toHaveLength(0)
-  })
-
-  it('renders a trailing add-project mark after the last project mark when onAddProject is supplied', () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SidebarProjectHeader
-        projects={projects}
-        activeProjectId="p1"
-        onSelectProject={vi.fn()}
-        onAddProject={vi.fn()}
-      />,
-    )
-    const marks = screen.getAllByTestId('space-mark')
-    const addMark = screen.getByTestId('add-project-mark')
-    // Trailing: it comes after every project mark in document order.
-    expect(marks[marks.length - 1].compareDocumentPosition(addMark)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    )
-  })
-
-  it('clicking the add-project mark calls onAddProject', async () => {
-    const onAddProject = vi.fn()
-    render(
-      <SidebarProjectHeader
-        projects={[makeProject('p1')]}
-        activeProjectId="p1"
-        onSelectProject={vi.fn()}
-        onAddProject={onAddProject}
-      />,
-    )
-    await userEvent.click(screen.getByTestId('add-project-mark'))
-    expect(onAddProject).toHaveBeenCalledOnce()
-  })
-
-  it('omits the add-project mark entirely when onAddProject is not supplied', () => {
-    render(<SidebarProjectHeader projects={[makeProject('p1')]} activeProjectId="p1" />)
     expect(screen.queryByTestId('add-project-mark')).not.toBeInTheDocument()
   })
 })

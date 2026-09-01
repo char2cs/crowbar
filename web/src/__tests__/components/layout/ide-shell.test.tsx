@@ -89,6 +89,20 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
+  // task-10 (sidebar-restyle-recovery-batch2): the user's explicit override
+  // of spec §4.1's window-chrome placement — the project-marks cluster is
+  // now the sidebar's own true LAST element, a sibling AFTER (below) the
+  // floating file-explorer card (SidebarCarousel), never inside it.
+  it("renders SidebarFooter as the sidebar's true last element, after (not inside) SidebarCarousel", () => {
+    render(<IDEShell />)
+    const carousel = screen.getByTestId('sidebar-carousel')
+    const footer = screen.getByTestId('sidebar-footer')
+    expect(carousel.contains(footer)).toBe(false)
+    expect(
+      carousel.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   // Regression: moving the sidebar from one side to the other must change only
   // the grid areas. Both expensive subtrees stay in the same DOM nodes, and the
   // pixel preference stays one value rather than inheriting a panel percentage.

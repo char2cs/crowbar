@@ -28,7 +28,7 @@ const ID_DELIM = '\u0000'
 interface SpaceScrollerProps {
   projects: Project[]
   /** Undefined on a route with no project in it yet (matches
-   *  `SidebarProjectHeader`'s own `activeProjectId?: string` — the two read
+   *  `SidebarFooter`'s own `activeProjectId?: string` — the two read
    *  the SAME value, ide-shell.tsx's `activeProjectIdFromRoute`). */
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void

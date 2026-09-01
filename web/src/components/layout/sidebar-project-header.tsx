@@ -2,7 +2,7 @@
 // cog with a ring centre, and a panel glyph — the toolbar language this app is
 // aiming at. Phosphor's GearSix is a six-lobed scalloped gear that reads as a
 // flower at 16px and was the most obviously off-key icon in the set.
-import { ArrowLeft, ArrowRight, Plus, Settings } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Settings } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
@@ -11,40 +11,19 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
-import { ProjectIconMark } from './project-icon-mark'
-import type { Project } from '@/lib/types'
-
-interface SidebarProjectHeaderProps {
-  /** Every open project. Defaults to none — the real mount point (IDEShell)
-   *  supplies the live list; omitted entirely the chrome middle stays the
-   *  bare spacer it was before space marks existed. */
-  projects?: Project[]
-  /** Spec §4.1: "the mark and panel are two views of one number" — this is the
-   *  SAME id SpaceScroller's own `activeProjectId` prop tracks, so a future
-   *  ancestor can lift one piece of state and hand it to both. */
-  activeProjectId?: string
-  /** Mirrors SpaceScroller's `onActiveProjectChange` shape (id in, nothing
-   *  out) so wiring this to that scroller later is a rename, not a rewrite. */
-  onSelectProject?: (id: string) => void
-  /** The tree's only entry point for a SECOND project (spec §3 ruling): a
-   *  trailing `+` mark after the last project's own mark, not a reopened
-   *  tree-foot row. Omitted entirely, the trailing mark just doesn't render
-   *  — mirrors every other optional control on this row. */
-  onAddProject?: () => void
-}
 
 /**
- * Sidebar top bar: a sidebar-toggle on the leading edge, one icon-only space
- * mark per project in the dead middle (spec §4.1), and a back / forward /
- * settings cluster on the trailing edge. Mirrors when the sidebar sits on the
- * right. Back/forward reuse the editor jump navigation.
+ * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward
+ * / settings cluster on the trailing edge. Mirrors when the sidebar sits on
+ * the right. Back/forward reuse the editor jump navigation.
+ *
+ * The project-marks cluster that used to fill the dead middle (spec §4.1)
+ * moved out (task-10, this recovery batch) — a deliberate placement
+ * override, not a revert of the marks themselves. It now renders as
+ * `SidebarFooter`, the sidebar's own true last element, below the floating
+ * file-explorer card. The middle here is back to a bare spacer.
  */
-export function SidebarProjectHeader({
-  projects = [],
-  activeProjectId,
-  onSelectProject,
-  onAddProject,
-}: SidebarProjectHeaderProps = {}) {
+export function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -107,51 +86,6 @@ export function SidebarProjectHeader({
     </div>
   )
 
-  // Spec §4.1: one icon-only mark per project, filling the dead middle
-  // between the toggle and the back/forward/settings cluster. The current
-  // space's mark is full strength; the rest sit muted. No labels, no counts,
-  // no close — a mark and nothing else. `justify-center` with an empty
-  // `projects` list degrades to exactly the old bare `flex-1` spacer. A
-  // trailing plain `+` (not a project-shaped mark) is the tree's only entry
-  // point for a SECOND project — relocated here from a tree-foot row.
-  const marks = (
-    <div className="flex min-w-0 flex-1 items-center justify-center gap-0.5">
-      {projects.map((project) => {
-        const isActive = project.id === activeProjectId
-        return (
-          <Button
-            key={project.id}
-            onClick={() => onSelectProject?.(project.id)}
-            variant="ghost"
-            size="icon-sm"
-            data-testid="space-mark"
-            aria-current={isActive || undefined}
-            className={cn('shrink-0 rounded-sm', !isActive && 'opacity-60')}
-            tooltip={project.name}
-            tooltipSide="bottom"
-            aria-label={project.name}
-          >
-            <ProjectIconMark project={project} size="md" />
-          </Button>
-        )
-      })}
-      {onAddProject && (
-        <Button
-          onClick={() => onAddProject()}
-          variant="ghost"
-          size="icon-sm"
-          data-testid="add-project-mark"
-          className="shrink-0 rounded-sm"
-          tooltip="Add project"
-          tooltipSide="bottom"
-          aria-label="Add project"
-        >
-          <Plus size={16} />
-        </Button>
-      )}
-    </div>
-  )
-
   return (
     <div
       className={cn(
@@ -169,7 +103,7 @@ export function SidebarProjectHeader({
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
       {toggle}
-      {marks}
+      <div className="flex-1" />
       {cluster}
     </div>
   )

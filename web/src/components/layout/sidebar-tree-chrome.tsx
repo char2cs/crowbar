@@ -30,8 +30,9 @@ interface SidebarTreeChromeProps {
  * at. Carries over `RemovalTray`, `RenameDialog`, `RepoImportDialog` and
  * `SidebarRowContextMenu` verbatim; none of their own logic changed, only
  * where they mount. The "New Project" entry point that used to live here
- * too moved to a trailing `+` mark in `SidebarProjectHeader` (spec §4.1),
- * with its modal state lifted to `IDEShell` alongside it.
+ * too moved to a trailing `+` mark, now in `SidebarFooter` (spec §4.1,
+ * relocated by task-10 of the sidebar-restyle-recovery-batch2), with its
+ * modal state lifted to `IDEShell` alongside it.
  */
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
   // The right-click menu's "Rename" item still opens this modal — untouched
