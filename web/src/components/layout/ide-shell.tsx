@@ -115,11 +115,12 @@ export function IDEShell() {
   const handleSelectProject = (projectId: string) => {
     void navigate({ to: '/ide/$projectId/home', params: { projectId } })
   }
-  // The tree's only entry point for a SECOND project (spec §3 ruling): a
-  // trailing `+` mark in SidebarProjectHeader's window-chrome row, not a
-  // reopened tree-foot row. Lifted here, alongside `allProjects`, so both
-  // SidebarProjectHeader (the mark) and this modal can reach it — moved
-  // verbatim from the old SidebarTreeChrome-owned state.
+  // The tree's only entry point for a SECOND project (spec §3 ruling,
+  // relocated per user direction to the sidebar's own footer): a trailing
+  // `+` mark in SidebarFooter, not a reopened tree-foot row. Lifted here,
+  // alongside `allProjects`, so both SidebarFooter (the mark) and this
+  // modal can reach it — moved verbatim from the old SidebarTreeChrome-
+  // owned state.
   const [importProjectOpen, setImportProjectOpen] = useState(false)
   const handleImportProject = useCallback((project: Project) => {
     importProjectAndSync(project)
