@@ -3,6 +3,7 @@ import { DownloadSimple, Folder, Lock, LockOpen, PencilSimpleLine } from '@phosp
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { performCreateFolder, performSetWorkspaceLock } from '@/components/sidebar/lib/row-actions'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarRowContextMenuProps {
@@ -57,9 +58,16 @@ export function SidebarRowContextMenu({
       if (!rowId) return
       const row = rows.find((r) => r.id === rowId)
       if (!row) return
-      const locked = useSidebarStore
-        .getState()
-        .repos.some((repo) => repo.workspaces.some((w) => w.id === rowId && w.status === 'locked'))
+      // Asked in the WORKSPACE id space, which a branch row's id is not in: a
+      // locked branch is id'd by the chat that owns its workspace
+      // (`rows-from-repo.ts`), so matching the raw row id against `w.id`
+      // answered `false` for precisely the rows that ARE locked — the menu
+      // offered "Lock" on an already-locked branch and never "Unlock".
+      const repos = useSidebarStore.getState().repos
+      const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+      const locked = repos.some((repo) =>
+        repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'),
+      )
       e.preventDefault()
       openAt({ x: e.clientX, y: e.clientY }, { row, locked })
     }

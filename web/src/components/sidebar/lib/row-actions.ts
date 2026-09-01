@@ -259,13 +259,38 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
  * Set (or clear) a workspace's lock from the row context menu. `locked: null`
  * drops the user's override rather than forcing false — see `setWorkspaceLock`'s
  * own doc for why that third state exists.
+ *
+ * `rowId`, not a workspace id, and the translation below is what makes unlock
+ * reachable at all: a LOCKED branch row is id'd by the chat that owns its
+ * workspace (`rows-from-repo.ts`), so the raw id matched no `w.id`, no repo was
+ * found and the request was never sent. With `hierarchy.DeleteCascade` refusing
+ * to delete a locked workspace, that made locking a one-way door — the row could
+ * neither be unlocked nor deleted from any surface the UI offers.
+ *
+ * The bump closes the other half of the same seam. A lock CHANGES WHAT THE ROW
+ * IS: the daemon mints the workspace's `branch` row inside this very call
+ * (`workspace.go`'s reconcileOwningChat, synchronously, "so the row exists
+ * before the caller is told the lock succeeded"), and from then on
+ * `rows-from-repo.ts` identifies the row by that chat and THROWS without it. The
+ * client otherwise learns of the lock only through `applyWorkspaceDTO`, which
+ * writes `status` alone and triggers no chats reseed — leaving a store that says
+ * `locked` for a workspace whose `repo.chats` has never seen its branch row, and
+ * a throw in render that nothing catches (`SidebarTreeSurface` has no
+ * ErrorBoundary). Bumping here is the reseed that would otherwise only arrive
+ * for a MOUNTED workspace, via `use-workspace-agent-chats-stream.ts`.
  */
-export async function performSetWorkspaceLock(wsId: string, locked: boolean | null): Promise<void> {
-  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+export async function performSetWorkspaceLock(
+  rowId: string,
+  locked: boolean | null,
+): Promise<void> {
+  const repos = useSidebarStore.getState().repos
+  const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+  const repo = repos.find((r) => r.workspaces.some((w) => w.id === wsId))
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
     await setWorkspaceLock(projectId, repo.id, wsId, locked)
+    useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to update lock')
   }
@@ -370,21 +395,29 @@ function armImportLockWatch(repoId: string, branches: string[]): () => void {
  * (`@/lib/api/sidebar-placement`) gets a live caller again now that the
  * deleted drag-driven "group into folder" gesture is Part G's to rebuild.
  *
- * `parentId` is root-normalised exactly as the deleted confirmCreate's folder
+ * The parent is root-normalised exactly as the deleted confirmCreate's folder
  * branch did (`folderParentFor`): a repo's default (home) workspace is the
  * header row, not a real placement target for the daemon, so starting a
  * folder there lands it at the repo root instead of naming a parent that
  * doesn't exist in that space.
+ *
+ * `rowId` is translated into the WORKSPACE id space first, for the same reason
+ * `sidebar-drop-policy.ts`'s `resolveRowRepo` and `planTreeRowDrop` do: the
+ * three spaces matched below (a repo's home workspace, a tree workspace, a
+ * folder) are exactly the three a branch row's id is NOT in — it carries the id
+ * of the chat that owns its workspace. Untranslated, "New folder" on the repo
+ * home or any locked branch found no repo and fired nothing at all, and the
+ * home row could not even reach its own root-normalisation.
  */
-export async function performCreateFolder(parentId: string): Promise<void> {
-  const repo = useSidebarStore
-    .getState()
-    .repos.find(
-      (r) =>
-        r.defaultWorkspaceId === parentId ||
-        r.workspaces.some((w) => w.id === parentId) ||
-        r.folders?.some((f) => f.id === parentId),
-    )
+export async function performCreateFolder(rowId: string): Promise<void> {
+  const repos = useSidebarStore.getState().repos
+  const parentId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+  const repo = repos.find(
+    (r) =>
+      r.defaultWorkspaceId === parentId ||
+      r.workspaces.some((w) => w.id === parentId) ||
+      r.folders?.some((f) => f.id === parentId),
+  )
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   const folderParentId = parentId === repo.defaultWorkspaceId ? '' : parentId

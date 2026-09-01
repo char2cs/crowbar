@@ -196,6 +196,29 @@ describe('row-actions', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', true)
   })
 
+  // A lock is the one mutation that CHANGES WHAT A ROW IS: the daemon mints the
+  // workspace's `branch` row synchronously inside the lock call
+  // (`workspace.go`'s reconcileOwningChat, "so the row exists before the caller
+  // is told the lock succeeded"), and from that instant `rows-from-repo.ts`
+  // identifies the row by that chat. The client only hears about the lock
+  // through `applyWorkspaceDTO`, which writes `status` and nothing else — so
+  // without a reseed the store holds `status: 'locked'` for a workspace whose
+  // `repo.chats` has never seen its branch row, and `rowsFromRepo` THROWS in
+  // render ("workspace <id> owns no branch row"). Nothing wraps
+  // `SidebarTreeSurface` in an ErrorBoundary, so that throw takes the whole
+  // sidebar down with no recovery UI.
+  it('locking a workspace bumps its repo’s tree signal so the new branch row is actually read', async () => {
+    await performSetWorkspaceLock('ws-1', true)
+    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
+  })
+
+  it('a refused lock surfaces a toast and bumps nothing', async () => {
+    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(new Error('branch is protected'))
+    await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
+    expect(toast.error).toHaveBeenCalledWith('branch is protected')
+    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+  })
+
   it('importing branches fires importBranches for the repo project', async () => {
     await performImportBranches('repo-1', ['feature-a', 'feature-b'])
     expect(api.importBranches).toHaveBeenCalledWith('proj-1', 'repo-1', ['feature-a', 'feature-b'])
@@ -450,5 +473,85 @@ describe('performRenameRow — a branch row is not a chat', () => {
     await performRenameRow('ws-1-row', 'feature-y')
     expect(api.renameWorkspaceBranch).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', 'feature-y')
     expect(agentApi.renameChat).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The same fifth id space, at the two verbs the first fix round missed.
+ *
+ * `performRenameRow` was translated; `performSetWorkspaceLock` and
+ * `performCreateFolder` were not, and both match a row id against exactly the
+ * spaces a branch row is NOT in. Lock/unlock resolved no repo and sent nothing —
+ * which, with `DeleteCascade` refusing a locked workspace, made a lock a
+ * one-way door — and "New folder" on the repo home or any locked branch fired
+ * no request at all.
+ */
+describe('a branch row addressed by its owning chat id — lock and create-folder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSidebarStore.setState({
+      ...getInitialState(),
+      repos: [
+        {
+          id: 'repo-1',
+          projectId: 'proj-1',
+          name: 'repo',
+          avatarLabel: 'R',
+          avatarColor: 'bg-indigo-700',
+          defaultWorkspaceId: 'ws-home',
+          defaultBranch: 'main',
+          workspaces: [{ id: 'ws-1', branch: 'develop', age: '', status: 'locked' }],
+          folders: [],
+          chats: [
+            {
+              id: 'home-row',
+              repoId: 'repo-1',
+              type: 'branch',
+              workspaceId: 'ws-home',
+              title: '',
+              order: 0,
+            },
+            {
+              id: 'ws-1-row',
+              repoId: 'repo-1',
+              type: 'branch',
+              workspaceId: 'ws-1',
+              title: '',
+              order: 1,
+            },
+          ],
+        },
+      ],
+    })
+    useFolderSignalStore.setState({ generations: {} })
+  })
+
+  it('unlocking a locked branch row calls setWorkspaceLock for the WORKSPACE it owns', async () => {
+    await performSetWorkspaceLock('ws-1-row', false)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', false)
+  })
+
+  it('clearing the override on a locked branch row still reaches the workspace', async () => {
+    await performSetWorkspaceLock('ws-1-row', null)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', null)
+  })
+
+  it('creating a folder under a locked branch row parents it to that workspace', async () => {
+    await performCreateFolder('ws-1-row')
+    expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(
+      'proj-1',
+      'repo-1',
+      'New folder',
+      'ws-1',
+    )
+  })
+
+  // The repo-home row is the same translation with a second step behind it: the
+  // home workspace is not a placement target the daemon knows, so it normalises
+  // to the repo root — which it can only do once the row id has become
+  // `defaultWorkspaceId` again.
+  it('creating a folder under the repo-home row roots it at the repo', async () => {
+    await performCreateFolder('home-row')
+    expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 })
