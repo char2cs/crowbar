@@ -111,18 +111,23 @@ func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 // WorktreeResolver is the Resolve(ctx, chatID) shape spec §3
 // (docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md) describes a
 // future handler calling in place of h.wsReader.Get(ctx, wsID) — h.resolver
-// .Resolve(ctx, chatID) instead. The container's own worktreeResolver is the
-// one concrete value that satisfies it.
+// .Resolve(ctx, chatID) instead — plus its inverse, ChatsForWorkspace, which
+// spec §7.4 needs to fan a shared worktree's push out to every chat currently
+// resolving to it. The container's own worktreeResolver is the one concrete
+// value that satisfies both.
 type WorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+	ChatsForWorkspace(ctx context.Context, workspaceID string) ([]string, error)
 }
 
-// worktreeResolver adapts the package-level worktree.Resolve function
-// (internal/app/usecases/worktree) into a WorktreeResolver value: chats and
-// workspaces are the container's own concrete usecases, satisfying the
-// resolver's two locally-declared ports (law 4) structurally.
+// worktreeResolver adapts the package-level worktree.Resolve and
+// worktree.ChatsForWorkspace functions (internal/app/usecases/worktree) into a
+// WorktreeResolver value: chats, chatRows and workspaces are the container's
+// own concrete usecases, satisfying the resolver's locally-declared ports
+// (law 4) structurally.
 type worktreeResolver struct {
 	chats      worktree.ChatAncestryReader
+	chatRows   worktree.ChatLister
 	workspaces worktree.WorkspaceReader
 }
 
@@ -132,6 +137,14 @@ func (r worktreeResolver) Resolve(
 	chatID string,
 ) (domain.Workspace, error) {
 	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
+}
+
+// ChatsForWorkspace implements WorktreeResolver.
+func (r worktreeResolver) ChatsForWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) ([]string, error) {
+	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows)
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -220,6 +233,7 @@ func New(
 	projectImport.SetOwningChats(owningChats)
 	worktreeUsecase := worktreeResolver{
 		chats:      worktree.NewChatTreeAncestryReader(agentic.chat),
+		chatRows:   agentic.chat,
 		workspaces: workspaceUsecase,
 	}
 	// Built HERE, not beside the other usecases above, because both take the

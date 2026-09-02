@@ -29,9 +29,24 @@ type StreamDef[T any] struct {
 }
 
 // FilterDef is an optional query-param predicate over a stream value.
+//
+// ExtractSet turns the filter from an equality test into a MEMBERSHIP one: the
+// event carries a SET of values and matches when Match holds for ANY member. It
+// is what lets ONE Push reach the several chats sharing a worktree (spec §7.4)
+// in a single fan-out pass, instead of a Push per chat. It replaces Extract
+// when set; a set carrying nothing matches nobody.
+//
+// Required refuses a client that resolves no value for Param — path, query and
+// Default all empty — instead of dropping the filter for that client. Without
+// it an unparameterised subscriber is silently over-subscribed to EVERY event
+// on the stream rather than unsubscribed from all of them, which is the
+// difference between a chat-scoped client seeing one workspace and seeing all
+// of them.
 type FilterDef[T any] struct {
-	Param   string
-	Extract func(T) string
-	Match   func(param, value string) bool
-	Default string
+	Param      string
+	Extract    func(T) string
+	ExtractSet func(T) []string
+	Match      func(param, value string) bool
+	Default    string
+	Required   bool
 }

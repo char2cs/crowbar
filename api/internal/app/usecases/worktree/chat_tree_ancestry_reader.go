@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -41,30 +40,5 @@ func (r chatTreeAncestryReader) Ancestors(
 	if err != nil {
 		return nil, fmt.Errorf("chat ancestry: list chats: %w", err)
 	}
-	byID := make(map[string]domain.Chat, len(rows))
-	nodes := make([]tree.Node, len(rows))
-	for i, row := range rows {
-		byID[row.ID] = row
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID}
-	}
-	forest := tree.New(nodes)
-	ancestry := make([]domain.Chat, 0, 4)
-	seen := map[string]bool{}
-	for id := chatID; id != "" && !seen[id]; {
-		seen[id] = true
-		row, ok := byID[id]
-		if !ok {
-			break
-		}
-		ancestry = append(ancestry, row)
-		if row.WorkspaceID != "" {
-			break
-		}
-		node, ok := forest.Node(id)
-		if !ok {
-			break
-		}
-		id = node.ParentID
-	}
-	return ancestry, nil
+	return newChatForest(rows).ancestry(chatID), nil
 }
