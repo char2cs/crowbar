@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -77,6 +78,14 @@ type Container struct {
 	// into repositories.New itself: the reader is built from repos.Workspace,
 	// which does not exist until repositories.New returns.
 	AgentWorkspaceReader agentusecase.WorkspaceReader
+	// Worktree resolves a chat to the workspace whose worktree it reads and
+	// writes through (internal/app/usecases/worktree, spec
+	// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3): itself
+	// first, then each ancestor in turn, nearest first. Built and wired here
+	// (law 6) — every future chat-scoped handler declares its own narrow
+	// Resolve(ctx, chatID) interface (law 4) and gets it satisfied by this
+	// same value. Unused by any caller yet — spec §8 step 2.
+	Worktree WorktreeResolver
 
 	// agentToolMetrics is the SAME *agentusecase.ToolMetrics instance the agent tool
 	// surface records through — held here only so AgentToolMetrics can read it
@@ -97,6 +106,76 @@ type Container struct {
 // resource, and nothing in the product consumes them.
 func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 	return c.agentToolMetrics.Snapshot()
+}
+
+// WorktreeResolver is the Resolve(ctx, chatID) shape spec §3
+// (docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md) describes a
+// future handler calling in place of h.wsReader.Get(ctx, wsID) — h.resolver
+// .Resolve(ctx, chatID) instead. The container's own worktreeResolver is the
+// one concrete value that satisfies it.
+type WorktreeResolver interface {
+	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+}
+
+// worktreeResolver adapts the package-level worktree.Resolve function
+// (internal/app/usecases/worktree) into a WorktreeResolver value: chats and
+// workspaces are the container's own concrete usecases, satisfying the
+// resolver's two locally-declared ports (law 4) structurally.
+type worktreeResolver struct {
+	chats      worktree.ChatAncestryReader
+	workspaces worktree.WorkspaceReader
+}
+
+// Resolve implements WorktreeResolver.
+func (r worktreeResolver) Resolve(
+	ctx context.Context,
+	chatID string,
+) (domain.Workspace, error) {
+	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
+}
+
+// chatAncestrySource is the minimal chat-read surface chatAncestryReader
+// composes. GetChat reads one full row; Ancestors (agentusecase.Usecase.Ancestors)
+// returns parent ids only, nearest first, EXCLUDING the subject — "what a
+// thread inherits," not "this chat's own worktree."
+type chatAncestrySource interface {
+	GetChat(ctx context.Context, id string) (domain.Chat, error)
+	Ancestors(ctx context.Context, chatID string) ([]string, error)
+}
+
+// chatAncestryReader adapts the chat usecase into worktree.ChatAncestryReader
+// (internal/app/usecases/worktree): Resolve needs the subject chat's own
+// WorkspaceID, to short-circuit a chat that owns its own worktree, which the
+// chat usecase's Ancestors alone can't give it — so this composes GetChat for
+// the subject with Ancestors for everything above it, subject first, each
+// parent then resolved to its own full row in turn.
+type chatAncestryReader struct {
+	chats chatAncestrySource
+}
+
+// Ancestors implements worktree.ChatAncestryReader.
+func (r chatAncestryReader) Ancestors(
+	ctx context.Context,
+	chatID string,
+) ([]domain.Chat, error) {
+	self, err := r.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("chat ancestry: chat %s: %w", chatID, err)
+	}
+	parentIDs, err := r.chats.Ancestors(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("chat ancestry: ancestors of %s: %w", chatID, err)
+	}
+	chats := make([]domain.Chat, 0, len(parentIDs)+1)
+	chats = append(chats, self)
+	for _, id := range parentIDs {
+		parent, err := r.chats.GetChat(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("chat ancestry: chat %s: %w", id, err)
+		}
+		chats = append(chats, parent)
+	}
+	return chats, nil
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -194,6 +273,10 @@ func New(
 	owningChats := hierarchyOwningChats{tree: agentic.chatTree}
 	workspaceUsecase.SetOwningChats(owningChats)
 	projectImport.SetOwningChats(owningChats)
+	worktreeUsecase := worktreeResolver{
+		chats:      chatAncestryReader{chats: agentic.chat},
+		workspaces: workspaceUsecase,
+	}
 	return &Container{
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,
@@ -212,6 +295,7 @@ func New(
 		AgentProvider:        agentic.chat,
 		AgentChatFolder:      agentic.chatTree,
 		AgentWorkspaceReader: agentic.wsReader,
+		Worktree:             worktreeUsecase,
 		agentToolMetrics:     agentic.metrics,
 	}, nil
 }
