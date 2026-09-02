@@ -33,12 +33,17 @@ func expectedRoutes() map[string]struct{} {
 // specRoutes is every route in 02 §2 + §3, one per spec line, re-nested under
 // the hierarchical /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/...
 // prefix (spec §3). Health, system, and the terminal profiles CRUD remain
-// top-level (outside /projects). The dedicated /ws/* routes are GONE (W7-2):
-// the entity list+detail GET routes dual-serve REST/WS, and the raw/diagnostic
-// streams are co-located as .../files/ws, .../lsp/ws, .../terminals/:sessionId/ws.
+// top-level (outside /projects), and the terminal SESSION routes now hang off
+// the flat /v0/chats/:chatId prefix. The dedicated /ws/* routes are GONE
+// (W7-2): the entity list+detail GET routes dual-serve REST/WS, and the
+// raw/diagnostic streams are co-located as .../files/ws, .../lsp/ws, and
+// /v0/chats/:chatId/terminals/:sessionId/ws.
 func specRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
+	// chat is the flat chat-scoped prefix (spec §7.1): chat ids are globally
+	// unique, so nothing below it re-nests under a project/repo pair.
+	const chat = "/v0/chats/:chatId"
 	return []string{
 		// §2.1 Projects & Repositories
 		"GET /v0/projects",
@@ -124,15 +129,18 @@ func specRoutes() []string {
 		// §2.10 Search
 		"POST " + ws + "/search",
 		"POST " + ws + "/search/replace",
-		// §2.11 Terminal (+profiles)
+		// §2.11 Terminal (+profiles). The profile CRUD is a global user setting
+		// and stays top-level. The session routes moved onto the flat
+		// /v0/chats/:chatId prefix (chat-scoped API spec §8 step 3): a terminal
+		// is owned by ONE chat, so the chat is the only id in the path.
 		"GET /v0/settings/terminal/profiles",
 		"GET /v0/settings/terminal/profiles/:id",
 		"POST /v0/settings/terminal/profiles",
 		"PUT /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
-		"GET " + ws + "/terminals",
-		"POST " + ws + "/terminals",
-		"DELETE " + ws + "/terminals/:sessionId",
+		"GET " + chat + "/terminals",
+		"POST " + chat + "/terminals",
+		"DELETE " + chat + "/terminals/:sessionId",
 		// §2.12 System
 		"GET /v0/system/prerequisites",
 		// §2.13 Health
@@ -142,7 +150,7 @@ func specRoutes() []string {
 		// path); the raw/diagnostic streams hang off their workspace subtree.
 		"GET " + ws + "/files/ws",
 		"GET " + ws + "/lsp/ws",
-		"GET " + ws + "/terminals/:sessionId/ws",
+		"GET " + chat + "/terminals/:sessionId/ws",
 	}
 }
 

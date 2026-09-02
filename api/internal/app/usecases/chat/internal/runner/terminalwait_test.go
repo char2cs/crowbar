@@ -179,7 +179,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 
 	sessionID, err := engine.CreateCommand(
 		context.Background(),
-		"ws-live",
+		"chat-live",
 		t.TempDir(),
 		[]string{"/bin/sh", "-c", "printf '%s' \"$SCREEN\"; read -r _"},
 		append(os.Environ(), "SCREEN="+screen),

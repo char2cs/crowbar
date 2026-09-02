@@ -22,7 +22,7 @@ describe('terminalAttach', () => {
   it('opens a WS to the existing session path without POSTing and registers the transport', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
-    const base = '/v0/projects/p/repos/r/workspaces/w/terminals'
+    const base = '/v0/chats/chat-1/terminals'
 
     await terminalAttach('conn-1', base)
 

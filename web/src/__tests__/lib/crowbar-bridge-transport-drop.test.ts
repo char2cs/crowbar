@@ -17,6 +17,7 @@ import {
   __getBridgeInternals,
 } from '@/lib/crowbar-bridge'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // FakeWebSocket that exposes onclose so tests can trigger it manually.
 class FakeWebSocket {
@@ -39,8 +40,8 @@ class FakeWebSocket {
 beforeEach(() => {
   FakeWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
-  // Some helpers (e.g. terminalCreate) require a workspace scope.
-  setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1' })
+  // terminalsBaseForWorkspace resolves the PTY base from the scope's owning chat.
+  setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
   // Stub fetch for terminalCreate POST.
   vi.stubGlobal(
     'fetch',
@@ -89,7 +90,7 @@ describe('openBrowserSocket — unexpected transport drop', () => {
 
   it('does NOT fire the drop callback after a clean terminalDetach (entry already removed)', async () => {
     // terminalCreate so we get a real sessionId through the normal path.
-    const connectionId = await terminalCreate('ws-1')
+    const connectionId = await terminalCreate(terminalsBaseForWorkspace('ws-1'))
     // Wait for the queueMicrotask onopen to have fired.
     await new Promise((r) => setTimeout(r, 0))
 

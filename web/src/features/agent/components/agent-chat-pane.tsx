@@ -1159,6 +1159,7 @@ export function AgentChatPane({
           <AgentTerminalSurface
             ref={terminalSurfaceRef}
             wsId={wsId}
+            chatId={shownChatId}
             attachment={attachment}
             presentation={presentation}
             splitting={splitting}

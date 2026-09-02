@@ -68,13 +68,14 @@ func (s *fakeSessionStore) FindAll(
 	return out, nil
 }
 
-// fakeWorkspaceRepo is a minimal WorkspaceRepo for testing.
-type fakeWorkspaceRepo struct {
+// fakeWorktreeResolver is a minimal WorktreeResolver for testing: every chat id
+// resolves to the one workspace behind its worktree.
+type fakeWorktreeResolver struct {
 	ws  domain.Workspace
 	err error
 }
 
-func (r *fakeWorkspaceRepo) Get(
+func (r *fakeWorktreeResolver) Resolve(
 	_ context.Context,
 	_ string,
 ) (domain.Workspace, error) {
@@ -83,13 +84,13 @@ func (r *fakeWorkspaceRepo) Get(
 
 func buildMetaStore(
 	t *testing.T,
-	repo terminal.WorkspaceRepo,
+	worktrees terminal.WorktreeResolver,
 	store *fakeSessionStore,
 	home string,
 ) engineterminal.SessionMetaStore {
 	t.Helper()
 	return terminal.NewSessionMetaStore(
-		repo,
+		worktrees,
 		store,
 		func() (string, error) { return home, nil },
 	)
@@ -97,7 +98,7 @@ func buildMetaStore(
 
 func TestSessionMetaStore_Save_UpsertsSetsProjectAndRepo(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:        "ws-1",
 			ProjectID: "proj-1",
@@ -105,11 +106,11 @@ func TestSessionMetaStore_Save_UpsertsSetsProjectAndRepo(t *testing.T) {
 		},
 	}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
 	meta := engineterminal.SessionMeta{
 		SessionID:    "sess-1",
-		WorkspaceID:  "ws-1",
+		ChatID:       "chat-1",
 		CWD:          "/tmp",
 		Shell:        "/bin/zsh",
 		ProfileID:    "prof-1",
@@ -129,9 +130,9 @@ func TestSessionMetaStore_Save_UpsertsSetsProjectAndRepo(t *testing.T) {
 
 func TestSessionMetaStore_Save_PreservesCreatedAtOnUpdate(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
 	original := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	store.rows["sess-1"] = domain.TerminalSession{
@@ -140,9 +141,9 @@ func TestSessionMetaStore_Save_PreservesCreatedAtOnUpdate(t *testing.T) {
 	}
 
 	meta := engineterminal.SessionMeta{
-		SessionID:   "sess-1",
-		WorkspaceID: "ws-1",
-		State:       "detached",
+		SessionID: "sess-1",
+		ChatID:    "chat-1",
+		State:     "detached",
 	}
 	require.NoError(t, ms.Save(ctx, meta))
 
@@ -152,20 +153,20 @@ func TestSessionMetaStore_Save_PreservesCreatedAtOnUpdate(t *testing.T) {
 
 func TestSessionMetaStore_Save_WorkspaceError(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{err: errors.New("boom")}
+	worktrees := &fakeWorktreeResolver{err: errors.New("boom")}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
-	err := ms.Save(ctx, engineterminal.SessionMeta{SessionID: "s", WorkspaceID: "ws"})
+	err := ms.Save(ctx, engineterminal.SessionMeta{SessionID: "s", ChatID: "chat-1"})
 	assert.Error(t, err)
 }
 
 func TestSessionMetaStore_Delete_RemovesRow(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1"}}
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1"}}
 	store := newFakeSessionStore()
 	store.rows["sess-1"] = domain.TerminalSession{SessionID: "sess-1"}
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
 	require.NoError(t, ms.Delete(ctx, "sess-1"))
 	_, ok := store.rows["sess-1"]
@@ -174,9 +175,9 @@ func TestSessionMetaStore_Delete_RemovesRow(t *testing.T) {
 
 func TestSessionMetaStore_Delete_MissingOK(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{}
+	worktrees := &fakeWorktreeResolver{}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
 	// Delete of non-existent session should not error.
 	assert.NoError(t, ms.Delete(ctx, "no-such-session"))
@@ -184,7 +185,7 @@ func TestSessionMetaStore_Delete_MissingOK(t *testing.T) {
 
 func TestSessionMetaStore_StorageDir_ResolvesPath(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:        "ws-1",
 			ProjectID: "proj-1",
@@ -192,36 +193,37 @@ func TestSessionMetaStore_StorageDir_ResolvesPath(t *testing.T) {
 		},
 	}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home/.crowbar")
+	ms := buildMetaStore(t, worktrees, store, "/home/.crowbar")
 
-	dir, err := ms.StorageDir(ctx, "ws-1")
+	dir, err := ms.StorageDir(ctx, "chat-1")
 	require.NoError(t, err)
-	// Expected: /home/.crowbar/projects/proj-1/repo-1/workspaces/ws-1/storages
+	// Expected: /home/.crowbar/projects/proj-1/repo-1/workspaces/chat-1/storages —
+	// project/repo come from the resolved workspace, the LEAF is the chat.
 	assert.Contains(t, dir, "proj-1")
 	assert.Contains(t, dir, "repo-1")
-	assert.Contains(t, dir, "ws-1")
+	assert.Contains(t, dir, "chat-1")
 	assert.Contains(t, dir, "storages")
 }
 
 func TestSessionMetaStore_StorageDir_WorkspaceError(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{err: errors.New("not found")}
+	worktrees := &fakeWorktreeResolver{err: errors.New("not found")}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
-	_, err := ms.StorageDir(ctx, "ws-1")
+	_, err := ms.StorageDir(ctx, "chat-1")
 	assert.Error(t, err)
 }
 
 func TestSessionMetaStore_List_ReturnsAllRows(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
-	// Save two rows via the store directly so we don't need workspace resolution.
-	store.rows["sess-1"] = domain.TerminalSession{SessionID: "sess-1", WorkspaceID: "ws-1", State: "suspended"}
-	store.rows["sess-2"] = domain.TerminalSession{SessionID: "sess-2", WorkspaceID: "ws-1", State: "detached"}
+	// Save two rows via the store directly so we don't need worktree resolution.
+	store.rows["sess-1"] = domain.TerminalSession{SessionID: "sess-1", ChatID: "chat-1", State: "suspended"}
+	store.rows["sess-2"] = domain.TerminalSession{SessionID: "sess-2", ChatID: "chat-1", State: "detached"}
 
 	rows, err := ms.List(ctx)
 	require.NoError(t, err)
@@ -237,9 +239,9 @@ func TestSessionMetaStore_List_ReturnsAllRows(t *testing.T) {
 
 func TestSessionMetaStore_List_Empty(t *testing.T) {
 	ctx := context.Background()
-	repo := &fakeWorkspaceRepo{}
+	worktrees := &fakeWorktreeResolver{}
 	store := newFakeSessionStore()
-	ms := buildMetaStore(t, repo, store, "/home")
+	ms := buildMetaStore(t, worktrees, store, "/home")
 
 	rows, err := ms.List(ctx)
 	require.NoError(t, err)

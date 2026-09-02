@@ -4,7 +4,6 @@ import { Channel } from '@tauri-apps/api/core'
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
-import { workspaceBase } from '@/lib/workspace-scope-url'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
@@ -72,9 +71,14 @@ interface TauriTerminal {
 
 const tauriTerminals = new Map<string, TauriTerminal>()
 
-// §3: PTY routes are workspace-scoped now (.../workspaces/:w/terminals[/:id/ws]).
-// terminalClose receives only the sessionId, so we record the hierarchical base
-// per session at create time to build the DELETE/PTY-WS paths.
+// PTY routes are CHAT-scoped (/v0/chats/:chatId/terminals[/:id/ws]): a terminal
+// belongs to the chat that opened it, not to the worktree it runs in, so sibling
+// chats sharing a worktree never see each other's shells.
+//
+// terminalClose receives only the sessionId, so we record the base per session
+// at create time to build the DELETE/PTY-WS paths. This module deliberately does
+// NOT build that base itself — callers pass one in — which is what keeps the
+// route shape in one place (workspace-scope-url) instead of two.
 const sessionBases = new Map<string, string>()
 
 // Wire a browser WebSocket for a connectionId into the `terminals` map.
@@ -187,11 +191,13 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
   }
 }
 
-// Create a PTY session in the workspace and open its stream. Returns the
-// sessionId, which the terminal hooks use as the connection id. The project/repo
-// are resolved from the active workspace route scope (workspaceBase).
-export async function terminalCreate(wsId: string, profileId?: string): Promise<string> {
-  const base = `${workspaceBase(wsId)}/terminals`
+// Create a PTY session owned by a chat and open its stream. Returns the
+// sessionId, which the terminal hooks use as the connection id.
+//
+// `base` is the caller's already-resolved `/v0/chats/:chatId/terminals` — the
+// same string it passes to terminalListLive — so create, list, attach, and
+// delete cannot drift onto different scopes.
+export async function terminalCreate(base: string, profileId?: string): Promise<string> {
   const { sessionId } = await apiFetch<{ sessionId: string }>(base, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -200,8 +206,8 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
   sessionBases.set(sessionId, base)
 
   // Desktop: hand a Channel to Rust, which opens the WS over the unix socket and
-  // pumps PTY output back through it. Pass the hierarchical PTY path so Rust
-  // dials the workspace-scoped route, not the removed flat one.
+  // pumps PTY output back through it. Pass the full PTY path so Rust dials the
+  // chat-scoped route.
   if (isTauri()) {
     await openTauriSocket(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
     return sessionId
@@ -287,9 +293,9 @@ export async function terminalSetTheme(
 }
 
 export async function terminalClose(id: string): Promise<void> {
-  // The DELETE is the hierarchical .../terminals/:sessionId under the workspace
-  // base recorded at create time. If the base is unknown (e.g. a session created
-  // before a reload), skip the REST call — the PTY is still torn down locally.
+  // The DELETE is .../terminals/:sessionId under the chat base recorded at
+  // create time. If the base is unknown (e.g. a session created before a
+  // reload), skip the REST call — the PTY is still torn down locally.
   const base = sessionBases.get(id)
   const deletePath = base ? `${base}/${encodeURIComponent(id)}` : null
   if (isTauri()) {
@@ -387,14 +393,19 @@ export async function terminalAttach(connectionId: string, base: string): Promis
   openBrowserSocket(connectionId, base)
 }
 
-// List the daemon's live session connectionIds for a workspace. The `base` is
-// `${workspaceBase(wsId)}/terminals`. Used by resolveTerminalConnection to
-// confirm a persisted id is still alive before re-attaching.
+// List the daemon's live session connectionIds for one chat. The `base` is
+// `/v0/chats/:chatId/terminals` (see terminalsBaseForWorkspace / chatBase).
+// Used by resolveTerminalConnection to confirm a persisted id is still alive
+// before re-attaching.
+//
+// The answer covers ONLY the addressed chat's own sessions — a sibling chat on
+// the same worktree has its own, disjoint list.
 export async function terminalListLive(base: string): Promise<string[]> {
-  // Two response shapes exist: git workspaces return TerminalSessionDTO[] (objects
-  // with id/status), while the home workspace endpoint returns a plain string[] of
-  // session ids. Handle BOTH — mapping `.id` over a string[] yields [undefined]
-  // (→ [null] on the wire), which silently broke home-workspace reconnect.
+  // Two response shapes exist: the chat endpoint returns TerminalSessionDTO[]
+  // (objects with id/status), while the project-home endpoint still returns a
+  // plain string[] of session ids. Handle BOTH — mapping `.id` over a string[]
+  // yields [undefined] (→ [null] on the wire), which silently broke
+  // home-workspace reconnect.
   const list = await apiFetch<Array<string | { id?: string; status?: string }>>(base)
   const ids: string[] = []
   for (const item of list) {

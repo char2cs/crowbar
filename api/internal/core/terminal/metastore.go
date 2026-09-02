@@ -12,7 +12,7 @@ import (
 // engine package never imports the persistence or usecase layers.
 type SessionMeta struct {
 	SessionID    string
-	WorkspaceID  string
+	ChatID       string
 	CWD          string
 	Shell        string
 	ProfileID    string
@@ -37,12 +37,19 @@ type SessionMetaStore interface {
 		sessionID string,
 	) error
 
-	// StorageDir returns the per-workspace storage directory where terminal
-	// scrollback files (.buf) are written. It resolves the workspace to its
-	// (projectID, repoID) pair and delegates to worktreepath.StorageDir.
+	// StorageDir returns the per-chat storage directory where terminal
+	// scrollback files (.buf) are written. It resolves the chat to the
+	// workspace behind its worktree for the (projectID, repoID) pair and
+	// delegates to worktreepath.StorageDir.
+	//
+	// The engine passes the OWNING CHAT id, never a workspace id: scrollback
+	// belongs to the session, the session belongs to one chat, and two sibling
+	// chats sharing a worktree must not write into one another's .buf files.
+	// Resolving chat → workspace is this store's job precisely so the engine
+	// never has to hold a workspace id it would then be tempted to scope by.
 	StorageDir(
 		ctx context.Context,
-		workspaceID string,
+		chatID string,
 	) (string, error)
 
 	// List returns all persisted terminal session rows. Called at daemon start

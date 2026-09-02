@@ -103,7 +103,7 @@ func TestMaintenance_CadenceFlush(t *testing.T) {
 	// The session is therefore dirty (the prompt went through pumpStep) and, crucially,
 	// NOTHING further is in flight, which is the precondition the "no second flush"
 	// assertion below actually depends on.
-	sid := newReadyShell(t, eng, "ws-flush", dir)
+	sid := newReadyShell(t, eng, "chat-flush", dir)
 
 	// First maintenance run — dirty=true → flush happens.
 	savesBefore := countSavedForSession(store, sid)
@@ -140,13 +140,13 @@ func TestMaintenance_CadenceFlush(t *testing.T) {
 // TestMaintenance_SoftLimit
 // ---------------------------------------------------------------------------
 
-// TestMaintenance_SoftLimit verifies that with softLimitPerWorkspace=2 and four
-// idle detached sessions in one workspace, runMaintenanceOnce suspends the two
+// TestMaintenance_SoftLimit verifies that with softLimitPerChat=2 and four
+// idle detached sessions in one chat, runMaintenanceOnce suspends the two
 // oldest (by lastActive) and leaves the two newest live.
 func TestMaintenance_SoftLimit(t *testing.T) {
 	pinShell(t)
 
-	restore := terminal.SetSoftLimitPerWorkspaceForTest(2)
+	restore := terminal.SetSoftLimitPerChatForTest(2)
 	defer restore()
 
 	eng := terminal.New()
@@ -157,11 +157,11 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
-	// Create 4 sessions in the same workspace, each blocked on until it is parked at its
+	// Create 4 sessions in the same chat, each blocked on until it is parked at its
 	// prompt — the state the sweep's idle gate is meant to see.
 	var sids [4]string
 	for i := range sids {
-		sids[i] = newReadyShell(t, eng, "ws-softlimit", dir)
+		sids[i] = newReadyShell(t, eng, "chat-softlimit", dir)
 	}
 
 	// Assign staggered lastActive times: sids[0] oldest, sids[3] newest.
@@ -206,11 +206,11 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 
 // TestMaintenance_RunningNeverIdleSuspended verifies that the soft-limit path
 // never suspends a detached session that has a running foreground child, even
-// when the workspace is over the limit.
+// when the chat is over the limit.
 func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	pinShell(t)
 
-	restore := terminal.SetSoftLimitPerWorkspaceForTest(1)
+	restore := terminal.SetSoftLimitPerChatForTest(1)
 	defer restore()
 
 	eng := terminal.New()
@@ -223,13 +223,13 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 
 	// Create an idle session (will be over limit) — parked at its prompt, so TIOCGPGRP
 	// reports the shell itself as the foreground group: genuinely idle.
-	sidIdle := newReadyShell(t, eng, "ws-running", dir)
+	sidIdle := newReadyShell(t, eng, "chat-running", dir)
 
 	// Create a running session and give it a foreground child. startForeground returns only
 	// once the kernel already reports the CHILD as the terminal's foreground process group,
 	// which is the exact condition the sweep's idle gate tests — so there is nothing left to
 	// "settle" and no transient window to debounce.
-	sidRunning := newReadyShell(t, eng, "ws-running", dir)
+	sidRunning := newReadyShell(t, eng, "chat-running", dir)
 	startForeground(t, eng, sidRunning)
 
 	// Assign lastActive: running session is "older" so it would be first candidate
@@ -238,7 +238,7 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	terminal.SetLastActiveForTest(eng, sidRunning, base)
 	terminal.SetLastActiveForTest(eng, sidIdle, base.Add(time.Minute))
 
-	// Workspace has 2 detached sessions > limit of 1: the running one must be skipped, the
+	// Chat has 2 detached sessions > limit of 1: the running one must be skipped, the
 	// idle one suspended. ONE pass is enough and is asserted as such. This used to be a
 	// retry loop, on the theory that the idle check could "transiently read non-idle under
 	// load and skip a pass" — but that transient was an artefact of starting the sweep
@@ -287,8 +287,8 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	defer eng.Shutdown()
 
 	// Create two sessions, each blocked on until it is parked at its prompt.
-	sid1 := newReadyShell(t, eng, "ws-force", dir)
-	sid2 := newReadyShell(t, eng, "ws-force", dir)
+	sid1 := newReadyShell(t, eng, "chat-force", dir)
+	sid2 := newReadyShell(t, eng, "chat-force", dir)
 
 	// Two live full-budget models are now accounted; set the ceiling at 75% of
 	// that (between one and two models) so the global byte ceiling fires and a
@@ -341,13 +341,13 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 // TestMaintenance_CommandSessionsNeverSuspended guards the fatal agentic-CLI bug: a
 // command session (spawned via CreateCommand, e.g. an agentic vendor CLI) must never be
 // idle- or force-suspended by the maintenance sweep, even when it is the sole cause of
-// blowing through both the per-workspace soft limit and the global session-count
+// blowing through both the per-chat soft limit and the global session-count
 // ceiling. Suspend would tear down the PTY (killing the vendor process outright) and a
 // subsequent restore cannot bring it back (it would exec.Command the joined argv string
 // instead of the original binary) — so these sessions must be entirely invisible to the
 // sweep's candidate-collection loops.
 func TestMaintenance_CommandSessionsNeverSuspended(t *testing.T) {
-	restoreSoft := terminal.SetSoftLimitPerWorkspaceForTest(0)
+	restoreSoft := terminal.SetSoftLimitPerChatForTest(0)
 	defer restoreSoft()
 	restoreCeiling := terminal.SetMaxTotalSessionsForTest(1)
 	defer restoreCeiling()
@@ -360,13 +360,13 @@ func TestMaintenance_CommandSessionsNeverSuspended(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
-	// Two long-running, detached command sessions in one workspace: soft limit is 0
+	// Two long-running, detached command sessions in one chat: soft limit is 0
 	// (any detached session is "excess") and the global ceiling is 1 (two sessions is
 	// already over), so both phases would fire on ordinary shell sessions.
-	sid1, err := eng.CreateCommand(ctx, "ws-cmd-ceiling", dir,
+	sid1, err := eng.CreateCommand(ctx, "chat-cmd-ceiling", dir,
 		[]string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
 	require.NoError(t, err)
-	sid2, err := eng.CreateCommand(ctx, "ws-cmd-ceiling", dir,
+	sid2, err := eng.CreateCommand(ctx, "chat-cmd-ceiling", dir,
 		[]string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
 	require.NoError(t, err)
 
@@ -456,7 +456,7 @@ func TestEngine_Stats(t *testing.T) {
 
 	// Create one session — it starts detached (live, no clients) — and block until it is
 	// parked at its prompt, so the idle gate Suspend consults has a settled answer.
-	sid := newReadyShell(t, eng, "ws-stats", dir)
+	sid := newReadyShell(t, eng, "chat-stats", dir)
 
 	_, det, _, modelB, deg2, pp2 := eng.Stats()
 	assert.Equal(t, 1, det, "one detached session")

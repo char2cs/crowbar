@@ -69,20 +69,20 @@ type fakeTermForAttach struct {
 }
 
 type fakeTermCall struct {
-	workspaceID string
-	cwd         string
-	argv        []string
-	termSessID  string
+	chatID     string
+	cwd        string
+	argv       []string
+	termSessID string
 }
 
 func (f *fakeTermForAttach) CreateCommand(
-	_ context.Context, workspaceID, cwd string, argv, _ []string, onExit func(),
+	_ context.Context, chatID, cwd string, argv, _ []string, onExit func(),
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
 	id := fmt.Sprintf("attach-term-%d", f.nextID)
-	f.created = append(f.created, fakeTermCall{workspaceID: workspaceID, cwd: cwd, argv: argv, termSessID: id})
+	f.created = append(f.created, fakeTermCall{chatID: chatID, cwd: cwd, argv: argv, termSessID: id})
 	if f.onExit == nil {
 		f.onExit = map[string]func(){}
 	}
@@ -253,7 +253,8 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 
 	require.Equal(t, 1, term.callCount())
 	call := term.lastCall()
-	require.Equal(t, "ws-1", call.workspaceID)
+	require.Equal(t, "chat-1", call.chatID,
+		"the forked attach session is owned by the CHAT it was switched from")
 	require.Equal(t, "/work", call.cwd)
 	require.Equal(t, []string{
 		"acme", "resume", "sess-1",

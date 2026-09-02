@@ -6,7 +6,7 @@ import {
   onTransportDrop,
 } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { chatBase, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
 import { saveReconnect } from '../lib/terminal-reconnect-map'
 import { retain as retainAttach, release as releaseAttach } from '../lib/attach-refcount'
@@ -53,6 +53,17 @@ interface XtermTerminalProps {
    * (callers that only ever render into the active workspace).
    */
   workspaceId?: string
+  /**
+   * The chat that OWNS this PTY, when the caller knows it directly — an agent
+   * chat pane, whose terminal is that chat's own vendor-CLI session.
+   *
+   * Terminal routes are chat-scoped (`/v0/chats/:chatId/terminals`) because a
+   * session belongs to the chat that opened it, never to the worktree it runs
+   * in: sibling chats share worktrees and must not share shells. When unset
+   * (a plain workspace shell tab, which no single chat opened) the owner is the
+   * chat that owns the workspace's worktree — see terminalsBaseForWorkspace.
+   */
+  chatId?: string
   isActive: boolean
   isVisible?: boolean
   onReady?: () => void
@@ -92,6 +103,7 @@ interface XtermTerminalProps {
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
   workspaceId,
+  chatId,
   isActive,
   isVisible = true,
   onReady,
@@ -217,7 +229,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     // workspace may be a different one entirely.
     const wsId = workspaceId ?? getActiveWorkspaceId()
     if (!wsId) return
-    const base = `${workspaceBase(wsId)}/terminals`
+    // Owner first, worktree second: an explicit chatId is this PTY's owner; a
+    // shell tab falls back to the chat owning wsId's worktree.
+    const base = chatId ? `${chatBase(chatId)}/terminals` : terminalsBaseForWorkspace(wsId)
     const existingSession = getSession(sessionId)
     // The connection this view is attached to RIGHT NOW, captured BEFORE the
     // resolve re-points it. Used to conserve the attach ledger across the
@@ -235,7 +249,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         storeConnectionId: existingSession?.connectionId,
         base,
         listLiveSessions: () => terminalListLive(base),
-        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+        createTerminal: () => terminalCreate(base, existingSession?.profileId),
         attachOnly,
       })
       if ('gone' in result) {
@@ -296,7 +310,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     } finally {
       releaseInitLock()
     }
-  }, [attachOnly, getSession, releaseInitLock, sessionId, updateSession, workspaceId])
+  }, [attachOnly, chatId, getSession, releaseInitLock, sessionId, updateSession, workspaceId])
 
   // The reconciler: called at every init-lock release. If the pane re-pointed this
   // terminal at a different session while a resolve was in flight (the guarded
@@ -714,7 +728,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       // callback, not the render path).
       const wsId = workspaceId ?? getActiveWorkspaceId()
       if (!wsId) throw new Error('no active workspace for terminal')
-      const base = `${workspaceBase(wsId)}/terminals`
+      // Owner first, worktree second — see doReconnect.
+      const base = chatId ? `${chatBase(chatId)}/terminals` : terminalsBaseForWorkspace(wsId)
 
       // Resolve: reuse live transport → re-attach detached → create fresh (or,
       // under attachOnly, report the session gone rather than spawning a shell).
@@ -724,7 +739,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         storeConnectionId: existingSession?.connectionId,
         base,
         listLiveSessions: () => terminalListLive(base),
-        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+        createTerminal: () => terminalCreate(base, existingSession?.profileId),
         attachOnly,
       })
       if ('gone' in result) {
@@ -829,6 +844,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     updateSession,
     workingDirectory,
     workspaceId,
+    chatId,
     writeBuffered,
   ])
 

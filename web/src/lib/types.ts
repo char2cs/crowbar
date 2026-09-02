@@ -233,9 +233,13 @@ export interface ThreadDTO extends AgentAttribution {
 
 export interface TerminalSessionDTO {
   id: string
-  projectId: string
-  repoId: string
-  workspaceId: string
+  /**
+   * The chat that owns this session — the only id on the frame, and the
+   * lifecycle stream's topic key. A session belongs to the chat that opened it,
+   * not to the worktree it runs in, so there is no workspace/project/repo here
+   * to key or filter by.
+   */
+  chatId: string
   profileId: string
   status: 'active' | 'detached' | 'suspended' | 'ended'
   /** Process exit code; only present on "ended" frames where the exit code is known (>=0). */

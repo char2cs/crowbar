@@ -101,7 +101,7 @@ func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	conn1 := newPipeConn()
@@ -150,7 +150,7 @@ func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-2", dir, nil)
+	sid, err := eng.Create(ctx, "chat-2", dir, nil)
 	require.NoError(t, err)
 
 	conn1 := newPipeConn()
@@ -191,7 +191,7 @@ func TestIntegration_KillClosesClients(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-3", dir, nil)
+	sid, err := eng.Create(ctx, "chat-3", dir, nil)
 	require.NoError(t, err)
 
 	conn := newPipeConn()

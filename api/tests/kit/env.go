@@ -529,35 +529,32 @@ func (e *Env) DialThreads(
 	return w
 }
 
-// DialTerminals opens a WS watcher on the workspace-scoped Terminals lifecycle
-// stream and blocks until registration. The subscriber receives that
-// workspace's TerminalSessionDTOs (snapshot + live). This is the lifecycle
+// DialTerminals opens a WS watcher on the CHAT-scoped Terminals lifecycle
+// stream and blocks until registration. The subscriber receives the
+// TerminalSessionDTOs of the sessions that chat OWNS (snapshot + live) — never
+// a sibling chat's, even one sharing the same worktree. This is the lifecycle
 // topic, NOT the raw PTY stream (.../terminals/:sessionId/ws).
 func (e *Env) DialTerminals(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals"))
 	e.v0c.WaitNTerminalsRegistered(1)
 	return w
 }
 
 // DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
-// .../workspaces/:wsId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
+// /v0/chats/:chatId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
 // topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
 // PTY emits its first frame promptly on connect.
 func (e *Env) DialTerminalPTY(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 	sessionID string,
 ) *WSWatcher {
 	t.Helper()
-	return Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals/"+sessionID+"/ws"))
+	return Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals/"+sessionID+"/ws"))
 }
 
 // DialGit opens a WS watcher on the workspace-scoped, co-located Git status
@@ -613,6 +610,59 @@ func (e *Env) wsScope(
 	wsID string,
 ) string {
 	return "/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces/" + wsID
+}
+
+// chatScope builds the FLAT chat path prefix shared by all chat-scoped routes.
+// Chat ids are globally unique, so nothing below it re-nests under a
+// project/repo pair.
+func (e *Env) chatScope(
+	chatID string,
+) string {
+	return "/v0/chats/" + chatID
+}
+
+// OwningChatID returns the id of the chat row that OWNS the given workspace —
+// the chat every chat-scoped route addresses that workspace's worktree through.
+//
+// It first makes sure the row exists, through the daemon's own EnsureOwningChat
+// (the live-path narrowing of the boot backfill, taking the same decision by
+// the same code): a workspace created mid-run is otherwise owed its row only by
+// the NEXT boot's backfill, and a test that just created one would find no chat
+// to address it by. Then it reads the id back off the workspace's own wire DTO,
+// so the answer is the production resolver's, never a second one derived here.
+func (e *Env) OwningChatID(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	t.Helper()
+	ctx := context.Background()
+	ws, err := e.app.Repositories.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
+	require.NoError(
+		t,
+		e.app.Usecases.AgentChatFolder.EnsureOwningChat(ctx, ws),
+		"OwningChatID: ensure the owning chat for %s",
+		wsID,
+	)
+	// The mint is an asynx write; drain the projections so the read below sees
+	// the row rather than racing it (no polling, no sleep).
+	e.Quiesce()
+
+	resp := e.GET(t, e.wsScope(projectID, repoID, wsID))
+	RequireStatus(t, resp, http.StatusOK)
+	var wire struct {
+		OwningChatID string `json:"owningChatId"`
+	}
+	DecodeEnvData(t, resp, &wire)
+	require.NotEmptyf(
+		t,
+		wire.OwningChatID,
+		"workspace %s must carry an owning chat id for the chat-scoped routes",
+		wsID,
+	)
+	return wire.OwningChatID
 }
 
 // WaitForWorkspace reads WS events from w until a workspace with the given ID

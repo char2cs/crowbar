@@ -168,7 +168,7 @@ func (rs *Runners) spawnRunner(
 	termSessID, err := rs.forkCLI(ctx, forkRequest{
 		runnerID:    runnerID,
 		providerID:  providerID,
-		workspaceID: workspaceID,
+		chatID:      chatID,
 		worktree:    worktree,
 		crowbarHome: crowbarHome,
 		tmpDir:      tmpDir,
@@ -225,7 +225,7 @@ func (rs *Runners) forkCLI(
 		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
 		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
 	}
-	termSessID, err := rs.term.CreateCommand(ctx, req.workspaceID, req.worktree, req.argv, req.env,
+	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
 		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
 	if err == nil {
 		return termSessID, nil
@@ -391,9 +391,12 @@ func (rs *Runners) spawnPreflight(
 }
 
 type forkRequest struct {
-	runnerID    string
-	providerID  string
-	workspaceID string
+	runnerID   string
+	providerID string
+	// chatID is the terminal engine's session-scoping key — NOT the workspace id
+	// this used to carry: a chat with no worktree of its own has an empty one, so
+	// every such runner registered under the key "". worktree below is the CWD.
+	chatID      string
 	worktree    string
 	crowbarHome string
 	tmpDir      string

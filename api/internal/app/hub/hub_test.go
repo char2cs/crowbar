@@ -210,7 +210,7 @@ func TestHub_BroadcastTerminalSession_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastTerminalSession(dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"})
+	h.BroadcastTerminalSession(dto.TerminalSessionDTO{ID: "s1", ChatID: "chat-1"})
 
 	assert.Len(t, a.terminals, 1)
 	assert.Len(t, b.terminals, 1)

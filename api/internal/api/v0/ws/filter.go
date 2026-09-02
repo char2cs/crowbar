@@ -52,11 +52,19 @@ func PrefixMatch(
 	return true
 }
 
-// clientScope derives the connecting client's hierarchical scope prefix from the
-// request, joining the projectId/repoId/wsId path params (falling back to query
-// params) into "p/r/w" form. Trailing empty segments are trimmed, so a repo-level
-// subscription yields "p/r" and a project-level subscription yields "p". When no
-// scoping params are present it returns "" (matches all).
+// clientScope derives the connecting client's scope from the request.
+//
+// The hierarchical form joins the projectId/repoId/wsId path params (falling
+// back to query params) into "p/r/w". Trailing empty segments are trimmed, so a
+// repo-level subscription yields "p/r" and a project-level one yields "p".
+//
+// A CHAT-scoped route (/v0/chats/:chatId/...) binds none of those three, so the
+// scope is the bare chat id instead — the flat, single-segment form the
+// chat-keyed streams' FlatNamespace already uses (spec §7.1). It is read only
+// as a fallback, after the hierarchical segments have all come back empty, so a
+// route that binds both keeps its hierarchical scope unchanged.
+//
+// When neither shape is present it returns "" (matches all).
 func clientScope(
 	c *gin.Context,
 ) string {
@@ -68,6 +76,9 @@ func clientScope(
 	end := len(segs)
 	for end > 0 && segs[end-1] == "" {
 		end--
+	}
+	if end == 0 {
+		return scopeParam(c, "chatId")
 	}
 	return strings.Join(segs[:end], "/")
 }

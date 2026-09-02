@@ -2672,7 +2672,8 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 
 	require.Equal(t, 1, f.term.callCount())
 	call := f.term.calls[0]
-	assert.Equal(t, "ws1", call.workspaceID)
+	assert.Equal(t, chatID, call.chatID,
+		"the CLI's PTY session is owned by the chat that spawned it")
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", filepath.Base(call.argv[0]))
 	// A fresh SpawnChat injects the capability preamble via the descriptor's

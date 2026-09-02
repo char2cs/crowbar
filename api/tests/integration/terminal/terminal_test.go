@@ -106,28 +106,32 @@ func TestMain(
 	kit.Main(m)
 }
 
-// TerminalSuite exercises workspace-scoped terminal session and profile REST
-// endpoints, the TerminalSessionDTO lifecycle broadcaster, and the PTY WebSocket
-// route at the hierarchical .../terminals/:sessionId/ws path.
+// TerminalSuite exercises chat-scoped terminal session and (top-level) profile
+// REST endpoints, the TerminalSessionDTO lifecycle broadcaster, and the PTY
+// WebSocket route at /v0/chats/:chatId/terminals/:sessionId/ws.
 type TerminalSuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
 	wsID     string
+	// chatID is the chat that OWNS the suite's workspace. Terminal sessions are
+	// owned by a chat, not a workspace, so it is the chat — not wsID — that
+	// every route below is addressed through; the worktree the PTY starts in is
+	// what the route's middleware resolves this chat to.
+	chatID string
 }
 
-// SetupTest creates a fresh Env, imports a repo, and creates a workspace before
-// each test.
+// SetupTest creates a fresh Env, imports a repo, creates a workspace, and reads
+// back the chat that owns it before each test.
 func (s *TerminalSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
 	s.imported = s.Env.ImportRepo(s.T(), "terminal", "")
 	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/terminal")
+	s.chatID = s.Env.OwningChatID(s.T(), s.imported.ProjectID, s.imported.RepoID, s.wsID)
 }
 
-// base returns the workspace-scoped route prefix for the suite's workspace.
+// base returns the chat-scoped route prefix for the suite's owning chat.
 func (s *TerminalSuite) base() string {
-	return "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID +
-		"/workspaces/" + s.wsID
+	return "/v0/chats/" + s.chatID
 }
 
 // TestTerminalSuite is the testify suite entry point for terminal integration tests.
@@ -142,11 +146,11 @@ func TestTerminalSuite(
 
 // TestTerminal_Create201ThenSessionDTOOverWS verifies a terminal session creates
 // (201 {sessionId}) and the TerminalSessionDTO{status:"active"} lifecycle frame
-// arrives on the workspace-scoped terminals WS (spec §10, D2).
+// arrives on the chat-scoped terminals WS (spec §10, D2).
 func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
 	t := s.T()
 
-	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.DialTerminals(t, s.chatID)
 
 	resp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, resp, http.StatusCreated)
@@ -160,9 +164,7 @@ func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
 	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "active"
 	})
-	s.Assert().Equal(s.wsID, msg["workspaceId"])
-	s.Assert().Equal(s.imported.RepoID, msg["repoId"])
-	s.Assert().Equal(s.imported.ProjectID, msg["projectId"])
+	s.Assert().Equal(s.chatID, msg["chatId"])
 
 	// Kill the session and block on its "ended" frame so the spawned PTY (whose
 	// CWD is the worktree) is reaped before the test's TempDir is removed —
@@ -177,12 +179,12 @@ func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
 
 // TestRegression_TerminalSession_LifecycleBroadcast proves the §10 terminal
 // lifecycle topic: creating a session broadcasts an "active" TerminalSessionDTO
-// and killing it broadcasts an "ended" one, both on the workspace-scoped
-// terminals WS, carrying the hierarchical project/repo/workspace ids.
+// and killing it broadcasts an "ended" one, both on the chat-scoped terminals
+// WS, carrying the owning chat id.
 func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
 	t := s.T()
 
-	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -194,7 +196,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
 	active := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "active"
 	})
-	s.Assert().Equal(s.wsID, active["workspaceId"])
+	s.Assert().Equal(s.chatID, active["chatId"])
 
 	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
@@ -207,7 +209,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
 }
 
 // TestTerminal_DeleteScopedRoute verifies a session is killed via the
-// workspace-scoped DELETE route (202) and an "ended" lifecycle frame broadcasts.
+// chat-scoped DELETE route (202) and an "ended" lifecycle frame broadcasts.
 func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	t := s.T()
 
@@ -218,7 +220,7 @@ func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.DialTerminals(t, s.chatID)
 
 	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
@@ -239,13 +241,14 @@ func (s *TerminalSuite) TestTerminal_KillUnknownSessionReturns404() {
 	s.Assert().Equal(http.StatusNotFound, resp.StatusCode)
 }
 
-// TestTerminal_CreateForUnknownWorkspaceReturns404 verifies 404 on bad wsId.
-func (s *TerminalSuite) TestTerminal_CreateForUnknownWorkspaceReturns404() {
+// TestTerminal_CreateForUnknownChatReturns404 verifies 404 on a chatId that
+// resolves to no worktree. This is the descendant of the old bad-:wsId case:
+// the chat is what the path names now, and the group's resolveChatWorktree
+// middleware refuses it before any terminal handler runs.
+func (s *TerminalSuite) TestTerminal_CreateForUnknownChatReturns404() {
 	t := s.T()
 
-	bad := "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID + "/workspaces/no-such-ws/terminals"
-	resp := s.Env.POST(t, bad, map[string]any{})
+	resp := s.Env.POST(t, "/v0/chats/no-such-chat/terminals", map[string]any{})
 	defer resp.Body.Close()
 	s.Assert().Equal(http.StatusNotFound, resp.StatusCode)
 }
@@ -305,7 +308,7 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBroadcast() {
 	t := s.T()
 
-	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.DialTerminals(t, s.chatID)
 
 	// Create a session — the POST broadcasts "active" and returns 201.
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
@@ -347,16 +350,16 @@ func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBr
 		return m["id"] == sessionID && m["status"] == "ended"
 	})
 	s.Assert().Equal(sessionID, endedMsg["id"])
-	s.Assert().Equal(s.wsID, endedMsg["workspaceId"])
+	s.Assert().Equal(s.chatID, endedMsg["chatId"])
 }
 
 // TestTerminal_PTYWSAtScopedPath verifies the raw PTY WebSocket connects at the
-// hierarchical .../terminals/:sessionId/ws path and streams JSON text frames
+// chat-scoped .../terminals/:sessionId/ws path and streams JSON text frames
 // {sessionId, data, isInput}.
 func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -365,7 +368,7 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	sessionID, ok := createBody["sessionId"].(string)
 	s.Require().True(ok, "sessionId must be a string")
 
-	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws.ReadMsg(t, 10*time.Second)
 	s.Require().Contains(frame, "sessionId", "wire frame must contain sessionId field")
 	s.Assert().Equal(sessionID, frame["sessionId"], "frame sessionId must match")
@@ -392,7 +395,7 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntact() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -401,7 +404,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntac
 	sessionID, _ := createBody["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 
 	// Wait for the initial shell prompt so the PTY is confirmed live before the
 	// burst (otherwise the command can race the shell's startup).
@@ -479,7 +482,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntac
 func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupted() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -488,7 +491,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupt
 	sessionID, _ := createBody["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	ws.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		data, _ := m["data"].(string)
 		return len(data) > 0
@@ -530,7 +533,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupt
 func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveModes() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -538,7 +541,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveMode
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	ws1 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws1 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	ws1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		d, _ := m["data"].(string)
 		return len(d) > 0
@@ -559,7 +562,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveMode
 
 	// Re-attach: a SECOND client. Its serialized redraw re-asserts the model's active
 	// modes, so ?1000h appears because the serializer re-establishes it (not a raw replay).
-	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws2 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	var sb strings.Builder
 	reasserted := false
 	ws2.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
@@ -591,7 +594,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveMode
 func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRedraw() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -599,7 +602,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRed
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	ws1 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws1 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	ws1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		d, _ := m["data"].(string)
 		return len(d) > 0
@@ -627,7 +630,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRed
 	// (the silent foreground sleep produces no interleaving output). Read exactly that frame
 	// so we analyze the full redraw — the mode/title bytes follow the grid content in §6
 	// order and must not be truncated.
-	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws2 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws2.ReadMsg(t, 5*time.Second)
 	p, _ := frame["data"].(string)
 	s.Require().NotEmpty(p)
@@ -688,7 +691,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRed
 func (s *TerminalSuite) newSessionWithLiveClient(
 	t *testing.T,
 ) (string, *kit.WSWatcher, *kit.WSWatcher) {
-	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	lifecycle := s.Env.DialTerminals(t, s.chatID)
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -696,7 +699,7 @@ func (s *TerminalSuite) newSessionWithLiveClient(
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	ws1 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws1 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	ws1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		d, _ := m["data"].(string)
 		return len(d) > 0
@@ -749,7 +752,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 	})
 
 	// Re-attach: the first frame is the whole serialized redraw.
-	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws2 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws2.ReadMsg(t, 5*time.Second)
 	p, _ := frame["data"].(string)
 	s.Require().NotEmpty(p)
@@ -795,7 +798,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoRawOSCTitleReplay() {
 		return strings.Contains(ws1buf.String(), "\x1b]2;TitleZeta_88")
 	})
 
-	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws2 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws2.ReadMsg(t, 5*time.Second)
 	p, _ := frame["data"].(string)
 	s.Require().NotEmpty(p)
@@ -857,7 +860,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoDanglingSequence() {
 		return strings.Contains(ws1buf.String(), "PREMARK_44")
 	})
 
-	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws2 := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws2.ReadMsg(t, 5*time.Second)
 	p, _ := frame["data"].(string)
 	s.Require().NotEmpty(p)
@@ -915,11 +918,15 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 	env1 := kit.BuildEnvAt(t, homeDir)
 	imported := env1.ImportRepo(t, "restart-terminal", "")
 	wsID := env1.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/restart")
-	base := "/v0/projects/" + imported.ProjectID + "/repos/" + imported.RepoID + "/workspaces/" + wsID
+	// The chat that owns the workspace is what addresses its terminals, and it
+	// is durable: env2 boots over the same home and resolves the same chat, so
+	// the same base survives the simulated restart.
+	chatID := env1.OwningChatID(t, imported.ProjectID, imported.RepoID, wsID)
+	base := "/v0/chats/" + chatID
 
 	// Dial the lifecycle WS before creating the session so we never miss the
 	// "active" broadcast.
-	lifecycle1 := env1.DialTerminals(t, imported.ProjectID, imported.RepoID, wsID)
+	lifecycle1 := env1.DialTerminals(t, chatID)
 
 	createResp := env1.POST(t, base+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -935,7 +942,7 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 
 	// Dial the raw PTY WS and wait for the shell's initial output (prompt).
 	// This confirms the PTY subprocess is running and the ring buffer has content.
-	ptyWS1 := env1.DialTerminalPTY(t, imported.ProjectID, imported.RepoID, wsID, sessionID)
+	ptyWS1 := env1.DialTerminalPTY(t, chatID, sessionID)
 	ptyWS1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
 		data, _ := m["data"].(string)
 		return len(data) > 0
@@ -990,7 +997,7 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 	// Dial the PTY WS on env2 — this triggers the transparent restore path:
 	// restore() spawns a fresh shell with the saved CWD and replays the
 	// scrollback (including our marker) as the first frame.
-	ptyWS2 := env2.DialTerminalPTY(t, imported.ProjectID, imported.RepoID, wsID, sessionID)
+	ptyWS2 := env2.DialTerminalPTY(t, chatID, sessionID)
 
 	// The replayed scrollback must contain the pre-restart marker.
 	ptyWS2.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
@@ -1000,7 +1007,7 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 
 	// Cleanup: kill the restored session so the PTY subprocess is reaped before
 	// TempDir teardown (avoids "directory not empty" flakes on some platforms).
-	lifecycle2 := env2.DialTerminals(t, imported.ProjectID, imported.RepoID, wsID)
+	lifecycle2 := env2.DialTerminals(t, chatID)
 	killResp := env2.DELETE(t, base+"/terminals/"+sessionID)
 	killResp.Body.Close()
 	lifecycle2.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {

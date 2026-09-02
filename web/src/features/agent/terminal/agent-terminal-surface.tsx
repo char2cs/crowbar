@@ -33,6 +33,12 @@ export type AgentTerminalApi = Parameters<
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
+  /**
+   * The chat this PTY belongs to. Terminal routes are chat-scoped, and an
+   * agent chat's vendor-CLI session is owned by the chat itself — not by the
+   * worktree it runs in, which sibling chats share.
+   */
+  chatId: string
   attachment: TerminalAttachment
   presentation: ChatPresentation
   splitting: boolean
@@ -79,6 +85,7 @@ export interface AgentTerminalSurfaceProps {
  */
 export function AgentTerminalSurface({
   wsId,
+  chatId,
   attachment,
   presentation,
   splitting,
@@ -140,6 +147,7 @@ export function AgentTerminalSurface({
         <XtermTerminal
           sessionId={attachment.sessionId}
           workspaceId={wsId}
+          chatId={chatId}
           isActive={
             isActivePane && isVisible && (presentation === 'terminal' || (splitting && focused))
           }

@@ -34,10 +34,10 @@ func TestStats_CountsSuspendedPlaceholders(t *testing.T) {
 	var wantBytes int64
 	for id, sb := range scrollbacks {
 		require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-			SessionID:   id,
-			WorkspaceID: "ws-1",
-			Shell:       "/bin/sh",
-			State:       "suspended",
+			SessionID: id,
+			ChatID:    "chat-1",
+			Shell:     "/bin/sh",
+			State:     "suspended",
 		}, sb))
 		wantBytes += int64(len(sb))
 	}
@@ -72,10 +72,10 @@ func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 	for i, id := range ids {
 		sb := []byte("scroll-" + id)
 		require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-			SessionID:   id,
-			WorkspaceID: "ws-1",
-			Shell:       "/bin/sh",
-			State:       "suspended",
+			SessionID: id,
+			ChatID:    "chat-1",
+			Shell:     "/bin/sh",
+			State:     "suspended",
 		}, sb))
 		require.NoError(t, os.WriteFile(filepath.Join(store.dir, id+".buf"), sb, 0o644))
 		terminal.SetLastActiveForTest(eng, id, base.Add(time.Duration(i)*time.Minute))

@@ -217,17 +217,6 @@ func New(
 		engines.Git,
 		workspaceUsecase,
 	)
-	terminalMeta := terminal.NewSessionMetaStore(
-		repos.Workspace,
-		gormStores.TerminalSessions,
-		crowbarHome,
-	)
-	terminalUsecase := terminal.New(
-		engines.Terminal,
-		gormStores.TerminalProfiles,
-		repos.Workspace,
-		terminalMeta,
-	)
 	providerSync := provider.New(
 		repos.Workspace,
 		engines.Provider,
@@ -277,6 +266,22 @@ func New(
 		chats:      chatAncestryReader{chats: agentic.chat},
 		workspaces: workspaceUsecase,
 	}
+	// Built HERE, not beside the other usecases above, because both take the
+	// chat→worktree resolver: a terminal session is owned by a CHAT and merely
+	// RUNS in a worktree (spec §4.2's owned bucket), so each needs to turn a
+	// chat id into the workspace behind it, and worktreeUsecase does not exist
+	// until the chat usecase above does.
+	terminalMeta := terminal.NewSessionMetaStore(
+		worktreeUsecase,
+		gormStores.TerminalSessions,
+		crowbarHome,
+	)
+	terminalUsecase := terminal.New(
+		engines.Terminal,
+		gormStores.TerminalProfiles,
+		worktreeUsecase,
+		terminalMeta,
+	)
 	return &Container{
 		Project:              projectUsecase,
 		ProjectImport:        projectImport,

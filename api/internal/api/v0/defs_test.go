@@ -72,30 +72,31 @@ func TestThreadsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
 	assert.Equal(t, "w1", def.Filters[2].Extract(d))
 }
 
-func TestTerminalsDef_NamespaceProjectRepoWs(t *testing.T) {
+func TestTerminalsDef_NamespaceChat(t *testing.T) {
 	def := terminalsDef(nil, nil)
-	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+	d := dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"}
 
-	// The namespace is the workspace prefix (p/r/w), NOT the session leaf: a
-	// workspace-scoped subscription receives every session in that workspace.
-	assert.Equal(t, "p1/r1/w1", def.Namespace(d))
+	// The namespace is the OWNING CHAT, NOT the session leaf: a chat-scoped
+	// subscription receives every session that chat owns. It is flat — a bare
+	// chat id, never a hierarchical "p/r/w" path — so the hierarchical
+	// client-scope prefix must not be applied to it.
+	assert.Equal(t, "c1", def.Namespace(d))
+	assert.True(t, def.FlatNamespace)
 
 	data, err := def.Serialize(d)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "s1")
 }
 
-func TestTerminalsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
+func TestTerminalsDef_FiltersScopeByChat(t *testing.T) {
 	def := terminalsDef(nil, nil)
-	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+	d := dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"}
 
-	require.Len(t, def.Filters, 3)
-	assert.Equal(t, "projectId", def.Filters[0].Param)
-	assert.Equal(t, "p1", def.Filters[0].Extract(d))
-	assert.Equal(t, "repoId", def.Filters[1].Param)
-	assert.Equal(t, "r1", def.Filters[1].Extract(d))
-	assert.Equal(t, "wsId", def.Filters[2].Param)
-	assert.Equal(t, "w1", def.Filters[2].Extract(d))
+	// ONE filter: the dual-served route is /v0/chats/:chatId/terminals, which
+	// binds no projectId/repoId/wsId at all, so chatId is what scopes a client.
+	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "chatId", def.Filters[0].Param)
+	assert.Equal(t, "c1", def.Filters[0].Extract(d))
 }
 
 func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {

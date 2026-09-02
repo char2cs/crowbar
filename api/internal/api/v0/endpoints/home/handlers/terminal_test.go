@@ -34,8 +34,11 @@ func (m *mockTerminalEngine) Kill(ctx context.Context, sessionID string) error {
 	return args.Error(0)
 }
 
-func (m *mockTerminalEngine) ListSessionsForWorkspace(workspaceID string) []string {
-	args := m.Called(workspaceID)
+// ListSessionsForChat keys by the OWNER id. The home group has no chat, so it
+// passes its own home-workspace id as that key and is merely self-consistent —
+// see handlers.TerminalEngine.
+func (m *mockTerminalEngine) ListSessionsForChat(ownerID string) []string {
+	args := m.Called(ownerID)
 	sessions, _ := args.Get(0).([]string)
 	return sessions
 }
@@ -70,7 +73,7 @@ func TestListTerminals_ReturnsSessions(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1", "sess2"})
+	eng.On("ListSessionsForChat", "ws-1").Return([]string{"sess1", "sess2"})
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals", h.ListTerminals)
@@ -92,7 +95,7 @@ func TestListTerminals_NilSessions_ReturnsEmptyArray(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return(nil)
+	eng.On("ListSessionsForChat", "ws-1").Return(nil)
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.GET("/projects/:projectId/home/terminals", h.ListTerminals)
@@ -122,7 +125,7 @@ func TestListTerminals_WorkspaceResolutionFails(t *testing.T) {
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/terminals", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	eng.AssertNotCalled(t, "ListSessionsForWorkspace", mock.Anything)
+	eng.AssertNotCalled(t, "ListSessionsForChat", mock.Anything)
 }
 
 // ── CreateTerminal ─────────────────────────────────────────────────────
@@ -201,7 +204,7 @@ func TestKillTerminal_WorkspaceResolutionFails(t *testing.T) {
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-x/home/terminals/sess1", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	eng.AssertNotCalled(t, "ListSessionsForWorkspace", mock.Anything)
+	eng.AssertNotCalled(t, "ListSessionsForChat", mock.Anything)
 }
 
 func TestKillTerminal_Returns202(t *testing.T) {
@@ -210,7 +213,7 @@ func TestKillTerminal_Returns202(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
+	eng.On("ListSessionsForChat", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(nil)
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})
@@ -227,7 +230,7 @@ func TestKillTerminal_SessionNotInWorkspace_Returns404(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"other-sess"})
+	eng.On("ListSessionsForChat", "ws-1").Return([]string{"other-sess"})
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})
 	r.DELETE("/projects/:projectId/home/terminals/:sessionId", h.KillTerminal)
@@ -243,7 +246,7 @@ func TestKillTerminal_KillReturnsErrSessionNotFound_Returns404(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
+	eng.On("ListSessionsForChat", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(engineterminal.ErrSessionNotFound)
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})
@@ -259,7 +262,7 @@ func TestKillTerminal_KillGenericError_Returns500(t *testing.T) {
 
 	reader := homeTerminalWorkspaceReader(t, "proj-1", "ws-1")
 	eng := &mockTerminalEngine{}
-	eng.On("ListSessionsForWorkspace", "ws-1").Return([]string{"sess1"})
+	eng.On("ListSessionsForChat", "ws-1").Return([]string{"sess1"})
 	eng.On("Kill", mock.Anything, "sess1").Return(errors.New("pty gone"))
 
 	h := handlers.New(reader, nil, nil, eng, stubWork{})

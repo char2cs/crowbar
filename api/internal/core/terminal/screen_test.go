@@ -27,7 +27,7 @@ func TestTerminalEngine_Screen_LiveSessionReturnsVisibleText(t *testing.T) {
 	terminal.StopMaintenanceForTest(eng)
 	dir := t.TempDir()
 
-	sid := newReadyShell(t, eng, "ws-1", dir)
+	sid := newReadyShell(t, eng, "chat-1", dir)
 
 	const marker = "SCREENTEST-4f2a9c"
 	runShell(t, eng, sid, "echo "+marker)

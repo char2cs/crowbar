@@ -51,11 +51,11 @@ func mustJSON(t *testing.T, m map[string]any) []byte {
 }
 
 type commandCall struct {
-	workspaceID string
-	cwd         string
-	argv        []string
-	env         []string
-	onExit      func()
+	chatID string
+	cwd    string
+	argv   []string
+	env    []string
+	onExit func()
 }
 
 // fakeCommander is a thread-safe TerminalCommander double: CreateCommand records
@@ -102,7 +102,7 @@ type fakeCommander struct {
 
 func (f *fakeCommander) CreateCommand(
 	_ context.Context,
-	workspaceID string,
+	chatID string,
 	cwd string,
 	argv []string,
 	env []string,
@@ -110,11 +110,11 @@ func (f *fakeCommander) CreateCommand(
 ) (string, error) {
 	if f.duringForkCall != nil {
 		f.duringForkCall(commandCall{
-			workspaceID: workspaceID,
-			cwd:         cwd,
-			argv:        append([]string{}, argv...),
-			env:         append([]string{}, env...),
-			onExit:      onExit,
+			chatID: chatID,
+			cwd:    cwd,
+			argv:   append([]string{}, argv...),
+			env:    append([]string{}, env...),
+			onExit: onExit,
 		})
 	}
 	if f.duringFork != nil {
@@ -133,11 +133,11 @@ func (f *fakeCommander) CreateCommand(
 	}
 	f.byID[id] = len(f.calls)
 	f.calls = append(f.calls, commandCall{
-		workspaceID: workspaceID,
-		cwd:         cwd,
-		argv:        append([]string{}, argv...),
-		env:         append([]string{}, env...),
-		onExit:      onExit,
+		chatID: chatID,
+		cwd:    cwd,
+		argv:   append([]string{}, argv...),
+		env:    append([]string{}, env...),
+		onExit: onExit,
 	})
 	return id, nil
 }

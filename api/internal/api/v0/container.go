@@ -93,22 +93,25 @@ func New(
 // onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own
 // (the reap path in the terminal engine). The handler-driven Kill path also
 // pushes an "ended" frame; the broadcaster's idempotent full-replace makes the
-// duplicate harmless. The owning project/repo are resolved from the workspace
-// repo so the frame namespaces under projectId/repoId/wsId. exitCode is the
-// process exit code; it is included in the frame when >=0 (known).
+// duplicate harmless. exitCode is the process exit code; it is included in the
+// frame when >=0 (known).
+//
+// The frame namespaces under the OWNING CHAT alone. It no longer resolves a
+// project/repo pair on the way out: terminal is spec §4.2's owned bucket, so
+// the topic is a single chat and there is nothing to fan out to (§7.4). That
+// also removes a silent failure mode — the old lookup returned ("", "") for an
+// unresolvable workspace and published the frame under the namespace "//",
+// where no subscriber was listening.
 func (c *Container) onTerminalEnded(
-	ctx context.Context,
-	workspaceID string,
+	_ context.Context,
+	chatID string,
 	sessionID string,
 	exitCode int,
 ) {
-	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	endedAt := time.Now().UTC()
 	ended := dto.TerminalSessionDTOFrom(
 		sessionID,
-		workspaceID,
-		projectID,
-		repoID,
+		chatID,
 		"",
 		"ended",
 		endedAt,
@@ -121,20 +124,16 @@ func (c *Container) onTerminalEnded(
 }
 
 // onTerminalState emits a lifecycle frame when a session transitions to
-// "detached" or "suspended". The owning project/repo are resolved from the
-// workspace so the frame namespaces under projectId/repoId/wsId.
+// "detached" or "suspended", namespaced under the chat that owns the session.
 func (c *Container) onTerminalState(
-	ctx context.Context,
-	workspaceID string,
+	_ context.Context,
+	chatID string,
 	sessionID string,
 	state string,
 ) {
-	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	d := dto.TerminalSessionDTOFrom(
 		sessionID,
-		workspaceID,
-		projectID,
-		repoID,
+		chatID,
 		"",
 		state,
 		time.Now().UTC(),
@@ -494,27 +493,33 @@ func threadsDef(
 	}
 }
 
-// terminalsDef serves the Terminal-session lifecycle topic. Its hierarchical
-// namespace is projectID/repoID/workspaceID, so a workspace-scoped subscription
-// ("p/r/w") receives every session in that workspace (spec §5); the per-client
-// projectId/repoId/wsId Filters mirror the dual-served route's path params so
-// path-first filter resolution scopes correctly. The snapshot derives from the
-// in-memory engine registry (D6: no terminal_sessions view.db). The raw PTY byte
-// stream is a separate, non-broadcast WebSocket.
+// terminalsDef serves the Terminal-session lifecycle topic, keyed by the chat
+// that OWNS each session (spec §4.2's owned bucket, §7.4's straight re-key —
+// no fan-out, because nothing here is shared).
+//
+// It is FlatNamespace with a single chatId Filter, the same shape git/files/lsp
+// already use: the namespace is a bare chat id, not a hierarchical "p/r/w"
+// path, so the hierarchical client-scope prefix must not be applied. The
+// dual-served route is /v0/chats/:chatId/terminals, which binds no
+// projectId/repoId/wsId at all — leaving the stream hierarchical would build an
+// empty prefix that matches EVERY chat's frames, handing each subscriber every
+// other chat's terminal lifecycle. The chatId Filter resolves from that path
+// param and is what actually scopes a client.
+//
+// The snapshot derives from the in-memory engine registry (D6: no
+// terminal_sessions view.db). The raw PTY byte stream is a separate,
+// non-broadcast WebSocket.
 func terminalsDef(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) ws.StreamDef[dto.TerminalSessionDTO] {
 	return ws.StreamDef[dto.TerminalSessionDTO]{
-		Namespace: func(d dto.TerminalSessionDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID
-		},
-		Serialize: func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  terminalsSnapshot(appContainer, engContainer),
+		Namespace:     func(d dto.TerminalSessionDTO) string { return d.ChatID },
+		Serialize:     func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:      terminalsSnapshot(appContainer, engContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[dto.TerminalSessionDTO]{
-			{Param: "projectId", Extract: func(d dto.TerminalSessionDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
-			{Param: "repoId", Extract: func(d dto.TerminalSessionDTO) string { return d.RepoID }, Match: ws.ExactMatch},
-			{Param: "wsId", Extract: func(d dto.TerminalSessionDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
+			{Param: "chatId", Extract: func(d dto.TerminalSessionDTO) string { return d.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }

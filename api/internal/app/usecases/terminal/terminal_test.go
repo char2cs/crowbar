@@ -23,18 +23,17 @@ func newTerminalUsecase(
 ) (
 	*mocks.TerminalEngine,
 	*mocks.TerminalProfileStore,
-	*mocks.WorkspaceSyncer,
+	*fakeWorktreeResolver,
 	terminal.Usecase,
 ) {
 	t.Helper()
 	eng := mocks.NewTerminalEngine()
 	profiles := mocks.NewTerminalProfileStore()
-	syncer := mocks.NewWorkspaceSyncer()
-	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+	worktrees := &fakeWorktreeResolver{
+		ws: domain.Workspace{ID: "ws-1", WorktreePath: "/repo/x"},
 	}
-	uc := terminal.New(eng, profiles, syncer, nil)
-	return eng, profiles, syncer, uc
+	uc := terminal.New(eng, profiles, worktrees, nil)
+	return eng, profiles, worktrees, uc
 }
 
 func TestTerminalUsecase_CreateSession_ResolvesWorkspaceDir(t *testing.T) {
@@ -47,23 +46,22 @@ func TestTerminalUsecase_CreateSession_ResolvesWorkspaceDir(t *testing.T) {
 		return "sess1", nil
 	}
 
-	id, err := uc.CreateSession(ctx, "w1", nil)
+	id, err := uc.CreateSession(ctx, "chat-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "sess1", id)
 	assert.Equal(t, "/repo/x", gotDir)
 }
 
 func TestTerminalUsecase_CreateSession_WorkspaceError(t *testing.T) {
-	eng, _, syncer, uc := newTerminalUsecase(t)
+	eng, _, worktrees, uc := newTerminalUsecase(t)
 	ctx := context.Background()
-	syncer.GetFn = func(_ context.Context, _ string) (domain.Workspace, error) {
-		return domain.Workspace{}, errors.New("boom")
-	}
+	worktrees.ws = domain.Workspace{}
+	worktrees.err = errors.New("boom")
 	eng.CreateFn = func(_ context.Context, _, _ string, _ *domain.TerminalProfile) (string, error) {
 		return "", nil
 	}
 
-	_, err := uc.CreateSession(ctx, "w1", nil)
+	_, err := uc.CreateSession(ctx, "chat-1", nil)
 	assert.Error(t, err)
 }
 
@@ -74,7 +72,7 @@ func TestTerminalUsecase_CreateSession_EngineError(t *testing.T) {
 		return "", errors.New("boom")
 	}
 
-	_, err := uc.CreateSession(ctx, "w1", nil)
+	_, err := uc.CreateSession(ctx, "chat-1", nil)
 	assert.Error(t, err)
 }
 
@@ -189,12 +187,12 @@ func TestTerminalUsecase_DeleteProfile_Error(t *testing.T) {
 // fakes for use in restart-restore tests.
 func newMetaStoreForTest(
 	t *testing.T,
-	wsRepo terminal.WorkspaceRepo,
+	worktrees terminal.WorktreeResolver,
 	sessStore *fakeSessionStore,
 	home string,
 ) engineterminal.SessionMetaStore {
 	t.Helper()
-	return terminal.NewSessionMetaStore(wsRepo, sessStore, func() (string, error) { return home, nil })
+	return terminal.NewSessionMetaStore(worktrees, sessStore, func() (string, error) { return home, nil })
 }
 
 // TestRestorePersistedSessions_RestoresPlaceholder is the restart round-trip:
@@ -206,7 +204,7 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 	home := t.TempDir()
 	sessionID := "restart-sess-1"
 
-	wsRepo := &fakeWorkspaceRepo{
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:        "ws-restart",
 			ProjectID: "proj-restart",
@@ -214,20 +212,20 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 		},
 	}
 	sessStore := newFakeSessionStore()
-	ms := newMetaStoreForTest(t, wsRepo, sessStore, home)
+	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
 	// Pre-populate as if a daemon had previously written this session.
 	sessStore.rows[sessionID] = domain.TerminalSession{
-		SessionID:   sessionID,
-		WorkspaceID: "ws-restart",
-		CWD:         t.TempDir(),
-		Shell:       "/bin/sh",
-		ProfileID:   "",
-		State:       "suspended",
+		SessionID: sessionID,
+		ChatID:    "chat-restart",
+		CWD:       t.TempDir(),
+		Shell:     "/bin/sh",
+		ProfileID: "",
+		State:     "suspended",
 	}
 
 	// Write scrollback file to the storage dir that metaStore will resolve.
-	storageDir, err := ms.StorageDir(ctx, "ws-restart")
+	storageDir, err := ms.StorageDir(ctx, "chat-restart")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(storageDir, 0o755))
 	scrollback := []byte("pre-restart-output")
@@ -238,7 +236,7 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 	// engine with only placeholders has nothing to sweep.
 	freshEng := engineterminal.New()
 	profiles := mocks.NewTerminalProfileStore()
-	uc := terminal.New(freshEng, profiles, wsRepo, ms)
+	uc := terminal.New(freshEng, profiles, worktrees, ms)
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
@@ -253,23 +251,23 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 }
 
 // TestRestorePersistedSessions_OrphanDeleted verifies that when a session row's
-// workspace can no longer be resolved (deleted workspace), the row is deleted from
-// the store and no placeholder is registered in the engine.
+// owning chat can no longer be resolved to a worktree (deleted chat), the row is
+// deleted from the store and no placeholder is registered in the engine.
 func TestRestorePersistedSessions_OrphanDeleted(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	sessionID := "orphan-sess-1"
 
-	// Workspace repo that always returns "not found".
-	wsRepo := &fakeWorkspaceRepo{err: errors.New("workspace not found")}
+	// Worktree resolver that always returns "not found".
+	worktrees := &fakeWorktreeResolver{err: errors.New("workspace not found")}
 	sessStore := newFakeSessionStore()
-	ms := newMetaStoreForTest(t, wsRepo, sessStore, home)
+	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
 	// Pre-populate an orphaned row.
 	sessStore.rows[sessionID] = domain.TerminalSession{
-		SessionID:   sessionID,
-		WorkspaceID: "ws-deleted",
-		State:       "suspended",
+		SessionID: sessionID,
+		ChatID:    "chat-deleted",
+		State:     "suspended",
 	}
 
 	eng := mocks.NewTerminalEngine()
@@ -279,7 +277,7 @@ func TestRestorePersistedSessions_OrphanDeleted(t *testing.T) {
 		return nil
 	}
 	profiles := mocks.NewTerminalProfileStore()
-	uc := terminal.New(eng, profiles, wsRepo, ms)
+	uc := terminal.New(eng, profiles, worktrees, ms)
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
@@ -298,12 +296,12 @@ func TestRestorePersistedSessions_BestEffort(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 
-	wsRepo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
 	sessStore := newFakeSessionStore()
-	ms := newMetaStoreForTest(t, wsRepo, sessStore, home)
+	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
-	sessStore.rows["sess-fail"] = domain.TerminalSession{SessionID: "sess-fail", WorkspaceID: "ws-1", State: "suspended"}
-	sessStore.rows["sess-ok"] = domain.TerminalSession{SessionID: "sess-ok", WorkspaceID: "ws-1", State: "suspended"}
+	sessStore.rows["sess-fail"] = domain.TerminalSession{SessionID: "sess-fail", ChatID: "chat-1", State: "suspended"}
+	sessStore.rows["sess-ok"] = domain.TerminalSession{SessionID: "sess-ok", ChatID: "chat-1", State: "suspended"}
 
 	eng := mocks.NewTerminalEngine()
 	var loaded []string
@@ -315,7 +313,7 @@ func TestRestorePersistedSessions_BestEffort(t *testing.T) {
 		return nil
 	}
 	profiles := mocks.NewTerminalProfileStore()
-	uc := terminal.New(eng, profiles, wsRepo, ms)
+	uc := terminal.New(eng, profiles, worktrees, ms)
 
 	// Must not return an error despite one row failing.
 	err := uc.RestorePersistedSessions(ctx)
@@ -333,11 +331,11 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 
-	wsRepo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
 	sessStore := newFakeSessionStore()
-	ms := newMetaStoreForTest(t, wsRepo, sessStore, home)
+	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
-	storageDir, err := ms.StorageDir(ctx, "ws-1")
+	storageDir, err := ms.StorageDir(ctx, "chat-1")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(storageDir, 0o755))
 
@@ -348,7 +346,7 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 		id := fmt.Sprintf("sess-%03d", i) // higher i ⇒ more recent
 		sessStore.rows[id] = domain.TerminalSession{
 			SessionID:    id,
-			WorkspaceID:  "ws-1",
+			ChatID:       "chat-1",
 			State:        "suspended",
 			LastActiveAt: base.Add(time.Duration(i) * time.Minute),
 		}
@@ -364,7 +362,7 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 		return nil
 	}
 	profiles := mocks.NewTerminalProfileStore()
-	uc := terminal.New(eng, profiles, wsRepo, ms)
+	uc := terminal.New(eng, profiles, worktrees, ms)
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
@@ -393,11 +391,8 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 func TestRestorePersistedSessions_NilMetaStore(t *testing.T) {
 	eng := mocks.NewTerminalEngine()
 	profiles := mocks.NewTerminalProfileStore()
-	syncer := mocks.NewWorkspaceSyncer()
-	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id}, nil
-	}
-	uc := terminal.New(eng, profiles, syncer, nil) // no metaStore
+	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1"}}
+	uc := terminal.New(eng, profiles, worktrees, nil) // no metaStore
 
 	err := uc.RestorePersistedSessions(context.Background())
 	assert.NoError(t, err)

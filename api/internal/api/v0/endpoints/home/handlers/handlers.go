@@ -103,10 +103,17 @@ type Files interface {
 }
 
 // TerminalEngine is the terminal engine surface needed by home terminal handlers.
+//
+// The engine keys sessions by their OWNING CHAT now (spec §4.2). The home
+// group has no chat behind it — that is exactly what spec §4.1 deletes it for —
+// so it passes its own home workspace id as the key and is merely
+// self-consistent: it lists back what it created, under an id no chat shares.
+// This whole group, these four terminal routes included, goes away in spec §8
+// step 6; nothing new should be built on it.
 type TerminalEngine interface {
 	Create(
 		ctx context.Context,
-		workspaceID string,
+		ownerID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
@@ -114,8 +121,8 @@ type TerminalEngine interface {
 		ctx context.Context,
 		sessionID string,
 	) error
-	ListSessionsForWorkspace(
-		workspaceID string,
+	ListSessionsForChat(
+		ownerID string,
 	) []string
 	SessionExists(ctx context.Context, sessionID string) bool
 	Attach(ctx context.Context, sessionID string, conn WSConn) error

@@ -16,9 +16,12 @@ import (
 
 // Engine is the PTY-session surface the terminal usecase passes through to.
 type Engine interface {
+	// Create spawns a PTY owned by chatID in workspaceDir — the owner and the
+	// directory are two different lookups, and sibling chats share only the
+	// second.
 	Create(
 		ctx context.Context,
-		workspaceID string,
+		chatID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
@@ -36,21 +39,13 @@ type Engine interface {
 	) error
 }
 
-// WorkspaceRepo is the workspace surface used to resolve a session's
-// working directory.
-type WorkspaceRepo interface {
-	Get(
-		ctx context.Context,
-		id string,
-	) (domain.Workspace, error)
-}
-
 // Usecase is the terminal session lifecycle + profile CRUD surface.
 type Usecase interface {
-	// CreateSession spawns a PTY session in the workspace's worktree directory.
+	// CreateSession spawns a PTY session owned by chatID, running in the
+	// worktree that chat resolves to.
 	CreateSession(
 		ctx context.Context,
-		wsID string,
+		chatID string,
 		prof *domain.TerminalProfile,
 	) (string, error)
 
@@ -94,40 +89,43 @@ type Usecase interface {
 }
 
 type terminalUsecase struct {
-	engine     Engine
-	profiles   store.Store[domain.TerminalProfile, string]
-	workspaces WorkspaceRepo
-	metaStore  engineterminal.SessionMetaStore
+	engine    Engine
+	profiles  store.Store[domain.TerminalProfile, string]
+	worktrees WorktreeResolver
+	metaStore engineterminal.SessionMetaStore
 }
 
 // New builds a Usecase from the terminal engine, the profile store, the
-// workspace repo, and the durable session metastore. metaStore may be nil; in
-// that case RestorePersistedSessions is a no-op.
+// chat→worktree resolver, and the durable session metastore. metaStore may be
+// nil; in that case RestorePersistedSessions is a no-op.
 func New(
 	engine Engine,
 	profiles store.Store[domain.TerminalProfile, string],
-	workspaces WorkspaceRepo,
+	worktrees WorktreeResolver,
 	metaStore engineterminal.SessionMetaStore,
 ) Usecase {
 	return &terminalUsecase{
-		engine:     engine,
-		profiles:   profiles,
-		workspaces: workspaces,
-		metaStore:  metaStore,
+		engine:    engine,
+		profiles:  profiles,
+		worktrees: worktrees,
+		metaStore: metaStore,
 	}
 }
 
-// CreateSession spawns a PTY session in the workspace's worktree directory.
+// CreateSession spawns a PTY session OWNED by chatID, running in the worktree
+// that chat resolves to. The owner and the directory are deliberately two
+// lookups of two different things: siblings share the directory, never the
+// session.
 func (u *terminalUsecase) CreateSession(
 	ctx context.Context,
-	wsID string,
+	chatID string,
 	prof *domain.TerminalProfile,
 ) (string, error) {
-	ws, err := u.workspaces.Get(ctx, wsID)
+	ws, err := u.worktrees.Resolve(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("terminal: create session: load workspace: %w", err)
+		return "", fmt.Errorf("terminal: create session: resolve chat worktree: %w", err)
 	}
-	id, err := u.engine.Create(ctx, wsID, ws.WorktreePath, prof)
+	id, err := u.engine.Create(ctx, chatID, ws.WorktreePath, prof)
 	if err != nil {
 		return "", fmt.Errorf("terminal: create session: %w", err)
 	}
@@ -194,8 +192,8 @@ func (u *terminalUsecase) DeleteProfile(
 }
 
 // RestorePersistedSessions reloads all durable terminal session rows from the
-// metastore as PTY-less placeholders. Orphaned rows (workspace no longer
-// resolvable) are deleted from the store. Per-row errors are logged and
+// metastore as PTY-less placeholders. Orphaned rows (owning chat no longer
+// resolvable to a worktree) are deleted from the store. Per-row errors are logged and
 // skipped; the overall call never returns a fatal error.
 func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	if u.metaStore == nil {
@@ -217,9 +215,9 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 
 	restored, dropped, evicted := 0, 0, 0
 	for _, row := range rows {
-		dir, dirErr := u.metaStore.StorageDir(ctx, row.WorkspaceID)
+		dir, dirErr := u.metaStore.StorageDir(ctx, row.ChatID)
 		if dirErr != nil {
-			// Workspace deleted or unresolvable — reconcile orphan away.
+			// Owning chat deleted or unresolvable — reconcile orphan away.
 			if delErr := u.metaStore.Delete(ctx, row.SessionID); delErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr,
 					"terminal: restore: delete orphan %s: %v\n", row.SessionID, delErr)
@@ -239,12 +237,12 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 		scrollback := readScrollback(dir, row.SessionID)
 
 		if loadErr := u.engine.LoadPlaceholder(ctx, engineterminal.SessionMeta{
-			SessionID:   row.SessionID,
-			WorkspaceID: row.WorkspaceID,
-			CWD:         row.CWD,
-			Shell:       row.Shell,
-			ProfileID:   row.ProfileID,
-			State:       "suspended",
+			SessionID: row.SessionID,
+			ChatID:    row.ChatID,
+			CWD:       row.CWD,
+			Shell:     row.Shell,
+			ProfileID: row.ProfileID,
+			State:     "suspended",
 		}, scrollback); loadErr != nil {
 			_, _ = fmt.Fprintf(os.Stderr,
 				"terminal: restore: load placeholder %s: %v\n", row.SessionID, loadErr)

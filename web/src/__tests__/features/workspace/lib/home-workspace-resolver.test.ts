@@ -23,11 +23,16 @@ beforeEach(() => {
 describe('home-workspace-resolver', () => {
   it('useHomeWorkspaceState starts unresolved (no wsId, no error) before anything is fetched', () => {
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
-    expect(result.current).toEqual({ wsId: null, error: false })
+    expect(result.current).toEqual({ wsId: null, owningChatId: null, error: false })
   })
 
   it('resolves the home workspace id once the fetch settles, and known ids include it', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-1', projectId: 'p1', kind: 'home' })
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-home-1',
+      projectId: 'p1',
+      kind: 'home',
+      owningChatId: 'chat-home-1',
+    })
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
 
     act(() => {
@@ -35,13 +40,24 @@ describe('home-workspace-resolver', () => {
     })
 
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: 'ws-home-1', error: false })
+      // owningChatId is carried through because chat-scoped routes (a terminal's)
+      // are addressed by it and the home route supplies no chat id of its own.
+      expect(result.current).toEqual({
+        wsId: 'ws-home-1',
+        owningChatId: 'chat-home-1',
+        error: false,
+      })
     })
     expect(getKnownHomeWorkspaceIds()).toContain('ws-home-1')
   })
 
   it('is idempotent: a second call for the same project id does not re-fetch', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-1', projectId: 'p1', kind: 'home' })
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-home-1',
+      projectId: 'p1',
+      kind: 'home',
+      owningChatId: 'chat-home-1',
+    })
 
     ensureHomeWorkspaceResolved('p1')
     ensureHomeWorkspaceResolved('p1') // in-flight — must not issue a second fetch
@@ -60,7 +76,7 @@ describe('home-workspace-resolver', () => {
     })
 
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: null, error: true })
+      expect(result.current).toEqual({ wsId: null, owningChatId: null, error: true })
     })
     expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
 

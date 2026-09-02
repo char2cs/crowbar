@@ -152,7 +152,10 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	rs.apiConns.drop(live.ID)
 
 	argv := append([]string{binpath.Resolve(attachArgv[0])}, attachArgv[1:]...)
-	termSessID, err := rs.term.CreateCommand(ctx, live.WorkspaceID, tctx.Cwd, argv, nil,
+	// Keyed by the CHAT, not the runner row's workspace: the native view is a
+	// PTY this chat owns, and live.WorkspaceID is empty for a chat with no
+	// worktree of its own. tctx.Cwd stays the separately-resolved directory.
+	termSessID, err := rs.term.CreateCommand(ctx, chatID, tctx.Cwd, argv, nil,
 		rs.onAttachExit(chatID, live.ID))
 	if err != nil {
 		// The api connection is already gone; degrade to dormant rather than leave

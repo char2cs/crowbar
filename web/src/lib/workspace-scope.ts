@@ -7,6 +7,17 @@ export interface WorkspaceScope {
   projectId: string
   repoId: string
   wsId: string
+  /**
+   * The CHAT that owns this workspace's worktree, straight from the daemon
+   * (`WorkspaceDTO.owningChatId`) — never guessed here.
+   *
+   * It is what chat-scoped API routes are addressed by (`/v0/chats/:chatId/...`),
+   * so a caller holding only a wsId can still reach them. Optional because the
+   * ROUTE (/ide/:projectId/:repoId/:wsId) cannot supply it — only the sidebar's
+   * workspace data can — which is why setWorkspaceScope below merges rather
+   * than overwrites it.
+   */
+  owningChatId?: string
 }
 
 let _activeWorkspaceId: string | null = null
@@ -17,9 +28,24 @@ export function setActiveScopeWorkspaceId(wsId: string | null): void {
   _activeWorkspaceId = wsId
 }
 
+/**
+ * Merge a scope into the registry, PRESERVING a previously recorded
+ * owningChatId when the incoming scope carries none.
+ *
+ * The route parser and the sidebar both write here, and only the sidebar knows
+ * the owning chat. Without this merge, navigating to a workspace (a route-derived
+ * write with no chat) would erase the chat id the sidebar had already recorded,
+ * and every chat-scoped URL for that workspace would start throwing.
+ */
+function mergeScope(scope: WorkspaceScope): WorkspaceScope {
+  const prev = _scopes.get(scope.wsId)
+  const owningChatId = scope.owningChatId || prev?.owningChatId
+  return owningChatId ? { ...scope, owningChatId } : { ...scope }
+}
+
 /** Record the hierarchical scope (project+repo) for a workspace from the route. */
 export function setWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, scope)
+  _scopes.set(scope.wsId, mergeScope(scope))
   _activeWorkspaceId = scope.wsId
 }
 
@@ -31,7 +57,7 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
  * an unrecorded scope, which used to make those buttons silently no-op.
  */
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, scope)
+  _scopes.set(scope.wsId, mergeScope(scope))
 }
 
 // The router pathname for the active workspace route. Not anchored to the start
@@ -84,4 +110,17 @@ export function getWorkspaceScope(wsId?: string): WorkspaceScope | null {
   const id = wsId ?? _activeWorkspaceId
   if (!id) return null
   return _scopes.get(id) ?? null
+}
+
+/**
+ * The chat that owns `wsId`'s worktree (defaults to the active workspace), or
+ * null when the scope was never recorded or the daemon resolved no owning chat.
+ *
+ * This is the bridge from "the id a terminal component holds" (a workspace) to
+ * "the id its API routes are addressed by" (a chat). Callers throw or skip on
+ * null rather than falling back to a workspace-scoped URL — those routes no
+ * longer exist.
+ */
+export function getOwningChatId(wsId?: string): string | null {
+  return getWorkspaceScope(wsId)?.owningChatId || null
 }

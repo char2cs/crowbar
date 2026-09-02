@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"image/color"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -60,7 +60,7 @@ func (stubEngine) Attach(
 	return nil
 }
 
-func (stubEngine) ListSessionsForWorkspace(
+func (stubEngine) ListSessionsForChat(
 	_ string,
 ) []string {
 	return []string{"sess1"}
@@ -116,25 +116,6 @@ func (stubProfiles) Delete(
 	return nil
 }
 
-type stubReader struct{}
-
-func (stubReader) Get(
-	_ context.Context,
-	id string,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id}, nil
-}
-
-// errReader fails every Get so CreateSession's 404 path can be exercised.
-type errReader struct{}
-
-func (errReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, errors.New("not found")
-}
-
 // notFoundEngine returns ErrSessionNotFound on Kill so the 404 path can be
 // exercised; it embeds stubEngine for the rest of the surface.
 type notFoundEngine struct {
@@ -148,20 +129,44 @@ func (notFoundEngine) Kill(
 	return engineterminal.ErrSessionNotFound
 }
 
-// wsPath is the hierarchical workspace-scoped terminals collection path.
-const wsPath = "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"
+// chatPath is the flat chat-scoped terminals collection path.
+const chatPath = "/v0/chats/chat1/terminals"
 
 func newHandlers(
 	broadcast handlers.TerminalBroadcaster,
 ) *handlers.Handlers {
-	return handlers.New(stubEngine{}, stubProfiles{}, stubReader{}, broadcast)
+	return handlers.New(stubEngine{}, stubProfiles{}, broadcast)
+}
+
+// scopeWorkspace stands in for v0's resolveChatWorktree middleware: it stashes
+// the workspace the chat resolved to, which is where the handlers now read the
+// PTY's working directory from.
+func scopeWorkspace(
+	c *gin.Context,
+) {
+	reqscope.SetWorkspace(c, domain.Workspace{ID: "ws1", WorktreePath: "/tmp/ws1"})
+	c.Next()
 }
 
 func mountSessions(
 	r *gin.Engine,
 	h *handlers.Handlers,
 ) {
-	scoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	scoped := r.Group("/v0/chats/:chatId")
+	scoped.Use(scopeWorkspace)
+	scoped.GET("/terminals", h.ListSessions)
+	scoped.POST("/terminals", h.CreateSession)
+	scoped.DELETE("/terminals/:sessionId", h.KillSession)
+}
+
+// mountSessionsUnscoped mounts the same routes WITHOUT the worktree-resolving
+// middleware, so the handlers' "no workspace on the request context" branch can
+// be exercised.
+func mountSessionsUnscoped(
+	r *gin.Engine,
+	h *handlers.Handlers,
+) {
+	scoped := r.Group("/v0/chats/:chatId")
 	scoped.GET("/terminals", h.ListSessions)
 	scoped.POST("/terminals", h.CreateSession)
 	scoped.DELETE("/terminals/:sessionId", h.KillSession)
@@ -201,10 +206,10 @@ func TestTerminalHandlers_HappyPath(
 ) {
 	r := newRouter()
 
-	rec := do(r, http.MethodPost, wsPath, nil)
+	rec := do(r, http.MethodPost, chatPath, nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	rec = do(r, http.MethodDelete, wsPath+"/sess1", nil) // KillSession
+	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil) // KillSession
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
@@ -232,7 +237,7 @@ func TestCreateSession_201AndBroadcast(
 	spy := &spyBroadcaster{}
 	mountSessions(r, newHandlers(spy))
 
-	rec := do(r, http.MethodPost, wsPath, map[string]any{"profileId": "prof1"})
+	rec := do(r, http.MethodPost, chatPath, map[string]any{"profileId": "prof1"})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var env struct {
@@ -246,9 +251,7 @@ func TestCreateSession_201AndBroadcast(
 	require.Len(t, spy.pushed, 1)
 	active := spy.pushed[0]
 	assert.Equal(t, "sess1", active.ID)
-	assert.Equal(t, "p1", active.ProjectID)
-	assert.Equal(t, "r1", active.RepoID)
-	assert.Equal(t, "ws1", active.WorkspaceID)
+	assert.Equal(t, "chat1", active.ChatID)
 	assert.Equal(t, "prof1", active.ProfileID)
 	assert.Equal(t, "active", active.Status)
 	assert.Nil(t, active.EndedAt)
@@ -261,15 +264,13 @@ func TestKillSession_202AndEndedBroadcast(
 	spy := &spyBroadcaster{}
 	mountSessions(r, newHandlers(spy))
 
-	rec := do(r, http.MethodDelete, wsPath+"/sess1", nil)
+	rec := do(r, http.MethodDelete, chatPath+"/sess1", nil)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	require.Len(t, spy.pushed, 1)
 	ended := spy.pushed[0]
 	assert.Equal(t, "sess1", ended.ID)
-	assert.Equal(t, "p1", ended.ProjectID)
-	assert.Equal(t, "r1", ended.RepoID)
-	assert.Equal(t, "ws1", ended.WorkspaceID)
+	assert.Equal(t, "chat1", ended.ChatID)
 	assert.Equal(t, "ended", ended.Status)
 	require.NotNil(t, ended.EndedAt)
 }
@@ -279,7 +280,7 @@ func TestListSessions_ReturnsScopedList(
 ) {
 	r := newRouter()
 
-	rec := do(r, http.MethodGet, wsPath, nil)
+	rec := do(r, http.MethodGet, chatPath, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var env struct {
@@ -288,19 +289,28 @@ func TestListSessions_ReturnsScopedList(
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	require.Len(t, env.Data, 1)
 	assert.Equal(t, "sess1", env.Data[0].ID)
-	assert.Equal(t, "ws1", env.Data[0].WorkspaceID)
+	assert.Equal(t, "chat1", env.Data[0].ChatID)
 	assert.Equal(t, "active", env.Data[0].Status)
 }
 
-func TestCreateSession_404OnUnknownWorkspace(
+// TestCreateSession_500WhenWorktreeUnresolved is the descendant of the old
+// "404 on unknown workspace" case. Resolving the chat is no longer this
+// handler's job — resolveChatWorktree does it, and 404s a chat whose worktree
+// cannot be found before the handler runs (covered in v0's middleware_test).
+// What is left here is the same refusal to spawn without a workspace, now
+// reported as the wiring bug it can only be: nothing is created, nothing is
+// broadcast.
+func TestCreateSession_500WhenWorktreeUnresolved(
 	t *testing.T,
 ) {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, stubProfiles{}, errReader{}, &spyBroadcaster{})
-	mountSessions(r, h)
+	spy := &spyBroadcaster{}
+	h := handlers.New(stubEngine{}, stubProfiles{}, spy)
+	mountSessionsUnscoped(r, h)
 
-	rec := do(r, http.MethodPost, wsPath, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec := do(r, http.MethodPost, chatPath, nil)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Empty(t, spy.pushed)
 }
 
 func TestKillSession_404OnUnknownSession(
@@ -308,10 +318,10 @@ func TestKillSession_404OnUnknownSession(
 ) {
 	r := gin.New()
 	spy := &spyBroadcaster{}
-	h := handlers.New(notFoundEngine{}, stubProfiles{}, stubReader{}, spy)
+	h := handlers.New(notFoundEngine{}, stubProfiles{}, spy)
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodDelete, wsPath+"/ghost", nil)
+	rec := do(r, http.MethodDelete, chatPath+"/ghost", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, spy.pushed)
 }

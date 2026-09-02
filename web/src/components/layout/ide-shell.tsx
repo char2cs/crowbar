@@ -73,7 +73,9 @@ export function IDEShell() {
   // below can keep the resulting workspace mounted-but-hidden via its normal
   // keep-alive retention, so a repeat visit is a warm slot reveal.
   const homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined
-  const { wsId: homeWorkspaceId } = useHomeWorkspaceState(homeProjectId ?? null)
+  const { wsId: homeWorkspaceId, owningChatId: homeOwningChatId } = useHomeWorkspaceState(
+    homeProjectId ?? null,
+  )
   useEffect(() => {
     if (homeProjectId) ensureHomeWorkspaceResolved(homeProjectId)
   }, [homeProjectId])
@@ -82,7 +84,15 @@ export function IDEShell() {
   // WorkspaceView in the same render pass, and workspaceBase() needs the
   // scope to exist before that.
   if (homeRouteMatch && homeProjectId && homeWorkspaceId) {
-    setWorkspaceScope({ projectId: homeProjectId, repoId: '', wsId: homeWorkspaceId })
+    // owningChatId travels with it: home is project-level, so it never appears in
+    // the sidebar's repo tree that records every other workspace's owning chat,
+    // and a chat-scoped URL (a terminal's) could not be built for it otherwise.
+    setWorkspaceScope({
+      projectId: homeProjectId,
+      repoId: '',
+      wsId: homeWorkspaceId,
+      owningChatId: homeOwningChatId ?? undefined,
+    })
   }
   // The workspace WorkspaceHost should treat as "active": the routed
   // workspace, or — on project home — the resolved home workspace once known.

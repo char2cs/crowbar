@@ -938,9 +938,10 @@ func (e *FsEngine) Delete(
 }
 
 // TerminalEngine is a fake of the terminal-engine surface used by the terminal
-// usecase.
+// usecase. Create's first id is the OWNING CHAT; the directory it runs in is a
+// separate lookup the usecase makes against the chat's worktree.
 type TerminalEngine struct {
-	CreateFn          func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
+	CreateFn          func(ctx context.Context, chatID, dir string, prof *domain.TerminalProfile) (string, error)
 	KillFn            func(ctx context.Context, sessionID string) error
 	LoadPlaceholderFn func(ctx context.Context, m engineterminal.SessionMeta, scrollback []byte) error
 }
@@ -952,11 +953,11 @@ func NewTerminalEngine() *TerminalEngine {
 
 func (e *TerminalEngine) Create(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 	workspaceDir string,
 	prof *domain.TerminalProfile,
 ) (string, error) {
-	return e.CreateFn(ctx, workspaceID, workspaceDir, prof)
+	return e.CreateFn(ctx, chatID, workspaceDir, prof)
 }
 
 func (e *TerminalEngine) Kill(

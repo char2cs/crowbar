@@ -546,7 +546,12 @@ function recordRepoScopes(repos: Repo[]): void {
   for (const repo of repos) {
     if (!repo.projectId) continue
     for (const ws of repo.workspaces) {
-      recordWorkspaceScope({ projectId: repo.projectId, repoId: repo.id, wsId: ws.id })
+      recordWorkspaceScope({
+        projectId: repo.projectId,
+        repoId: repo.id,
+        wsId: ws.id,
+        owningChatId: ws.owningChatId,
+      })
     }
     if (repo.defaultWorkspaceId) {
       recordWorkspaceScope({
@@ -805,7 +810,12 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
   applyWorkspaceDTO: (dto) =>
     set((s) => {
       if (dto.status !== 'deleted') {
-        recordWorkspaceScope({ projectId: dto.projectId, repoId: dto.repoId, wsId: dto.id })
+        recordWorkspaceScope({
+          projectId: dto.projectId,
+          repoId: dto.repoId,
+          wsId: dto.id,
+          owningChatId: dto.owningChatId,
+        })
       }
       // A 'deleted' tombstone removes the workspace from whichever repo holds
       // it — the backend owns the cascade, so we never BFS-remove locally.

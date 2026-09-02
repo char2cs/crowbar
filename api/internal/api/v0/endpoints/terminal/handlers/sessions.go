@@ -11,31 +11,37 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CreateSession handles POST
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals.
+// CreateSession handles POST /v0/chats/:chatId/terminals.
 //
 // Per D2 the response is 201 {sessionId} synchronously (the FE needs the id
 // immediately to open the raw PTY WebSocket) AND a lifecycle
-// TerminalSessionDTO{status:"active"} is broadcast so the workspace-scoped
-// stream converges.
+// TerminalSessionDTO{status:"active"} is broadcast so the chat-scoped stream
+// converges.
+//
+// The session is OWNED by :chatId and RUNS in the worktree that chat resolved
+// to — the two arguments to eng.Create, and the whole point of the re-key.
+// Sibling chats on one worktree get the same WorktreePath and disjoint
+// sessions.
 func (h *Handlers) CreateSession(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
 		return
 	}
 
-	projectID := ctx.Param("projectId")
-	repoID := ctx.Param("repoId")
-	wsID := ctx.Param("wsId")
+	chatID := ctx.Param("chatId")
 
-	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
+	// Resolved once by resolveChatWorktree before this handler ran; a miss
+	// means the route is mounted outside that middleware, which is a wiring
+	// bug rather than anything the caller did.
+	ws, ok := reqscope.Workspace(ctx)
+	if !ok {
+		libs.WriteErr(ctx, http.StatusInternalServerError, "chat worktree not resolved")
 		return
 	}
 
@@ -51,7 +57,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 
 	sid, err := eng.Create(
 		ctx.Request.Context(),
-		wsID,
+		chatID,
 		ws.WorktreePath,
 		prof,
 	)
@@ -63,9 +69,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 	h.pushSession(
 		dto.TerminalSessionDTOFrom(
 			sid,
-			wsID,
-			projectID,
-			repoID,
+			chatID,
 			body.ProfileID,
 			"active",
 			time.Now().UTC(),
@@ -75,23 +79,26 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, gin.H{"sessionId": sid})
 }
 
-// ListSessions handles GET
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals. It returns
-// the sessions for the workspace from the in-memory engine registry with their
-// real lifecycle state (active|detached|suspended) (D6: terminals are ephemeral,
-// no persistence). A WebSocket upgrade on the same path is routed to the
-// lifecycle broadcaster by the dual-serve wrapper.
+// ListSessions handles GET /v0/chats/:chatId/terminals. It returns the
+// sessions OWNED BY THAT CHAT from the in-memory engine registry with their
+// real lifecycle state (active|detached|suspended) (D6: terminals are
+// ephemeral, no persistence). A WebSocket upgrade on the same path is routed to
+// the lifecycle broadcaster by the dual-serve wrapper.
+//
+// A sibling chat sharing this chat's worktree is NOT listed here, and that is
+// the behavioural fix the re-key delivers: keyed by workspace, this listing
+// used to hand one chat every other chat's shells the moment two of them shared
+// a worktree — which batch import and repo-add make the common case, not the
+// exotic one.
 func (h *Handlers) ListSessions(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
 		return
 	}
 
-	projectID := ctx.Param("projectId")
-	repoID := ctx.Param("repoId")
-	wsID := ctx.Param("wsId")
+	chatID := ctx.Param("chatId")
 
-	ids := eng.ListSessionsForWorkspace(wsID)
+	ids := eng.ListSessionsForChat(chatID)
 	now := time.Now().UTC()
 	sessions := make([]dto.TerminalSessionDTO, 0, len(ids))
 	for _, id := range ids {
@@ -99,14 +106,13 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 		if !ok {
 			continue // session vanished between List and StateOf
 		}
-		sessions = append(sessions, dto.TerminalSessionDTOFrom(id, wsID, projectID, repoID, "", state, now))
+		sessions = append(sessions, dto.TerminalSessionDTOFrom(id, chatID, "", state, now))
 	}
 
 	libs.WriteQueryOK(ctx, sessions)
 }
 
-// KillSession handles DELETE
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals/:sessionId.
+// KillSession handles DELETE /v0/chats/:chatId/terminals/:sessionId.
 // It returns 202 and broadcasts a TerminalSessionDTO{status:"ended"} frame (the
 // engine's OnSessionEnded reap also emits one; the broadcaster's idempotent
 // full-replace makes the duplicate harmless).
@@ -116,9 +122,7 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 		return
 	}
 
-	projectID := ctx.Param("projectId")
-	repoID := ctx.Param("repoId")
-	wsID := ctx.Param("wsId")
+	chatID := ctx.Param("chatId")
 	sid := ctx.Param("sessionId")
 
 	if err := eng.Kill(ctx.Request.Context(), sid); err != nil {
@@ -133,9 +137,7 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 	endedAt := time.Now().UTC()
 	ended := dto.TerminalSessionDTOFrom(
 		sid,
-		wsID,
-		projectID,
-		repoID,
+		chatID,
 		"",
 		"ended",
 		endedAt,

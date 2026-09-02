@@ -297,10 +297,9 @@ func appendDiagnostics(
 
 // terminalsSnapshot builds the Terminal-session snapshot-on-subscribe source
 // (03 §1a) from the in-memory engine registry (D6: terminals are ephemeral, no
-// view.db). Every live session across every workspace is emitted with its real
-// state (active|detached|suspended) carrying its workspace's project/repo scope;
-// each client's hierarchical prefix predicate trims the result to its
-// subscription. It is empty until a session is created.
+// view.db). It emits the sessions owned by the SUBSCRIBING CHAT with their real
+// state (active|detached|suspended). It is empty until that chat creates a
+// session.
 func terminalsSnapshot(
 	_ *app.Container,
 	engContainer *engine.Container,
@@ -309,16 +308,16 @@ func terminalsSnapshot(
 		return nil
 	}
 	return func(scope string) []dto.TerminalSessionDTO {
-		// Terminals are workspace-scoped: the subscribing client's scope is the
-		// hierarchical p/r/w key. Resolve the single workspace from the scope and
-		// list only its sessions — never enumerate every workspace's per-entity
-		// store (the scope arg exists precisely to avoid that global scan).
-		parts := strings.Split(scope, "/")
-		if len(parts) < 3 || parts[2] == "" {
+		// Terminals are chat-scoped: on the flat /v0/chats/:chatId route the
+		// client's scope IS the bare chat id (see ws.clientScope). List only
+		// that chat's sessions — never enumerate the whole registry (the scope
+		// arg exists precisely to avoid that global scan), and never a sibling
+		// chat's, even one sharing this chat's worktree.
+		chatID := scope
+		if chatID == "" {
 			return nil
 		}
-		projectID, repoID, wsID := parts[0], parts[1], parts[2]
-		ids := engContainer.Terminal.ListSessionsForWorkspace(wsID)
+		ids := engContainer.Terminal.ListSessionsForChat(chatID)
 		now := time.Now().UTC()
 		out := make([]dto.TerminalSessionDTO, 0, len(ids))
 		for _, id := range ids {
@@ -327,7 +326,7 @@ func terminalsSnapshot(
 				// session vanished between List and StateOf; skip
 				continue
 			}
-			out = append(out, dto.TerminalSessionDTOFrom(id, wsID, projectID, repoID, "", state, now))
+			out = append(out, dto.TerminalSessionDTOFrom(id, chatID, "", state, now))
 		}
 		return out
 	}

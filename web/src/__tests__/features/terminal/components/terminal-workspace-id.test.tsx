@@ -41,9 +41,10 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getActiveWorkspaceId: () => 'w-active',
 }))
 
-vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (wsId: string) => `/v0/projects/p1/repos/r1/workspaces/${wsId}`,
-}))
+// NOT mocked: the REAL chat-scoped URL builder runs, resolving each workspace's
+// PTY base through the owning chat recorded in beforeEach. That is what makes the
+// wrong-workspace bug observable now — the two workspaces have DIFFERENT owning
+// chats, so a base built from the active workspace names the wrong chat.
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
@@ -67,6 +68,7 @@ vi.mock('@/features/terminal/hooks/use-terminal-addons', () => ({
 
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 const SESSION = 'hidden-ws-term'
 
@@ -99,6 +101,22 @@ beforeEach(() => {
   saveReconnectFn.mockClear()
   dropCallbacks.length = 0
   useTerminalStore.setState({ sessions: new Map() } as never)
+  // PTY routes are chat-scoped, so each workspace's base is resolved through the
+  // chat that owns its worktree. Distinct chats per workspace: a base built from
+  // the WRONG workspace names a different chat and the assertion catches it.
+  __resetWorkspaceScopesForTest()
+  recordWorkspaceScope({
+    projectId: 'p1',
+    repoId: 'r1',
+    wsId: 'w-hidden',
+    owningChatId: 'chat-hidden',
+  })
+  recordWorkspaceScope({
+    projectId: 'p1',
+    repoId: 'r1',
+    wsId: 'w-active',
+    owningChatId: 'chat-active',
+  })
 })
 
 describe('XtermTerminal workspace targeting on reconnect', () => {
@@ -111,7 +129,10 @@ describe('XtermTerminal workspace targeting on reconnect', () => {
     expect(resolveFn).toHaveBeenCalled()
     const args = resolveFn.mock.calls.at(-1)?.[0] as { workspaceId: string; base: string }
     expect(args.workspaceId).toBe('w-hidden')
-    expect(args.base).toContain('/workspaces/w-hidden/')
+    // The PTY base is chat-scoped now: it must name w-hidden's OWN owning chat,
+    // never the active workspace's (chat-active) — that base would spawn/attach
+    // in the wrong worktree exactly as the old /workspaces/w-active/ one did.
+    expect(args.base).toBe('/v0/chats/chat-hidden/terminals')
     // The reconnect mapping is persisted under the OWNING workspace too — a
     // wrong-workspace save here is what made the corruption survive restarts.
     expect(saveReconnectFn).toHaveBeenCalledWith('w-hidden', SESSION, 'reattached')

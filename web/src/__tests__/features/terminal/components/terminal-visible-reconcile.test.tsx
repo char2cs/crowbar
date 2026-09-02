@@ -130,9 +130,8 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getActiveWorkspaceId: () => 'w1',
 }))
 
-vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (wsId: string) => `/v0/projects/p1/repos/r1/workspaces/${wsId}`,
-}))
+// NOT mocked: the REAL chat-scoped URL builder runs. w1's PTY base resolves
+// through the chat recorded for it in beforeEach (`/v0/chats/chat-w1/terminals`).
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   saveReconnect: vi.fn(),
@@ -142,6 +141,7 @@ vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
 
 import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 const SESSION = 'agent-term'
 
@@ -188,6 +188,11 @@ beforeEach(() => {
   rafMap = new Map()
   rafSeq = 0
   useTerminalStore.setState({ sessions: new Map() } as never)
+  // PTY routes are chat-scoped: initializeTerminal resolves w1's base through the
+  // chat that owns w1's worktree, so the scope must carry an owningChatId or the
+  // real builder throws and init never completes.
+  __resetWorkspaceScopesForTest()
+  recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1', owningChatId: 'chat-w1' })
 
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     rafSeq += 1

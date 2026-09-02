@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -190,7 +191,7 @@ func mountChatWorktreeGuard(resolver chatWorktreeResolver) *gin.Engine {
 	grp := r.Group("/v0/chats/:chatId")
 	grp.Use(resolveChatWorktree(resolver))
 	grp.GET("/thing", func(c *gin.Context) {
-		ws, ok := WorkspaceFromContext(c)
+		ws, ok := reqscope.Workspace(c)
 		if !ok {
 			c.String(http.StatusInternalServerError, "no workspace in context")
 			return
@@ -202,7 +203,7 @@ func mountChatWorktreeGuard(resolver chatWorktreeResolver) *gin.Engine {
 
 // TestRegression_ChatWorktreeGuard_ResolvesAndPopulatesContext proves a
 // successful resolve stashes the workspace on the context (readable via
-// WorkspaceFromContext) and lets the request proceed to the handler.
+// reqscope.Workspace) and lets the request proceed to the handler.
 func TestRegression_ChatWorktreeGuard_ResolvesAndPopulatesContext(t *testing.T) {
 	resolver := &fakeChatWorktreeResolver{ws: domain.Workspace{ID: "W"}}
 	r := mountChatWorktreeGuard(resolver)

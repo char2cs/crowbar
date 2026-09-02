@@ -137,16 +137,16 @@ func TestContainer_PushTerminalSession_ReachesClient(t *testing.T) {
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+		"/v0/chats/:chatId/terminals",
 		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/terminals")
+	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
 	c.terminals.WaitRegistered()
 
-	c.PushTerminalSession(dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"})
+	c.PushTerminalSession(dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"})
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "s1", got["id"])
@@ -313,37 +313,29 @@ func TestResolveWorkspaceScope_ResolvesProjectAndRepo(t *testing.T) {
 }
 
 // TestOnTerminalEnded_PushesEndedFrame proves the reap-path callback emits an
-// "ended" lifecycle frame carrying the resolved project/repo scope, EndedAt,
-// and (when known) the exit code.
+// "ended" lifecycle frame carrying the owning chat, EndedAt, and (when known)
+// the exit code.
 func TestOnTerminalEnded_PushesEndedFrame(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	_, err := a.Repositories.Workspace.Create(
-		context.Background(),
-		workspace.CreateInput{ID: "w1", ProjectID: "p1", RepoID: "r1"},
-		time.Unix(1, 0).UTC(),
-	)
-	require.NoError(t, err)
 
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+		"/v0/chats/:chatId/terminals",
 		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/terminals")
+	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
 	c.terminals.WaitRegistered()
 
-	c.onTerminalEnded(context.Background(), "w1", "s1", 7)
+	c.onTerminalEnded(context.Background(), "c1", "s1", 7)
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "s1", got["id"])
-	assert.Equal(t, "w1", got["workspaceId"])
-	assert.Equal(t, "p1", got["projectId"])
-	assert.Equal(t, "r1", got["repoId"])
+	assert.Equal(t, "c1", got["chatId"])
 	assert.Equal(t, "ended", got["status"])
 	assert.NotNil(t, got["endedAt"])
 	assert.Equal(t, float64(7), got["exitCode"])
@@ -354,25 +346,19 @@ func TestOnTerminalEnded_PushesEndedFrame(t *testing.T) {
 func TestOnTerminalEnded_UnknownExitCodeOmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	_, err := a.Repositories.Workspace.Create(
-		context.Background(),
-		workspace.CreateInput{ID: "w1", ProjectID: "p1", RepoID: "r1"},
-		time.Unix(1, 0).UTC(),
-	)
-	require.NoError(t, err)
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+		"/v0/chats/:chatId/terminals",
 		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/terminals")
+	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
 	c.terminals.WaitRegistered()
 
-	c.onTerminalEnded(context.Background(), "w1", "s1", -1)
+	c.onTerminalEnded(context.Background(), "c1", "s1", -1)
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "ended", got["status"])
@@ -381,35 +367,28 @@ func TestOnTerminalEnded_UnknownExitCodeOmitted(t *testing.T) {
 }
 
 // TestOnTerminalState_PushesStateFrame proves the detach/suspend transition
-// callback emits a lifecycle frame carrying the resolved project/repo scope and
-// the given state.
+// callback emits a lifecycle frame carrying the owning chat and the given
+// state.
 func TestOnTerminalState_PushesStateFrame(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	_, err := a.Repositories.Workspace.Create(
-		context.Background(),
-		workspace.CreateInput{ID: "w1", ProjectID: "p1", RepoID: "r1"},
-		time.Unix(1, 0).UTC(),
-	)
-	require.NoError(t, err)
 
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals",
+		"/v0/chats/:chatId/terminals",
 		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/terminals")
+	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
 	c.terminals.WaitRegistered()
 
-	c.onTerminalState(context.Background(), "w1", "s1", "detached")
+	c.onTerminalState(context.Background(), "c1", "s1", "detached")
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "s1", got["id"])
-	assert.Equal(t, "p1", got["projectId"])
-	assert.Equal(t, "r1", got["repoId"])
+	assert.Equal(t, "c1", got["chatId"])
 	assert.Equal(t, "detached", got["status"])
 }

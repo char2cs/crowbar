@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -94,27 +95,6 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	}
 }
 
-// chatWorktreeContextKey is the gin context key resolveChatWorktree stashes
-// the resolved domain.Workspace under. Every handler mounted below chatScoped
-// (router.go) reads it back with WorkspaceFromContext instead of resolving
-// the chat's worktree a second time.
-const chatWorktreeContextKey = "v0.chatWorktree"
-
-// WorkspaceFromContext returns the domain.Workspace resolveChatWorktree
-// resolved for this request, and whether one was actually stashed. Every
-// handler mounted under rg.Group("/chats/:chatId") (router.go) calls this
-// rather than re-resolving the chat's worktree itself.
-func WorkspaceFromContext(
-	c *gin.Context,
-) (domain.Workspace, bool) {
-	v, ok := c.Get(chatWorktreeContextKey)
-	if !ok {
-		return domain.Workspace{}, false
-	}
-	ws, ok := v.(domain.Workspace)
-	return ws, ok
-}
-
 // chatWorktreeResolver resolves a chat id to the workspace whose worktree it
 // reads and writes through (internal/app/usecases/worktree, spec
 // docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3). Declared
@@ -141,6 +121,11 @@ type chatWorktreeResolver interface {
 // scopeWorkspaceToPath uses for an unscoped id — from the caller's
 // perspective a chat whose worktree cannot be resolved is indistinguishable
 // from one that doesn't exist.
+//
+// The resolved workspace is stashed via reqscope, a leaf package the endpoint
+// handlers can import; this package cannot host the accessor itself, because
+// router.go imports every endpoint group and the handlers reading it back
+// would close an import cycle.
 func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		chatID := c.Param("chatId")
@@ -150,7 +135,7 @@ func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set(chatWorktreeContextKey, ws)
+		reqscope.SetWorkspace(c, ws)
 		c.Next()
 	}
 }

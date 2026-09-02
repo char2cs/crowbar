@@ -11,12 +11,12 @@ func RunMaintenanceOnceForTest(eng Engine, ctx context.Context) {
 	eng.(*terminalEngine).runMaintenanceOnce(ctx)
 }
 
-// SetSoftLimitPerWorkspaceForTest overrides the per-workspace detached-session
+// SetSoftLimitPerChatForTest overrides the per-chat detached-session
 // soft limit and returns a restore function. Call defer restore() in tests.
-func SetSoftLimitPerWorkspaceForTest(n int) (restore func()) {
-	old := softLimitPerWorkspace
-	softLimitPerWorkspace = n
-	return func() { softLimitPerWorkspace = old }
+func SetSoftLimitPerChatForTest(n int) (restore func()) {
+	old := softLimitPerChat
+	softLimitPerChat = n
+	return func() { softLimitPerChat = old }
 }
 
 // SetMaxTotalSessionsForTest overrides the global session-count ceiling and
@@ -110,7 +110,7 @@ func SessionDoneForTest(eng Engine, id string) <-chan struct{} {
 // StopMaintenanceForTest stops the background maintenance ticker goroutine
 // without killing any active sessions. Call this immediately after New() in any
 // test that either drives maintenance manually via RunMaintenanceOnceForTest or
-// mutates the package-level limit vars (SetSoftLimitPerWorkspaceForTest,
+// mutates the package-level limit vars (SetSoftLimitPerChatForTest,
 // SetMaxTotalSessionsForTest, SetMaxTotalModelBytesForTest). Stopping the ticker
 // ensures no background goroutine reads the limit vars concurrently with the
 // test's writes, eliminating the data race under -race.

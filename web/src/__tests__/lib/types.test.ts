@@ -97,9 +97,9 @@ describe('canonical DTO shapes', () => {
     }
     const term: TerminalSessionDTO = {
       id: 'ts1',
-      projectId: 'p1',
-      repoId: 'r1',
-      workspaceId: 'w1',
+      // A session belongs to the CHAT that opened it — no project/repo/workspace
+      // rides on the frame any more.
+      chatId: 'c1',
       profileId: '',
       status: 'active',
       createdAt: '2026-06-19T00:00:00Z',

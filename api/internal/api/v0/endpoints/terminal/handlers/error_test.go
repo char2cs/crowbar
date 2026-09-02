@@ -34,7 +34,7 @@ func (errProfiles) Delete(_ context.Context, _ string) error { return errors.New
 
 func newErrRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, errProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, errProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 	rg := r.Group("/v0")
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
@@ -47,7 +47,7 @@ func newErrRouter() *gin.Engine {
 
 func newNilEngineRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(nil, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(nil, stubProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 	return r
 }
@@ -73,10 +73,10 @@ func TestTerminalHandlers_NilEngine(
 ) {
 	r := newNilEngineRouter()
 
-	rec := doTerminal(r, http.MethodPost, wsPath, nil)
+	rec := doTerminal(r, http.MethodPost, chatPath, nil)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 
-	rec = doTerminal(r, http.MethodDelete, wsPath+"/sess1", nil)
+	rec = doTerminal(r, http.MethodDelete, chatPath+"/sess1", nil)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 

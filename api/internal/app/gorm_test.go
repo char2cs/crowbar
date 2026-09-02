@@ -137,18 +137,18 @@ func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {
 
 	ctx := context.Background()
 	sess := domain.TerminalSession{
-		SessionID:   "sess-1",
-		WorkspaceID: "ws-1",
-		ProjectID:   "proj-1",
-		RepoID:      "repo-1",
-		State:       "active",
+		SessionID: "sess-1",
+		ChatID:    "chat-1",
+		ProjectID: "proj-1",
+		RepoID:    "repo-1",
+		State:     "active",
 	}
 	require.NoError(t, stores.TerminalSessions.Save(ctx, sess))
 
 	got, err := stores.TerminalSessions.FindByKey(ctx, "sess-1")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "ws-1", got.WorkspaceID)
+	assert.Equal(t, "chat-1", got.ChatID)
 	assert.Equal(t, "proj-1", got.ProjectID)
 	assert.Equal(t, "active", got.State)
 

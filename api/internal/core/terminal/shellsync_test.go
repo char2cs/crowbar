@@ -37,7 +37,7 @@ func startForeground(t *testing.T, eng terminal.Engine, sid string) {
 }
 
 // newReadyShell creates a session with a pinned shell and blocks until it is at its prompt.
-func newReadyShell(t *testing.T, eng terminal.Engine, ws, dir string) string {
+func newReadyShell(t *testing.T, eng terminal.Engine, chatID, dir string) string {
 	t.Helper()
-	return terminal.NewReadyShellForTest(t, eng, ws, dir)
+	return terminal.NewReadyShellForTest(t, eng, chatID, dir)
 }

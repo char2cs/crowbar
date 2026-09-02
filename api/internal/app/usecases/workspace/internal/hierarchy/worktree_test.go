@@ -2015,12 +2015,12 @@ func TestReparent_NoChatObserverWired_GuardIsANoOp(t *testing.T) {
 // locked-status node 'b' is preserved while its unlocked descendant 'c' is
 // still deleted.
 type fakeTerminalReaper struct {
-	byWorkspace map[string][]string
-	killed      []string
+	byChat map[string][]string
+	killed []string
 }
 
-func (f *fakeTerminalReaper) ListSessionsForWorkspace(wsID string) []string {
-	return f.byWorkspace[wsID]
+func (f *fakeTerminalReaper) ListSessionsForChat(chatID string) []string {
+	return f.byChat[chatID]
 }
 
 func (f *fakeTerminalReaper) Kill(_ context.Context, sid string) error {
@@ -2031,6 +2031,11 @@ func (f *fakeTerminalReaper) Kill(_ context.Context, sid string) error {
 // TestDeleteCascade_KillsTerminalSessions proves pass-7: every cascade-deleted
 // workspace's live PTY sessions are terminated, so deleting a workspace (or a
 // whole subtree) never leaks shell processes, fds, or per-session ring buffers.
+//
+// Sessions are keyed by their OWNING CHAT, so the reap fans out through the chat
+// observer: each workspace's chats are listed, and each chat's own sessions are
+// killed. The observer is therefore load-bearing here — without it the reap has
+// no chat to ask and kills nothing.
 func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
@@ -2041,12 +2046,16 @@ func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
 	}
-	reaper := &fakeTerminalReaper{byWorkspace: map[string][]string{
-		"root":  {"root-sess"},
-		"child": {"child-sess-1", "child-sess-2"},
+	reaper := &fakeTerminalReaper{byChat: map[string][]string{
+		"chat-root":  {"root-sess"},
+		"chat-child": {"child-sess-1", "child-sess-2"},
 	}}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(),
 		hierarchy.WithTerminalReaper(reaper))
+	uc.SetChatObserver(&fakeChatObserver{chats: []domain.Chat{
+		{ID: "chat-root", WorkspaceID: "root"},
+		{ID: "chat-child", WorkspaceID: "child"},
+	}})
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.ElementsMatch(t, []string{"root-sess", "child-sess-1", "child-sess-2"}, reaper.killed,

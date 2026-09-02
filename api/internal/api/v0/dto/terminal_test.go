@@ -44,22 +44,18 @@ func TestTerminalProfileDTOList_Converts(t *testing.T) {
 	assert.Equal(t, "b", got[1].ID)
 }
 
-func TestTerminalSessionDTOFrom_PopulatesProjectRepoWsIDs(t *testing.T) {
+func TestTerminalSessionDTOFrom_PopulatesChatID(t *testing.T) {
 	created := time.Now().UTC()
 	got := dto.TerminalSessionDTOFrom(
 		"s1",
-		"w1",
-		"p1",
-		"r1",
+		"c1",
 		"prof1",
 		"active",
 		created,
 	)
 
 	assert.Equal(t, "s1", got.ID)
-	assert.Equal(t, "w1", got.WorkspaceID)
-	assert.Equal(t, "p1", got.ProjectID)
-	assert.Equal(t, "r1", got.RepoID)
+	assert.Equal(t, "c1", got.ChatID)
 	assert.Equal(t, "prof1", got.ProfileID)
 	assert.Equal(t, "active", got.Status)
 	assert.Equal(t, created, got.CreatedAt)
@@ -69,9 +65,7 @@ func TestTerminalSessionDTOFrom_PopulatesProjectRepoWsIDs(t *testing.T) {
 func TestTerminalSessionDTOFrom_ActiveAndEndedStatus(t *testing.T) {
 	active := dto.TerminalSessionDTOFrom(
 		"s1",
-		"w1",
-		"p1",
-		"r1",
+		"c1",
 		"",
 		"active",
 		time.Now().UTC(),
@@ -81,9 +75,7 @@ func TestTerminalSessionDTOFrom_ActiveAndEndedStatus(t *testing.T) {
 
 	ended := dto.TerminalSessionDTOFrom(
 		"s1",
-		"w1",
-		"p1",
-		"r1",
+		"c1",
 		"",
 		"ended",
 		time.Now().UTC(),
@@ -95,9 +87,7 @@ func TestTerminalSessionDTOList_NonNilEmptySlice(t *testing.T) {
 	created := time.Now().UTC()
 	got := dto.TerminalSessionDTOList(
 		nil,
-		"w1",
-		"p1",
-		"r1",
+		"c1",
 		"prof1",
 		"active",
 		created,
@@ -107,9 +97,7 @@ func TestTerminalSessionDTOList_NonNilEmptySlice(t *testing.T) {
 
 	got = dto.TerminalSessionDTOList(
 		[]string{"s1", "s2"},
-		"w1",
-		"p1",
-		"r1",
+		"c1",
 		"prof1",
 		"active",
 		created,
@@ -117,6 +105,6 @@ func TestTerminalSessionDTOList_NonNilEmptySlice(t *testing.T) {
 	assert.Len(t, got, 2)
 	assert.Equal(t, "s1", got[0].ID)
 	assert.Equal(t, "s2", got[1].ID)
-	assert.Equal(t, "w1", got[0].WorkspaceID)
+	assert.Equal(t, "c1", got[0].ChatID)
 	assert.Equal(t, "active", got[1].Status)
 }

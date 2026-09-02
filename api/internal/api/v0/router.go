@@ -34,9 +34,14 @@ import (
 //	repoScoped    → /v0/projects/:projectId/repos/:repoId (workspaces + everything below)
 //
 // gin requires the wildcard at each tree position to carry a single, consistent
-// name: :projectId, :repoId, and :wsId are each defined exactly once by their
-// group, so endpoints below them mount "/workspaces/:wsId/..."-relative paths
-// without redefining the param.
+// name: :projectId and :repoId are each defined exactly once by their group, so
+// endpoints below them mount "/workspaces/:wsId/..."-relative paths without
+// redefining the param.
+//
+// There is no dedicated /workspaces/:wsId sub-group any more: terminal was its
+// only member and has moved to the flat /v0/chats/:chatId prefix below (spec
+// §8 step 3). The remaining groups build their own "/workspaces/:wsId/..."
+// paths off repoScoped, and follow terminal in later steps.
 //
 //nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
@@ -68,9 +73,6 @@ func (c *Container) Register(
 	// request whose :wsId belongs to a different project/repo is rejected 404
 	// before any handler runs. Routes with no :wsId pass through untouched.
 	repoScoped.Use(scopeWorkspaceToPath(c.app.Repositories.Workspace))
-	workspacesGrp := repoScoped.Group("/workspaces")
-	wsScoped := workspacesGrp.Group("/:wsId")
-
 	// chatScoped is the flat /v0/chats/:chatId/... group spec §7.1 closes on:
 	// no /projects/:projectId/repos/:repoId nesting, because chat ids are
 	// globally unique and a consumer past creation never needs to resolve
@@ -78,9 +80,9 @@ func (c *Container) Register(
 	// scoping guard, the chat-scoped analogue of scopeWorkspaceToPath above:
 	// it resolves :chatId to the workspace behind its worktree (spec §3,
 	// c.app.Usecases.Worktree) and stashes it on the context
-	// (WorkspaceFromContext) so routes mounted here — none yet; a later step
-	// is the first real consumer — read it back once per request instead of
-	// resolving it per handler.
+	// (reqscope.Workspace) so routes mounted here — terminal is the first,
+	// spec §8 step 3 — read it back once per request instead of resolving it
+	// per handler.
 	chats := rg.Group("/chats")
 	chatScoped := chats.Group("/:chatId")
 	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
@@ -172,12 +174,15 @@ func (c *Container) Register(
 		c.git.Handle,
 		ws.DualServe,
 	)
+	// Terminal is the first group to move onto the flat chat prefix (spec §8
+	// step 3): /v0/chats/:chatId/terminals[...]. It needs no workspace reader —
+	// chatScoped's resolveChatWorktree already resolved one onto the request
+	// context for the PTY's CWD.
 	terminal.Register(
-		wsScoped,
+		chatScoped,
 		rg,
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
-		c.app.Repositories.Workspace,
 		c.terminals,
 		c.terminals.Handle,
 		ws.DualServe,

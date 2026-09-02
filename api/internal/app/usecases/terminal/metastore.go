@@ -11,37 +11,53 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// WorktreeResolver resolves a chat id to the workspace behind the worktree it
+// reads and writes through (spec 2026-09-02-chat-scoped-api-design §3).
+//
+// Declared HERE, where it is consumed, rather than imported from
+// usecases/worktree (law 4): the metastore needs exactly one method, and the
+// container is the only place that knows which concrete value satisfies it
+// (law 6).
+//
+// The metastore needs it because a terminal session is owned by a CHAT while
+// its on-disk scrollback still has to land under the owning project/repo —
+// two different questions about one session, and the chat id is the only one
+// of the two the engine carries.
+type WorktreeResolver interface {
+	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+}
+
 type sessionMetaStoreImpl struct {
-	workspaces  WorkspaceRepo
+	worktrees   WorktreeResolver
 	sessions    store.Store[domain.TerminalSession, string]
 	crowbarHome func() (string, error)
 }
 
 // NewSessionMetaStore constructs a SessionMetaStore backed by the global
-// view.db TerminalSession store and the workspace repository. It implements
+// view.db TerminalSession store and the chat→worktree resolver. It implements
 // engineterminal.SessionMetaStore and is injected into the engine via
 // Engine.SetMetaStore after both layers are constructed.
 func NewSessionMetaStore(
-	workspaces WorkspaceRepo,
+	worktrees WorktreeResolver,
 	sessions store.Store[domain.TerminalSession, string],
 	crowbarHome func() (string, error),
 ) engineterminal.SessionMetaStore {
 	return &sessionMetaStoreImpl{
-		workspaces:  workspaces,
+		worktrees:   worktrees,
 		sessions:    sessions,
 		crowbarHome: crowbarHome,
 	}
 }
 
 // Save upserts the session metadata row, resolving (projectID, repoID) from
-// the workspace repo and preserving CreatedAt when a row already exists.
+// the chat's worktree and preserving CreatedAt when a row already exists.
 func (s *sessionMetaStoreImpl) Save(
 	ctx context.Context,
 	meta engineterminal.SessionMeta,
 ) error {
-	ws, err := s.workspaces.Get(ctx, meta.WorkspaceID)
+	ws, err := s.worktrees.Resolve(ctx, meta.ChatID)
 	if err != nil {
-		return fmt.Errorf("terminal: metastore: save: resolve workspace: %w", err)
+		return fmt.Errorf("terminal: metastore: save: resolve chat worktree: %w", err)
 	}
 
 	existing, err := s.sessions.FindByKey(ctx, meta.SessionID)
@@ -56,7 +72,7 @@ func (s *sessionMetaStoreImpl) Save(
 
 	row := domain.TerminalSession{
 		SessionID:    meta.SessionID,
-		WorkspaceID:  meta.WorkspaceID,
+		ChatID:       meta.ChatID,
 		ProjectID:    ws.ProjectID,
 		RepoID:       ws.RepoID,
 		CWD:          meta.CWD,
@@ -83,25 +99,33 @@ func (s *sessionMetaStoreImpl) Delete(
 	return nil
 }
 
-// StorageDir resolves the per-workspace storage directory by looking up
-// (projectID, repoID) from the workspace repo, then delegating to
-// worktreepath.StorageDir. It must never use WorktreePath for this purpose
-// (home workspaces have no repo path).
+// StorageDir resolves the per-CHAT storage directory: it resolves the chat to
+// the workspace behind its worktree for (projectID, repoID), then delegates to
+// worktreepath.StorageDir keyed by the chat id.
+//
+// The leaf segment is the CHAT, not the workspace, and that is the point: two
+// sibling chats sharing one worktree resolve the same (projectID, repoID) and
+// would otherwise share a scrollback directory, where a .buf is named by
+// session id alone. Keying the directory by owner keeps one chat's suspended
+// scrollback unreadable and undeletable by the other.
+//
+// It must never use WorktreePath for the project/repo pair (home workspaces
+// have no repo path).
 func (s *sessionMetaStoreImpl) StorageDir(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 ) (string, error) {
 	home, err := s.crowbarHome()
 	if err != nil {
 		return "", fmt.Errorf("terminal: metastore: storage dir: home: %w", err)
 	}
 
-	ws, err := s.workspaces.Get(ctx, workspaceID)
+	ws, err := s.worktrees.Resolve(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("terminal: metastore: storage dir: resolve workspace: %w", err)
+		return "", fmt.Errorf("terminal: metastore: storage dir: resolve chat worktree: %w", err)
 	}
 
-	return worktreepath.StorageDir(home, ws.ProjectID, ws.RepoID, workspaceID), nil
+	return worktreepath.StorageDir(home, ws.ProjectID, ws.RepoID, chatID), nil
 }
 
 // List returns all persisted terminal session rows. Called at daemon start

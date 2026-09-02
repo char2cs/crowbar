@@ -147,8 +147,13 @@ type Usecase interface {
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
 // terminate a workspace's live PTY sessions before its worktree is removed, so the
 // shell processes, their fds, and the per-session ring buffers don't leak.
+//
+// It lists by CHAT, not by workspace, because that is how the engine keys
+// sessions now (spec §4.2's owned bucket): one worktree can have several chats
+// on it, and each holds its own sessions. Reaping a workspace therefore means
+// asking every chat in it — see reapTerminals.
 type TerminalReaper interface {
-	ListSessionsForWorkspace(workspaceID string) []string
+	ListSessionsForChat(chatID string) []string
 	Kill(ctx context.Context, sessionID string) error
 }
 
@@ -1525,9 +1530,9 @@ func (u *hierarchyUsecase) removeOne(
 	repoPathFallback string,
 ) error {
 	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
-	// They are keyed by workspace id and otherwise survive the delete as orphaned
-	// shell processes with a now-deleted CWD, leaking fds and ring-buffer memory on
-	// every workspace/cascade delete. Best-effort: a kill failure must not abort the
+	// They otherwise survive the delete as orphaned shell processes with a
+	// now-deleted CWD, leaking fds and ring-buffer memory on every
+	// workspace/cascade delete. Best-effort: a kill failure must not abort the
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
 
@@ -1583,19 +1588,36 @@ func (u *hierarchyUsecase) removeOne(
 	return u.workspaces.Delete(ctx, ws.ID)
 }
 
-// reapTerminals terminates every live PTY session owned by wsID. Best-effort and a
-// no-op when no terminal reaper is wired (tests / virtual repos).
+// reapTerminals terminates every live PTY session running in wsID's worktree.
+// Best-effort and a no-op when no terminal reaper is wired (tests / virtual
+// repos).
+//
+// Sessions are keyed by their OWNING CHAT, so the workspace cannot be asked
+// directly: the reap fans out over every chat in the workspace and kills that
+// chat's own sessions. Skipping the fan-out would leave a deleted worktree's
+// shells alive with a CWD that no longer exists — the exact leak this function
+// was written to prevent, just relocated by the re-key. A missing chat
+// observer therefore SKIPS the reap rather than silently reaping nothing under
+// a wrong key.
 func (u *hierarchyUsecase) reapTerminals(
 	ctx context.Context,
 	wsID string,
 ) {
-	if u.terminals == nil {
+	if u.terminals == nil || u.chatObserver == nil {
 		return
 	}
-	for _, sid := range u.terminals.ListSessionsForWorkspace(wsID) {
-		if err := u.terminals.Kill(ctx, sid); err != nil {
-			slog.WarnContext(ctx, "cascade: terminal kill failed (continuing)",
-				"ws", wsID, "session", sid, "err", err)
+	chats, err := u.chatObserver.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		slog.WarnContext(ctx, "cascade: terminal reap could not list chats (continuing)",
+			"ws", wsID, "err", err)
+		return
+	}
+	for _, chat := range chats {
+		for _, sid := range u.terminals.ListSessionsForChat(chat.ID) {
+			if killErr := u.terminals.Kill(ctx, sid); killErr != nil {
+				slog.WarnContext(ctx, "cascade: terminal kill failed (continuing)",
+					"ws", wsID, "chat", chat.ID, "session", sid, "err", killErr)
+			}
 		}
 	}
 }
