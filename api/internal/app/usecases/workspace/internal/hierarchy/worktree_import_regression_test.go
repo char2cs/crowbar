@@ -138,6 +138,7 @@ func TestRegression_ImportBranchChecksOutOriginContentNotParentFork(t *testing.T
 		func() time.Time { return time.Unix(1000, 0).UTC() },
 		func() (string, error) { return t.TempDir(), nil },
 	)
+	withOwningChats(uc)
 
 	// Import feature/x with NO parentId — exactly as the real import posts it, so
 	// the create handler defaults ParentBranch to the repo default (main).
@@ -216,6 +217,7 @@ func TestRegression_ImportBranchTracksOriginOnReachablePath(t *testing.T) {
 		func() time.Time { return time.Unix(1000, 0).UTC() },
 		func() (string, error) { return t.TempDir(), nil },
 	)
+	withOwningChats(uc)
 
 	child, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID:       repoID,
@@ -323,6 +325,7 @@ func TestRegression_ImportParentsPRChainCreatingMissingBase(t *testing.T) {
 		func() time.Time { return time.Unix(1000, 0).UTC() },
 		func() (string, error) { return t.TempDir(), nil },
 	)
+	withOwningChats(uc)
 
 	// Import ONLY feat/child — its missing base must be created and parented.
 	err = uc.CreateFromImport(context.Background(), hierarchy.ImportInput{

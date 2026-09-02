@@ -95,6 +95,26 @@ type (
 	PlaceInput  = tree.PlaceInput
 	// ChatDeletion is what a cascading chat delete removed.
 	ChatDeletion = tree.ChatDeletion
+
+	// WorktreeSpec, WorktreeMode and ImportSpec are CreateChat's worktree half:
+	// whether the new chat owns nothing, a fresh fork, or a branch that already
+	// exists — and, for the last, which branch. Re-exported because the
+	// composition root has to construct one to wire the import paths, and the
+	// tree package it is declared in is internal to this feature.
+	WorktreeSpec = tree.WorktreeSpec
+	WorktreeMode = tree.WorktreeMode
+	ImportSpec   = tree.ImportSpec
+)
+
+// The three worktree modes a create can ask for, re-exported alongside the
+// spec they live on.
+const (
+	// WorktreeNone is a plain chat — a bubble or a thread — owning no worktree.
+	WorktreeNone = tree.WorktreeNone
+	// WorktreeFork mints a fresh branch off the chat's resolved fork parent.
+	WorktreeFork = tree.WorktreeFork
+	// WorktreeImport adopts a branch that already exists in the repository.
+	WorktreeImport = tree.WorktreeImport
 )
 
 // NewTokenMinter mints the daemon's single MCP token secret.

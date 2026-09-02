@@ -11,6 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -64,9 +65,16 @@ func (h *Handlers) Create(
 	if wsID == "" {
 		wsID = body.WorkspaceID
 	}
-	ownWorktree := body.OwnWorktree && wsID == ""
+	// The wire still carries a bool, and this route still means exactly what it
+	// meant: fork, or a plain chat. The three-state WorktreeSpec the usecase now
+	// takes is what lets IMPORT be a real sibling of fork rather than a
+	// workspace-first path in another usecase — no caller reaches it from here.
+	worktree := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
+	if body.OwnWorktree && wsID == "" {
+		worktree.Mode = agentusecase.WorktreeFork
+	}
 
-	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, ownWorktree)
+	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, worktree)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

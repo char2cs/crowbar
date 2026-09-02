@@ -62,6 +62,7 @@ func importHarness(
 		func() time.Time { return time.Unix(1000, 0).UTC() },
 		func() (string, error) { return crowbarHome, nil },
 	)
+	withOwningChats(uc)
 	readAll := func() (context.Context, []domain.Workspace) {
 		quiesce()
 		all, listErr := workspaces.List(context.Background())

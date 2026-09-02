@@ -97,6 +97,34 @@ type agentChatDTO struct {
 	// share with chat folders.
 	ParentID string `json:"parentId"`
 	Order    int    `json:"order"`
+	// Type is the row's kind in the sidebar forest. It matters to these tests
+	// because a chat list is not only conversations: every workspace owns a
+	// BRANCH row now (the repo home, each locked branch, the project home), and
+	// those are sidebar rows rather than anything a user opened. See
+	// conversationsOnly.
+	Type string `json:"type"`
+}
+
+// conversationsOnly keeps just the rows a person actually started, dropping the
+// BRANCH rows a workspace owns.
+//
+// Every one of these lists used to be conversations alone, but only by
+// accident of timing: a workspace imported during a daemon's life owned no row
+// until the NEXT boot's backfill minted one, so a test that imported and
+// listed in the same breath never saw them. Creating a workspace and the chat
+// that owns it in one call — the invariant this whole change exists to
+// establish — makes those rows appear immediately, exactly as a reboot always
+// would have. Filtering states what these assertions always meant.
+func conversationsOnly(
+	rows []agentChatDTO,
+) []agentChatDTO {
+	out := make([]agentChatDTO, 0, len(rows))
+	for _, row := range rows {
+		if row.Type == "chat" {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 // agentChatConversation mirrors one agents.ChatConversation on the wire: a
@@ -227,6 +255,7 @@ func TestAgentREST_Scope(t *testing.T) {
 
 	var listA []agentChatDTO
 	h.get(homeA+"/chats", &listA)
+	listA = conversationsOnly(listA)
 	require.Len(t, listA, 1, "project A's home chat list must contain exactly its own chat, never B's")
 	assert.Equal(t, homeChatA.ID, listA[0].ID)
 

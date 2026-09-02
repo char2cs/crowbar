@@ -81,7 +81,7 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 
 	var chats []agentChatDTO
 	h.get(repoBase(imported)+"/chats", &chats)
-	assert.Empty(t, chats, "a refused spawn must not leave a chat behind")
+	assert.Empty(t, conversationsOnly(chats), "a refused spawn must not leave a chat behind")
 
 	// Re-enabling it makes the very same request work, so the guard is the
 	// preference and nothing else.

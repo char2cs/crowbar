@@ -26,10 +26,9 @@ func TestRegression_AgentChatsWorkOnHomeWorkspace(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	var list []struct {
-		ID string `json:"id"`
-	}
-	h.get(homeBase+"/chats", &list)
+	var listed []agentChatDTO
+	h.get(homeBase+"/chats", &listed)
+	list := conversationsOnly(listed)
 	require.Len(t, list, 1)
 	assert.Equal(t, created.ID, list[0].ID)
 

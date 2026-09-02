@@ -25,6 +25,11 @@ type (
 	Option           = hierarchy.Option
 	TerminalReaper   = hierarchy.TerminalReaper
 	ChatWorkObserver = hierarchy.ChatWorkObserver
+	// OwningChats is the chat-side surface every workspace this usecase creates
+	// is born under, and ImportedBranch is the one branch an import describes to
+	// it. Re-exported so the composition root can name what it must satisfy.
+	OwningChats    = hierarchy.OwningChats
+	ImportedBranch = hierarchy.ImportedBranch
 )
 
 // WithTerminalReaper wires the terminal engine so cascade delete can kill a
@@ -47,6 +52,7 @@ var (
 	ErrBranchStillHeld              = hierarchy.ErrBranchStillHeld
 	ErrBranchHeldByManagedWorkspace = hierarchy.ErrBranchHeldByManagedWorkspace
 	ErrWorkspaceWorking             = hierarchy.ErrWorkspaceWorking
+	ErrNoOwningChats                = hierarchy.ErrNoOwningChats
 )
 
 // WorkspaceLifecycleRepo is the workspace repository surface the usecase needs.
@@ -268,6 +274,9 @@ type Usecase interface {
 	// setter, and for the same reason: the chat side depends on this usecase, so
 	// it does not exist yet at this one's own call site.
 	SetOwningChatReconciler(reconciler OwningChatReconciler)
+	// SetOwningChats wires the chat-side surface every workspace this usecase
+	// creates is minted under — see hierarchy.Usecase.SetOwningChats.
+	SetOwningChats(chats OwningChats)
 }
 
 // OwningChatReconciler brings one workspace's owning chat row into line with

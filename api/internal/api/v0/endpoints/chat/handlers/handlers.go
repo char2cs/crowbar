@@ -393,16 +393,17 @@ type ChatTreeUsecase interface {
 	// told what it reads on its very first session. runnerID is the crowbarSegmentID
 	// every hook from that CLI carries.
 	//
-	// ownWorktree is model spec §4.1/§5.1's atomic create: a fresh workspace is
-	// forked from the new chat's resolved fork parent and set on it in the SAME
-	// call, so the two effects — the workspace and the chat that owns it — are
-	// never observable apart. workspaceID is ignored when ownWorktree is true.
+	// worktree is model spec §4.1/§5.1's atomic create, in its three real states
+	// (agentusecase.WorktreeSpec): a plain chat, a fresh fork off the new chat's
+	// resolved fork parent, or an existing branch imported — the last two both
+	// minting the workspace and setting it on the chat in the SAME call, so the
+	// two effects are never observable apart. workspaceID is ignored for both.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
-		ownWorktree bool,
+		worktree agentusecase.WorktreeSpec,
 	) (chatID, runnerID string, err error)
 	PlaceChat(
 		ctx context.Context,

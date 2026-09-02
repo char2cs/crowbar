@@ -226,17 +226,20 @@ func (u *hierarchyUsecase) createImportNode(
 	parentID string,
 	parentBranch string,
 ) (string, error) {
-	ws, createErr := u.CreateChild(ctx, CreateChildInput{
-		RepoID:       in.RepoID,
-		ProjectID:    in.ProjectID,
-		RepoPath:     in.RepoPath,
-		RemoteURL:    in.RemoteURL,
-		Branch:       branch,
-		ParentID:     parentID,
-		ParentBranch: parentBranch,
+	if u.owningChats == nil {
+		return "", ErrNoOwningChats
+	}
+	wsID, createErr := u.owningChats.ImportBranchAsChat(ctx, ImportedBranch{
+		RepoID:            in.RepoID,
+		ProjectID:         in.ProjectID,
+		RepoPath:          in.RepoPath,
+		RemoteURL:         in.RemoteURL,
+		Branch:            branch,
+		ParentWorkspaceID: parentID,
+		ParentBranch:      parentBranch,
 	})
 	if createErr == nil {
-		return ws.ID, nil
+		return wsID, nil
 	}
 	slog.WarnContext(ctx, "import: create workspace failed; falling back to a placeholder",
 		"branch", branch, "err", createErr)
@@ -278,6 +281,17 @@ func (u *hierarchyUsecase) importPlaceholder(
 	parentID string,
 	cause error,
 ) (domain.Workspace, error) {
+	if u.owningChats == nil {
+		return domain.Workspace{}, ErrNoOwningChats
+	}
+	// Chat FIRST, even here — especially here. A placeholder is the row for a
+	// branch that could NOT be materialised, so it is the one an import is most
+	// likely to leave behind, and a placeholder nothing owns is invisible in
+	// exactly the way that hid the bug this change exists to close.
+	chatID, err := u.owningChats.MintOwningChat(ctx, parentID)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("import: mint owning chat for %q: %w", branch, err)
+	}
 	heldBy := u.resolveHolderPath(ctx, in.RepoPath, branch)
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:         uuid.NewString(),
@@ -289,7 +303,12 @@ func (u *hierarchyUsecase) importPlaceholder(
 		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
 	}, u.now())
 	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("import: create placeholder for %q: %w", branch, err)
+		return domain.Workspace{}, u.discardOwningChat(ctx, chatID,
+			fmt.Errorf("import: create placeholder for %q: %w", branch, err))
+	}
+	if aErr := u.owningChats.AttachOwningWorkspace(ctx, chatID, ws); aErr != nil {
+		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws,
+			fmt.Errorf("import: attach placeholder for %q: %w", branch, aErr))
 	}
 	if heldBy == "" && cause != nil {
 		if _, sErr := u.workspaces.SetLastError(ctx, ws.ID, cause.Error()); sErr != nil {

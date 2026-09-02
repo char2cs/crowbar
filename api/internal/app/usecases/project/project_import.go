@@ -18,8 +18,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -81,6 +81,15 @@ type WorkspaceCreator interface {
 		in workspace.CreateInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	// Delete tombstones a workspace row. It is here for exactly one caller:
+	// rolling back a row that was written but could not be attached to the chat
+	// minted to own it (see discardUnownedWorkspace). Leaving such a row behind
+	// is the orphan the chat-first create exists to prevent, so the path that
+	// creates one has to be able to take it away again.
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 // ImportGitEngine is the git surface the import usecase consumes. Import does
@@ -269,10 +278,21 @@ type ImportUsecase interface {
 		projectID string,
 		repoPath string,
 	) error
+	// SetOwningChats wires the chat side every workspace this usecase creates is
+	// minted under (see OwningChats). It is a post-construction setter because
+	// the chat usecase is built after this one; until it is called, every path
+	// that would create a workspace refuses with ErrNoOwningChats.
+	SetOwningChats(chats OwningChats)
 }
 
 type projectImport struct {
-	deps ImportDeps
+	deps        ImportDeps
+	owningChats OwningChats
+}
+
+// SetOwningChats implements ImportUsecase.
+func (u *projectImport) SetOwningChats(chats OwningChats) {
+	u.owningChats = chats
 }
 
 // NewImport builds an ImportUsecase from its dependencies.
@@ -549,7 +569,7 @@ func (u *projectImport) adoptRepoHome(
 		// ForkPointSha stays empty and Protected stays false: the home is the base
 		// the branch tree hangs off, and Crowbar does not operate on it.
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt repo home: %w", err)
 	}
 	return nil
@@ -732,7 +752,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 		ForkPointSha: startSha,
 		Protected:    true,
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		// The row failed after the worktree was created on disk — remove the
 		// orphaned worktree so a later retry can recreate it cleanly.
 		if rmErr := u.deps.Git.WorktreeRemove(ctx, repo.Path, path); rmErr != nil {
@@ -763,7 +783,7 @@ func (u *projectImport) createPlaceholderWorkspace(
 		HeldByPath: heldByPath,
 		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("create placeholder workspace for %q: %w", branch, err)
 	}
 	return nil
@@ -869,7 +889,7 @@ func resolvePath(p string) string {
 // createHomeWorkspace persists the project-level home workspace rooted at the
 // project's own path. It has no repo, branch, or git operations.
 func (u *projectImport) createHomeWorkspace(ctx context.Context, project domain.Project) error {
-	_, err := u.deps.Workspaces.Create(ctx, workspace.CreateInput{
+	_, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
 		ID:           uuid.NewString(),
 		ProjectID:    project.ID,
 		WorktreePath: project.Path,

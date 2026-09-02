@@ -103,15 +103,24 @@ type createChatCall struct {
 	OwnWorktree bool
 }
 
+// CreateChat records the call, flattening the three-state WorktreeSpec back to
+// the bool this fake has always recorded. That is deliberate: this route still
+// only ever asks for a fork or a plain chat, so OwnWorktree stays exactly the
+// question every assertion here is written against, and a spec arriving as
+// WorktreeImport — which no handler can produce — would read as false and fail
+// the fork assertions loudly rather than pass by accident.
 func (f *fakeChatTree) CreateChat(
 	_ context.Context,
 	workspaceID string,
 	providerID string,
 	parentID string,
-	ownWorktree bool,
+	worktree agentusecase.WorktreeSpec,
 ) (string, string, error) {
 	f.gotCreate2 = createChatCall{
-		WorkspaceID: workspaceID, ProviderID: providerID, ParentID: parentID, OwnWorktree: ownWorktree,
+		WorkspaceID: workspaceID,
+		ProviderID:  providerID,
+		ParentID:    parentID,
+		OwnWorktree: worktree.Mode == agentusecase.WorktreeFork,
 	}
 	return f.placed.ID, "runner-1", f.err
 }

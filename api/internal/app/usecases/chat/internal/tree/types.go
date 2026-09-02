@@ -139,6 +139,38 @@ type Agent interface {
 		chatID string,
 		providerID string,
 	) (runnerID string, err error)
+	// SpawnChatWithImportedWorktree is SpawnChatWithOwnWorktree's IMPORT
+	// counterpart, with the identical contract: chatID has already been minted
+	// and placed, and this fills its empty workspace slot — with a branch that
+	// ALREADY EXISTS, described by spec, rather than a fresh fork — then starts
+	// providerID's CLI in it, discarding the workspace again if anything after
+	// it fails.
+	//
+	// It returns the workspace as well as the runner because the CALLER decides
+	// what kind of row the chat is (see createImportedWorktreeChat), and a
+	// locked branch — which is what most imports produce — owns a branch row
+	// rather than an ordinary chat row. That judgement is taken from the
+	// workspace itself, so the workspace has to come back.
+	//
+	// An empty providerID starts NO runner and returns an empty runner id. That
+	// is the repo-add and batch-import case: materialising twenty branches must
+	// not launch twenty vendor CLIs, and a branch row is a row in the sidebar,
+	// not a conversation somebody is having.
+	SpawnChatWithImportedWorktree(
+		ctx context.Context,
+		chatID string,
+		providerID string,
+		spec ImportSpec,
+	) (ws domain.Workspace, runnerID string, err error)
+	// AttachWorkspace points an already-minted chat at the workspace it owns.
+	// It is the bare write behind MintOwningChat's second step (owning_chat.go),
+	// for the creation paths that build their own workspace and only need the
+	// row pointed at it.
+	AttachWorkspace(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) error
 	// PurgeChat erases one chat outright — the aggregate, the CLI pointed at it,
 	// its conversation history and its on-disk ledger. This usecase decides WHICH
 	// chats a delete takes and knows nothing about how one is torn down.
@@ -302,24 +334,59 @@ type Usecase interface {
 	// failure after the mint takes the chat back out: a create the user was told
 	// failed must not leave a chat behind.
 	//
-	// ownWorktree is model spec §4.1/§5.1's atomic create: the new chat is minted
-	// and placed exactly as the workspace-less case above (workspaceID is ignored
-	// — the row is a plain bubble until its worktree exists), then its workspace
-	// slot is filled with a fresh worktree forked from its resolved fork parent
-	// and its CLI is started in it, in ONE call — there is never a chat-less
-	// workspace, nor a workspace-less chat waiting to be promoted, observable in
-	// between. Because the new chat has no workspace to conflict with yet, the
+	// worktree is model spec §4.1/§5.1's atomic create, in the three states the
+	// create actually has (see WorktreeSpec). WorktreeFork and WorktreeImport
+	// both mint and place the new chat exactly as the plain case above
+	// (workspaceID is ignored for them — the row is a bubble until its worktree
+	// exists), then fill its workspace slot in the SAME call: a fresh fork off
+	// the resolved fork parent, or an existing branch adopted from the spec.
+	// There is never a chat-less workspace, nor a workspace-less chat waiting to
+	// be promoted, observable in between.
+	//
+	// Because such a chat has no workspace to conflict with yet, the
 	// cross-workspace refusal above does not apply to it: a parentID naming a
-	// chat that already owns a worktree of its own is an acceptable fork point
-	// here, the same way a BRANCH parent already is. See createOwnWorktreeChat
-	// (chats.go) and agent.SpawnChatWithOwnWorktree.
+	// chat that already owns a worktree of its own is an acceptable fork point,
+	// the same way a BRANCH parent already is. See createOwnWorktreeChat
+	// (chats.go), createImportedWorktreeChat (imported_chat.go), and the two
+	// agent verbs behind them.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
-		ownWorktree bool,
+		worktree WorktreeSpec,
 	) (chatID, runnerID string, err error)
+	// ImportBranchAsChat materialises one existing branch chat-first and hands
+	// back both ids: the chat minted for it and the workspace it now owns. It
+	// starts no vendor CLI — a batch import materialises rows, not conversations
+	// — and resolves its own placement from the spec's git lineage.
+	ImportBranchAsChat(
+		ctx context.Context,
+		spec ImportSpec,
+	) (chatID, workspaceID string, err error)
+	// MintOwningChat mints and places the chat that is about to own a workspace,
+	// for a creation path that builds the workspace itself. parentWorkspaceID is
+	// the git-lineage parent; the placement it resolves is that workspace's own
+	// owning chat. See owning_chat.go for why this is three verbs rather than
+	// one call.
+	MintOwningChat(
+		ctx context.Context,
+		parentWorkspaceID string,
+	) (chatID string, err error)
+	// AttachOwningWorkspace points a chat minted by MintOwningChat at the
+	// workspace it was minted for, retyping it as a branch row when the
+	// workspace is one the sidebar draws as a branch.
+	AttachOwningWorkspace(
+		ctx context.Context,
+		chatID string,
+		ws domain.Workspace,
+	) error
+	// DiscardOwningChat takes a chat minted by MintOwningChat back out, for a
+	// caller whose own workspace creation then failed.
+	DiscardOwningChat(
+		ctx context.Context,
+		chatID string,
+	) error
 	// PlaceChat moves a chat within the tree and reorders it in its new level. It
 	// returns the placed chat plus every row the densify shifted.
 	//

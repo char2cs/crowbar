@@ -18,10 +18,14 @@ func (u *chatFolderUsecase) CreateChat(
 	workspaceID string,
 	providerID string,
 	parentID string,
-	ownWorktree bool,
+	worktree WorktreeSpec,
 ) (string, string, error) {
-	if ownWorktree {
+	if worktree.Mode == WorktreeFork {
 		return u.createOwnWorktreeChat(ctx, providerID, parentID)
+	}
+	if worktree.Mode == WorktreeImport {
+		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
+		return chatID, runnerID, err
 	}
 	if parentID == "" {
 		return u.agent.SpawnChat(ctx, workspaceID, providerID)

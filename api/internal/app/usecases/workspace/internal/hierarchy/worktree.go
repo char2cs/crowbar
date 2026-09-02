@@ -137,6 +137,11 @@ type Usecase interface {
 	// this once both usecases exist. A nil observer (the default, and every
 	// existing caller) makes the guard a no-op.
 	SetChatObserver(observer ChatWorkObserver)
+	// SetOwningChats wires the chat-side surface every workspace this usecase
+	// creates is born under (see OwningChats). It is a post-construction setter
+	// for the same reason SetChatObserver is: the chat usecase depends on this
+	// one, so it does not exist yet at this usecase's own construction.
+	SetOwningChats(chats OwningChats)
 }
 
 // TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
@@ -171,6 +176,7 @@ type hierarchyUsecase struct {
 	crowbarHome  func() (string, error)
 	terminals    TerminalReaper
 	chatObserver ChatWorkObserver
+	owningChats  OwningChats
 }
 
 // Option configures optional hierarchyUsecase dependencies without widening the
@@ -212,6 +218,11 @@ func New(
 // SetChatObserver implements Usecase.
 func (u *hierarchyUsecase) SetChatObserver(observer ChatWorkObserver) {
 	u.chatObserver = observer
+}
+
+// SetOwningChats implements Usecase.
+func (u *hierarchyUsecase) SetOwningChats(chats OwningChats) {
+	u.owningChats = chats
 }
 
 //nolint:gocyclo // orchestrates create with intricate worktree/branch rollback paths; splitting risks the rollback invariants

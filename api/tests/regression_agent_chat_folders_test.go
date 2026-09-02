@@ -117,11 +117,36 @@ func chatIDs(
 	h.Quiesce()
 	var list []agentChatDTO
 	h.get(base+"/chats", &list)
+	// Conversations only: the branch rows every workspace now owns are sidebar
+	// rows, not chats anybody opened. See conversationsOnly.
+	list = conversationsOnly(list)
 	out := make([]string, 0, len(list))
 	for _, c := range list {
 		out = append(out, c.ID)
 	}
 	return out
+}
+
+// chatOrderOf reads one chat's dense index off the LIST, which is the only
+// place the order actually rides — the per-chat detail response carries the
+// conversation history, not the row's placement.
+func chatOrderOf(
+	t *testing.T,
+	h *harness,
+	base string,
+	chatID string,
+) int {
+	t.Helper()
+	h.Quiesce()
+	var list []agentChatDTO
+	h.get(base+"/chats", &list)
+	for _, row := range list {
+		if row.ID == chatID {
+			return row.Order
+		}
+	}
+	t.Fatalf("chat %s is not in the list at %s", chatID, base)
+	return 0
 }
 
 // A thread exists to CONTINUE its parent — it reads that chat's turns — so a
@@ -192,8 +217,9 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	require.True(t, ok, "the child folder survives its parent")
 	assert.Equal(t, "", promoted.ParentID, "and rises to the folder's own parent")
 
-	var list []agentChatDTO
-	h.get(base+"/chats", &list)
+	var listed []agentChatDTO
+	h.get(base+"/chats", &listed)
+	list := conversationsOnly(listed)
 	require.Len(t, list, 1)
 	assert.Equal(t, chat, list[0].ID, "the chat outlives the folder that held it")
 	assert.Equal(t, "", list[0].ParentID, "and is promoted, never deleted")
@@ -321,11 +347,19 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	base := repoBase(ws)
 
 	chat := createAgentChat(t, h, ws)
+	// The panel root already holds the BRANCH row every imported workspace owns,
+	// so this level's indices no longer start at zero. Read where the chat
+	// actually landed and assert every position RELATIVE to it: what this test
+	// is about is that the level stays DENSE and that a renumber reports what it
+	// moved, never the absolute slot a row happens to occupy.
+	chatOrder := chatOrderOf(t, h, base, chat)
+
 	first := createChatFolder(t, h, base, "a", "")
-	require.Equal(t, 1, first.Order, "a new folder lands after the chat already at that level")
+	require.Greater(t, first.Order, chatOrder,
+		"a new folder lands after the chat already at that level")
 
 	second := createChatFolder(t, h, base, "b", "")
-	require.Equal(t, 2, second.Order)
+	require.Equal(t, first.Order+1, second.Order, "and the next one lands after that")
 
 	// Dragging the last folder to the top renumbers the whole level, and the
 	// answer names every OTHER folder the renumber moved.
@@ -334,7 +368,8 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	assert.Equal(t, 0, moved.Folder.Order)
 	shifted, ok := chatFolderByID(moved.Shifted, first.ID)
 	require.True(t, ok, "the folder the drop pushed down must ride back with the answer")
-	assert.Equal(t, 2, shifted.Order)
+	assert.Equal(t, first.Order+1, shifted.Order,
+		"the drop pushed it down exactly one slot")
 	assert.NotContains(t, folderIDs(moved.Shifted), second.ID, "the subject is not its own collateral")
 
 	// The chat shares the level, so it was renumbered too — through its own
@@ -342,7 +377,8 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h.Quiesce()
 	var reread agentChatDetail
 	h.get(base+"/chats/"+chat, &reread)
-	assert.Equal(t, 1, reread.Order)
+	assert.Greater(t, reread.Order, chatOrder,
+		"the drop landed above the chat, so the renumber pushed the chat down")
 
 	assertDenseChatLevel(t, h, base, "")
 
@@ -389,7 +425,7 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h.Quiesce()
 	var list []agentChatDTO
 	h.get(base+"/chats", &list)
-	require.Len(t, list, 1, "the home chat outlived the folder it was filed in")
+	require.Len(t, conversationsOnly(list), 1, "the home chat outlived the folder it was filed in")
 }
 
 // A folder mutation has no aggregate projection to ride, so the handler
@@ -478,11 +514,30 @@ func assertDenseChatLevel(
 			orders[c.ID] = c.Order
 		}
 	}
-	seen := make([]bool, len(orders))
+	// A row's index must be non-negative and must be held by nobody else. That
+	// is the whole of what "dense" buys and the whole of what a bad renumber
+	// breaks: the next drop index means what it says only if no two rows claim
+	// the same slot.
+	seen := map[int]string{}
 	for id, order := range orders {
 		require.GreaterOrEqual(t, order, 0, "row %s", id)
+		held, taken := seen[order]
+		require.False(t, taken, "row %s: order %d is already held by %s", id, order, held)
+		seen[order] = id
+	}
+	// The 0..n-1 half is asserted only INSIDE a container, where the rows above
+	// are the whole level. It cannot be asserted at the panel root, and that is
+	// not a gap in this change: the root is ONE sibling space shared by every
+	// repo in the project AND by the project home's own row, while the list
+	// read above is repo-scoped and never serves the home's. A root level of
+	// six rows therefore reads as five here, with one legitimate index above
+	// the count. That was always true of a daemon that had rebooted — the boot
+	// backfill mints exactly these rows — and is simply true immediately now
+	// that a workspace and the chat owning it are created together.
+	if container == "" {
+		return
+	}
+	for id, order := range orders {
 		require.Less(t, order, len(orders), "row %s: order %d is outside 0..%d", id, order, len(orders)-1)
-		require.False(t, seen[order], "row %s: order %d is held twice", id, order)
-		seen[order] = true
 	}
 }

@@ -73,7 +73,12 @@ Eight rules. Everything else here is a consequence of one of them.
 7. **NO SPECIAL CASE FOR "HOME."** A repo's default branch does not get its
    own `Workspace.IsDefault`/`Kind: Home` fields. It is the first import
    Crowbar performs automatically when a repo is added, through the exact
-   same path a user-triggered import uses.
+   same path a user-triggered import uses. **Corrected by investigation,
+   §7.6: this is actually three independent mechanisms across two packages,
+   not one** — a per-repo default-branch adoption and a per-project bare
+   container are different things, and neither goes through `CreateChild` at
+   repo-add time today. Law 7 still holds; §7.6 records what actually has to
+   change to make it true.
 8. **REUSE THE SCAFFOLD THAT ALREADY WORKS.** `createOwnWorktreeChat`
    (`usecases/chat/internal/tree/chats.go`) already does mint-then-place-then-
    attach correctly for fork. Import is a second way to do the *attach* step,
@@ -129,12 +134,37 @@ path. What it currently does — discover a branch, prepare a worktree for it �
 becomes the git-mechanical half of `SpawnChatWithImportedWorktree`; the
 chat-minting half it never had comes from the scaffold in law 8.
 
-**Repo home (law 7):** when a repo is added, Crowbar calls this exact same
-`CreateChat` with `WorktreeSpec{Mode: WorktreeImport, Branch:
-repo.DefaultBranch}` once, automatically. `Workspace.IsDefault` and
-`Workspace.Kind == Home` are deleted — nothing checks them because nothing
-sets them; a repo's home branch is a chat that imported `main`, same as any
-other imported branch, and its lock status comes from the same
+**Repo home (law 7, corrected — see §7.6 for the evidence):** the code that
+actually runs at repo-add time is `usecases/project/project_import.go`'s
+`importOneRepo`, not `hierarchy.CreateChild`. It calls three things `CreateChild`
+never touches: `adoptRepoHome` (sets `IsDefault`, the repo's default-branch
+workspace — the live, essential path), `provisionProtectedWorktrees` (every
+OTHER protected branch), and `createHomeWorkspace` (a bare **project**-level
+row, `Kind: WorkspaceKindHome`, no `RepoID` at all — a different concept from
+`IsDefault` that the original spec text conflated with it). All three go
+through `CreateChat`/chat-first instead:
+- `adoptRepoHome`'s branch becomes one `CreateChat(providerID, "",
+  WorktreeSpec{Mode: WorktreeImport, Branch: repo.DefaultBranch})` call —
+  `Workspace.IsDefault` is deleted, nothing sets it.
+- Each protected branch `provisionProtectedWorktrees` handles becomes its own
+  `CreateChat(..., WorktreeSpec{Mode: WorktreeImport, Branch: branch})` call,
+  parented under the default branch's new chat — the same shape
+  `CreateFromImport`'s chain-walk already produces for an ad-hoc import, so
+  this is the SAME mechanism running at repo-add time instead of a second one.
+- `createHomeWorkspace`'s project-level row is examined at implementation time
+  (§7.6 flags its two call sites as unresolved) and, per this same law,
+  eliminated if nothing about it actually needs a git worktree — a project
+  with no repo yet needs a plain bubble chat (`WorktreeSpec{Mode:
+  WorktreeNone}`), not a workspace row, "home" or otherwise.
+- `hierarchy.adoptMainWorktree` (`CreateChild`'s own defensive fallback for
+  the same `IsDefault` idea) becomes unreachable once nothing calls
+  `CreateChild` directly for a chat-owning create any more, and is deleted
+  rather than ported — it was always a hedge against `adoptRepoHome` not
+  having run first, and once every path is chat-first that ordering is
+  guaranteed by construction, not defended against.
+
+A repo's home branch ends up a chat that imported its default branch, same as
+any other imported branch, with lock status from the same
 `WorkspaceStatusLocked` every protected branch already uses.
 
 ---
@@ -237,11 +267,16 @@ agent chats), `health`, `system` (infrastructure), every `/settings/*` route
 - **`TerminalSession`** (`internal/domain/terminal_session.go`):
   `WorkspaceID string` → `ChatID string` (GORM index moves with it). No
   migration — pre-production.
-- **`domain.Workspace`**: drop `IsDefault bool` and `Kind` (the `Home` value
-  specifically — confirm no other `Kind` value depends on the same field
-  before removing it wholesale). Everything else on the type is unchanged;
-  law 2 doesn't require collapsing Workspace into Chat, and §6 records why
-  that was considered and rejected.
+- **`domain.Workspace`**: drop `IsDefault bool` entirely (the per-repo
+  default-branch flag — §2's corrected "Repo home" walkthrough). `Kind`
+  (`WorkspaceKindGit`/`WorkspaceKindHome`) is a SEPARATE field marking the
+  per-project bare container `createHomeWorkspace` creates (`project_import.go`)
+  — resolved at implementation time per §7.6; if that row is eliminated in
+  favour of a plain `WorktreeNone` chat, `Kind` drops with it, otherwise it's
+  ported as-is. Do not conflate the two the way the original draft of this
+  spec did. Everything else on the type is unchanged; law 2 doesn't require
+  collapsing Workspace into Chat, and §6 records why that was considered and
+  rejected.
 - **Chat DTO** (wherever the API's chat response type lives): gains the git
   fields `Workspace`'s own DTO (`internal/api/v0/dto/workspace.go`) currently
   carries — branch, added/deleted, lock status, merge/PR state — populated
@@ -313,6 +348,49 @@ the actual code rather than guessed. None of them is open any more.
    renames the title — one verb, resolved by what the chat is, the same way
    Fork/Thread on a row resolve by what the row is. No new endpoint, no
    fallback.
+
+---
+
+### 7.6 Investigation correction — "no special case for home" was undercounted
+
+Before Step 1 implementation started, a direct code survey (grep for every
+`workspace.CreateInput{` / `.Workspaces.Create(` in `api/`, non-test) found
+**eight** live call sites with no owning chat, across **three** usecase
+packages — not the one site (`hierarchy.CreateFromImport`) §0 diagnosed the
+bug from:
+
+| # | site | package | trigger |
+|---|---|---|---|
+| A/B | `hierarchy.CreateChild` (no-worktree and git-creating branches) | `workspace/hierarchy` | any explicit create; every non-default branch `CreateFromImport` imports |
+| C | `hierarchy.adoptMainWorktree` (inside `CreateChild`) | `workspace/hierarchy` | fallback default-branch adoption, normally dead-at-runtime once D below already ran, reachable only if it didn't |
+| D | `hierarchy.importPlaceholder` | `workspace/hierarchy` | a batch-imported branch that couldn't get a real worktree |
+| E | `project.adoptRepoHome` | `project` | **every repo add** — the live, essential per-repo default-branch adoption (`IsDefault`) |
+| F | `project.provisionProtectedBranchWorktree` | `project` | repo add: each other protected branch |
+| G | `project.createPlaceholderWorkspace` | `project` | repo add: a protected branch held elsewhere |
+| H | `project.createHomeWorkspace` | `project` | a bare **project**-level row, `Kind: WorkspaceKindHome`, no `RepoID` — two call sites in `importOneRepo` (project add vs. add-repo-to-existing-project), not traced further here |
+
+Confirmed, not assumed: `RetryProvision`/`DetachHolder` never create new rows
+(they `Set*` an existing placeholder). `CreateFromImport` (the ad-hoc
+branch-picker route) and `provisionProtectedWorktrees` (repo-add time) are
+confirmed independent triggers — different route handlers, never call each
+other, related only through the shared `workspaces` table
+(`existingBranchWorkspaces` reads what repo-add already provisioned so it
+isn't re-imported).
+
+Also confirmed, resolving an open question from §3/§8: `domain.Workspace.ParentID`
+(fork/PR/merge lineage, written once at creation) and `domain.Chat.ParentID`
+(sidebar tree placement) are two independently-doc'd, independently-written
+fields, predating this refactor — `tree.Move`/`tree.PlaceChat` touch only the
+latter. The batch-import chain-walk keeps resolving workspace-lineage parents
+exactly as it does today; the new chat-first port only needs a SEPARATE
+resolution of "which chat currently owns branch X's parent workspace" for
+placement (cross-referencing `Chat.WorkspaceID`, the same join
+`BackfillOwningChats`'s census already performs). No new entanglement between
+the two.
+
+§2 and §5 above are corrected in place for A–H. `createHomeWorkspace`'s two
+call sites (H) are the one piece left for Step 1's implementation to resolve
+directly against the code, not guessed here.
 
 ---
 

@@ -165,6 +165,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	// (1) No phantom chat was minted.
 	var chats []agentChatDTO
 	h.get(base+"/chats", &chats)
+	chats = conversationsOnly(chats)
 	require.Len(t, chats, 1,
 		"an internal provider session must not mint a chat: the user opened one conversation and must "+
 			"see one chat, not a second one they never asked for")

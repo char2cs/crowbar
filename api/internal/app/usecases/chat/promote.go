@@ -25,6 +25,17 @@ type WorktreeCreator interface {
 		ctx context.Context,
 		forkParentID string,
 	) (domain.Workspace, error)
+	// CreateImportedWorkspace is CreateChildWorkspace's import counterpart: the
+	// workspace for a branch that already exists, named outright by spec rather
+	// than forked from a resolved parent. It is on the SAME port because it is
+	// the same verb to this package — "give the chat I have just minted the
+	// worktree it is going to own" — and because a caller that can create one
+	// must be able to discard either, which DiscardChildWorkspace below already
+	// does for both.
+	CreateImportedWorkspace(
+		ctx context.Context,
+		spec ImportSpec,
+	) (domain.Workspace, error)
 	// DiscardChildWorkspace takes a workspace CreateChildWorkspace has just
 	// minted back out, for a promotion that then failed. It is the compensating
 	// half of the verb above and belongs on the same port for that reason: the

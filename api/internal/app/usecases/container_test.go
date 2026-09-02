@@ -85,12 +85,22 @@ func newContainerDeps(
 	require.NoError(t, err)
 	providerPrefs, err := storesqlite.NewFromDB[domain.AgentProviderPreference, string](globalView)
 	require.NoError(t, err)
+	// Required since repo import became chat-first: adopting a repo now MINTS a
+	// chat, and minting one resolves the default permission level off this
+	// store. Left nil, the import panics rather than failing — which is what a
+	// container fixture that lies about its wiring buys you.
+	permissionDefaults, err := storesqlite.NewFromDB[domain.AgentPermissionDefault, string](globalView)
+	require.NoError(t, err)
+	terminalSessions, err := storesqlite.NewFromDB[domain.TerminalSession, string](globalView)
+	require.NoError(t, err)
 
 	gormStores := usecases.GORMStores{
 		Projects:                 projects,
 		Repositories:             repoStore,
 		TerminalProfiles:         profiles,
+		TerminalSessions:         terminalSessions,
 		AgentProviderPreferences: providerPrefs,
+		AgentPermissionDefault:   permissionDefaults,
 	}
 
 	eng, err := engine.New(context.Background())

@@ -375,6 +375,15 @@ type fakeWorktreeCreator struct {
 	// look identical from the chat's side.
 	discarded  []string
 	discardErr error
+	// imported records the branch each CreateImportedWorkspace call asked for,
+	// in order, and importErr fails them. They are kept apart from forkedOn
+	// above because the two verbs are the whole distinction this port now
+	// carries: a fork names a PARENT to branch from, an import names the BRANCH
+	// that already exists, and a test that could not tell them apart could not
+	// prove an import took the import path.
+	imported   []string
+	importedWS domain.Workspace
+	importErr  error
 }
 
 func (f *fakeWorktreeCreator) CreateChildWorkspace(
@@ -389,6 +398,30 @@ func (f *fakeWorktreeCreator) CreateChildWorkspace(
 	}
 	f.nextID++
 	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+func (f *fakeWorktreeCreator) CreateImportedWorkspace(
+	_ context.Context,
+	spec agentusecase.ImportSpec,
+) (domain.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.imported = append(f.imported, spec.Branch)
+	if f.importErr != nil {
+		return domain.Workspace{}, f.importErr
+	}
+	if f.importedWS.ID != "" {
+		return f.importedWS, nil
+	}
+	f.nextID++
+	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+// imports returns the branches an import was asked for, in call order.
+func (f *fakeWorktreeCreator) imports() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.imported...)
 }
 
 func (f *fakeWorktreeCreator) DiscardChildWorkspace(

@@ -37,11 +37,9 @@ func TestRegression_AgentChatActiveProviderID(t *testing.T) {
 	h.QuiesceReactors()
 	chatID := created.ID
 
-	var list []struct {
-		ID               string `json:"id"`
-		ActiveProviderID string `json:"activeProviderId"`
-	}
-	h.get(repoBase(imported)+"/chats", &list)
+	var listed []agentChatDTO
+	h.get(repoBase(imported)+"/chats", &listed)
+	list := conversationsOnly(listed)
 	require.Len(t, list, 1)
 	assert.Equal(t, chatID, list[0].ID)
 	assert.Equal(t, "livestub", list[0].ActiveProviderID)

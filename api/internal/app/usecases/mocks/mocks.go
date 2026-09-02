@@ -10,6 +10,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchimport"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -223,6 +224,10 @@ func (s *WorkspacePlacements) SetProject(
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
 	CreateErr error
+	// Deleted records the rows a rollback tombstoned, in order, so a test can
+	// tell a workspace that was taken back out from one silently left behind.
+	Deleted   []string
+	DeleteErr error
 	// CreateFn, when non-nil, is called instead of the default stub logic. The
 	// caller is responsible for appending to Created if it wants tracking.
 	CreateFn func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
@@ -265,6 +270,20 @@ func (r *WorkspaceRepo) Create(
 	}
 	r.Created = append(r.Created, ws)
 	return ws, nil
+}
+
+// Delete tombstones a created row, recording the id so a test can prove a
+// workspace that could not be attached to its owning chat was taken back out
+// rather than left orphaned.
+func (r *WorkspaceRepo) Delete(
+	_ context.Context,
+	id string,
+) error {
+	if r.DeleteErr != nil {
+		return r.DeleteErr
+	}
+	r.Deleted = append(r.Deleted, id)
+	return nil
 }
 
 // GitEngine is a fake of the git operations the import usecase consumes.
@@ -1044,6 +1063,14 @@ type AgentChatPlacements struct {
 	// ownWorktree counterpart to Started above, and provable ordering for the
 	// identical reason: the placement must land before this call, not after.
 	SpawnedOwnWorktree []StartCall
+	// SpawnedImportedWorktree records each SpawnChatWithImportedWorktree call in
+	// the same shape, and ImportedSpecs the branch each one asked for — the
+	// import counterpart of SpawnedOwnWorktree above.
+	SpawnedImportedWorktree []StartCall
+	ImportedBranches        []string
+	// AttachedWorkspaces records each AttachWorkspace call as chatID->workspaceID,
+	// in order, so a test can prove the chat existed before the workspace it owns.
+	AttachedWorkspaces []PlacementWrite
 	ListErr            error
 	GetErr             error
 	LoadErr            error
@@ -1060,8 +1087,17 @@ type AgentChatPlacements struct {
 	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
 	// fails StartRunner.
 	SpawnOwnWorktreeErr error
-	SetCalls            int
-	MissingID           string
+	// SpawnImportedWorktreeErr fails SpawnChatWithImportedWorktree, and
+	// AttachWorkspaceErr fails AttachWorkspace, the same way StartErr fails
+	// StartRunner.
+	SpawnImportedWorktreeErr error
+	AttachWorkspaceErr       error
+	// ImportedWorkspace is the workspace SpawnChatWithImportedWorktree hands
+	// back. Its zero value is an ordinary unlocked worktree; a test that wants
+	// the row typed as a BRANCH sets Status to locked here.
+	ImportedWorkspace domain.Workspace
+	SetCalls          int
+	MissingID         string
 	// Placed and Ordered record the two placement writes SEPARATELY, because the
 	// difference between them is the contract: a renumber may write an index and
 	// must be unable to write a parent.
@@ -1443,6 +1479,62 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 		}
 	}
 	return "runner-" + chatID, nil
+}
+
+// SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an
+// existing branch: it records the call and the branch, fills the row's
+// workspace slot, and hands back the workspace so the caller can decide what
+// kind of row the chat is. An empty providerID starts no runner, exactly as
+// production does.
+func (s *AgentChatPlacements) SpawnChatWithImportedWorktree(
+	_ context.Context,
+	chatID string,
+	providerID string,
+	spec branchimport.Spec,
+) (domain.Workspace, string, error) {
+	if s.SpawnImportedWorktreeErr != nil {
+		return domain.Workspace{}, "", s.SpawnImportedWorktreeErr
+	}
+	s.SpawnedImportedWorktree = append(s.SpawnedImportedWorktree, StartCall{
+		ChatID:        chatID,
+		ProviderID:    providerID,
+		ParentAtStart: s.parentOf(chatID),
+	})
+	s.ImportedBranches = append(s.ImportedBranches, spec.Branch)
+	ws := s.ImportedWorkspace
+	if ws.ID == "" {
+		ws.ID = "ws-import-" + chatID
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = ws.ID
+		}
+	}
+	if providerID == "" {
+		return ws, "", nil
+	}
+	return ws, "runner-" + chatID, nil
+}
+
+// AttachWorkspace records the slot write and applies it to the held row.
+func (s *AgentChatPlacements) AttachWorkspace(
+	_ context.Context,
+	chatID string,
+	workspaceID string,
+) error {
+	if s.AttachWorkspaceErr != nil {
+		return s.AttachWorkspaceErr
+	}
+	s.AttachedWorkspaces = append(s.AttachedWorkspaces, PlacementWrite{
+		ChatID:   chatID,
+		ParentID: workspaceID,
+	})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = workspaceID
+		}
+	}
+	return nil
 }
 
 func (s *AgentChatPlacements) parentOf(
