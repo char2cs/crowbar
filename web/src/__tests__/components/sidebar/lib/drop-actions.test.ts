@@ -188,6 +188,10 @@ afterEach(() => {
   // Task 26: panes/buffers are a window-level singleton now, never destroyed
   // by destroyWorkspaceStore — reset it to a pristine store between tests.
   resetWindowPaneStoreForTests()
+  // `recentsOrder` isn't in `resetWindowPaneStoreForTests`'s own field list
+  // (that helper predates it) — cleared explicitly here so a reorder written
+  // in one test can't leak an id into the next one's assertions.
+  windowPaneStore.setState({ recentsOrder: [] })
 })
 
 describe('performSidebarDrop — reordering (no lineage change)', () => {
@@ -761,6 +765,112 @@ describe('performSidebarPaneDrop — cross-workspace (Task 26 fix round 1, Criti
  * branch, `planTreeRowDrop` returned `[]`, and the drop the indicator had just
  * promised fired no request at all.
  */
+// ── targetInRecents (spec §8.1's Recents-row targets — Task 2b) ──
+
+function makeChatRepo(): Repo {
+  return {
+    id: 'repo-2',
+    projectId: 'proj-2',
+    name: 'repo-2',
+    avatarLabel: 'R',
+    avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'home-2',
+    defaultBranch: 'main',
+    workspaces: [{ id: 'ws-x', branch: 'x', age: '', order: 0 }],
+  }
+}
+
+describe('performSidebarDrop — targetInRecents', () => {
+  beforeEach(() => {
+    useSidebarStore.setState((s) => ({ repos: [...s.repos, makeChatRepo()] }))
+  })
+
+  it('middle of an already-LIVE Recents entry merges the dragged chat beside it, not a tree placement', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    const newPane = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'chat-b',
+    )
+    expect(newPane).toBeDefined()
+    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
+    expect([...windowPaneStore.getState().dormantArrangements[0].chatIds].sort()).toEqual([
+      'chat-a',
+      'chat-b',
+    ])
+    // A merge, never a tree/chat-tree placement write.
+    expect(setChatPlacement).not.toHaveBeenCalled()
+  })
+
+  it('middle of a DORMANT Recents entry opens it first, then merges the dragged chat beside it', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    const newPane = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'chat-b',
+    )
+    expect(newPane).toBeDefined()
+  })
+
+  it('dropping a chat that is already up onto a Recents target just reveals it — never opened twice', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    // chat-b stayed exactly where it already was — no new pane, no swap.
+    expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('chat-b')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(3)
+  })
+
+  it('above/below a Recents entry reorders the persisted Recents order instead of writing a tree placement', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
+
+    expect(setChatPlacement).not.toHaveBeenCalled()
+    expect(windowPaneStore.getState().recentsOrder).toEqual([otherPane, ROOT_PANE_ID])
+  })
+
+  it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const paneB = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-b', 'runner-2')
+    const paneC = windowPaneStore.getState().paneActions.splitPane(paneB, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(paneC, 'chat-c', 'runner-3')
+    // Natural order: [ROOT(a), paneB(b), paneC(c)]. Move c before a.
+    await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
+    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, ROOT_PANE_ID, paneB])
+
+    // Now move b to sit after c — a and c's relative order must not change.
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-c', 'ws-x'), 'after', true)
+
+    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, paneB, ROOT_PANE_ID])
+  })
+})
+
 describe('performSidebarDrop — a branch row is addressed by its owning chat', () => {
   /** The repo above, plus the `branch` rows the boot backfill mints: one for
    *  the home workspace, one for the locked branch `ws-a`. */

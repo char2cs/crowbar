@@ -29,6 +29,7 @@ import {
   createDropHitTest,
   createDropRowDom,
   type DropRowSpec,
+  type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 
 /** A tree with two kinds, a scope, a label and the two structural flags. */
@@ -320,5 +321,63 @@ describe('a whole-region drop zone', () => {
     stackAt(mount(notes.props({ kind: 'note', id: 'n1' })))
 
     expect(findWithTrash(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
+  })
+})
+
+// Addendum §2's own blocker: the pane zone (use-sidebar-drag.ts's own
+// `paneZone`) already occupied `createDropHitTest`'s one `zone` slot before
+// a second whole-region target (the file explorer card's trash surface)
+// needed one too.
+describe('several whole-region drop zones at once', () => {
+  const dragged: DragSubjectBase = { kind: 'note', id: 'dragged' }
+  const ZONE_A_ATTR = 'data-zone-a'
+  const ZONE_B_ATTR = 'data-zone-b'
+  type EitherZoneHit = { kind: 'a' } | { kind: 'b' }
+  const zoneA: DropZone<DragSubjectBase, EitherZoneHit> = {
+    attr: ZONE_A_ATTR,
+    hit: () => ({ kind: 'a' }),
+  }
+  const zoneB: DropZone<DragSubjectBase, EitherZoneHit> = {
+    attr: ZONE_B_ATTR,
+    hit: () => ({ kind: 'b' }),
+  }
+  const findEither = createDropHitTest(notes, notePolicy, [zoneA, zoneB])
+
+  const makeZone = (attr: string) => {
+    const el = document.createElement('div')
+    el.setAttribute(attr, '')
+    return el
+  }
+
+  it('checked in the order given — the first zone in the array wins when both are present', () => {
+    stackAt(makeZone(ZONE_A_ATTR), makeZone(ZONE_B_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toEqual({ kind: 'a' })
+  })
+
+  it('a later zone in the array still resolves when the earlier one is not the topmost element', () => {
+    stackAt(makeZone(ZONE_B_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toEqual({ kind: 'b' })
+  })
+
+  it('per-element compositing order still governs — a row painted above both zones wins', () => {
+    stackAt(mount(notes.props({ kind: 'note', id: 'n1' })), makeZone(ZONE_A_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
+  })
+
+  it('a bare single zone (not an array) keeps working exactly as before — every existing caller', () => {
+    const findSingle = createDropHitTest(notes, notePolicy, zoneA)
+    stackAt(makeZone(ZONE_A_ATTR))
+
+    expect(findSingle(0, at(0.5), [dragged])).toEqual({ kind: 'a' })
+  })
+
+  it('no zone at all is still a plain row-only hit test', () => {
+    const findNone = createDropHitTest(notes, notePolicy)
+    stackAt(mount(notes.props({ kind: 'note', id: 'n1' })))
+
+    expect(findNone(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
   })
 })

@@ -1,12 +1,10 @@
 import {
-  Columns as Columns2,
   Copy,
   FolderOpen,
   PencilSimpleLine,
   PushPin as Pin,
   PushPinSlash as PinOff,
   ArrowCounterClockwise as RotateCcw,
-  Rows as Rows2,
   TerminalWindow as Terminal,
   X,
 } from '@phosphor-icons/react'
@@ -46,7 +44,6 @@ const TabContextMenu = ({
   isOpen,
   position,
   buffer,
-  paneId,
   onClose,
   onPin,
   onCloseTab,
@@ -57,8 +54,10 @@ const TabContextMenu = ({
   onCopyRelativePath,
   onReload,
   onRevealInFinder,
-  onSplitRight,
-  onSplitDown,
+  // paneId/onSplitRight/onSplitDown are still accepted (tab-bar.tsx keeps
+  // wiring them from splitEditorGroup) but deliberately unused: spec §7.3 —
+  // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
+  // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
   if (!isOpen || !buffer) return null
 
@@ -104,29 +103,6 @@ const TabContextMenu = ({
         ]
       : []),
     { id: 'sep-1', label: '', separator: true, onClick: () => {} },
-    ...(paneId && onSplitRight
-      ? [
-          {
-            id: 'split-right',
-            label: 'Split Right',
-            icon: <Columns2 />,
-            onClick: () => onSplitRight(paneId, buffer.id),
-          },
-        ]
-      : []),
-    ...(paneId && onSplitDown
-      ? [
-          {
-            id: 'split-down',
-            label: 'Split Down',
-            icon: <Rows2 />,
-            onClick: () => onSplitDown(paneId, buffer.id),
-          },
-        ]
-      : []),
-    ...(paneId && (onSplitRight || onSplitDown)
-      ? [{ id: 'sep-2', label: '', separator: true, onClick: () => {} }]
-      : []),
     {
       id: 'copy-path',
       label: 'Copy Path',

@@ -4,12 +4,17 @@ import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
-import { createChat, createChatWithOwnWorktree, deleteChat } from '@/features/agent/api/agent-api'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { createChat, createChatWithOwnWorktree } from '@/features/agent/api/agent-api'
+import {
+  getActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { scopedWorkspaceIdOf } from '@/components/sidebar/lib/row-actions'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { openChatIntoPane } from '@/components/sidebar/lib/drop-actions'
+import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
 export interface ResolvedRow {
@@ -124,27 +129,123 @@ export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | nu
   return null
 }
 
+/** A `SidebarRow` good for exactly one thing: naming a chat and its
+ *  workspace for `openChatIntoPane`, which reads only those two fields
+ *  (`subject.id`, `subject.workspaceId`). Every other field here is inert
+ *  filler required by the type, not real row data — never hand this to
+ *  anything that renders or drags a row. */
+function paneOpenSubject(chatId: string, workspaceId: string): SidebarRowType {
+  return {
+    id: chatId,
+    kind: 'chat',
+    parentId: null,
+    order: 0,
+    label: '',
+    ownsWorktree: false,
+    workspaceId,
+    working: false,
+    hasView: false,
+  }
+}
+
 /**
- * Opens a row: navigates into a workspace, or toggles a fold.
+ * Open `chatId` (which runs in `workspaceId`) the way a click does (spec
+ * §8.4) — into the active pane, reusing the exact drop mechanics
+ * `openChatIntoPane` already gives a dragged chat (dedup-reveal if it is
+ * already up, plain open into an empty pane, merge/split otherwise; never a
+ * silent swap — see its own doc).
+ *
+ * Only reachable when `workspaceId` IS ALREADY the active workspace:
+ * `openChatIntoPane` itself refuses otherwise (its own documented guard — no
+ * chatId->workspace resolution exists yet on the render side for an
+ * off-screen workspace). A row naming a workspace that is not yet active goes
+ * through `navigateThenOpenChat` below instead, which waits for it to become
+ * active first rather than racing it.
+ */
+function openChatInActivePane(chatId: string, workspaceId: string): boolean {
+  if (workspaceId !== getActiveWorkspaceId()) return false
+  const { activePaneId } = windowPaneStore.getState()
+  openChatIntoPane(paneOpenSubject(chatId, workspaceId), activePaneId, 'center')
+  return true
+}
+
+/**
+ * Poll until `wsId` becomes the active workspace, or give up.
+ *
+ * `setActiveWorkspaceId` fires from `WorkspaceView`'s own `useEffect`
+ * (workspace-view.tsx) — a render-and-effect cycle that a route change's own
+ * promise does not wait on, and only runs once that workspace's view has
+ * actually (re)mounted as the active one. `_activeWorkspaceId` is a plain
+ * module variable, not a store, so there is nothing to subscribe to; this
+ * polls the one function that reads it instead. Bounded so a workspace that
+ * never activates (an id the route guard redirects away from) cannot hang a
+ * click forever — matches the 2s the app already gives similar
+ * activation-effect races elsewhere.
+ */
+function waitForActiveWorkspace(wsId: string, timeoutMs = 2000): Promise<boolean> {
+  if (getActiveWorkspaceId() === wsId) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const start = Date.now()
+    const tick = () => {
+      if (getActiveWorkspaceId() === wsId) {
+        resolve(true)
+        return
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve(false)
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+}
+
+/**
+ * Navigate to `wsId`'s own route, then open `chatId` into the active pane
+ * once the workspace has actually finished becoming active.
+ *
+ * This is the sequencing `openChatInActivePane` alone cannot do: a bare
+ * `navigate()` only changes the URL, and clicking a workspace that was not
+ * already active used to stop there — the click looked like it did nothing,
+ * because nothing ever wrote a chat into a pane. `openChatIntoPane`'s own
+ * guard against an off-screen workspace's chat is exactly right; the fix is
+ * to wait until the workspace is no longer off-screen, not to bypass it.
+ */
+async function navigateThenOpenChat(
+  navigate: NavigateFn,
+  params: { projectId: string; repoId: string; wsId: string },
+  chatId: string,
+): Promise<void> {
+  await navigate({ to: '/ide/$projectId/$repoId/$wsId', params })
+  const becameActive = await waitForActiveWorkspace(params.wsId)
+  if (!becameActive) return
+  const { activePaneId } = windowPaneStore.getState()
+  openChatIntoPane(paneOpenSubject(chatId, params.wsId), activePaneId, 'center')
+}
+
+/**
+ * Opens a row: into a pane (a real, unlocked chat/workspace row), or toggles
+ * a fold (a container — a folder, the repo home, or a locked/protected
+ * branch, addendum §3: "a project, a repo, and a locked/protected branch
+ * never open a pane and never open a workspace of their own on click...
+ * they contain rows; they are not rows you check out into").
  *
  * `repos` is the caller's removal-tray-filtered list (what is actually
  * rendered), not the raw store — a row already hidden pending removal must
  * not be openable.
  *
- * A CHAT row answers this the same two ways every other row does, chosen by
- * the one fact §3.1 distinguishes chats on:
+ * A CHAT row answers this the same way every other row does, chosen by the
+ * one fact §3.1 distinguishes chats on:
  *
- *   - a WORKTREE chat owns a workspace, so it navigates there — the same thing
- *     clicking the branch row for that workspace does;
- *   - a BUBBLE owns none, so it folds, like every other container that has no
- *     destination of its own.
- *
- * Neither opens the chat INTO A PANE, which is the thing a reader will expect
- * to find here. That needs a chatId->workspace resolution the render path does
- * not have for a non-active workspace — `drop-actions.ts`'s `openChatIntoPane`
- * documents the failure (a pane that renders permanently blank and, because
- * pane state is persisted, survives reload). Folding is not a placeholder for
- * it; it is what a row with no destination has always done.
+ *   - a WORKTREE chat owns a workspace, so it opens into the active pane
+ *     (spec §8.4) — the same view clicking the branch row for that workspace
+ *     opens, since both name the same conversation;
+ *   - a BUBBLE owns none, so it folds, like every other container that has
+ *     no destination of its own. Opening a bubble into a pane needs its
+ *     ground workspace resolved by walking up to the nearest owning
+ *     ancestor (§3.2) — not built yet (see `handleCreate`'s own note on the
+ *     same gap) — so this is an honest fold, not a placeholder.
  */
 export function handleOpen(id: string, repos: readonly Repo[], navigate: NavigateFn): void {
   const chatRow = resolveChatRow(repos, id)
@@ -155,10 +256,8 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
       useSidebarStore.getState().toggleChatRow(id)
       return
     }
-    void navigate({
-      to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId, repoId: chatRow.repo.id, wsId },
-    })
+    if (openChatInActivePane(id, wsId)) return
+    void navigateThenOpenChat(navigate, { projectId, repoId: chatRow.repo.id, wsId }, id)
     return
   }
 
@@ -171,52 +270,67 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
     return
   }
   if (!found.repo.projectId) return
-  void navigate({
-    to: '/ide/$projectId/$repoId/$wsId',
-    // `subject.id`, never the row's — a branch row is addressed by its owning
-    // chat, and only `resolveRow` knows which workspace that names.
-    params: { projectId: found.repo.projectId, repoId: found.repo.id, wsId: found.subject.id },
-  })
+  // Addendum §3: the repo-home row (no `locked` on its subject at all — see
+  // `resolveRow`) and a locked/protected branch never open anything of
+  // their own on click; they are containers, not workspaces you check out
+  // into. Fold, exactly like a folder.
+  const isRepoHome = found.subject.id === found.repo.defaultWorkspaceId
+  if (isRepoHome || found.subject.locked) {
+    useSidebarStore.getState().toggleChatRow(id)
+    return
+  }
+  // A real, unlocked workspace row IS a chat — the one that owns it — so it
+  // opens the same way clicking that chat's own bubble would (spec §8.4).
+  // The row itself is addressed by the WORKSPACE's id for a regular fork
+  // (`rows-from-repo.ts`'s own note on why); its owning conversation is a
+  // separate id, read off the `Workspace` record the same way
+  // `handleCreate` already does.
+  const owningChatId = found.repo.workspaces.find((w) => w.id === found.subject.id)?.owningChatId
+  if (owningChatId && openChatInActivePane(owningChatId, found.subject.id)) return
+  // `subject.id`, never the row's — a branch row is addressed by its owning
+  // chat, and only `resolveRow` knows which workspace that names.
+  const params = { projectId: found.repo.projectId, repoId: found.repo.id, wsId: found.subject.id }
+  if (owningChatId) {
+    void navigateThenOpenChat(navigate, params, owningChatId)
+    return
+  }
+  void navigate({ to: '/ide/$projectId/$repoId/$wsId', params })
 }
 
 /**
- * Trashes a row. A chat's delete is a direct `deleteChat` call, never a
- * removal-tray draft — the tray's `planRemoval`/`RemovalDraft` has no chat
- * subject to hold one with (`resolveChatRow`'s own doc explains why that
- * union stays closed). Every other row still goes through the tray, reading
- * the store's raw, current repos (not a caller-supplied filtered snapshot):
- * the true current state, not the UI's already-hidden-pending-removal
- * overlay.
+ * Trashes a row — a chat, workspace, folder, or repo — through the SAME
+ * removal tray every kind uses (`planRemoval`/`RemovalDraft`, addendum §2's
+ * `chat` kind included now). Reads the store's raw, current repos (not a
+ * caller-supplied filtered snapshot): the true current state, not the UI's
+ * already-hidden-pending-removal overlay.
  *
- * Returns whether anything was actually held/deleted. `false` covers: a chat
- * whose repo has no workspace at all to scope the DELETE request through
- * (`scopedWorkspaceIdOf`), a repo-home id (resolves to a `workspace` subject
- * naming no row in `repo.workspaces` — repo deletion gets its own
- * confirmation flow in Part H and is not reachable from a row's trash button
- * yet), and a user-locked, non-home workspace (`planRemoval`'s `draftFor`
- * refuses one — the daemon would refuse the delete too, so the tray must
- * never accept one and promise otherwise).
+ * A chat used to bypass the tray entirely here — a direct `deleteChat` call
+ * with no hold, no 8s undo, nothing to cancel. That is exactly what a drag
+ * dropped onto the trash target must never do (addendum §2's whole point is
+ * routing this gesture into the SAME safety net every other kind already
+ * gets), so this is now the one path for both: the row-level trash call this
+ * function always was, and `use-sidebar-drag.ts`'s drag-to-trash commit,
+ * which calls this directly per dragged id.
+ *
+ * Returns whether anything was actually held. `false` covers: a chat/row the
+ * live store no longer recognises, a repo-home id (resolves to a `workspace`
+ * subject naming no row in `repo.workspaces` — repo deletion gets its own
+ * confirmation flow in Part H and is not reachable from a row's trash yet),
+ * and a user-locked, non-home workspace (`planRemoval`'s `draftFor` refuses
+ * one — the daemon would refuse the delete too, so the tray must never
+ * accept one and promise otherwise).
  */
 export function handleTrash(id: string): boolean {
   const currentRepos = useSidebarStore.getState().repos
   // Checked BEFORE resolveRow, which cannot see a chat at all
   // (`resolveChatRow`'s own doc: "callers must consult THIS FIRST").
   const chatRow = resolveChatRow(currentRepos, id)
-  if (chatRow) {
-    // The chat's OWN repo, never `chat.workspaceId` — the DELETE route is
-    // repo-scoped, so any workspace of this repo resolves the URL; a bubble
-    // has none of its own to name.
-    const wsId = scopedWorkspaceIdOf(chatRow.repo)
-    if (!wsId) return false
-    deleteChat(wsId, id).catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete chat')
-    })
-    return true
-  }
-  const found = resolveRow(currentRepos, id)
-  if (!found) return false
+  const subject: DragSubject | null = chatRow
+    ? { kind: 'chat', id, repoId: chatRow.repo.id }
+    : (resolveRow(currentRepos, id)?.subject ?? null)
+  if (!subject) return false
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
-  const drafts = planRemoval([found.subject], currentRepos, projects)
+  const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
   useRemovalTrayStore.getState().hold(drafts)
   return true

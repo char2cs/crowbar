@@ -81,19 +81,33 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
     Object.assign(working, agentChats.working)
   }
 
-  const { panes, dormantArrangements } = windowPaneStore.getState()
+  const { panes, dormantArrangements, recentsOrder } = windowPaneStore.getState()
   const projectPanes = Object.values(panes).filter(
     (p) => p.chatId != null && chatWorkspace.has(p.chatId),
   )
-  const projectDormant = dormantArrangements.filter((e) =>
-    e.chatIds.some((id) => chatWorkspace.has(id)),
-  )
+  // Trim each arrangement down to ITS OWN chats in this project, rather than
+  // keeping (or dropping) the whole entry because ONE chat matched — a SET
+  // spanning two projects used to leak in whole to both projects' bands the
+  // instant any single member belonged there. A member that isn't this
+  // project's is simply not this project's business to draw.
+  const projectDormant = dormantArrangements
+    .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => chatWorkspace.has(id)) }))
+    .filter((e) => e.chatIds.length > 0)
 
-  return deriveRecentsEntries(projectPanes, working, projectDormant).map((entry) => ({
+  return deriveRecentsEntries(projectPanes, working, projectDormant, recentsOrder).map((entry) => ({
     ...entry,
     // Ids are already globally unique (one pane store, real chat/nanoid ids)
     // — no more workspace-qualification needed, so localId is just id.
     localId: entry.id,
+    // Kept for `recents-actions.ts`'s single-target navigation — still the
+    // first chat's workspace, same as before.
     workspaceId: chatWorkspace.get(entry.chatIds[0]) ?? '',
+    // Every member resolved to ITS OWN workspace (spec §5.3/§4) — a SET can
+    // span more than one within this project, and `recents-band.tsx` reads
+    // this per chat rather than assuming the entry's first chat speaks for
+    // all of them.
+    chatWorkspaces: Object.fromEntries(
+      entry.chatIds.map((id) => [id, chatWorkspace.get(id) ?? '']),
+    ),
   }))
 }

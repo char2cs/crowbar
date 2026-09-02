@@ -1,5 +1,6 @@
 import { deleteProject, deleteRepo, deleteWorkspace } from '@/lib/api'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
+import { deleteChat } from '@/features/agent/api/agent-api'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
@@ -38,7 +39,11 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
   return ids.some(
     (id) =>
       repos.some((r) => r.id === id || r.projectId === id) ||
-      repos.some((r) => r.workspaces.some((w) => w.id === id)),
+      repos.some((r) => r.workspaces.some((w) => w.id === id)) ||
+      // Chats: same reseed channel workspaces/repos ride, checked so a
+      // drag-to-trashed chat's row stays hidden across the round trip
+      // instead of flashing back the instant the DELETE resolves.
+      repos.some((r) => r.chats?.some((c) => c.id === id)),
   )
 }
 
@@ -102,6 +107,13 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
       return deleteProject(entry.projectId, ...opts)
+    case 'chat':
+      // No local tombstone, same as workspace/repo/project above (unlike
+      // folder's own special case): a chat DOES arrive on a real push/reseed
+      // channel — `resolveChatRow`'s own doc references it — so there is no
+      // "flashes back until the next unrelated rebuild" hazard here to guard
+      // against the way there was for folders.
+      return deleteChat(entry.wsId, entry.id, ...opts)
   }
 }
 

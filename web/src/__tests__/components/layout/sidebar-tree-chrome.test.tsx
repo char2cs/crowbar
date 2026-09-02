@@ -1,10 +1,12 @@
 /**
- * `SidebarTreeChrome` hoists `RemovalTray`/`RenameDialog`/`RepoImportDialog`/
+ * `SidebarTreeChrome` hoists `RenameDialog`/`RepoImportDialog`/
  * `SidebarRowContextMenu` so they mount ONCE at the ide-shell level rather
  * than once per `SpaceScroller` project panel. "New Project" used to live
  * here too, as a tree-foot row; Task 5 relocated it to a trailing `+` mark
  * in `SidebarProjectHeader`'s window-chrome row (spec §4.1) and lifted its
  * modal state up to `IDEShell` — this component no longer owns any of that.
+ * `RemovalTray` doesn't either any more: addendum §2 step 4 moved it into
+ * `SidebarCarousel`, at the top of the file explorer card.
  */
 import { createRef } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -12,7 +14,6 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
-  // RemovalTray needs both.
   useRouter: () => ({ state: { location: { pathname: '/' } } }),
   useRouterState: () => '/',
 }))

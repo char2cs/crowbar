@@ -20,6 +20,7 @@ import { buildChatTree } from '@/features/agent/tree/lib/chat-rows'
 import { placeWorkspace, placeFolder } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
+import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 
 /** One request `performSidebarDrop` fires, in the order it must land — the
  *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
@@ -266,23 +267,19 @@ function planChatDrop(
     foldedAway: EMPTY_ID_SET,
     query: '',
   })
-  // Recents renders every row at depth 0 with no parentage (spec §5.1) —
-  // `target.parentId` is always `null` there, so 'before'/'after' can only
-  // ever place at the workspace root; only 'into' (making the subject one of
-  // the target's own threads) reaches a real container.
-  //
-  // WHAT THIS DOES AND DOES NOT MOVE, stated plainly: this writes the chat's
-  // placement on its own workspace aggregate, which is the durable order every
-  // chat-tree reader sorts by. It does NOT move the row's slot in the RECENTS
-  // BAND, because that band has no order of its own to write to:
-  // `deriveRecentsEntries` computes it from `dormantArrangements` (a
-  // window-level "closed-but-idle views, remembered so the close is undoable"
-  // ledger, in memory only) followed by pane order then working order, and a
-  // live pane's row or a working-no-view row has no record in that ledger at
-  // all. Giving §8.1's "above / below a Recents entry → it moves to that slot"
-  // its own persistence means freezing the whole derived order into a store
-  // whose documented meaning is undo-a-close, which is a design change, not a
-  // fix. Left as real remaining work rather than half-built here.
+  // This function is reached ONLY for a TREE target now — `performSidebarDrop`
+  // below branches a Recents-sourced drop (`targetInRecents`) off to
+  // `performRecentsDrop` before this is ever called, since a drop over a
+  // Recents row means something completely different (§8.1: "into that view,
+  // opened" / "it moves to that slot" — a live pane write and Recents' own
+  // persisted order, neither of which is a tree placement at all). What
+  // follows is exactly the tree's own "make the subject one of the target's
+  // threads" placement, unconditionally — the ambiguity this comment used to
+  // describe (Recents rows render at depth 0 with `parentId: null`, same as a
+  // root-level tree bubble, so 'before'/'after' here used to silently mean
+  // "move to the tree root" for a Recents drag) is gone along with the need
+  // to guess: a TREE row genuinely at the root behaves the same as it always
+  // did, and a Recents row never reaches this branch at all any more.
   const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
   const lifted = new Set(subjects.map((s) => s.id))
   const rest = (siblings.get(containerId) ?? []).filter((id) => !lifted.has(id))
@@ -351,10 +348,101 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
 }
 
 /**
- * Commit a row-to-row drop — reorder/reparent a workspace or folder, or
- * place a chat within its own workspace's chat tree. `SIDEBAR_DROP_POLICY`
- * has already refused every other subject/target/mode combination, so this
- * only ever has to plan what it allows through.
+ * Middle of a Recents entry (spec §8.1: "into that view, opened"). `target`
+ * is ensured live first — the active pane, if it wasn't already up anywhere
+ * (the same "makes its own view" a click already does, §8.4) — and every
+ * dragged chat is then merged beside it via `openChatIntoPane`'s own
+ * dedup/plain-open/merge rules (never a re-implementation): dropping a chat
+ * that is already up goes TO it, and a target already on screen grows
+ * instead of reopening.
+ *
+ * Carries the same off-screen-workspace limitation `openChatIntoPane`
+ * already discloses on its own guard: a chat whose workspace isn't the one
+ * currently active silently does nothing (no chatId->workspace resolution
+ * exists in the render path yet). Recents can span every active workspace
+ * in a project, so this is reachable in practice, not just hypothetically —
+ * flagged rather than worked around here.
+ */
+function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly SidebarRow[]): void {
+  const findPaneFor = (chatId: string) =>
+    Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)?.id
+
+  let targetPaneId = findPaneFor(target.id)
+  if (!targetPaneId) {
+    openChatIntoPane(target, windowPaneStore.getState().activePaneId, 'center')
+    targetPaneId = findPaneFor(target.id)
+  }
+  if (!targetPaneId) return
+  for (const subject of dragged) {
+    if (subject.id === target.id) continue // dropped onto itself — nothing to merge
+    if (subject.kind === 'chat') openChatIntoPane(subject, targetPaneId, 'center')
+  }
+}
+
+/**
+ * Above/below a Recents entry (spec §8.1: "it moves to that slot") — the
+ * drag-reorder `planChatDrop`'s own doc used to flag as real remaining work.
+ * `subjects`/`target` are chat ROWS (their `.id` is a chat id), but
+ * `pane-slice.ts`'s persisted order is keyed by ENTRY id (a pane id, a
+ * merged-set nanoid, or a bare chat id for a working-no-view row — never a
+ * chat id on its own, since a SET's members share one slot); both are
+ * resolved here against the project's own current, correctly-derived band
+ * before being handed to `reorderRecentsEntry`. A SET dragged by one of its
+ * members reorders the whole set, since the members have no independent
+ * slot of their own.
+ */
+function reorderRecentsEntries(
+  subjects: readonly SidebarRow[],
+  target: SidebarRow,
+  mode: 'before' | 'after',
+): void {
+  const repos = useSidebarStore.getState().repos
+  const scope = resolveRowRepo(repos, target.workspaceId ?? '')
+  if (!scope?.projectId) return
+  const entries = recentsForProject(repos, scope.projectId)
+  const naturalOrder = entries.map((e) => e.id)
+  const targetEntry = entries.find((e) => e.chatIds.includes(target.id))
+  if (!targetEntry) return
+
+  const moved = new Set<string>()
+  for (const subject of subjects) {
+    const sourceEntry = entries.find((e) => e.chatIds.includes(subject.id))
+    if (!sourceEntry || sourceEntry.id === targetEntry.id || moved.has(sourceEntry.id)) continue
+    moved.add(sourceEntry.id)
+    windowPaneStore
+      .getState()
+      .paneActions.reorderRecentsEntry(sourceEntry.id, targetEntry.id, mode, naturalOrder)
+  }
+}
+
+/**
+ * A drop whose TARGET lives in a Recents band, not the tree — spec §8.1's
+ * table gives this geometry a different meaning than the same drop over a
+ * tree row: the middle opens the dragged chat(s) into that view, and
+ * above/below reorders the band itself rather than writing a tree
+ * placement. `SIDEBAR_DROP_POLICY` already refuses a mixed chat/non-chat
+ * pairing, so both sides are guaranteed `kind: 'chat'` by the time this
+ * runs; the checks below are a defensive backstop, not the real gate.
+ */
+function performRecentsDrop(subjects: SidebarRow[], target: SidebarRow, mode: DropMode): void {
+  if (target.kind !== 'chat') return
+  const chatSubjects = subjects.filter((s) => s.kind === 'chat')
+  if (chatSubjects.length === 0) return
+  if (mode === 'into') {
+    openRecentsEntryThenMerge(target, chatSubjects)
+    return
+  }
+  reorderRecentsEntries(chatSubjects, target, mode)
+}
+
+/**
+ * Commit a row-to-row drop — reorder/reparent a workspace or folder, place a
+ * chat within its own workspace's chat tree, or — when the drop TARGET lives
+ * in a Recents band (`targetInRecents`, threaded from `use-sidebar-drag.ts`'s
+ * hit test) — open into that view or reorder the band itself
+ * (`performRecentsDrop`, spec §8.1). `SIDEBAR_DROP_POLICY` has already
+ * refused every other subject/target/mode combination, so this only ever has
+ * to plan what it allows through.
  *
  * Calls fire in order, each awaited before the next: a multi-row move's
  * `order` is an index into the destination as it stands once the previous
@@ -368,7 +456,12 @@ export async function performSidebarDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
+  targetInRecents = false,
 ): Promise<void> {
+  if (targetInRecents) {
+    performRecentsDrop(subjects, target, mode)
+    return
+  }
   try {
     const plan = planRowDrop(subjects, target, mode)
     if (plan === UNSUPPORTED) {
@@ -407,7 +500,7 @@ export function performSidebarPaneDrop(
 }
 
 /**
- * One chat, dropped onto one pane.
+ * One chat, dropped OR CLICKED into one pane.
  *
  * §8.2: "dropping a chat that is already up goes TO it... it never opens
  * twice." Checked FIRST, before any zone/merge logic, and against every
@@ -416,8 +509,14 @@ export function performSidebarPaneDrop(
  * established dedup pattern (`open-agent-chat.ts`'s `openAgentChat`):
  * `Object.values(panes).find(p => p.chatId === chatId)`, reveal via
  * `setActivePane`, never a second `setPaneChat`.
+ *
+ * Exported for `space-content-actions.ts`'s `handleOpen` (spec §8.4:
+ * "clicking a chat in the tree makes its own view") — a click is the same
+ * "put this chat somewhere in a pane" question a drop asks, just answered
+ * with a fixed target (the active pane, zone `'center'`) instead of one
+ * resolved from where the pointer let go.
  */
-function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
+export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   if (!subject.workspaceId) return
   // Task 26 fix-round-1 (Critical 2): this refusal was removed once, on the
   // reasoning that panes/buffers are window-level now so there is no more

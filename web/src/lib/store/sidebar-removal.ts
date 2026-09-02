@@ -31,11 +31,17 @@ const NO_IDS: ReadonlySet<string> = new Set<string>()
  * store depends on nothing in `components/`.
  */
 export interface RemovalDraft {
-  /** What is going: the sidebar's own four row kinds. The Chats panel this tray
-   *  once shared with (`chat`/`chatFolder`, dropped onto the same editor pane)
-   *  is gone — that whole dwell-to-remove gesture went with it (Task 22). */
-  kind: 'workspace' | 'folder' | 'repo' | 'project'
-  /** The row itself: a workspace, folder, repo or project id. */
+  /**
+   * What is going: the sidebar's own four row kinds, PLUS `chat` — added
+   * back (additive, the original four are unchanged) for addendum §2's
+   * drag-to-trash, which reaches a bare conversation row the other four
+   * kinds can't address. Not the same `chat` the old Chats panel's own
+   * drafts once had (Task 22 deleted that dwell-to-remove gesture whole);
+   * this one drains on the same 8s clock every non-cascading kind already
+   * uses, through the same tray.
+   */
+  kind: 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
+  /** The row itself: a workspace, folder, repo, project or chat id. */
   id: string
   /** What the row reads as, for the tray row. */
   label: string
@@ -44,10 +50,9 @@ export interface RemovalDraft {
    *  project removal there is no single one, so it is ''. */
   repoId: string
   /**
-   * Always '' now — a leftover of the deleted Chats panel's own drafts,
-   * whose chat kind was the only one ever scoped to a workspace. Kept
-   * (rather than dropped) so `RemovalEntry`/the commit path don't need a
-   * second, narrower draft shape for what is otherwise one interface.
+   * '' for every kind except `chat`, where it is the workspace the DELETE
+   * request is scoped through (`deleteChat`'s own contract — see
+   * `space-content-actions.ts`'s old `handleTrash`, which this supersedes).
    */
   wsId: string
   /**

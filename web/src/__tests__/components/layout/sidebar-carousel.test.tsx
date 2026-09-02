@@ -31,6 +31,13 @@ vi.mock('@/lib/store/sidebar', async () => {
 let mockMatch: object | null = null
 vi.mock('@tanstack/react-router', () => ({
   useMatch: () => mockMatch,
+  // `RemovalTray` (now mounted inside SidebarCarousel — addendum §2 step 4)
+  // calls both unconditionally before its own `entries.length === 0`
+  // bailout; every test in this file leaves the removal tray empty, so
+  // these are never actually exercised, just needed so the hook calls
+  // themselves don't throw.
+  useNavigate: () => vi.fn(),
+  useRouter: () => ({ state: { location: { pathname: '/' } } }),
 }))
 
 // @phosphor-icons/react ships pure ESM and gets its own React copy in the

@@ -1,5 +1,11 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { createChat } from '@/features/agent/api/agent-api'
+import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
+import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
@@ -56,6 +62,39 @@ export function openBranchReviewForActiveWorkspace(): string | null {
   return windowPaneStore
     .getState()
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
+}
+
+// Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
+// the editor view [of a chat]". A pane must hold a chat before anything opens
+// into its editor view. When `paneId` already has one, `openTab` just runs;
+// otherwise this mints a new chat the same way ⌘N does (AGENT_NEW_CHAT in
+// use-pane-keyboard.ts: first enabled provider, createChat, setPaneChat) and
+// only then runs `openTab`. Shared by New Tab view's New Terminal/New File
+// rows and their ⌘J/⌘⇧N keyboard equivalents so the sequence lives in one
+// place.
+export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: () => void): void {
+  const paneActions = windowPaneStore.getState().paneActions
+  paneActions.setActivePane(paneId)
+
+  if (windowPaneStore.getState().panes[paneId]?.chatId) {
+    openTab()
+    return
+  }
+
+  const workspaceStore = getOrCreateWorkspaceStore(wsId)
+  const provider = selectEnabledProviders(workspaceStore.getState())[0]
+  if (!provider) return
+
+  createChat(wsId, provider.id)
+    .then((chatId) => {
+      workspaceStore.getState().setActiveAgentChatId(chatId)
+      const actions = windowPaneStore.getState().paneActions
+      actions.setActivePane(paneId)
+      // A brand-new chat has no runner yet — null until it spawns one.
+      actions.setPaneChat(paneId, chatId, null)
+      openTab()
+    })
+    .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {

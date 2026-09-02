@@ -38,7 +38,6 @@ import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
 } from '../utils/pane-drop-actions'
-import { getPaneSplitDropOptions } from '../utils/pane-drop-zones'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 
 // Painted straight onto the DOM by `useSidebarDrag`'s own `paintPaneHit` —
@@ -217,6 +216,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // pane is too small to honour it — same downgrade shape as
   // useChatPresentation's own `splitEnabled` gate, just driven by size.
   const editorViewHidden = Boolean(pane.chatId) && presentation === 'tabs'
+  // Spec §7.2: "the tab strip moves down between the chat and the editor" in
+  // portrait — only when there is a chat to stack the editor view against.
+  const isStacked = Boolean(pane.chatId) && presentation === 'stacked'
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -416,18 +418,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         return
       }
 
-      // Create the new pane in the workspace store (the authoritative UI source).
-      // The legacy usePaneStore utility (getOrCreatePaneDropTarget) wrote to a separate
-      // standalone store that the render tree no longer reads — the split would fire but
-      // nothing would appear. Using workspaceStore directly fixes the rendering.
-      const splitOptions = getPaneSplitDropOptions(zone)
-      if (!splitOptions) return // non-center zone always has valid split options
-      const newPaneId = windowPaneStore
-        .getState()
-        .paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement)
-      if (!newPaneId) return
-
-      // Move the dragged buffer into the newly created pane.
+      // Spec §7.3: "a pane group is a group of chats, never of tabs" (Law 3)
+      // — a dragged tab (file/terminal) must never create a new pane/split,
+      // on an edge zone any more than on center. This used to open a new
+      // pane here (via splitPane + getPaneSplitDropOptions) and move the tab
+      // into it; it now lands the tab in THIS pane instead — same action
+      // sequence as the split used to run, just targeting the existing pane
+      // rather than a freshly created one.
       if (source === 'terminal-panel' && terminalId) {
         const newBufferId = openTerminalBuffer({
           sessionId: terminalId,
@@ -436,20 +433,19 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           workingDirectory: currentDirectory,
           remoteConnectionId,
         })
-        addExistingTabToPane(newPaneId, newBufferId)
+        addExistingTabToPane(pane.id, newBufferId)
         window.dispatchEvent(
           new CustomEvent('terminal-detach-to-buffer', {
             detail: { terminalId },
           }),
         )
       } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
-        // Move from a different source pane into the new split pane
-        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, newPaneId)
-        windowPaneStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
+        // Move from a different source pane into this pane.
+        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, pane.id)
+        windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, bufferId)
       } else if (bufferId) {
-        // Move from this pane into the new split pane
-        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, pane.id, newPaneId)
-        windowPaneStore.getState().paneActions.activateEditorTabInPane(newPaneId, bufferId)
+        // Already this pane's own tab (or no source recorded) — nothing to move.
+        windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, bufferId)
       }
     },
     [pane.id, openTerminalBuffer, addExistingTabToPane],
@@ -674,11 +670,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         )}
         style={paneContentStyle}
       >
-        <TabBar
-          paneId={pane.id}
-          onTabClick={handleTabClick}
-          disablePaneActions={pane.id === BOTTOM_PANE_ID}
-        />
+        {/* Spec §7.2: in every presentation except 'stacked', the row stays
+            put at the top of the pane — see the repositioned copy inside
+            viewsContainerRef below for 'stacked'. */}
+        {!isStacked && (
+          <TabBar
+            paneId={pane.id}
+            onTabClick={handleTabClick}
+            disablePaneActions={pane.id === BOTTOM_PANE_ID}
+          />
+        )}
         {/* Spec §7.2's "two views": the chat view and the editor view, and how
             they're arranged.
 
@@ -712,10 +713,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             has a sibling. */}
         <div
           ref={viewsContainerRef}
-          className={cn(
-            'relative flex min-h-0 flex-1 overflow-hidden',
-            Boolean(pane.chatId) && presentation === 'stacked' && 'flex-col',
-          )}
+          className={cn('relative flex min-h-0 flex-1 overflow-hidden', isStacked && 'flex-col')}
         >
           {pane.chatId && (
             // Chat view. Mounted whenever pane.chatId is set — it does not
@@ -798,24 +796,29 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               above exist, so React never sees it as a different element —
               only its `hidden` attribute and its sizing change, and nothing
               inside it ever unmounts/remounts. See the block comment at the
-              top of this section for the bug this fixes.
-
-              KNOWN, DISCLOSED GAP — the tab strip's own relocation: spec
-              §7.2 additionally asks that in 'stacked' presentation the
-              editor's TAB STRIP itself (not this whole region) physically
-              moves to sit between the chat view and the editor view, while
-              the chat name stays up in the head. `TabBar` renders that
-              strip fused into one single row together with the split
-              toggle and the chat head (spec §7.1) with no seam to split it
-              at, and restructuring it into separable head/strip pieces is
-              a distinct change with its own blast radius that Task 17
-              already shipped and reviewed clean — out of this task's
-              declared file scope (`use-chat-presentation.ts` +
-              `pane-container.tsx`). TabBar stays put at the top of the
-              pane, unchanged, in every presentation below; only the
-              chat/editor arrangement underneath it responds to geometry.
-              Flagging this precisely rather than silently dropping it —
-              see the task report for the follow-up this implies. */}
+              top of this section for the bug this fixes. */}
+          {/* Spec §7.2: "the tab strip moves down between the chat and the
+              editor" in 'stacked' presentation — the repositioned copy of
+              the row that renders at the top of the pane in every other
+              presentation (see the `!isStacked` guard above). `TabBar`
+              fuses the split toggle, the chat head, AND the tab strip into
+              one row (spec §7.1) with no internal seam to split just the
+              strip out of — so this moves the WHOLE row down, split toggle
+              and chat name included, rather than leaving the tab strip
+              pinned at the top on its own. Splitting TabBar into separable
+              head/strip pieces so the chat name can stay fixed in the head
+              while only the strip travels is a distinct change with its own
+              blast radius (`tab-bar.tsx`), out of this task's declared file
+              scope — flagged here rather than silently left as the prior
+              gap was. */}
+          {isStacked && (
+            <TabBar
+              key="tab-bar-stacked"
+              paneId={pane.id}
+              onTabClick={handleTabClick}
+              disablePaneActions={pane.id === BOTTOM_PANE_ID}
+            />
+          )}
           <div
             key="editor-view"
             ref={editorViewRef}

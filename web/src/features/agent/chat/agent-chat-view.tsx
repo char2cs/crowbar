@@ -8,6 +8,7 @@ import {
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
+import { isNotFoundError } from '@/lib/api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { blockedOn } from '@/features/agent/lib/agent-activity'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
@@ -82,6 +83,9 @@ export interface AgentChatViewProps {
    *  standing in for the dock, so the composer (and anything that lives only
    *  inside it, like a reviving/idle signpost) does not exist to be read. */
   onBlankChange?: (blank: boolean) => void
+  /** The daemon has confirmed this chat id does not exist (404 on its own
+   *  messages) — never a transient failure, so retrying can't help. */
+  onChatGone?: () => void
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
@@ -138,6 +142,7 @@ export function AgentChatView({
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
+  onChatGone,
   model,
   effort,
   onSelectionChange,
@@ -434,6 +439,14 @@ export function AgentChatView({
   const nothingYet = ledger.messages.length === 0 && queue.length === 0
   const blank = !ledger.error && nothingYet
   useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
+  // A 404 on this chat's OWN messages is the daemon saying it has never heard
+  // of this id — never transient, so the Retry button in AgentTranscript's
+  // error state can only ever fail again. Distinct from `!known` above: that
+  // fires while the chat LIST is still loading, this fires only once THIS
+  // chat's own read has come back negative.
+  useEffect(() => {
+    if (isNotFoundError(ledger.error)) onChatGone?.()
+  }, [ledger.error, onChatGone])
   // WHICH SURFACE IS NOT KNOWN UNTIL THE FIRST PAGE LANDS, and guessing shows the
   // wrong one: an empty ledger that has not answered yet is indistinguishable
   // from a chat with history, so picking either paints a composer the reader then

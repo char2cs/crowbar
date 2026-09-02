@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trash } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { ContextMenu, useContextMenu } from '@/components/ui/context-menu'
+import { useContextMenu } from '@/components/ui/context-menu'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
@@ -150,7 +149,11 @@ function SpacePanel({
   onCloseRecent,
   onDrop,
   onPaneDrop,
-  onTrashProject,
+  // Not read here any more — addendum §4 removed the project overflow's
+  // Delete item, and deletion's only path is drag-to-trash now. Kept in
+  // `SpacePanelProps` (and threaded through by `SpaceScroller` below) since
+  // `SidebarTreeSurface` still supplies it and a future overflow verb may
+  // want the same anchor this component already owns.
 }: SpacePanelProps) {
   const projectId = project.id
   const rows = rowsForProject(projectId)
@@ -221,27 +224,12 @@ function SpacePanel({
           }}
         />
       </div>
-      {menu.isOpen && (
-        <ContextMenu
-          isOpen
-          position={menu.position}
-          onClose={menu.close}
-          items={[
-            {
-              // Spec §9: "every row that owns something carries a trash:
-              // chats, workspaces, folders, repos, AND THE SPACE HEADER FOR
-              // THE PROJECT." That is the only verb §4/§9 name for this
-              // overflow; rename/lock/import are row verbs with a home
-              // already (row-context-menu.tsx), and inventing more here
-              // would be guessing at an action set no spec describes.
-              id: 'delete-project',
-              label: `Delete “${project.name}”`,
-              icon: <Trash />,
-              onClick: () => onTrashProject(projectId),
-            },
-          ]}
-        />
-      )}
+      {/* Addendum §4: "the dropdown never carries a Delete item" — deletion is
+          reachable only through drag-to-trash (addendum §2) now. The project
+          overflow currently has nothing else §4 names for it either
+          (rename/lock/import are row verbs with a home already in
+          row-context-menu.tsx), so there is no menu left to open here yet —
+          `onOverflow`/`menu` stay wired for the next verb this surface gets. */}
       <ScrollArea className="flex-1">
         {/* Padding lives on the scrollable CONTENT, not the ScrollArea root —
             only that extends how far the region actually scrolls, which is

@@ -11,19 +11,44 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
+import { SidebarFooter } from './sidebar-footer'
+import type { Project } from '@/lib/types'
+
+interface SidebarProjectHeaderProps {
+  /** Space marks (spec §4.1). Omitted entirely (no projects, no
+   *  `onAddProject`), the dead middle renders empty — see SidebarFooter. */
+  projects?: Project[]
+  /** Spec §4.1: "the mark and panel are two views of one number" — the SAME
+   *  id the space scroller's own `activeProjectId` tracks. */
+  activeProjectId?: string
+  /** Click-a-mark navigation; mirrors the scroller's own change handler. */
+  onSelectProject?: (id: string) => void
+  /** The trailing `+` "add project" mark (spec §3: no "New Project" row at
+   *  the tree foot). */
+  onAddProject?: () => void
+}
 
 /**
  * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward
- * / settings cluster on the trailing edge. Mirrors when the sidebar sits on
- * the right. Back/forward reuse the editor jump navigation.
+ * / settings cluster on the trailing edge, with the space marks (spec §4.1)
+ * filling the dead middle between them. Mirrors when the sidebar sits on the
+ * right. Back/forward reuse the editor jump navigation.
  *
- * The project-marks cluster that used to fill the dead middle (spec §4.1)
- * moved out (task-10, this recovery batch) — a deliberate placement
- * override, not a revert of the marks themselves. It now renders as
- * `SidebarFooter`, the sidebar's own true last element, below the floating
- * file-explorer card. The middle here is back to a bare spacer.
+ * The marks used to live here, were moved out to a below-the-file-explorer-
+ * card sidebar footer as a deliberate placement override (task-10), and are
+ * reconciled back onto spec by this recovery batch — spec §2 rules the file
+ * explorer card "ALWAYS THE LAST ELEMENT... Nothing goes below it", which
+ * that footer placement violated outright. `SidebarFooter` still renders the
+ * marks (same component, same testids); only its mount point moved back
+ * here, sized down to `icon-xs` and made horizontally scrollable to fit the
+ * real, limited width this row has at the sidebar's minimum size.
  */
-export function SidebarProjectHeader() {
+export function SidebarProjectHeader({
+  projects,
+  activeProjectId,
+  onSelectProject,
+  onAddProject,
+}: SidebarProjectHeaderProps = {}) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -103,7 +128,18 @@ export function SidebarProjectHeader() {
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
       {toggle}
-      <div className="flex-1" />
+      {/* Reserves the dead middle (spec §4.1) whether or not there are marks
+          to fill it — SidebarFooter renders nothing at all when it has
+          neither projects nor an add handler, and without this wrapper that
+          collapse would pull the trailing cluster in against the toggle. */}
+      <div className="min-w-0 flex-1">
+        <SidebarFooter
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelectProject={onSelectProject}
+          onAddProject={onAddProject}
+        />
+      </div>
       {cluster}
     </div>
   )

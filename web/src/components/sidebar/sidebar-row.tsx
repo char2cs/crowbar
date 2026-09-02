@@ -1,4 +1,4 @@
-import { ArrowElbowDownRight, ChatsCircle, Folder, GitBranch, Trash } from '@phosphor-icons/react'
+import { ArrowElbowDownRight, ChatsCircle, Folder, GitBranch, Lock } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import {
@@ -29,6 +29,11 @@ interface SidebarRowProps {
   /** Tree depth for the indent step. 0 for a Recents entry — no indent there (spec §5.1). */
   depth: number
   onOpen: (id: string) => void
+  /** Addendum §1/§4: the row no longer carries a trash button — deleting moved
+   *  to the drag-to-trash gesture on the file explorer card. Kept only in the
+   *  prop type (never read below) because `sidebar-tree.tsx` still threads a
+   *  handler down to every row it renders; dropping the field here would be a
+   *  type error at that call site, which is outside this fix's file list. */
   onTrash?: (id: string) => void
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onToggleFold?: (id: string) => void
@@ -63,9 +68,10 @@ interface SidebarRowProps {
 }
 
 /**
- * The one row every tree and every Recents entry renders through — spec §3.1:
- * `[glyph][label] [trash][+][chevron]`. Replaces the markup that used to be
- * hand-rolled per row-kind across two separate tree implementations.
+ * The one row every tree and every Recents entry renders through — spec §3.1
+ * as revised by the addendum §1: `[glyph][label] [Fork][Thread][chevron]`.
+ * Replaces the markup that used to be hand-rolled per row-kind across two
+ * separate tree implementations.
  *
  * Deliberately dumb: no selected/active state (§3.2 retires the tree's raised
  * ROW_ACTIVE surface — that concept moved to Recents' own "is-active" shell),
@@ -77,7 +83,6 @@ export function SidebarRow({
   row,
   depth,
   onOpen,
-  onTrash,
   onCreate,
   onToggleFold,
   folded,
@@ -92,17 +97,9 @@ export function SidebarRow({
   // the one row spec §9 calls a protected branch: "the repo's own ground …
   // not workspaces you made". It's the only row this shape can occur on
   // (rows-from-repo.ts gives exactly one row a null parentId, the repo's
-  // default worktree), so it never carries a trash even when a caller
-  // supplies onTrash.
+  // default worktree).
   const isProjectHome = row.kind === 'branch' && row.parentId === null
-  // Every row kind carries a trash now — a chat's routes to a direct
-  // `deleteChat` call (space-content-actions.ts's `handleTrash`), not the
-  // removal tray every other kind uses.
-  const deletable = true
   const expanded = !folded
-  // §3.1: "+" makes a workspace on a row that is itself git-capable, a thread
-  // otherwise. `ownsWorktree` is the only fact this row carries that answers it.
-  const createKind: 'workspace' | 'thread' = row.ownsWorktree ? 'workspace' : 'thread'
   // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
   // working can promote itself into one, straight from its own glyph — a
   // bubble's cwd walk always terminates at a real worktree ancestor by
@@ -237,56 +234,58 @@ export function SidebarRow({
           </span>
         )}
 
-        {onTrash && !isProjectHome && deletable && (
+        {/* Addendum §1 (revises spec §3.1): Fork and Thread are two separate,
+            always-rendered buttons now, not one contextual "+" that picked
+            between them off `row.ownsWorktree`. Both are always legal —
+            fork always mints a new workspace whose parent is this row's
+            chat, thread always mints a new chat in this row's own
+            workspace — so neither is gated on the row's own fields except
+            kind: a FOLDER has no owning chat to fork or thread from (it
+            groups workspaces, not chats — rows-from-repo.ts), so it gets
+            neither button. Its own create action is the nested affordance
+            row §3.5 already gives an empty container. The trash button that
+            used to lead this cluster is gone entirely (addendum §1/§2):
+            deleting is now a drag-to-trash gesture onto the file explorer
+            card, built elsewhere. */}
+        {onCreate && row.kind !== 'folder' && (
           <button
             type="button"
-            data-control="trash"
-            data-testid="trash-control"
-            // Leads the trailing cluster and takes the deny tint on hover, the
-            // moment before the click is unambiguous (spec §9).
-            className={cn(ROW_SUB_ACTION_HOVER, 'hover:bg-destructive/10 hover:text-destructive')}
-            aria-label={`Delete ${row.label}`}
+            data-control="fork"
+            className={ROW_SUB_ACTION_HOVER}
+            aria-label={`Fork ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
-              onTrash(row.id)
+              onCreate(row.id, 'workspace')
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <Trash aria-hidden="true" className="size-3" weight="bold" />
+            <svg
+              aria-hidden="true"
+              className="size-3"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <path d={ADD_GLYPH_PATH} />
+            </svg>
           </button>
         )}
 
-        {onCreate && (
+        {onCreate && row.kind !== 'folder' && (
           <button
             type="button"
-            data-control="create"
+            data-control="thread"
             className={ROW_SUB_ACTION_HOVER}
-            aria-label={
-              createKind === 'workspace'
-                ? `New workspace under ${row.label}`
-                : `New thread in ${row.label}`
-            }
+            aria-label={`Thread ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
-              onCreate(row.id, createKind)
+              onCreate(row.id, 'thread')
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {createKind === 'workspace' ? (
-              <svg
-                aria-hidden="true"
-                className="size-3"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d={ADD_GLYPH_PATH} />
-              </svg>
-            ) : (
-              <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
-            )}
+            <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
           </button>
         )}
 
@@ -324,6 +323,17 @@ function RowGlyph({ row, large }: { row: SidebarRowType; large: boolean }) {
   const size = large ? 'size-5' : 'size-4'
   if (row.kind === 'folder') {
     return <Folder aria-hidden="true" className={size} weight="duotone" />
+  }
+  // A locked/protected branch (the repo/project home, or any other locked
+  // branch `rows-from-repo.ts`'s `walk()` mints) is id'd from its OWNING
+  // CHAT rather than from its own workspace — see that file's own doc on
+  // `branchRowIds` and the `rowId` derivation in `walk()`. An ordinary fork
+  // always keeps `id === workspaceId`, so the mismatch is exactly (and only)
+  // the locked case, with no extra field needed to carry it here.
+  // `workspace-branch-icon.tsx`'s own `status === 'locked'` case renders the
+  // same glyph for the same fact.
+  if (row.kind === 'branch' && row.id !== row.workspaceId) {
+    return <Lock aria-hidden="true" className={size} weight="fill" />
   }
   if (row.ownsWorktree) {
     return <GitBranch aria-hidden="true" className={size} weight="fill" />

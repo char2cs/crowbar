@@ -203,6 +203,52 @@ describe('recentsForProject', () => {
     expect(entries.every((e) => e.localId === e.id)).toBe(true)
   })
 
+  it("trims a SET down to this project's own members instead of leaking the whole entry", () => {
+    // A record remembering chats from two different projects at once — built
+    // directly via `groupIntoArrangement` rather than through a real
+    // cross-project drag (the matrix already refuses one); this pins the
+    // READ side regardless of how such a record came to exist.
+    activeIds.current = ['ws-1', 'ws-2']
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
+    storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
+    windowPaneStore.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'a' })],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].chatIds).toEqual(['chat-1'])
+    expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1' })
+  })
+
+  it('resolves each SET member to its OWN workspace, not the first chat\'s', () => {
+    activeIds.current = ['ws-1', 'ws-2']
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
+    storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
+    windowPaneStore.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [
+          makeTestWorkspace({ id: 'ws-1', branch: 'a' }),
+          makeTestWorkspace({ id: 'ws-2', branch: 'b' }),
+        ],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1', 'chat-2': 'ws-2' })
+  })
+
   it('a workspace with no live store contributes nothing, and none is created for it', () => {
     activeIds.current = [] // nothing registered — workspace never opened this session
     vi.mocked(getOrCreateWorkspaceStore).mockClear()

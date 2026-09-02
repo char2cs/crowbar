@@ -44,16 +44,16 @@ describe('SpaceHeader', () => {
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
-  // Task 5 (icon personalization) turned the resting-state mark into a real
-  // click target (EditableProjectIcon), which the OLD hover behaviour here
-  // broke: hovering the row swapped the mark for the chevron before a click
-  // could ever land on it, making the icon reachable in principle but
-  // unclickable in practice — the exact conflict this codebase's own
-  // history (project-home-row.tsx, deleted in the tree retirement, git
-  // history cf422bc5) already hit and fixed by decoupling the fold-chevron
-  // from hover entirely. Hover now only reveals the overflow control; the
-  // mark stays put (and clickable) regardless of hover.
-  it('on hover the overflow button appears; the mark stays, not a chevron', () => {
+  // Spec §4: "On hover — the mark's slot becomes a chevron, and an overflow
+  // (…) appears." Task 5 (icon personalization) turned the resting-state
+  // mark into a real click target (EditableProjectIcon) too, which an
+  // EARLIER attempt at this hover swap broke: hovering the row swapped the
+  // mark for the chevron before a click could ever land on it, making the
+  // icon reachable in principle but unclickable in practice. The fix is not
+  // to drop the swap (that traded a real bug for a spec violation) but to
+  // scope it: hovering the ROW swaps the mark for the chevron, per spec;
+  // hovering the mark's OWN hit-target does not (see the next test).
+  it('on hover (off the glyph) both the chevron and the overflow button appear', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
@@ -63,8 +63,32 @@ describe('SpaceHeader', () => {
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
-    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chevron')).toBeInTheDocument()
     expect(screen.getByTestId('overflow')).toBeInTheDocument()
+  })
+
+  // The narrower half of the fix above: a pointer sitting exactly on the
+  // glyph's own hit-target keeps it as the icon, so Task 5's click-to-edit
+  // affordance (icon-popover.tsx's hover-reveals-pencil) stays reachable
+  // even while the row around it is hovered.
+  it('hovering the glyph itself keeps the icon, not the chevron, even while the row is hovered', () => {
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={vi.fn()}
+        onOverflow={vi.fn()}
+      />,
+    )
+    const row = screen.getByTestId('space-header-row')
+    fireEvent.mouseEnter(row)
+    fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
+    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /edit p1 icon/i })).toBeInTheDocument()
+    // Leaving the glyph for elsewhere on the row (still over the row overall,
+    // per the `relatedTarget`) reverts it to the chevron.
+    fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
+    expect(screen.getByTestId('chevron')).toBeInTheDocument()
   })
 
   it('mouse leave reverts the overflow button away again', () => {
@@ -82,7 +106,10 @@ describe('SpaceHeader', () => {
     expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
   })
 
-  it('the chevron shows only once folded, never merely from hover', () => {
+  // Folded reports a state (spec §4), so it does not depend on hover at
+  // all — the chevron stays whether or not the pointer is over the row,
+  // unlike the unfolded case above, where hover is what puts it there.
+  it('the chevron stays once folded regardless of hover', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}

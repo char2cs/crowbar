@@ -1041,7 +1041,15 @@ export function AgentChatPane({
               // genuinely active: it dispatches its queue, refreshes its catalog
               // and answers the barrier exactly as it does on its own.
               active={presentation === 'chat' || splitting}
-              visible={isVisible}
+              // Unknown chats never resolve, so this doubles as "give up polling a
+              // chat that will 404 forever" — not just tab visibility.
+              visible={isVisible && known}
+              // The daemon has confirmed shownChatId does not exist (a stale
+              // pane from a wiped/reseeded backend, or a chat deleted from
+              // under an open tab). Nothing in this pane can ever resolve, so
+              // close it rather than leave a permanent "Couldn't load" error
+              // with no way back.
+              onChatGone={() => windowPaneStore.getState().paneActions.closePane(paneId)}
               onOpenTerminal={() => {
                 // Unchanged outside split — the chat view's own way through to the
                 // terminal, with no claim on bringing anybody back. In split there

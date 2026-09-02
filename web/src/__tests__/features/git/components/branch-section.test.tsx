@@ -4,8 +4,8 @@ import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
-vi.mock('@/features/git/components/commit-popover', () => ({
-  CommitPopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
+vi.mock('@/features/git/components/commit-box', () => ({
+  CommitBox: () => <div data-testid="commit-box" />,
 }))
 vi.mock('@/features/git/components/merge-popover', () => ({
   MergePopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
@@ -31,11 +31,19 @@ describe('BranchSection', () => {
   // GitPanel, asserted in git-panel.test); BranchSection itself no longer renders
   // the branch name (ca42c0d removed the duplicate row).
 
-  it('uncommitted → Commit changes', () => {
+  it('the commit box is always rendered, uncommitted or not', () => {
     render(
       <BranchSection {...base} files={[{ path: 'a.ts', status: 'modified', staged: false }]} />,
     )
-    expect(screen.getByRole('button', { name: 'Commit changes' })).toBeDefined()
+    expect(screen.getByTestId('commit-box')).toBeDefined()
+  })
+
+  it('uncommitted → no secondary action row (the commit box is the action)', () => {
+    render(
+      <BranchSection {...base} files={[{ path: 'a.ts', status: 'modified', staged: false }]} />,
+    )
+    expect(screen.queryByRole('button', { name: /Merge into develop/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Rebase onto develop/ })).toBeNull()
   })
 
   it('clean + mergeable → Merge into parent', () => {
@@ -43,11 +51,11 @@ describe('BranchSection', () => {
     expect(screen.getByRole('button', { name: /Merge into develop/ })).toBeDefined()
   })
 
-  it('clean + protected → a disabled "protected — open a PR" button', () => {
+  it('clean + protected → status line says so, and no dedicated secondary button (the commit box carries Pull request)', () => {
     render(<BranchSection {...base} canMergeLocally={false} />)
-    const btn = screen.getByRole('button', { name: /protected/i })
-    expect(btn).toBeDefined()
-    expect(btn).toBeDisabled()
+    expect(screen.getByText(/develop is protected/i)).toBeDefined()
+    expect(screen.queryByRole('button', { name: /protected/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Merge into develop/ })).toBeNull()
   })
 
   it('conflicts with parent (pr-conflicts) → active "Rebase onto parent" + explain message', () => {

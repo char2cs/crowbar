@@ -112,16 +112,15 @@ describe('SpaceScroller', () => {
     expect(onChange).toHaveBeenCalled()
   })
 
-  it("threads onOpen/onTrash/onCreate through to each panel's SidebarTree, not stubbed no-ops", () => {
+  // Addendum §1/§2: the row no longer carries a trash button at all (deleting
+  // moved to drag-to-trash, built elsewhere), so `onTrash` — still threaded
+  // through for type-compat with `SidebarTree`'s prop, see `sidebar-row.tsx`'s
+  // own doc on it — has no control left to prove it reaches. Fork and Thread
+  // are the two controls that took its place; both assert here.
+  it("threads onOpen/onCreate through to each panel's SidebarTree, not stubbed no-ops", () => {
     const onOpen = vi.fn()
-    const onTrash = vi.fn()
     const onCreate = vi.fn()
     const projects = [makeProject('p1')]
-    // A BRANCH row, because this case needs all three controls on screen at
-    // once and a chat row deliberately carries no trash (nothing in the app
-    // deletes a chat yet — see `sidebar-row.tsx`). `ownsWorktree` stays false
-    // so the create control is still the thread variant this asserts on; what
-    // is under test is the prop threading, not the row's own semantics.
     const row = makeRow('row-1', 'Fix the thing', { kind: 'branch', parentId: 'parent-1' })
     render(
       <SpaceScroller
@@ -131,7 +130,7 @@ describe('SpaceScroller', () => {
         rowsForProject={() => [row]}
         recentsForProject={noRecents}
         onOpen={onOpen}
-        onTrash={onTrash}
+        onTrash={vi.fn()}
         onCreate={onCreate}
         onFocusRecent={vi.fn()}
         onCloseRecent={vi.fn()}
@@ -147,10 +146,10 @@ describe('SpaceScroller', () => {
     fireEvent.click(screen.getByText('Fix the thing'))
     expect(onOpen).toHaveBeenCalledWith('row-1')
 
-    fireEvent.click(screen.getByRole('button', { name: `Delete ${row.label}` }))
-    expect(onTrash).toHaveBeenCalledWith('row-1')
+    fireEvent.click(screen.getByRole('button', { name: `Fork ${row.label}` }))
+    expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
 
-    fireEvent.click(screen.getByRole('button', { name: `New thread in ${row.label}` }))
+    fireEvent.click(screen.getByRole('button', { name: `Thread ${row.label}` }))
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
   })
 
@@ -343,9 +342,11 @@ describe('SpaceScroller', () => {
       expect(screen.getAllByTestId('space-header-row')[1]).toHaveAttribute('aria-expanded', 'true')
     })
 
-    // Spec §9: "every row that owns something carries a trash ... and the
-    // space header for the project."
-    it('the overflow offers the project trash, and it names the project', () => {
+    // Addendum §4: "the dropdown never carries a Delete item" -- deletion's
+    // only path is drag-to-trash now (addendum §2), superseding spec §9's
+    // "every row that owns something carries a trash" for the project
+    // header the same way it superseded it for a row's own trash button.
+    it('the overflow opens with no Delete item -- deletion has no click-to-delete path any more', () => {
       const onTrashProject = vi.fn()
       renderScroller({ onTrashProject })
       const header = screen.getAllByTestId('space-header-row')[0]
@@ -353,10 +354,10 @@ describe('SpaceScroller', () => {
       fireEvent.mouseEnter(header) // the overflow only exists while active
       fireEvent.click(screen.getByTestId('overflow'))
 
-      fireEvent.click(screen.getByText('Delete \u201Cp1\u201D'))
-      expect(onTrashProject).toHaveBeenCalledWith('p1')
-      // The overflow click must not also fold the space (SpaceHeader stops
-      // propagation; this pins that the mount relies on it).
+      expect(screen.queryByText('Delete \u201Cp1\u201D')).not.toBeInTheDocument()
+      expect(onTrashProject).not.toHaveBeenCalled()
+      // The overflow click must not fold the space either way (SpaceHeader
+      // stops propagation; this pins that the mount relies on it).
       expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'true')
     })
   })

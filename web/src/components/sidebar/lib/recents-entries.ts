@@ -21,11 +21,20 @@ function resolveState(
  * dormant). Order is the user's: an entry's slot comes from where it was
  * FIRST seen (led by `dormantArrangements`, the persisted order), and it
  * keeps that slot as it changes kind — recomputing `state` never moves it.
+ *
+ * `order` is spec §8.1's real, dragged order (`pane-slice.ts`'s
+ * `recentsOrder`, written only by `reorderRecentsEntry`) — applied as a
+ * final re-sort over whatever the population rules above produced: an id
+ * named in `order` sorts by its position there; an id that has never been
+ * dragged keeps its natural (append) position, after every ordered id. A
+ * plain `Array.prototype.sort` is stable (guaranteed since ES2019), so the
+ * unordered ids' own relative order survives untouched.
  */
 export function deriveRecentsEntries(
   panes: PaneGroup[],
   working: Record<string, boolean>,
   dormantArrangements: RecentsEntry[],
+  order: readonly string[] = [],
 ): RecentsEntry[] {
   const liveChatIds = new Set<string>()
   for (const pane of panes) {
@@ -62,5 +71,15 @@ export function deriveRecentsEntries(
     entries.push({ id: chatId, chatIds: [chatId], state: 'working' })
   }
 
+  if (order.length === 0) return entries
+  const rank = new Map(order.map((id, i) => [id, i]))
   return entries
+    .map((entry, i) => ({ entry, i, rank: rank.get(entry.id) }))
+    .sort((a, b) => {
+      if (a.rank !== undefined && b.rank !== undefined) return a.rank - b.rank
+      if (a.rank !== undefined) return -1
+      if (b.rank !== undefined) return 1
+      return a.i - b.i // both unordered: keep natural (append) order
+    })
+    .map(({ entry }) => entry)
 }

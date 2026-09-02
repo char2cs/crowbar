@@ -29,28 +29,36 @@ interface SpaceHeaderProps {
  *
  * Hover is tracked in state, not CSS `group-hover`, because the overflow
  * button below is a CONTENT swap (nothing renders at rest), not just a
- * visibility toggle. The leading mark's own swap (icon -> chevron) no longer
- * rides this same hover state — see `showChevron`'s own doc.
+ * visibility toggle. The leading mark's own swap (icon -> chevron) rides a
+ * SECOND, narrower hover state — see `showChevron`'s own doc for why.
  */
 export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
+  // Whether the pointer is directly over the glyph's OWN hit-target (the
+  // size-5 box below), not the row generally — see `showChevron`.
+  const [glyphHovered, setGlyphHovered] = useState(false)
   // Folded reports a state rather than offering one (spec §4): the chevron
   // stays even once the pointer, or focus, has moved on.
   //
-  // Unlike an EARLIER version of this row (and its ancestor,
+  // Spec §4: "On hover — the mark's slot becomes a chevron, and an overflow
+  // (…) appears." An EARLIER version of this row (and its ancestor,
   // project-home-row.tsx, deleted in the tree retirement — git history
-  // cf422bc5), the chevron does NOT also swap in on mere hover any more. That
-  // row's own doc explains why it was removed there: "the leading slot was
-  // itself the collapse button, swapping Library⇄chevron on hover... [which]
-  // made the sidebar's most-repeated control mean two different things one
-  // row apart." Task 5 (icon personalization) reintroduces the SAME
-  // conflict one layer down: hovering the row set `active` before a click
-  // could ever land, so the icon this glyph now doubles as (EditableProjectIcon)
-  // was swapped out from under the pointer before a real user could reach
-  // it — clickable in principle, unclickable in practice. Gating the swap on
-  // `folded` alone (state, not hover) is what that old fix already proved
-  // out; `active` still gates the overflow button below, unchanged.
-  const showChevron = folded
+  // cf422bc5) hit exactly this and reverted it: gating the swap on `active`
+  // (row-wide hover) meant Task 5's click-to-edit icon (EditableProjectIcon)
+  // was swapped out from under the pointer before a click could ever land on
+  // it — clickable in principle, unclickable in practice. A prior pass
+  // "fixed" that by gating the swap on `folded` alone, which resolved the
+  // click-target conflict but dropped the spec's hover behaviour entirely.
+  //
+  // The actual conflict is narrower than either fix treated it: it is only
+  // the GLYPH's own hit-target that must stay the icon (so its own
+  // `group-hover/entity-icon` pencil affordance — icon-popover.tsx — stays
+  // reachable). Everywhere else on the row, hover can safely become a
+  // chevron, since a click there already just folds. `glyphHovered` carves
+  // that one hit-target out of `active`: the row-wide hover swap now applies
+  // spec's full behaviour, while a pointer sitting exactly on the mark keeps
+  // it as the icon it also is.
+  const showChevron = folded || (active && !glyphHovered)
   // Double-click-to-rename the project itself — restored from the deleted
   // tree's project-home-row.tsx, which called the same `renameProject` API
   // through `startRenaming`/`isRenaming` state it owned locally, exactly like
@@ -90,7 +98,12 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
         }
       }}
     >
-      <span className={cn(ROW_GLYPH_BOX, 'size-5')}>
+      <span
+        data-testid="space-glyph"
+        className={cn(ROW_GLYPH_BOX, 'size-5')}
+        onMouseEnter={() => setGlyphHovered(true)}
+        onMouseLeave={() => setGlyphHovered(false)}
+      >
         {showChevron ? (
           // rotate-180, not SidebarRow's rotate-90+DISCLOSURE_GLYPH_PATH: that
           // chevron toggles between two states of a row's OWN children;

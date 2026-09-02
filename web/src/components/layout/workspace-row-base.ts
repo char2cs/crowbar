@@ -1,6 +1,12 @@
+// spec §4.1: switching spaces is a `wheel` gesture and dragging a row onto a
+// pane is a `pointer` drag, so a row may not disable either scroll axis —
+// `touch-action: none` would starve the space-switch wheel gesture the rail
+// now scrolls both ways for. Explicit `pan-x pan-y` rather than the `auto`
+// default so the row states its own contract instead of inheriting whatever
+// the browser assumes.
 export const ROW_BASE =
   'flex cursor-pointer select-none items-center gap-1.5 rounded-lg border ' +
-  'h-9 px-1.5 mx-1.5 my-0.5 text-[13px] font-medium outline-none ' +
+  'h-9 px-1.5 mx-1.5 my-0.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
   'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
 
 // Shared selected/idle row variants so every sidebar row (workspaces, the repo

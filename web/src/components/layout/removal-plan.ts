@@ -2,11 +2,13 @@ import { buildSidebarTree, indexSidebarTree } from './workspace-tree-utils'
 import {
   getPostDeleteNavigationTarget,
   EMPTY_FOLDERS,
+  type Chat,
   type Folder,
   type Repo,
 } from '@/lib/store/sidebar'
 import type { RemovalDraft } from '@/lib/store/sidebar-removal'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 /** The little a removal needs to know about a project: which one, and its label. */
 export interface ProjectRow {
@@ -14,8 +16,10 @@ export interface ProjectRow {
   name: string
 }
 
-/** The four movable classes. They do not mix. */
-export type DropKind = 'workspace' | 'folder' | 'repo' | 'project'
+/** The five movable classes. They do not mix. `chat` is additive (addendum
+ *  §2) — the original four `workspace | folder | repo | project` are
+ *  unchanged. */
+export type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
 
 /**
  * A row as a removal/drag subject — which class of thing it is, which one it
@@ -85,6 +89,29 @@ export function planRemoval(
   return drafts
 }
 
+/** Every chat hanging off `id`, transitively — the same subtree a
+ *  `parentId` walk of the sidebar's own lightweight `Chat[]` already
+ *  resolves for other purposes (`chat-rows.ts`'s tree), inlined here rather
+ *  than imported since this only ever needs ids, not a rendered tree. */
+function chatDescendantsOf(chats: readonly Chat[], id: string): string[] {
+  const childrenOf = new Map<string, string[]>()
+  for (const c of chats) {
+    if (!c.parentId) continue
+    const siblings = childrenOf.get(c.parentId)
+    if (siblings) siblings.push(c.id)
+    else childrenOf.set(c.parentId, [c.id])
+  }
+  const out: string[] = []
+  const walk = (parentId: string) => {
+    for (const childId of childrenOf.get(parentId) ?? []) {
+      out.push(childId)
+      walk(childId)
+    }
+  }
+  walk(id)
+  return out
+}
+
 function draftFor(
   subject: DragSubject,
   repos: readonly Repo[],
@@ -133,6 +160,34 @@ function draftFor(
 
   const repo = repos.find((r) => r.id === subject.repoId)
   if (!repo?.projectId) return null
+
+  if (subject.kind === 'chat') {
+    // NOT a branch row (`resolveChatRow`'s own rule — such a row is a
+    // WORKSPACE, addressed by `workspaceIdOfBranchRow` elsewhere, and has no
+    // business reaching this branch at all).
+    const chat = repo.chats?.find((c) => c.id === subject.id && c.type !== 'branch')
+    if (!chat) return null
+    // The DELETE route is repo-scoped (`deleteChat`'s own contract) — any
+    // workspace of this repo resolves the URL, same as
+    // `row-actions.ts`'s `scopedWorkspaceIdOf`.
+    const wsId = repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
+    if (!wsId) return null
+    const descendants = chatDescendantsOf(repo.chats ?? [], chat.id)
+    return {
+      kind: 'chat',
+      id: chat.id,
+      label: chat.title || UNTITLED_CHAT_LABEL,
+      projectId: repo.projectId,
+      repoId: repo.id,
+      wsId,
+      providerIcon: '',
+      // Reparenting and deleting both take the whole subtree (spec §8.3) —
+      // every thread hanging off this chat goes with it.
+      hiddenIds: [chat.id, ...descendants],
+      extra: descendants.length,
+      fallbackWsId: null,
+    }
+  }
 
   if (subject.kind === 'folder') {
     const folder = (repo.folders ?? EMPTY_FOLDERS).find((f) => f.id === subject.id)
@@ -201,13 +256,26 @@ export function applyPendingRemovals(
     const folders = repo.folders ?? EMPTY_FOLDERS
     const heldFolders = folders.filter((f) => hiddenIds.has(f.id))
     const workspaces = repo.workspaces.filter((w) => !hiddenIds.has(w.id))
-    if (heldFolders.length === 0 && workspaces.length === repo.workspaces.length) {
+    // A held CHAT (addendum §2's drag-to-trash) is never re-homed the way a
+    // held folder's children are — its own descendants are already part of
+    // this same hold (`chatDescendantsOf`, removal-plan.ts's `draftFor`), so
+    // there is never a survivor left under it to reparent. A plain filter is
+    // the whole story. `repo.chats` is optional (older frames simply omit
+    // it), so an untouched repo with none stays `undefined`, not `[]`.
+    const chats = repo.chats?.some((c) => hiddenIds.has(c.id))
+      ? repo.chats.filter((c) => !hiddenIds.has(c.id))
+      : repo.chats
+    if (
+      heldFolders.length === 0 &&
+      workspaces.length === repo.workspaces.length &&
+      chats === repo.chats
+    ) {
       out.push(repo)
       continue
     }
 
     if (heldFolders.length === 0) {
-      out.push({ ...repo, workspaces })
+      out.push({ ...repo, workspaces, chats })
       continue
     }
 
@@ -242,6 +310,7 @@ export function applyPendingRemovals(
         w.folderId && rehomed.has(w.folderId) ? { ...w, folderId: rehomed.get(w.folderId) } : w,
       ),
       folders: survivors,
+      chats,
     })
   }
 

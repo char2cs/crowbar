@@ -24,6 +24,25 @@ function branchRowIds(chats: readonly Chat[]): Map<string, string> {
 }
 
 /**
+ * Whether `branch` is still the server-generated placeholder a spontaneous
+ * worktree create mints when the caller supplies no name of its own
+ * (`hierarchy.branch_name.go`'s `provisionalBranchName`: `"chat-" + the first
+ * 8 hex chars of a fresh UUID`), collision-checked against real refs on the
+ * backend so this exact shape never collides with a name a person typed.
+ *
+ * There is no separate wire flag for "not yet renamed" (spec §3.4's branch
+ * half settles only "when the task is achieved and the agent renames it," in
+ * git, and a rename is indistinguishable from any other branch PATCH once it
+ * lands) — this pattern IS the signal, and it self-clears the moment a real
+ * name replaces it.
+ */
+const GENERATED_BRANCH_NAME = /^chat-[0-9a-f]{8}$/
+
+function isProvisionalBranchName(branch: string | undefined): boolean {
+  return branch !== undefined && GENERATED_BRANCH_NAME.test(branch)
+}
+
+/**
  * Adapts today's Repo/Workspace/Folder/Chat shapes (`lib/store/sidebar.ts`)
  * into the flat `SidebarRow[]` `SidebarTree` renders — the bridge named in
  * Task 4. Deleted in Task 15 once rows arrive pre-shaped over the wire.
@@ -84,6 +103,14 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
       parentId: null,
       order: repo.order ?? 0,
       label: repo.name,
+      // spec §3.4: the branch half of a workspace's provisional naming, not
+      // just the chat-title half chat rows already carry below. The home
+      // row's own LABEL is the repo's display name rather than its branch
+      // (see `branchName` on the line below), so this only actually
+      // italicizes anything for a freshly-seeded repo whose default branch
+      // is still the server's generated placeholder — an imported repo's
+      // real default branch never matches the pattern.
+      labelProvisional: isProvisionalBranchName(repo.defaultBranch),
       ownsWorktree: true,
       workspaceId: homeId,
       working: repo.defaultWorking ?? false,
@@ -192,6 +219,11 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
           parentId,
           order,
           label: node.workspace.branch,
+          // spec §3.4: here the row's LABEL *is* the branch name, so a
+          // still-generated one renders italic directly — settles the
+          // instant a real rename replaces it, same as the chat-title half
+          // below.
+          labelProvisional: isProvisionalBranchName(node.workspace.branch),
           ownsWorktree: true,
           workspaceId: node.id,
           working: node.workspace.working ?? false,

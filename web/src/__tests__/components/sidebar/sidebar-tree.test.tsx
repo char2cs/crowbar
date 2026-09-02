@@ -122,7 +122,15 @@ describe('SidebarTree', () => {
     expect(onCreate).toHaveBeenCalledWith('folder-1', 'thread')
   })
 
-  it('an empty container that owns a worktree offers the split affordance', () => {
+  // Addendum §5: revises the old expectation above (a nested split-control
+  // affordance row) now that every branch/chat row carries its own,
+  // always-present Fork+Thread buttons directly (sidebar-row.tsx). Rendering
+  // the nested AffordanceRow underneath an empty branch row too was pure
+  // duplication — a second, unlabeled icon-only row that read as broken —
+  // which is the exact "mystery blank row under every workspace" bug
+  // reported live. A childless branch row now renders nothing beneath it;
+  // its own Fork/Thread buttons are the only way in.
+  it('an empty branch row does not render a nested affordance row — its own Fork/Thread buttons are the only affordance', () => {
     const branch: SidebarRow = {
       id: 'branch-1',
       kind: 'branch',
@@ -130,7 +138,7 @@ describe('SidebarTree', () => {
       order: 0,
       label: 'main',
       ownsWorktree: true,
-      workspaceId: 'ws-1',
+      workspaceId: 'branch-1',
       working: false,
       hasView: false,
     }
@@ -143,7 +151,44 @@ describe('SidebarTree', () => {
         {...DRAG_PROPS}
       />,
     )
-    expect(screen.getByTestId('affordance-dropdown')).toBeInTheDocument()
+    expect(screen.queryByTestId('affordance-thread')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('affordance-workspace')).not.toBeInTheDocument()
+    // Its own row buttons stand in for it instead.
+    expect(screen.getByRole('button', { name: /^fork main$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^thread main$/i })).toBeInTheDocument()
+  })
+
+  // The literal user-visible bug: a real chat row with no thread yet used to
+  // grow a second, bare, unlabeled row underneath it — indistinguishable at a
+  // glance from a corrupt/empty entity. A chat row's own Thread button
+  // (sidebar-row.tsx) is already the way to add one.
+  it('an empty chat row does not render a nested affordance row either', () => {
+    const chat: SidebarRow = {
+      id: 'chat-only',
+      kind: 'chat',
+      parentId: null,
+      order: 0,
+      label: 'Fix the thing',
+      ownsWorktree: false,
+      workspaceId: null,
+      working: false,
+      hasView: false,
+    }
+    render(
+      <SidebarTree
+        rows={[chat]}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
+    expect(screen.queryByTestId('affordance-thread')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('affordance-workspace')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /create new thread/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^thread fix the thing$/i })).toBeInTheDocument()
   })
 
   it('renders siblings with no rule between them', () => {

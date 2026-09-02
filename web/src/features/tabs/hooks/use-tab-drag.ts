@@ -1,7 +1,6 @@
 import { type DragEndEvent, type DragMoveEvent, type DragStartEvent } from '@dnd-kit/core'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import {
@@ -47,7 +46,11 @@ export function useTabDrag({
   onReorderBuffers,
   onMoveBufferToPane,
   onActivatePaneBuffer,
-  onSplitPane,
+  // onSplitPane is still accepted (tab-bar.tsx keeps wiring it from
+  // paneActions.splitPane) but deliberately unused: spec §7.3 — "a pane
+  // group is a group of chats, never of tabs" (Law 3) — dropping a dragged
+  // tab must never create a new pane/split any more, so handleDragEnd below
+  // no longer calls it.
 }: UseTabDragOptions) {
   const [draggedBufferId, setDraggedBufferId] = useState<string | null>(null)
   const dragPointRef = useRef<{ x: number; y: number } | null>(null)
@@ -114,26 +117,17 @@ export function useTabDrag({
       const point = getDragPoint(event)
       const target = point ? resolveDropTarget(point) : { paneId: null, zone: null }
 
-      if (
-        dragged &&
-        paneId &&
-        target.paneId &&
-        (target.paneId !== paneId || (target.zone && target.zone !== 'center'))
-      ) {
-        const splitOptions = target.zone ? getPaneSplitDropOptions(target.zone) : null
-        let destinationPaneId: string | null
-        if (splitOptions && target.paneId) {
-          destinationPaneId =
-            onSplitPane(target.paneId, splitOptions.direction, undefined, splitOptions.placement) ??
-            null
-        } else {
-          destinationPaneId = target.paneId ?? null
-        }
-        if (!destinationPaneId) {
-          resetDrag()
-          return
-        }
-        if (paneId) onMoveBufferToPane(dragged.id, paneId, destinationPaneId)
+      // Spec §7.3: "a pane group is a group of chats, never of tabs" (Law 3)
+      // — dropping a dragged tab must never create a new pane/split, so an
+      // edge zone no longer routes through onSplitPane. A drop on a
+      // DIFFERENT pane — center or edge alike — just moves the tab into
+      // that pane's existing tab group. A drop back on this tab's own pane
+      // (its edge, with nothing to reorder against) falls through to the
+      // reorder branch below, which no-ops when there is nothing under the
+      // pointer to reorder onto.
+      if (dragged && paneId && target.paneId && target.paneId !== paneId) {
+        const destinationPaneId = target.paneId
+        onMoveBufferToPane(dragged.id, paneId, destinationPaneId)
         onActivatePaneBuffer(destinationPaneId, dragged.id)
         if (destinationPaneId === BOTTOM_PANE_ID) {
           useUIState.getState().setBottomPaneActiveTab('buffers')
@@ -152,16 +146,7 @@ export function useTabDrag({
 
       resetDrag()
     },
-    [
-      onActivatePaneBuffer,
-      onTabClick,
-      onMoveBufferToPane,
-      paneId,
-      onReorderBuffers,
-      resetDrag,
-      sortedBuffers,
-      onSplitPane,
-    ],
+    [onActivatePaneBuffer, onTabClick, onMoveBufferToPane, paneId, onReorderBuffers, resetDrag, sortedBuffers],
   )
 
   // Track pointer position during drag for accurate drop-target resolution

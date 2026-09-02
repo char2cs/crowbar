@@ -10,6 +10,19 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => chordMap.current,
 }))
 
+// openTerminal/openFile run through the REAL ensurePaneChatThenOpen
+// (pane-command-actions.ts is not mocked in this file), which mints a chat via
+// createChat when the target pane doesn't have one yet — same first-enabled-
+// provider/createChat sequence as use-pane-keyboard.test.ts's agent.newChat
+// chord test. `vi.hoisted` because the mock factory below reads `createChat`
+// eagerly.
+const { createChat, toastSpawnFailure } = vi.hoisted(() => ({
+  createChat: vi.fn(),
+  toastSpawnFailure: vi.fn(),
+}))
+vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
+vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
+
 vi.mock('@tanstack/react-router', () => ({
   useRouterState: () => '/ide/p1/r1/ws-1',
 }))
@@ -113,6 +126,14 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
 // mocks point at the SAME store.
 vi.mock('@/features/panes/stores/window-pane-store', () => ({
   windowPaneStore: fakeStore,
+}))
+
+// ensurePaneChatThenOpen (pane-command-actions.ts, run for real above) resolves
+// its workspace store via the registry rather than the workspace-context hook —
+// point it at the same fakeStore/fakeState so the minted chat's provider lookup
+// and setActiveAgentChatId land on the state these tests already observe.
+vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+  getOrCreateWorkspaceStore: () => fakeStore,
 }))
 
 const { setActiveTab, repos } = vi.hoisted(() => ({
@@ -416,9 +437,17 @@ describe('NewTabView', () => {
   // ── I7: actions must target the PANE THE SURFACE IS DRAWN IN, not
   // whatever pane happens to be active ─────────────────────────────────
   describe('pane targeting (I7)', () => {
-    it("New Terminal activates this surface's pane before opening content", () => {
+    it("New Terminal activates this surface's pane before opening content", async () => {
+      // This pane has no chat yet, so ensurePaneChatThenOpen mints one first
+      // (Law 3) before opening the terminal — same first-enabled-provider/
+      // createChat sequence as agent.newChat's own test.
+      createChat.mockResolvedValue('chat-1')
       render(<NewTabView paneId={BOTTOM_PANE_ID} />)
       fireEvent.click(screen.getByRole('button', { name: /new terminal/i }))
+
+      await createChat.mock.results[0]?.value
+      await Promise.resolve()
+
       expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
       // Task 26: openContent's buffer spec also carries `workspaceId` now —
       // objectContaining, not an exact match, mirroring the New File case below.
@@ -431,9 +460,14 @@ describe('NewTabView', () => {
       expect(activateOrder).toBeLessThan(openOrder)
     })
 
-    it("New File activates this surface's pane before opening content", () => {
+    it("New File activates this surface's pane before opening content", async () => {
+      createChat.mockResolvedValue('chat-1')
       render(<NewTabView paneId={BOTTOM_PANE_ID} />)
       fireEvent.click(screen.getByRole('button', { name: /new file/i }))
+
+      await createChat.mock.results[0]?.value
+      await Promise.resolve()
+
       expect(setActivePane).toHaveBeenCalledWith(BOTTOM_PANE_ID)
       expect(openContent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'editor', isVirtual: true }),

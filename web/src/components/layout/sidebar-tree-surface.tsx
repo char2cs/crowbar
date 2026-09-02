@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
@@ -6,13 +6,9 @@ import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
-import { DeleteConfirmDialog } from '@/components/sidebar/delete-confirm-dialog'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
-  resolveRow,
-  resolveChatRow,
   handleOpen as openSidebarRow,
-  handleTrash as trashSidebarRow,
   handleTrashProject as trashProject,
   handleCreate as createSidebarRow,
 } from './space-content-actions'
@@ -108,22 +104,6 @@ export function SidebarTreeSurface({
   // listener here catches a right-click in ANY project's rows.
   const treeRef = useRef<HTMLDivElement>(null)
 
-  // A trash click no longer deletes directly (Task 8/22's `handleTrash`
-  // still does the real work, now only from this dialog's onConfirm): spec
-  // §9 requires an idle delete to confirm and a working one to refuse
-  // outright, so the click just names the pending row and
-  // `DeleteConfirmDialog` decides which of those it gets.
-  const [deletingRowId, setDeletingRowId] = useState<string | null>(null)
-  const deletingRow = allRows.find((r) => r.id === deletingRowId) ?? null
-  // `resolveRow` cannot see a chat (`resolveChatRow`'s own doc: "callers must
-  // consult THIS FIRST" — same order `handleOpen` above already uses), so a
-  // chat's delete-preview would otherwise get no `projectId` and degrade to
-  // the fallback copy instead of the real file/chat counts.
-  const deletingRepo =
-    deletingRowId == null
-      ? undefined
-      : (resolveChatRow(repos, deletingRowId)?.repo ?? resolveRow(repos, deletingRowId)?.repo)
-
   return (
     <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
@@ -134,7 +114,14 @@ export function SidebarTreeSurface({
           rowsForProject={rowsForProjectFn}
           recentsForProject={recentsForProjectFn}
           onOpen={openRow}
-          onTrash={setDeletingRowId}
+          // Addendum §1/§2: the row no longer carries a trash button, so
+          // nothing here ever names a row to delete — deleting moves to a
+          // drag-to-trash gesture built elsewhere, on top of the same
+          // removal-tray machinery `DeleteConfirmDialog` used to front for a
+          // row click. `onTrash` stays a no-op rather than an optional prop
+          // because `SpaceScroller`'s own type still requires it, and that
+          // file is outside this fix's scope.
+          onTrash={() => {}}
           onCreate={createSidebarRow}
           onFocusRecent={focusRecentEntry}
           onCloseRecent={closeRecent}
@@ -144,30 +131,6 @@ export function SidebarTreeSurface({
         />
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
-      <DeleteConfirmDialog
-        open={deletingRow != null}
-        label={deletingRow?.label ?? ''}
-        working={deletingRow?.working ?? false}
-        projectId={deletingRepo?.projectId}
-        repoId={deletingRepo?.id ?? ''}
-        chatId={deletingRowId ?? ''}
-        onOpenChange={(open) => {
-          if (!open) setDeletingRowId(null)
-        }}
-        onConfirm={() => {
-          if (!deletingRowId) return
-          // A locked (non-home) workspace's own trash button still shows —
-          // Task 25 review round 1's Important finding — so a confirm can
-          // walk the user through a real preview and then find zero drafts
-          // to hold (`handleTrash`'s own doc comment). That can no longer be
-          // silent now that the click already implied a real delete was
-          // about to happen.
-          const held = trashSidebarRow(deletingRowId)
-          if (!held) {
-            toast.error(`Can't delete ${deletingRow?.label ?? 'this row'} — it may be locked`)
-          }
-        }}
-      />
     </div>
   )
 }

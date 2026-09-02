@@ -762,6 +762,47 @@ describe('pane-slice — forgetChat (spec §9)', () => {
     expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
     expect(store.getState().dormantArrangements).toBe(before)
   })
+
+  it('an emptied last pane falls back to the first chat still standing (spec §9)', () => {
+    const store = makeStoreWithWorking({})
+    // chat-2 already has its own remembered (dormant) slot — a chat that
+    // survives this deletion, "still standing".
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: ROOT_PANE_ID, chatIds: ['chat-2'], state: 'dormant' },
+    ])
+    // chat-1 is the only LIVE view, in the window's sole pane.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    // The last pane does not go blank — it picks up the first chat still
+    // standing instead of the empty stage.
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-2')
+  })
+
+  it('does not reach for a fallback when another pane still holds something', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.setPaneChat(BOTTOM_PANE_ID, 'chat-2', 'runner-2')
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    // Ordinary close-to-empty-stage — chat-2's own pane means this was not
+    // "the last pane".
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBeNull()
+    expect(store.getState().panes[BOTTOM_PANE_ID].chatId).toBe('chat-2')
+  })
+
+  it('leaves the last pane empty when nothing else is remembered either', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    store.getState().paneActions.forgetChat('chat-1')
+
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBeNull()
+  })
 })
 
 // Task 22: spec §8.2's merge/survivor bookkeeping — "merging opens... you get
@@ -1084,23 +1125,117 @@ describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () 
   })
 })
 
-describe('pane-slice — closePane defers to an existing arrangement instead of duplicating', () => {
-  it('does not push a second, single-chat record for a chat already remembered by a merged set', () => {
+describe('pane-slice — closePane splits the closing chat out of any SET it belongs to', () => {
+  it("strips the closed chat from the set, leaving the survivor at the SET's own slot, and gives the closed chat its own fresh dormant record", () => {
     const store = makeStoreWithWorking({})
     // Mirrors `performSidebarPaneDrop`'s own merge order — `setPaneChat`
     // FIRST (chat-1 enters ROOT fresh, nothing to strip yet), THEN
     // `groupIntoArrangement` (now that it is actually resident there).
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
     store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const setId = store.getState().dormantArrangements[0].id
+
+    // Closing chat-1's pane through the tab bar / pane-close keybinding —
+    // never Recents' own × control, which closes every member's pane at
+    // once — must not leave chat-1 riding along inside the set forever
+    // (the bug this pins: `resolveState` reads an entry live off ANY
+    // member still showing, so a stale chat-1 would draw as "live" long
+    // after its own pane was gone).
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    const entries = store.getState().dormantArrangements
+    expect(entries).toHaveLength(2)
+    // The survivor keeps the SET's own slot (spec §5.6), even reduced to
+    // one member.
+    const survivor = entries.find((e) => e.id === setId)
+    expect(survivor?.chatIds).toEqual(['chat-2'])
+    // The closed chat gets its OWN fresh record — remembered so the close
+    // stays undoable (spec §5.5), no longer riding chat-2's.
+    const closed = entries.find((e) => e.id !== setId)
+    expect(closed?.chatIds).toEqual(['chat-1'])
+    expect(closed?.state).toBe('dormant')
+  })
+
+  it('does not remember the split-out chat if the daemon is still working it', () => {
+    const store = makeStoreWithWorking({ 'chat-1': true })
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    const setId = store.getState().dormantArrangements[0].id
 
     store.getState().paneActions.closePane(ROOT_PANE_ID)
 
-    // Still exactly the one entry — closing chat-1's pane did not mint a
-    // duplicate {id: ROOT_PANE_ID, chatIds: ['chat-1']} alongside it.
+    // Still split out of the set (its pane view genuinely ended)...
+    const entries = store.getState().dormantArrangements
+    expect(entries).toHaveLength(1)
+    expect(entries[0].id).toBe(setId)
+    expect(entries[0].chatIds).toEqual(['chat-2'])
+    // ...but no dormant record for chat-1 itself: it comes back as a
+    // working row off `agentChats.working` alone (spec §5.5).
+  })
+
+  it('does not push a second, single-chat record for a chat that already has its own dormant slot', () => {
+    const store = makeStoreWithWorking({})
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.closePane(ROOT_PANE_ID) // chat-1 gets its own dormant slot
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null) // reopened, same slot
     expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-1',
-      'chat-2',
-    ])
+
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    expect(store.getState().dormantArrangements[0].chatIds).toEqual(['chat-1'])
+  })
+})
+
+// Spec §8.1: "above / below a Recents entry → it moves to that slot" — the
+// persisted order `drop-actions.ts`'s `reorderRecentsEntry` writes into and
+// `recents-entries.ts`'s `deriveRecentsEntries` sorts by.
+describe('pane-slice — reorderRecentsEntry (spec §8.1)', () => {
+  it('seeds the ledger from the given natural order, then moves the source before the target', () => {
+    const store = makeStore()
+
+    store.getState().paneActions.reorderRecentsEntry('c', 'a', 'before', ['a', 'b', 'c'])
+
+    expect(store.getState().recentsOrder).toEqual(['c', 'a', 'b'])
+  })
+
+  it('moves the source after the target', () => {
+    const store = makeStore()
+
+    store.getState().paneActions.reorderRecentsEntry('a', 'c', 'after', ['a', 'b', 'c'])
+
+    expect(store.getState().recentsOrder).toEqual(['b', 'c', 'a'])
+  })
+
+  it('a second reorder only touches the moved id, leaving the rest of the ledger alone', () => {
+    const store = makeStore()
+    store.getState().paneActions.reorderRecentsEntry('c', 'a', 'before', ['a', 'b', 'c'])
+    expect(store.getState().recentsOrder).toEqual(['c', 'a', 'b'])
+
+    store.getState().paneActions.reorderRecentsEntry('b', 'c', 'after', ['c', 'a', 'b'])
+
+    expect(store.getState().recentsOrder).toEqual(['c', 'b', 'a'])
+  })
+
+  it('never disturbs an id some OTHER project already placed — only ever appends unseen ids', () => {
+    const store = makeStore()
+    // 'x'/'y' stand in for another project's already-reordered entries —
+    // this drag's own `naturalOrder` (['a', 'b']) knows nothing about them.
+    store.getState().paneActions.reorderRecentsEntry('y', 'x', 'after', ['x', 'y'])
+    expect(store.getState().recentsOrder).toEqual(['x', 'y'])
+
+    store.getState().paneActions.reorderRecentsEntry('b', 'a', 'before', ['a', 'b'])
+
+    // x/y's relative order survives untouched; a/b are freshly seeded and
+    // appended before the move is applied.
+    expect(store.getState().recentsOrder).toEqual(['x', 'y', 'b', 'a'])
+  })
+
+  it('a target not yet in the ledger (and not in naturalOrder either) appends the source at the end', () => {
+    const store = makeStore()
+
+    store.getState().paneActions.reorderRecentsEntry('a', 'ghost', 'before', ['a'])
+
+    expect(store.getState().recentsOrder).toEqual(['a'])
   })
 })

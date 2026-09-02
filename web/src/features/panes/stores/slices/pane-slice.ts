@@ -83,6 +83,30 @@ export interface PaneActions {
    *  them, and strips membership from wherever else they were remembered —
    *  see `performSidebarPaneDrop` (components/sidebar/lib/drop-actions.ts). */
   groupIntoArrangement(chatIds: readonly string[]): void
+  /**
+   * Spec §8.1: "above / below a Recents entry → it moves to that slot" —
+   * moves `entryId` to sit directly before/after `targetId` in the
+   * persisted Recents order (`recentsOrder`). Both are ENTRY ids
+   * (`RecentsEntry.id` — a pane id, a merged-set nanoid, or a bare chat id
+   * for a working-no-view row — never a plain chat id on its own, since a
+   * SET's members share one slot), resolved by the caller the same way
+   * `deriveRecentsEntries` resolves them.
+   *
+   * `naturalOrder` is the caller's own current, correctly-derived render
+   * order for the band it dragged in (`recentsForProject(...).map(e =>
+   * e.id)`) — seeded into the persisted list for any id THIS project has
+   * that isn't tracked yet, without disturbing ids some OTHER project
+   * already reordered. `recentsOrder` is one flat, window-level ledger —
+   * spec §5.6 gives every entry one slot regardless of which project's band
+   * is asking — so seeding only ever appends, never reorders what is
+   * already there.
+   */
+  reorderRecentsEntry(
+    entryId: string,
+    targetId: string,
+    mode: 'before' | 'after',
+    naturalOrder: readonly string[],
+  ): void
 }
 
 export interface PaneSlice {
@@ -96,6 +120,12 @@ export interface PaneSlice {
    *  A chat the daemon is still working keeps its row via `agentChats.working`
    *  alone; only an idle close needs to be remembered here. */
   dormantArrangements: RecentsEntry[]
+  /** Recents' own persisted order (spec §5.6/§8.1) — entry ids, written ONLY
+   *  by `reorderRecentsEntry`. Empty until the first drag; `deriveRecentsEntries`
+   *  falls back to its existing append order for any id not named here. Same
+   *  durability as `dormantArrangements` — in-memory for the session, not
+   *  written to disk. */
+  recentsOrder: string[]
   paneActions: PaneActions
 }
 
@@ -188,6 +218,7 @@ export const createPaneSlice: StateCreator<
     mostRecentActivePaneIds: [ROOT_PANE_ID],
     fullscreenPaneId: null,
     dormantArrangements: [],
+    recentsOrder: [],
 
     paneActions: {
       splitPane(paneId, direction, bufferId?, placement = 'after') {
@@ -217,25 +248,51 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           const key = getLayoutKey(state, paneId)
           const closingPane = state.panes[paneId]
+          const closedChatId = closingPane?.chatId ?? null
 
-          // Spec §5.5: "the view dies, the row does not." A chat the daemon is
-          // still working keeps its "working, no view" row off `agentChats.working`
-          // alone — nothing to remember yet. An idle chat's view is gone for good
-          // unless we remember it here, so the close stays undoable.
-          //
-          // Skipped when some OTHER arrangement already remembers this chat
-          // (§8.2's merged sets, `groupIntoArrangement`) — that entry already
-          // keeps it as one of its survivors; pushing a second, single-chat
-          // entry for the same id here would duplicate it across two rows.
-          const alreadyRemembered = state.dormantArrangements.some((e) =>
-            closingPane?.chatId ? e.chatIds.includes(closingPane.chatId) : false,
-          )
-          if (closingPane?.chatId && !alreadyRemembered && !isChatWorking(closingPane.chatId)) {
-            state.dormantArrangements.push({
-              id: paneId,
-              chatIds: [closingPane.chatId],
-              state: 'dormant',
-            })
+          if (closedChatId) {
+            // THIS pane's own view on the chat is ending — spec §8.2's
+            // survivor rule applies here too, not only when a chat moves
+            // elsewhere: it sheds membership in any MULTI-chat arrangement
+            // remembering it, and the survivors keep their slot. Left
+            // unstripped, a SET's own `chatIds` never caught up with a pane
+            // closed through the tab bar or the pane-close keybinding
+            // (never Recents' own × control, which closes every member's
+            // pane at once) — the closed chat rode along as "live" forever,
+            // since `resolveState` reads an entry live off ANY member still
+            // showing.
+            const memberOfSet = state.dormantArrangements.some(
+              (e) => e.chatIds.length > 1 && e.chatIds.includes(closedChatId),
+            )
+            if (memberOfSet) {
+              state.dormantArrangements = state.dormantArrangements
+                .map((e) =>
+                  e.chatIds.length > 1 && e.chatIds.includes(closedChatId)
+                    ? { ...e, chatIds: e.chatIds.filter((id) => id !== closedChatId) }
+                    : e,
+                )
+                .filter((e) => e.chatIds.length > 0)
+            }
+
+            // Spec §5.5: "the view dies, the row does not." A chat the daemon is
+            // still working keeps its "working, no view" row off `agentChats.working`
+            // alone — nothing to remember yet. An idle chat's view is gone for good
+            // unless we remember it here, so the close stays undoable.
+            //
+            // Skipped when some entry already remembers this chat on its own
+            // (checked AFTER the strip above, so a chat just split out of a
+            // SET is free to get its own fresh slot here rather than being
+            // mistaken for already-remembered).
+            const alreadyRemembered = state.dormantArrangements.some((e) =>
+              e.chatIds.includes(closedChatId),
+            )
+            if (!alreadyRemembered && !isChatWorking(closedChatId)) {
+              state.dormantArrangements.push({
+                id: paneId,
+                chatIds: [closedChatId],
+                state: 'dormant',
+              })
+            }
           }
 
           const result = closeLayout(state[key], paneId)
@@ -603,14 +660,49 @@ export const createPaneSlice: StateCreator<
           // No archiving on the way out, unlike `closePane`/`setPaneChat`: a
           // deleted chat has nothing left to come back to, and remembering it
           // is precisely the ghost row spec §9 says deletion must not leave.
+          const clearedPaneIds: string[] = []
           for (const pane of Object.values(state.panes)) {
             if (pane.chatId !== chatId) continue
             pane.chatId = null
             pane.runnerId = null
+            clearedPaneIds.push(pane.id)
           }
-          if (!state.dormantArrangements.some((e) => e.chatIds.includes(chatId))) return
+          if (state.dormantArrangements.some((e) => e.chatIds.includes(chatId))) {
+            state.dormantArrangements = state.dormantArrangements
+              .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }))
+              .filter((e) => e.chatIds.length > 0)
+          }
+
+          // Spec §9: "If the last pane held something deleted it takes the
+          // first chat still standing." Only reaches for a replacement when
+          // the deletion left NOTHING else live anywhere in the window — an
+          // ordinary close in a multi-pane layout just shows the empty stage
+          // in the one pane that lost its chat, same as any other close.
+          if (clearedPaneIds.length === 0) return
+          if (Object.values(state.panes).some((p) => p.chatId !== null)) return
+          // "First" is the persisted Recents order (spec §5.6/§5.8) — the
+          // only ordering this slice has anything to say about; a working-
+          // but-viewless chat elsewhere would also qualify as "still
+          // standing" but resolving one needs scanning every active
+          // workspace store, which is Recents' own job
+          // (`recents-for-project.ts`), not this window-level slice's.
+          const standing = state.dormantArrangements.find((e) => e.chatIds.length > 0)?.chatIds[0]
+          if (!standing) return
+          const fallbackPane = state.panes[clearedPaneIds[0]]
+          if (!fallbackPane) return
+          fallbackPane.chatId = standing
+          // The same survivor-stripping `closePane`/`setPaneChat` both do:
+          // this chat is about to be LIVE again, in a pane, so it sheds
+          // membership in whatever multi-chat entry still remembered it
+          // (a single-chat entry is deliberately left alone — see
+          // `setPaneChat`'s own note — so it just recomputes to 'live' at
+          // its existing slot).
           state.dormantArrangements = state.dormantArrangements
-            .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }))
+            .map((e) =>
+              e.chatIds.length > 1 && e.chatIds.includes(standing)
+                ? { ...e, chatIds: e.chatIds.filter((id) => id !== standing) }
+                : e,
+            )
             .filter((e) => e.chatIds.length > 0)
         })
       },
@@ -653,6 +745,28 @@ export const createPaneSlice: StateCreator<
                 : { ...e, chatIds: e.chatIds.filter((id) => !chatIds.includes(id)) },
             )
             .filter((e) => e.chatIds.length > 0)
+        })
+      },
+
+      reorderRecentsEntry(entryId, targetId, mode, naturalOrder) {
+        set((state) => {
+          // Seed: any id THIS drag's project knows about that the ledger has
+          // never tracked before gets appended, in the caller's own natural
+          // order — never touching an id some OTHER project already placed.
+          const known = new Set(state.recentsOrder)
+          const seeded = state.recentsOrder.concat(
+            naturalOrder.filter((id) => !known.has(id)),
+          )
+          const withoutSource = seeded.filter((id) => id !== entryId)
+          const targetIndex = withoutSource.indexOf(targetId)
+          const insertAt =
+            targetIndex === -1
+              ? withoutSource.length
+              : mode === 'after'
+                ? targetIndex + 1
+                : targetIndex
+          withoutSource.splice(insertAt, 0, entryId)
+          state.recentsOrder = withoutSource
         })
       },
     },

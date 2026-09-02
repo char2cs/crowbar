@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { GitBranch, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
-import { CommitPopover } from './commit-popover'
+import { CommitBox } from './commit-box'
 import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
@@ -95,10 +95,17 @@ export function BranchSection({
     return 'Up to date'
   })()
 
-  // The action row only renders when there is something to do: a primary action
-  // (anything but the no-parent sync-only state) or a remote (push/pull). A
-  // clean, synced, parentless branch shows just the status line — no empty row.
-  const hasAction = action.kind !== 'sync-only' || action.remote != null
+  // The commit box (spec 6.3 #1) is always visible — Commit and Pull request
+  // sit beside a persistent "Describe the change…" field, not behind a
+  // status-dependent trigger.
+  //
+  // The secondary action row below it only renders when there is something
+  // else to do: resolving a conflict, merging into a mergeable parent, or a
+  // remote push/pull. The old dedicated "Parent is protected" button is gone —
+  // that state is covered by the status line plus the commit box's own
+  // (currently backend-less) Pull request button.
+  const hasSecondaryAction =
+    action.kind === 'resolve' || action.kind === 'merge' || action.remote != null
 
   return (
     <div className="flex flex-col gap-2 p-3" aria-label="Branch actions">
@@ -111,21 +118,10 @@ export function BranchSection({
         {statusLine}
       </div>
 
-      {hasAction && (
-        <div className="flex items-center gap-2">
-          {action.kind === 'commit' && (
-            <CommitPopover
-              wsId={wsId}
-              files={files}
-              onCommitted={refresh}
-              trigger={
-                <Button variant="default" size="sm" className="flex-1">
-                  Commit changes
-                </Button>
-              }
-            />
-          )}
+      <CommitBox wsId={wsId} files={files} onCommitted={refresh} />
 
+      {hasSecondaryAction && (
+        <div className="flex items-center gap-2">
           {/* The branch conflicts with its parent. The user chooses to rebase onto
               it; on conflict the rebase is kept for the standard resolve flow.
               Crowbar never rebases on its own. */}
@@ -139,14 +135,6 @@ export function BranchSection({
             >
               <GitBranch className="size-3.5" />
               {rebasing ? 'Rebasing…' : `Rebase onto ${parentBranch}`}
-            </Button>
-          )}
-
-          {/* Protected parents can't be merged locally — informational only (the
-              PR is opened on the host). Disabled to avoid implying a click action. */}
-          {action.kind === 'pull-request' && (
-            <Button variant="outline" size="sm" className="flex-1" disabled>
-              Parent is protected
             </Button>
           )}
 

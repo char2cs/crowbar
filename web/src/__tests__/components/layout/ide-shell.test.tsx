@@ -16,8 +16,14 @@ vi.mock('@/features/workspace/components/workspace-view', () => ({
 vi.mock('@/components/layout/sidebar-carousel', () => ({
   SidebarCarousel: () => <div data-testid="sidebar-carousel" />,
 }))
+const { sidebarProjectHeaderMock } = vi.hoisted(() => ({
+  sidebarProjectHeaderMock: vi.fn(),
+}))
 vi.mock('@/components/layout/sidebar-project-header', () => ({
-  SidebarProjectHeader: () => <div data-testid="sidebar-project-header" />,
+  SidebarProjectHeader: (props: unknown) => {
+    sidebarProjectHeaderMock(props)
+    return <div data-testid="sidebar-project-header" />
+  },
 }))
 vi.mock('@/components/layout/sidebar-tree-surface', () => ({
   SidebarTreeSurface: () => <div data-testid="sidebar-tree-surface" />,
@@ -89,18 +95,22 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
-  // task-10 (sidebar-restyle-recovery-batch2): the user's explicit override
-  // of spec §4.1's window-chrome placement — the project-marks cluster is
-  // now the sidebar's own true LAST element, a sibling AFTER (below) the
-  // floating file-explorer card (SidebarCarousel), never inside it.
-  it("renders SidebarFooter as the sidebar's true last element, after (not inside) SidebarCarousel", () => {
+  // task-10's placement override (project marks as the sidebar's own true
+  // last element, below the floating file-explorer card) is reverted: spec
+  // §2 rules that card "ALWAYS THE LAST ELEMENT... Nothing goes below it".
+  // The marks render inside SidebarProjectHeader's own window-chrome row
+  // now (its own component test covers the marks themselves) — IDEShell's
+  // job is just wiring the project data through to it, and no longer
+  // mounting a separate footer sibling at all.
+  it('passes project data through to SidebarProjectHeader instead of mounting a separate footer', () => {
     render(<IDEShell />)
-    const carousel = screen.getByTestId('sidebar-carousel')
-    const footer = screen.getByTestId('sidebar-footer')
-    expect(carousel.contains(footer)).toBe(false)
-    expect(
-      carousel.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
+    expect(screen.queryByTestId('sidebar-footer')).not.toBeInTheDocument()
+    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onSelectProject: expect.any(Function),
+        onAddProject: expect.any(Function),
+      }),
+    )
   })
 
   // Regression: moving the sidebar from one side to the other must change only

@@ -5,7 +5,6 @@ import { performRenameRow, performImportBranches } from '@/components/sidebar/li
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { resolveRow } from './space-content-actions'
 import type { Repo } from '@/lib/store/sidebar'
-import { RemovalTray } from './removal-tray'
 import { RepoImportDialog } from './repo-import-dialog'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -25,14 +24,18 @@ interface SidebarTreeChromeProps {
 
 /**
  * The sidebar chrome that used to live inside `SidebarTreePanel`, mounted
- * ONCE here rather than once per `SpaceScroller` panel — a second tray or
- * dialog per project would duplicate the one the user is actually looking
- * at. Carries over `RemovalTray`, `RenameDialog`, `RepoImportDialog` and
+ * ONCE here rather than once per `SpaceScroller` panel — a second dialog
+ * per project would duplicate the one the user is actually looking at.
+ * Carries over `RenameDialog`, `RepoImportDialog` and
  * `SidebarRowContextMenu` verbatim; none of their own logic changed, only
  * where they mount. The "New Project" entry point that used to live here
  * too moved to a trailing `+` mark, now in `SidebarFooter` (spec §4.1,
  * relocated by task-10 of the sidebar-restyle-recovery-batch2), with its
  * modal state lifted to `IDEShell` alongside it.
+ *
+ * `RemovalTray` no longer mounts here — addendum §2 step 4 moved it into
+ * `SidebarCarousel`, at the top of the file explorer card, since that is
+ * now where a held row renders.
  */
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
   // The right-click menu's "Rename" item still opens this modal — untouched
@@ -77,8 +80,6 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
 
   return (
     <>
-      <RemovalTray />
-
       <SidebarRowContextMenu
         treeRef={treeRef}
         rows={rows}

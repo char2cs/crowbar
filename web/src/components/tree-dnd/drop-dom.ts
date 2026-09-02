@@ -165,6 +165,14 @@ export interface DropZone<S extends DragSubjectBase, Hit> {
  * drag: a refusal returns null rather than falling through to whatever sits
  * behind it, because "this row says no" is the honest reading and drawing an
  * indicator on some ancestor would be the indicator lying.
+ *
+ * `zone` takes either one `DropZone` (every caller before this) or several —
+ * an array, checked in the order given, first match wins — so two whole-region
+ * targets (the pane, the file explorer card's trash surface) can coexist
+ * without either owning the other's slot. Checked PER ELEMENT, interleaved
+ * with the row read below, same as a single zone always was: a zone only wins
+ * when it is the TOPMOST thing painted at the point, never merely present
+ * somewhere in `elementsFromPoint`'s list.
  */
 export function createDropHitTest<
   S extends DragSubjectBase,
@@ -173,11 +181,15 @@ export function createDropHitTest<
 >(
   dom: DropRowDom<Row>,
   policy: DropPolicy<S, Row>,
-  zone?: DropZone<S, Hit>,
+  zone?: DropZone<S, Hit> | ReadonlyArray<DropZone<S, Hit>>,
 ): (x: number, y: number, subjects: readonly S[]) => RowHit<Row> | Hit | null {
+  const zones: ReadonlyArray<DropZone<S, Hit>> =
+    zone === undefined ? [] : Array.isArray(zone) ? zone : [zone]
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
-      if (zone && el.hasAttribute(zone.attr)) return zone.hit(subjects, el, { x, y })
+      for (const z of zones) {
+        if (el.hasAttribute(z.attr)) return z.hit(subjects, el, { x, y })
+      }
       const row = dom.read(el)
       if (!row) continue
       const allowed = policy.allowedModes(subjects, row)

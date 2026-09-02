@@ -12,10 +12,14 @@
  * are two separate things: the bar is what you see, the timer is what fires.
  *
  * Driven through `SidebarTreeSurface` (Task 30) — SpaceScroller's real mount
- * point, which now hoists `RemovalTray` above it exactly as `SidebarTreePanel`
- * (Task 8, retired this task) rendered it inside the one flat tree before —
- * so a held row is proven to disappear from a REAL tree and not just from
- * the tray's own list.
+ * point — so a held row is proven to disappear from a REAL tree, not just
+ * from the tray's own list. `RemovalTray` itself no longer mounts inside
+ * `SidebarTreeSurface`'s own chrome (addendum §2 step 4 moved it into
+ * `SidebarCarousel`, the file explorer card); `TestSidebar` below mounts the
+ * real `<RemovalTray />` as a sibling instead of dragging in the card's own
+ * heavy dependencies (FileExplorerTree, GitPanel, the tab head) just to
+ * reach it — this suite is about hold/cancel/drain/commit behavior, not
+ * about where in the DOM the tray's box sits.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -80,6 +84,7 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
+import { RemovalTray } from '@/components/layout/removal-tray'
 import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
 
@@ -92,14 +97,20 @@ const project: Project = {
 
 /** SpaceScroller's real mount point, single-project (this suite's fixtures
  *  only ever seed one) — the same wiring `ide-shell.tsx` gives
- *  `SidebarTreeSurface` for real. */
+ *  `SidebarTreeSurface` for real, plus the real `RemovalTray` as a sibling
+ *  (`ide-shell.tsx` mounts it inside `SidebarCarousel`, a separate sibling
+ *  of `SidebarTreeSurface` — this harness skips that card's own unrelated
+ *  dependencies and mounts the tray directly, same store, same component). */
 function TestSidebar() {
   return (
-    <SidebarTreeSurface
-      projects={[project]}
-      activeProjectId={project.id}
-      onActiveProjectChange={() => {}}
-    />
+    <>
+      <SidebarTreeSurface
+        projects={[project]}
+        activeProjectId={project.id}
+        onActiveProjectChange={() => {}}
+      />
+      <RemovalTray />
+    </>
   )
 }
 

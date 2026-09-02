@@ -8,7 +8,7 @@
  * excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -34,22 +34,12 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     subscribe: () => () => {},
   }),
 }))
-// DeleteConfirmDialog's real preview fetch would otherwise hit the real
-// (unmocked) apiFetch retry loop against a relative URL jsdom can't resolve —
-// several real seconds of backoff before it finally rejects. Stubbed here so
-// the trash-click wiring tests below resolve instantly.
-const { fetchDeletePreview } = vi.hoisted(() => ({
-  fetchDeletePreview: vi.fn().mockResolvedValue({ chatCount: 0, fileCount: 0 }),
-}))
-vi.mock('@/components/sidebar/lib/delete-preview-client', () => ({ fetchDeletePreview }))
-const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
+// Kept stubbed rather than removed: several rendered rows (the promote
+// dropdown, the space header overflow) can reach a real `toast.error` call on
+// a rejected promise, and the real store would otherwise queue a live toast
+// during a render test.
 vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
-}))
-const { deleteChat } = vi.hoisted(() => ({ deleteChat: vi.fn(() => Promise.resolve()) }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
-  deleteChat,
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
@@ -98,7 +88,6 @@ const seedRepos = (repos: Repo[]) => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  fetchDeletePreview.mockResolvedValue({ chatCount: 0, fileCount: 0 })
   // jsdom does not implement scrollTo — SpaceScroller calls it on mount to
   // align its panel.
   HTMLElement.prototype.scrollTo = vi.fn()
@@ -130,43 +119,10 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  it('mounts the hoisted chrome (RemovalTray) once, not once per project', () => {
-    seedRepos([
-      repo({ id: 'r1', projectId: 'p1' }),
-      repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' }),
-    ])
-    useRemovalTrayStore.setState({
-      entries: [
-        {
-          entryId: 'entry-1',
-          kind: 'workspace',
-          id: 'ws-a',
-          label: 'alpha',
-          projectId: 'p1',
-          repoId: 'r1',
-          wsId: '',
-          providerIcon: '',
-          hiddenIds: ['ws-a'],
-          extra: 0,
-          fallbackWsId: null,
-          deadlineAt: Date.now() + 8000,
-        },
-      ],
-      hiddenIds: new Set(['ws-a']),
-    })
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA, projectB]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    // The whole point of hoisting: the held row's tray entry renders once for
-    // however many projects the sidebar has, never once per SpaceScroller panel.
-    expect(document.querySelectorAll('[data-removal-entry="entry-1"]')).toHaveLength(1)
-  })
+  // RemovalTray no longer mounts here — the drag-to-trash addendum (§2) moved
+  // it into SidebarCarousel, rendered at the top of the file explorer card.
+  // "Mounts once, not once per project" is now covered there
+  // (sidebar-carousel.test.tsx), not at this component's level.
 
   it('a row held in the removal tray disappears from its own project panel', () => {
     seedRepos([
@@ -190,53 +146,25 @@ describe('SidebarTreeSurface', () => {
     expect(screen.queryByText('alpha')).not.toBeInTheDocument()
   })
 
-  // Task 25's own real-flow insertion point: a trash click must NOT hold the
-  // row immediately any more — it has to open the confirm dialog first and
-  // wait on a real Delete click.
-  it('a trash click opens the confirm dialog instead of holding the row immediately', async () => {
-    seedRepos([
-      repo({
-        id: 'r1',
-        projectId: 'p1',
-        defaultWorkspaceId: 'home-a',
-        workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-      }),
-    ])
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Delete alpha' }))
-
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
-
-    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
-    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
-    expect(useRemovalTrayStore.getState().entries[0]?.id).toBe('ws-a')
-  })
-
-  // Review round 1, Important: a locked (non-home) workspace's trash button
-  // still shows, but `handleTrash` finds zero drafts for it — confirming
-  // must say so rather than silently doing nothing after walking the user
-  // through a real confirm dialog.
-  it("confirming a locked workspace's delete reports it instead of silently no-opping", async () => {
+  // Addendum §1/§2: the row no longer carries a trash button at all — a
+  // click-driven confirm-and-delete flow (Task 25's real-flow insertion
+  // point, replaced here) is superseded by a drag-to-trash gesture built
+  // elsewhere on the same removal-tray machinery. This is the wiring half of
+  // that removal: no row here — a workspace, a locked branch, or a chat —
+  // exposes a `Delete …` control any more, and `SidebarTreeSurface` no
+  // longer mounts a `DeleteConfirmDialog` of its own to drive one.
+  it('no row exposes a delete control any more — deleting moved off the row', () => {
     seedRepos([
       repo({
         id: 'r1',
         projectId: 'p1',
         defaultWorkspaceId: 'home-a',
         workspaces: [
-          { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+          { id: 'ws-a', branch: 'alpha', age: '', order: 0 },
+          { id: 'ws-locked', branch: 'locked-one', age: '', order: 1, status: 'locked' },
         ],
-        // A locked branch owns a `branch` row too — same backfill guarantee the
-        // `repo()` factory above bakes in for the home workspace.
         chats: [
+          { id: 'c1', repoId: 'r1', title: 'a chat', order: 0 },
           {
             id: 'locked-one-row',
             repoId: 'r1',
@@ -257,44 +185,9 @@ describe('SidebarTreeSurface', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete locked-one' }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
-
-    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
-
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
-    expect(toastError).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('locked-one'))
-  })
-
-  // `resolveRow` (space-content-actions.ts) cannot see a chat row, so
-  // `deletingRepo`'s lookup has to try `resolveChatRow` first — otherwise the
-  // dialog's `projectId` comes back undefined and the real preview fetch is
-  // skipped for a chat specifically, degrading to the generic fallback copy.
-  it("a chat row's trash resolves its owning repo, so the real delete-preview fires", async () => {
-    seedRepos([
-      repo({
-        id: 'r1',
-        projectId: 'p1',
-        defaultWorkspaceId: 'home-a',
-        chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-      }),
-    ])
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Delete a chat' }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
-
-    expect(fetchDeletePreview).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'c1')
-
-    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
-    await waitFor(() => expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-a', 'c1'))
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-control="trash"]')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 

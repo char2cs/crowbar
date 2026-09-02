@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GitPanel } from '@/features/git/components/git-panel'
 
@@ -92,13 +92,23 @@ describe('GitPanel', () => {
     vi.clearAllMocks()
   })
 
-  it('renders Changes and History tabs', () => {
+  it('renders the "Review this branch" row and the "Changed — n files" heading, not Changes/History tabs', () => {
     render(<GitPanel />)
-    expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /history/i })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /changes/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /history/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Review this branch/i })).toBeInTheDocument()
+    expect(screen.getByText('Changed — 0 files')).toBeInTheDocument()
   })
 
-  it('renders the changed-files tree and the unified branch section in the Changes tab', () => {
+  it('History is folded below the required sections, behind a disclosure', () => {
+    render(<GitPanel />)
+    expect(screen.queryByTestId('git-history')).not.toBeInTheDocument()
+    const historyToggle = screen.getByRole('button', { name: /^History$/i })
+    fireEvent.click(historyToggle)
+    expect(screen.getByTestId('git-history')).toBeInTheDocument()
+  })
+
+  it('renders the changed-files tree and the unified branch section', () => {
     // BranchSection (and the branch pill above it) only render when a branch is
     // resolved for the active workspace.
     mockGitStatus = { branch: 'develop', ahead: 0, behind: 0, files: [] }

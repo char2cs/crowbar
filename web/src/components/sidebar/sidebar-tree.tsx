@@ -133,7 +133,15 @@ export function SidebarTree({
         {!folded &&
           (hasChildren ? (
             children!.map((child) => renderRow(child, depth + 1, childPath))
-          ) : (
+          ) : row.kind === 'folder' ? (
+            // Addendum §5: a folder has no owning chat of its own, so it is
+            // the one container whose own row can't carry Fork/Thread — it
+            // still needs this nested bootstrap row when childless. A
+            // `branch` or `chat` row, by contrast, already got its own
+            // always-present Fork/Thread buttons straight on the row
+            // (sidebar-row.tsx) — rendering this underneath THOSE kinds too
+            // was the redundant, unlabeled "empty" row users were seeing
+            // under every real chat.
             <div
               className={ROW_INDENT_TRANSITION}
               style={{ marginInlineStart: (depth + 1) * ROW_INDENT_STEP }}
@@ -149,7 +157,7 @@ export function SidebarTree({
                 />
               </div>
             </div>
-          ))}
+          ) : null)}
       </div>
     )
   }

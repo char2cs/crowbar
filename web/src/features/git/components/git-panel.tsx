@@ -1,8 +1,8 @@
+import { useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
-import { GitPullRequest, GitBranch } from '@phosphor-icons/react'
+import { GitPullRequest, GitBranch, ClockCounterClockwise, CaretRight } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
 import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useGitStore } from '@/features/git/stores/git-store'
@@ -14,6 +14,13 @@ import { BranchSection } from './branch-section'
 import { GitHistoryList } from './git-history-list'
 
 export function GitPanel() {
+  // History (the commit log) has no place in spec 6.3's flat commit-box →
+  // review-row → changed-list shape — it isn't described there at all, and it
+  // isn't redundant with anything else in the app (branch review shows the
+  // current diff, not the log). It's real, load-bearing, virtualized/infinite-
+  // scroll functionality, so it stays — folded below the three required
+  // sections behind a disclosure rather than a competing top-level tab.
+  const [historyOpen, setHistoryOpen] = useState(false)
   // I1 fix: derive wsId reactively from the route so a workspace switch without
   // remount keeps all API calls and store lookups pointed at the active workspace.
   // Pattern mirrors sidebar-carousel.tsx and context-pill.tsx.
@@ -55,8 +62,14 @@ export function GitPanel() {
   const branch = activeWs?.branch ?? gitStatus?.branch ?? ''
   const parentBranch = activeWs?.parentBranch
 
+  // Single source of truth for "how many files changed" — the review row's
+  // count and the "Changed — n files" heading below both read this, not two
+  // separately-computed definitions of "changed".
+  const changedCount = files.length
+  const changedLabel = `${changedCount} file${changedCount !== 1 ? 's' : ''}`
+
   return (
-    <Tabs defaultValue="changes" className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden">
       {wsId && branch && (
         <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]">
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
@@ -80,37 +93,48 @@ export function GitPanel() {
           />
         </div>
       )}
-      <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
-        <TabsList variant="default" className="min-w-0 flex-1">
-          <TabsTab value="changes" className="flex-1 justify-center">
-            Changes
-          </TabsTab>
-          <TabsTab value="history" className="flex-1 justify-center">
-            History
-          </TabsTab>
-        </TabsList>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          title="Open review"
-          aria-label="Open review"
-          onClick={() => openBranchReviewForActiveWorkspace()}
-        >
-          <GitPullRequest />
-        </Button>
+
+      {/* Spec 6.3 #2 — "Review this branch", carrying the changed-file count,
+          opens the branch review in the editor view. */}
+      <button
+        type="button"
+        className="mx-1.5 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-accent"
+        onClick={() => openBranchReviewForActiveWorkspace()}
+      >
+        <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-left">Review this branch</span>
+        <span className="shrink-0 text-muted-foreground">{changedLabel}</span>
+      </button>
+
+      {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
+      <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
+        Changed — {changedLabel}
       </div>
+      <ScrollArea className="flex-1">
+        <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
+      </ScrollArea>
 
-      <TabsPanel value="changes" className="flex flex-1 flex-col overflow-hidden">
-        {/* Scrollable file tree */}
-        <ScrollArea className="flex-1">
-          <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
-        </ScrollArea>
-      </TabsPanel>
-
-      <TabsPanel value="history" className="flex flex-1 flex-col overflow-hidden">
-        <GitHistoryList />
-      </TabsPanel>
-    </Tabs>
+      {/* History (the commit log) below the required three sections, folded —
+          see the note above. */}
+      <div className="shrink-0 border-t border-border">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-accent"
+          onClick={() => setHistoryOpen((open) => !open)}
+          aria-expanded={historyOpen}
+        >
+          <CaretRight
+            className={cn('size-3 shrink-0 transition-transform', historyOpen && 'rotate-90')}
+          />
+          <ClockCounterClockwise className="size-3.5 shrink-0" />
+          <span className="flex-1 text-left">History</span>
+        </button>
+        {historyOpen && (
+          <div className="flex h-64 flex-col overflow-hidden border-t border-border">
+            <GitHistoryList />
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

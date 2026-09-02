@@ -23,6 +23,8 @@ import {
 } from '@/components/tree-dnd/drop-dom'
 import { getPaneDropZoneFromRect, type PaneDropZone } from '@/features/panes/utils/pane-drop-zones'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { handleTrash } from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -45,6 +47,10 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 /** Matches both predecessor hooks' confirmed value. */
 export const SIDEBAR_DRAG_THRESHOLD_PX = 5
 
+/** How long the working-chat drag refusal (spec §8.3) stays up before it
+ *  clears itself, if nothing sooner does (a fresh pointerdown anywhere). */
+const WORKING_DRAG_REFUSAL_MS = 1600
+
 /** Facts a row's own tree-walk knows that `SidebarRow` itself does not carry —
  *  handed to {@link SidebarDrag.dragProps} alongside the row so the hit test
  *  can resolve first-child re-parents and the subtree cycle guard below. */
@@ -57,6 +63,17 @@ export interface RowDragExtra {
   path?: string
   expanded?: boolean
   hasChildren?: boolean
+  /** Published only by `RecentsBand` (see `recents-band.tsx`'s own
+   *  `drag.dragProps(row, { inRecents: true })`) — the one fact a hit test
+   *  needs that a tree row and a Recents row disagree on: spec §8.1's
+   *  table gives "middle of a Recents entry" and "above/below a Recents
+   *  entry" different outcomes than the same geometry over a tree row, and
+   *  `SidebarRow` itself carries nothing that tells the two apart (a
+   *  root-level tree bubble and a Recents row both draw `parentId: null`).
+   *  Read back at commit time in `onPointerUp` and handed to `onDrop` as
+   *  its own argument — never smuggled onto the resolved `SidebarRow`
+   *  itself, which stays exactly what every other caller already expects. */
+  inRecents?: boolean
 }
 
 type DragRow = SidebarRow & RowDragExtra
@@ -72,7 +89,11 @@ const SIDEBAR_DRAG_ROW_SPEC: DropRowSpec = {
   },
   parentAttr: 'data-sidebar-drop-parent',
   strings: { path: 'data-sidebar-path' },
-  flags: { expanded: 'data-sidebar-expanded', hasChildren: 'data-sidebar-children' },
+  flags: {
+    expanded: 'data-sidebar-expanded',
+    hasChildren: 'data-sidebar-children',
+    inRecents: 'data-sidebar-recents-row',
+  },
 }
 
 const rowDom = createDropRowDom<DragRow>(SIDEBAR_DRAG_ROW_SPEC)
@@ -165,10 +186,35 @@ const paneZone: DropZone<DragRow, ResolvedPaneHit> = {
   },
 }
 
-const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit>(
+/**
+ * Addendum §2: the file explorer card's own surface, once folded for a live
+ * drag, standing in for removal — the same shape `drop-dom.ts`'s own doc
+ * comment on `DropZone` names as its original reason to exist ("the editor
+ * pane, standing for removal" — deleted with the old Chats panel in Task
+ * 22, and reused here rather than a second whole-region hit-test built from
+ * scratch). `SidebarCarousel` spreads this attribute onto its trash-target
+ * surface only while that surface is actually showing one (see its own
+ * `data-sidebar-trash-drop` usage) — the hit test itself does no further
+ * validation, since REFUSING a specific subject (a locked branch, a working
+ * chat already refused at pickup) is `planRemoval`/`handleTrash`'s job, not
+ * a drop zone's; a card that IS the trash target accepts anything dragged
+ * to it and lets the removal plan decide what actually happens.
+ */
+export const CARD_TRASH_DROP_ATTR = 'data-sidebar-trash-drop'
+
+interface CardTrashHit {
+  kind: 'card-trash'
+}
+
+const cardTrashZone: DropZone<DragRow, CardTrashHit> = {
+  attr: CARD_TRASH_DROP_ATTR,
+  hit: (subjects) => (subjects.length > 0 ? { kind: 'card-trash' } : null),
+}
+
+const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit | CardTrashHit>(
   rowDom,
   SIDEBAR_DRAG_POLICY,
-  paneZone,
+  [paneZone, cardTrashZone],
 )
 
 type Hit = ReturnType<typeof hitTest>
@@ -256,14 +302,83 @@ function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null
   next?.el.setAttribute(PANE_HIT_ATTR, '')
 }
 
+/**
+ * Spec §8.3's refusal, painted straight onto the DOM rather than through a
+ * new store field or CSS rule — the same imperative-write budget every other
+ * per-frame effect in this file already spends (the ghost, the drop line,
+ * `paintPaneHit`). "The rest of the sidebar dims, the dragged row goes red,
+ * and a short line says why": the scroller is the caller's own scroll
+ * region (the only "rest of the sidebar" this hook has a handle on), the row
+ * is found the same way the ghost clone finds it (`rowDom.elementFor`), and
+ * the line is a small fixed note positioned off the row's own rect. Returns
+ * the cleanup that undoes all three; the caller owns when that fires (a
+ * timeout, or the next pointerdown anywhere).
+ */
+function paintWorkingDragRefusal(scroller: HTMLElement | null, rowEl: HTMLElement): () => void {
+  const prevOpacity = scroller?.style.opacity ?? ''
+  const prevTransition = scroller?.style.transition ?? ''
+  if (scroller) {
+    scroller.style.transition = 'opacity 120ms ease-out'
+    scroller.style.opacity = '0.4'
+  }
+
+  const prevOutline = rowEl.style.outline
+  const prevBg = rowEl.style.backgroundColor
+  rowEl.style.outline = '1.5px solid var(--destructive)'
+  rowEl.style.outlineOffset = '-1.5px'
+  rowEl.style.backgroundColor = 'color-mix(in srgb, var(--destructive) 14%, transparent)'
+
+  const rect = rowEl.getBoundingClientRect()
+  const note = document.createElement('div')
+  note.setAttribute('data-row-drag-refusal', '')
+  note.textContent = "Can't drag — still working"
+  note.style.cssText = [
+    'position:fixed',
+    'z-index:80',
+    'pointer-events:none',
+    'font-size:11px',
+    'font-weight:500',
+    'padding:3px 6px',
+    'border-radius:6px',
+    'background:var(--destructive)',
+    'color:var(--destructive-foreground)',
+    `left:${rect.left}px`,
+    `top:${rect.bottom + 4}px`,
+  ].join(';')
+  document.body.appendChild(note)
+
+  return () => {
+    if (scroller) {
+      scroller.style.opacity = prevOpacity
+      scroller.style.transition = prevTransition
+    }
+    rowEl.style.outline = prevOutline
+    rowEl.style.backgroundColor = prevBg
+    note.remove()
+  }
+}
+
 export interface UseSidebarDragOptions {
   /** The tree/band's own scroll container — what an edge-held drag scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>
   /** The rows a drag starting on `rowId` carries, in tree order — the caller's
    *  own selection resolution; this hook does not maintain one of its own. */
   subjectsFor: (rowId: string) => SidebarRow[]
-  /** Commit a drop onto another row. */
-  onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
+  /** Commit a drop onto another row. `targetInRecents` is true when the row
+   *  the pointer released over lives in a `RecentsBand`, not a tree — spec
+   *  §8.1's table gives that geometry a different meaning ("into that view,
+   *  opened" / "it moves to that slot") than the same drop over a tree row
+   *  ("make it a thread of this chat"), and `target: SidebarRow` alone
+   *  cannot say which (a root-level tree bubble and a Recents row both
+   *  carry `parentId: null`). A caller that only ever drops onto a tree —
+   *  `SidebarTree` (not in this package) — can ignore the fourth argument
+   *  entirely; it is always `false` there. */
+  onDrop: (
+    subjects: SidebarRow[],
+    target: SidebarRow,
+    mode: DropMode,
+    targetInRecents?: boolean,
+  ) => void
   /** Commit a drop onto a pane — replaces the old `onPaneRemove` shape. Every
    *  drop ADDS now (spec §8.1); nothing here arms a removal. */
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
@@ -320,6 +435,37 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     target: HTMLElement
     pointerId: number
   } | null>(null)
+  // §8.3's refusal — cleanup (style/note reversal) plus the timer/listener
+  // that clear it, so a second refusal (or a real drag starting) can tear
+  // down whatever the last one left painted before starting fresh.
+  const refusalRef = useRef<(() => void) | null>(null)
+
+  const clearWorkingDragRefusal = useCallback(() => {
+    refusalRef.current?.()
+    refusalRef.current = null
+  }, [])
+
+  const showWorkingDragRefusal = useCallback(
+    (row: SidebarRow) => {
+      clearWorkingDragRefusal()
+      const rowEl = rowDom.elementFor(row)
+      if (!rowEl) return
+      const undoPaint = paintWorkingDragRefusal(optionsRef.current.scrollRef.current, rowEl)
+      const timer = window.setTimeout(() => clearWorkingDragRefusal(), WORKING_DRAG_REFUSAL_MS)
+      // Any next interaction clears it early too — a refusal that outlives
+      // the click that dismissed it would read as stuck rather than timed.
+      const onNextPointerDown = () => clearWorkingDragRefusal()
+      window.addEventListener('pointerdown', onNextPointerDown, { capture: true, once: true })
+      refusalRef.current = () => {
+        window.clearTimeout(timer)
+        window.removeEventListener('pointerdown', onNextPointerDown, { capture: true })
+        undoPaint()
+      }
+    },
+    [clearWorkingDragRefusal],
+  )
+
+  useEffect(() => () => clearWorkingDragRefusal(), [clearWorkingDragRefusal])
 
   const attachDropLine = useCallback((el: HTMLDivElement | null) => {
     dropLineRef.current = el
@@ -335,23 +481,36 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     [],
   )
 
-  const onPointerDownDrag = useCallback((row: SidebarRow, e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    if (draggingRef.current) return // ignore a second pointer mid-drag
-    // Block the text selection from the PRESS: `selectstart` fires before the
-    // threshold promotes the press into a drag, so arming this at drag start
-    // is arming it after the only event it could have cancelled.
-    document.addEventListener('selectstart', preventDefault)
-    // No pointer capture yet — capturing here swallows the dblclick that opens
-    // the rename editor.
-    pendingRef.current = {
-      row,
-      startX: e.clientX,
-      startY: e.clientY,
-      target: e.currentTarget as HTMLElement,
-      pointerId: e.pointerId,
-    }
-  }, [])
+  const onPointerDownDrag = useCallback(
+    (row: SidebarRow, e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      if (draggingRef.current) return // ignore a second pointer mid-drag
+      // §8.3: "a working chat may not be dragged... the rest of the sidebar
+      // dims, the dragged row goes red, and a short line says why." Refused
+      // at the pickup itself, before a drag is ever armed — the drop policy
+      // (`SIDEBAR_DROP_POLICY.allowedModes`) already refuses a working
+      // subject too, but that only ever fires once a drag is already in the
+      // air, which is one gesture too late for "may not be dragged".
+      if (row.working) {
+        showWorkingDragRefusal(row)
+        return
+      }
+      // Block the text selection from the PRESS: `selectstart` fires before the
+      // threshold promotes the press into a drag, so arming this at drag start
+      // is arming it after the only event it could have cancelled.
+      document.addEventListener('selectstart', preventDefault)
+      // No pointer capture yet — capturing here swallows the dblclick that opens
+      // the rename editor.
+      pendingRef.current = {
+        row,
+        startX: e.clientX,
+        startY: e.clientY,
+        target: e.currentTarget as HTMLElement,
+        pointerId: e.pointerId,
+      }
+    },
+    [showWorkingDragRefusal],
+  )
 
   useEffect(() => {
     /**
@@ -382,6 +541,11 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function beginDrag(e: MouseEvent): void {
+      // A real drag starting supersedes any refusal flash still up from a
+      // moment ago — read/cleared straight off the ref, like everything
+      // else this once-subscribed effect touches.
+      refusalRef.current?.()
+      refusalRef.current = null
       const pending = pendingRef.current!
       pendingRef.current = null
       // Only if the row is still in the tree: a row deleted on the wire
@@ -514,6 +678,22 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       const hit = hitTest(e.clientX, e.clientY, drag.subjects)
       if (hit?.kind === 'pane') {
         optionsRef.current.onPaneDrop([...drag.subjects], hit.paneId, hit.zone)
+      } else if (hit?.kind === 'card-trash') {
+        // Addendum §2 — the same removal tray every trash-button delete
+        // already used, one hold per dragged row (in practice always
+        // exactly one: neither tree nor Recents drags carry more than the
+        // grabbed row today). `handleTrash` re-resolves each id against the
+        // live store itself; a row that turns out not to be deletable (a
+        // locked branch, a repo home) gets the same toast the old row-level
+        // trash confirm gave it, rather than a drop that visibly landed and
+        // did nothing. A working chat never reaches this at all: `1a`'s
+        // pickup-time refusal (`onPointerDownDrag`) already stops the drag
+        // before it starts.
+        for (const subject of drag.subjects) {
+          if (!handleTrash(subject.id)) {
+            toast.error(`Can't delete ${subject.label || 'this row'} — it may be locked`)
+          }
+        }
       } else if (hit?.kind === 'row') {
         // `hit.row` is what `rowDom.read()` reconstructed off the DOM —
         // {kind, id, parentId, path, expanded, hasChildren} and NOT a real
@@ -531,7 +711,14 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         // A race — the row left the tree between the hit test and the
         // release — refuses rather than handing a caller a target it can no
         // longer resolve.
-        if (target) optionsRef.current.onDrop([...drag.subjects], target, hit.row.mode)
+        if (target) {
+          optionsRef.current.onDrop(
+            [...drag.subjects],
+            target,
+            hit.row.mode,
+            Boolean(hit.row.inRecents),
+          )
+        }
       }
       endDrag()
     }

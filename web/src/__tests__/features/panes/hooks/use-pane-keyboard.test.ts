@@ -119,8 +119,26 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   }),
 }))
 
-vi.mock('@/features/panes/utils/pane-command-actions', () => ({
-  splitActiveEditorGroup: vi.fn(),
+// ensurePaneChatThenOpen (the Law 3 fix — TAB_NEW_TERMINAL/TAB_NEW_FILE must
+// mint a chat on a chatless pane before opening a terminal/file into it) runs
+// for REAL here, exactly like AGENT_NEW_CHAT's own handler in
+// use-pane-keyboard.ts does — only its dependencies (createChat/
+// toastSpawnFailure above, workspace-store-registry below, both already
+// mocked to point at this file's fakeState/fakeStore) are faked. Only
+// splitActiveEditorGroup stays a bare stub — it is unrelated to this fix.
+vi.mock('@/features/panes/utils/pane-command-actions', async () => {
+  const actual = await vi.importActual<typeof import('@/features/panes/utils/pane-command-actions')>(
+    '@/features/panes/utils/pane-command-actions',
+  )
+  return { ...actual, splitActiveEditorGroup: vi.fn() }
+})
+
+// ensurePaneChatThenOpen resolves its workspace store via the registry
+// (unlike AGENT_NEW_CHAT's handler, which reads `useWorkspaceStore()` off
+// workspace-context directly) — point it at the same fakeStore/fakeState so
+// the two paths agree on providers/setActiveAgentChatId.
+vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+  getOrCreateWorkspaceStore: () => fakeStore,
 }))
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
@@ -310,15 +328,36 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     expect(setPaneChat).not.toHaveBeenCalled()
   })
 
-  it('mod+j opens a terminal', () => {
+  it('mod+j opens a terminal', async () => {
+    // The active pane has no chat yet, so ensurePaneChatThenOpen must mint one
+    // first (Law 3) — same first-enabled-provider/createChat mocking as the
+    // agent.newChat chord below, since it's the same underlying sequence.
+    fakeState.agentChats = {
+      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
+      chats: [],
+    }
+    createChat.mockResolvedValue('chat-1')
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true }))
+
+    await createChat.mock.results[0]?.value
+    await Promise.resolve()
+
     expect(openContent).toHaveBeenCalledWith({ type: 'terminal' })
   })
 
-  it('mod+shift+n opens an untitled virtual buffer', () => {
+  it('mod+shift+n opens an untitled virtual buffer', async () => {
+    fakeState.agentChats = {
+      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
+      chats: [],
+    }
+    createChat.mockResolvedValue('chat-1')
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true }))
+
+    await createChat.mock.results[0]?.value
+    await Promise.resolve()
+
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'editor', isVirtual: true }),
     )

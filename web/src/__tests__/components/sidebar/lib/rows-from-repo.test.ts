@@ -558,3 +558,43 @@ describe('rowsFromRepo — a regular fork is not identified by its conversation'
     expect(idFor([...chats].reverse())).toBe('ws-1')
   })
 })
+
+/**
+ * Spec §3.4: a freshly-minted workspace's branch is provisional (italic)
+ * until it is renamed — the same idea `labelProvisional` already carries for
+ * an untitled chat's title, applied to the branch half. There is no separate
+ * wire flag for this; the signal is the backend's own generated-name shape
+ * (`hierarchy.branch_name.go`'s `provisionalBranchName`: `"chat-" + 8 hex
+ * chars`), which self-clears the moment a real rename replaces it.
+ */
+describe('rowsFromRepo — provisional branch naming', () => {
+  it('a fork whose branch is still the generated placeholder renders provisional', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'chat-a1b2c3d4' })],
+    })
+    const row = rowsFromRepo(repo).find((r) => r.id === 'ws-1')
+    expect(row?.labelProvisional).toBe(true)
+  })
+
+  it('a fork with a real (renamed) branch does not render provisional', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'feature/real-name' })],
+    })
+    const row = rowsFromRepo(repo).find((r) => r.id === 'ws-1')
+    expect(row?.labelProvisional).toBeFalsy()
+  })
+
+  it('the home row is provisional when the default branch is still generated', () => {
+    const repo = makeTestRepo({ defaultWorkspaceId: 'ws-home', defaultBranch: 'chat-deadbeef' })
+    const home = rowsFromRepo(repo).find((r) => r.id === HOME_ROW_ID)
+    expect(home?.labelProvisional).toBe(true)
+  })
+
+  it('the home row is not provisional for a real default branch', () => {
+    const repo = makeTestRepo({ defaultWorkspaceId: 'ws-home', defaultBranch: 'main' })
+    const home = rowsFromRepo(repo).find((r) => r.id === HOME_ROW_ID)
+    expect(home?.labelProvisional).toBeFalsy()
+  })
+})

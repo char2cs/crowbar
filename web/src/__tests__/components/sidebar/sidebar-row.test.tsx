@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { GitBranch, Lock } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
@@ -33,12 +34,9 @@ const baseRow: SidebarRowType = {
 }
 
 /**
- * A row that actually carries a trash — a forked branch.
- *
- * The trailing-control cases below are about the CLUSTER (which controls, in
- * what order, with what treatment), not about any one row kind, so they need a
- * row that is guaranteed a trash regardless of kind. Every kind gets one now
- * except the project-home row (see the "protected branch" case below).
+ * A non-home branch row — used by the trailing-cluster cases below, which are
+ * about the CLUSTER (which controls, in what order, with what treatment), not
+ * about any one row kind.
  */
 const deletableRow: SidebarRowType = {
   ...baseRow,
@@ -70,7 +68,12 @@ describe('SidebarRow', () => {
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  it('trailing controls are trash, +, chevron in that order, revealed on hover', () => {
+  // Addendum §1: the single contextual "+" is gone — Fork and Thread are two
+  // separate, always-rendered buttons, and the trash button that used to lead
+  // this cluster is gone entirely (deleting moved to drag-to-trash,
+  // addendum §2). `onTrash` is still passed here (sidebar-tree.tsx still
+  // threads it to every row) to prove it renders nothing on its own.
+  it('trailing controls are fork, thread, chevron in that order, revealed on hover', () => {
     render(
       <SidebarRow
         row={deletableRow}
@@ -82,29 +85,39 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button')
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['trash', 'create', 'fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'thread', 'fold'])
   })
 
   it('no HANDLER-driven trailing controls render when no handler is passed for them', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
     // baseRow is itself a promotable bubble (chat, !ownsWorktree, !working), so
     // its own intrinsic promote dropdown still renders on the glyph — it is
-    // driven by the row's own fields, unlike trash/create/fold, which only
-    // render when a caller opts in with a handler prop.
+    // driven by the row's own fields, unlike fork/thread/fold, which only
+    // render when a caller opts in with a handler prop (trash no longer
+    // exists as a row control at all — see addendum §1/§2).
     const handlerDriven = screen
       .queryAllByRole('button')
       .filter((b) => b.hasAttribute('data-control'))
     expect(handlerDriven).toHaveLength(0)
   })
 
-  it('the create control makes a thread on a row that owns no worktree', () => {
+  // Addendum §1 (revises spec §3.1): Fork and Thread are both always legal
+  // and always rendered — neither depends on `row.ownsWorktree` any more.
+  it('the thread control always mints a thread, regardless of ownsWorktree', () => {
     const onCreate = vi.fn()
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />)
-    screen.getByRole('button', { name: /new thread/i }).click()
+    screen.getByRole('button', { name: /thread/i }).click()
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
   })
 
-  it('the create control makes a workspace on a row that owns a worktree', () => {
+  it('the fork control always mints a workspace, regardless of ownsWorktree', () => {
+    const onCreate = vi.fn()
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />)
+    screen.getByRole('button', { name: /fork/i }).click()
+    expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
+  })
+
+  it('both Fork and Thread render on a row that owns a worktree too', () => {
     const onCreate = vi.fn()
     render(
       <SidebarRow
@@ -114,8 +127,8 @@ describe('SidebarRow', () => {
         onCreate={onCreate}
       />,
     )
-    screen.getByRole('button', { name: /new workspace/i }).click()
-    expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
+    expect(screen.getByRole('button', { name: /fork/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
   it('a project-home row (branch, no parent) gets the 20px glyph exception', () => {
@@ -180,12 +193,74 @@ describe('SidebarRow', () => {
     })
   })
 
+  // Addendum §6: a locked/protected branch (repo/project home, or any other
+  // locked branch `rows-from-repo.ts` mints) must draw the Lock glyph, not
+  // the plain GitBranch mark every ordinary workspace draws — confirmed live
+  // as wrong for `main`. `rows-from-repo.ts`'s own `walk()` sources a locked
+  // branch row's `id` from its OWNING CHAT while `workspaceId` still names the
+  // workspace — an ordinary fork instead keeps `id === workspaceId` (see that
+  // file's own extensive doc on `rowId`). That existing mismatch is the
+  // signal used here; no new field was added to `SidebarRow` for it.
+  describe('locked branch glyph', () => {
+    function iconMarkup(el: React.ReactElement): string {
+      const { container, unmount } = render(el)
+      const html = container.querySelector('svg')?.outerHTML ?? ''
+      unmount()
+      return html
+    }
+
+    it('renders the Lock glyph when the row id was sourced from its owning chat (locked branch)', () => {
+      const lockedRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'branch-chat-1',
+        parentId: 'parent-1',
+        workspaceId: 'ws-locked',
+        ownsWorktree: true,
+        branchName: 'develop',
+      }
+      const html = iconMarkup(<SidebarRow row={lockedRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<Lock aria-hidden="true" className="size-4" weight="fill" />)
+      expect(html).toBe(expected)
+    })
+
+    it('renders the Lock glyph on the repo/project-home row when its own repoIcon has not seeded', () => {
+      const homeRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'home-branch-row',
+        parentId: null,
+        workspaceId: 'ws-home',
+        ownsWorktree: true,
+        branchName: 'main',
+      }
+      const html = iconMarkup(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<Lock aria-hidden="true" className="size-5" weight="fill" />)
+      expect(html).toBe(expected)
+    })
+
+    it('renders the plain GitBranch glyph for a regular fork, whose id equals its own workspaceId', () => {
+      const forkRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'ws-1',
+        parentId: 'parent-1',
+        workspaceId: 'ws-1',
+        ownsWorktree: true,
+        branchName: 'feature/x',
+      }
+      const html = iconMarkup(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<GitBranch aria-hidden="true" className="size-4" weight="fill" />)
+      expect(html).toBe(expected)
+    })
+  })
+
   it('clicking the row body opens it, not the trailing controls', () => {
     const onOpen = vi.fn()
-    const onTrash = vi.fn()
-    render(<SidebarRow row={deletableRow} depth={0} onOpen={onOpen} onTrash={onTrash} />)
-    screen.getByRole('button', { name: /delete/i }).click()
-    expect(onTrash).toHaveBeenCalledWith('row-1')
+    const onCreate = vi.fn()
+    render(<SidebarRow row={deletableRow} depth={0} onOpen={onOpen} onCreate={onCreate} />)
+    screen.getByRole('button', { name: /fork/i }).click()
+    expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
     expect(onOpen).not.toHaveBeenCalled()
   })
 
@@ -203,38 +278,33 @@ describe('SidebarRow', () => {
   // opening the rename dialog does not force every row in the tree to
   // re-render. `SidebarRow` itself only needs to mark which span is the
   // trigger surface, so the delegated listener can tell a double-click on the
-  // label apart from one on the trailing trash/create/fold controls.
+  // label apart from one on the trailing fork/thread/fold controls.
   it('the label span carries the delegation marker double-click-to-rename targets', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
     expect(screen.getByText('Fix the thing')).toHaveAttribute('data-sidebar-row-label')
   })
 
-  it('a protected branch row has no trash, even though onTrash is supplied', () => {
-    // spec §9: "a protected branch is the repo's own ground … not workspaces
-    // you made" — structurally the one row rows-from-repo.ts ever gives a
-    // null parentId, the repo's own default worktree (kind 'branch',
-    // parentId null). The population rule lives in SidebarRow itself, not in
-    // whether a caller withholds the handler — SidebarTree always passes one.
-    render(
-      <SidebarRow
-        row={{ ...baseRow, kind: 'branch', branchName: 'develop', ownsWorktree: true }}
-        depth={0}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-      />,
-    )
-    expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
+  // Addendum §1/§2: the trash button is gone from every row kind, not just
+  // the protected-branch one — deleting is now a drag-to-trash gesture built
+  // elsewhere. `onTrash` is still accepted (see the prop's own doc) purely
+  // for type-compat with `sidebar-tree.tsx`, which still threads a handler
+  // down to every row; it must render nothing regardless.
+  it('no row kind renders a trash control, even though onTrash is supplied', () => {
+    const rows: SidebarRowType[] = [
+      baseRow,
+      { ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', ownsWorktree: true },
+      { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
+      { ...baseRow, kind: 'folder', ownsWorktree: true },
+    ]
+    for (const row of rows) {
+      const { unmount } = render(<SidebarRow row={row} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+      expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
+      expect(document.querySelector('[data-control="trash"]')).not.toBeInTheDocument()
+      unmount()
+    }
   })
 
-  // A chat's delete now routes to a real `deleteChat` call
-  // (space-content-actions.ts's `handleTrash`), so its row carries the same
-  // trash every other non-home row does.
-  it('a chat row carries a trash, wired to the real delete', () => {
-    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
-    expect(screen.getByTestId('trash-control')).toBeInTheDocument()
-  })
-
-  it('a chat row shows all three HANDLER-driven trailing controls, trash included', () => {
+  it('a chat row shows both HANDLER-driven trailing controls plus fold, trash never among them', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -246,39 +316,7 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['trash', 'create', 'fold'])
-  })
-
-  it('a non-home branch row still carries a trash', () => {
-    render(
-      <SidebarRow
-        row={{
-          ...baseRow,
-          kind: 'branch',
-          parentId: 'parent-1',
-          branchName: 'my-feature',
-          ownsWorktree: true,
-        }}
-        depth={0}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-      />,
-    )
-    expect(screen.getByTestId('trash-control')).toBeInTheDocument()
-  })
-
-  it('trash takes the deny tint on hover', () => {
-    render(<SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
-    const trash = screen.getByTestId('trash-control')
-    fireEvent.mouseEnter(trash)
-    // The real token this codebase uses for a destructive/deny hover treatment
-    // is Tailwind's `text-destructive` (backed by the `--destructive` CSS var
-    // in theme.css) — there is no `--deny` token anywhere in web/src. The tint
-    // is CSS-driven (a static `hover:` utility class), so the class is present
-    // in the DOM regardless of the mouseenter simulation; the real activation
-    // happens via the browser's own `:hover` match.
-    expect(trash).toHaveClass('hover:text-destructive')
-    expect(trash).toHaveClass('hover:bg-destructive/10')
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'thread', 'fold'])
   })
 
   // §3.5/§4.2: a bubble chat's glyph is itself a promotion dropdown — gated

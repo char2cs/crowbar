@@ -5,7 +5,6 @@ import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarCarousel } from './sidebar-carousel'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
-import { SidebarFooter } from './sidebar-footer'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   useProjectStore,
@@ -115,12 +114,11 @@ export function IDEShell() {
   const handleSelectProject = (projectId: string) => {
     void navigate({ to: '/ide/$projectId/home', params: { projectId } })
   }
-  // The tree's only entry point for a SECOND project (spec §3 ruling,
-  // relocated per user direction to the sidebar's own footer): a trailing
-  // `+` mark in SidebarFooter, not a reopened tree-foot row. Lifted here,
-  // alongside `allProjects`, so both SidebarFooter (the mark) and this
-  // modal can reach it — moved verbatim from the old SidebarTreeChrome-
-  // owned state.
+  // The tree's only entry point for a SECOND project (spec §3 ruling): a
+  // trailing `+` mark alongside the space marks in SidebarProjectHeader's
+  // window-chrome row, not a reopened tree-foot row. Lifted here, alongside
+  // `allProjects`, so both the header (the marks) and this modal can reach
+  // it — moved verbatim from the old SidebarTreeChrome-owned state.
   const [importProjectOpen, setImportProjectOpen] = useState(false)
   const handleImportProject = useCallback((project: Project) => {
     importProjectAndSync(project)
@@ -139,11 +137,10 @@ export function IDEShell() {
   // IS this column — measure synchronously on mount (mirrors
   // use-tab-bar-scroll.ts's own layout-effect + ResizeObserver pattern) so
   // the card opens at the right height on first paint, not one frame late.
-  // The rail is a `flex-1` child of the outer sidebar column below, not the
-  // whole column itself (task-10): SidebarFooter is a SIBLING after it, in
-  // its own reserved `flex-none` space, so the rail's measured height
-  // already excludes the footer — the card's own bottom-inset math (still
-  // relative to THIS element) needs no change to account for it.
+  // The rail is the whole sidebar column below (header/tree/floating card/
+  // toasts) — spec §2's file-explorer card is "ALWAYS THE LAST ELEMENT...
+  // Nothing goes below it", so there is no footer sibling stealing height
+  // from this measurement any more (see the space-marks note below).
   const sidebarRailRef = useRef<HTMLDivElement>(null)
   const [sidebarRailHeight, setSidebarRailHeight] = useState(0)
   useLayoutEffect(() => {
@@ -179,50 +176,43 @@ export function IDEShell() {
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
   //
-  // The rail (header/tree/floating card/toasts) and SidebarFooter are two
-  // `flex` siblings in an outer column, not the rail's own children (task-10:
-  // the user's explicit override of spec §4.1's window-chrome placement —
-  // "the last element on the sidebar, right down [from] the file explorer,
-  // but not inside it, just outside, at the end of the sidebar"). Putting the
-  // footer OUTSIDE `sidebarRailRef` — rather than appending it inside as one
-  // more flow child — means the rail (still the ONLY element the floating
-  // card's `absolute inset-x-2 bottom-2` is positioned against, and the only
-  // element `sidebarRailHeight` measures) simply gets shorter by the
-  // footer's own reserved `flex-none` height. The card's own resize/float
-  // math in sidebar-carousel.tsx needed no changes at all.
+  // Space marks (spec §4.1) render inside SidebarProjectHeader's own
+  // window-chrome row now, not as a separate footer sibling below this rail
+  // (task-10's placement override, reconciled back onto spec: §2 rules the
+  // floating file-explorer card "ALWAYS THE LAST ELEMENT... Nothing goes
+  // below it", which that footer placement violated regardless of what it
+  // held). `sidebarRailRef` is once again the sidebar's only column — no
+  // sibling height to account for — so the card's resize/float math in
+  // sidebar-carousel.tsx needed no changes.
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
-      <div className="flex h-full min-h-0 flex-col bg-transparent select-none">
-        <div
-          ref={sidebarRailRef}
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          {!hasNavScreen && <SidebarProjectHeader />}
-          {!hasNavScreen && (
-            <SidebarTreeSurface
-              projects={allProjects}
-              activeProjectId={activeProjectIdFromRoute}
-              onActiveProjectChange={handleSelectProject}
-            />
-          )}
-          <ErrorBoundary>
-            <SidebarCarousel
-              activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-              sidebarHeight={sidebarRailHeight}
-              railRef={sidebarRailRef}
-            />
-          </ErrorBoundary>
-          <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
-        </div>
-        {/* The sidebar's true last element (task-10) — a sibling AFTER the
-            rail above (which itself ends with the floating file-explorer
-            card), never inside it. */}
-        <SidebarFooter
-          projects={allProjects}
-          activeProjectId={activeProjectIdFromRoute}
-          onSelectProject={handleSelectProject}
-          onAddProject={() => setImportProjectOpen(true)}
-        />
+      <div
+        ref={sidebarRailRef}
+        className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none"
+      >
+        {!hasNavScreen && (
+          <SidebarProjectHeader
+            projects={allProjects}
+            activeProjectId={activeProjectIdFromRoute}
+            onSelectProject={handleSelectProject}
+            onAddProject={() => setImportProjectOpen(true)}
+          />
+        )}
+        {!hasNavScreen && (
+          <SidebarTreeSurface
+            projects={allProjects}
+            activeProjectId={activeProjectIdFromRoute}
+            onActiveProjectChange={handleSelectProject}
+          />
+        )}
+        <ErrorBoundary>
+          <SidebarCarousel
+            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+            sidebarHeight={sidebarRailHeight}
+            railRef={sidebarRailRef}
+          />
+        </ErrorBoundary>
+        <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
     </SidebarPeek>
   )

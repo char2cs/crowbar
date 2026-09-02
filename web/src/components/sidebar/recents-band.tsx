@@ -37,7 +37,24 @@ export type { RecentsEntry, RecentsEntryState }
  * problem) reads any workspace's store directly, keyed by this tag.
  */
 export interface RecentsBandEntry extends RecentsEntry {
+  /**
+   * The entry's OWN primary workspace — kept for callers that need exactly
+   * one (`recents-actions.ts`'s `focusRecent`/its route), derived the same
+   * way it always was, from the first chat. Rendering a SET's individual
+   * members must NOT use this: a SET can span more than one workspace
+   * within a project, and every member here used to be drawn against
+   * whichever workspace the FIRST chat happened to own — see
+   * `chatWorkspaces` below, which is what a member row actually reads.
+   */
   workspaceId: string
+  /** Each of `chatIds`, mapped to the workspace store that actually owns
+   *  it — resolved per chat, never assumed uniform across the entry (a SET
+   *  can span workspaces within one project). What `RecentsMemberRow`
+   *  reads to find its own chat's data. Optional so a caller with only one
+   *  chat (or one that never needed per-member resolution — existing test
+   *  fixtures included) can still fall back to `workspaceId` above; the
+   *  real producer (`recents-for-project.ts`) always populates it. */
+  chatWorkspaces?: Record<string, string>
   /**
    * The entry's id exactly as `deriveRecentsEntries` produced it, before
    * `recents-for-project.ts` workspace-qualifies `.id` for cross-workspace
@@ -213,7 +230,9 @@ function RecentsEntryRow({
       {entry.chatIds.map((chatId) => (
         <RecentsMemberRow
           key={chatId}
-          workspaceId={entry.workspaceId}
+          // Per-chat, never the entry-wide `workspaceId` — a SET's members
+          // can each belong to a different workspace within the project.
+          workspaceId={entry.chatWorkspaces?.[chatId] ?? entry.workspaceId}
           chatId={chatId}
           hasView={isLive}
           reserveClose={canClose}
@@ -316,7 +335,9 @@ function RecentsMemberRow({
         row={row}
         depth={0}
         onOpen={onOpen}
-        dragProps={drag.dragProps(row)}
+        // Published so a hit test can tell this row apart from a tree row
+        // wearing the same `parentId: null` — see `RowDragExtra.inRecents`.
+        dragProps={drag.dragProps(row, { inRecents: true })}
         isDragging={drag.draggingIds.has(row.id)}
         isNestTarget={drag.nestTargetId === row.id}
         onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo } from 'react'
-import { File as FileIcon, TerminalWindow } from '@phosphor-icons/react'
+import { File as FileIcon, GitPullRequest, TerminalWindow } from '@phosphor-icons/react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
 import { ProjectIconMark, type ProjectIconSource } from '@/components/layout/project-icon-mark'
@@ -15,6 +15,10 @@ import {
 } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { orderedChats } from '@/features/workspace/stores/slices/agent-chats-slice'
+import {
+  ensurePaneChatThenOpen,
+  openBranchReviewForActiveWorkspace,
+} from '@/features/panes/utils/pane-command-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { deriveContextPillModel } from '@/components/layout/context-pill-model'
@@ -116,9 +120,9 @@ function useContextHeading(): {
   return { eyebrow: '', title: '', isHome: false }
 }
 
-function Chord({ commandId }: { commandId: string }) {
+function Chord({ commandId }: { commandId?: string }) {
   const chordMap = useEffectiveChordMap()
-  const chord = chordMap[commandId]
+  const chord = commandId ? chordMap[commandId] : undefined
   if (!chord) return null
   return (
     <kbd className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
@@ -190,25 +194,43 @@ export function NewTabView({ paneId }: { paneId: string }) {
     windowPaneStore.getState().paneActions.setActivePane(paneId)
   }, [paneId])
 
+  // Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands
+  // in the editor view [of a chat]" — a pane must hold a chat before a
+  // terminal, file, or branch review opens into its editor view.
+  // `ensurePaneChatThenOpen` already focuses this pane (mirrors
+  // `activateThisPane`, so that call is folded into it here), minting a chat
+  // the same way ⌘N does when the pane doesn't have one yet.
   const openTerminal = useCallback(() => {
-    activateThisPane()
-    windowPaneStore.getState().bufferActions.openContent({ type: 'terminal', workspaceId: wsId })
-  }, [activateThisPane, wsId])
+    ensurePaneChatThenOpen(wsId, paneId, () => {
+      windowPaneStore.getState().bufferActions.openContent({ type: 'terminal', workspaceId: wsId })
+    })
+  }, [paneId, wsId])
 
   // A virtual buffer needs neither a target directory nor write access, so New
   // File works on a locked worktree (protected branches, Project Home) where the
   // file-explorer's New File is hidden outright.
   const openFile = useCallback(() => {
-    activateThisPane()
-    windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      path: 'untitled:Untitled',
-      name: 'Untitled',
-      content: '',
-      isVirtual: true,
-      workspaceId: wsId,
+    ensurePaneChatThenOpen(wsId, paneId, () => {
+      windowPaneStore.getState().bufferActions.openContent({
+        type: 'editor',
+        path: 'untitled:Untitled',
+        name: 'Untitled',
+        content: '',
+        isVirtual: true,
+        workspaceId: wsId,
+      })
     })
-  }, [activateThisPane, wsId])
+  }, [paneId, wsId])
+
+  // Third way in (spec §7.2: "open a file, run a terminal, review the
+  // branch"). `openBranchReviewForActiveWorkspace` (git-panel.tsx's own
+  // "Open review" action) reads the globally active workspace rather than
+  // taking `wsId` as a param — the same assumption GitPanel already makes.
+  const openBranchReview = useCallback(() => {
+    ensurePaneChatThenOpen(wsId, paneId, () => {
+      openBranchReviewForActiveWorkspace()
+    })
+  }, [paneId, wsId])
 
   // Only the hand-off row ("N more in this worktree") goes to the sidebar — it
   // means "show me the rest", so a browser is the right destination. The
@@ -292,7 +314,8 @@ export function NewTabView({ paneId }: { paneId: string }) {
                 drawn at the row's head), not something this view opens; ⌘N
                 still starts one (use-pane-keyboard.ts), it just no longer has
                 a row here. Ordered by how often the action is actually
-                wanted: a terminal first, a new file last. */}
+                wanted: a terminal first, a new file last. No keymap chord is
+                registered for branch review, so its row carries no badge. */}
             <div className="flex w-full flex-col gap-0.5">
               <ActionRow
                 icon={<TerminalWindow />}
@@ -305,6 +328,11 @@ export function NewTabView({ paneId }: { paneId: string }) {
                 label="New File"
                 commandId={TAB_NEW_FILE}
                 onClick={openFile}
+              />
+              <ActionRow
+                icon={<GitPullRequest />}
+                label="Review the Branch"
+                onClick={openBranchReview}
               />
             </div>
 
@@ -378,7 +406,9 @@ function ActionRow({
 }: {
   icon: React.ReactNode
   label: string
-  commandId: string
+  /** Absent when the action has no registered keymap chord — the row then
+   *  carries no badge (see `Chord`). */
+  commandId?: string
   onClick: () => void
   /**
    * Why this action cannot run right now. Present ⇒ the row is a real disabled

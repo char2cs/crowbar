@@ -17,11 +17,26 @@ import {
   SIDEBAR_DRAG_THRESHOLD_PX,
   PANE_DROP_ATTR,
   PANE_HIT_ATTR,
+  CARD_TRASH_DROP_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { handleTrash } from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+// Addendum §2's drag-to-trash commits through the SAME `handleTrash`
+// `space-content-actions.test.ts` already exercises in full (resolve →
+// planRemoval → hold) — mocked here so this suite can assert the HOOK calls
+// it with the right id(s) without also standing up a real sidebar/removal
+// store fixture for every other test in this file.
+vi.mock('@/components/layout/space-content-actions', () => ({
+  handleTrash: vi.fn(() => true),
+}))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+}))
 
 const ROW_H = 36
 
@@ -82,13 +97,23 @@ function makePane(paneId: string, rect: Partial<DOMRect>) {
   return el
 }
 
+/** The file explorer card's trash-target surface (addendum §2) — a bare
+ *  presence flag, same shape as `makePane` but with no id to carry. */
+function makeTrashZone(rect: Partial<DOMRect>) {
+  const el = document.createElement('div')
+  el.setAttribute(CARD_TRASH_DROP_ATTR, '')
+  stubRect(el, rect)
+  document.body.appendChild(el)
+  return el
+}
+
 /** Answer the shared hit test from whatever is actually in the document,
  *  topmost (last-appended) first — mirrors real `elementsFromPoint` order. */
 function stubHitTest() {
   document.elementsFromPoint = ((x: number, y: number) => {
     const hits: Element[] = []
     for (const el of document.querySelectorAll<HTMLElement>(
-      `[${Object.values(ROW_KIND_ATTR).join('],[')}],[${PANE_DROP_ATTR}]`,
+      `[${Object.values(ROW_KIND_ATTR).join('],[')}],[${PANE_DROP_ATTR}],[${CARD_TRASH_DROP_ATTR}]`,
     )) {
       const r = el.getBoundingClientRect()
       if (r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y < r.bottom) hits.push(el)
@@ -174,6 +199,9 @@ function release(x: number, y: number) {
 
 beforeEach(() => {
   rowRegistry.clear()
+  vi.mocked(handleTrash).mockClear()
+  vi.mocked(handleTrash).mockReturnValue(true)
+  vi.mocked(toast.error).mockClear()
   Element.prototype.setPointerCapture = () => {}
   vi.stubGlobal('requestAnimationFrame', () => 0)
   vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -539,7 +567,11 @@ describe('useSidebarDrag', () => {
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
 
-  it('a working row is refused everywhere — the matrix carries through to the hit test', () => {
+  // Spec §8.3: "a working chat may not be dragged." Refused at PICKUP now
+  // (`onPointerDownDrag`), before a drag is ever armed — stronger than the
+  // matrix's own working-subject refusal (`SIDEBAR_DROP_POLICY`), which
+  // still exists but would only ever fire once a drag is already in the air.
+  it('a working row never arms a drag at all — refused at pickup, not just at the hit test', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
     makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
@@ -547,9 +579,71 @@ describe('useSidebarDrag', () => {
 
     press(result, workingRow, rowA)
     move(10, ROW_H + 2)
-    release(10, ROW_H + 2)
 
+    // Never even reached `dragging: true` — nothing to release.
+    expect(result.current.dragging).toBe(false)
+    expect(result.current.ghostRows).toBeNull()
+
+    release(10, ROW_H + 2)
     expect(onDrop).not.toHaveBeenCalled()
+  })
+
+  describe('the working-drag refusal (spec §8.3)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('dims the scroller and paints the dragged row red, with a short note', () => {
+      const workingRow: SidebarRow = { ...baseRow, working: true }
+      const rowA = makeRow(workingRow, 0)
+      const scroller = document.createElement('div')
+      document.body.appendChild(scroller)
+      const { result } = renderDrag({ subjectsFor: () => [workingRow], scroller })
+
+      press(result, workingRow, rowA)
+
+      expect(scroller.style.opacity).toBe('0.4')
+      expect(rowA.style.outline).toContain('var(--destructive)')
+      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
+      expect(document.querySelector('[data-row-drag-refusal]')?.textContent).toMatch(/working/i)
+    })
+
+    it('clears itself after the timeout, undoing every style it painted', () => {
+      const workingRow: SidebarRow = { ...baseRow, working: true }
+      const rowA = makeRow(workingRow, 0)
+      const scroller = document.createElement('div')
+      document.body.appendChild(scroller)
+      const { result } = renderDrag({ subjectsFor: () => [workingRow], scroller })
+
+      press(result, workingRow, rowA)
+      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
+
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+
+      expect(scroller.style.opacity).toBe('')
+      expect(rowA.style.outline).toBe('')
+      expect(document.querySelector('[data-row-drag-refusal]')).toBeNull()
+    })
+
+    it('clears early on the next pointerdown anywhere, not just on its own timer', () => {
+      const workingRow: SidebarRow = { ...baseRow, working: true }
+      const rowA = makeRow(workingRow, 0)
+      const { result } = renderDrag({ subjectsFor: () => [workingRow] })
+
+      press(result, workingRow, rowA)
+      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
+
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      })
+
+      expect(document.querySelector('[data-row-drag-refusal]')).toBeNull()
+    })
   })
 
   it('clears dragging state and the ghost after a release', () => {
@@ -599,5 +693,101 @@ describe('useSidebarDrag', () => {
     expect(props['data-sidebar-path']).toBe('/a/')
     expect(props['data-sidebar-expanded']).toBe('')
     expect(props['data-sidebar-children']).toBeUndefined()
+  })
+
+  // Addendum §2: dropping a row on the file explorer card's trash surface
+  // feeds `handleTrash` — the same removal-tray path a row's own trash
+  // button (now gone, per addendum §1) used to call directly.
+  describe('drag-to-trash (addendum §2)', () => {
+    it('dropping a row on the trash zone calls handleTrash with its id', () => {
+      const rowA = makeRow(baseRow, 0)
+      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+      const { result, onDrop, onPaneDrop } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(10, 550)
+      release(10, 550)
+
+      expect(handleTrash).toHaveBeenCalledExactlyOnceWith('a')
+      // Never ALSO treated as a row or pane drop.
+      expect(onDrop).not.toHaveBeenCalled()
+      expect(onPaneDrop).not.toHaveBeenCalled()
+    })
+
+    it('the trash zone wins over a pane sitting behind it, and a pane wins when the trash zone is not there', () => {
+      const rowA = makeRow(baseRow, 0)
+      // Same screen region, both present — the trash zone is appended AFTER
+      // the pane, so it paints on top and must be the one that wins.
+      makePane('pane-1', { top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+      const trash = makeTrashZone({
+        top: 500,
+        bottom: 600,
+        left: 0,
+        right: 300,
+        width: 300,
+        height: 100,
+      })
+      const { result, onPaneDrop } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(150, 550) // dead centre of the shared rect
+      release(150, 550)
+
+      expect(handleTrash).toHaveBeenCalledExactlyOnceWith('a')
+      expect(onPaneDrop).not.toHaveBeenCalled()
+
+      // Remove the trash zone — now the SAME pane underneath it is reachable.
+      trash.remove()
+      vi.mocked(handleTrash).mockClear()
+      press(result, baseRow, rowA)
+      move(150, 550)
+      release(150, 550)
+
+      expect(onPaneDrop).toHaveBeenCalledWith([baseRow], 'pane-1', 'center')
+      expect(handleTrash).not.toHaveBeenCalled()
+    })
+
+    it('a working row never reaches the trash zone either — refused at pickup', () => {
+      const workingRow: SidebarRow = { ...baseRow, working: true }
+      const rowA = makeRow(workingRow, 0)
+      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+      const { result } = renderDrag({ subjectsFor: () => [workingRow] })
+
+      press(result, workingRow, rowA)
+      move(10, 550)
+      release(10, 550)
+
+      expect(handleTrash).not.toHaveBeenCalled()
+    })
+
+    it('a refused drop (locked branch, repo home — handleTrash returns false) surfaces a toast, not a silent no-op', () => {
+      vi.mocked(handleTrash).mockReturnValue(false)
+      const row: SidebarRow = { ...baseRow, label: 'develop' }
+      const rowA = makeRow(row, 0)
+      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+      const { result } = renderDrag({ subjectsFor: () => [row] })
+
+      press(result, row, rowA)
+      move(10, 550)
+      release(10, 550)
+
+      expect(toast.error).toHaveBeenCalledWith("Can't delete develop — it may be locked")
+    })
+
+    it('drops every dragged subject, not just the first', () => {
+      const rowA = makeRow(baseRow, 0)
+      const rowB: SidebarRow = { ...baseRow, id: 'b', label: 'b' }
+      makeRow(rowB, 1)
+      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+      const { result } = renderDrag({ subjectsFor: () => [baseRow, rowB] })
+
+      press(result, baseRow, rowA)
+      move(10, 550)
+      release(10, 550)
+
+      expect(handleTrash).toHaveBeenCalledTimes(2)
+      expect(handleTrash).toHaveBeenCalledWith('a')
+      expect(handleTrash).toHaveBeenCalledWith('b')
+    })
   })
 })

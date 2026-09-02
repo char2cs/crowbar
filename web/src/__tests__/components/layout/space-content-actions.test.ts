@@ -179,23 +179,32 @@ describe('handleOpen', () => {
  *
  * `handleCreate` used to fall through to a path built for a different row
  * kind and explain itself in that kind's words — worse than doing nothing,
- * because the explanation was false. `handleTrash` is the same shape of bug
- * fixed the other direction: a chat delete must never fall into the
- * removal-tray/workspace-lock path, even now that it succeeds for real.
+ * because the explanation was false. `handleTrash` used to be the same
+ * shape of bug fixed the other direction — a direct `deleteChat` call with
+ * no removal-tray draft at all. Addendum §2 closes THAT gap instead: a chat
+ * now goes through the exact same tray every other kind already did, so its
+ * delete is no longer a special case.
  */
 describe('a chat row does not borrow another row kind’s refusal', () => {
   const repoWithChat = () =>
     repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
 
-  it('handleTrash deletes directly — it never enters the removal tray', async () => {
+  it('handleTrash holds a chat in the removal tray — no direct deleteChat call', () => {
     useSidebarStore.setState({ repos: [repoWithChat()] })
+
     expect(handleTrash('c1')).toBe(true)
-    await Promise.resolve()
+
+    expect(deleteChat).not.toHaveBeenCalled()
+    const entries = useRemovalTrayStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', label: 'a chat' })
     // repo()'s default `defaultWorkspaceId` ('home-1') is the scoped
-    // workspace id `scopedWorkspaceIdOf` resolves for a repo with no real
-    // `workspaces` entries.
-    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-1', 'c1')
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    // workspace id the DELETE request is addressed through once the hold
+    // actually commits — a repo with no real `workspaces` entries.
+    expect(entries[0].wsId).toBe('home-1')
+    // A chat drains on the same 8s clock every non-cascading kind uses —
+    // it does not wait on Cancel/Remove the way a repo/project does.
+    expect(entries[0].deadlineAt).not.toBeNull()
   })
 
   it('handleCreate is SILENT — never the folder’s "has none to run it in"', () => {
@@ -409,10 +418,12 @@ describe('handleTrash', () => {
     expect(useRemovalTrayStore.getState().entries).toEqual([])
   })
 
-  // A chat's delete is a direct `deleteChat` call, not a removal-tray draft —
-  // `resolveChatRow` is consulted before `resolveRow` ever sees the id.
+  // Addendum §2: a chat's delete now holds in the SAME removal tray every
+  // other kind uses — `resolveChatRow` is still consulted before `resolveRow`
+  // ever sees the id, but the outcome is a held `RemovalEntry`, not an
+  // immediate `deleteChat` call.
   describe('a chat row', () => {
-    it('deletes a bubble chat, scoped through any workspace of its own repo', async () => {
+    it('holds a bubble chat in the removal tray, scoped through any workspace of its own repo', () => {
       useSidebarStore.setState({
         repos: [
           repo({
@@ -425,9 +436,11 @@ describe('handleTrash', () => {
       })
 
       expect(handleTrash('c1')).toBe(true)
-      await Promise.resolve()
 
-      expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'c1')
+      expect(deleteChat).not.toHaveBeenCalled()
+      const entries = useRemovalTrayStore.getState().entries
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', wsId: 'ws-a' })
     })
 
     it('refuses when the repo has no workspace at all to scope the request through', () => {

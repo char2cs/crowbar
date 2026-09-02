@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useEffect, useRef, useState, Suspense } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useMatch } from '@tanstack/react-router'
-import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { CaretDown, FolderOpen, GitBranch, Trash } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
@@ -10,10 +10,12 @@ import { FileExplorerTree } from '@/features/file-explorer/components/file-explo
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SidebarSkeleton } from './sidebar-skeleton'
+import { RemovalTray } from './removal-tray'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { CARD_TRASH_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import {
   CARD_BOTTOM_INSET_VAR,
   DEFAULT_CARD_HEIGHT_FRACTION,
@@ -119,6 +121,26 @@ export function SidebarCarousel({
   // space-scroller.tsx's own `SpacePanel` fold precedent exactly (its
   // `folded` state, same reasoning, a different surface).
   const [folded, setFolded] = useState(false)
+
+  // Addendum §2 step 2: a live row drag folds the card too, but this is NOT
+  // the user's own toggle — `folded`/`setFolded` above stay completely
+  // untouched, so the card returns to exactly what it was once the drag
+  // ends (step 5) with nothing left to restore by hand. Driven off the
+  // SAME `data-row-dragging` attribute `use-sidebar-drag.ts` already sets
+  // at drag start and clears at drag end (on both drop and cancel) —
+  // observed here rather than threaded through as a prop, since nothing
+  // else in this component's own tree originates a drag.
+  const [dragFolding, setDragFolding] = useState(false)
+  useEffect(() => {
+    const read = () => document.documentElement.hasAttribute('data-row-dragging')
+    setDragFolding(read())
+    const observer = new MutationObserver(() => setDragFolding(read()))
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-row-dragging'],
+    })
+    return () => observer.disconnect()
+  }, [])
 
   // The RESTING value (mount, sidebarHeight resize, or the recompute a
   // completed drag's committed `heightFraction` triggers) — never fired
@@ -300,6 +322,9 @@ export function SidebarCarousel({
     <div
       ref={cardRef}
       data-testid="carousel-card"
+      // This box's own `absolute` already makes it a positioning ancestor,
+      // so the drag-to-trash overlay below (`absolute inset-0`) covers
+      // exactly this box without needing a separate `relative`.
       className="absolute inset-x-2 bottom-2 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
       style={cardHeightPx != null && !folded ? { height: `${cardHeightPx}px` } : undefined}
     >
@@ -309,8 +334,10 @@ export function SidebarCarousel({
           not a separate visible sash. Hidden while folded: there is no
           dragged height to adjust when the body isn't showing, and the
           card's own height then collapses to the head's (point 4, spec
-          §6.4) rather than reserving the last-dragged height. */}
-      {!folded && (
+          §6.4) rather than reserving the last-dragged height. Hidden during
+          a drag-fold too — resizing mid-drag is not a thing, and the trash
+          overlay below sits on top of it anyway. */}
+      {!folded && !dragFolding && (
         <div
           data-testid="carousel-resize-handle"
           onPointerDown={handleResizePointerDown}
@@ -357,6 +384,8 @@ export function SidebarCarousel({
             variant="ghost"
             size="icon-sm"
             data-testid="carousel-fold-toggle"
+            // `aria-pressed`/`onClick` stay tied to the REAL toggle only —
+            // a drag-fold is not a click and must never be recorded as one.
             aria-pressed={folded}
             aria-label={folded ? 'Expand file explorer' : 'Collapse file explorer'}
             tooltip={folded ? 'Expand file explorer' : 'Collapse file explorer'}
@@ -367,17 +396,30 @@ export function SidebarCarousel({
             <CaretDown
               aria-hidden="true"
               data-testid="carousel-fold-caret"
-              className={cn('transition-transform', folded && 'rotate-180')}
+              // The VISUAL follows whichever fold is actually showing —
+              // point 2's "existing §6.4 fold treatment" applies to a
+              // drag-fold too, this control included.
+              className={cn('transition-transform', (folded || dragFolding) && 'rotate-180')}
             />
           </Button>
         </div>
+        {/* The removal tray (addendum §2 step 4): "the held row renders at
+            the top of the file explorer card, not at the sidebar's separate
+            foot position" — moved here from `sidebar-tree-chrome.tsx`'s own
+            sidebar-wide mount. Sits above the Files/Git body, independent of
+            fold state: a draining hold stays visible (and Keep-able) even
+            if the user folds the card while it is waiting out its clock. */}
+        <RemovalTray />
         {/* The body (spec §6.4): folding "drops everything under [the head]" —
             `hidden` (display:none), never a conditional unmount. Both
             Files and Git panels stay mounted the whole time regardless of
             fold (spec §6.2), the same dormancy the pane's own chat/terminal
             surfaces use (agent-chat-pane.tsx) — unmounting here would lose
             each panel's scroll position and re-trigger FileExplorerTree's/
-            GitPanel's measured init logic on every unfold. */}
+            GitPanel's measured init logic on every unfold. Also hidden
+            during a drag-fold (`dragFolding`) — the trash overlay below
+            covers the same area, but the underlying scroller staying
+            interactive while covered is one hazard fewer to reason about. */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
@@ -386,7 +428,7 @@ export function SidebarCarousel({
           data-sidebar-carousel=""
           className={cn(
             'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            folded ? 'hidden' : 'flex',
+            folded || dragFolding ? 'hidden' : 'flex',
           )}
         >
           {/* Files panel */}
@@ -436,6 +478,26 @@ export function SidebarCarousel({
           </div>
         </div>
       </NavStack>
+      {/* Addendum §2 step 3: "once folded... the card's surface becomes a
+          trash-can drop target." Reuses `DropZone` (`drop-dom.ts`), the same
+          whole-region hit-test abstraction the (now-deleted) editor-pane
+          removal zone used — `CARD_TRASH_DROP_ATTR` is the attribute
+          `use-sidebar-drag.ts`'s own card-trash zone reads. Sits on top of
+          everything else in the card (`z-20`, last in DOM order) so it is
+          what the hit test — and a real pointer release — actually lands
+          on. The exact visual (icon + destructive tint + short label) is
+          this session's own read of "match what develop already ships" —
+          verify against a live `develop` build before shipping. */}
+      {dragFolding && (
+        <div
+          {...{ [CARD_TRASH_DROP_ATTR]: '' }}
+          data-testid="carousel-trash-zone"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-destructive bg-destructive/15 text-destructive"
+        >
+          <Trash aria-hidden="true" className="size-5" weight="fill" />
+          <span className="text-[11px] font-medium">Drop to delete</span>
+        </div>
+      )}
     </div>
   )
 }

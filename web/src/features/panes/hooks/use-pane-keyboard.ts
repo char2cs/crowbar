@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { splitActiveEditorGroup } from '../utils/pane-command-actions'
+import { ensurePaneChatThenOpen } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -40,15 +40,13 @@ export function usePaneKeyboard() {
         return chord ? eventMatchesChord(e, chord) : false
       }
 
-      if (matches(PANE_SPLIT_RIGHT)) {
+      if (matches(PANE_SPLIT_RIGHT) || matches(PANE_SPLIT_DOWN)) {
+        // Spec §7.3: "a pane group is a group of chats, never of tabs" (Law
+        // 3) — splitting the active editor tab into a new pane is gone with
+        // the tab-driven split it came from. Still a registered, rebindable
+        // command (mirrors TAB_NEW below), so the chord stays claimed rather
+        // than falling through to a browser/OS default.
         e.preventDefault()
-        splitActiveEditorGroup('horizontal')
-        return
-      }
-
-      if (matches(PANE_SPLIT_DOWN)) {
-        e.preventDefault()
-        splitActiveEditorGroup('vertical')
         return
       }
 
@@ -65,19 +63,30 @@ export function usePaneKeyboard() {
       }
 
       if (matches(TAB_NEW_TERMINAL)) {
+        // Law 3 (spec §7.2): nothing lands in a pane of its own — a pane
+        // must hold a chat before a terminal opens into its editor view.
+        // Same ensure-chat-then-open sequence as NewTabView's own "New
+        // Terminal" row.
         e.preventDefault()
-        windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' })
+        const targetPaneId = windowPaneStore.getState().activePaneId
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
+          windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' })
+        })
         return
       }
 
       if (matches(TAB_NEW_FILE)) {
+        // Same Law 3 fix as TAB_NEW_TERMINAL above, for a new file.
         e.preventDefault()
-        windowPaneStore.getState().bufferActions.openContent({
-          type: 'editor',
-          path: 'untitled:Untitled',
-          name: 'Untitled',
-          content: '',
-          isVirtual: true,
+        const targetPaneId = windowPaneStore.getState().activePaneId
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
+          windowPaneStore.getState().bufferActions.openContent({
+            type: 'editor',
+            path: 'untitled:Untitled',
+            name: 'Untitled',
+            content: '',
+            isVirtual: true,
+          })
         })
         return
       }

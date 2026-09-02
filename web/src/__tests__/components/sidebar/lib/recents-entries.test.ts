@@ -88,4 +88,48 @@ describe('deriveRecentsEntries', () => {
       { id: 'view-b', state: 'dormant' },
     ])
   })
+
+  // Spec §8.1: "above / below a Recents entry → it moves to that slot" — the
+  // fourth argument, `pane-slice.ts`'s persisted `recentsOrder`.
+  describe('the persisted `order` argument', () => {
+    it('a real drag order overrides the append/population order entirely', () => {
+      const dormant: RecentsEntry[] = [
+        { id: 'view-a', chatIds: ['chat-1'], state: 'dormant' },
+        { id: 'view-b', chatIds: ['chat-2'], state: 'dormant' },
+      ]
+      const panes = [makePane({ id: 'view-c', chatId: 'chat-3' })]
+      // Natural/append order would be [view-a, view-b, view-c] (as the test
+      // above pins) — dragged order says otherwise.
+      const entries = deriveRecentsEntries(panes, {}, dormant, ['view-c', 'view-a', 'view-b'])
+      expect(entries.map((e) => e.id)).toEqual(['view-c', 'view-a', 'view-b'])
+    })
+
+    it('an entry never named in `order` keeps its natural position, after every named one', () => {
+      const dormant: RecentsEntry[] = [
+        { id: 'view-a', chatIds: ['chat-1'], state: 'dormant' },
+        { id: 'view-b', chatIds: ['chat-2'], state: 'dormant' },
+        { id: 'view-c', chatIds: ['chat-3'], state: 'dormant' },
+      ]
+      // Only view-b has ever been dragged — view-a and view-c are untouched
+      // and keep their own natural relative order, both after view-b.
+      const entries = deriveRecentsEntries([], {}, dormant, ['view-b'])
+      expect(entries.map((e) => e.id)).toEqual(['view-b', 'view-a', 'view-c'])
+    })
+
+    it('an id in `order` that names nothing currently drawn is simply inert', () => {
+      const dormant: RecentsEntry[] = [{ id: 'view-a', chatIds: ['chat-1'], state: 'dormant' }]
+      const entries = deriveRecentsEntries([], {}, dormant, ['ghost', 'view-a'])
+      expect(entries.map((e) => e.id)).toEqual(['view-a'])
+    })
+
+    it('an empty order (the default) falls back to the plain append order untouched', () => {
+      const dormant: RecentsEntry[] = [
+        { id: 'view-a', chatIds: ['chat-1'], state: 'dormant' },
+        { id: 'view-b', chatIds: ['chat-2'], state: 'dormant' },
+      ]
+      expect(deriveRecentsEntries([], {}, dormant)).toEqual(
+        deriveRecentsEntries([], {}, dormant, []),
+      )
+    })
+  })
 })
