@@ -162,6 +162,108 @@ func TestResolve_WorkspaceReaderErrorIsSurfacedWithContextNotSwallowed(t *testin
 	}
 }
 
+// TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound is the regression
+// test for the bug in commit 8f7ca472: chat-a owns a worktree, folder-f is
+// filed under chat-a, and chat-b is filed under folder-f. Resolving chat-b
+// must find chat-a's workspace by walking through folder-f, not stop at it.
+//
+// It goes through NewChatTreeAncestryReader — the real production adapter,
+// not a fake standing in for its answer — over a fakeChatLister that supplies
+// nothing but raw rows and real ParentID edges. Whether folder-f is crossed
+// is entirely up to the tree walk under test.
+func TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound(t *testing.T) {
+	lister := &fakeChatLister{
+		rows: []domain.Chat{
+			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-f"},
+			{ID: "chat-a", Type: domain.ChatTypeChat, ParentID: "", WorkspaceID: "ws-a"},
+			{ID: "folder-f", Type: domain.ChatTypeFolder, ParentID: "chat-a"},
+		},
+	}
+	chats := worktree.NewChatTreeAncestryReader(lister)
+	workspaces := &fakeWorkspaceReader{
+		byID: map[string]domain.Workspace{
+			"ws-a": {ID: "ws-a", Branch: "feature/a"},
+		},
+	}
+
+	ws, err := worktree.Resolve(context.Background(), "chat-b", chats, workspaces)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if ws.ID != "ws-a" {
+		t.Fatalf("resolved workspace = %q, want ws-a (chat-b's nearest worktree-owning ancestor across folder-f)", ws.ID)
+	}
+}
+
+// TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound strengthens
+// the case above with two folders stacked between the chat and its
+// worktree-owning ancestor, so the walk has to actually climb rather than
+// resolve on a lucky single hop.
+func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T) {
+	lister := &fakeChatLister{
+		rows: []domain.Chat{
+			{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
+			{ID: "folder-outer", Type: domain.ChatTypeFolder, ParentID: "chat-a"},
+			{ID: "folder-inner", Type: domain.ChatTypeFolder, ParentID: "folder-outer"},
+			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-inner"},
+		},
+	}
+	chats := worktree.NewChatTreeAncestryReader(lister)
+	workspaces := &fakeWorkspaceReader{
+		byID: map[string]domain.Workspace{
+			"ws-a": {ID: "ws-a", Branch: "feature/a"},
+		},
+	}
+
+	ws, err := worktree.Resolve(context.Background(), "chat-b", chats, workspaces)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if ws.ID != "ws-a" {
+		t.Fatalf("resolved workspace = %q, want ws-a across two stacked folders", ws.ID)
+	}
+}
+
+// TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed
+// mirrors TestResolve_ChatAncestryReaderErrorIsSurfacedWithContextNotSwallowed
+// for the new adapter's own failure path.
+func TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed(t *testing.T) {
+	cause := errors.New("chat lister unavailable")
+	chats := worktree.NewChatTreeAncestryReader(&fakeChatLister{err: cause})
+	workspaces := &fakeWorkspaceReader{byID: map[string]domain.Workspace{}}
+
+	ws, err := worktree.Resolve(context.Background(), "chat-b", chats, workspaces)
+	if err == nil {
+		t.Fatalf("Resolve returned nil error, want the ChatLister failure wrapped")
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("err = %v, want it to wrap %v", err, cause)
+	}
+	if ws != (domain.Workspace{}) {
+		t.Fatalf("workspace = %+v, want zero value alongside the error", ws)
+	}
+}
+
+// fakeChatLister stands in for the container's real ChatLister
+// (usecases/chat.Usecase.ListChats): a fixed, unordered set of raw chat rows
+// carrying real ParentID edges, or a fixed error every call returns instead.
+// It bakes in no folder-crossing or ancestry logic of its own — that is
+// exactly what NewChatTreeAncestryReader, the real adapter under test, is
+// left to compute from these rows.
+type fakeChatLister struct {
+	rows []domain.Chat
+	err  error
+}
+
+func (f *fakeChatLister) ListChats(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.rows, nil
+}
+
 // fakeChatAncestryReader stands in for the container's real adapter: a fixed
 // ancestry per chat id, or a fixed error every call returns instead.
 type fakeChatAncestryReader struct {

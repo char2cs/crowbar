@@ -134,50 +134,6 @@ func (r worktreeResolver) Resolve(
 	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
 }
 
-// chatAncestrySource is the minimal chat-read surface chatAncestryReader
-// composes. GetChat reads one full row; Ancestors (agentusecase.Usecase.Ancestors)
-// returns parent ids only, nearest first, EXCLUDING the subject — "what a
-// thread inherits," not "this chat's own worktree."
-type chatAncestrySource interface {
-	GetChat(ctx context.Context, id string) (domain.Chat, error)
-	Ancestors(ctx context.Context, chatID string) ([]string, error)
-}
-
-// chatAncestryReader adapts the chat usecase into worktree.ChatAncestryReader
-// (internal/app/usecases/worktree): Resolve needs the subject chat's own
-// WorkspaceID, to short-circuit a chat that owns its own worktree, which the
-// chat usecase's Ancestors alone can't give it — so this composes GetChat for
-// the subject with Ancestors for everything above it, subject first, each
-// parent then resolved to its own full row in turn.
-type chatAncestryReader struct {
-	chats chatAncestrySource
-}
-
-// Ancestors implements worktree.ChatAncestryReader.
-func (r chatAncestryReader) Ancestors(
-	ctx context.Context,
-	chatID string,
-) ([]domain.Chat, error) {
-	self, err := r.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("chat ancestry: chat %s: %w", chatID, err)
-	}
-	parentIDs, err := r.chats.Ancestors(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("chat ancestry: ancestors of %s: %w", chatID, err)
-	}
-	chats := make([]domain.Chat, 0, len(parentIDs)+1)
-	chats = append(chats, self)
-	for _, id := range parentIDs {
-		parent, err := r.chats.GetChat(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("chat ancestry: chat %s: %w", id, err)
-		}
-		chats = append(chats, parent)
-	}
-	return chats, nil
-}
-
 // New builds the usecases container. It takes the aggregate repositories, the
 // GORM CRUD stores, and the engines rather than the app-layer GORMStores struct
 // to keep the usecases package free of any dependency on its parent package.
@@ -263,7 +219,7 @@ func New(
 	workspaceUsecase.SetOwningChats(owningChats)
 	projectImport.SetOwningChats(owningChats)
 	worktreeUsecase := worktreeResolver{
-		chats:      chatAncestryReader{chats: agentic.chat},
+		chats:      worktree.NewChatTreeAncestryReader(agentic.chat),
 		workspaces: workspaceUsecase,
 	}
 	// Built HERE, not beside the other usecases above, because both take the
