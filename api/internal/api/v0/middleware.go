@@ -94,6 +94,67 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	}
 }
 
+// chatWorktreeContextKey is the gin context key resolveChatWorktree stashes
+// the resolved domain.Workspace under. Every handler mounted below chatScoped
+// (router.go) reads it back with WorkspaceFromContext instead of resolving
+// the chat's worktree a second time.
+const chatWorktreeContextKey = "v0.chatWorktree"
+
+// WorkspaceFromContext returns the domain.Workspace resolveChatWorktree
+// resolved for this request, and whether one was actually stashed. Every
+// handler mounted under rg.Group("/chats/:chatId") (router.go) calls this
+// rather than re-resolving the chat's worktree itself.
+func WorkspaceFromContext(
+	c *gin.Context,
+) (domain.Workspace, bool) {
+	v, ok := c.Get(chatWorktreeContextKey)
+	if !ok {
+		return domain.Workspace{}, false
+	}
+	ws, ok := v.(domain.Workspace)
+	return ws, ok
+}
+
+// chatWorktreeResolver resolves a chat id to the workspace whose worktree it
+// reads and writes through (internal/app/usecases/worktree, spec
+// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3). Declared
+// here rather than imported from usecases/worktree directly (law 4) — it is
+// the narrow Resolve(ctx, chatID) shape resolveChatWorktree needs; the
+// container's Worktree resolver (usecases.WorktreeResolver) satisfies it
+// structurally.
+type chatWorktreeResolver interface {
+	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+}
+
+// resolveChatWorktree scopes every route mounted under
+// rg.Group("/chats/:chatId") (router.go, spec §7.1's flat chat prefix) to the
+// workspace behind the chat's worktree, and stashes it on the gin context
+// (chatWorktreeContextKey) so every handler below reads it back without a
+// second resolve call per request.
+//
+// Unlike scopeWorkspaceToPath, which loads a workspace named directly by the
+// URL and only validates it against sibling :projectId/:repoId segments, a
+// chat is never itself a workspace: the workspace has to be resolved from the
+// chat's ancestry (spec §3) before any handler below can run. A chat with no
+// worktree anywhere in its ancestry (worktree.ErrNoWorktreeInAncestry) and
+// any other resolve failure both write the same 404-shaped envelope
+// scopeWorkspaceToPath uses for an unscoped id — from the caller's
+// perspective a chat whose worktree cannot be resolved is indistinguishable
+// from one that doesn't exist.
+func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		chatID := c.Param("chatId")
+		ws, err := resolver.Resolve(c.Request.Context(), chatID)
+		if err != nil {
+			libs.WriteErr(c, http.StatusNotFound, "chat not found")
+			c.Abort()
+			return
+		}
+		c.Set(chatWorktreeContextKey, ws)
+		c.Next()
+	}
+}
+
 // rejectEmptyPathParams guards every v0 route against empty path parameters.
 //
 // gin's radix tree happily matches a request like GET /v0/workspaces//chats

@@ -71,6 +71,20 @@ func (c *Container) Register(
 	workspacesGrp := repoScoped.Group("/workspaces")
 	wsScoped := workspacesGrp.Group("/:wsId")
 
+	// chatScoped is the flat /v0/chats/:chatId/... group spec §7.1 closes on:
+	// no /projects/:projectId/repos/:repoId nesting, because chat ids are
+	// globally unique and a consumer past creation never needs to resolve
+	// ids it doesn't otherwise use. resolveChatWorktree is this group's own
+	// scoping guard, the chat-scoped analogue of scopeWorkspaceToPath above:
+	// it resolves :chatId to the workspace behind its worktree (spec §3,
+	// c.app.Usecases.Worktree) and stashes it on the context
+	// (WorkspaceFromContext) so routes mounted here — none yet; a later step
+	// is the first real consumer — read it back once per request instead of
+	// resolving it per handler.
+	chats := rg.Group("/chats")
+	chatScoped := chats.Group("/:chatId")
+	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
+
 	projectsPkg.Register(
 		rg,
 		c.app.Usecases.Project,
