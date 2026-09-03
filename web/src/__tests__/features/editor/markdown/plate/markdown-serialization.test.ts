@@ -48,7 +48,9 @@ describe('markdown round-trip (underline)', () => {
   // it throws on every serialize, which Plate's onChange triggers on every
   // op. See markdown-underline-rules.ts for the fix and why `<u>` specifically.
   it('serializes underlined text without throwing, as <u>', () => {
-    const value = [{ type: 'p', children: [{ text: 'plain ' }, { text: 'under', underline: true }] }]
+    const value = [
+      { type: 'p', children: [{ text: 'plain ' }, { text: 'under', underline: true }] },
+    ]
     expect(() => plateValueToMarkdown(value)).not.toThrow()
     expect(plateValueToMarkdown(value)).toContain('<u>under</u>')
   })

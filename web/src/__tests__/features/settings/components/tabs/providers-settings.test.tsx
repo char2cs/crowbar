@@ -726,7 +726,10 @@ describe('ProvidersSettings', () => {
   // click landing inside that window is a real no-op in the browser too, so
   // the test waits for the popup to become interactive rather than papering
   // over it with a raw DOM event that would pass even against a dead menu.
-  async function selectPermissionLevelOption(user: ReturnType<typeof userEvent.setup>, value: string) {
+  async function selectPermissionLevelOption(
+    user: ReturnType<typeof userEvent.setup>,
+    value: string,
+  ) {
     await user.click(screen.getByTestId('default-permission-level-trigger'))
     const option = await screen.findByTestId(`default-permission-level-option-${value}`)
     await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
@@ -754,9 +757,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-          'trusted',
-        ),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('trusted'),
       )
     })
 
@@ -777,9 +778,7 @@ describe('ProvidersSettings', () => {
 
       expect(updateDefaultPermissionLevelFn).toHaveBeenCalledWith('guarded')
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-          'guarded',
-        ),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
       )
     })
 
@@ -791,9 +790,7 @@ describe('ProvidersSettings', () => {
 
       render(<ProvidersSettings />)
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-          'guarded',
-        ),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
       )
 
       await selectPermissionLevelOption(user, 'trusted')
@@ -818,9 +815,7 @@ describe('ProvidersSettings', () => {
 
       render(<ProvidersSettings />)
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-          'guarded',
-        ),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
       )
 
       // Two picks made before either round trip has answered.
@@ -836,9 +831,7 @@ describe('ProvidersSettings', () => {
         first.reject(new Error('daemon is down'))
       })
 
-      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-        'full-auto',
-      )
+      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('full-auto')
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
   })

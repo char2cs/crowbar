@@ -64,9 +64,7 @@ beforeEach(() => {
     x: 0,
     y: 0,
   }
-  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect(
-    this: HTMLElement,
-  ) {
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect(this: HTMLElement) {
     const rect = this.classList.contains('scroll') ? viewportRect : rowRect
     return { ...rect, toJSON: () => rect } as DOMRect
   }

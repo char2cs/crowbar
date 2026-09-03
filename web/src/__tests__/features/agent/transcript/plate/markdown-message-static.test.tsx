@@ -19,9 +19,7 @@ describe('MarkdownMessageStatic', () => {
   })
 
   it('keeps a table an agent answered with', () => {
-    render(
-      <MarkdownMessageStatic>{'| a | b |\n| --- | --- |\n| 1 | 2 |'}</MarkdownMessageStatic>,
-    )
+    render(<MarkdownMessageStatic>{'| a | b |\n| --- | --- |\n| 1 | 2 |'}</MarkdownMessageStatic>)
     expect(screen.getByText('1').closest('td')).not.toBeNull()
     expect(screen.getByText('a').closest('table')).not.toBeNull()
   })
@@ -53,7 +51,9 @@ describe('MarkdownMessageStatic', () => {
   })
 
   it('renders an image', () => {
-    render(<MarkdownMessageStatic>{'![an image](https://example.com/pic.png)'}</MarkdownMessageStatic>)
+    render(
+      <MarkdownMessageStatic>{'![an image](https://example.com/pic.png)'}</MarkdownMessageStatic>,
+    )
     const img = document.querySelector('img')
     expect(img).not.toBeNull()
     expect(img?.getAttribute('src')).toContain('pic.png')
@@ -164,9 +164,7 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
     // IMG itself isn't in this list: the void image node's OWN
     // `[data-slate-node="element"]` wrapper is a DIV (`<img>` is nested
     // inside it) — see the dedicated href/src parity test below.
-    expect(staticTags).toEqual(
-      expect.arrayContaining(['H1', 'H2', 'A', 'TABLE', 'TR', 'TH', 'TD']),
-    )
+    expect(staticTags).toEqual(expect.arrayContaining(['H1', 'H2', 'A', 'TABLE', 'TR', 'TH', 'TD']))
   })
 
   it('renders both list flavors: an unordered item (role=listitem) and an ordered <ol><li>, same as the interactive editor', () => {

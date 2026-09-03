@@ -131,8 +131,7 @@ async function setWait(store: Store, wait: { kind: string } | null) {
  *  honest read is the toggle's own aria-pressed rather than a class. */
 const showing = () =>
   (surfaceToggle().getAttribute('aria-selected') === 'true' ? 'terminal' : 'chat') as
-    | 'chat'
-    | 'terminal'
+    'chat' | 'terminal'
 
 /** The Terminal half of the surface switcher. Named EXACTLY, because the banner's
  *  own call to action is "Open Terminal" and a loose match finds both. */

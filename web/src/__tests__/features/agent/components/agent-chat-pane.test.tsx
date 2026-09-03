@@ -1526,17 +1526,13 @@ describe('AgentChatPane', () => {
       })
 
       // The composer itself became the signpost...
-      expect(
-        screen.getByText(/waiting for you to trust the workspace/i),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/waiting for you to trust the workspace/i)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
       // ...and the separate pane-level banner did NOT also render.
       expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
       // The input itself is gone — one occupant, not an input rendered dead
       // beneath the question.
-      expect(
-        screen.queryByRole('textbox', { name: /message the agent/i }),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('textbox', { name: /message the agent/i })).not.toBeInTheDocument()
     })
   })
 })

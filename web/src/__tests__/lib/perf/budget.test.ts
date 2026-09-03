@@ -32,9 +32,7 @@ describe('checkBudgets', () => {
   })
 
   it('flags a measure whose p95 exceeds its budget beyond the tolerance', () => {
-    const measures: PerfMeasure[] = [
-      { name: 'chat.open', duration: 200 },
-    ]
+    const measures: PerfMeasure[] = [{ name: 'chat.open', duration: 200 }]
     const violations = checkBudgets(measures, budgets)
     expect(violations).toHaveLength(1)
     expect(violations[0]).toMatchObject({ name: 'chat.open', observedMs: 200, budgetMs: 100 })

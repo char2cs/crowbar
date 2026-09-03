@@ -522,9 +522,7 @@ describe('MessageRow interactive vs. static rendering', () => {
       text: 'still typing',
       at: '2026-08-24T00:00:00Z',
     }
-    const { container } = render(
-      <MessageRow message={message} providers={providers} streaming />,
-    )
+    const { container } = render(<MessageRow message={message} providers={providers} streaming />)
     const editable = container.querySelector('[data-slate-editor]')
     expect(editable).not.toBeNull()
     expect(editable?.getAttribute('contenteditable')).toBe('false')

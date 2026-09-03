@@ -109,7 +109,12 @@ describe('applyMessages empty-page guard', () => {
     const { result, rerender } = renderHook(() => useChatMessages(options))
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
 
-    listChatMessagesFn.mockResolvedValueOnce({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 0,
+      oldestCursor: 0,
+      hasMore: false,
+      items: [],
+    })
     await result.current.loadInitial()
     rerender()
 
@@ -509,7 +514,12 @@ describe('streamingBubbles: suppressed by id, not by text', () => {
   })
 
   it('still shows a bubble for a message id the ledger has not recorded yet', async () => {
-    listChatMessagesFn.mockResolvedValueOnce({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 0,
+      oldestCursor: 0,
+      hasMore: false,
+      items: [],
+    })
     const options = {
       wsId: 'ws',
       chatId: 'c1',
@@ -579,7 +589,12 @@ describe('onStreamingSettled: prunes confirmed ids, never a still-streaming one'
   // reported as settled — pruning it here would be the same data loss under
   // a different trigger.
   it('never reports an id the ledger has not recorded yet', async () => {
-    listChatMessagesFn.mockResolvedValueOnce({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 0,
+      oldestCursor: 0,
+      hasMore: false,
+      items: [],
+    })
     const onStreamingSettled = vi.fn()
     const options = {
       wsId: 'ws',
