@@ -277,6 +277,14 @@ func extraRoutes() []string {
 		// process, so a dormant chat can be handed a NEW runner that picks the
 		// conversation back up.
 		"POST " + ws + "/chats/:id/resume",
+		// The two directions of the native-TUI/React-terminal split: SwitchToTerminal
+		// hands the live PTY to the terminal pane, SwitchToNative reverses it. Never
+		// declared here — the exact drift this audit exists to catch.
+		"POST " + ws + "/chats/:id/switch-to-terminal",
+		"POST " + ws + "/chats/:id/switch-to-native",
+		// The chat's own guarded/trusted/full-auto dial, PUT-only: the read side is
+		// folded into the chat GET, so only the write leg is a route of its own.
+		"PUT " + ws + "/chats/:id/permission-level",
 		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
 		//   RUNNER because the CLI knows which process it is and never which chat it
 		//   currently sits on — the runner is what maps one to the other, and it keeps
@@ -320,6 +328,11 @@ func extraRoutes() []string {
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
 		// counterpart of the workspace-scoped enriched GET .../chats/providers.
 		"PUT /v0/settings/chat/providers",
+		// The install-wide default permission level new chats seed from, read and
+		// written beside the provider-priority setting above for the same reason:
+		// a global CLI-level dial, not a per-workspace one.
+		"GET /v0/settings/chat/permission-level",
+		"PUT /v0/settings/chat/permission-level",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
@@ -369,6 +382,11 @@ func extraRoutes() []string {
 		// resume too — same reason as the ws block above. A chat in the home is still a
 		// chat: its CLI can die and be resumed.
 		"POST " + home + "/chats/:id/resume",
+		// Same native-TUI/React-terminal split and permission-level write, mounted
+		// on the home group for the same reason as the rest of this block.
+		"POST " + home + "/chats/:id/switch-to-terminal",
+		"POST " + home + "/chats/:id/switch-to-native",
+		"PUT " + home + "/chats/:id/permission-level",
 		// An agent in a home chat has the same tools as one anywhere else, so the
 		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
 		// runner-keyed rename route beside it.
