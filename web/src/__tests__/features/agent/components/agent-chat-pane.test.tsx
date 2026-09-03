@@ -21,6 +21,8 @@ const {
   slashCatalogFn,
   saveReconnectFn,
   toastErrorFn,
+  switchToTerminalFn,
+  switchToNativeFn,
 } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
   switchProviderFn: vi.fn(),
@@ -30,6 +32,8 @@ const {
   slashCatalogFn: vi.fn(),
   saveReconnectFn: vi.fn(),
   toastErrorFn: vi.fn(),
+  switchToTerminalFn: vi.fn(),
+  switchToNativeFn: vi.fn(),
 }))
 
 // The pane resolves its cycle chord through the keymap (so it stays rebindable);
@@ -45,6 +49,8 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
+  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -352,6 +358,8 @@ beforeEach(() => {
   slashCatalogFn.mockReset()
   saveReconnectFn.mockReset()
   toastErrorFn.mockReset()
+  switchToTerminalFn.mockReset()
+  switchToNativeFn.mockReset()
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
   // A chat that has been SPOKEN IN. A chat with no messages is the blank
@@ -713,6 +721,41 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).toBeNull()
       expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
+    })
+
+    // TestRegression_SwitchToTerminal coverage gap: every other test in this file
+    // clicks the Terminal tab on a HOTSWAP provider (the fixture default), which
+    // takes chooseSurface's `hotswap` branch and never calls the endpoint at all.
+    // Codex is the one shipped provider that is NOT hotswap, and nothing exercised
+    // its actual click-to-switch path — see runner/attach_internal_test.go for the
+    // backend half of this same gap.
+    it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
+        Promise.resolve(
+          detail(liveChat({ id: String(id), runnerId: 'r1', pty: 'pty-attached', provider: 'codex' })),
+        ),
+      )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      // Not a synchronous flip like the hotswap case — the tab does not read
+      // selected until the switch actually resolves.
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      )
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      await vi.waitFor(() =>
+        expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        ),
+      )
     })
   })
 

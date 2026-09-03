@@ -737,9 +737,14 @@ export function AgentChatPane({
   // wait banner's own button (openTerminalFromBanner), and the composer's
   // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
   // view with nothing behind it, the way calling setPresentation alone would.
-  // An EFFECT EVENT so it always reads the current provider list without
-  // becoming a dependency of whatever effect calls it.
-  const enterTerminal = useEffectEvent(() => {
+  // A PLAIN function, not an effect event: it is called from effect events
+  // (onWaitEdge below) as well as from plain click handlers (the banner
+  // button, the composer's terminal link), and useEffectEvent's own rule
+  // restricts it to being called only from effects/effect events in this
+  // component. Redefined every render, so it still always closes over the
+  // current provider list — nothing lists it in a dependency array, so there
+  // is no stale-closure risk to trade away by not memoizing it.
+  const enterTerminal = () => {
     const chatProvider = providers.find((p) => p.id === chatProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap) {
@@ -757,7 +762,7 @@ export function AgentChatPane({
         // to a view that never actually came up.
       }
     })()
-  })
+  }
 
   // What happens on each edge of "your agent is blocked in the terminal".
   //
