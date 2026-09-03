@@ -161,8 +161,12 @@ events:
     send: { text: "/compact" }
 
 # restart_tui is a no-op in practice: prompt_submit.strategy is already
-# restart_tui, so every message already restarts the CLI. NOT
-# bypassPermissions, which skips every check including what auto still makes.
+# restart_tui, so every message already restarts the CLI.
+#
+# full-auto is bypassPermissions, not auto: auto is a classifier that can
+# still soft-deny and prompt for a specific action (confirmed live — that gap
+# is exactly what full-auto exists to close). bypassPermissions is the one
+# mode claude's own settings schema documents as skipping every check.
 permission_levels:
   strategy: restart_tui
   levels:
@@ -174,7 +178,7 @@ permission_levels:
         - pass_arg: { arg: "--permission-mode", value: "acceptEdits" }
     full-auto:
       apply:
-        - pass_arg: { arg: "--permission-mode", value: "auto" }
+        - pass_arg: { arg: "--permission-mode", value: "bypassPermissions" }
 
 # --- carried across from v2 unchanged -------------------------------------
 # Validated against claude 2.1.236. An older claude degrades safely: a Stop
