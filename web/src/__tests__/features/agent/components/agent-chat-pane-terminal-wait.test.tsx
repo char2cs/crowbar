@@ -421,7 +421,11 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
   it('calls switchToTerminal before showing the terminal on the automatic escort', async () => {
     const store = seedNonHotswap()
     getChatFn.mockImplementation(() =>
-      Promise.resolve({ ...nonHotswapChat(), terminalSessionId: 'term-session-1', conversations: [] }),
+      Promise.resolve({
+        ...nonHotswapChat(),
+        terminalSessionId: 'term-session-1',
+        conversations: [],
+      }),
     )
     await renderPane(store)
     expect(showing()).toBe('chat')
@@ -435,10 +439,14 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
-  it('calls switchToTerminal when the wait banner\'s Open Terminal button is used', async () => {
+  it("calls switchToTerminal when the wait banner's Open Terminal button is used", async () => {
     const store = seedNonHotswap()
     getChatFn.mockImplementation(() =>
-      Promise.resolve({ ...nonHotswapChat(), terminalSessionId: 'term-session-1', conversations: [] }),
+      Promise.resolve({
+        ...nonHotswapChat(),
+        terminalSessionId: 'term-session-1',
+        conversations: [],
+      }),
     )
     await renderPane(store, { isVisible: false })
     await setWait(store, { kind: 'workspace_trust' })
