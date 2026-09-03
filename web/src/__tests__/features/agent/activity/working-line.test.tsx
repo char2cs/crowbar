@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   AgentActivity,
@@ -55,6 +55,27 @@ function interruption(overrides: Partial<AgentInterruption> = {}): AgentInterrup
 }
 
 describe('WorkingLine', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Matches formatElapsed's own "m:ss, the way a stopwatch reads" — a turn
+  // running past a minute used to read as a bare, ever-growing second count
+  // ("65s") instead of rolling over.
+  it('reads the live elapsed clock as m:ss, not a bare second count', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:01:05Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 1:05')).toBeInTheDocument()
+  })
+
+  it('pads a single-digit second under a minute the same stopwatch way', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:00:08Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 0:08')).toBeInTheDocument()
+  })
+
   it('renders nothing at all when the chat is idle', () => {
     const { container } = render(<WorkingLine activity={NO_ACTIVITY} working={false} />)
     expect(container).toBeEmptyDOMElement()
@@ -169,13 +190,7 @@ describe('WorkingLine', () => {
   })
 
   it('names no tools while compacting — there is nothing to enumerate', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ toolCalls: [tool()] })}
-        compactingLive
-      />,
-    )
+    render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 

@@ -7,6 +7,7 @@ import {
   pendingChoices,
   runningTools,
 } from '@/features/agent/lib/agent-activity'
+import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
 
 /** Tool rows shown before the rest collapse into a count. */
@@ -101,7 +102,7 @@ export function WorkingLine({ activity, working, since, compactingLive }: Workin
         <FlickerSpinner className="size-4" />
         <span>
           <b className="verb">{compacting ? 'Compacting' : verbAt(tick)}…</b>
-          {elapsed > 0 && <span className="dim"> · {elapsed}s</span>}
+          {elapsed > 0 && <span className="dim"> · {formatElapsed(elapsed)}</span>}
         </span>
       </div>
       {tools.length > 0 && (
