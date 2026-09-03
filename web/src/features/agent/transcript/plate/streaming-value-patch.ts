@@ -51,6 +51,26 @@ export function staggerDelay(index: number, total: number): number {
 // as "settles into view, then fills in" rather than everything at once.
 const SCROLL_LEAD_MS = 150
 
+// PERFORMANCE, live-reported: a large turn made the whole app unresponsive
+// while it streamed in. Root cause: if the main thread ever falls a frame
+// behind (this cascade's own cost is enough on a big enough jump), the rAF
+// batcher (streaming-message-batcher.ts) coalesces MORE deltas into the next
+// flush — so the next insertion is a BIGGER jump across several new blocks
+// at once, which markFresh used to split into ONE LEAF PER WORD for the
+// stagger animation. That is a runaway spiral: a slower patch drops more
+// frames, which makes the next patch's word count (and therefore its own
+// Slate-tree size and normalization cost) bigger still.
+//
+// Above this many words in ONE insertion, per-word splitting is pure cost
+// with nothing to show for it: staggerDelay's own step already collapses
+// toward sub-millisecond well before this many words share MAX_STAGGER_MS,
+// so a huge jump's word-by-word stagger is already visually indistinguishable
+// from one fade. Skipping the split keeps the leaf count — and therefore the
+// dominant cost of applying a big jump — O(1) instead of O(words), breaking
+// the spiral, while the whole chunk still fades in as one animated unit rather
+// than popping in unanimated.
+const WORD_SPLIT_CAP = 80
+
 /** Splits text into whitespace-preserving chunks — concatenating the result
  *  reconstructs the original string exactly, including leading/repeated
  *  whitespace, unlike a plain `.split(' ')`. */
@@ -155,6 +175,11 @@ function markFresh(
   total: number,
 ): Node[] {
   if (typeof node.text === 'string') {
+    // See WORD_SPLIT_CAP's own doc: past this many words in one insertion,
+    // splitting further buys nothing visible and costs a leaf per word.
+    if (total > WORD_SPLIT_CAP) {
+      return [{ ...node, [CHAT_FRESH_MARK]: generation, [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS }]
+    }
     return splitIntoWords(node.text).map((word) => ({
       ...node,
       text: word,
@@ -331,7 +356,12 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
           // the shared prefix before it — is what keeps that prefix's fade
           // state untouched instead of re-triggering the whole block's cascade.
           if (staleLength > 0) {
-            editor.tf.delete({ at: endPoint, distance: staleLength, unit: 'character', reverse: true })
+            editor.tf.delete({
+              at: endPoint,
+              distance: staleLength,
+              unit: 'character',
+              reverse: true,
+            })
           }
           // Not `insertText`: that extends the EXISTING leaf in place, which
           // cannot carry a mark the neighboring, already-settled text lacks.
@@ -346,16 +376,29 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
             if (insertAt) {
               const marks = lastLeaf(nextBlock)
               const generation = nextFreshGeneration(editor)
+              // See WORD_SPLIT_CAP's own doc: a big enough single jump (the
+              // batcher can hand back many tokens' worth at once if the main
+              // thread fell behind) gets ONE fresh leaf instead of one per
+              // word — splitting further costs a leaf per word for a stagger
+              // that's already imperceptible at this word count.
               const words = splitIntoWords(divergence.replacement)
-              editor.tf.insertNodes(
-                words.map((word, i) => ({
-                  ...marks,
-                  text: word,
-                  [CHAT_FRESH_MARK]: generation,
-                  [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS + staggerDelay(i, words.length),
-                })),
-                { at: insertAt },
-              )
+              const nodes =
+                words.length > WORD_SPLIT_CAP
+                  ? [
+                      {
+                        ...marks,
+                        text: divergence.replacement,
+                        [CHAT_FRESH_MARK]: generation,
+                        [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS,
+                      },
+                    ]
+                  : words.map((word, i) => ({
+                      ...marks,
+                      text: word,
+                      [CHAT_FRESH_MARK]: generation,
+                      [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS + staggerDelay(i, words.length),
+                    }))
+              editor.tf.insertNodes(nodes, { at: insertAt })
             }
           }
           return

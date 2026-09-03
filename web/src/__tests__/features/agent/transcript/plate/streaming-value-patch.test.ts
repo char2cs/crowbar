@@ -239,12 +239,12 @@ describe('applyStreamedValue performance', () => {
 // actually changed, and briefly holding both the old and new copy of the
 // UNCHANGED prefix on screen in the same paragraph. Reported live as "text
 // repeated on itself, and the smoothing animation is clearly not working".
-describe('applyStreamedValue: reconciliation replaces part of a paragraph', () => {
-  function leaves(editor: ReturnType<typeof createPlateEditor>): { text: string; fresh: boolean }[] {
-    const block = editor.children[0] as { children: { text: string; chatFresh?: number }[] }
-    return block.children.map((c) => ({ text: c.text, fresh: c.chatFresh !== undefined }))
-  }
+function leaves(editor: ReturnType<typeof createPlateEditor>): { text: string; fresh: boolean }[] {
+  const block = editor.children[0] as { children: { text: string; chatFresh?: number }[] }
+  return block.children.map((c) => ({ text: c.text, fresh: c.chatFresh !== undefined }))
+}
 
+describe('applyStreamedValue: reconciliation replaces part of a paragraph', () => {
   it('keeps the untouched prefix out of the fresh-marked (re-animated) leaves', () => {
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,
@@ -257,8 +257,14 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
     const fullText = result.map((l) => l.text).join('')
     expect(fullText).toBe('The cat sat on the rug')
 
-    const freshText = result.filter((l) => l.fresh).map((l) => l.text).join('')
-    const settledText = result.filter((l) => !l.fresh).map((l) => l.text).join('')
+    const freshText = result
+      .filter((l) => l.fresh)
+      .map((l) => l.text)
+      .join('')
+    const settledText = result
+      .filter((l) => !l.fresh)
+      .map((l) => l.text)
+      .join('')
     expect(freshText).toBe('rug')
     expect(settledText).toBe('The cat sat on the ')
   })
@@ -271,7 +277,9 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
 
     applyStreamedValue(editor, chatMarkdownToValue('The cat sat on the rug'))
 
-    const fullText = leaves(editor).map((l) => l.text).join('')
+    const fullText = leaves(editor)
+      .map((l) => l.text)
+      .join('')
     expect(fullText).not.toContain('mat')
     // Not a substring accident either — the whole document text is exactly
     // the reconciled sentence, nothing appended alongside it.
@@ -289,5 +297,42 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
     const result = leaves(editor)
     expect(result.map((l) => l.text).join('')).toBe('goodbye')
     expect(result.every((l) => l.fresh)).toBe(true)
+  })
+})
+
+// PERFORMANCE, live-reported: a large turn made the whole app unresponsive
+// while streaming. If the main thread ever falls a frame behind, the rAF
+// batcher hands back a bigger jump next time (more new blocks landing in one
+// insertion) — and splitting every word of a big jump into its own leaf for
+// the stagger animation made THAT jump itself more expensive, compounding.
+describe('applyStreamedValue: a large jump does not explode into a leaf per word', () => {
+  it('lands a many-word insertion as one fresh leaf, not one per word', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [{ type: 'p', id: 'irrelevant', children: [{ text: '' }] }],
+    })
+    const words = Array.from({ length: 200 }, (_, i) => `word${i}`).join(' ')
+
+    applyStreamedValue(editor, chatMarkdownToValue(words))
+
+    const result = leaves(editor)
+    // Full text intact — nothing lost by skipping the per-word split.
+    expect(result.map((l) => l.text).join('')).toBe(words)
+    // Still animated — just not split into 200 separate leaves for it.
+    expect(result.every((l) => l.fresh)).toBe(true)
+    expect(result.length).toBeLessThan(5)
+  })
+
+  it('still splits a small insertion per word, staggered as before', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [{ type: 'p', id: 'irrelevant', children: [{ text: '' }] }],
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('five short words here'))
+
+    const result = leaves(editor)
+    expect(result.map((l) => l.text).join('')).toBe('five short words here')
+    expect(result.length).toBe(4)
   })
 })
