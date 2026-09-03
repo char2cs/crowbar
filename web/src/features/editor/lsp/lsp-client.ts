@@ -7,7 +7,7 @@ import type { CompletionItem } from 'vscode-languageserver-types'
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 export interface LspLocation {
   uri: string
   range: {
@@ -96,7 +96,10 @@ class LspClientImpl {
   // replays current diagnostics; later batches arrive live.
   private ensureSubscribed(): void {
     const wsId = getActiveWorkspaceId()
-    if (!wsId) return
+    // The project HOME workspace has no worktree, no owning chat, and no LSP
+    // surface on the daemon at all (before or after the chat-scoped move) —
+    // skip it rather than call lspBaseForWorkspace and catch its throw.
+    if (!wsId || isHomeWorkspace(wsId)) return
     if (this.wsId === wsId && this.unsubscribe) return
 
     this.unsubscribe?.()
@@ -105,7 +108,7 @@ class LspClientImpl {
     // The new workspace's documents are not open yet; drop stale refcounts so a
     // first open there still POSTs `/didOpen`.
     this.openRefs.clear()
-    this.unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/lsp/ws`, (raw) =>
+    this.unsubscribe = wsManager.subscribe(`${lspBaseForWorkspace(wsId)}/ws`, (raw) =>
       this.dispatch(raw as DiagnosticsEvent),
     )
   }
@@ -130,7 +133,8 @@ class LspClientImpl {
 
   private wsBase(): string | null {
     const wsId = getActiveWorkspaceId()
-    return wsId ? `${workspaceBase(wsId)}/lsp` : null
+    if (!wsId || isHomeWorkspace(wsId)) return null
+    return lspBaseForWorkspace(wsId)
   }
 
   async startServer(_filePath: string): Promise<void> {

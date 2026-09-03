@@ -10,20 +10,20 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// State handles
-// GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/provider.
-// Runs PollOnView for the workspace and returns its ProviderState JSON.
-// When capability is disabled, returns ProviderState{Protected: false, PR: nil}.
+// State handles GET .../provider, on either of the two groups provider is
+// currently mounted on (routes.go). Runs PollOnView for the resolved workspace
+// and returns its ProviderState JSON. When capability is disabled, returns
+// ProviderState{Protected: false, PR: nil}.
 func (h *Handlers) State(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
-	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
+	ws, ok := h.workspace(ctx)
+	if !ok {
 		return
 	}
 
@@ -32,17 +32,44 @@ func (h *Handlers) State(
 
 	state, err := h.eng.PollOnView(
 		pollCtx,
-		wsID,
+		ws.ID,
 		ws.WorktreePath,
 		ws.Branch,
 	)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "provider: poll error for ws %s: %v\n", wsID, err)
+		_, _ = fmt.Fprintf(os.Stderr, "provider: poll error for ws %s: %v\n", ws.ID, err)
 		libs.WriteErr(ctx, http.StatusInternalServerError, "provider poll failed")
 		return
 	}
 
 	libs.WriteQueryOK(ctx, state)
+}
+
+// workspace answers which workspace this request acts on, for either of the
+// two groups provider's State route is currently mounted on (routes.go).
+//
+// On /v0/chats/:chatId/provider the chat group's resolveChatWorktree
+// middleware has already resolved the chat's worktree and stashed the
+// workspace on the context, so it is read back from reqscope — never resolved
+// a second time per request. The :wsId branch serves the old workspace-scoped
+// mount, unretired until spec §8 step 6; when that mount goes, so does the
+// branch. /protected-branches does not move (spec §4.2) and keeps its own
+// repo-scoped resolution (worktreeForRepo below), untouched by this helper.
+//
+// reqscope is consulted first because it is the resolved truth: the two
+// mounts are disjoint, so exactly one source is ever populated.
+func (h *Handlers) workspace(
+	ctx *gin.Context,
+) (domain.Workspace, bool) {
+	if ws, ok := reqscope.Workspace(ctx); ok {
+		return ws, true
+	}
+	ws, err := h.wsReader.Get(ctx.Request.Context(), ctx.Param("wsId"))
+	if err != nil {
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
+		return domain.Workspace{}, false
+	}
+	return ws, true
 }
 
 // ProtectedBranches handles

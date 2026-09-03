@@ -22,7 +22,9 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-const DEFINITION_URL = '/v0/projects/p1/repos/r1/workspaces/ws-1/lsp/definition'
+// chat-scoped API spec §4.2's owned bucket (§8 step 5): editor/LSP is
+// addressed by the chat that owns the worktree, not the workspace.
+const DEFINITION_URL = '/v0/chats/chat-1/lsp/definition'
 
 function lastCall() {
   const call = apiFetch.mock.calls.at(-1)
@@ -34,7 +36,7 @@ describe('LspClient.getDefinition', () => {
   beforeEach(() => {
     apiFetch.mockClear()
     apiFetch.mockResolvedValue([])
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
   })
 
   it('POSTs the workspace-relative path and 0-based position to the definition route', async () => {

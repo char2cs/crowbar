@@ -34,7 +34,7 @@ func (h *Handlers) DidOpen(
 	}
 	err := h.lsp.DidOpen(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.LanguageID,
@@ -67,7 +67,7 @@ func (h *Handlers) DidChange(
 	}
 	err := h.lsp.DidChange(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Text,
@@ -99,7 +99,7 @@ func (h *Handlers) DidClose(
 	}
 	err := h.lsp.DidClose(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 	)

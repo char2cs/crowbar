@@ -175,23 +175,24 @@ func threadsSnapshot(
 // refcounting) — so scope here is parsed exactly like
 // threadsSnapshot/terminalsSnapshot parse it: the third segment is the
 // workspace id. A scope with fewer than 3 segments is treated as already being
-// the workspace id verbatim, which is what a caller passing one directly (LSP's
-// unit tests) means by it.
+// the workspace id verbatim, which is what a caller passing one directly
+// (either snapshot's own unit tests) means by it.
 //
-// The bare form no longer reaches here from GIT: a bare scope on that topic is
-// a CHAT id now, and gitSnapshot resolves it before this function is reached.
-// See its doc comment.
+// The bare form no longer reaches here from GIT or LSP: a bare scope on either
+// topic is a CHAT id now, and gitSnapshot/lspSnapshot each resolve it — via
+// their own chatGitSnapshot/chatLSPSnapshot — before this function is reached.
+// See their doc comments.
 //
 // Only the resolved workspace is returned — not its repo siblings — because
-// gitDef/lspDef scope their WS subscription to exactly one wsId with an
-// exact-match predicate (container.go, ScopeKey = scopeWsID): every event for
-// any other workspace is discarded after delivery, so computing git status /
-// diagnostics for siblings would be wasted work on this exact tab-open hot
-// path. An unresolvable scope (unknown workspace id) yields no rows rather
-// than an error, since a snapshot degrading to empty is safe and a
-// stale/racing subscribe for an already-deleted workspace is expected, not
-// exceptional. A blank scope (a list-level subscribe — not currently used by
-// either broadcaster, but handled defensively) falls back to every workspace.
+// gitDef/lspDef scope their WS subscription to exactly one wsId (or chatId) with
+// an exact-match predicate (container.go): every event for any other workspace
+// is discarded after delivery, so computing git status / diagnostics for
+// siblings would be wasted work on this exact tab-open hot path. An
+// unresolvable scope (unknown workspace id) yields no rows rather than an
+// error, since a snapshot degrading to empty is safe and a stale/racing
+// subscribe for an already-deleted workspace is expected, not exceptional. A
+// blank scope (a list-level subscribe — not currently used by either
+// broadcaster, but handled defensively) falls back to every workspace.
 func scopedWorkspaceRows(
 	ctx context.Context,
 	appContainer *app.Container,
@@ -340,9 +341,28 @@ func snapshotChatsHolding(
 }
 
 // lspSnapshot builds the LSP snapshot-on-subscribe source (03 §1a): the current
-// diagnostics per workspace from the LSP engine's in-memory snapshot. It is
-// empty until documents are opened. Each client's wsId predicate filters the
-// snapshot down to its workspace.
+// diagnostics for the subscribing client's own LSP session, as the same
+// DiagnosticsEvent shape the live broadcaster carries, so the client's own
+// predicate filters the replay exactly the way it filters live frames.
+//
+// It answers the TWO scope shapes LSP's two live routes produce, told apart the
+// same way gitSnapshot tells its two apart (no handler, no route in sight —
+// see ws.Broadcaster.Handle):
+//
+//   - HIERARCHICAL ("p/r/w"), from the workspace-scoped route: the workspace is
+//     the third segment, resolved via scopedWorkspaceRows exactly as before
+//     this step, and the snapshot is keyed by that workspace id — matching
+//     what editor's handlers key their engine calls by on that mount
+//     (handlers.Handlers.lspOwnerID).
+//   - BARE (a single segment), from /v0/chats/:chatId/lsp/ws: that route binds
+//     none of those three, so ws.clientScope falls back to the bare chat id.
+//     Unlike gitSnapshot, the diagnostics are NOT re-keyed to the resolved
+//     workspace: editor/LSP is spec §4.2's OWNED bucket, so the chat's own
+//     REST calls (didOpen etc.) already keyed its session by the chat id
+//     itself, and worktree.Resolve here exists only to confirm the chat
+//     actually has a worktree to have opened a session against — a chat with
+//     none replays nothing, the same degradation an unresolvable workspace
+//     scope takes.
 func lspSnapshot(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -352,6 +372,9 @@ func lspSnapshot(
 	}
 	return func(scope string) []lspdomain.DiagnosticsEvent {
 		ctx := context.Background()
+		if chatID, ok := bareChatScope(scope); ok {
+			return chatLSPSnapshot(ctx, appContainer, engContainer, chatID)
+		}
 		rows, err := scopedWorkspaceRows(ctx, appContainer, scope)
 		if err != nil {
 			return nil
@@ -370,16 +393,36 @@ func lspSnapshot(
 	}
 }
 
+// chatLSPSnapshot replays chatID's own diagnostics, confirming first that the
+// chat resolves to a worktree at all (spec §3) — the same existence check
+// resolveChatWorktree runs for the REST routes, so a chat with no worktree
+// anywhere in its ancestry degrades to no replay rather than a lookup against
+// a session key nothing could ever have opened.
+func chatLSPSnapshot(
+	ctx context.Context,
+	appContainer *app.Container,
+	engContainer *engine.Container,
+	chatID string,
+) []lspdomain.DiagnosticsEvent {
+	if appContainer == nil || appContainer.Usecases == nil || appContainer.Usecases.Worktree == nil {
+		return nil
+	}
+	if _, err := appContainer.Usecases.Worktree.Resolve(ctx, chatID); err != nil {
+		return nil
+	}
+	return appendDiagnostics(engContainer, make([]lspdomain.DiagnosticsEvent, 0, 1), chatID)
+}
+
 func appendDiagnostics(
 	engContainer *engine.Container,
 	events []lspdomain.DiagnosticsEvent,
-	wsID string,
+	ownerID string,
 ) []lspdomain.DiagnosticsEvent {
-	diags := engContainer.LSP.DiagnosticsSnapshot(wsID)
+	diags := engContainer.LSP.DiagnosticsSnapshot(ownerID)
 	if len(diags) == 0 {
 		return events
 	}
-	return append(events, lspdomain.DiagnosticsEvent{WsID: wsID, Diagnostics: diags})
+	return append(events, lspdomain.DiagnosticsEvent{WsID: ownerID, Diagnostics: diags})
 }
 
 // terminalsSnapshot builds the Terminal-session snapshot-on-subscribe source

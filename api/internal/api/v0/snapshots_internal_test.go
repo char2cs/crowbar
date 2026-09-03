@@ -311,7 +311,36 @@ func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 
-	assert.NotPanics(t, func() { lspSnapshot(a, eng)("w1") })
+	assert.NotPanics(t, func() { lspSnapshot(a, eng)("p1/r1/w1") })
+}
+
+// TestLSPSnapshot_UnknownChatScope_ReturnsNil covers the OTHER shape a scope
+// arrives in now: a bare id from the chat-scoped route. A chat id nothing
+// resolves to degrades to an empty replay, exactly as an unknown workspace
+// does — the subscription still opens, it simply has nothing to replay.
+func TestLSPSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Nil(t, lspSnapshot(a, eng)("chat-does-not-exist"))
+}
+
+// TestLSPSnapshot_BareScopeIsNotReadAsAWorkspaceID pins the meaning change a
+// silent mis-read would otherwise hide, mirroring gitSnapshot's own guard.
+//
+// A bare scope reaches lspSnapshot only from /v0/chats/:chatId/lsp/ws, so it
+// is a CHAT id and has to be resolved via worktree.Resolve — it must NOT be
+// taken verbatim as a workspace id, or a real workspace id passed bare would
+// wrongly succeed.
+func TestLSPSnapshot_BareScopeIsNotReadAsAWorkspaceID(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Empty(t, lspSnapshot(a, eng)("w1"),
+		"a bare id is a chat id: no chat is called w1, so there is nothing to replay")
 }
 
 func TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {

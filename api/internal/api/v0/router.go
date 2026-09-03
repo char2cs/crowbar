@@ -235,8 +235,16 @@ func (c *Container) Register(
 		c.eng.Search,
 		c.app.Repositories.Workspace,
 	)
+	// Provider is the second group of spec §4.2's OWNED bucket to move (§8
+	// step 5): the poll answers per chat's resolved worktree, and the session
+	// itself is never shared with a sibling. It mounts on BOTH groups for now
+	// — the chat prefix is where the State route lives, and the workspace
+	// prefix is simply not retired until §8 step 6 — while /protected-branches
+	// stays exactly where it was: it is repo-level, not worktree-owned, and
+	// does not move.
 	provider.Register(
 		repoScoped,
+		chatScoped,
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
 	)
@@ -252,8 +260,16 @@ func (c *Container) Register(
 		c.threads.Handle,
 		ws.DualServe,
 	)
+	// Editor/LSP completes spec §4.2's OWNED bucket (§8 step 5): the resolver
+	// still runs, for a CWD, but the LSP session itself is never shared with a
+	// sibling chat holding the same worktree (spec law 5). It mounts on BOTH
+	// groups for now — the chat prefix is where it lives, and the workspace
+	// prefix is simply not retired until §8 step 6 — and needs no workspace
+	// reader on the chat mount, because chatScoped's resolveChatWorktree
+	// middleware has already resolved the worktree onto the request context.
 	editor.Register(
 		repoScoped,
+		chatScoped,
 		c.eng.LSP,
 		c.eng.Git,
 		c.app.Repositories.Workspace,

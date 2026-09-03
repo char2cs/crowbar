@@ -23,7 +23,7 @@ func (h *Handlers) Completion(
 	}
 	result, err := h.lsp.Completion(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -42,7 +42,7 @@ func (h *Handlers) Hover(
 	}
 	result, err := h.lsp.Hover(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -61,7 +61,7 @@ func (h *Handlers) Definition(
 	}
 	locations, err := h.lsp.Definition(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -80,7 +80,7 @@ func (h *Handlers) References(
 	}
 	locations, err := h.lsp.References(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -107,7 +107,7 @@ func (h *Handlers) Rename(
 	}
 	edit, err := h.lsp.Rename(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -140,7 +140,7 @@ func (h *Handlers) CodeAction(
 	}
 	result, err := h.lsp.CodeAction(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Range,
@@ -167,7 +167,7 @@ func (h *Handlers) DocumentSymbol(
 	}
 	result, err := h.lsp.DocumentSymbol(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 	)

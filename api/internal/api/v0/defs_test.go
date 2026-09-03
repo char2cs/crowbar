@@ -215,6 +215,13 @@ func TestLSPDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "w1")
 
-	require.Len(t, def.Filters, 1)
+	// TWO filters, one per live mount: the workspace-scoped route resolves
+	// wsId, the chat-scoped one resolves chatId — LSP has no fan-out (spec
+	// §4.2 owned bucket), so both extract the SAME field rather than a
+	// membership set the way gitDef's chatId filter does.
+	require.Len(t, def.Filters, 2)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[1].Param)
+	assert.Equal(t, "w1", def.Filters[1].Extract(evt))
 }

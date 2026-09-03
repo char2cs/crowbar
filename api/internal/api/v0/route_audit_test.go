@@ -91,6 +91,22 @@ func specRoutes() []string {
 		"POST " + ws + "/lsp/codeAction",
 		"POST " + ws + "/lsp/documentSymbol",
 		"GET " + ws + "/lsp/diagnostics",
+		// §2.5 Editor / LSP, chat-scoped (chat-scoped API spec §4.2's OWNED
+		// bucket, §8 step 5). The SAME routes as the workspace-scoped block
+		// above, and both are genuinely live: the flat chat prefix is where
+		// editor/LSP is addressed from now on, and the workspace prefix is
+		// simply not retired until §8 step 6. Listing both is what makes THIS
+		// audit the thing that notices when one of them gains or loses a
+		// route the other did not.
+		"GET " + chat + "/blame",
+		"POST " + chat + "/lsp/completion",
+		"POST " + chat + "/lsp/hover",
+		"POST " + chat + "/lsp/definition",
+		"POST " + chat + "/lsp/references",
+		"POST " + chat + "/lsp/rename",
+		"POST " + chat + "/lsp/codeAction",
+		"POST " + chat + "/lsp/documentSymbol",
+		"GET " + chat + "/lsp/diagnostics",
 		// §2.6 Git — Read
 		"GET " + ws + "/git/status",
 		"GET " + ws + "/git/log",
@@ -184,6 +200,12 @@ func specRoutes() []string {
 		// §2.9b Provider (read-only)
 		"GET " + ws + "/provider",
 		"GET " + repo + "/protected-branches",
+		// §2.9b Provider, chat-scoped (chat-scoped API spec §4.2's OWNED
+		// bucket, §8 step 5). The SAME State route as the workspace-scoped one
+		// above, and both are genuinely live for the same reason editor/LSP's
+		// chat-scoped block is. /protected-branches does NOT move — spec §4.2
+		// is explicit that it is repo-level, not worktree-owned.
+		"GET " + chat + "/provider",
 		// §2.10 Search
 		"POST " + ws + "/search",
 		"POST " + ws + "/search/replace",
@@ -217,6 +239,10 @@ func specRoutes() []string {
 		// filesDef).
 		"GET " + chat + "/files/ws",
 		"GET " + ws + "/lsp/ws",
+		// The same live diagnostics stream, chat-scoped: one Broadcaster, one
+		// StreamDef, two ways of naming a subscriber's scope (container.go
+		// lspDef).
+		"GET " + chat + "/lsp/ws",
 		"GET " + chat + "/terminals/:sessionId/ws",
 	}
 }
@@ -308,6 +334,12 @@ func extraRoutes() []string {
 		"POST " + ws + "/lsp/didOpen",
 		"POST " + ws + "/lsp/didChange",
 		"POST " + ws + "/lsp/didClose",
+		// The same three document-sync notifications, chat-scoped — see the
+		// specRoutes editor/LSP chat-scoped comment for why both prefixes are
+		// live.
+		"POST " + chat + "/lsp/didOpen",
+		"POST " + chat + "/lsp/didChange",
+		"POST " + chat + "/lsp/didClose",
 		// Registered hierarchy/feature routes the §2 spec list did not yet
 		// enumerate: the rebase-onto-parent hierarchy op (sibling of
 		// merge-into-parent/reparent), the detach-holder/retry-provision

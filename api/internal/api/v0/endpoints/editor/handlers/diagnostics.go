@@ -19,12 +19,12 @@ func (h *Handlers) Diagnostics(
 	if _, ok := h.worktreePath(c); !ok {
 		return
 	}
-	wsID := c.Param("wsId")
-	diags := h.lsp.DiagnosticsSnapshot(wsID)
+	ownerID := h.lspOwnerID(c)
+	diags := h.lsp.DiagnosticsSnapshot(ownerID)
 	libs.WriteQueryOK(
 		c,
 		domlsp.DiagnosticsEvent{
-			WsID:        wsID,
+			WsID:        ownerID,
 			Diagnostics: diags,
 		},
 	)

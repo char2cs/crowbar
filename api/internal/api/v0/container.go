@@ -172,13 +172,20 @@ func withWatcherLifecycle[T any](
 }
 
 // withLSPLifecycle attaches the independent LSP subscription triggers to a
-// StreamDef, scoping the refcount by wsId resolved from the path or query and
-// delegating to the app-layer realtime service.
+// StreamDef, scoping the refcount by scopeLSPOwnerID and delegating to the
+// app-layer realtime service.
+//
+// This is the one lifecycle hook that does NOT reuse scopeWsID (T15): LSP is
+// spec §4.2's OWNED bucket, so its session is per-CHAT, not per-workspace —
+// editor's handlers key every engine call by scopeLSPOwnerID's same answer
+// (handlers.Handlers.lspOwnerID), and the refcount that tears those sessions
+// down on the last unsubscribe (LSPLifecycle.Shutdown → ReleaseWorkspace) has
+// to match that key or the chat-scoped ones would never be released.
 func withLSPLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
 ) ws.StreamDef[T] {
-	def.ScopeKey = scopeWsID
+	def.ScopeKey = scopeLSPOwnerID
 	def.OnSubscribe = appContainer.Realtime.AcquireLSP
 	def.OnUnsubscribe = appContainer.Realtime.ReleaseLSP
 	return def
@@ -252,6 +259,25 @@ func scopeWsID(
 		return ws.ID
 	}
 	return c.Query("wsId")
+}
+
+// scopeLSPOwnerID resolves the key the LSP topic's lifecycle (withLSPLifecycle)
+// refcounts by: the chat id on the new /v0/chats/:chatId/lsp/ws mount, or
+// scopeWsID's answer (the workspace id) on every other mount.
+//
+// LSP is spec §4.2's OWNED bucket, not shared like the file watcher/origin
+// sync scopeWsID otherwise serves: a chat id is checked FIRST, ahead of
+// scopeWsID's own reqscope fallback, so that a chat-scoped subscriber
+// refcounts the same per-chat key its REST calls key their LSP session by
+// (handlers.Handlers.lspOwnerID) — not the workspace those calls only resolve
+// the worktree from.
+func scopeLSPOwnerID(
+	c *gin.Context,
+) string {
+	if id := c.Param("chatId"); id != "" {
+		return id
+	}
+	return scopeWsID(c)
 }
 
 // PushProject implements hub.Subscriber.
@@ -755,6 +781,32 @@ func matchRepoOrUnscoped(
 	return value == "" || param == value
 }
 
+// lspDef scopes the LSP diagnostics topic to a single owned session, named
+// either way its live routes name one.
+//
+// ONE StreamDef serves both routes, because there is one Broadcaster: it is
+// built once, in New, and every client registers against the same compiled def
+// regardless of which route it upgraded on. So the two filters below are not
+// alternatives the wiring picks between — both are declared for every client,
+// and each client activates whichever one its own request resolves:
+//
+//   - /projects/:p/repos/:r/workspaces/:wsId/lsp/ws binds :wsId and no
+//     :chatId, so the wsId filter is active and scopes it to exactly one
+//     workspace's diagnostics, exactly as before this step.
+//   - /chats/:chatId/lsp/ws binds :chatId and no :wsId, so the chatId filter
+//     is active and scopes it to exactly the diagnostics that chat's own
+//     lsp/didOpen etc. calls produced (handlers.Handlers.lspOwnerID) — never a
+//     sibling chat's, even one sharing this chat's worktree.
+//
+// Unlike gitDef/filesDef's chatId filter, this one is NOT a fan-out membership
+// match (ExtractSet): editor/LSP is spec §4.2's OWNED bucket, so an event has
+// exactly one owner, never a set of chats to reach, and both filters extract
+// the very same field.
+//
+// NEITHER filter is Required, for the same reason gitDef's aren't: Required on
+// chatId would refuse every client of the still-live workspace-scoped route,
+// which cannot resolve a :chatId; Required on wsId would refuse every
+// chat-scoped one.
 func lspDef(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -766,6 +818,7 @@ func lspDef(
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			{Param: "chatId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}
 }

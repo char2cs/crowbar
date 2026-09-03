@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -116,6 +117,11 @@ type GitEngine interface {
 // WorkspaceReader resolves a workspace id to its aggregate, supplying the
 // worktree path the LSP and git engines operate against. It mirrors the
 // workspace repository's Get method.
+//
+// Only the old .../workspaces/:wsId/... mount (routes.go) still needs it: the
+// chat-scoped mount's resolveChatWorktree middleware has already resolved the
+// workspace onto the request context (reqscope), so a reader on this struct is
+// consulted only when reqscope comes back empty.
 type WorkspaceReader interface {
 	Get(
 		ctx context.Context,
@@ -174,9 +180,23 @@ func (h *Handlers) requireGit(
 	return true
 }
 
-func (h *Handlers) worktreePath(
+// workspace answers which workspace this request acts on, for either of the
+// two groups editor is currently mounted on (routes.go).
+//
+// On /v0/chats/:chatId/... the chat group's resolveChatWorktree middleware has
+// already resolved the chat's worktree and stashed the workspace on the
+// context, so it is read back from reqscope — never resolved a second time per
+// request. The :wsId branch serves the old workspace-scoped mount, unretired
+// until spec §8 step 6; when that mount goes, so does the branch.
+//
+// reqscope is consulted first because it is the resolved truth: the two mounts
+// are disjoint, so exactly one source is ever populated.
+func (h *Handlers) workspace(
 	c *gin.Context,
-) (string, bool) {
+) (domain.Workspace, bool) {
+	if ws, ok := reqscope.Workspace(c); ok {
+		return ws, true
+	}
 	row, err := h.wsReader.Get(
 		c.Request.Context(),
 		c.Param("wsId"),
@@ -184,7 +204,37 @@ func (h *Handlers) worktreePath(
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
+		return domain.Workspace{}, false
+	}
+	return row, true
+}
+
+func (h *Handlers) worktreePath(
+	c *gin.Context,
+) (string, bool) {
+	ws, ok := h.workspace(c)
+	if !ok {
 		return "", false
 	}
-	return row.WorktreePath, true
+	return ws.WorktreePath, true
+}
+
+// lspOwnerID answers the key the LSP engine's per-session pool is addressed
+// by, for either of editor's two live mounts (routes.go). Editor/LSP is spec
+// §4.2's OWNED bucket: the resolver still finds the worktree for a CWD, but
+// the session itself is never shared with a sibling chat that happens to hold
+// the same worktree (spec law 5).
+//
+//   - /v0/chats/:chatId/lsp/... binds :chatId, so a sibling chat sharing this
+//     worktree gets its own key and therefore its own LSP session.
+//   - The old .../workspaces/:wsId/lsp/... mount binds no :chatId, so this
+//     falls back to :wsId — unchanged from before this step, exactly the
+//     coexistence this mount is kept for.
+func (h *Handlers) lspOwnerID(
+	c *gin.Context,
+) string {
+	if chatID := c.Param("chatId"); chatID != "" {
+		return chatID
+	}
+	return c.Param("wsId")
 }

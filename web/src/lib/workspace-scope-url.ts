@@ -31,6 +31,34 @@ export function terminalsBaseForWorkspace(wsId: string): string {
 }
 
 /**
+ * The editor/LSP base for the chat that owns `wsId`'s worktree: blame, the
+ * synchronous LSP feature requests, the document-sync notifications, and the
+ * live diagnostics stream all hang off it.
+ *
+ * Owned like terminalsBaseForWorkspace, not shared like gitBaseForWorkspace:
+ * the daemon keys the LSP session itself by the CHAT id in this path, so a
+ * sibling chat sharing this worktree opens its OWN session rather than
+ * reading or racing this one's open documents.
+ *
+ * Throws when no owning chat is recorded, for the same reason
+ * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
+ * and guessing a URL from it would produce a 404 far from the cause. The
+ * workspace-scoped editor/LSP routes do still exist on the daemon for now,
+ * but they are being retired and are deliberately not a fallback.
+ *
+ * The project HOME workspace has no worktree and therefore no chat and no LSP
+ * surface at all — the daemon never mounted editor/LSP under its /home group,
+ * before or after this change — so callers editing a home file must check
+ * isHomeWorkspace themselves and skip LSP entirely, the way lsp-client.ts
+ * does, rather than calling this and catching the throw.
+ */
+export function lspBaseForWorkspace(wsId: string): string {
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${chatBase(chatId)}/lsp`
+}
+
+/**
  * The git base for the chat that owns `wsId`'s worktree: REST and the live
  * status stream both hang off it.
  *
