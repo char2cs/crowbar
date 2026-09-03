@@ -216,6 +216,12 @@ func (s *service) allHealed(
 // healed by one call: rebuild enumerates every id the event log holds via the
 // event store's serialize.AggregateLister capability, then Replays each id back
 // into state/store/agent_chat.db.
+//
+// A single aggregate that fails to Replay — a pre-cutover payload the current
+// reducer cannot fold, or any other corrupt entry in the shared event log — is
+// logged and SKIPPED, not propagated: every other aggregate must still heal.
+// Before this, one bad id emptied the whole read model, because the caller
+// (ListChats/GetChat) has nothing to show while rebuild is erroring.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {
@@ -235,7 +241,9 @@ func (s *service) rebuild(
 			continue
 		}
 		if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
-			return fmt.Errorf("agentchat store: replay %s: %w", id, err)
+			slog.ErrorContext(ctx, "agentchat store: replay skipped unreplayable aggregate",
+				"id", id, "err", err)
+			continue
 		}
 	}
 	return nil

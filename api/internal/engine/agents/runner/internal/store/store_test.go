@@ -925,6 +925,39 @@ func TestNew_DoesNotHealWhenTheMarkerIsPresent(t *testing.T) {
 	require.NoError(t, err, "the event log was never enumerated: the history was already there")
 }
 
+// TestNew_SkipsOneUnreplayableAggregateButHealsTheRest proves the heal is
+// resilient to a single bad aggregate in the shared event log — a pre-cutover
+// payload the current reducer cannot fold, or any other corrupt entry: r1's
+// real history must still heal and construction must still succeed, but the
+// marker must stay UNSET (strict, per TestNew_DoesNotMarkBuiltWhenTheHealCannotWrite)
+// so the skipped aggregate is retried, not silently written off, on the next boot.
+func TestNew_SkipsOneUnreplayableAggregateButHealsTheRest(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("r1", "s1", clock(11))
+	h.drain()
+
+	// A second aggregate whose stored bytes were never written by an
+	// agents.Runner command — stands in for a pre-cutover AgentRunner payload
+	// the new reducer cannot fold, or any other unreadable event.
+	require.NoError(t, h.es.Append(h.ctx, "events:poison", 1, []byte("{not valid json")))
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.NoError(t, err, "one unreplayable aggregate must not fail construction")
+
+	chatID, err := st.ChatForSession(h.ctx, "w1", "s1")
+	require.NoError(t, err, "r1's real history must still heal")
+	assert.Equal(t, "c1", chatID)
+
+	assert.Zero(t, markerCount(t, db),
+		"a partial heal must not be recorded as built, or the skipped aggregate is never retried")
+}
+
 // An idle machine is the steady state, not a symptom: an empty live table is a
 // real answer, and reading it must not drag the whole event log through a replay.
 func TestAllLive_EmptyTableIsTheAnswer(t *testing.T) {

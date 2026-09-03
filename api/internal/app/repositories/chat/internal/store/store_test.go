@@ -197,6 +197,50 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "enumerate aggregate ids")
 }
 
+// TestStore_Rebuild_SkipsUnreplayableAggregate proves rebuild does not abort
+// the whole read model when ONE aggregate in the shared event log cannot be
+// replayed into domain.Chat (a pre-cutover AgentChat payload, or any other
+// corrupt/incompatible bytes) — c1 and c2 must still heal and be returned.
+// Before this fix, rebuild returned the first Replay error and the caller got
+// nothing back: every chat, not just the broken one.
+func TestStore_Rebuild_SkipsUnreplayableAggregate(t *testing.T) {
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Chat]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	openChat(t, ctx, ax, "c1")
+	openChat(t, ctx, ax, "c2")
+
+	// A third aggregate whose stored bytes were never written by a domain.Chat
+	// command — stands in for any unreadable/corrupt entry in the shared event
+	// log (asynx's own InternalEvent envelope, not a raw domain.Chat blob, so
+	// this must fail json.Unmarshal on that envelope, not on domain.Chat itself).
+	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
+
+	list, err := st.ListChats(ctx)
+	require.NoError(t, err, "one unreplayable aggregate must not fail the whole rebuild")
+	ids := make([]string, 0, len(list))
+	for _, chat := range list {
+		ids = append(ids, chat.ID)
+	}
+	assert.ElementsMatch(t, []string{"c1", "c2"}, ids)
+}
+
 func TestNew_StorageError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
