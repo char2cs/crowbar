@@ -69,6 +69,18 @@ func specRoutes() []string {
 		"POST " + ws + "/files",
 		"PATCH " + ws + "/files",
 		"DELETE " + ws + "/files",
+		// §2.4 Files, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
+		// §8 step 4). The SAME routes as the workspace-scoped block above, and
+		// both are genuinely live: the flat chat prefix is where files is
+		// addressed from now on, and the workspace prefix is simply not retired
+		// until §8 step 6. Listing both is what makes THIS audit the thing that
+		// notices when one of them gains or loses a route the other did not.
+		"GET " + chat + "/files/tree",
+		"GET " + chat + "/files/content",
+		"PUT " + chat + "/files/content",
+		"POST " + chat + "/files",
+		"PATCH " + chat + "/files",
+		"DELETE " + chat + "/files",
 		// §2.5 Editor / LSP (+blame)
 		"GET " + ws + "/blame",
 		"POST " + ws + "/lsp/completion",
@@ -200,6 +212,10 @@ func specRoutes() []string {
 		// entity list+detail GET routes dual-serve REST/WS in place (no separate
 		// path); the raw/diagnostic streams hang off their workspace subtree.
 		"GET " + ws + "/files/ws",
+		// The same live file-change stream, chat-scoped: one Broadcaster, one
+		// StreamDef, two ways of naming a subscriber's scope (container.go
+		// filesDef).
+		"GET " + chat + "/files/ws",
 		"GET " + ws + "/lsp/ws",
 		"GET " + chat + "/terminals/:sessionId/ws",
 	}
@@ -266,6 +282,9 @@ func extraRoutes() []string {
 		// File copy: the duplicate op the file tree's context menu drives,
 		// sibling of the create/rename/delete file routes the §2.4 list carries.
 		"POST " + ws + "/files/copy",
+		// The same copy verb, chat-scoped, for the same reason the §2.4
+		// chat-scoped block above lists the rest of the files surface.
+		"POST " + chat + "/files/copy",
 		// Branch Review's file list: the full changed-file set of the review,
 		// read alongside the GET/PATCH .../review pair in §2.9.
 		"GET " + ws + "/review/files",

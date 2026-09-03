@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { terminalCreate, terminalClose, __getBridgeInternals } from '@/lib/crowbar-bridge'
 import {
   chatBase,
+  filesBaseForWorkspace,
   gitBaseForWorkspace,
   terminalsBaseForWorkspace,
   workspaceBase,
@@ -85,11 +86,54 @@ describe('terminalsBaseForWorkspace', () => {
   })
 
   it('leaves the hierarchical workspaceBase alone for the routes that still nest', () => {
-    // files/lsp/review have not moved yet; this proves the chat-scoped cutovers
-    // did not drag them along. (git HAS moved — see gitBaseForWorkspace below.)
+    // The editor/LSP routes have not moved yet, and the home group never will
+    // (it is deleted, not re-keyed) — this proves the chat-scoped cutovers did
+    // not drag workspaceBase itself along with them.
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' })
 
     expect(workspaceBase('ws-1')).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1')
+  })
+})
+
+describe('filesBaseForWorkspace', () => {
+  // files completes spec §4.2's SHARED bucket: one worktree, one tree, and
+  // every chat holding it reads and writes the same files.
+  it('builds the flat chat-scoped files base for the chat holding the worktree', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
+
+    expect(filesBaseForWorkspace('ws-1')).toBe('/v0/chats/chat-1/files')
+  })
+
+  it('names no workspace anywhere in the URL', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
+
+    expect(filesBaseForWorkspace('ws-1')).not.toContain('/workspaces/')
+    expect(filesBaseForWorkspace('ws-1')).not.toContain('ws-1')
+  })
+
+  it('gives each chat sharing a worktree its own base', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a', owningChatId: 'chat-a' })
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-b', owningChatId: 'chat-b' })
+
+    expect(filesBaseForWorkspace('ws-a')).toBe('/v0/chats/chat-a/files')
+    expect(filesBaseForWorkspace('ws-b')).toBe('/v0/chats/chat-b/files')
+  })
+
+  // The one workspace that is NOT addressed by a chat, and the reason this
+  // builder is not the straight chat lookup gitBaseForWorkspace is. The project
+  // home has files but no worktree, so no chat resolves to it; the daemon serves
+  // it from its own /home/files group. Reaching for an owning chat here would
+  // throw on a workspace that is working perfectly.
+  it('keeps the project home on its own project-level base', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
+
+    expect(filesBaseForWorkspace('home-ws')).toBe('/v0/projects/p1/home/files')
+  })
+
+  it('throws rather than falling back to the retiring workspace-scoped route', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-2' })
+
+    expect(() => filesBaseForWorkspace('ws-2')).toThrow(/no owning chat/)
   })
 })
 

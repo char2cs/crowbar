@@ -95,12 +95,14 @@ func newRowsResolver(
 	}
 }
 
-// gitScopeEnv stands up the real v0 surface — real routes, real middleware,
-// real scope guards, real broadcaster — over that chat shape.
+// chatScopeEnv stands up the real v0 surface — real routes, real middleware,
+// real scope guards, real broadcasters — over that chat shape. It registers the
+// WHOLE container, not just git, so every chat-scoped group's tests share one
+// env and one chat forest (files_chat_scope_test.go is the other caller).
 //
 // The resolver is installed BEFORE Register, because that is when the chat
 // group's resolveChatWorktree middleware captures it.
-func gitScopeEnv(
+func chatScopeEnv(
 	t *testing.T,
 ) (*Container, *httptest.Server, *rowsWorktreeResolver) {
 	t.Helper()
@@ -196,7 +198,7 @@ const workspaceGitRoute = "/v0/projects/p1/repos/r1/workspaces/"
 // frame. A leaked ws-a frame would arrive first — Push delivers in call order
 // into each client's own buffered channel — and fail the assertion.
 func TestGitFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
-	c, srv, _ := gitScopeEnv(t)
+	c, srv, _ := chatScopeEnv(t)
 
 	owner := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
 	sibling := dialWSAt(t, srv, "/v0/chats/chat-b/git/status")
@@ -225,7 +227,7 @@ func TestGitFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
 // nothing" and silently kill the git panel for every one of them. This is what
 // that regression would look like, and it must not happen.
 func TestGitCoexistence_TheWorkspaceScopedRouteIsUnchanged(t *testing.T) {
-	c, srv, _ := gitScopeEnv(t)
+	c, srv, _ := chatScopeEnv(t)
 
 	legacy := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
 	c.git.WaitNRegistered(1)
@@ -243,7 +245,7 @@ func TestGitCoexistence_TheWorkspaceScopedRouteIsUnchanged(t *testing.T) {
 // they are two ways of naming a client's scope on the same stream, and each
 // client is held to whichever param its own request bound.
 func TestGitCoexistence_OneBroadcasterServesBothRoutesFromOnePush(t *testing.T) {
-	c, srv, _ := gitScopeEnv(t)
+	c, srv, _ := chatScopeEnv(t)
 
 	viaChat := dialWSAt(t, srv, "/v0/chats/chat-b/git/status")
 	viaWorkspace := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
@@ -261,7 +263,7 @@ func TestGitCoexistence_OneBroadcasterServesBothRoutesFromOnePush(t *testing.T) 
 // dropped rather than denied — would show up as a firehose rather than as
 // silence.
 func TestGitCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic(t *testing.T) {
-	c, srv, _ := gitScopeEnv(t)
+	c, srv, _ := chatScopeEnv(t)
 
 	chatOnA := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
 	legacyOnA := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
@@ -294,7 +296,7 @@ func TestGitCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic(t *testing.T) 
 // refuses the upgrade for a chat it cannot resolve. That case is pinned at the
 // predicate level in ws/chat_fanout_test.go instead.
 func TestGitFanout_AChatForkedAfterAClientConnectedWidensTheSet(t *testing.T) {
-	c, srv, resolver := gitScopeEnv(t)
+	c, srv, resolver := chatScopeEnv(t)
 
 	established := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
 	c.git.WaitNRegistered(1)

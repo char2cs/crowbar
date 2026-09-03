@@ -84,6 +84,34 @@ export function identityBaseForWorkspace(wsId: string): string {
   return `${chatBase(chatId)}/identity`
 }
 
+/**
+ * The files base for `wsId`: REST (tree, content, create/rename/delete/copy)
+ * and the live file-change stream both hang off it.
+ *
+ * SHARED state like gitBaseForWorkspace — one worktree, one tree, and every
+ * sibling chat holding it sees the others' writes; the daemon fans one
+ * file-change push out to all of them.
+ *
+ * This one is NOT a straight chat lookup, and the exception is real rather than
+ * defensive. The project HOME workspace has files but no worktree and no chat:
+ * it is a project-level row the daemon serves from its own
+ * /v0/projects/:projectId/home/files surface, which is a different endpoint
+ * group, not the retiring workspace-scoped one. There is no chat that resolves
+ * to it, so there is nothing to address it by — asking for one would throw on
+ * a workspace that is working correctly. Home keeps its own base; every
+ * worktree-backed workspace goes through the chat.
+ *
+ * For those, it throws when no owning chat is recorded, for the same reason
+ * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
+ * and guessing a URL from it would produce a 404 far from the cause.
+ */
+export function filesBaseForWorkspace(wsId: string): string {
+  if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/files`
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${chatBase(chatId)}/files`
+}
+
 // §3/§7: build the hierarchical base for a workspace-scoped API/WS URL. Every
 // files/git/lsp/terminal route nests under the owning project+repo now; callers
 // still pass only a wsId (the identifier they hold), and the project/repo are

@@ -341,10 +341,25 @@ func (c *Container) chatsHolding(
 	return chatIDs
 }
 
-// PushFile implements hub.Subscriber.
+// PushFile implements hub.Subscriber. It stamps the event with every chat
+// currently holding the workspace it describes, so one Push serves the
+// workspace-scoped and home routes and fans out to the chat-scoped one in a
+// single pass (spec §7.4) — the same shape PushGit takes, for the same reason.
+//
+// The set is resolved at PUSH time rather than at connect time on purpose: a
+// client's predicate is compiled once, when it subscribes, so a chat forked
+// onto this worktree AFTER that moment can only be reached by news the event
+// itself carries.
+//
+// Unlike git's, this push arrives per DEBOUNCED filesystem event rather than
+// only on a changed status, so the resolve rides a burst rather than a real
+// change — it is one chat-forest read against the same in-memory rows the
+// resolver already serves, and the alternative (resolving at connect) cannot
+// answer the fork-after-connect case at all.
 func (c *Container) PushFile(
 	evt domain.FileChangeEvent,
 ) {
+	evt.ChatIDs = c.chatsHolding(context.Background(), evt.WsID)
 	c.files.Push(evt)
 }
 
@@ -631,6 +646,46 @@ func gitDef(
 	}
 }
 
+// filesDef scopes the Files topic to a single worktree, named either way its
+// live routes name one. Unlike gitDef the whole event goes on the wire, so the
+// fan-out set is the one field held back by its json tag rather than by the
+// Serialize lambda.
+//
+// It carries NO Snapshot, and that is the shape of the topic rather than an
+// omission: a file-change event is news, not state. A connecting client has
+// already fetched the tree over REST and has nothing to replay — which is why
+// this step needs no chat-scoped snapshot resolver of the kind gitSnapshot grew
+// (snapshots.go), and why a chat-scoped subscriber's first frame is simply the
+// next change.
+//
+// ONE StreamDef serves every mount, because there is one Broadcaster: it is
+// built once, in New, and every client registers against the same compiled def
+// regardless of which route it upgraded on. So the two filters below are not
+// alternatives the wiring picks between — both are declared for every client,
+// and each client activates whichever one its own request resolves:
+//
+//   - /projects/:p/repos/:r/workspaces/:wsId/files/ws binds :wsId, so the wsId
+//     filter is active and scopes it to exactly one workspace, exactly as
+//     before this step.
+//   - /projects/:p/home/files/ws binds no :wsId in its PATH, but
+//     RequireHomeWorkspace injects one before the upgrade runs, so it resolves
+//     the same wsId filter and is likewise untouched.
+//   - /chats/:chatId/files/ws binds :chatId and no :wsId, so the chatId filter
+//     is active and matches by MEMBERSHIP against the fan-out set the event
+//     carries — every chat holding that worktree, resolved at push time
+//     (PushFile) — while the wsId filter goes inactive.
+//
+// matchesAll requires every ACTIVE filter to match, so each client is scoped by
+// the one it actually resolved, and no mount can see another's traffic.
+//
+// NEITHER filter is Required, forced by the same argument gitDef records and
+// with one more mount to satisfy: Required on chatId would refuse every client
+// of the workspace-scoped route AND every client of the home route, neither of
+// which can resolve a :chatId; Required on wsId would refuse every chat-scoped
+// one. The trap Required exists to close — a client resolving NEITHER param and
+// being handed every workspace on the daemon — needs a mount binding neither,
+// and the three above are the only mounts of this broadcaster's Handle
+// (router.go, home/routes.go).
 func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 	return ws.StreamDef[domain.FileChangeEvent]{
 		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
@@ -638,6 +693,11 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			{
+				Param:      "chatId",
+				ExtractSet: func(e domain.FileChangeEvent) []string { return e.ChatIDs },
+				Match:      ws.ExactMatch,
+			},
 		},
 	}
 }

@@ -133,16 +133,35 @@ func TestGitDef_Lambdas(t *testing.T) {
 
 func TestFilesDef_Lambdas(t *testing.T) {
 	def := filesDef()
-	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
+	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go", ChatIDs: []string{"chat-a", "chat-b"}}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
 
 	data, err := def.Serialize(evt)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "a.go")
+	assert.NotContains(t, string(data), "chat-a",
+		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	require.Len(t, def.Filters, 1)
+	// TWO filters, for the three live mounts: the workspace-scoped and home
+	// routes both resolve wsId, the chat-scoped one resolves chatId, and each
+	// client activates only the one its own request binds.
+	require.Len(t, def.Filters, 2)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[1].Param)
+	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[1].ExtractSet(evt))
+}
+
+// TestFilesDef_CarriesNoSnapshot pins a real design answer rather than an
+// absence nobody chose: a file-change event is NEWS, not state. A connecting
+// client has already fetched the tree over REST, so there is nothing to replay
+// — which is why the chat-scoped move needed no chat-resolving snapshot source
+// of the kind gitSnapshot grew. If a snapshot is ever added here it must answer
+// the BARE chat scope too (see gitSnapshot), and this is the test that will say
+// so.
+func TestFilesDef_CarriesNoSnapshot(t *testing.T) {
+	assert.Nil(t, filesDef().Snapshot)
 }
 
 func TestAgentChatDef_Lambdas(t *testing.T) {

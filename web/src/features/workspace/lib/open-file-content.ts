@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import {
   decodeFileContent,
   type FileContentPayload,
@@ -18,10 +18,11 @@ interface BufferOpener {
 }
 
 /**
- * Load a file's content from the workspace-scoped backend and open it in an
- * editor buffer. On failure, surface a toast instead of failing silently (the
- * previous behavior left an uncaught promise and no user feedback). `path` is
- * workspace-relative.
+ * Load a file's content from the daemon and open it in an editor buffer. On
+ * failure, surface a toast instead of failing silently (the previous behavior
+ * left an uncaught promise and no user feedback). `path` is workspace-relative
+ * — that is the worktree the read resolves to, not the URL it is addressed by
+ * (see filesBaseForWorkspace).
  */
 export async function openFileContent(
   wsId: string,
@@ -32,7 +33,7 @@ export async function openFileContent(
   const name = path.split('/').pop() ?? path
   try {
     const payload = await apiFetch<FileContentPayload>(
-      `${workspaceBase(wsId)}/files/content?path=${encodeURIComponent(path)}`,
+      `${filesBaseForWorkspace(wsId)}/content?path=${encodeURIComponent(path)}`,
     )
     bufferActions.openContent({
       type: 'editor',

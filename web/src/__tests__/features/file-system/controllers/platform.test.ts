@@ -28,11 +28,13 @@ import {
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
-const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws-1'
+// Files are addressed through the chat that holds the worktree, so every URL
+// below is named by a chat id and never by a workspace id.
+const CHAT_BASE = '/v0/chats/chat-1'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 })
 
 afterEach(() => {
@@ -40,7 +42,7 @@ afterEach(() => {
 })
 
 describe('readDirectory', () => {
-  it('lists a subdirectory through the workspace-scoped tree route', async () => {
+  it('lists a subdirectory through the chat-scoped tree route', async () => {
     mockFetch.mockResolvedValue([
       { name: 'utils', path: 'src/utils', type: 'directory' },
       { name: 'a.ts', path: 'src/a.ts', type: 'file' },
@@ -48,7 +50,7 @@ describe('readDirectory', () => {
 
     const entries = await readDirectory('src')
 
-    expect(mockFetch).toHaveBeenCalledWith(`${WS_BASE}/files/tree?path=src`)
+    expect(mockFetch).toHaveBeenCalledWith(`${CHAT_BASE}/files/tree?path=src`)
     expect(entries).toEqual([
       { name: 'utils', path: 'src/utils', isDirectory: true, is_dir: true, isFile: false },
       { name: 'a.ts', path: 'src/a.ts', isDirectory: false, is_dir: false, isFile: true },
@@ -58,13 +60,13 @@ describe('readDirectory', () => {
   it('lists the workspace root when the path is empty', async () => {
     mockFetch.mockResolvedValue([])
     await readDirectory('')
-    expect(mockFetch).toHaveBeenCalledWith(`${WS_BASE}/files/tree`)
+    expect(mockFetch).toHaveBeenCalledWith(`${CHAT_BASE}/files/tree`)
   })
 
   it('percent-encodes the directory path', async () => {
     mockFetch.mockResolvedValue([])
     await readDirectory('src/my dir')
-    expect(mockFetch).toHaveBeenCalledWith(`${WS_BASE}/files/tree?path=src%2Fmy%20dir`)
+    expect(mockFetch).toHaveBeenCalledWith(`${CHAT_BASE}/files/tree?path=src%2Fmy%20dir`)
   })
 
   it('propagates a daemon failure instead of answering with an empty listing', async () => {
@@ -84,7 +86,7 @@ describe('exists', () => {
     ])
 
     await expect(exists('docs/b.md')).resolves.toBe(true)
-    expect(mockFetch).toHaveBeenCalledWith(`${WS_BASE}/files/tree?path=docs`)
+    expect(mockFetch).toHaveBeenCalledWith(`${CHAT_BASE}/files/tree?path=docs`)
   })
 
   it('is false when the parent listing does not contain the path', async () => {
@@ -95,7 +97,7 @@ describe('exists', () => {
   it('resolves a workspace-root path against the root listing', async () => {
     mockFetch.mockResolvedValue([{ name: 'README.md', path: 'README.md', type: 'file' }])
     await expect(exists('README.md')).resolves.toBe(true)
-    expect(mockFetch).toHaveBeenCalledWith(`${WS_BASE}/files/tree`)
+    expect(mockFetch).toHaveBeenCalledWith(`${CHAT_BASE}/files/tree`)
   })
 
   it('is false when the parent directory itself is missing (404)', async () => {
@@ -118,13 +120,13 @@ describe('writeWorkspaceFile', () => {
   // 'ws-1' at the top of this file; ws-2 is deliberately a DIFFERENT,
   // non-active workspace here, to prove the explicit wsId argument wins.
   it('writes to the EXPLICIT workspace passed, ignoring the active one', async () => {
-    recordWorkspaceScope({ projectId: 'p1', repoId: 'r2', wsId: 'ws-2' })
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r2', wsId: 'ws-2', owningChatId: 'chat-2' })
     mockFetch.mockResolvedValue({})
 
     await writeWorkspaceFile('ws-2', 'a.ts', 'content for ws-2')
 
     expect(mockFetch).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r2/workspaces/ws-2/files/content',
+      '/v0/chats/chat-2/files/content',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ path: 'a.ts', content: 'content for ws-2' }),
@@ -132,7 +134,7 @@ describe('writeWorkspaceFile', () => {
     )
     // Never touched the active workspace's own URL.
     expect(mockFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('/workspaces/ws-1/'),
+      expect.stringContaining('/chats/chat-1/'),
       expect.anything(),
     )
   })

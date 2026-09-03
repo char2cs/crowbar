@@ -161,8 +161,16 @@ func (c *Container) Register(
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
+	// Files completes spec §4.2's SHARED bucket (§8 step 4): one worktree, one
+	// tree, and every chat holding it reads and writes the same files. It mounts
+	// on BOTH groups for now — the chat prefix is where it lives, and the
+	// workspace prefix is simply not retired until §8 step 6 — and needs no
+	// workspace reader on either, because each group resolves the worktree
+	// before the handlers run. The home group above keeps its own /home/files
+	// surface, for the project-level row no chat resolves to.
 	files.Register(
 		repoScoped,
+		chatScoped,
 		c.app.Usecases.File,
 		c.files.Handle,
 	)

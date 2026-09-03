@@ -14,10 +14,11 @@ import {
 import { resetWorkspaceScopedStores } from '@/features/workspace/lib/reset-workspace-scoped-stores'
 import type { AppFile } from '@/features/file-system/types/app'
 
-// The files topic is still workspace-scoped and hierarchical; git has moved to
-// the flat chat prefix, resolved from the chat that owns 'ws-test''s worktree.
-// Both are recorded on the same scope, which is why it carries an owningChatId.
-const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws-test'
+// Both live topics are addressed by the chat that owns 'ws-test''s worktree —
+// the flat chat prefix — which is why the scope below carries an owningChatId.
+// The home workspace further down is the deliberate exception: it has files but
+// no worktree and so no chat, and keeps its own project-level base.
+const FILES_BASE = '/v0/chats/chat-test/files'
 const GIT_BASE = '/v0/chats/chat-test/git'
 
 const mockBufferActions = {
@@ -164,7 +165,7 @@ describe('useWorkspaceEffects', () => {
 
   it('subscribes to the files WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/files/ws`, expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${FILES_BASE}/ws`, expect.any(Function))
   })
 
   it('subscribes to the git WS topic for the workspace', () => {
@@ -176,6 +177,12 @@ describe('useWorkspaceEffects', () => {
   // not a git worktree. Its scope deliberately records NO owning chat, so the
   // git base could not even be built for it — the effect must skip the git
   // stream before reaching for one, while keeping files (the tree watcher).
+  //
+  // Files is the reason this stays a real assertion rather than a formality
+  // now that files is chat-scoped too: home has no chat to be named by, so its
+  // stream must still resolve to the project's own /home/files/ws leaf. A
+  // filesBaseForWorkspace that reached for an owning chat unconditionally
+  // would throw here and take the home file tree down with it.
   it('skips the git stream for a home workspace but keeps the files stream', () => {
     setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
     renderHook(() => useWorkspaceEffects('home-ws'))

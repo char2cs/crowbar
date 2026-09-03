@@ -68,8 +68,18 @@ beforeEach(() => {
   // argument as the scope module's OWN "active" pointer, mirroring what a
   // real workspace-store-registry.setActiveWorkspaceId('ws-active') call
   // would do to filesBase()'s resolution.
-  recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-owner' })
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-active' })
+  recordWorkspaceScope({
+    projectId: 'p1',
+    repoId: 'r1',
+    wsId: 'ws-owner',
+    owningChatId: 'chat-owner',
+  })
+  setWorkspaceScope({
+    projectId: 'p1',
+    repoId: 'r1',
+    wsId: 'ws-active',
+    owningChatId: 'chat-active',
+  })
 })
 
 afterEach(() => {
@@ -93,8 +103,8 @@ describe('editor-app-store — Critical 1: saves target the BUFFER\'s own worksp
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/workspaces/ws-owner/')
-    expect(url).not.toContain('/workspaces/ws-active/')
+    expect(url).toContain('/chats/chat-owner/')
+    expect(url).not.toContain('/chats/chat-active/')
     expect(JSON.parse(init.body as string)).toMatchObject({
       path: 'a.ts',
       content: 'edited content',
@@ -120,8 +130,8 @@ describe('editor-app-store — Critical 1: saves target the BUFFER\'s own worksp
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url] = mockFetch.mock.calls[0] as [string]
-    expect(url).toContain('/workspaces/ws-owner/')
-    expect(url).not.toContain('/workspaces/ws-active/')
+    expect(url).toContain('/chats/chat-owner/')
+    expect(url).not.toContain('/chats/chat-active/')
     expect(bufferById(id).path).toBe('new-name.ts')
     vi.unstubAllGlobals()
   })
@@ -138,12 +148,13 @@ describe('editor-app-store — Critical 1: saves target the BUFFER\'s own worksp
       url: url as string,
       path: (JSON.parse((init as RequestInit).body as string) as { path: string }).path,
     }))
-    // Each buffer's own write landed under ITS OWN workspace segment, not
+    // Each buffer's own write landed under ITS OWN worktree — named by the chat
+    // that holds it, since no files URL carries a workspace id any more — not
     // cross-wired — the bug this locks in would have sent BOTH writes to
     // whichever workspace was merely active.
     const ownerCall = calls.find((c) => c.path === 'a.ts')
     const activeCall = calls.find((c) => c.path === 'b.ts')
-    expect(ownerCall?.url).toContain('/workspaces/ws-owner/')
-    expect(activeCall?.url).toContain('/workspaces/ws-active/')
+    expect(ownerCall?.url).toContain('/chats/chat-owner/')
+    expect(activeCall?.url).toContain('/chats/chat-active/')
   })
 })
