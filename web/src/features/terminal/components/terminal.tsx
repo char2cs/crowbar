@@ -70,8 +70,14 @@ interface XtermTerminalProps {
    * usable terminal. Ordinary shell tabs leave this unset and keep spawning.
    */
   attachOnly?: boolean
-  /** Fires when attachOnly resolution finds the session gone (mount or reconnect). */
-  onSessionGone?: () => void
+  /**
+   * Fires when attachOnly resolution finds the session gone (mount or reconnect).
+   * Carries the sessionId the resolution was FOR, not whichever session the owner
+   * wants now: a displaced PTY can report its death after its replacement has
+   * already been attached, and an owner that cannot tell the two apart would read
+   * the outgoing death as the incoming one dying.
+   */
+  onSessionGone?: (goneSessionId: string) => void
   /**
    * Render from the container's very edge, dropping the 16px left inset that
    * shell tabs use for breathing room against a bare pane. The agent chat pane
@@ -234,7 +240,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       })
       if ('gone' in result) {
         // Attach-only and the PTY is gone: the owner renders its ended state.
-        onSessionGoneRef.current?.()
+        onSessionGoneRef.current?.(sessionId)
         return
       }
       // This view is now attached to result.connectionId — count it so the LAST
@@ -726,7 +732,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         // connection, nothing to write to) and let the owner render its ended
         // state; it will unmount us.
         releaseInitLock()
-        onSessionGoneRef.current?.()
+        onSessionGoneRef.current?.(sessionId)
         return
       }
       const activeConnectionId = result.connectionId

@@ -3,14 +3,14 @@
 // This file closes the e2e gap for the DERIVED half of chat titling: neither
 // agent_test.go nor agent_gaps_test.go ever drives a REAL `user_prompt` hook POST
 // against the running daemon and reads a title back —
-// internal/app/usecases/agent/rename_test.go's TestRenameChat_Precedence and
+// internal/app/usecases/chat/rename_test.go's TestRenameChat_Precedence and
 // TestIngestHook_UserPrompt_SetsDerivedTitle already prove RenameChat's precedence
 // rules and deriveTitle's wiring at the usecase level, in-process, with a
 // fakeCommander standing in for the real vendor CLI. What only this file proves is
 // the OS-process boundary: that the actual compiled `crowbar` binary — the exact one
 // a real vendor CLI's hook config shells out to on every prompt — reaches this
 // package's real unix-socket daemon and the title lands, read back through
-// Usecases.Agent.GetChat exactly as the API layer would.
+// Usecases.AgentChat.GetChat exactly as the API layer would.
 //
 // It used to cover an AGENT-driven half too, by exec'ing `crowbar chat rename`. That
 // subcommand is gone: titling is the set_chat_title MCP tool now, and the shell path
@@ -49,7 +49,7 @@ func mustSpawnChat(
 	repoPath := kit.InitRepo(t)
 	projectID, repoID, wsID = h.importRepoAndWorkspace(t, "title-"+provider, repoPath)
 
-	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
 	require.NoError(t, err)
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, runnerID)
@@ -106,11 +106,11 @@ func settleTitle(
 // claude.yaml's config_injection ("{crowbar_hook} hook user_prompt --segment
 // {segid} --provider {provider}") — POSTed against the running daemon derives
 // and sets the chat's title from the prompt's first line (deriveTitle in
-// agent.go), read back through Usecases.Agent.GetChat. The payload shape
+// agent.go), read back through Usecases.AgentChat.GetChat. The payload shape
 // (`{"prompt": "..."}`) matches claude.yaml's hooks.events.user_prompt field
 // map (message: prompt) exactly, and the prompt text is a single short line
 // under deriveTitle's 60-rune truncation threshold, so the derived title must
-// equal the prompt verbatim (internal/app/usecases/agent/rename_test.go's
+// equal the prompt verbatim (internal/app/usecases/chat/rename_test.go's
 // TestIngestHook_UserPrompt_SetsDerivedTitle already proves deriveTitle's
 // first-line/60-rune behavior in-process; this test proves the same outcome
 // reaching the daemon over the real HTTP+hook-CLI path instead of a direct
@@ -134,7 +134,7 @@ func TestAgent_FirstPrompt_DerivesTitle(t *testing.T) {
 
 	settleTitle(h)
 
-	chat, err := h.app.Usecases.Agent.GetChat(ctx, chatID)
+	chat, err := h.app.Usecases.AgentChat.GetChat(ctx, chatID)
 	require.NoError(t, err)
 	require.Equal(t, prompt, chat.Title,
 		"AgentChat.Title must equal the derived (first-line) title from the real user_prompt hook POST")

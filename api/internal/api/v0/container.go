@@ -302,7 +302,7 @@ func (c *Container) PushFile(
 
 // PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
 // event out to every subscriber of the agent-chat WebSocket (GET
-// .../workspaces/:wsId/agent/ws/chats) whose :wsId matches workspaceID,
+// .../workspaces/:wsId/chats/ws) whose :wsId matches workspaceID,
 // mirroring PushGit/PushFile's wsId-scoped fan-out (Task 3: agentChatDef's
 // Filter enforces the scoping; this method itself pushes unconditionally).
 func (c *Container) PushAgentChat(
@@ -316,6 +316,74 @@ func (c *Container) PushAgentChat(
 		WorkspaceID: workspaceID,
 		Kind:        kind,
 		Working:     working,
+	})
+}
+
+// PushAgentChatTerminalWait implements hub.Subscriber. It fans the terminal-wait
+// edge out on the SAME workspace-scoped agent-chat WebSocket as PushAgentChat: it
+// is a fact about a conversation, so it belongs on the conversation feed rather
+// than on a second socket that would have to be kept in order with it.
+func (c *Container) PushAgentChatTerminalWait(
+	chatID string,
+	workspaceID string,
+	wait *dto.AgentTerminalWaitDTO,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:       chatID,
+		WorkspaceID:  workspaceID,
+		Kind:         dto.AgentChatKindTerminalWait,
+		TerminalWait: wait,
+	})
+}
+
+// PushAgentChatPromptSettled implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other fact about a conversation.
+func (c *Container) PushAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:          chatID,
+		WorkspaceID:     workspaceID,
+		Kind:            dto.AgentChatKindPromptSettled,
+		ClientRequestID: requestID,
+	})
+}
+
+// PushAgentChatMessageDelta implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other conversation fact.
+func (c *Container) PushAgentChatMessageDelta(
+	chatID string,
+	workspaceID string,
+	messageID string,
+	text string,
+) {
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        dto.AgentChatKindMessageDelta,
+		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text},
+	})
+}
+
+// PushAgentChatCompaction implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other conversation fact.
+// active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
+// own doc comment for why two kinds and no extra field.
+func (c *Container) PushAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	kind := dto.AgentChatKindCompactionStopped
+	if active {
+		kind = dto.AgentChatKindCompactionStarted
+	}
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        kind,
 	})
 }
 
@@ -343,7 +411,7 @@ func (c *Container) PushAgentChatFolder(
 
 // PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
 // (started/session_bound/moved/exited) out on the SAME workspace-scoped
-// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/agent/ws/chats)
+// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/chats/ws)
 // — one feed for "what changed about this workspace's agent chats", whether the
 // change came from the chat aggregate or from the runner pointed at it. A second
 // socket would buy nothing and would have to be kept in order with the first.
@@ -507,7 +575,7 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 }
 
 // agentChatDef serves the agent-chat lifecycle event stream (GET
-// .../workspaces/:wsId/agent/ws/chats), scoped to a single workspace by wsId
+// .../workspaces/:wsId/chats/ws), scoped to a single workspace by wsId
 // (Task 3), mirroring gitDef/filesDef. It carries no snapshot: unlike the
 // full-state resource streams above (projects, repos, workspaces, ...) a
 // freshly-connected client simply waits for the next lifecycle event — there
@@ -524,6 +592,23 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[dto.AgentChatEvent]{
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
+		},
+		// message_delta is the one kind on this feed that is already "the
+		// full state so far" by construction (see
+		// hub.BroadcastAgentChatMessageDelta's own doc comment) — a client
+		// that misses several is exactly as correct as one that saw every
+		// one, as long as it eventually sees the latest. A fast-streaming
+		// provider can emit these far more often than this feed's other,
+		// genuinely stateful kinds (turn_started, folder events, ...), and
+		// those must keep the ordinary bounded-queue-then-disconnect
+		// contract untouched — CoalesceKey is what lets the two coexist on
+		// one broadcaster. Keyed by (chat, message id) so two chats, or two
+		// co-open items in one chat's turn, never coalesce into each other.
+		CoalesceKey: func(e dto.AgentChatEvent) (string, bool) {
+			if e.Kind != dto.AgentChatKindMessageDelta || e.Message == nil {
+				return "", false
+			}
+			return e.ChatID + "\x00" + e.Message.ID, true
 		},
 	}
 }

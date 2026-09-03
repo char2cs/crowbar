@@ -22,7 +22,7 @@ import (
 
 // commitScopeFixture lays down two commits, each touching a different file, and
 // returns their SHAs oldest-first.
-func (s *ReviewSuite) commitScopeFixture() (first string, second string) {
+func (s *ReviewSuite) commitScopeFixture() (first, second string) {
 	worktree := s.env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
 	kit.CommitFile(s.T(), worktree, "src/first.ts", "export const first = 1\n", "first change")
 	first = strings.TrimSpace(kit.GitRun(s.T(), worktree, "rev-parse", "HEAD"))

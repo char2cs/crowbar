@@ -24,10 +24,11 @@ const (
 // per-type DB file names under state/events and state/store. One event log +
 // one read-model DB per aggregate type, routed by shard hash across many ids.
 const (
-	workspaceDBName    = "workspace.db"
-	reviewThreadDBName = "review_thread.db"
-	agentChatDBName    = "agent_chat.db"
-	agentRunnerDBName  = "agent_runner.db"
+	workspaceDBName     = "workspace.db"
+	reviewThreadDBName  = "review_thread.db"
+	agentChatDBName     = "agent_chat.db"
+	agentRunnerDBName   = "agent_runner.db"
+	agentActivityDBName = "agent_activity.db"
 )
 
 // per-type snapshot DB file names under state/events, one per aggregate type,
@@ -36,10 +37,11 @@ const (
 // keeps exactly one upserted snapshot per aggregate here, read in O(1) on the
 // workspace-scoped hot path.
 const (
-	workspaceSnapshotDBName    = "workspace_snapshots.db"
-	reviewThreadSnapshotDBName = "review_thread_snapshots.db"
-	agentChatSnapshotDBName    = "agent_chat_snapshots.db"
-	agentRunnerSnapshotDBName  = "agent_runner_snapshots.db"
+	workspaceSnapshotDBName     = "workspace_snapshots.db"
+	reviewThreadSnapshotDBName  = "review_thread_snapshots.db"
+	agentChatSnapshotDBName     = "agent_chat_snapshots.db"
+	agentRunnerSnapshotDBName   = "agent_runner_snapshots.db"
+	agentActivitySnapshotDBName = "agent_activity_snapshots.db"
 )
 
 // Container is the persistence layer.
@@ -61,16 +63,23 @@ type Container struct {
 	// one read-model DB per aggregate type, routed to many aggregate ids by
 	// shard hash. The snapshot store is the asynx v0.8 O(1) warm-read cache
 	// (one upserted snapshot per aggregate), keyed by aggregateID alone.
-	workspaceEventStore      asynxModels.Store
-	workspaceSnapshotStore   asynxModels.SnapshotStore
-	workspaceStoreDB         *gormdb.DB
-	reviewThreadView         *gormdb.DB
-	agentChatEventStore      asynxModels.Store
-	agentChatSnapshotStore   asynxModels.SnapshotStore
-	agentChatStoreDB         *gormdb.DB
-	agentRunnerEventStore    asynxModels.Store
-	agentRunnerSnapshotStore asynxModels.SnapshotStore
-	agentRunnerStoreDB       *gormdb.DB
+	workspaceEventStore    asynxModels.Store
+	workspaceSnapshotStore asynxModels.SnapshotStore
+	workspaceStoreDB       *gormdb.DB
+	reviewThreadView       *gormdb.DB
+	agentChatEventStore    asynxModels.Store
+	agentChatSnapshotStore asynxModels.SnapshotStore
+	agentChatStoreDB       *gormdb.DB
+	// The activity plane is its OWN event log, snapshot store and read model.
+	// Never a table inside the chat plane: chat events are a handful per chat
+	// while activity events are hundreds per turn, and sharing one single-writer
+	// event DB would put the sidebar's writes behind a tool-call storm.
+	agentActivityEventStore    asynxModels.Store
+	agentActivitySnapshotStore asynxModels.SnapshotStore
+	agentActivityStoreDB       *gormdb.DB
+	agentRunnerEventStore      asynxModels.Store
+	agentRunnerSnapshotStore   asynxModels.SnapshotStore
+	agentRunnerStoreDB         *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -142,17 +151,6 @@ func newLocked(
 	stateDir string,
 	lock *instanceLock,
 ) (c *Container, err error) {
-	// Roll back every DB opened so far if any later open fails; on success err is
-	// nil and the container owns them (closed in Close).
-	var rollback []func() error
-	defer func() {
-		if err != nil {
-			for i := len(rollback) - 1; i >= 0; i-- {
-				_ = rollback[i]()
-			}
-		}
-	}()
-
 	// Per-type planes derive from the resolved home via the home-parameterized
 	// path accessors (never paths.Events()/Store(), which are blind to cfg.homeDir
 	// and would leak state into the prod ~/.crowbar — decision 14).
@@ -165,103 +163,112 @@ func newLocked(
 		return nil, fmt.Errorf("adapter: store dir: %w", err)
 	}
 
-	reviewThreadES, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, reviewThreadDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: review thread event store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeEventStore(reviewThreadES) })
+	// Opening is a LIST, and o carries the two things every entry shares: the first
+	// error, and the rollback for everything opened before it. After the first
+	// failure every later open is a no-op, so the sequence reads as a declaration of
+	// what this container is made of rather than as twenty error branches.
+	var o opens
+	defer func() {
+		if err != nil {
+			o.unwind()
+		}
+	}()
 
-	reviewThreadSS, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, reviewThreadSnapshotDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: review thread snapshot store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeSnapshotStore(reviewThreadSS) })
+	reviewThreadES := o.eventStore(eventsDir, reviewThreadDBName, "review thread event store")
+	reviewThreadSS := o.snapshotStore(eventsDir, reviewThreadSnapshotDBName, "review thread snapshot store")
+	workspaceEventStore := o.eventStore(eventsDir, workspaceDBName, "workspace event store")
+	workspaceSnapshotStore := o.snapshotStore(eventsDir, workspaceSnapshotDBName, "workspace snapshot store")
+	workspaceStoreDB := o.viewDB(storeDir, workspaceDBName, "workspace store db")
+	reviewThreadView := o.viewDB(storeDir, reviewThreadDBName, "review thread view")
+	agentChatEventStore := o.eventStore(eventsDir, agentChatDBName, "agent chat event store")
+	agentChatSnapshotStore := o.snapshotStore(eventsDir, agentChatSnapshotDBName, "agent chat snapshot store")
+	agentActivityEventStore := o.eventStore(eventsDir, agentActivityDBName, "agent activity event store")
+	agentActivitySnapshotStore := o.snapshotStore(eventsDir, agentActivitySnapshotDBName, "agent activity snapshot store")
+	agentActivityStoreDB := o.viewDB(storeDir, agentActivityDBName, "agent activity read db")
+	agentChatStoreDB := o.viewDB(storeDir, agentChatDBName, "agent chat store db")
+	agentRunnerEventStore := o.eventStore(eventsDir, agentRunnerDBName, "agent runner event store")
+	agentRunnerSnapshotStore := o.snapshotStore(eventsDir, agentRunnerSnapshotDBName, "agent runner snapshot store")
+	agentRunnerStoreDB := o.viewDB(storeDir, agentRunnerDBName, "agent runner store db")
+	globalView := o.viewDB(stateDir, viewDBName, "global view")
 
-	workspaceEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, workspaceDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: workspace event store: %w", err)
+	if o.err != nil {
+		err = o.err
+		return nil, err
 	}
-	rollback = append(rollback, func() error { return closeEventStore(workspaceEventStore) })
-
-	workspaceSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, workspaceSnapshotDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: workspace snapshot store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeSnapshotStore(workspaceSnapshotStore) })
-
-	workspaceStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, workspaceDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: workspace store db: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeViewDB(workspaceStoreDB) })
-
-	reviewThreadView, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, reviewThreadDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: review thread view: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeViewDB(reviewThreadView) })
-
-	agentChatEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, agentChatDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent chat event store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeEventStore(agentChatEventStore) })
-
-	agentChatSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, agentChatSnapshotDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent chat snapshot store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeSnapshotStore(agentChatSnapshotStore) })
-
-	agentChatStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentChatDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent chat store db: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeViewDB(agentChatStoreDB) })
-
-	agentRunnerEventStore, err := eventsqlite.NewEventStore(filepath.Join(eventsDir, agentRunnerDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent runner event store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeEventStore(agentRunnerEventStore) })
-
-	agentRunnerSnapshotStore, err := eventsqlite.NewSnapshotStore(filepath.Join(eventsDir, agentRunnerSnapshotDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent runner snapshot store: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeSnapshotStore(agentRunnerSnapshotStore) })
-
-	agentRunnerStoreDB, err := storesqlite.OpenReadPoolDB(filepath.Join(storeDir, agentRunnerDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: agent runner store db: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeViewDB(agentRunnerStoreDB) })
-
-	globalView, err := storesqlite.OpenReadPoolDB(filepath.Join(stateDir, viewDBName))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: global view: %w", err)
-	}
-	rollback = append(rollback, func() error { return closeViewDB(globalView) })
 
 	c = &Container{
-		crowbarHome:              home,
-		reviewThreadES:           reviewThreadES,
-		reviewThreadSS:           reviewThreadSS,
-		workspaceEventStore:      workspaceEventStore,
-		workspaceSnapshotStore:   workspaceSnapshotStore,
-		workspaceStoreDB:         workspaceStoreDB,
-		reviewThreadView:         reviewThreadView,
-		agentChatEventStore:      agentChatEventStore,
-		agentChatSnapshotStore:   agentChatSnapshotStore,
-		agentChatStoreDB:         agentChatStoreDB,
-		agentRunnerEventStore:    agentRunnerEventStore,
-		agentRunnerSnapshotStore: agentRunnerSnapshotStore,
-		agentRunnerStoreDB:       agentRunnerStoreDB,
-		globalView:               globalView,
-		lock:                     lock,
+		crowbarHome:                home,
+		reviewThreadES:             reviewThreadES,
+		reviewThreadSS:             reviewThreadSS,
+		workspaceEventStore:        workspaceEventStore,
+		workspaceSnapshotStore:     workspaceSnapshotStore,
+		workspaceStoreDB:           workspaceStoreDB,
+		reviewThreadView:           reviewThreadView,
+		agentChatEventStore:        agentChatEventStore,
+		agentChatSnapshotStore:     agentChatSnapshotStore,
+		agentChatStoreDB:           agentChatStoreDB,
+		agentActivityEventStore:    agentActivityEventStore,
+		agentActivitySnapshotStore: agentActivitySnapshotStore,
+		agentActivityStoreDB:       agentActivityStoreDB,
+		agentRunnerEventStore:      agentRunnerEventStore,
+		agentRunnerSnapshotStore:   agentRunnerSnapshotStore,
+		agentRunnerStoreDB:         agentRunnerStoreDB,
+		globalView:                 globalView,
+		lock:                       lock,
 	}
 	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
 	return c, nil
+}
+
+// opens is a fail-fast opener for newLocked: it keeps the FIRST error and the
+// rollback for everything opened before it.
+//
+// Fail-fast matters as much as the rollback. Once one open has failed the rest are
+// no-ops, so the caller does not have to re-check between every line, and the
+// container is never built from a half-open set.
+type opens struct {
+	err      error
+	rollback []func() error
+}
+
+// unwind closes what was opened, newest first. Only called when newLocked is
+// returning an error — on success the Container owns these and Close has them.
+func (o *opens) unwind() {
+	for i := len(o.rollback) - 1; i >= 0; i-- {
+		_ = o.rollback[i]()
+	}
+}
+
+func (o *opens) eventStore(dir, name, what string) asynxModels.Store {
+	return openOne(o, what, func() (asynxModels.Store, error) {
+		return eventsqlite.NewEventStore(filepath.Join(dir, name))
+	}, closeEventStore)
+}
+
+func (o *opens) snapshotStore(dir, name, what string) asynxModels.SnapshotStore {
+	return openOne(o, what, func() (asynxModels.SnapshotStore, error) {
+		return eventsqlite.NewSnapshotStore(filepath.Join(dir, name))
+	}, closeSnapshotStore)
+}
+
+func (o *opens) viewDB(dir, name, what string) *gormdb.DB {
+	return openOne(o, what, func() (*gormdb.DB, error) {
+		return storesqlite.OpenReadPoolDB(filepath.Join(dir, name))
+	}, closeViewDB)
+}
+
+func openOne[T any](o *opens, what string, open func() (T, error), closeFn func(T) error) T {
+	var zero T
+	if o.err != nil {
+		return zero
+	}
+	v, err := open()
+	if err != nil {
+		o.err = fmt.Errorf("adapter: %s: %w", what, err)
+		return zero
+	}
+	o.rollback = append(o.rollback, func() error { return closeFn(v) })
+	return v
 }
 
 // ReviewThreadES returns the reviewthread event log at state/events/review_thread.db.
@@ -334,6 +341,25 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 // state/events/agent_runner.db. This is the singleton per-type handle: the app
 // layer builds ONE axAgentRunner over it and routes every runner id to a shard by
 // hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
+// AgentActivityES returns the conversation-record event log at
+// state/events/agent_activity.db.
+func (c *Container) AgentActivityES() asynxModels.Store {
+	return c.agentActivityEventStore
+}
+
+// AgentActivitySS returns the conversation-record snapshot store.
+func (c *Container) AgentActivitySS() asynxModels.SnapshotStore {
+	return c.agentActivitySnapshotStore
+}
+
+// AgentActivityReadDB returns the conversation-record read model at
+// state/store/agent_activity.db. Unlike the other read models it holds ROWS, not
+// one JSON blob per aggregate: turns, tool calls, subagents and interruptions are
+// queried by name, by file and by time, which a blob cannot answer.
+func (c *Container) AgentActivityReadDB() *gormdb.DB {
+	return c.agentActivityStoreDB
+}
+
 func (c *Container) AgentRunnerES() asynxModels.Store {
 	return c.agentRunnerEventStore
 }
@@ -377,74 +403,26 @@ func (c *Container) CrowbarHome() string {
 func (c *Container) Close() error {
 	var errs []error
 
-	if c.workspaceStoreDB != nil {
-		if err := closeViewDB(c.workspaceStoreDB); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close workspace store db: %w", err))
-		}
-		c.workspaceStoreDB = nil
-	}
-	if c.reviewThreadView != nil {
-		if err := closeViewDB(c.reviewThreadView); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close review thread view: %w", err))
-		}
-		c.reviewThreadView = nil
-	}
-	if c.agentChatStoreDB != nil {
-		if err := closeViewDB(c.agentChatStoreDB); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent chat store db: %w", err))
-		}
-		c.agentChatStoreDB = nil
-	}
-	if c.agentRunnerStoreDB != nil {
-		if err := closeViewDB(c.agentRunnerStoreDB); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent runner store db: %w", err))
-		}
-		c.agentRunnerStoreDB = nil
-	}
+	// Shutdown is a LIST, not a flow. Every entry is the same three steps — skip if
+	// never built, close it, forget it — and the only thing that varies is which
+	// handle and what to call it in the error. Written out inline that was twelve
+	// identical branches; written as a list, adding a store is one line and cannot
+	// forget to nil the field.
+	closeEach(&errs, "workspace store db", &c.workspaceStoreDB, closeViewDB)
+	closeEach(&errs, "review thread view", &c.reviewThreadView, closeViewDB)
+	closeEach(&errs, "agent activity store db", &c.agentActivityStoreDB, closeViewDB)
+	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
+	closeEach(&errs, "agent runner store db", &c.agentRunnerStoreDB, closeViewDB)
+	closeEach(&errs, "global view", &c.globalView, closeViewDB)
 
-	if c.globalView != nil {
-		if err := closeViewDB(c.globalView); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close global view: %w", err))
-		}
-		c.globalView = nil
-	}
-
-	if c.workspaceEventStore != nil {
-		if err := closeEventStore(c.workspaceEventStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close workspace event store: %w", err))
-		}
-		c.workspaceEventStore = nil
-	}
-	if c.workspaceSnapshotStore != nil {
-		if err := closeSnapshotStore(c.workspaceSnapshotStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close workspace snapshot store: %w", err))
-		}
-		c.workspaceSnapshotStore = nil
-	}
-	if c.agentChatEventStore != nil {
-		if err := closeEventStore(c.agentChatEventStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent chat event store: %w", err))
-		}
-		c.agentChatEventStore = nil
-	}
-	if c.agentChatSnapshotStore != nil {
-		if err := closeSnapshotStore(c.agentChatSnapshotStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent chat snapshot store: %w", err))
-		}
-		c.agentChatSnapshotStore = nil
-	}
-	if c.agentRunnerEventStore != nil {
-		if err := closeEventStore(c.agentRunnerEventStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent runner event store: %w", err))
-		}
-		c.agentRunnerEventStore = nil
-	}
-	if c.agentRunnerSnapshotStore != nil {
-		if err := closeSnapshotStore(c.agentRunnerSnapshotStore); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: close agent runner snapshot store: %w", err))
-		}
-		c.agentRunnerSnapshotStore = nil
-	}
+	closeEach(&errs, "workspace event store", &c.workspaceEventStore, closeEventStore)
+	closeEach(&errs, "workspace snapshot store", &c.workspaceSnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "agent activity event store", &c.agentActivityEventStore, closeEventStore)
+	closeEach(&errs, "agent activity snapshot store", &c.agentActivitySnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "agent chat event store", &c.agentChatEventStore, closeEventStore)
+	closeEach(&errs, "agent chat snapshot store", &c.agentChatSnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "agent runner event store", &c.agentRunnerEventStore, closeEventStore)
+	closeEach(&errs, "agent runner snapshot store", &c.agentRunnerSnapshotStore, closeSnapshotStore)
 
 	for _, cl := range c.globalClosers {
 		if err := cl.Close(); err != nil {
@@ -453,13 +431,25 @@ func (c *Container) Close() error {
 	}
 	c.globalClosers = nil
 
-	if c.lock != nil {
-		if err := c.lock.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("adapter: release state lock: %w", err))
-		}
-		c.lock = nil
-	}
+	closeEach(&errs, "release state lock", &c.lock, (*instanceLock).Close)
 	return errors.Join(errs...)
+}
+
+// closeEach closes one handle and clears it, collecting a named error.
+//
+// The nil check is on the INTERFACE/pointer value, so a handle that was never
+// built is skipped — Close runs on partially-constructed containers, which is the
+// whole reason a boot failure can still shut down cleanly. Clearing the field
+// makes Close idempotent.
+func closeEach[T comparable](errs *[]error, what string, field *T, close func(T) error) {
+	var zero T
+	if *field == zero {
+		return
+	}
+	if err := close(*field); err != nil {
+		*errs = append(*errs, fmt.Errorf("adapter: close %s: %w", what, err))
+	}
+	*field = zero
 }
 
 func closeEventStore(

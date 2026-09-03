@@ -31,6 +31,7 @@ import { HtmlKit } from './html-node'
 import { calloutMarkdownRules } from './markdown-callout-rules'
 import { htmlMarkdownRules } from './markdown-html-rules'
 import { MarkdownImageKit } from './markdown-image-node'
+import { underlineMarkdownRules } from './markdown-underline-rules'
 
 /** GFM-core plugin set shared by the live editor and the round-trip tests, so
  *  both exercise identical serialization. Extended plugins (mermaid,
@@ -64,10 +65,12 @@ export const markdownPlugins = [
       // typed comes back byte-for-byte instead of being re-punctuated.
       remarkStringifyOptions: { emphasis: '*', bullet: '-' },
       // Overrides ONLY `blockquote`/`callout` (GitHub alert syntax — see
-      // markdown-callout-rules.ts) and `html` (render + byte-exact preserve of
-      // raw HTML blocks — see markdown-html-rules.ts). Plate merges `rules`
-      // per-key over its own defaults, so no other node type is affected.
-      rules: { ...calloutMarkdownRules, ...htmlMarkdownRules },
+      // markdown-callout-rules.ts), `html` (render + byte-exact preserve of
+      // raw HTML blocks — see markdown-html-rules.ts), and `underline`'s
+      // `serialize` (the library's own default throws — see
+      // markdown-underline-rules.ts). Plate merges `rules` per-key over its
+      // own defaults, so no other node type is affected.
+      rules: { ...calloutMarkdownRules, ...htmlMarkdownRules, ...underlineMarkdownRules },
     },
   }),
 ]

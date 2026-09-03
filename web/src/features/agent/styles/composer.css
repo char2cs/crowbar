@@ -1,0 +1,953 @@
+/* The composer, lifted from the design canvas.
+ *
+ * Everything here is scoped under `.agent-chat` so the design's own class names
+ * survive verbatim — parity with the artboards is a diff of two stylesheets
+ * rather than a judgement about whether a utility class rounded a value.
+ *
+ * Values are Crowbar tokens throughout. Nothing here invents a colour. */
+
+/* The affirmative accent: Crowbar's green, legible on both grounds.
+ *
+ * MIXED IN OKLAB, NOT OKLCH. The green sits at hue 130 and `--foreground` is
+ * achromatic, so an oklch mix interpolates 130deg toward 0 and lands on olive.
+ * oklab moves through the rectangular space and keeps the hue. */
+.agent-chat {
+  --emph: var(--primary);
+}
+.dark .agent-chat {
+  --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+}
+
+/* OVER the conversation, not after it. Text scrolling up passes behind the box
+   and dissolves into the page rather than being clipped by an edge — which is
+   what a hard boundary between a scroller and a bar always looks like. */
+.agent-chat .dock {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 1;
+  flex: none;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px 14px;
+  /* NO fill here. A colour — even a translucent one — is a tint that never
+     matches whatever it sits over (that was the original --background bug,
+     and swapping in --pane-background just made it a fainter version of the
+     same mistake). The dock stays genuinely colourless; only the pill and
+     the chips paint anything, each with its own opaque surface. */
+  /* Regression, reported live: a scroll gesture anywhere in this box's own
+     (invisible) padding did NOTHING — not "short of the true bottom", the
+     wheel itself had no effect, because `.scroll` sits UNDER this the whole
+     height of the pane (`.agent-chat.chat`'s own containing block; see its
+     own comment) and this box, absolutely positioned with no fill, was still
+     the hit-test target across its entire empty area. `pointer-events: none`
+     here lets a gesture over that empty space fall through to `.scroll`
+     underneath; `auto` on each real child below restores it exactly where
+     something is actually painted and clickable. */
+  pointer-events: none;
+}
+.agent-chat .dock > * {
+  pointer-events: auto;
+}
+/* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
+   chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —
+   there is nothing to declare here for that part, an inline style beats a
+   class for a one-shot transform driven by a measured pixel value. This is
+   the OTHER half: the underbar stays invisible for exactly as long as
+   `data-arriving` is on the dock, then transitions in on its own once that
+   attribute is lifted (the JS removes it the instant the slide's own
+   `transitionend` fires — see the same file). `[data-arriving]`, not
+   `[data-arriving='true']`: the attribute is either present for the ONE
+   render that plays the animation, or absent for every other mount, so the
+   value never needs reading. */
+.agent-chat .dock .underbar {
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+.agent-chat .dock[data-arriving] .underbar {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+/* The dissolve: text passing under the dock gets progressively BLURRED and
+   faded — pure distortion, no colour of its own, so it reads as glass rather
+   than a tinted panel. Opacity lives on the transcript's own text (.scroll,
+   in transcript.css) as a mask; blur can't ramp from one `backdrop-filter` —
+   a single blur value is uniform wherever it applies — so it's faked with
+   stacked layers, each blurring more and masked into a lower band, following
+   the layered-mask recipe at https://kennethnym.com/blog/progressive-blur-in-css/.
+   Sharp edge starts a clear band ABOVE the dock's own top (the input's top
+   edge) — .scroll's padding-bottom is taller than this zone on purpose, so
+   the newest message stays clear of it entirely; only older text scrolled
+   back into view does. Most blurred at the dock's own bottom, the switches
+   line.
+
+   A SIBLING of .dock, not a child of it: the dock is a centred 768px column
+   (it only needs to be as wide as the controls it holds), but the transcript
+   underneath runs the full pane, so the glass has to too — sized off
+   --agent-dock-h directly instead of borrowing the dock's own narrow box.
+
+   STOPS SHORT OF THE SCROLLBAR, on the right. `.scroll` sits right under this
+   (see agent-transcript.tsx) and its native scrollbar is part of ITS OWN
+   painting — this is a sibling drawn on TOP, so without the inset its blur
+   sampled (and visually sat over) the scrollbar track too, smudging the one
+   thing on screen that must stay sharp to read as a control. --agent-scrollbar-w
+   is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
+   hand-picked, because the real width is a platform fact, not a design value.
+
+   That measurement is LAYOUT SPACE — 0 wherever the platform draws an
+   overlay scrollbar (macOS with a trackpad, by default), not "no scrollbar
+   exists". An overlay thumb still paints on top of content during a scroll
+   gesture even though it reserves nothing, so a bare `var()` leaves this
+   glass with zero protection on exactly the systems whose scrollbar is
+   easiest to smudge. `max()` keeps a small floor under it regardless of what
+   got measured — real reserved space still wins once it's wider than the
+   floor, same as before. */
+.agent-chat .dissolve {
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 88px);
+  /* An overlay thumb's own painted width, platform-observed rather than
+     derived from anything else here — the floor `right` below never goes
+     under it. */
+  --overlay-scrollbar-floor: 10px;
+  position: absolute;
+  left: 0;
+  right: max(var(--agent-scrollbar-w, 0px), var(--overlay-scrollbar-floor));
+  bottom: 0;
+  height: var(--dissolve-h);
+  z-index: 1;
+  pointer-events: none;
+  /* Every child here is `position: absolute; inset` within this box (none of
+     them paint outside it, none of them are affected by anything outside
+     it) — `contain: paint` is a fact about this layout, not a guess, and it
+     bounds the invalidation region the browser has to consider whenever any
+     one of the 7 backdrop-filter children below repaints. Without it, an
+     un-isolated backdrop-filter stack this size is exactly the kind of thing
+     that can starve OTHER GPU-composited layers sharing the same window —
+     the native sidebar's own vibrancy view among them — of frames under
+     load, not just cost this element its own. */
+  contain: paint;
+}
+.agent-chat .dissolve-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* top/bottom set per layer below — each layer only spans the band its own
+     mask actually reveals, plus a margin equal to its own blur radius (blur
+     sampling reads backdrop pixels from outside its box even though the
+     OUTPUT stays clipped to the box, so shrinking the box doesn't change
+     what's visible — it changes how much area the browser recomputes every
+     frame). Mask stops are absolute `calc()` offsets from each layer's own
+     (now-smaller) top, not percentages of the full dissolve height — that
+     keeps them landing at the same pixel regardless of the box's new size,
+     which itself varies with the dynamic --agent-dock-h. */
+}
+.agent-chat .dissolve-layer:nth-child(1) {
+  --top: 0px;
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.6 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(2) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 2px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 2px));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(3) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 4px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 4px));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(4) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 8px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 8px));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(5) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 16px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 16px));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(6) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 32px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(7) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 64px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(64px);
+  -webkit-backdrop-filter: blur(64px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+}
+
+.agent-chat .pill {
+  position: relative;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+  padding: 8px 14px;
+  transition: box-shadow 0.18s ease;
+}
+/* Stadium on one line, 18px once it wraps — INSTANT, not eased. This used to
+   ease over 180ms on the theory that a snap reads as the box being replaced
+   rather than growing; live, while actually typing, that read as the box's
+   own outline lagging a beat behind text that had already wrapped. The one
+   thing typed into this box that must never feel delayed is the box itself. */
+.agent-chat .pill.multi {
+  border-radius: 18px;
+}
+.agent-chat .pill:focus-within {
+  border-color: color-mix(in oklch, var(--ring) 60%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
+}
+
+.agent-chat .pill .field {
+  display: block;
+  width: 100%;
+  min-height: 20px;
+  line-height: 20px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--foreground);
+  border: none;
+  background: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  padding: 0 62px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: var(--foreground);
+}
+.agent-chat .pill .field::placeholder {
+  color: var(--muted-foreground);
+}
+/* Plate's placeholder is a rendered span, not the `::placeholder` pseudo the
+   textarea had. It is absolutely positioned over the first block, so it must
+   not add height of its own. */
+.agent-chat [data-slate-placeholder] {
+  color: var(--muted-foreground);
+  opacity: 1 !important;
+}
+
+/* ── the editable's blocks ─────────────────────────────── */
+/* THE PILL IS ONE LINE UNTIL IT IS TWO. Plate's block components carry the
+   registry's Tailwind margins, and on an empty box that margin is pure height:
+   the bar stood ~14px taller than its own line with nothing typed in it. Zero
+   them here and let the pill's own padding do the spacing. Unlayered, so it
+   beats the registry's `utilities` layer without `!important`. */
+.agent-chat .pill .field [data-slate-node='element'] {
+  margin: 0;
+  padding: 0;
+}
+.agent-chat .pill .field [data-slate-node='element'] + [data-slate-node='element'] {
+  margin-top: 0.35em;
+}
+
+/* The DOCUMENT keeps the canvas's writing rhythm: every block on the same
+   vertical measure, headings that step, a rule down the side of a quote. */
+.agent-chat .doc [data-slate-node='element'] {
+  margin: 0 0 0.9em;
+  padding: 0;
+}
+.agent-chat .doc [data-slate-node='element']:last-child {
+  margin-bottom: 0;
+}
+.agent-chat .doc h1 {
+  font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5em;
+}
+.agent-chat .doc h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  margin: 1.5em 0 0.5em;
+}
+.agent-chat .doc h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 1.5em 0 0.5em;
+}
+.agent-chat .doc [data-slate-node='element']:first-child {
+  margin-top: 0;
+}
+.agent-chat .doc ul,
+.agent-chat .doc ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.5em;
+}
+.agent-chat .doc ul {
+  list-style: disc;
+}
+.agent-chat .doc ol {
+  list-style: decimal;
+}
+.agent-chat .doc li {
+  margin: 0 0 0.3em;
+}
+.agent-chat .doc blockquote {
+  border-left: 2px solid color-mix(in oklch, var(--foreground) 22%, transparent);
+  padding-left: 0.9em;
+  color: var(--muted-foreground);
+  margin: 0 0 0.3em;
+}
+/* Both surfaces: code reads as code, and a link as a link. */
+.agent-chat .field code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  background: var(--muted);
+}
+.agent-chat .field a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Rides the field's own growth. INSTANT, not eased — it used to ease its
+   Y-offset over 160ms as `fieldHeight` grew, which while actively typing read
+   as the button lagging a beat behind text that had already wrapped. */
+.agent-chat .handle {
+  position: absolute;
+  right: 4px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+}
+.agent-chat .handle .sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* 28px inside the pill's 36px padding box, inset 4px on EVERY side: the circle
+   overhangs the 20px line by exactly the pill's 8px vertical padding minus 4,
+   and `right: 4px` matches it horizontally. Change the diameter or the padding
+   and the two stop agreeing — they are one number, (36 - d) / 2 = right. */
+.agent-chat .send {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  margin-left: 5px;
+  box-shadow:
+    0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent),
+    inset 0 1px var(--elevated-highlight);
+  transition:
+    transform 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+/* :not([class*='size-']) — the same opt-out Button/Tabs/Select/Badge/Toolbar
+   already use (see flicker-strip.ts's own comment) — because this rule isn't
+   only sizing StopIcon/UpIcon (which already set width/height={16} inline;
+   only the stroke-width below does real work for them). It is also a
+   descendant of FlickerSpinner's sprite strip, whose own single <svg> carries
+   `class="size-full"` and needs to size itself as a PERCENTAGE of its
+   (frames-wide) strip container. A flat 16px override collapsed that whole
+   multi-frame-wide viewBox into a 16px box — squashing the spinner into a
+   thin, "skinny" sliver instead of the icon it should read as. */
+.agent-chat .send svg:not([class*='size-']) {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+.agent-chat .send:active {
+  transform: scale(0.94);
+}
+.agent-chat .send.off {
+  border-color: var(--input);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  box-shadow: none;
+  cursor: default;
+}
+.agent-chat .send.halt {
+  border-color: color-mix(in oklch, var(--foreground) 22%, transparent);
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+/* A stop notice REPLACES the input rather than sitting above it, because the
+   fact it reports IS that there is nothing to type into. Same 38px box, same
+   stadium — the bar has not gone anywhere, it has stopped being an input. The
+   footer selectors stay live underneath: switching model is the one thing that
+   can actually clear a usage limit. */
+/* Right padding is deliberately tighter than left: `.msg`'s own text wants the
+   full 14px inset `.left` gets everywhere else in the composer, but whatever
+   trails it (a Terminal/Resume button, or ComposerHalted's `.when` timestamp)
+   is pinned flush against THIS edge via its own `margin-left: auto` below —
+   14px there read as a big right-side gap the normal composer's send circle
+   (always pinned close to its own edge) never has. */
+.agent-chat .pill.halted {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 5px 0 14px;
+  border-color: color-mix(in oklch, var(--warning) 45%, transparent);
+  background: color-mix(in oklch, var(--warning) 10%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    inset 0 1px color-mix(in oklch, var(--foreground) 5%, transparent);
+  cursor: default;
+}
+.agent-chat .pill.halted .msg {
+  font-size: 14px;
+  color: var(--warning-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .pill.halted > button:last-child {
+  margin-left: auto;
+}
+.agent-chat .pill.halted .when {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bar as a QUESTION. Same box, same height; what changes is who is asking. */
+.agent-chat .pill.asking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  background: color-mix(in oklch, var(--primary) 8%, var(--background));
+  cursor: default;
+}
+.agent-chat .pill.asking .q {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.agent-chat .pill.asking .q .sub {
+  display: block;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .pill.asking .acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* The options a question offers, above the bar that asks it. Crowbar green,
+   never a second accent: this is the app's one affirmative colour. */
+.agent-chat .opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 0 8px;
+}
+.agent-chat .optrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--input);
+  background: var(--background);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.agent-chat .optrow:hover {
+  background: var(--accent);
+}
+.agent-chat .optrow.on {
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  background: color-mix(in oklch, var(--primary) 10%, var(--background));
+  color: var(--emph);
+}
+.agent-chat .optrow .d {
+  display: block;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ── the blank chat's document ─────────────────────────── */
+/* Its own measure, and deliberately NOT the transcript's: a conversation is read
+   in a 720px column of 14px UI text, and a thing you are WRITING gets 16px at
+   1.7 with the same 720px of line. The two agree on the measure and disagree on
+   the size, which is the difference between reading and drafting. */
+.agent-chat .docwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-chat .doc {
+  --pad: max(40px, calc((100% - 720px) / 2));
+  padding: 48px var(--pad) 96px;
+  font-size: 16px;
+  line-height: 1.7;
+  outline: none;
+  color: var(--foreground);
+}
+/* The document's editable. Plate owns the blocks inside it; this is only the
+   column they sit in. */
+.agent-chat .doc .blk {
+  outline: none;
+}
+/* Rides one line below the caret. `pointer-events` is off on everything but the
+   bar itself, so the document under it stays clickable for its whole width.
+   INSTANT, not eased — same reasoning as `.handle` above: a control that
+   follows text you are actively typing must never read as catching up to it. */
+.agent-chat .dochandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  pointer-events: none;
+}
+.agent-chat .dochandle .inner {
+  --pad: max(40px, calc((100% - 720px) / 2));
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--pad);
+  pointer-events: none;
+}
+.agent-chat .dochandle .side {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.agent-chat .dochandle .grp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 38px;
+  padding: 0 4px 0 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+  pointer-events: auto;
+}
+.agent-chat .dochandle .chip {
+  height: 24px;
+  padding: 0 7px;
+}
+.agent-chat .dochandle .send {
+  margin-left: 5px;
+}
+
+/* ── the row under the pill ────────────────────────────── */
+/* Wrapping the ROW is what keeps a narrow pane from forcing `.left`'s
+   overflow into `.right`'s space: once there's no room for both, `.right`
+   drops to its own line instead of the two colliding. `overflow: hidden` is
+   a last-resort backstop, not the mechanism — see `.selpos` below for the
+   part that actually keeps `.left` itself from needing it. */
+.agent-chat .underbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 12px;
+  /* Both sides match `.pill`'s own `padding: 8px 14px` exactly, the same edge
+     the pill's own text and send circle sit inside. `.left` used to carry a
+     -7px margin instead of real padding here, on the theory that it was
+     "optical alignment" — with `overflow: hidden` below, that margin pulled
+     the leading chip PAST this row's own left edge and clipped it. A real
+     padding here has no overflow to clip into. */
+  padding: 8px 14px 0;
+  overflow: hidden;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .underbar .left,
+.agent-chat .underbar .right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
+     fit moves to the next line whole, it doesn't fold in place. */
+  white-space: nowrap;
+}
+/* On its own wrapped line, `.right` has no sibling for `space-between` to push
+   against — the auto margin is what still pins it to the row's right edge. */
+.agent-chat .underbar .right {
+  margin-left: auto;
+}
+/* The identity cluster reads as one control everywhere ELSE it's drawn (the
+   blank document's floating handle keeps the general `.agent-chat-pane
+   .selpos` rule, `flex: none`, below), but the underbar is the one place it
+   sits beside another group competing for the same row. Letting it shrink
+   and wrap internally here means the view switcher (last in the cluster,
+   least essential) drops to its own line when there's no room, instead of
+   forcing the whole cluster to hold its full width and spill past the dock. */
+.agent-chat .underbar .selpos {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* The selection cluster: model, effort and the view switcher read as ONE
+   control group, which is why they sit closer to each other (2px) than the
+   group does to anything else in the row (10px). */
+.agent-chat-pane .selpos {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/* The underbar's chip. Lower contrast than a Button by design — this row reports
+   what the chat IS, and only earns foreground colour once a choice has actually
+   been made (`.set`). */
+.agent-chat-pane .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat-pane .chip:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.agent-chat-pane .chip.set {
+  color: var(--foreground);
+}
+.agent-chat-pane .chip:disabled {
+  cursor: default;
+}
+
+.agent-chat .gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .gbar {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.agent-chat .gbar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 42%, transparent);
+  transition: width 0.3s ease;
+}
+.agent-chat .gbar.warn > span {
+  background: var(--warning);
+}
+
+/* ── the view switcher (ui/tabs pill variant) ──────────── */
+/* Scoped to the PANE, not the chat. The terminal surface draws this same
+   switcher in its status strip and is not inside `.agent-chat`, so a chat-scoped
+   rule left the TUI's copy completely unstyled — three bare glyphs on the
+   background. Everything both surfaces share hangs off `.agent-chat-pane`. */
+.agent-chat-pane .viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+.agent-chat-pane .viewswitch button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat-pane .viewswitch button:hover:not(:disabled):not(.on) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.agent-chat-pane .viewswitch button.on {
+  border-color: var(--background);
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.1),
+    inset 0 1px var(--elevated-highlight);
+}
+.agent-chat-pane .viewswitch button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.agent-chat-pane .viewswitch svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── the slash picker ──────────────────────────────────── */
+.agent-chat .slash {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--popover);
+  padding: 6px;
+  box-shadow: 0 16px 40px -12px oklch(0 0 0 / 0.5);
+  margin-bottom: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+/* One line per skill: the command, then its description beside it. Both 13px —
+   the command was 14px mono, which sets optically larger than the UI face at the
+   same size and made every row read as a heading. */
+.agent-chat .slash .opt {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius-lg);
+  padding: 6px 12px;
+  color: var(--foreground);
+  font-family: inherit;
+  cursor: pointer;
+}
+.agent-chat .slash .opt.on {
+  background: var(--accent);
+}
+.agent-chat .slash .opt .t {
+  flex: none;
+  font-size: 13px;
+  font-weight: 400;
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+}
+.agent-chat .slash .opt .d {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-chat .slash .state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ── the empty state ───────────────────────────────────── */
+/* A blank markdown document, because that is what a good first prompt looks
+   like. The affordance is inverted from the transcript's: the writing surface is
+   the page and the controls are the box, rather than the other way round. */
+.agent-chat .doc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.agent-chat .doc .sheet {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px;
+  color: var(--muted-foreground);
+  font-size: 16px;
+  line-height: 1.7;
+}
+.agent-chat .doc .sheet h1 {
+  margin: 0 0 6px;
+  font-size: 2em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: color-mix(in oklch, var(--foreground) 32%, transparent);
+}
+.agent-chat .doc .sheet p {
+  margin: 0;
+  color: color-mix(in oklch, var(--foreground) 26%, transparent);
+}
+
+/* A prompt occupies the whole dock slot: what is asked reads down the page, and
+   the bar underneath is the question itself with its controls. One box, not a
+   card sitting above a separate pill — .asks carries the same growing-box
+   geometry the composer itself uses (.pill.multi's own radius, since this is
+   never a one-line case), and the nested bar gives up its own box to become a
+   plain bottom row inside it. */
+.agent-chat .asks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 18px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  padding: 12px 14px;
+}
+.agent-chat .asks .pill.asking {
+  margin: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: auto;
+}

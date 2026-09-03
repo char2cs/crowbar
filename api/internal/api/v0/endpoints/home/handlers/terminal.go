@@ -12,7 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/origin"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 var homeTerminalUpgrader = websocket.Upgrader{

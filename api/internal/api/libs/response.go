@@ -24,7 +24,11 @@ import (
 type Envelope struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
-	Data    any    `json:"data,omitempty"`
+	// Code is a stable machine-readable failure category for endpoints whose
+	// recovery UX must distinguish errors sharing one HTTP status. Existing
+	// errors omit it and retain their wire shape.
+	Code string `json:"code,omitempty"`
+	Data any    `json:"data,omitempty"`
 }
 
 // mutationData is the fixed data shape returned by mutation responses: the id
@@ -103,6 +107,26 @@ func WriteErr(
 		Envelope{
 			Success: false,
 			Error:   message,
+		},
+	)
+}
+
+// WriteErrCode writes a failure with both a human-readable message and a stable
+// machine-readable code. Use it only when the client has distinct recovery
+// actions for errors sharing an HTTP status (for example prompt busy vs an
+// uncertain delivery outcome).
+func WriteErrCode(
+	c *gin.Context,
+	status int,
+	code string,
+	message string,
+) {
+	c.JSON(
+		status,
+		Envelope{
+			Success: false,
+			Error:   message,
+			Code:    code,
 		},
 	)
 }

@@ -2,13 +2,13 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev dev-api dev-web dev-desktop dev-bundle seed web-install build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
 # never collides with the production app. Scoped to dev targets only — tests
 # pin the ~/.crowbar default and must run without the override.
-dev dev-api dev-web dev-desktop dev-bundle seed: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
+dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
 # Which worktree launched this dev instance. Debug builds put it in the window
 # title (see apply_dev_window_title in desktop/src-tauri/src/lib.rs) so that the
@@ -60,6 +60,14 @@ dev-desktop: web-install
 HOST ?= unix://
 seed:
 	@cd api && go run -tags noEmbed ./cmd/crowbar-seed --host $(HOST)
+
+WORKSPACE_ID ?=
+TURNS ?= 20
+TOOL_CALLS ?= 5
+
+seed-chat:
+	@test -n "$(WORKSPACE_ID)" || (echo "usage: make seed-chat WORKSPACE_ID=<id> [TURNS=20] [TOOL_CALLS=5]" && exit 1)
+	@cd api && go run -tags noEmbed ./cmd/crowbar-seed-chat --workspace-id $(WORKSPACE_ID) --turns $(TURNS) --tool-calls $(TOOL_CALLS)
 
 web-install:
 	$(MAKE) -C web install

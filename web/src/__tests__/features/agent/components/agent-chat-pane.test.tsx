@@ -12,15 +12,29 @@ import {
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
-const { getChatFn, switchProviderFn, resumeChatFn, saveReconnectFn, toastErrorFn } = vi.hoisted(
-  () => ({
-    getChatFn: vi.fn(),
-    switchProviderFn: vi.fn(),
-    resumeChatFn: vi.fn(),
-    saveReconnectFn: vi.fn(),
-    toastErrorFn: vi.fn(),
-  }),
-)
+const {
+  getChatFn,
+  switchProviderFn,
+  resumeChatFn,
+  listMessagesFn,
+  submitPromptFn,
+  slashCatalogFn,
+  saveReconnectFn,
+  toastErrorFn,
+  switchToTerminalFn,
+  switchToNativeFn,
+} = vi.hoisted(() => ({
+  getChatFn: vi.fn(),
+  switchProviderFn: vi.fn(),
+  resumeChatFn: vi.fn(),
+  listMessagesFn: vi.fn(),
+  submitPromptFn: vi.fn(),
+  slashCatalogFn: vi.fn(),
+  saveReconnectFn: vi.fn(),
+  toastErrorFn: vi.fn(),
+  switchToTerminalFn: vi.fn(),
+  switchToNativeFn: vi.fn(),
+}))
 
 // The pane resolves its cycle chord through the keymap (so it stays rebindable);
 // pin it here rather than standing up the settings store.
@@ -32,6 +46,11 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getChat: (...a: unknown[]) => getChatFn(...a),
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
+  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+  submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
+  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
+  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -46,7 +65,9 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // that records the sessionId it was mounted with (that's what the attach seam is
 // proven by) plus the isActive/isVisible/attachOnly props threaded from the pane.
 // The marker is clickable so a test can fire the terminal's onSessionGone — the
-// pane's half of the "the PTY died under a mounted pane" contract.
+// pane's half of the "the PTY died under a mounted pane" contract. Click reports
+// the session it is MOUNTED with (what real xterm does); double-click reports a
+// stale id, standing in for a displaced PTY whose death lands late.
 vi.mock('@/features/terminal/components/terminal', () => ({
   XtermTerminal: ({
     sessionId,
@@ -61,7 +82,7 @@ vi.mock('@/features/terminal/components/terminal', () => ({
     isVisible?: boolean
     attachOnly?: boolean
     flush?: boolean
-    onSessionGone?: () => void
+    onSessionGone?: (goneSessionId: string) => void
   }) =>
     createElement('div', {
       'data-testid': 'xterm',
@@ -70,7 +91,56 @@ vi.mock('@/features/terminal/components/terminal', () => ({
       'data-visible': String(isVisible),
       'data-attach-only': String(Boolean(attachOnly)),
       'data-flush': String(Boolean(flush)),
-      onClick: () => onSessionGone?.(),
+      onClick: () => onSessionGone?.(sessionId),
+      onDoubleClick: () => onSessionGone?.('pty-displaced'),
+    }),
+}))
+
+// The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
+// Slate editable** — measured: window- and document-capture see the event, the
+// editable's own listeners never fire. Neither `PlateContent onKeyDown` nor a
+// plugin handler runs. So a test that typed into the real editor here would not
+// be testing the queue, it would be testing nothing and passing.
+//
+// These suites are about the QUEUE, the catalog and the ledger. The editor gets
+// a stand-in with the same contract — text in, markdown out, keys through — and
+// the editor's own behaviour is verified live and in its own suite.
+vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
+  ChatMarkdownEditor: ({
+    initialValue,
+    placeholder,
+    ariaLabel,
+    onChange,
+    onKeyDown,
+    expanded,
+    controls,
+  }: {
+    initialValue: string
+    placeholder: string
+    ariaLabel: string
+    onChange: (value: string) => void
+    onKeyDown: (
+      event: unknown,
+      readMarkdown: () => string,
+      caret: { atStart: boolean; atEnd: boolean },
+    ) => void
+    expanded?: boolean
+    controls?: string
+  }) =>
+    createElement('textarea', {
+      'aria-label': ariaLabel,
+      'aria-expanded': expanded,
+      'aria-controls': controls,
+      placeholder,
+      defaultValue: initialValue,
+      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+      // Second argument included deliberately: the real editor hands the key
+      // handler the BOX's text, and a mock that omitted it would let a submit
+      // path that reads stale state keep passing. Third argument is a stand-in
+      // for the real editor's own caret-edge probe — see the identical note in
+      // agent-chat-view.test.tsx's own mock of this module.
+      onKeyDown: (event: { currentTarget: { value: string } }) =>
+        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
     }),
 }))
 
@@ -81,10 +151,12 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
     providers,
     currentProviderId,
     onSwitch,
+    disabled,
   }: {
     providers: AgentProvider[]
     currentProviderId: string
     onSwitch: (id: string) => void
+    disabled?: boolean
   }) =>
     createElement(
       'button',
@@ -92,6 +164,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
         'data-testid': 'provider-switch',
         'data-current': currentProviderId,
         'data-count': String(providers.length),
+        disabled,
         onClick: () => onSwitch('codex'),
       },
       'switch',
@@ -101,7 +174,26 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useSettingsStore } from '@/features/settings/store'
 
+/**
+ * Land this pane on the TERMINAL surface.
+ *
+ * The chat's status strip — its title and the provider switcher — is the
+ * provider's-own-view chrome and is drawn only there: Chat states everything it
+ * is running as in its own underbar, under the composer. So a test about the
+ * switcher has to be on the surface that has one.
+ */
+function landOnTerminal() {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: false },
+  }))
+}
+
+// Both real descriptors declare hotswap:true and keep a real terminal — see
+// TestShippedDescriptors_DeclareHotswapTrue on the backend — so these fixtures
+// match that rather than exercising the (currently provider-less) false branch,
+// which has its own dedicated coverage in agent-chat-view.test.tsx.
 const providers: AgentProvider[] = [
   {
     id: 'claude',
@@ -110,6 +202,8 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    hasTerminal: true,
+    hotswap: true,
   },
   {
     id: 'codex',
@@ -118,6 +212,8 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    hasTerminal: true,
+    hotswap: true,
   },
 ]
 
@@ -155,6 +251,22 @@ function dormantChat(o: { id: string; title?: string; provider?: string }): Agen
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: o.provider ?? 'codex',
+    createdAt: '',
+    order: 0,
+  }
+}
+
+/** A LIVE runner with nothing attached — the correct idle shape for a non-hotswap
+ *  api-transport provider (codex) that has never been switched to its native view.
+ *  This is NOT dormancy: liveRunnerId is the only liveness signal, and it is set. */
+function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string }): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: o.runnerId,
+    terminalSessionId: '',
+    activeProviderId: 'codex',
     createdAt: '',
     order: 0,
   }
@@ -241,16 +353,53 @@ beforeEach(() => {
   getChatFn.mockReset()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()
+  listMessagesFn.mockReset()
+  submitPromptFn.mockReset()
+  slashCatalogFn.mockReset()
   saveReconnectFn.mockReset()
   toastErrorFn.mockReset()
+  switchToTerminalFn.mockReset()
+  switchToNativeFn.mockReset()
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
+  // A chat that has been SPOKEN IN. A chat with no messages is the blank
+  // DOCUMENT surface — writing size, no pill under it — so a pane test about the
+  // composer, the queue or the switcher has to start from a conversation for its
+  // subject to be on screen at all.
+  listMessagesFn.mockResolvedValue({
+    cursor: 1,
+    oldestCursor: 1,
+    hasMore: false,
+    items: [
+      {
+        sequence: 1,
+        turnId: 'turn-1',
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'earlier turn',
+        at: '2026-08-16T00:00:01Z',
+      },
+    ],
+  })
+  submitPromptFn.mockResolvedValue({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
+  slashCatalogFn.mockResolvedValue({
+    providerId: 'codex',
+    completeness: 'model_visible',
+    items: [],
+    warnings: [],
+  })
   getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
     Promise.resolve(
       detail(liveChat({ id: String(id), runnerId: 'r-revived', pty: 'pty-revived' })),
     ),
   )
   useTerminalStore.setState({ sessions: new Map() })
+  // The settings store is a GLOBAL singleton, so a test that lands the pane on
+  // the terminal leaks that choice into every test after it. Reset to the
+  // shipped default — Chat — before each one.
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: true },
+  }))
   localStorage.clear()
   // Every route that mounts a workspace publishes it as THE active one
   // (WorkspaceView). The pane's window-level chord listener is gated on that,
@@ -344,7 +493,7 @@ describe('AgentChatPane', () => {
     })
 
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
     expect(resumeChatFn).not.toHaveBeenCalled()
     expect(screen.getByTestId('xterm')).toBeTruthy()
   })
@@ -369,7 +518,7 @@ describe('AgentChatPane', () => {
       // complained about.
       expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
       expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
-      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
 
       await act(async () => {
@@ -396,7 +545,7 @@ describe('AgentChatPane', () => {
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       // The reason is REPORTED, and the PATH is not blamed for a failure that has
       // nothing to do with it.
       const [, why] = toastErrorFn.mock.calls[0] as [string, string]
@@ -407,13 +556,52 @@ describe('AgentChatPane', () => {
       err.mockRestore()
     })
 
+    // THE TERMINAL_WAIT LESSON, applied to the OTHER two: a blank chat (nothing
+    // ever said yet) never mounts AgentChatView's dock at all — AgentEmptyDocument
+    // renders instead — so a reviving/idle-failed signpost that lives ONLY in the
+    // composer would be silently missing for exactly the chat most likely to hit
+    // it (a CLI that dies before its very first turn ever lands). Proven with a
+    // real assertion, not by inspection — see the terminal_wait suite for why that
+    // distinction matters.
+    it('still shows the failure message and Resume for a chat with no messages yet', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      // The blank surface is genuinely up — this is not accidentally exercising
+      // the non-blank path.
+      expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
+      err.mockRestore()
+    })
+
+    it('still shows the reviving spinner for a chat with no messages yet', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openBuffer(store, 'c1', ''))
+
+      expect(await screen.findByTestId('agent-empty-document')).toBeInTheDocument()
+      expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+    })
+
     it('fails honestly when the revived CLI dies on startup (resumed, but nothing on the chat)', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' }))) // resumed → still nobody there
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
     })
 
@@ -441,7 +629,7 @@ describe('AgentChatPane', () => {
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       // The manual retry is still there — that is what the button is FOR now.
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
       expect(resumeChatFn).toHaveBeenCalledTimes(2)
       err.mockRestore()
@@ -465,7 +653,7 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).toHaveBeenCalledTimes(1) // NOT revived again
       expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
     })
 
     it('never revives from the pending state (the chat list has not landed)', async () => {
@@ -503,6 +691,102 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+    })
+
+    // Regression: a non-hotswap api-transport runner (codex) is legitimately live
+    // with an empty terminalSessionId whenever it has never been switched to its
+    // native view — that used to be indistinguishable from dormant (both had an
+    // empty terminalSessionId), so this state fired a needless revive onto a chat
+    // that already had a perfectly healthy runner on it, and any failure of that
+    // SECOND, unwanted resume then latched the whole chat into `idle: failed`
+    // permanently — Resume re-running the exact same needless resume every time.
+    // Confirmed live. liveRunnerId is the only thing that may mean "no runner".
+    it('does not revive a live runner that simply has no terminal to attach', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
+      expect(screen.queryByText(/could not restart this agent/i)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+    })
+
+    // The terminal surface's own placeholder for this same state, visible once the
+    // user actually looks at the terminal view for a runner with nothing attached.
+    it('shows a plain placeholder, never Resume, in the terminal view of a live runner with no terminal', async () => {
+      landOnTerminal()
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
+    })
+
+    // TestRegression_SwitchToTerminal coverage gap: every other test in this file
+    // clicks the Terminal tab on a HOTSWAP provider (the fixture default), which
+    // takes chooseSurface's `hotswap` branch and never calls the endpoint at all.
+    // Codex is the one shipped provider that is NOT hotswap, and nothing exercised
+    // its actual click-to-switch path — see runner/attach_internal_test.go for the
+    // backend half of this same gap.
+    it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
+        Promise.resolve(
+          detail(
+            liveChat({ id: String(id), runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }),
+          ),
+        ),
+      )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      // Not a synchronous flip like the hotswap case — the tab does not read
+      // selected until the switch actually resolves.
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      )
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      await vi.waitFor(() =>
+        expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        ),
+      )
+    })
+
+    // Regression: a refused switch (a turn still in flight, or codex before its
+    // first completed turn ever wrote a rollout to resume — both real 409s the
+    // backend already returns, see attach.go's ErrTurnInProgress /
+    // ErrNativeViewNotYetAvailable) used to be swallowed with no feedback at
+    // all: the tab click did nothing visible, which reads as broken rather than
+    // refused.
+    it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockRejectedValue(
+        new ApiError(
+          'agent: provider has no completed turn yet to show its native view of: conflict',
+          409,
+        ),
+      )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      await vi.waitFor(() => expect(toastErrorFn).toHaveBeenCalledTimes(1))
+      const [title] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(title).toContain('Codex')
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      )
     })
   })
 
@@ -634,8 +918,10 @@ describe('AgentChatPane', () => {
 
     const xterm = await screen.findByTestId('xterm')
     expect(xterm.getAttribute('data-session-id')).toBe('pty1')
-    expect(xterm.getAttribute('data-active')).toBe('true')
-    expect(xterm.getAttribute('data-visible')).toBe('true')
+    // Chat is the default presentation. The PTY remains attach-only and mounted,
+    // but xterm may neither focus nor resize while it is behind Chat.
+    expect(xterm.getAttribute('data-active')).toBe('false')
+    expect(xterm.getAttribute('data-visible')).toBe('false')
     // Attach-only: a reconnect can never spawn a bare shell into the agent frame.
     expect(xterm.getAttribute('data-attach-only')).toBe('true')
     // The mapping that makes resolveTerminalConnection ATTACH exists at mount.
@@ -654,7 +940,7 @@ describe('AgentChatPane', () => {
     await renderPane(store, bufferId)
 
     expect(screen.queryByTestId('xterm')).toBeNull()
-    expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
   })
 
@@ -678,11 +964,10 @@ describe('AgentChatPane', () => {
       )
     })
 
-    // isActive is (isActivePane && isVisible): the visible tab of an UNFOCUSED pane is
-    // still not the active surface, so data-active is false while data-visible is true.
+    // Chat is selected, so xterm is neither active nor visible regardless of pane focus.
     const xterm = await screen.findByTestId('xterm')
     expect(xterm.getAttribute('data-active')).toBe('false')
-    expect(xterm.getAttribute('data-visible')).toBe('true')
+    expect(xterm.getAttribute('data-visible')).toBe('false')
   })
 
   // ── Adopting a new runner on the same chat ─────────────────────────
@@ -694,6 +979,7 @@ describe('AgentChatPane', () => {
   // whole component — socket, listeners, observers — down and rebuilding it. This is
   // the P4c fix: the terminal used to be key={sessionId} and remounted here.
   it('adopts the chat new runner in place — new PTY, but the SAME terminal (no remount)', async () => {
+    landOnTerminal()
     const store = seedWorkspace([
       liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
     ])
@@ -750,7 +1036,7 @@ describe('AgentChatPane', () => {
       resumeChatFn.mockResolvedValue('r9')
       getChatFn.mockResolvedValue(detail(liveChat({ id: 'c1', runnerId: 'r9', pty: 'pty9' })))
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
       expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
@@ -768,14 +1054,14 @@ describe('AgentChatPane', () => {
       await renderPane(store, openBuffer(store, 'c1', ''))
 
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /resume/i }))
+        fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
       const [title, why] = toastErrorFn.mock.lastCall as [string, string]
       expect(title).toMatch(/resume/i)
       expect(why).toContain('not on PATH')
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /resume/i })).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
       // The auto-revive, then the click. Each attempt is a SETTLED one — nothing here
       // ever retries on its own.
       expect(resumeChatFn).toHaveBeenCalledTimes(2)
@@ -804,7 +1090,29 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('xterm')).toBeNull()
       expect(screen.getByText(/this agent has exited/i)).toBeTruthy()
       expect(resumeChatFn).not.toHaveBeenCalled() // the store still says the chat is live
-      expect(screen.getByTestId('provider-switch')).toBeTruthy()
+      // The pane is still a pane: it reported the exit and offers the way back,
+      // rather than tearing itself down over a signal it did not trust.
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
+    })
+
+    // REGRESSION: a prompt submission REPLACES the CLI, so the outgoing PTY dies by
+    // design — but the terminal reports that death whenever it notices, which can be
+    // after the replacement is already attached. Believing a stale report latched
+    // "this agent has exited" over a chat whose runner the server still lists as live,
+    // and the React prompt queue (which may only dispatch onto a live TUI) stalled
+    // there forever. Only the session the pane still WANTS may report it gone.
+    it('ignores a displaced PTY reporting its death after the replacement attached', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+
+      await act(async () => {
+        fireEvent.doubleClick(screen.getByTestId('xterm')) // the OUTGOING pty's late death
+      })
+
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+      expect(screen.queryByText(/this agent has exited/i)).toBeNull()
+      expect(resumeChatFn).not.toHaveBeenCalled()
     })
 
     it('revives once the daemon confirms the chat is dormant', async () => {
@@ -828,6 +1136,9 @@ describe('AgentChatPane', () => {
 
   // ── Footer / provider switch ───────────────────────────────────────
   describe('provider switch', () => {
+    // The switcher is the terminal surface's chrome. See landOnTerminal.
+    beforeEach(landOnTerminal)
+
     it('renders the switcher beneath the terminal at the chat provider', async () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
@@ -858,8 +1169,8 @@ describe('AgentChatPane', () => {
       // the alignment cannot rot.
       const term = screen.getByTestId('xterm')
       const pill = screen.getByTestId('provider-switch')
-      const column = term.parentElement?.parentElement
-      expect(column).toBe(pill.parentElement?.parentElement)
+      const column = term.closest('.max-w-4xl')
+      expect(column).toBe(pill.closest('.max-w-4xl'))
       expect(column?.className).toMatch(/px-\d/)
       expect(column?.className).toMatch(/max-w-/)
 
@@ -924,7 +1235,7 @@ describe('AgentChatPane', () => {
 
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByText(/starting codex/i)).toBeTruthy() // the spinner stands
-      expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
 
       // The incoming CLI lands.
       getChatFn.mockResolvedValue(
@@ -986,6 +1297,38 @@ describe('AgentChatPane', () => {
 
       expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
       expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    // Regression: a switch never toggles `presentation` itself (see the test
+    // above — it stays on whatever surface the user was already looking at),
+    // and switchProvider/adopt alone never re-request an attach. A chat already
+    // ON the terminal surface that switches from a hotswap provider (claude) to
+    // a non-hotswap one (codex) used to strand the view on the OLD provider's
+    // live PTY label with the new runner's empty attachment underneath it —
+    // "This agent has no terminal view attached right now" — because nothing
+    // ever asked codex for one.
+    it('re-requests an attach when switching TO a non-hotswap provider while already on the terminal surface', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn
+        .mockResolvedValueOnce(
+          detail(liveChatNoTerminal({ id: 'c1', runnerId: 'r1', title: 'Chat c1' })),
+        )
+        .mockResolvedValueOnce(
+          detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' })),
+        )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      expect(screen.queryByText(/no terminal view attached/i)).not.toBeInTheDocument()
     })
   })
 
@@ -1164,6 +1507,138 @@ describe('AgentChatPane', () => {
       await pressCycle()
 
       expect(switchProviderFn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('React chat presentation', () => {
+    it('defaults to Chat while retaining the native terminal as an attach-only fallback', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-attach-only', 'true')
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
+    })
+
+    it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      store.getState().setAgentChatWorking('c1', true)
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'queued while busy' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(await screen.findByText('queued while busy')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+      expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      await act(async () => store.getState().setAgentChatWorking('c1', false))
+      expect(submitPromptFn).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    })
+
+    // The two switch routes now live on DIFFERENT surfaces: the chord is global,
+    // the dropdown belongs to the terminal's status strip. Both read the same
+    // in-flight booleans, so the guard is only proven by crossing between them —
+    // submit from Chat, then walk to the Terminal and find the control refusing.
+    it('blocks chord and dropdown provider switches through submission and hook confirmation', async () => {
+      const submitted = deferred<{ runnerId: string; terminalSessionId: string }>()
+      submitPromptFn.mockReturnValue(submitted.promise)
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'deliver exactly once' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+
+      // Chat has no dropdown to press — the chord is the only route off this
+      // surface, and it must not fire.
+      expect(screen.queryByTestId('provider-switch')).toBeNull()
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
+      })
+      expect(switchProviderFn).not.toHaveBeenCalled()
+
+      // Cross to the provider's own view, where the dropdown is, and find it
+      // refusing for the same reason.
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Terminal'))
+      })
+      expect(screen.getByTestId('provider-switch')).toBeDisabled()
+      fireEvent.click(screen.getByTestId('provider-switch'))
+      expect(switchProviderFn).not.toHaveBeenCalled()
+
+      await act(async () => {
+        submitted.resolve({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
+      })
+      // Still refusing after the submission resolves: the prompt is delivered but
+      // the hook has not confirmed it, and that window is exactly the one a
+      // handover would lose the turn in.
+      expect(screen.getByTestId('provider-switch')).toBeDisabled()
+      fireEvent.click(screen.getByTestId('provider-switch'))
+      expect(switchProviderFn).not.toHaveBeenCalled()
+    })
+
+    it('reconciles a failed replacement to dormant instead of retaining a dead PTY attachment', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
+      getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'trigger replacement' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(await screen.findByText(/could not restart this agent/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
+      expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
+    })
+  })
+
+  // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the
+  // composer's own `signpost` (reason: 'terminal_wait', via `resolveComposerState`)
+  // both render off the SAME `waiting` signal — but only the banner is meant to
+  // survive once the composer can actually show it. Before this test existed, both
+  // rendered at once for any chat with messages, which is exactly the duplication
+  // "one box, one occupant, never two stacked" (composer-state.ts) already forbids
+  // for every OTHER reason. The banner earns its keep only for a blank, first-turn
+  // chat, where AgentChatView renders AgentEmptyDocument instead of AgentComposer
+  // and there is no composer slot to mutate — see agent-chat-pane-terminal-wait.test.tsx
+  // for that half.
+  describe('terminal_wait on a chat that already has messages', () => {
+    it('mutates the composer into a signpost instead of duplicating a pane-level banner', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      // The default beforeEach's listMessagesFn returns one message, so this chat
+      // is NOT blank — AgentComposer, not AgentEmptyDocument, is mounted.
+      expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+
+      await act(async () => {
+        store.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+      })
+
+      // The composer itself became the signpost...
+      expect(screen.getByText(/waiting for you to trust the workspace/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+      // ...and the separate pane-level banner did NOT also render.
+      expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
+      // The input itself is gone — one occupant, not an input rendered dead
+      // beneath the question.
+      expect(screen.queryByRole('textbox', { name: /message the agent/i })).not.toBeInTheDocument()
     })
   })
 })

@@ -57,6 +57,31 @@ describe('apiFetch transient-transport retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('carries a structured recovery code from an error envelope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        statusText: 'Conflict',
+        json: async () => ({
+          success: false,
+          error: 'delivery outcome is unknown',
+          code: 'request_outcome_uncertain',
+        }),
+      }),
+    )
+
+    const error = (await apiFetch('/v0/ws/w1/chats/c1/prompts', {
+      method: 'POST',
+    }).catch((caught) => caught)) as ApiError
+    expect(error).toMatchObject({
+      status: 409,
+      code: 'request_outcome_uncertain',
+      message: 'delivery outcome is unknown',
+    })
+  })
+
   // Mutations are NOT idempotent: a transport failure on a POST/DELETE must not be
   // blindly retried (the daemon's async 202 model + subscribe-before-POST handles
   // mutation resilience explicitly). Only safe reads auto-retry.

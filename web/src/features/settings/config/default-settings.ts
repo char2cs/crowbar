@@ -42,6 +42,9 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
+  // Agents
+  chatIsDefaultPresentation: true,
+  chatSplitPresentationEnabled: false,
   // Theme
   theme: 'crowbar',
   iconTheme: 'material',

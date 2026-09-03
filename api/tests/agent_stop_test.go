@@ -11,7 +11,7 @@ import (
 )
 
 // TestRegression_AgentStopKeepsChatDormantAndResumable proves the close-a-chat-tab
-// route end-to-end: POST .../agent/chats/:id/stop gracefully terminates the chat's
+// route end-to-end: POST .../chats/:id/stop gracefully terminates the chat's
 // live vendor CLI but LEAVES THE CHAT — dormant and resumable — rather than deleting
 // it. This is the counterpart of Delete (which erases the chat) and the whole point of
 // the tab-close behaviour: the process stops, the conversation survives, and reopening
@@ -35,7 +35,7 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	h.Quiesce()
 
 	// Close the tab: stop the CLI, keep the chat.
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/agent/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -50,7 +50,7 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 
 	// And it still appears in List — a close is not a delete.
 	var list []agentChatDTO
-	h.get(wsBase(imported)+"/agent/chats", &list)
+	h.get(wsBase(imported)+"/chats", &list)
 	var found bool
 	for _, c := range list {
 		if c.ID == chatID {

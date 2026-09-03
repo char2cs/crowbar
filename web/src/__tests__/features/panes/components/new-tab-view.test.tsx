@@ -411,7 +411,8 @@ describe('NewTabView', () => {
 
       const row = screen.getByRole('button', { name: /new chat/i })
       expect(row).toBeDisabled()
-      expect(row.title).toMatch(/settings → providers/i)
+      // Named as the settings rail names it: Agents (spec §11).
+      expect(row.title).toMatch(/settings → agents/i)
     })
 
     it('leaves the row live while a provider is enabled', () => {

@@ -1,0 +1,150 @@
+package models
+
+type CanonicalEvent struct {
+	Kind      string
+	SessionID string
+	Message   string
+
+	AsyncWork int
+
+	Model string
+
+	Effort string
+
+	Reason string
+
+	Tool      *ToolEvent
+	Subagent  *SubagentEvent
+	Interrupt *InterruptEvent
+
+	Delta *MessageDelta
+
+	Failure *TurnFailure
+
+	Choice *ChoicePrompt
+
+	Raw map[string]any
+}
+
+type MessageDelta struct {
+	TurnID    string
+	MessageID string
+
+	// Index is the increment's position, meaningful only when Sequenced is
+	// true. A provider whose descriptor maps no index: field (its deltas
+	// arrive on one ordered stream with nothing to number) leaves this zero
+	// on every increment — reading it then would fold every chunk onto the
+	// same slot, so stream.Streams instead assigns arrival order itself.
+	Index     int
+	Sequenced bool
+
+	Final bool
+
+	Text string
+}
+
+type TurnFailure struct {
+	Reason string
+
+	Detail string
+}
+
+type ToolEvent struct {
+	ID   string
+	Name string
+
+	Target string
+	Input  []byte
+	Result []byte
+	Status string
+
+	Error      string
+	DurationMS int
+}
+
+type SubagentEvent struct {
+	ID        string
+	AgentType string
+}
+
+const (
+	InterruptPermission   = "permission"
+	InterruptNotification = "notification"
+	InterruptElicitation  = "elicitation"
+	InterruptCompaction   = "compaction"
+	// InterruptStopped is Crowbar's own doing, not a provider hook: recorded when
+	// a person cuts an in-flight turn short, so the transcript can draw the same
+	// kind of durable, sequence-anchored divider a compaction gets instead of a
+	// client-side guess about what it just clicked.
+	InterruptStopped = "stopped"
+	// InterruptProviderSwitched, InterruptModelChanged and InterruptEffortChanged
+	// are ALSO Crowbar's own doing, same as InterruptStopped: nothing a provider
+	// reports, recorded the instant Crowbar itself commits to a provider switch or
+	// a model/effort selection change, so the transcript can mark it with the same
+	// durable, sequence-anchored divider. Detail carries the new value (the target
+	// provider id, model id, or effort level).
+	InterruptProviderSwitched = "provider_switched"
+	InterruptModelChanged     = "model_changed"
+	InterruptEffortChanged    = "effort_changed"
+)
+
+type InterruptEvent struct {
+	Kind     string
+	Detail   string
+	Resolved bool
+}
+
+const (
+	ChoiceToolPermission = "tool_permission"
+
+	ChoiceQuestion = "question"
+
+	ChoiceElicitation = "elicitation"
+)
+
+const (
+	ChoiceOptionAnswer = "answer"
+
+	ChoiceOptionAllow = "allow"
+	ChoiceOptionDeny  = "deny"
+
+	ChoiceOptionSuggestion = "suggestion"
+)
+
+type ChoicePrompt struct {
+	Kind string
+
+	PromptID string
+
+	ToolName string
+
+	Title string
+
+	Question string
+
+	Mode string
+
+	Multi bool
+
+	Options []ChoiceOption
+
+	Questions []PromptQuestion
+
+	Schema []byte
+}
+
+type PromptQuestion struct {
+	ID    string
+	Title string
+
+	Text    string
+	Multi   bool
+	Options []ChoiceOption
+}
+
+type ChoiceOption struct {
+	ID          string
+	Kind        string
+	Label       string
+	Description string
+}

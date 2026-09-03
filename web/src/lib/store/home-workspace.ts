@@ -18,7 +18,7 @@ import type { WorkspaceDTO } from '@/lib/types'
 // inflight overlay only ever covers worktree git mutations (create / delete /
 // sync / merge / reparent) — none of which exist for a home workspace. The home
 // agent-chat lifecycle WS is already mounted project-scoped
-// (/v0/projects/:p/home/agent/ws/chats) and already pushes turn_started /
+// (/v0/projects/:p/home/chats/ws) and already pushes turn_started /
 // turn_stopped for exactly this workspace, so it is the signal we listen on.
 //
 // On each turn transition we RE-READ the authoritative DTO rather than deriving
@@ -75,20 +75,17 @@ export function subscribeHomeWorkspace(projectId: string): () => void {
 
   void read()
 
-  const unsubscribe = wsManager.subscribe(
-    `/v0/projects/${projectId}/home/agent/ws/chats`,
-    (frame) => {
-      if (disposed) return
-      // The reconnect sentinel is not a lifecycle frame — turns may have both
-      // started and stopped while the socket was down, so re-read unconditionally.
-      if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-        void read()
-        return
-      }
-      const kind = (frame as { kind?: string } | null)?.kind
-      if (kind !== undefined && WORKING_KINDS.has(kind)) void read()
-    },
-  )
+  const unsubscribe = wsManager.subscribe(`/v0/projects/${projectId}/home/chats/ws`, (frame) => {
+    if (disposed) return
+    // The reconnect sentinel is not a lifecycle frame — turns may have both
+    // started and stopped while the socket was down, so re-read unconditionally.
+    if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+      void read()
+      return
+    }
+    const kind = (frame as { kind?: string } | null)?.kind
+    if (kind !== undefined && WORKING_KINDS.has(kind)) void read()
+  })
 
   return () => {
     disposed = true

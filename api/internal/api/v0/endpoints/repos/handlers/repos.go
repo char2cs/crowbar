@@ -128,7 +128,7 @@ type WorkspacePurger interface {
 // workspace record orphaned, and a live worktree registration in the user's own
 // repository for each one.
 type WorkspaceRemover interface {
-	DeleteRepoWorkspaces(ctx context.Context, repoID string, repoPath string) ([]string, error)
+	DeleteRepoWorkspaces(ctx context.Context, repoID, repoPath string) ([]string, error)
 }
 
 // RemoteRefresher is the narrow git surface the Branches handler uses to make

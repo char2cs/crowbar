@@ -71,6 +71,7 @@ func runServe(
 	}
 	defer container.Close()
 
+	go drainHookSpoolLoop(ctx, host)
 	fmt.Printf("crowbar listening on %s\n", host)
 	return container.Run(ctx)
 }

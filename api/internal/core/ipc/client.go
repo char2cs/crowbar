@@ -68,7 +68,7 @@ func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, respBody, nil
 }
@@ -87,7 +87,7 @@ func (c *Client) PostJSON(ctx context.Context, path string, body any) (int, []by
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, respBody, nil
 }

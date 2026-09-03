@@ -1,0 +1,212 @@
+import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import type {
+  AgentActivity,
+  AgentChoice,
+  AgentInterruption,
+  AgentToolCall,
+} from '@/features/agent/api/agent-api'
+import { WorkingLine } from '@/features/agent/activity/working-line'
+import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
+
+function tool(overrides: Partial<AgentToolCall> = {}): AgentToolCall {
+  return {
+    id: 't1',
+    turnId: 'turn-1',
+    seq: 1,
+    name: 'Bash',
+    status: 'running',
+    hasRequest: false,
+    hasResult: false,
+    startedAt: '2026-08-17T12:00:00Z',
+    ...overrides,
+  }
+}
+
+function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
+  return { ...NO_ACTIVITY, ...overrides }
+}
+
+function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
+  return {
+    id: 'k1',
+    turnId: 'turn-1',
+    seq: 1,
+    kind: 'tool_permission',
+    toolName: 'Bash',
+    options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
+    pending: true,
+    answerable: true,
+    at: '2026-08-18T12:00:00Z',
+    ...overrides,
+  }
+}
+
+function interruption(overrides: Partial<AgentInterruption> = {}): AgentInterruption {
+  return {
+    id: 'i1',
+    turnId: 'turn-1',
+    seq: 1,
+    kind: 'permission',
+    at: '2026-08-18T12:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('WorkingLine', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Matches formatElapsed's own "m:ss, the way a stopwatch reads" — a turn
+  // running past a minute used to read as a bare, ever-growing second count
+  // ("65s") instead of rolling over.
+  it('reads the live elapsed clock as m:ss, not a bare second count', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:01:05Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 1:05')).toBeInTheDocument()
+  })
+
+  it('pads a single-digit second under a minute the same stopwatch way', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:00:08Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 0:08')).toBeInTheDocument()
+  })
+
+  it('renders nothing at all when the chat is idle', () => {
+    const { container } = render(<WorkingLine activity={NO_ACTIVITY} working={false} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('degrades to the plain working line when a provider reports no activity', () => {
+    render(<WorkingLine activity={NO_ACTIVITY} working />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('names the tools that are running right now', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({
+          toolCalls: [
+            tool({ id: 't1', name: 'Grep', target: 'engine/**/*.yaml' }),
+            tool({ id: 't2', seq: 2, name: 'Read', target: 'protocol.go' }),
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Grep · engine/**/*.yaml')).toBeInTheDocument()
+    expect(screen.getByText('Read · protocol.go')).toBeInTheDocument()
+  })
+
+  it('counts the overflow rather than listing an unscannable wall', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({
+          toolCalls: Array.from({ length: 6 }, (_, index) =>
+            tool({ id: `t${index}`, seq: index, name: `Tool${index}` }),
+          ),
+        })}
+      />,
+    )
+    expect(screen.getByText('+3 more')).toBeInTheDocument()
+  })
+
+  it('omits a finished call — the working line is what is happening NOW', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ toolCalls: [tool({ status: 'ok', name: 'Done' })] })}
+      />,
+    )
+    expect(screen.queryByText(/Done/)).not.toBeInTheDocument()
+  })
+
+  // A chat waiting on a person is not working, and the two used to look the same.
+  it('says nothing at all while a prompt is open — not "working…", not a second banner', () => {
+    const { container } = render(
+      <WorkingLine working activity={activity({ choices: [choice()] })} />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('stays quiet for a prompt nobody here can answer', () => {
+    const { container } = render(
+      <WorkingLine working activity={activity({ choices: [choice({ answerable: false })] })} />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('says the agent is BLOCKED rather than working', () => {
+    const { container } = render(
+      <WorkingLine working activity={activity({ interruptions: [interruption()] })} />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('returns to the working line once the interruption resolves', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({
+          interruptions: [interruption({ resolvedAt: '2026-08-18T12:00:05Z' })],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+  })
+
+  it('goes back to the working line once the prompt is resolved', () => {
+    render(<WorkingLine working activity={activity({ choices: [choice({ pending: false })] })} />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+  })
+
+  // Compaction is not a wait on a PERSON, unlike every other interruption kind
+  // above — it keeps the working line instead of going quiet. Driven by
+  // `compactingLive`, NEVER by `activity`: a compaction's ledger interruption
+  // record is born already resolved (a bare /compact prompt never opens a
+  // tracked turn), so `blockedOn(activity)` can never observe one open — this
+  // prop is the only thing that can turn this branch on in production.
+  it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
+    render(<WorkingLine working activity={NO_ACTIVITY} compactingLive />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  })
+
+  // An explicit /compact never opens a tracked turn (it is delivered as a
+  // bare prompt the CLI never confirms via user_prompt), so `working` stays
+  // FALSE for the entire compaction — live-confirmed on dev-desktop. Gating
+  // on `working` alone would hide this branch for exactly the case it exists
+  // to cover.
+  it('shows Compacting even when working is false — a /compact never opens a tracked turn', () => {
+    render(<WorkingLine working={false} activity={NO_ACTIVITY} compactingLive />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  })
+
+  it('names no tools while compacting — there is nothing to enumerate', () => {
+    render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  // The ledger's own compaction interruption is dead weight for this branch —
+  // it is ALWAYS already resolved by the time anything reads it, so it must
+  // never be able to turn the compacting branch on by itself.
+  it('does not compact off a ledger interruption alone — the ledger record is always already resolved', () => {
+    const { container } = render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
+      />,
+    )
+    // An unresolved ledger interruption of any kind (this one included) blocks
+    // the working line, same as the permission case above — proving nothing
+    // here silently "worked" by accident.
+    expect(container).toBeEmptyDOMElement()
+  })
+})

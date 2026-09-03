@@ -120,6 +120,24 @@ describe('ProviderSwitchDropdown', () => {
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
   })
 
+  it('cannot open or switch while prompt delivery is pending', () => {
+    const onSwitch = vi.fn()
+    render(
+      <ProviderSwitchDropdown
+        providers={providers}
+        currentProviderId="claude"
+        onSwitch={onSwitch}
+        disabled
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: /claude/i })
+    expect(trigger).toBeDisabled()
+    fireEvent.click(trigger)
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+    expect(onSwitch).not.toHaveBeenCalled()
+  })
+
   it('toggles closed when the trigger is clicked again', () => {
     render(
       <ProviderSwitchDropdown

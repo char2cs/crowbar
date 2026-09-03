@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -18,12 +20,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
@@ -36,6 +39,10 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
+	// AgentActivity is the conversation record: turns, tool calls, subagents and
+	// interruptions, in their own aggregate with their own read model. It replaced
+	// the flat-file ledger, which could represent none of those.
+	AgentActivity agentactivity.EventStore
 	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
 	// thing that MOVES between chats on /clear and /resume. Its store/hub
 	// projections are live on axAgentRunner, and the agent usecase now sends every
@@ -76,10 +83,11 @@ type Container struct {
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
-	axWorkspace    asynx.Asynx[domain.Workspace]
-	axReviewThread asynx.Asynx[domain.ReviewThread]
-	axAgentChat    asynx.Asynx[domain.AgentChat]
-	axAgentRunner  asynx.Asynx[domain.AgentRunner]
+	axWorkspace     asynx.Asynx[domain.Workspace]
+	axReviewThread  asynx.Asynx[domain.ReviewThread]
+	axAgentChat     asynx.Asynx[domain.Chat]
+	axAgentActivity asynx.Asynx[domain.ChatActivity]
+	axAgentRunner   asynx.Asynx[agents.Runner]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -138,16 +146,20 @@ func New(
 	h hub.WebSocketHub,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
-	axAgentChat asynx.Asynx[domain.AgentChat],
-	axAgentRunner asynx.Asynx[domain.AgentRunner],
+	axAgentChat asynx.Asynx[domain.Chat],
+	axAgentActivity asynx.Asynx[domain.ChatActivity],
+	axAgentRunner asynx.Asynx[agents.Runner],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
+	chatWatch agentchat.WatchFunc,
+	runnerWatch agentrunner.WatchFunc,
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
 		agentWorking: map[string]map[string]struct{}{},
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axAgentRunner:    axAgentRunner,
+		axAgentActivity:  axAgentActivity,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -181,12 +193,14 @@ func New(
 
 	// agentchat: build the asynx-backed EventStore over the singleton
 	// axAgentChat, registering its store + hub projections (store.New, invoked by
-	// NewEventSourced) exactly once. h.BroadcastAgentChat is the SOLE source of
+	// NewEventSourced) exactly once. chatWatch is the SOLE source of
 	// agent-chat lifecycle frames: every agentchat.* event the agent usecase's
 	// commands emit is fanned out here by the hub projection. The usecase no
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
-	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), h.BroadcastAgentChat)
+	agentChat, err := agentchat.NewEventSourced(
+		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -195,16 +209,29 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
 	}
 
+	// agentactivity: the conversation record, over its OWN event log, snapshot
+	// store and read model. Its content store lives beside the state directory so
+	// tool payloads are swept by the same retention policy as the rest of it.
+	agentActivity, err := agentactivity.NewEventSourced(
+		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
+		filepath.Join(adapters.CrowbarHome(), "state", "content"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
+	}
+	c.AgentActivity = agentActivity
+
 	// agentrunner: build the asynx-backed EventStore over the singleton
 	// axAgentRunner, registering its two read projections (live runners +
 	// append-only conversation history) and its hub projection exactly once, over
 	// its OWN per-type planes (state/events/agent_runner.db and
-	// state/store/agent_runner.db). h.BroadcastAgentRunner is the sole source of
+	// state/store/agent_runner.db). runnerWatch is the sole source of
 	// runner lifecycle frames (started/session_bound/moved/displaced/exited). The agent
 	// usecase sends every runner command through this store, and the workspace-delete
 	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), h.BroadcastAgentRunner)
+		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), runnerWatch,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
 	}
@@ -232,6 +259,7 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
+	c.axAgentActivity.WaitPublish()
 	c.axAgentRunner.WaitPublish()
 }
 
@@ -339,7 +367,7 @@ func (c *Container) forgetDependents(
 // forgetReviewThreads/DeleteThread. It enumerates via ListByWorkspace so a chat's
 // event log + read row can never be left orphaned after the workspace is gone.
 //
-// It is the cascade twin of agent.Usecase.PurgeChat and follows the same ORDER,
+// It is the cascade twin of agent.ChatUsecase.PurgeChat and follows the same ORDER,
 // for the same reason: Forget the chat FIRST, then kill the CLI pointed at it.
 // The PTY teardown fires the runner-exit reconcile asynchronously, and that path
 // writes to the chat (it closes a turn the dead CLI left open); a chat command
@@ -394,7 +422,7 @@ func (c *Container) reapAgentChatFiles(
 }
 
 // retireChatRunners best-effort takes EVERY vendor CLI on chatID off that chat and kills it
-// — the cascade twin of agent.Usecase.retireChatRunners, in the same order and for the same
+// — the cascade twin of the agent runner concern's retireChatRunners, in the same order and for the same
 // reasons.
 //
 // The PLURAL read, not the single-row one: this is a delete, and a delete is precisely where
@@ -582,7 +610,7 @@ func (c *Container) rebroadcast(
 //
 // The overlay MIRRORS the aggregate's own Working (evt.Aggregate.Working) rather than
 // re-deriving "busy" from the event kind. The fold — a turn being open OR async work
-// being in flight (domain.AgentChat.Working) — then lives in exactly ONE place, the
+// being in flight (domain.Chat.Working) — then lives in exactly ONE place, the
 // write side, and this cannot drift from what the chat row and REST reads report. It is
 // also why turn_stopped is NOT read as "idle" here: a chat waiting on a background task
 // ends its turn but stays Working, and this reads that Working straight off the event.
@@ -593,7 +621,7 @@ func (c *Container) rebroadcast(
 // The closing event always arrives. A chat's turn is opened and closed by its hooks, and
 // each turn_stop restates the async-work level; the ONE case where the closing hook never
 // comes — the CLI dying — is covered by the runner-exit reconcile
-// (agent.Usecase.reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
+// (the agent runner concern's reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
 // that closes the turn AND zeroes the async-work level, since neither can outlive the
 // process that announced them.
 //
@@ -606,7 +634,7 @@ func (c *Container) rebroadcast(
 // consistent with the FE chat-row working map's accepted default-idle-on-load.
 func (c *Container) registerAgentWorkingProjection() error {
 	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
-		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 			wsID := evt.Aggregate.WorkspaceID
 			if wsID == "" {
 				return
@@ -625,7 +653,7 @@ func (c *Container) registerAgentWorkingProjection() error {
 		return fmt.Errorf("subscribe: %w", err)
 	}
 	if _, err := c.axAgentChat.OnForget(
-		func(ctx context.Context, evt asynxModels.Event[domain.AgentChat]) {
+		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 			wsID := evt.Aggregate.WorkspaceID
 			if wsID == "" {
 				return
@@ -633,7 +661,8 @@ func (c *Container) registerAgentWorkingProjection() error {
 			if c.setAgentTurn(wsID, evt.AggregateID, false) {
 				c.rebroadcast(ctx, wsID)
 			}
-		}); err != nil {
+		},
+	); err != nil {
 		return fmt.Errorf("onforget: %w", err)
 	}
 	return nil
@@ -833,6 +862,17 @@ func SweepDanglingAliases(crowbarHome string) int {
 		return 0
 	}
 	projects := filepath.Join(crowbarHome, "projects")
+
+	// Every mutation goes through a root pinned to the projects tree, so a path
+	// resolved during the walk cannot be made to point outside it before it is
+	// acted on. The tree is full of symlinks by design — that is what an alias IS —
+	// which is exactly the shape that makes an unrooted remove worth avoiding.
+	root, err := os.OpenRoot(projects)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = root.Close() }()
+
 	var emptied []string
 	removed := 0
 	_ = filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
@@ -842,7 +882,11 @@ func SweepDanglingAliases(crowbarHome string) int {
 		if _, statErr := os.Stat(path); statErr == nil {
 			return nil
 		}
-		if rmErr := os.Remove(path); rmErr != nil {
+		rel, relErr := filepath.Rel(projects, path)
+		if relErr != nil {
+			return nil
+		}
+		if rmErr := root.Remove(rel); rmErr != nil {
 			slog.Warn("repositories: unlink dangling alias", "path", path, "err", rmErr)
 			return nil
 		}

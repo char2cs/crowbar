@@ -184,13 +184,15 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
 	s.T().Helper()
 
 	parentBID := s.Env.CreateChildWorkspace(
-		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-parent-b", s.parentID)
+		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-parent-b", s.parentID,
+	)
 	parentBPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, parentBID)
 	kit.CommitFile(s.T(), parentBPath, "shared.txt", "parent-b version\n", "parent-b edit")
 	parentBTip := kit.RevParse(s.T(), parentBPath, "HEAD")
 
 	childID = s.Env.CreateChildWorkspace(
-		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-rebase-child", s.parentID)
+		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-rebase-child", s.parentID,
+	)
 	childPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
 	kit.CommitFile(s.T(), childPath, "shared.txt", "child version\n", "child edit")
 

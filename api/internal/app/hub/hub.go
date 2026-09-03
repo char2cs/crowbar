@@ -147,6 +147,89 @@ func (h *Hub) BroadcastAgentChat(
 	}
 }
 
+// BroadcastAgentChatTerminalWait fans the terminal-wait edge out on the same
+// workspace-scoped agent-chat feed as BroadcastAgentChat.
+//
+// Fed by the terminal-wait detector rather than by an aggregate projection, and it
+// has to be: the fact is DERIVED from a live PTY's screen joined against the chat's
+// busy state and its outstanding prompts, so no single aggregate's event log can
+// emit it. Called only when the verdict MOVES — a chat parked for an hour produces
+// one frame, not one per sweep.
+//
+// wait is nil on the clearing edge.
+func (h *Hub) BroadcastAgentChatTerminalWait(
+	chatID string,
+	workspaceID string,
+	wait *dto.AgentTerminalWaitDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatTerminalWait(chatID, workspaceID, wait)
+	}
+}
+
+// BroadcastAgentChatPromptSettled fans out the edge where a delivered prompt is
+// retired without ever having produced a turn, on the same workspace-scoped feed
+// as BroadcastAgentChat.
+//
+// Fed by the terminal-wait detector, like the wait edge and for the same reason:
+// the fact is derived from a live PTY's screen joined against the chat's busy
+// state and its delivery journal, so no aggregate's event log can emit it.
+func (h *Hub) BroadcastAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID)
+	}
+}
+
+// BroadcastAgentChatMessageDelta fans a growing assistant message out on the same
+// workspace-scoped feed as every other fact about a conversation.
+//
+// Unlike the other chat broadcasts this one is HIGH FREQUENCY — roughly 1.4 per
+// second per streaming chat — and it is deliberately the only thing in this
+// feature that never touches durable storage. A partial message is a view, not a
+// record; the ledger gets the message once, when it is finished.
+func (h *Hub) BroadcastAgentChatMessageDelta(
+	chatID string,
+	workspaceID string,
+	messageID string,
+	text string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+	}
+}
+
+// BroadcastAgentChatCompaction fans the live compact_pre/compact_post edge out
+// on the same workspace-scoped feed as every other fact about a conversation.
+//
+// Fed directly by the hook ingress rather than by an aggregate projection, for
+// the same reason BroadcastAgentChatTerminalWait is: the ledger's own record of
+// this fact is born already resolved (a /compact never opens a tracked turn,
+// so commands.Interrupt's idle-chat handling resolves it in the same event
+// that creates it — see turn.Turns.compactionStatus's doc comment), so no
+// aggregate event log can emit a live "started" edge for it. active is the
+// whole answer, both ways round, same as TerminalWait's presence/absence.
+func (h *Hub) BroadcastAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatCompaction(chatID, workspaceID, active)
+	}
+}
+
 // BroadcastAgentChatFolder fans a CHAT FOLDER lifecycle event
 // (folder_created/folder_updated/folder_deleted) out on the SAME workspace-scoped
 // agent-chat WebSocket as BroadcastAgentChat. A chat folder is a plain GORM row

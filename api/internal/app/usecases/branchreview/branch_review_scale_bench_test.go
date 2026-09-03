@@ -116,7 +116,8 @@ func seedScaleDiff(
 	for i := range spec.scatteredFiles {
 		rel := fmt.Sprintf("src/scattered/pkg%d/file%d.ts", i%20, i)
 		writeScaleFile(b, h.featurePath, rel, scaleTextScattered(
-			fmt.Sprintf("base%d", i), fmt.Sprintf("head%d", i), spec.lines, scatterEvery))
+			fmt.Sprintf("base%d", i), fmt.Sprintf("head%d", i), spec.lines, scatterEvery,
+		))
 	}
 	for i := range spec.denseFiles {
 		rel := fmt.Sprintf("src/dense/pkg%d/file%d.ts", i%10, i)

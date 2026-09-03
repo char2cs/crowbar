@@ -23,13 +23,25 @@ const memStubProviderDescriptorYAML = `id: memstub
 spawn:
   cmd: "cat"
   interactive_required: true
-hooks:
-  format: json
-  require_payload_fields: [transcript_path]
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-    turn_stop: { session_id: session_id, message: last_assistant_message }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+    require_payload_fields: [transcript_path]
 `
 
 func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
@@ -45,7 +57,7 @@ func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID,
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats", map[string]string{"provider": "memstub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "memstub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
@@ -62,7 +74,7 @@ func postMemStubHook(
 	runnerID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/agent/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": runnerID, "provider": "memstub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }
@@ -113,7 +125,7 @@ const (
 // rather than against the drop itself — so a regression that finds a NEW way to let
 // an internal session through fails here too.
 //
-// NO TIMING. POST /agent/hooks runs IngestHook synchronously, so a dropped hook has
+// NO TIMING. POST /chats/hooks runs IngestHook synchronously, so a dropped hook has
 // finished being dropped by the time its 202 returns; h.Quiesce is the
 // read-your-writes barrier (asynx WaitPublish) before the plain REST reads. The
 // negative assertions are then made STRICT by a real signal: a genuine turn is
@@ -126,7 +138,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chat, runner := createMemStubChat(t, h, ws)
 
@@ -150,7 +162,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 
 	// (1) No phantom chat was minted.
 	var chats []agentChatDTO
-	h.get(base+"/agent/chats", &chats)
+	h.get(base+"/chats", &chats)
 	require.Len(t, chats, 1,
 		"an internal provider session must not mint a chat: the user opened one conversation and must "+
 			"see one chat, not a second one they never asked for")
@@ -219,7 +231,7 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		resp := h.raw(http.MethodPost, wsBase(ws)+"/agent/hooks", map[string]string{
+		resp := h.raw(http.MethodPost, wsBase(ws)+"/chats/hooks", map[string]string{
 			"segment_id": runner, "provider": "memstub", "event": ev.event, "payload_raw": ev.payload,
 		}, http.StatusAccepted)
 		_ = resp.Body.Close()

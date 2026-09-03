@@ -1,0 +1,137 @@
+/* What the agent is doing right now. Scoped under `.agent-chat`. */
+
+.agent-chat .activity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  /* Glued to the tail of whatever line came before it — the sent user text, or
+     the agent's own streamed reply — rather than reading as a new block a full
+     `.stream` gap (18px) below it. Leaves ~4px before this element's own
+     padding, not flush against it. */
+  margin-top: -14px;
+}
+.agent-chat .activity .hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-chat .activity .verb {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.agent-chat .activity .dim {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .activity ul {
+  margin: 0;
+  padding: 0 0 0 24px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .activity li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The subagent shelf, sitting on the top edge of the input box.
+ *
+ * It has to survive a wide fan-out, so it sheds detail in a fixed order rather
+ * than wrapping or scrolling: names go first (over four in flight), then whole
+ * tokens fall into a +N counter once the row is full. The count and the clocks
+ * are the two things that NEVER drop, because they are the two things Crowbar
+ * actually knows about a running subagent. */
+.agent-chat .subbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 0 7px;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .subhd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.agent-chat .subhd b {
+  font-weight: 500;
+  color: color-mix(in oklch, var(--foreground) 78%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .subline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.agent-chat .tok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  flex: none;
+}
+.agent-chat .tok.clip {
+  display: none;
+}
+.agent-chat .tok i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+  animation: agent-subpulse 1.6s ease-in-out infinite;
+}
+.agent-chat .tok:nth-child(3n) i {
+  animation-delay: 0.2s;
+}
+.agent-chat .tok:nth-child(3n + 2) i {
+  animation-delay: 0.4s;
+}
+.agent-chat .tok b {
+  font-weight: 400;
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklch, var(--foreground) 72%, transparent);
+}
+.agent-chat .subbar.dense .tok .ty {
+  display: none;
+}
+.agent-chat .submore {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes agent-subpulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat .tok i {
+    animation: none;
+    opacity: 0.7;
+  }
+}

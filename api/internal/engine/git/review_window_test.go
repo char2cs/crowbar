@@ -42,7 +42,8 @@ func reviewFixture(t *testing.T) string {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "base.go"),
 		[]byte("package main\n\nfunc base() { needle() }\n"),
-		0o644))
+		0o644,
+	))
 	return dir
 }
 

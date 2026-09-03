@@ -1,0 +1,21 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "userMessage",
+      "id": "01a0306b-90f3-7913-b7a1-d384946ed6e9",
+      "clientId": null,
+      "content": [
+        {
+          "type": "text",
+          "text": "Reply with exactly: OK",
+          "text_elements": []
+        }
+      ]
+    },
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "completedAtMs": 1787518750963
+  },
+  "emittedAtMs": 1787518750963
+}

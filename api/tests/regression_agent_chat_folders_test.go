@@ -55,7 +55,7 @@ func createChatFolder(
 ) agentChatFolderDTO {
 	t.Helper()
 	var out chatFolderMutation
-	h.post(base+"/agent/folders",
+	h.post(base+"/chats/folders",
 		map[string]string{"name": name, "parentId": parentID},
 		http.StatusCreated, &out)
 	require.NotEmpty(t, out.Folder.ID, "a folder create must answer with the row it made")
@@ -69,7 +69,7 @@ func listChatFolders(
 ) []agentChatFolderDTO {
 	t.Helper()
 	var folders []agentChatFolderDTO
-	h.get(base+"/agent/folders", &folders)
+	h.get(base+"/chats/folders", &folders)
 	return folders
 }
 
@@ -83,7 +83,7 @@ func placeChat(
 ) placedChatDTO {
 	t.Helper()
 	var out placedChatDTO
-	h.patch(base+"/agent/chats/"+chatID+"/placement", body, &out)
+	h.patch(base+"/chats/"+chatID+"/placement", body, &out)
 	return out
 }
 
@@ -108,7 +108,7 @@ func chatIDs(
 	t.Helper()
 	h.Quiesce()
 	var list []agentChatDTO
-	h.get(base+"/agent/chats", &list)
+	h.get(base+"/chats", &list)
 	out := make([]string, 0, len(list))
 	for _, c := range list {
 		out = append(out, c.ID)
@@ -122,7 +122,7 @@ func chatIDs(
 // premise has been erased and which no drag can restore.
 func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -141,7 +141,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	// left for it to order.
 	inside := createChatFolder(t, h, base, "spikes", root)
 
-	resp := h.raw(http.MethodDelete, base+"/agent/chats/"+root, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+root, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -152,7 +152,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	_, found := chatFolderByID(listChatFolders(t, h, base), inside.ID)
 	assert.False(t, found, "a folder caught inside the deleted subtree goes with it")
 
-	getResp := h.raw(http.MethodGet, base+"/agent/chats/"+grandchild, nil, http.StatusNotFound)
+	getResp := h.raw(http.MethodGet, base+"/chats/"+grandchild, nil, http.StatusNotFound)
 	_ = getResp.Body.Close()
 }
 
@@ -161,7 +161,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 // would destroy work the user only meant to unfile.
 func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -174,7 +174,7 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	var deleted struct {
 		Shifted []agentChatFolderDTO `json:"shifted"`
 	}
-	h.del(base+"/agent/folders/"+outer.ID, nil, http.StatusOK, &deleted)
+	h.del(base+"/chats/folders/"+outer.ID, nil, http.StatusOK, &deleted)
 	h.Quiesce()
 
 	rows := listChatFolders(t, h, base)
@@ -185,7 +185,7 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	assert.Equal(t, "", promoted.ParentID, "and rises to the folder's own parent")
 
 	var list []agentChatDTO
-	h.get(base+"/agent/chats", &list)
+	h.get(base+"/chats", &list)
 	require.Len(t, list, 1)
 	assert.Equal(t, chat, list[0].ID, "the chat outlives the folder that held it")
 	assert.Equal(t, "", list[0].ParentID, "and is promoted, never deleted")
@@ -198,19 +198,19 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 // server-side, before any write.
 func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
 	outer := createChatFolder(t, h, base, "outer", "")
 	inner := createChatFolder(t, h, base, "inner", outer.ID)
 
-	msg := h.mutationError(http.MethodPatch, base+"/agent/folders/"+outer.ID,
+	msg := h.mutationError(http.MethodPatch, base+"/chats/folders/"+outer.ID,
 		map[string]string{"parentId": inner.ID}, http.StatusConflict)
 	assert.Contains(t, msg, "inside itself",
 		"the refusal has to say what is wrong, not just refuse")
 
-	h.mutationError(http.MethodPatch, base+"/agent/folders/"+outer.ID,
+	h.mutationError(http.MethodPatch, base+"/chats/folders/"+outer.ID,
 		map[string]string{"parentId": outer.ID}, http.StatusConflict)
 
 	parent := createAgentChat(t, h, ws)
@@ -218,7 +218,7 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	placeChat(t, h, base, thread, map[string]any{"parentId": parent})
 	h.Quiesce()
 
-	h.mutationError(http.MethodPatch, base+"/agent/chats/"+parent+"/placement",
+	h.mutationError(http.MethodPatch, base+"/chats/"+parent+"/placement",
 		map[string]string{"parentId": thread}, http.StatusConflict)
 
 	// The refused moves changed nothing.
@@ -231,7 +231,7 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	assert.Equal(t, outer.ID, innerRow.ParentID)
 
 	var reread agentChatDetail
-	h.get(base+"/agent/chats/"+parent, &reread)
+	h.get(base+"/chats/"+parent, &reread)
 	assert.Equal(t, "", reread.ParentID, "a refused placement must never rewrite lineage")
 }
 
@@ -240,30 +240,30 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 // turns out of a workspace the user is not in.
 func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
 
 	foreignFolder := createChatFolder(t, h, wsBase(b), "elsewhere", "")
 	foreignChat := createAgentChat(t, h, b)
 
-	msg := h.mutationError(http.MethodPost, wsBase(a)+"/agent/folders",
+	msg := h.mutationError(http.MethodPost, wsBase(a)+"/chats/folders",
 		map[string]string{"name": "spikes", "parentId": foreignFolder.ID}, http.StatusConflict)
 	assert.Contains(t, msg, "workspace")
 
-	h.mutationError(http.MethodPost, wsBase(a)+"/agent/folders",
+	h.mutationError(http.MethodPost, wsBase(a)+"/chats/folders",
 		map[string]string{"name": "spikes", "parentId": foreignChat}, http.StatusConflict)
 
 	own := createAgentChat(t, h, a)
-	h.mutationError(http.MethodPatch, wsBase(a)+"/agent/chats/"+own+"/placement",
+	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+own+"/placement",
 		map[string]string{"parentId": foreignChat}, http.StatusConflict)
 
 	// A row addressed through the WRONG workspace is not merely refused, it is
 	// invisible: answering anything else would confirm a row the caller may not
 	// touch exists.
-	h.mutationError(http.MethodPatch, wsBase(a)+"/agent/folders/"+foreignFolder.ID,
+	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/folders/"+foreignFolder.ID,
 		map[string]string{"name": "stolen"}, http.StatusNotFound)
-	h.mutationError(http.MethodPatch, wsBase(a)+"/agent/chats/"+foreignChat+"/placement",
+	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+foreignChat+"/placement",
 		map[string]any{"order": 0}, http.StatusNotFound)
 
 	assert.Empty(t, listChatFolders(t, h, wsBase(a)), "no folder was created in the other workspace's name")
@@ -275,7 +275,7 @@ func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 // holds stale orders until it reconnects.
 func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
@@ -289,7 +289,7 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	// Dragging the last folder to the top renumbers the whole level, and the
 	// answer names every OTHER folder the renumber moved.
 	var moved chatFolderMutation
-	h.patch(base+"/agent/folders/"+second.ID, map[string]any{"order": 0}, &moved)
+	h.patch(base+"/chats/folders/"+second.ID, map[string]any{"order": 0}, &moved)
 	assert.Equal(t, 0, moved.Folder.Order)
 	shifted, ok := chatFolderByID(moved.Shifted, first.ID)
 	require.True(t, ok, "the folder the drop pushed down must ride back with the answer")
@@ -300,7 +300,7 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	// aggregate write, which is why it is absent from `shifted`.
 	h.Quiesce()
 	var reread agentChatDetail
-	h.get(base+"/agent/chats/"+chat, &reread)
+	h.get(base+"/chats/"+chat, &reread)
 	assert.Equal(t, 1, reread.Order)
 
 	assertDenseChatLevel(t, h, base, "")
@@ -318,14 +318,14 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 // mount would have left without them.
 func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
 	base := "/v0/projects/" + imported.projectID + "/home"
 
 	var chat struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats", map[string]string{"provider": "stub"}, http.StatusCreated, &chat)
+	h.post(base+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chat)
 	require.NotEmpty(t, chat.ID)
 	h.Quiesce()
 
@@ -337,17 +337,17 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	placed := placeChat(t, h, base, chat.ID, map[string]any{"parentId": folder.ID})
 	assert.Equal(t, folder.ID, placed.Chat.ParentID, "a home chat files into a home folder")
 
-	h.patch(base+"/agent/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
+	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	renamed := listChatFolders(t, h, base)
 	require.Len(t, renamed, 1)
 	assert.Equal(t, "experiments", renamed[0].Name)
 
-	h.del(base+"/agent/folders/"+folder.ID, nil, http.StatusOK, nil)
+	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
 	assert.Empty(t, listChatFolders(t, h, base))
 
 	h.Quiesce()
 	var list []agentChatDTO
-	h.get(base+"/agent/chats", &list)
+	h.get(base+"/chats", &list)
 	require.Len(t, list, 1, "the home chat outlived the folder it was filed in")
 }
 
@@ -356,20 +356,19 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 // gesture writes both kinds and two feeds would have to be kept in order.
 func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := dialAgentWS(t, h, base+"/agent/ws/chats")
+	frames := dialAgentWS(t, h, base+"/chats/ws")
 
 	folder := createChatFolder(t, h, base, "spikes", "")
 	created := waitForFolderFrame(t, frames, folder.ID, "folder_created")
 	assert.Equal(t, ws.workspaceID, created["workspaceId"])
 
-	h.patch(base+"/agent/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
+	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	waitForFolderFrame(t, frames, folder.ID, "folder_updated")
 
-	h.del(base+"/agent/folders/"+folder.ID, nil, http.StatusOK, nil)
+	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
 	waitForFolderFrame(t, frames, folder.ID, "folder_deleted")
 }
 
@@ -424,7 +423,7 @@ func assertDenseChatLevel(
 		}
 	}
 	var chats []agentChatDTO
-	h.get(base+"/agent/chats", &chats)
+	h.get(base+"/chats", &chats)
 	for _, c := range chats {
 		if c.ParentID == container {
 			orders[c.ID] = c.Order

@@ -9,7 +9,7 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import { AgentChatsPanel } from '@/features/agent/components/agent-chats-panel'
+import { AgentChatsPanel } from '@/features/agent/tree/agent-chats-panel'
 
 const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
 

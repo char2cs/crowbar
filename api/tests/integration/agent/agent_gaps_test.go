@@ -12,22 +12,19 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
+
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // TestAgent_CodexTurnAppendsLedger is codex's counterpart to
-// TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/agent/
+// TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/chat/
 // agent_test.go), which only ever fires IngestHook with a SYNTHETIC transcript
 // file and a "claude"-tagged segment. It has never been proven that a REAL
 // codex turn_stop hook (codex's own `crowbar hook turn_stop` shelling out from
@@ -74,7 +71,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation; this means either "+
+		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation; this means either "+
 			"codex never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not reach "+
 			"the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v", runner)
 
@@ -83,9 +80,9 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	// UserPromptSubmit hook writes for the prompt we just drove — so waiting on
 	// blob != "" is not a wait for the turn_stop hook at all: it is satisfied in
 	// well under a second, long before codex's real model reply and Stop hook run.
-	// Wait for a codex-tagged ASSISTANT turn specifically — the actual on-disk
-	// signal that turn_stop -> ledger.Append ran. An earlier version of this test
-	// waited on the blob alone and read the ledger once right after, which raced
+	// Wait for a codex-tagged ASSISTANT turn specifically — the actual recorded
+	// signal that turn_stop -> AppendTurn ran. An earlier version of this test
+	// waited on the blob alone and read the record once right after, which raced
 	// the real Stop hook and would have passed even if turn_stop never appended an
 	// assistant entry.
 	awaitHook(t, h, "codex to append an ASSISTANT ledger turn", func() (bool, bool) {
@@ -94,24 +91,23 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	})
 	turns := readLedgerTurns(t, h, wsID, chatID)
 	require.NotEmpty(t, assistantReplies(turns, "codex"),
-		"codex's turn_stop hook never appended an ASSISTANT .turn ledger entry after a real codex turn; this "+
-			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> ledger.Append never "+
+		"codex's turn_stop hook never appended an ASSISTANT turn after a real codex turn; this "+
+			"proves codex's own Stop hook never reached /v0/chats/hooks, or turn_stop -> AppendTurn never "+
 			"ran; turns observed: %+v", turns)
 
-	handoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+	handoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	// The doc comment's second half: the entry is PHYSICALLY ON DISK, a .turn
-	// JSON record tagged with the codex provider id. The wait above already
-	// proved a codex-tagged ASSISTANT turn exists — the actual proof this test
-	// is named for, that codex's turn_stop hook (not its UserPromptSubmit
-	// hook, which separately writes a codex-tagged USER turn carrying our
-	// full prompt) appended a ledger entry. What remains is a content
-	// round-trip check: the driven codeword must land on SOME codex-tagged
-	// turn on disk (that UserPromptSubmit-recorded user turn, which echoes
-	// the prompt verbatim — codex was asked to reply with only
-	// "acknowledged", so its own assistant text never contains the codeword,
+	// The doc comment's second half: the entry is DURABLY RECORDED, tagged with
+	// the codex provider id. The wait above already proved a codex-tagged
+	// ASSISTANT turn exists — the actual proof this test is named for, that
+	// codex's turn_stop hook (not its UserPromptSubmit hook, which separately
+	// writes a codex-tagged USER turn carrying our full prompt) appended a turn.
+	// What remains is a content round-trip check: the driven codeword must land
+	// on SOME codex-tagged turn in the record (that UserPromptSubmit-recorded
+	// user turn, which echoes the prompt verbatim — codex was asked to reply with
+	// only "acknowledged", so its own assistant text never contains the codeword,
 	// and this check is deliberately not scoped to the assistant turn).
 	var codexTagged, carriesCodeword bool
 	for _, tn := range turns {
@@ -124,72 +120,61 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 		}
 	}
 	require.True(t, codexTagged,
-		"a .turn ledger entry must be physically on disk tagged with the codex provider id; turns=%+v", turns)
+		"a turn must be durably recorded tagged with the codex provider id; turns=%+v", turns)
 	require.True(t, carriesCodeword,
-		"the codeword must round-trip onto some codex-tagged ledger turn on disk (the UserPromptSubmit-recorded "+
+		"the codeword must round-trip onto some codex-tagged turn in the record (the UserPromptSubmit-recorded "+
 			"user turn, which echoes the driven prompt verbatim); turns=%+v", turns)
 }
 
-// ledgerTurn mirrors the on-disk JSON shape of one Crowbar ledger entry
-// (internal/app/ledger.Turn): a single conversation turn Crowbar recorded from
-// a vendor CLI's own UserPromptSubmit/Stop hook. Under descriptor-v2 this is
-// Crowbar's OWN hook-derived record — the oracle for "what each side said" —
-// NOT a vendor transcript. v2 reads no vendor transcript and records no
-// transcript path, so the tests below assert on this ledger instead.
-type ledgerTurn struct {
-	Role     string `json:"role"`     // "user" | "assistant"
-	Provider string `json:"provider"` // the provider of the RUNNER that produced the turn
-	Text     string `json:"text"`
-}
-
-// readLedgerTurns reads chatID's ledger directory — the same
-// <workspaceRoot>/chats/<chatID>/ledger path worktreepath.AgentLedgerDir
-// resolves and AssembleHandoff renders from, where workspaceRoot is the parent
-// of the workspace's git worktree (the workspace-root split, spec §3.5) — and
-// returns every recorded turn in chronological order. The worktree path is
-// resolved from the live workspace read model (h.app.Repositories.Workspace)
-// rather than reconstructed from ids, so the ledger dir always tracks wherever
-// the workspace was actually provisioned. AppendTurn names its entries with an
-// %08d sequence prefix, so the .turn filenames sort lexically == chronologically.
-// Returns nil when the ledger has no entries yet. worktreepath is doubly-internal
-// (under app/usecases/internal) and not importable from this test package, so the
-// ledger dir is built inline with the same shape as worktreepath.AgentLedgerDir.
+// readLedgerTurns returns chatID's whole conversation in order: a single turn
+// Crowbar recorded from a vendor CLI's own UserPromptSubmit/Stop hook. Under
+// descriptor-v2 this is Crowbar's OWN hook-derived record — the oracle for "what
+// each side said" — NOT a vendor transcript. v2 reads no vendor transcript and
+// records no transcript path, so the tests below assert on this record instead.
+//
+// It reads through Agent.ReadMessages, the same reader the Chat pane's message
+// endpoint serves from. It used to read the flat-file ledger directory at
+// <workspaceRoot>/chats/<chatID>/ledger; that store was replaced by the
+// agentactivity aggregate and NOTHING writes those files any more, so the old
+// body silently returned nil for every chat — which made every assertion built on
+// it either vacuously empty or a five-minute backstop expiry. The lesson is the
+// same one that broke this package's compile: nothing behind the integration tag
+// is exercised by a default `go test ./...`.
+//
+// wsID is retained because resolving the workspace is a real precondition: a chat
+// whose workspace has gone is a fixture fault, and failing on it here says so
+// rather than surfacing as an empty conversation.
+//
+// Returns nil when the chat has no turns yet.
 func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn {
 	t.Helper()
-	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
-	require.NoError(t, err, "resolve workspace %s for its worktree path", wsID)
-	require.NotEmpty(t, ws.WorktreePath, "workspace %s has no worktree path", wsID)
-	// filepath.Dir(worktree) == workspaceRoot; ledger lives at
-	// <workspaceRoot>/chats/<chatID>/ledger (== worktreepath.AgentLedgerDir).
-	dir := filepath.Join(filepath.Dir(ws.WorktreePath), "chats", chatID, "ledger")
-	des, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	require.NoError(t, err, "read ledger dir %s", dir)
+	ctx := context.Background()
+	_, err := h.app.Repositories.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "resolve workspace %s the chat is expected on", wsID)
 
-	var names []string
-	for _, de := range des {
-		if !de.IsDir() && strings.HasSuffix(de.Name(), ".turn") {
-			names = append(names, de.Name())
-		}
-	}
-	sort.Strings(names)
+	// after=0/before=0 is the newest window; maxMessagePageLimit is 200, and no
+	// fixture in this package drives anything near that many turns.
+	page, err := h.app.Usecases.AgentChat.ReadMessages(ctx, chatID, 0, 0, 200)
+	require.NoError(t, err, "read chat %s's conversation record", chatID)
 
 	var turns []ledgerTurn
-	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(dir, n))
-		require.NoError(t, err, "read ledger entry %s", n)
-		var tn ledgerTurn
-		require.NoError(t, json.Unmarshal(data, &tn), "unmarshal ledger entry %s", n)
-		turns = append(turns, tn)
+	for _, m := range page.Items {
+		turns = append(turns, ledgerTurn{Role: m.Role, Provider: m.Provider, Text: m.Text})
 	}
 	return turns
 }
 
+// ledgerTurn is the slice of a recorded turn these tests assert on: who spoke,
+// which provider produced it, and what was said.
+type ledgerTurn struct {
+	Role     string // "user" | "assistant"
+	Provider string // the provider of the RUNNER that produced the turn
+	Text     string
+}
+
 // assistantReplies returns, in order, the text of every ASSISTANT turn the
 // given provider produced — the model's OWN Stop-hook output, isolated from
-// echoed user prompts and handoff text. This is the ledger analogue of the old
+// echoed user prompts and handoff text. This is the record analogue of the old
 // per-vendor transcript readers, but it reads Crowbar's own record and can
 // attribute a reply to the exact provider that generated it — which the
 // rendered AssembleHandoff blob (every turn flattened into one string) cannot.
@@ -207,7 +192,7 @@ func assistantReplies(turns []ledgerTurn, provider string) []string {
 // outcome (internal/engine/agent/registry.go's OnSessionStart, CASE 2: "an
 // unknown id appeared -> register a new chat") through the REAL Go stack, not
 // just internal/engine/agent/registry_test.go's pure-registry unit test or
-// internal/app/usecases/agent/agent_test.go's TestIngestHook_SessionStart_
+// internal/app/usecases/chat/agent_test.go's TestIngestHook_SessionStart_
 // Registered_MovesOldSegmentAndCreatesNewChat (which fires IngestHook twice
 // with synthetic session ids, never a real CLI). TestAgent_ClaudeSpawnAndDetect
 // only proves the FIRST "bound" outcome for a freshly spawned segment; this
@@ -254,10 +239,10 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	//
 	// The move is announced by /clear re-firing claude's SessionStart with a CHANGED
 	// id, so the arriving hook is exactly the right thing to block on.
-	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (domain.AgentRunner, bool) {
+	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (agents.Runner, bool) {
 		r, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
 		if err != nil {
-			return domain.AgentRunner{}, false // its CLI died
+			return agents.Runner{}, false // its CLI died
 		}
 		return r, r.CurrentChatID != "" && r.CurrentChatID != originalChatID
 	})
@@ -270,7 +255,7 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 	require.NotEmpty(t, newChatID, "a moved runner is placed on a real chat, never nowhere")
 
 	// The chat really exists, and the SAME process is on it.
-	newChat, err := h.app.Usecases.Agent.GetChat(ctx, newChatID)
+	newChat, err := h.app.Usecases.AgentChat.GetChat(ctx, newChatID)
 	require.NoError(t, err)
 	require.Equal(t, newChatID, newChat.ID, "the chat /clear minted must be readable by id")
 
@@ -333,7 +318,7 @@ func seedClaudeThenSwitchToCodex(
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	codexRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	codexTermSessID = runnerTerminalSession(t, h, codexRunnerID)
@@ -434,7 +419,7 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 //
 //  1. Deterministic/cheap: the resumed segment's ProviderSessionID must equal
 //     the ORIGINAL (pre-switch) claude segment's — i.e. SwitchProvider's
-//     `--resume <id>` (internal/app/usecases/agent/agent.go's priorSessionID
+//     `--resume <id>` (internal/app/usecases/chat/internal/runner's priorSessionID
 //     lookup + descriptor session.resume) actually reattached claude to its own
 //     prior native session, the Go-stack proof of the Phase-0 spike's "Native
 //     resume / Case-1 (--resume <id> -> source=resume)" scorecard row. Under
@@ -473,7 +458,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	require.Contains(t, chatSessionIDs(t, h, chatID), origClaudeSessionID,
 		"the chat's conversation history must still carry claude's conversation after it was switched away from")
 
-	newClaudeRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	newClaudeRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
 	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeRunnerID)
@@ -589,7 +574,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// Switch away — the exact call under test: SwitchProvider now uses
 	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
 	// still alive) instead of the old hard Kill for the outgoing claude CLI.
-	codexSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	codexSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
 	codexTermSessID := runnerTerminalSession(t, h, codexSegID)
@@ -601,7 +586,7 @@ func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T)
 	// second time (against codex, which the design doc already established
 	// tolerates a hard kill, so this leg is not the interesting one) and then
 	// the native --resume path back into claude's original session.
-	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	newClaudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 
 	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeSegID)
@@ -678,6 +663,7 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	// Waiting for a session id on a codex that has not spoken yet waits forever
 	// (TestAgent_CodexTurnAppendsLedger drives first, which is why it passes).
 	chatID, codexSegID, codexTermSessID, codexTap := spawnReady(t, h, wsID, "codex")
+	diagnoseOnFailure(t, h, codexTap, "codex")
 
 	drive(t, h, codexTap, codexTermSessID, "Remember this exact codeword for the rest of our conversation: "+
 		codeword+". Reply with only the word: acknowledged.")
@@ -696,16 +682,22 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 
 	// Leave codex. This ends its segment and reaps that segment's tmp dir — the very
 	// thing that used to take codex's session with it.
-	claudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	claudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
 	claudeTermSessID := runnerTerminalSession(t, h, claudeSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
 	claudeLegTap := attachReady(t, h, claudeTermSessID, "claude", claudeSegID)
+	// Registered HERE rather than at the top of the test: this is the leg that
+	// costs five minutes when it goes wrong, and a backstop expiry inside
+	// awaitSessionBound reports only an empty session id — the CLI's own screen is
+	// the only thing that says whether claude never started, is parked on a prompt,
+	// or is cycling API retries.
+	diagnoseOnFailure(t, h, claudeLegTap, "claude")
 	claudeSessionID, claudeRunner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeLegTap)
 	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
 
 	// ...and come back.
-	backSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	backSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	backTermSessID := runnerTerminalSession(t, h, backSegID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), backTermSessID) })

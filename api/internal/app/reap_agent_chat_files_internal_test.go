@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// fakeAgentWorkspaceReader is a minimal agent.WorkspaceReader double:
+// fakeAgentWorkspaceReader is a minimal agentusecase.WorkspaceReader double:
 // AgentChatsDir/WorktreeDir return preset values (or a preset error), letting
 // reapAgentChatFiles be exercised without a real workspace read model — the
 // same role fakeWorkspacePaths plays for bootSweepPurge in
@@ -45,7 +45,7 @@ func (f *fakeAgentWorkspaceReader) AgentChatsDir(
 	return f.chatsDir, nil
 }
 
-var _ agent.WorkspaceReader = (*fakeAgentWorkspaceReader)(nil)
+var _ agentusecase.WorkspaceReader = (*fakeAgentWorkspaceReader)(nil)
 
 // TestReapAgentChatFiles_RemovesChatDir_LeavesSiblingsIntact pins the happy
 // path the workspace-delete cascade relies on: reapAgentChatFiles removes ONLY
@@ -75,7 +75,7 @@ func TestReapAgentChatFiles_RemovesChatDir_LeavesSiblingsIntact(t *testing.T) {
 }
 
 // TestReapAgentChatFiles_RefusesPathOutsideCrowbarHome pins the safety
-// guarantee reused from agent.RemoveUnderHome (Task 7): a poisoned or
+// guarantee reused from agentusecase.RemoveUnderHome (Task 7): a poisoned or
 // otherwise external AgentChatsDir resolution must never be removed, even
 // though reapAgentChatFiles itself does no additional guarding beyond routing
 // through RemoveUnderHome.

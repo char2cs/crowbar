@@ -30,12 +30,12 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	// Dial the HOME agent lifecycle WS BEFORE creating so no frame is missed. The
 	// agentChatDef filter keys on the RequireHomeWorkspace-injected :wsId, so this
 	// connection sees exactly the project-home workspace's chats.
-	frames := dialAgentWS(t, h, homeBase+"/agent/ws/chats")
+	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
 
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(homeBase+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	waitForChatFrame(t, frames, created.ID, "created")
 
@@ -47,7 +47,7 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	segID := detail.LiveRunnerID
 
 	// session_start hook → the provider session binds (session_bound). Proves the
-	// project-home /agent/hooks callback (repo=="" ⇒ home path) reaches the daemon.
+	// project-home /chats/hooks callback (repo=="" ⇒ home path) reaches the daemon.
 	postHomeHook(t, h, homeBase, segID, "session_start", `{"session_id":"sess-home-1"}`)
 	waitForChatFrame(t, frames, created.ID, "session_bound")
 
@@ -61,8 +61,8 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	waitForChatFrame(t, frames, created.ID, "turn_stopped")
 
 	// Agent rename callback (?source=agent) → title_set: the derived-title path,
-	// which for project-home builds /home/agent/chats/:id/rename via scope.go too.
-	resp := h.raw(http.MethodPost, homeBase+"/agent/chats/"+created.ID+"/rename?source=agent",
+	// which for project-home builds /home/chats/:id/rename via scope.go too.
+	resp := h.raw(http.MethodPost, homeBase+"/chats/"+created.ID+"/rename?source=agent",
 		map[string]string{"title": "Derived home title"}, http.StatusAccepted)
 	_ = resp.Body.Close()
 	waitForChatFrame(t, frames, created.ID, "title_set")
@@ -79,7 +79,7 @@ func postHomeHook(
 	homeBase, segID, event, payloadRaw string,
 ) {
 	t.Helper()
-	resp := h.raw(http.MethodPost, homeBase+"/agent/hooks", map[string]string{
+	resp := h.raw(http.MethodPost, homeBase+"/chats/hooks", map[string]string{
 		"segment_id":  segID,
 		"provider":    "livestub",
 		"event":       event,

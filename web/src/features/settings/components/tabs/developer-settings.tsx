@@ -21,6 +21,7 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/utils/cn'
+import { ChatSplitViewSetting } from './chat-split-view-setting'
 
 const SCENARIO_OPTIONS: { value: Scenario; label: string; description: string }[] = [
   {
@@ -144,6 +145,8 @@ export function DeveloperSettings() {
   return (
     <div className="space-y-4">
       <PerformanceSection />
+
+      <ChatSplitViewSetting />
 
       {isTauri() && (
         <Section

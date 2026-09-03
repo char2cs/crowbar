@@ -101,8 +101,9 @@ func TestApp_Shutdown_LogsAgentToolUsage(t *testing.T) {
 	// It is REJECTED (forged token) and still counted, which is deliberate: a
 	// rejected attempt at a named tool is the most interesting thing this counter
 	// can report.
-	_, _, err = c.Usecases.Agent.DispatchMCP(ctx, "RUN", "forged-token", []byte(
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`))
+	_, _, err = c.Usecases.AgentProvider.DispatchMCP(ctx, "RUN", "forged-token", []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_chat_title","arguments":{"title":"x"}}}`,
+	))
 	require.NoError(t, err)
 
 	var logged bytes.Buffer

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "superpowers@claude-plugins-official",
+    "enabled": true,
+    "installPath": "/Users/example/.claude/plugins/cache/superpowers"
+  },
+  {
+    "id": "empty-kit@claude-plugins-official",
+    "enabled": true
+  },
+  {
+    "id": "disabled-kit@claude-plugins-official",
+    "enabled": false
+  }
+]

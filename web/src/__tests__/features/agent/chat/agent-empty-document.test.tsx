@@ -1,0 +1,200 @@
+import { createElement, createRef } from 'react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  AgentEmptyDocument,
+  type AgentEmptyDocumentHandle,
+  lastLineTop,
+} from '@/features/agent/chat/agent-empty-document'
+
+// Same stand-in agent-chat-view.test.tsx uses: jsdom never delivers a keydown
+// to a real Slate editable, so these tests are not about the editor's own
+// behaviour (verified live and in its own suite) — only about the handle ref
+// this file adds.
+vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
+  ChatMarkdownEditor: () => createElement('div', { 'data-testid': 'editor-stub' }),
+}))
+
+function draw(overrides: Partial<Parameters<typeof AgentEmptyDocument>[0]> = {}) {
+  const ref = createRef<AgentEmptyDocumentHandle>()
+  const view = render(
+    <AgentEmptyDocument
+      ref={ref}
+      draft=""
+      draftSeed={0}
+      hasText={false}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onKeyDown={vi.fn()}
+      controls={null}
+      working={false}
+      canStop={false}
+      sending={false}
+      onStop={vi.fn()}
+      {...overrides}
+    />,
+  )
+  return { ...view, ref }
+}
+
+describe('AgentEmptyDocument handle', () => {
+  it('reports the handle’s own on-screen rect', () => {
+    const { ref, container } = draw()
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    const rect = { top: 84, left: 0, right: 0, bottom: 0, width: 0, height: 0 } as DOMRect
+    vi.spyOn(handle, 'getBoundingClientRect').mockReturnValue(rect)
+
+    expect(ref.current?.getHandleRect()).toBe(rect)
+  })
+
+  // A caller reading this off an unmounted instance gets "nothing to arrive
+  // from", never a thrown error or a stale rect.
+  it('reports null once unmounted', () => {
+    const { ref, unmount } = draw()
+    unmount()
+
+    expect(ref.current).toBeNull()
+  })
+})
+
+// REGRESSION: `place()` used to position the handle at the CARET's line when
+// one existed in the document, and only fell back to the last line once the
+// document lost focus entirely — so clicking back into an earlier sentence
+// to fix a word dragged the send button up the page with the caret. It must
+// always sit under the last written line, full stop.
+describe('lastLineTop', () => {
+  function docWithParagraphs(bottoms: number[], docTop = 0): HTMLDivElement {
+    const doc = document.createElement('div')
+    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: docTop } as DOMRect)
+    const editable = document.createElement('div')
+    editable.setAttribute('data-slate-editor', 'true')
+    for (const bottom of bottoms) {
+      const p = document.createElement('p')
+      p.textContent = 'text'
+      vi.spyOn(p, 'getBoundingClientRect').mockReturnValue({ bottom } as DOMRect)
+      editable.appendChild(p)
+    }
+    doc.appendChild(editable)
+    return doc
+  }
+
+  it('sits under the LAST paragraph, not the first, when there is more than one', () => {
+    expect(lastLineTop(docWithParagraphs([100, 250]))).toBe(250)
+  })
+
+  it('is measured relative to the doc, not the viewport', () => {
+    expect(lastLineTop(docWithParagraphs([250], 40))).toBe(210)
+  })
+
+  it('falls back to the first-line position on a genuinely empty document', () => {
+    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 27.2)
+  })
+
+  it('falls back to the first-line position when the editor holds no text at all', () => {
+    const doc = document.createElement('div')
+    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+    const editable = document.createElement('div')
+    editable.setAttribute('data-slate-editor', 'true')
+    editable.appendChild(document.createElement('p')) // present, but empty
+    doc.appendChild(editable)
+
+    expect(lastLineTop(doc)).toBeCloseTo(48 + 27.2)
+  })
+
+  it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
+    const doc = docWithParagraphs([100, 250])
+    document.body.appendChild(doc)
+    try {
+      const editable = doc.querySelector('[data-slate-editor]') as HTMLElement
+      const firstParagraph = editable.firstElementChild as HTMLElement
+      const range = document.createRange()
+      range.selectNodeContents(firstParagraph)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+
+      expect(lastLineTop(doc)).toBe(250)
+    } finally {
+      document.body.removeChild(doc)
+    }
+  })
+})
+
+describe('AgentEmptyDocument stop control', () => {
+  // REGRESSION: this surface hand-duplicates composer-handle.tsx's own
+  // send/stop button, and used to gate `stopping` on the document being
+  // empty the same way — hiding the only way to interrupt a turn already
+  // running (a background handoff can start one before anything is typed)
+  // the instant a person started writing.
+  it('stops a running turn even with text already in the document', () => {
+    const onStop = vi.fn()
+    draw({ draft: 'a follow-up thought', hasText: true, working: true, canStop: true, onStop })
+
+    const button = screen.getByRole('button', { name: 'Stop this turn' })
+    expect(button).toBeEnabled()
+    expect(button.className).toMatch(/\bhalt\b/)
+    fireEvent.click(button)
+    expect(onStop).toHaveBeenCalled()
+  })
+
+  it('sends the document when there is no running turn to stop', () => {
+    const onSubmit = vi.fn()
+    draw({ draft: 'the whole plan', hasText: true, onSubmit })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    expect(onSubmit).toHaveBeenCalled()
+  })
+})
+
+// REGRESSION: this surface's send button hand-duplicates composer-handle.tsx's
+// own, but had no `sending` state at all — the FIRST message in a chat clears
+// the document and shows nothing while its own dispatch is in flight, where
+// every later message (composer-handle.tsx) gets a spinner. Live-verified via
+// a MutationObserver on the real button: the dock's spinner appears and
+// disappears cleanly; this surface's button never once changed class before
+// being replaced.
+// REGRESSION: `draft` only carries what the box was last OPENED with — a
+// remount seed, not what's actually typed. The send button used to derive
+// its enabled/disabled state from THAT prop directly, so on a chat's first
+// message (this surface) the button stayed permanently disabled and stuck
+// in its muted "off" styling through an entire ordinary send, because
+// nothing ever pushes real keystrokes back into the seed. `hasText`, tracked
+// live from the box's own onChange, is what the button must key off instead.
+describe('AgentEmptyDocument hasText tracking', () => {
+  it('stays disabled while the seed still holds stale text but nothing was actually typed', () => {
+    draw({ draft: 'text pushed in from outside', hasText: false })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeDisabled()
+    expect(button.className).toMatch(/\boff\b/)
+  })
+
+  it('enables once real typing is reported via hasText, even though the seed itself is empty', () => {
+    draw({ draft: '', hasText: true })
+
+    const button = screen.getByRole('button', { name: 'Send prompt' })
+    expect(button).toBeEnabled()
+    expect(button.className).not.toMatch(/\boff\b/)
+  })
+})
+
+describe('AgentEmptyDocument sending state', () => {
+  it('shows a sending spinner once dispatched but not yet proven delivered, same as the dock composer', () => {
+    const { container } = draw({ sending: true })
+
+    const button = screen.getByRole('button', { name: 'Sending' })
+    expect(button).toBeDisabled()
+    expect(button.className).toMatch(/\boff\b/)
+    expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
+  })
+
+  it('prefers the stop control over the sending spinner when both apply', () => {
+    draw({ working: true, canStop: true, sending: true })
+
+    expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+})

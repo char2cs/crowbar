@@ -34,9 +34,10 @@ display_name: Claude
 spawn:
   cmd: claude
   interactive_required: true
-  # A chat opens in auto mode: the pane is a working agent, and being
-  # prompted for each edit makes it useless.
-  args: ["--permission-mode", "auto"]
+  # Every tool call routes through a hook, and Crowbar's own permission
+  # level answers most of them in milliseconds — so the pane still feels
+  # hands-off, but nothing runs on the CLI's own say-so.
+  args: ["--permission-mode", "manual"]
 
 session:
   resume: { arg: "--resume {id}" }

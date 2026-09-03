@@ -5,19 +5,20 @@ import (
 	"io/fs"
 	"net/http"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+
 	asynxmodels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agentchatfolder"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // StatusAndMessage maps a known domain, app, or engine sentinel error to the
@@ -38,7 +39,7 @@ import (
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
 //     live row, either never spawned or already exited).
 //   - 400 Bad Request    — folder.ErrFolderNameRequired and
-//     agentchatfolder.ErrNameRequired (a folder create or rename with a blank
+//     agentusecase.ErrTreeNameRequired (a folder create or rename with a blank
 //     name, in the sidebar and the Chats panel respectively),
 //     enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
@@ -57,7 +58,10 @@ import (
 //     not a transport outage).
 //   - 424 Failed Dependency — engineterminal.ErrCommandNotFound (the vendor CLI
 //     a spawn needs — claude, codex — is not installed on this machine or is not
-//     executable). A missing dependency the USER can fix, not a server fault.
+//     executable) and apperr.ErrFailedDependency (a CLI that IS installed but
+//     failed to come up — above all one that exited during startup, so the chat
+//     never got the live TUI it asked for). A broken dependency the USER can fix,
+//     not a server fault.
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), fs.ErrExist (an fs
 //     mutation whose destination already exists, e.g. a copy landing on an
@@ -101,13 +105,24 @@ func StatusAndMessage(
 		return http.StatusForbidden, err.Error()
 	}
 
+	// agentusecase.ErrToolUnauthorized is a runner callback that could not prove it is
+	// the runner it names: a bad or absent per-boot token, or an id with no runner
+	// behind it. 403 rather than 401 because there is no challenge to issue — the
+	// credential is minted at spawn and there is nothing the caller can be asked
+	// for — and rather than 500 because the daemon is perfectly healthy and the
+	// request is simply not authorised.
+	if errors.Is(err, agentusecase.ErrToolUnauthorized) {
+		return http.StatusForbidden, err.Error()
+	}
+
 	// engineterminal.ErrCommandNotFound is a MISSING DEPENDENCY on the user's machine:
 	// the vendor CLI a spawn needs (claude, codex) is not installed or not executable.
 	// The request was well-formed and the server is healthy, so it is neither a
 	// client-got-it-wrong 4xx nor a 500 — it is 424 Failed Dependency. It is broken out
 	// of the 500 bucket precisely because it is the ONE spawn failure the user can act
 	// on, and it has to reach them as words rather than as a button that does nothing.
-	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+	if errors.Is(err, engineterminal.ErrCommandNotFound) ||
+		errors.Is(err, apperr.ErrFailedDependency) {
 		return http.StatusFailedDependency, err.Error()
 	}
 
@@ -117,6 +132,15 @@ func StatusAndMessage(
 	// from the earlier decode/shape 400 (asynx-alignment refactor, spec §3.5).
 	if errors.Is(err, asynxmodels.ErrValidation) {
 		return http.StatusUnprocessableEntity, err.Error()
+	}
+	if errors.Is(err, apperr.ErrUnprocessable) {
+		return http.StatusUnprocessableEntity, err.Error()
+	}
+	if errors.Is(err, apperr.ErrTimeout) {
+		return http.StatusGatewayTimeout, err.Error()
+	}
+	if errors.Is(err, apperr.ErrBadGateway) {
+		return http.StatusBadGateway, err.Error()
 	}
 
 	// apperr.ErrUnavailable is a full asynx shard queue (ErrQueueFull) surfaced by
@@ -159,7 +183,7 @@ func isBadRequest(
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, folder.ErrFolderNameRequired) ||
-		errors.Is(err, agentchatfolder.ErrNameRequired) ||
+		errors.Is(err, agentusecase.ErrTreeNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
 
@@ -176,35 +200,41 @@ func isConflict(
 		return true
 	}
 
-	if errors.Is(err, apperr.ErrLocked) ||
-		errors.Is(err, enginesearch.ErrLocked) ||
-		errors.Is(err, fs.ErrExist) ||
-		errors.Is(err, worktree.ErrParentLocked) ||
-		errors.Is(err, worktree.ErrWorkspaceLocked) ||
-		errors.Is(err, worktree.ErrParentUnprovisioned) ||
-		errors.Is(err, project.ErrRepoAlreadyImported) {
-		return true
+	for _, sentinel := range conflictSentinels {
+		if errors.Is(err, sentinel) {
+			return true
+		}
 	}
 
-	if isPlacementConflict(err) {
-		return true
-	}
+	return isPlacementConflict(err) || isGitConflict(err)
+}
 
-	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
-		errors.Is(err, worktree.ErrChildHasChildren) ||
-		errors.Is(err, worktree.ErrBranchWorkspaceExists) ||
-		errors.Is(err, worktree.ErrRenameTargetExists) ||
-		errors.Is(err, worktree.ErrRenameUnmanagedWorkspace) {
-		return true
-	}
-
-	return isGitConflict(err)
+// conflictSentinels are the errors that mean "the world is not in a state where
+// this can be done" — something is locked, already exists, or is occupied — as
+// opposed to the request being wrong. Every one maps to 409.
+//
+// A table rather than a chain of errors.Is: adding a sentinel should be one line
+// in a list, not another branch in a function that already has eighteen.
+var conflictSentinels = []error{
+	apperr.ErrLocked,
+	apperr.ErrConflict,
+	enginesearch.ErrLocked,
+	fs.ErrExist,
+	worktree.ErrParentLocked,
+	worktree.ErrWorkspaceLocked,
+	worktree.ErrParentUnprovisioned,
+	project.ErrRepoAlreadyImported,
+	worktree.ErrRebaseNonLeaf,
+	worktree.ErrChildHasChildren,
+	worktree.ErrBranchWorkspaceExists,
+	worktree.ErrRenameTargetExists,
+	worktree.ErrRenameUnmanagedWorkspace,
 }
 
 // isPlacementConflict reports whether err is one of the tree-placement sentinels
 // that map to HTTP 409: a move that would make a row unreachable from its tree's
 // root, cross a repo or workspace boundary, or split a fork chain. Both trees
-// are covered — the sidebar's (folder) and the Chats panel's (agentchatfolder) —
+// are covered — the sidebar's (folder) and the Chats panel's (the chat tree) —
 // because a refused drag is the same answer to the user either way.
 func isPlacementConflict(
 	err error,
@@ -212,8 +242,8 @@ func isPlacementConflict(
 	return errors.Is(err, folder.ErrFolderCycle) ||
 		errors.Is(err, folder.ErrFolderCrossRepo) ||
 		errors.Is(err, folder.ErrForkChainSplit) ||
-		errors.Is(err, agentchatfolder.ErrCycle) ||
-		errors.Is(err, agentchatfolder.ErrCrossWorkspace)
+		errors.Is(err, agentusecase.ErrTreeCycle) ||
+		errors.Is(err, agentusecase.ErrTreeCrossWorkspace)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

@@ -139,6 +139,51 @@ func TestWriteNext_SendSuccess(t *testing.T) {
 	require.Equal(t, "frame", string(msg))
 }
 
+// TestRegression_WriteNext_CoalescedValueNeverOvertakesOrdinaryTraffic is
+// half of the fix for a live-reported bug: a fast-streaming provider's
+// assistant message lost words mid-reply (see
+// TestRegression_CoalescedStream_NeverDisconnectsOnOverflow in
+// broadcaster_recover_internal_test.go for the other half — why a coalesced
+// value exists at all). This half proves the two never race each other: an
+// ordinary, already-queued frame must always be written before any
+// coalesced value, even one that became ready earlier in wall-clock time —
+// coalescing must never let a fast provider's message text overtake a
+// chat's own turn_started/turn_stopped edge.
+func TestRegression_WriteNext_CoalescedValueNeverOvertakesOrdinaryTraffic(t *testing.T) {
+	server, client, cleanup := upgradedPair(t)
+	defer cleanup()
+
+	cl := newClient()
+	// The coalesced value becomes ready FIRST...
+	cl.coalesce("k", []byte("coalesced"))
+	// ...then an ordinary frame is queued SECOND.
+	cl.send <- []byte("ordinary")
+
+	require.True(t, writeNext(server, cl, inertTicker()))
+
+	_, msg, err := client.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, "ordinary", string(msg),
+		"THE FIX: already-queued ordinary traffic must be written before a coalesced value")
+}
+
+// TestWriteNext_CoalescedValueDeliveredOnceSendIsEmpty is the mirror case: once
+// cl.send has nothing waiting, a coalesced value must still actually get
+// delivered — the priority in the test above must not turn into starvation.
+func TestWriteNext_CoalescedValueDeliveredOnceSendIsEmpty(t *testing.T) {
+	server, client, cleanup := upgradedPair(t)
+	defer cleanup()
+
+	cl := newClient()
+	cl.coalesce("k", []byte("coalesced"))
+
+	require.True(t, writeNext(server, cl, inertTicker()))
+
+	_, msg, err := client.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, "coalesced", string(msg))
+}
+
 func TestReadPump_ReturnsOnReadError(t *testing.T) {
 	server, client, cleanup := upgradedPair(t)
 	defer cleanup()

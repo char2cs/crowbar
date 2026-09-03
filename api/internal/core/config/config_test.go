@@ -19,7 +19,7 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	p := GetPrompts()
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")
 	assert.Contains(t, p.HandoffResumeWrapper, "{conversation}")
-	assert.Contains(t, p.HandoffPointer, "{ledger_dir}")
+	assert.Contains(t, p.HandoffPointer, "{chat_id}")
 
 	// A thread is handed IDS and told to fetch the conversations itself. The
 	// placeholder is the whole difference between a thread and a fork: a prompt
@@ -84,5 +84,5 @@ func TestGetPrompts_UserConfigOverlays(t *testing.T) {
 	p := GetPrompts()
 	assert.Equal(t, "CUSTOM {conversation}", p.HandoffWrapper)
 	// absent field keeps the embedded default
-	assert.Contains(t, p.HandoffPointer, "{ledger_dir}")
+	assert.Contains(t, p.HandoffPointer, "{chat_id}")
 }

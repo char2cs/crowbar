@@ -239,6 +239,11 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	kit.WaitForWorkspaceState(t, watcher, wsID, "deleted", 5*time.Second)
 	env1.Quiesce()
 
+	// Read the tombstone back ONCE. It deliberately does not wait: this test needs
+	// to crash with the purge still in flight, and waiting here hands env1's delete
+	// reactor the time to FINISH — which drops the row, leaving no tombstone for the
+	// next boot to find and no orphan for the sweep to reap. Measured: a retry loop
+	// here turns a live race into a permanent failure.
 	status, present := workspaceStatus(t, env1, imported.ProjectID, imported.RepoID, wsID)
 	require.True(t, present, "precondition: the deleted row must be durable before the crash")
 	require.Equal(t, "deleted", status,
@@ -257,8 +262,20 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	require.NoError(t, err, "restart over the same home after a crash")
 	defer env2.Close(t)
 
+	// The sweep's two effects do NOT land together, and only one of them is
+	// synchronous. Measured over repeated runs: when this raced, the worktree was
+	// always already gone while the read-model row was still there — the purge had
+	// run, and it was the projection that Forget publishes which had not.
+	//
+	// QuiesceReactors cannot close that gap on its own. Its middle step is
+	// Gate.WaitIdle, which returns IMMEDIATELY when the gate's counter is zero — so
+	// if the boot sweep's purge has not registered yet, the barrier passes over an
+	// EMPTY set and proves nothing. That is why this waits on the row itself.
 	env2.QuiesceReactors()
-	_, present = workspaceStatus(t, env2, imported.ProjectID, imported.RepoID, wsID)
-	require.False(t, present, "boot sweep must reap the crash-orphaned deleted row")
+	require.Eventually(t, func() bool {
+		_, stillThere := workspaceStatus(t, env2, imported.ProjectID, imported.RepoID, wsID)
+		return !stillThere
+	}, 10*time.Second, 20*time.Millisecond,
+		"boot sweep must reap the crash-orphaned deleted row")
 	require.False(t, kit.DirExists(t, worktree), "boot sweep must reap the lingering worktree")
 }

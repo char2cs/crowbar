@@ -1,0 +1,120 @@
+import { RotateCcw } from 'lucide-react'
+import { CloseIcon, PencilIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
+import { Button } from '@/components/ui/button'
+import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { cn } from '@/lib/utils'
+
+/**
+ * A prompt waiting its turn.
+ *
+ * Dashed, because it is not in the record yet — the ledger holds only what the
+ * provider has confirmed, and this row exists precisely for the gap between
+ * pressing send and that confirmation arriving.
+ *
+ * It says almost nothing. Crowbar CANNOT know whether the agent has seen an
+ * unconfirmed prompt, so the row does not narrate a state it is guessing at; it
+ * shows the text, and the two or three things a person can actually do about it.
+ * What it does say — retry, edit, cancel — is only offered where it works: an
+ * uncertain delivery has no Edit, because editing would mint a new request for
+ * text the provider may already have.
+ */
+export function QueuedRow({
+  item,
+  firstTurn = false,
+  showTerminalHint,
+  onEdit,
+  onCancel,
+  onRetry,
+  onOpenTerminal,
+}: {
+  item: PromptQueueItem
+  /** This queued prompt IS the chat's first-ever turn. Kept in the frozen,
+   *  full-width hand the empty document opened with the whole time it is
+   *  pending — never the dashed pending pill every later prompt gets — so
+   *  sending it never flashes through a shape the reply won't match. See
+   *  `message-row.tsx`'s own `firstTurn`, which takes over once the ledger
+   *  confirms it. */
+  firstTurn?: boolean
+  /** The delivery is old enough that the provider may be blocked on a prompt
+   *  only its terminal can answer. A GUESS, and only offered where the daemon
+   *  has no authoritative answer of its own. */
+  showTerminalHint: boolean
+  onEdit: () => void
+  onCancel: () => void
+  onRetry: () => void
+  onOpenTerminal: () => void
+}) {
+  const uncertain = item.state === 'outcome_uncertain'
+  const failed = item.state === 'failed' || uncertain
+  const multi = item.text.length > 60 || item.text.includes('\n')
+
+  return (
+    <article
+      className={firstTurn ? 'frozen firstq' : cn('queued', multi && 'multi', failed && 'bad')}
+      data-client-request-id={item.clientRequestId}
+      data-state={item.state}
+      data-first-turn={firstTurn ? 'true' : undefined}
+      data-testid="queued-prompt"
+    >
+      {/* THE PROMPT TEXT ALWAYS, through the same markdown pipeline every
+          confirmed message renders through (see message-row.tsx) — a queued
+          prompt is what it was sent as, and un-rendering it back to source
+          for the gap before the ledger confirms it would be the one row in
+          the transcript that looks like a different message. An error is a
+          second fact about this row, never a replacement for the thing the
+          person actually wrote — losing their words to a failure message is
+          how a retry becomes a retype. */}
+      <MarkdownMessageStatic className={firstTurn ? undefined : 'txt'}>
+        {item.text}
+      </MarkdownMessageStatic>
+      {item.error && <span className="err">{item.error}</span>}
+      {showTerminalHint && (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          tooltip="The provider may be waiting for an answer in its terminal"
+          aria-label="Open Terminal"
+          onClick={onOpenTerminal}
+        >
+          <TerminalIcon />
+        </Button>
+      )}
+      {(item.state === 'queued' || failed) && (
+        <span className="acts">
+          {failed && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              tooltip={uncertain ? 'Retry with the same request ID' : 'Retry'}
+              aria-label={uncertain ? 'Retry same request' : 'Retry prompt'}
+              onClick={onRetry}
+            >
+              <RotateCcw />
+            </Button>
+          )}
+          {!uncertain && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              tooltip="Edit"
+              aria-label="Edit queued prompt"
+              onClick={onEdit}
+            >
+              <PencilIcon />
+            </Button>
+          )}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            tooltip="Cancel"
+            aria-label="Cancel queued prompt"
+            onClick={onCancel}
+          >
+            <CloseIcon />
+          </Button>
+        </span>
+      )}
+    </article>
+  )
+}

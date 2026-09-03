@@ -6,8 +6,8 @@ import (
 	"image/color"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // WSConn is the WebSocket abstraction used by the terminal engine Attach method.

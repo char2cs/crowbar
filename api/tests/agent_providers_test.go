@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegression_AgentProvidersEndpoint proves GET .../agent/providers returns the
+// TestRegression_AgentProvidersEndpoint proves GET .../chats/providers returns the
 // enumerated providers (id/displayName/icon) so the FE can render the row glyph,
 // the New-chat rows, and the switch menu without N per-chat fetches.
 func TestRegression_AgentProvidersEndpoint(t *testing.T) {
@@ -23,7 +23,7 @@ func TestRegression_AgentProvidersEndpoint(t *testing.T) {
 		DisplayName string `json:"displayName"`
 		Icon        string `json:"icon"`
 	}
-	h.get(wsBase(imported)+"/agent/providers", &providers)
+	h.get(wsBase(imported)+"/chats/providers", &providers)
 
 	ids := map[string]bool{}
 	for _, p := range providers {
@@ -34,7 +34,7 @@ func TestRegression_AgentProvidersEndpoint(t *testing.T) {
 	assert.True(t, ids["stub"], "an on-disk provider is also enumerated")
 }
 
-// providerPref is one entry of the PUT /v0/settings/agent/providers body: the
+// providerPref is one entry of the PUT /v0/settings/chat/providers body: the
 // full ordered set, where the array position is the provider's priority.
 type providerPref struct {
 	ID       string `json:"id"`
@@ -48,49 +48,49 @@ func putProviderPrefs(
 ) {
 	t.Helper()
 	var out []map[string]any
-	h.put("/v0/settings/agent/providers", map[string]any{"providers": prefs}, &out)
+	h.put("/v0/settings/chat/providers", map[string]any{"providers": prefs}, &out)
 }
 
 // TestRegression_DisabledProviderIsRefusedNotJustHidden pins a preference that
 // was persisted and reported but never enforced: Disabled was read only by the
 // handler that binds it and the resolver that reports Enabled, so no spawn path
-// consulted it. A POST .../agent/chats naming a disabled provider — from a stale
+// consulted it. A POST .../chats naming a disabled provider — from a stale
 // tab, a second window, or the CLI — launched it exactly as if it were on.
 func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h)
+	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
 
-	putProviderPrefs(t, h, providerPref{ID: "stub", Disabled: true})
+	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: true})
 
 	// The catalog still reports it, switched off — that half always worked.
 	var providers []struct {
 		ID      string `json:"id"`
 		Enabled bool   `json:"enabled"`
 	}
-	h.get(wsBase(imported)+"/agent/providers", &providers)
-	require.Contains(t, providerEnabled(providers), "stub",
+	h.get(wsBase(imported)+"/chats/providers", &providers)
+	require.Contains(t, providerEnabled(providers), "livestub",
 		"the disabled provider is still enumerated, which is why hiding it was never enough")
-	assert.False(t, providerEnabled(providers)["stub"], "and it is reported as switched off")
+	assert.False(t, providerEnabled(providers)["livestub"], "and it is reported as switched off")
 	assert.True(t, providerEnabled(providers)["claude"],
 		"an untouched provider stays enabled, so the flag above is a real value")
 
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusBadRequest)
+	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats",
+		map[string]string{"provider": "livestub"}, http.StatusBadRequest)
 	_ = resp.Body.Close()
 
 	var chats []agentChatDTO
-	h.get(wsBase(imported)+"/agent/chats", &chats)
+	h.get(wsBase(imported)+"/chats", &chats)
 	assert.Empty(t, chats, "a refused spawn must not leave a chat behind")
 
 	// Re-enabling it makes the very same request work, so the guard is the
 	// preference and nothing else.
-	putProviderPrefs(t, h, providerPref{ID: "stub", Disabled: false})
+	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: false})
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/agent/chats",
-		map[string]string{"provider": "stub"}, http.StatusCreated, &created)
+	h.post(wsBase(imported)+"/chats",
+		map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "an enabled provider must still spawn")
 }
 

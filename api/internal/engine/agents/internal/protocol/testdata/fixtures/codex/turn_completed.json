@@ -1,0 +1,25 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turn": {
+      "id": "01a0306b-8633-71d1-a176-a421b13cf2da",
+      "items": [
+        {
+          "type": "agentMessage",
+          "id": "msg_0978412001346529016a8b5f21302887d28732c74fd837ca5e",
+          "text": "OK",
+          "phase": "final_answer",
+          "memoryCitation": null
+        }
+      ],
+      "itemsView": "summary",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1787518748,
+      "completedAt": 1787518754,
+      "durationMs": 6080
+    }
+  },
+  "emittedAtMs": 1787518754299
+}

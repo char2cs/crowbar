@@ -22,7 +22,7 @@ describe('agent-api', () => {
       },
     ])
     const chats = await api.listChats('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats')
     // liveRunnerId + its PTY must survive the mapper — they ARE the attach contract.
     expect(chats[0]).toMatchObject({
       id: 'c1',
@@ -53,6 +53,38 @@ describe('agent-api', () => {
     expect(chats[0].activeProviderId).toBe('claude')
   })
 
+  // The chat's sticky selection. Omitted on the wire means UNSET — "whatever this
+  // provider defaults to" — and it is grounded to '' so an absent key and a
+  // cleared one are the same thing everywhere downstream.
+  it('listChats carries the sticky model/effort selection, grounding an absent one', async () => {
+    apiFetch.mockResolvedValue([
+      {
+        id: 'c1',
+        workspaceId: 'w1',
+        title: 'T',
+        liveRunnerId: '',
+        terminalSessionId: '',
+        activeProviderId: 'codex',
+        createdAt: '2026-01-01T00:00:00Z',
+        model: 'gpt-5.6-luna',
+        effort: 'max',
+      },
+      {
+        id: 'c2',
+        workspaceId: 'w1',
+        title: 'T2',
+        liveRunnerId: '',
+        terminalSessionId: '',
+        activeProviderId: 'codex',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ])
+    const chats = await api.listChats('w1')
+    expect(chats[0]).toMatchObject({ model: 'gpt-5.6-luna', effort: 'max' })
+    expect(chats[1].model).toBe('')
+    expect(chats[1].effort).toBe('')
+  })
+
   it('listChats returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValue(undefined)
     const chats = await api.listChats('w1')
@@ -78,7 +110,7 @@ describe('agent-api', () => {
       ],
     })
     const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/chats/c1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1')
     expect(chat.liveRunnerId).toBe('r1')
     expect(chat.terminalSessionId).toBe('pty1')
     // Conversations succeed the deleted `segments`: pure append-only history, with
@@ -101,12 +133,89 @@ describe('agent-api', () => {
     expect(chat.conversations).toEqual([])
   })
 
+  it('reads the newest hook-ledger page and grounds cursor fields', async () => {
+    apiFetch.mockResolvedValue({
+      cursor: 12,
+      oldestCursor: 11,
+      hasMore: true,
+      items: [
+        {
+          sequence: 11,
+          role: 'user',
+          providerId: 'codex',
+          text: 'Explain this',
+          at: '2026-08-16T00:00:00Z',
+        },
+        {
+          sequence: 12,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'Sure.',
+          at: '2026-08-16T00:00:01Z',
+        },
+      ],
+    })
+    const page = await api.listChatMessages('w1', 'chat/1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/chat%2F1/messages?limit=100', {
+      signal: undefined,
+    })
+    expect(page).toMatchObject({ cursor: 12, oldestCursor: 11, hasMore: true })
+    expect(page.items.map((item) => item.sequence)).toEqual([11, 12])
+  })
+
+  it('carries incremental and older paging cursors plus a cancellation signal', async () => {
+    const controller = new AbortController()
+    apiFetch.mockResolvedValue({ cursor: 9, oldestCursor: 4, hasMore: false, items: [] })
+    await api.listChatMessages('w1', 'c1', {
+      after: 4,
+      limit: 25,
+      signal: controller.signal,
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/messages?after=4&limit=25', {
+      signal: controller.signal,
+    })
+    await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
+    expect(apiFetch).toHaveBeenLastCalledWith('/v0/ws/w1/chats/c1/messages?before=10&limit=25', {
+      signal: undefined,
+    })
+  })
+
+  it('submits one completed prompt with a stable client request identity', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    const result = await api.submitAgentPrompt('w1', 'c1', 'Line one\nline two', 'request-1')
+    expect(result).toEqual({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: 'Line one\nline two', clientRequestId: 'request-1' }),
+      }),
+    )
+  })
+
+  it('loads a cancellable slash catalog with no read retry/cache layer', async () => {
+    const controller = new AbortController()
+    apiFetch.mockResolvedValue({
+      providerId: 'claude',
+      completeness: 'plugin_only',
+      items: [],
+      warnings: ['one plugin failed'],
+    })
+    const catalog = await api.getSlashCatalog('w1', 'c1', controller.signal)
+    expect(catalog.warnings).toEqual(['one plugin failed'])
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/chats/c1/slash-catalog',
+      { signal: controller.signal },
+      { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+    )
+  })
+
   it('createChat POSTs the provider and returns the new id', async () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     const id = await api.createChat('w1', 'codex')
     expect(id).toBe('c9')
     const [url, init] = apiFetch.mock.calls[0]
-    expect(url).toBe('/v0/ws/w1/agent/chats')
+    expect(url).toBe('/v0/ws/w1/chats')
     // No parent given is the workspace root, said explicitly rather than by
     // omission — one shape on the wire whether or not the chat is a thread.
     expect(init).toMatchObject({
@@ -133,7 +242,7 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')
     expect(runnerId).toBe('r2')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/switch')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/switch')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ provider: 'claude' }),
@@ -144,23 +253,51 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'r9' })
     const runnerId = await api.resumeChat('w1', 'c1')
     expect(runnerId).toBe('r9')
-    expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/agent/chats/c1/resume', { method: 'POST' }])
+    expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/c1/resume', { method: 'POST' }])
   })
 
   it('renameChat POSTs the title; deleteChat DELETEs; listProviders GETs', async () => {
     apiFetch.mockResolvedValue(undefined)
     await api.renameChat('w1', 'c1', 'New')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/rename')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/rename')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ title: 'New' }),
     })
     await api.deleteChat('w1', 'c1')
-    expect(apiFetch.mock.calls[1]).toEqual(['/v0/ws/w1/agent/chats/c1', { method: 'DELETE' }])
+    expect(apiFetch.mock.calls[1]).toEqual(['/v0/ws/w1/chats/c1', { method: 'DELETE' }])
     apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const p = await api.listProviders('w1')
-    expect(apiFetch.mock.calls[2][0]).toBe('/v0/ws/w1/agent/providers')
+    expect(apiFetch.mock.calls[2][0]).toBe('/v0/ws/w1/chats/providers')
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
+  })
+
+  // The selection write. BOTH halves travel on EVERY call and '' clears one back
+  // to the provider's own default — a partial write could store a pair that was
+  // never jointly valid, since which effort levels exist is a property of the model.
+  it('setChatSelection PATCHes the whole selection', async () => {
+    apiFetch.mockResolvedValue(undefined)
+    await api.setChatSelection('w1', 'c1', 'gpt-5.6-luna', 'max')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/selection', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.6-luna', effort: 'max' }),
+    })
+  })
+
+  it("setChatSelection sends '' rather than omitting a cleared half", async () => {
+    apiFetch.mockResolvedValue(undefined)
+    await api.setChatSelection('w1', 'c1', '', '')
+    expect(apiFetch.mock.calls[0][1]).toMatchObject({
+      body: JSON.stringify({ model: '', effort: '' }),
+    })
+  })
+
+  it('setChatSelection lets the endpoint status reach the caller', async () => {
+    // 400 (not in the catalogue) and 422 (no provider yet) are both the caller's
+    // to SHOW; the client must not swallow either into a silent no-op.
+    apiFetch.mockRejectedValueOnce(new Error('bad request'))
+    await expect(api.setChatSelection('w1', 'c1', 'nope', '')).rejects.toThrow('bad request')
   })
 
   it('listProviders returns [] when the backend responds with no body', async () => {
@@ -204,6 +341,89 @@ describe('agent-api', () => {
     })
   })
 
+  // REGRESSION: the mapper rebuilds the provider field by field, so a key it
+  // forgets to copy is dropped in silence — the type still declares it, the
+  // backend still sends it, and the control it gates simply never appears. This
+  // is exactly how the Compact button went missing for every provider.
+  it('listProviders carries compaction through, and defaults it OFF', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', compaction: true },
+      { id: 'codex', displayName: 'Codex', icon: '<svg/>', compaction: false },
+      { id: 'older', displayName: 'Older', icon: '<svg/>' },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].compaction).toBe(true)
+    expect(out[1].compaction).toBe(false)
+    // Silence means "declares no compaction gesture", the same direction as the
+    // other capability keys — POST /compact answers 404 for it.
+    expect(out[2].compaction).toBe(false)
+  })
+
+  // hasTerminal defaults ON (opposite direction from every OTHER capability key
+  // here): every shipped provider today has a real terminal, so an older daemon
+  // that predates this field is describing exactly that reality, and defaulting
+  // it OFF would hide the view switcher for every existing install until the
+  // daemon catches up. hotswap defaults OFF, the same direction as compaction —
+  // an older daemon or an undeclared descriptor gets the conservative answer.
+  it('listProviders defaults hasTerminal to true and hotswap to false when omitted', async () => {
+    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    const out = await api.listProviders('w1')
+    expect(out[0].hasTerminal).toBe(true)
+    expect(out[0].hotswap).toBe(false)
+  })
+
+  it('listProviders carries hasTerminal:false and hotswap:true through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', hasTerminal: false, hotswap: true },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].hasTerminal).toBe(false)
+    expect(out[0].hotswap).toBe(true)
+  })
+
+  // The selection catalogue: WHETHER each picker exists at all, plus the models
+  // and the per-model effort levels the backend has already resolved.
+  it('listProviders carries the model/effort catalogue through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        icon: '<svg/>',
+        connected: true,
+        enabled: true,
+        mcpEnabled: true,
+        modelSelect: true,
+        effortSelect: true,
+        models: ['gpt-5.6-sol', 'gpt-5.6-luna'],
+        efforts: {
+          '': ['low', 'medium', 'high'],
+          'gpt-5.6-sol': ['low', 'medium', 'high', 'max', 'ultra'],
+          'gpt-5.6-luna': ['low', 'medium', 'high', 'max'],
+        },
+      },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].modelSelect).toBe(true)
+    expect(out[0].effortSelect).toBe(true)
+    // Descriptor order is the provider's own ranking — never re-sorted here.
+    expect(out[0].models).toEqual(['gpt-5.6-sol', 'gpt-5.6-luna'])
+    // '' is the key for the provider's OWN default model. The fallback rule is
+    // applied server-side; the mapper must not add one of its own.
+    expect(out[0].efforts?.['']).toEqual(['low', 'medium', 'high'])
+    expect(out[0].efforts?.['gpt-5.6-luna']).toEqual(['low', 'medium', 'high', 'max'])
+  })
+
+  // Both capabilities default OFF and both catalogues EMPTY. That is the opposite
+  // direction from mcpEnabled, and deliberately so: a daemon that sends neither
+  // flag declares no catalogue, and an empty picker would invent a capability.
+  it('listProviders defaults the selection capability to absent', async () => {
+    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+    const out = await api.listProviders('w1')
+    expect(out[0]).toMatchObject({ modelSelect: false, effortSelect: false })
+    expect(out[0].models).toEqual([])
+    expect(out[0].efforts).toEqual({})
+  })
+
   // The global preferences write: PUTs the FULL ordered set (index = priority) to
   // the settings route and hands back the freshly resolved list, so the caller
   // reconciles from server truth without a second GET.
@@ -217,7 +437,7 @@ describe('agent-api', () => {
       { id: 'claude', disabled: true, mcpDisabled: false },
     ])
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/settings/agent/providers',
+      '/v0/settings/chat/providers',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({
@@ -291,6 +511,156 @@ describe('agent-api', () => {
   // comment), so it gets its own describe rather than folding into the chat
   // tests above.
 
+  // ── Prompts the CLI is blocked on ────────────────────────────────
+  //
+  // They ride the ACTIVITY payload; there is no second poll for them.
+  it('listChatActivity carries the prompts a chat is blocked on', async () => {
+    apiFetch.mockResolvedValue({
+      toolCalls: [],
+      subagents: [],
+      interruptions: [],
+      choices: [
+        {
+          id: 'k1',
+          turnId: 'turn-1',
+          seq: 4,
+          kind: 'tool_permission',
+          toolName: 'Bash',
+          options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
+          pending: true,
+          answerable: true,
+          at: '2026-08-18T12:00:00Z',
+        },
+      ],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices).toHaveLength(1)
+    expect(activity.choices[0]).toMatchObject({ id: 'k1', pending: true, answerable: true })
+  })
+
+  // A daemon that sends neither field is one with no answer channel at all.
+  // `answerable` therefore grounds FALSE — defaulting it true would draw buttons
+  // that reach nobody, which is the single failure the field exists to prevent.
+  it('listChatActivity grounds an absent prompt list and an absent answerable', async () => {
+    apiFetch.mockResolvedValue({
+      toolCalls: [],
+      subagents: [],
+      interruptions: [],
+      choices: [{ id: 'k1', turnId: 't', seq: 1, kind: 'question', at: 'x' }],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]).toMatchObject({
+      answerable: false,
+      pending: false,
+      multi: false,
+      options: [],
+    })
+
+    apiFetch.mockResolvedValue({})
+    expect((await api.listChatActivity('w1', 'c1')).choices).toEqual([])
+  })
+
+  // A three-question prompt is ONE record carrying three questions, and it has to
+  // survive the read intact: modelling only the first is what left a live agent
+  // saying "still waiting on your answers to questions 2 & 3".
+  it('listChatActivity carries every question of a multi-question prompt', async () => {
+    apiFetch.mockResolvedValue({
+      choices: [
+        {
+          id: 'k1',
+          turnId: 'turn-1',
+          seq: 4,
+          kind: 'question',
+          options: [],
+          questions: [
+            {
+              id: 'q0',
+              text: 'Which language?',
+              options: [{ id: 'q0-answer-0', kind: 'answer', label: 'Go' }],
+            },
+            {
+              id: 'q1',
+              text: 'Which databases?',
+              multi: true,
+              options: [{ id: 'q1-answer-0', kind: 'answer', label: 'SQLite' }],
+            },
+          ],
+          pending: true,
+          answerable: true,
+          at: '2026-08-18T12:00:00Z',
+        },
+      ],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]?.questions).toHaveLength(2)
+    expect(activity.choices[0]?.questions?.[1]).toMatchObject({ id: 'q1', multi: true })
+  })
+
+  // ABSENT is not the same as empty here: it says the record predates questions
+  // being modelled, and a client falls back to the prompt-level question rather
+  // than drawing a card with nothing in it. So it is never grounded to [].
+  it('listChatActivity leaves an absent question list absent', async () => {
+    apiFetch.mockResolvedValue({
+      choices: [{ id: 'k1', turnId: 't', seq: 1, kind: 'question', at: 'x' }],
+    })
+
+    const activity = await api.listChatActivity('w1', 'c1')
+
+    expect(activity.choices[0]?.questions).toBeUndefined()
+  })
+
+  it('answerChoice POSTs the picked options to the prompt’s own route', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k 1', { optionIds: ['allow'] })
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/chats/c1/choices/k%201/answer',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
+  })
+
+  // ONE call carries the whole prompt however many questions it asked: the option
+  // ids say which question each pick answers, so there is never a second call —
+  // and never a partial one, which is the shape that stranded the agent.
+  it('answerChoice sends every question’s picks in a single flat list', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k1', {
+      optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
+    })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({
+      optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
+    })
+  })
+
+  // Several ids in ONE answer is what `multi` means, and the elicitation form
+  // travels beside them as the provider's own document.
+  it('answerChoice carries several options, a reason and a form document', async () => {
+    apiFetch.mockResolvedValue(undefined)
+
+    await api.answerChoice('w1', 'c1', 'k1', {
+      optionIds: ['answer-0', 'answer-1'],
+      reason: 'both apply',
+      content: { name: 'crowbar' },
+    })
+
+    expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({
+      optionIds: ['answer-0', 'answer-1'],
+      reason: 'both apply',
+      content: { name: 'crowbar' },
+    })
+  })
+
   describe('chat folders + placement', () => {
     it('listChatFolders GETs the workspace-scoped folders list and grounds parentId/order', async () => {
       apiFetch.mockResolvedValueOnce([
@@ -298,7 +668,7 @@ describe('agent-api', () => {
         { id: 'f2', workspaceId: 'w1', name: 'Folder 2' }, // parentId/order omitted
       ])
       const folders = await api.listChatFolders('w1')
-      expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/agent/folders')
+      expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/folders')
       expect(folders[0]).toMatchObject({ id: 'f1', parentId: 'f0', order: 2 })
       // A root/never-placed folder grounds the same way mapChat does.
       expect(folders[1]).toMatchObject({ id: 'f2', parentId: '', order: 0 })
@@ -315,7 +685,7 @@ describe('agent-api', () => {
         shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }],
       })
       const { folder, shifted } = await api.createChatFolder('w1', 'New folder', '')
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/folders')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'POST',
         body: JSON.stringify({ name: 'New folder', parentId: '' }),
@@ -348,7 +718,7 @@ describe('agent-api', () => {
         shifted: [],
       })
       const { folder } = await api.updateChatFolder('w1', 'f1', { name: 'Renamed' })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/folders/f1')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders/f1')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ name: 'Renamed' }),
@@ -370,7 +740,7 @@ describe('agent-api', () => {
     it('deleteChatFolder DELETEs and defaults to [] when the backend responds with a null body', async () => {
       apiFetch.mockResolvedValueOnce(null)
       const shifted = await api.deleteChatFolder('w1', 'f1')
-      expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/agent/folders/f1', { method: 'DELETE' }])
+      expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/folders/f1', { method: 'DELETE' }])
       expect(shifted).toEqual([])
     })
 
@@ -397,7 +767,7 @@ describe('agent-api', () => {
         shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 3 }],
       })
       const { chat, shifted } = await api.setChatPlacement('w1', 'c1', { parentId: 'f1', order: 2 })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/agent/chats/c1/placement')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/placement')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ parentId: 'f1', order: 2 }),

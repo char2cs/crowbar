@@ -4,17 +4,21 @@ import (
 	"context"
 	"sync/atomic"
 
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Container holds engine-layer dependencies. The AI Bridge engine and addon
 // registry are added in later waves.
 type Container struct {
+	// Agents maps provider-owned CLI facts into Crowbar-neutral values: spawn
+	// plans, hook and telemetry interpretation, and bounded capability probes.
+	Agents   engineagents.Agents
 	Git      enginegit.Engine
 	FS       enginefs.Engine
 	Provider engineprovider.Engine
@@ -59,6 +63,7 @@ func New(
 	}
 	_ = cfg
 	return &Container{
+		Agents:   engineagents.New(),
 		Git:      enginegit.New(),
 		FS:       enginefs.New(),
 		Provider: engineprovider.New(),

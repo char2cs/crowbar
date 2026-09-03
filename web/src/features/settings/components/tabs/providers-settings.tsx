@@ -24,6 +24,8 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
+import { ChatPresentationSetting } from './chat-presentation-setting'
+import { DefaultPermissionLevelSetting } from './default-permission-level-setting'
 import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
 import {
@@ -35,8 +37,13 @@ import {
 import type { ProviderFlags } from './provider-preferences'
 
 /**
- * The Providers settings tab: the enriched, priority-ordered provider list, drag
- * to reorder priority, a switch to disable one.
+ * The Agents settings tab: the enriched, priority-ordered provider list, drag to
+ * reorder priority, a switch to disable one.
+ *
+ * "Agents" is the USER-FACING name only (spec §11). `usecases/agent`,
+ * `agentrunner` and `agentchat` already overload that word inside Crowbar, and
+ * Claude has its own `--agent`, so nothing below the copy moves: the tab id, the
+ * component, the store, the DTOs and the wire all still say provider.
  *
  * IT READS THE GLOBAL PROVIDER STORE, NOT THE ACTIVE WORKSPACE. Providers are
  * machine-level — the daemon says as much (ListProviders: "workspaceID is only
@@ -176,21 +183,22 @@ export const ProvidersSettings = () => {
 
   return (
     <div className="space-y-4">
-      <Section title="Providers">
+      <Section title="Agents">
         {/* A Section's header is hidden when it is the first one in a tab
             (settings-section.tsx `first:[&>.settings-section-header]:hidden`),
             so this tab renders its own heading and intro in the BODY, mirroring
             that header's typography. Without them the group is a bare list of
-            names that never says what a provider actually is. */}
+            names that never says what an agent actually is. */}
         <div className="mb-2 px-1 py-1.5">
-          <h3 className="ui-font ui-text-base font-medium text-foreground">Providers</h3>
+          <h3 className="ui-font ui-text-base font-medium text-foreground">Agents</h3>
           <p className="ui-font ui-text-sm text-muted-foreground">
-            Providers are the agentic CLIs Crowbar runs your chats on — Claude Code, Codex, and any
+            Agents are the coding CLIs Crowbar runs your chats on — Claude Code, Codex, and any
             others you add. Crowbar starts one for you when you open a chat, and each keeps its own
             session and login.
           </p>
         </div>
-        {/* THREE STATES, NOT ONE SENTENCE. "No providers available." is a claim
+        <DefaultPermissionLevelSetting />
+        {/* THREE STATES, NOT ONE SENTENCE. "No agents available." is a claim
             about the MACHINE, and it was being shown for two situations that
             assert nothing of the kind: a fetch still in flight, and a fetch that
             never got an answer. A user with both CLIs installed and enabled read
@@ -200,20 +208,18 @@ export const ProvidersSettings = () => {
             data-testid="providers-loading"
             className="ui-font ui-text-sm px-1 py-2 text-muted-foreground"
           >
-            Loading providers…
+            Loading agents…
           </p>
         ) : providers.length === 0 && status === 'failed' ? (
           <p
             data-testid="providers-unavailable"
             className="ui-font ui-text-sm px-1 py-2 text-muted-foreground"
           >
-            Crowbar could not load the provider list — it could not reach the daemon. Reopen this
-            tab to try again.
+            Crowbar could not load the agent list — it could not reach the daemon. Reopen this tab
+            to try again.
           </p>
         ) : providers.length === 0 ? (
-          <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">
-            No providers available.
-          </p>
+          <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">No agents available.</p>
         ) : (
           <>
             {/* WHAT THE HEADER CANNOT SAY. The column titles now name each
@@ -222,10 +228,9 @@ export const ProvidersSettings = () => {
                 Tools off — that the agent keeps running and only loses its way
                 into Crowbar — and that is what is left here. */}
             <p className="ui-font ui-text-sm px-1 pb-1 text-muted-foreground">
-              Drag to set which provider a new chat opens first, and turn one off to hide it from
-              every New chat surface. Tools lets that provider's agent use Crowbar itself — reading
-              your workspaces and leaving review comments; turn it off and the agent still runs,
-              with no way in.
+              Drag to set which agent a new chat opens first, and turn one off to hide it from every
+              New chat surface. Tools lets that agent use Crowbar itself — reading your workspaces
+              and leaving review comments; turn it off and the agent still runs, with no way in.
             </p>
             {/* Only over a real list: the loading, unavailable and empty states
                 have no columns to title. */}
@@ -251,6 +256,7 @@ export const ProvidersSettings = () => {
           </>
         )}
       </Section>
+      <ChatPresentationSetting />
     </div>
   )
 }

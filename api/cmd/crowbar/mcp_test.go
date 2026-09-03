@@ -44,7 +44,7 @@ func TestRelay_ForwardsEachLineAndWritesTheReply(t *testing.T) {
 	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "R", "W", "TOK"))
 
 	require.Len(t, *calls, 1)
-	require.Equal(t, "/v0/projects/P/repos/R/workspaces/W/agent/runners/SEG/mcp", (*calls)[0].path)
+	require.Equal(t, "/v0/projects/P/repos/R/workspaces/W/chats/runners/SEG/mcp", (*calls)[0].path)
 	require.Equal(t, "TOK", (*calls)[0].body["token"])
 
 	// Exactly one line out, and it is the unwrapped rpc object.
@@ -83,7 +83,7 @@ func TestRelay_UsesHomePathWhenRepoIsEmpty(t *testing.T) {
 	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n")
 
 	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "", "W", "TOK"))
-	require.Equal(t, "/v0/projects/P/home/agent/runners/SEG/mcp", (*calls)[0].path)
+	require.Equal(t, "/v0/projects/P/home/chats/runners/SEG/mcp", (*calls)[0].path)
 }
 
 // A daemon that is down must not kill the CLI session: the relay reports the

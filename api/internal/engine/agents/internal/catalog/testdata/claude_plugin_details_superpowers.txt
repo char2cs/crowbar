@@ -1,0 +1,13 @@
+superpowers 6.3.0
+  Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques
+  Source: superpowers@claude-plugins-official
+
+Component inventory
+  Skills (3)  brainstorming, systematic-debugging, writing-plans
+  Agents (0)
+  Hooks (1)  SessionStart  (harness-only — no model context cost)
+  MCP servers (0)
+  LSP servers (0)
+
+Projected token cost
+  Always-on:   ~64 tok   added to every session

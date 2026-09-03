@@ -42,6 +42,27 @@ describe('markdown round-trip (GFM core)', () => {
   })
 })
 
+describe('markdown round-trip (underline)', () => {
+  // @platejs/markdown's default `underline` rule serializes to an mdast
+  // `mdxJsxTextElement`, which `mdast-util-to-markdown` has no handler for —
+  // it throws on every serialize, which Plate's onChange triggers on every
+  // op. See markdown-underline-rules.ts for the fix and why `<u>` specifically.
+  it('serializes underlined text without throwing, as <u>', () => {
+    const value = [
+      { type: 'p', children: [{ text: 'plain ' }, { text: 'under', underline: true }] },
+    ]
+    expect(() => plateValueToMarkdown(value)).not.toThrow()
+    expect(plateValueToMarkdown(value)).toContain('<u>under</u>')
+  })
+
+  it('deserializes <u> back into underlined text', () => {
+    const md = 'This is <u>underlined</u> text.\n'
+    const value = markdownToPlateValue(md)
+    const text = JSON.stringify(value)
+    expect(text).toContain('underlined')
+  })
+})
+
 describe('markdown round-trip (math)', () => {
   it('preserves inline math', () => {
     const md = 'This is $E = mc^2$ inline.\n'

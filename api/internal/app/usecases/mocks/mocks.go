@@ -9,11 +9,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // ProjectStore is a fake store.Store[domain.Project, string].
@@ -1125,7 +1125,7 @@ func (s *TerminalProfileStore) FindAll(
 	return s.Saved, nil
 }
 
-// AgentChatFolderStore is a fake agentchatfolder.Store backed by an in-memory
+// AgentChatFolderStore is a fake chat-tree Store backed by an in-memory
 // slice.
 //
 // FindErr and FindByKeyErr are separate so a test can fail ONE read: the
@@ -1133,7 +1133,7 @@ func (s *TerminalProfileStore) FindAll(
 // workspace-scoped list has already succeeded, and collapsing the two would make
 // that branch unreachable.
 type AgentChatFolderStore struct {
-	Rows         []domain.AgentChatFolder
+	Rows         []domain.ChatFolder
 	SaveErr      error
 	FindErr      error
 	FindByKeyErr error
@@ -1148,7 +1148,7 @@ func NewAgentChatFolderStore() *AgentChatFolderStore {
 func (s *AgentChatFolderStore) FindByKey(
 	ctx context.Context,
 	id string,
-) (*domain.AgentChatFolder, error) {
+) (*domain.ChatFolder, error) {
 	if s.FindByKeyErr != nil {
 		return nil, s.FindByKeyErr
 	}
@@ -1168,12 +1168,12 @@ func (s *AgentChatFolderStore) FindByKey(
 // chat-folder usecase actually narrows by.
 func (s *AgentChatFolderStore) FindWhere(
 	ctx context.Context,
-	match domain.AgentChatFolder,
-) ([]domain.AgentChatFolder, error) {
+	match domain.ChatFolder,
+) ([]domain.ChatFolder, error) {
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}
-	rows := make([]domain.AgentChatFolder, 0, len(s.Rows))
+	rows := make([]domain.ChatFolder, 0, len(s.Rows))
 	for _, f := range s.Rows {
 		if match.WorkspaceID != "" && f.WorkspaceID != match.WorkspaceID {
 			continue
@@ -1185,7 +1185,7 @@ func (s *AgentChatFolderStore) FindWhere(
 
 func (s *AgentChatFolderStore) Save(
 	ctx context.Context,
-	folder domain.AgentChatFolder,
+	folder domain.ChatFolder,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
@@ -1217,7 +1217,7 @@ func (s *AgentChatFolderStore) Delete(
 	return nil
 }
 
-// AgentChatPlacements is a fake agentchatfolder.Chats AND agentchatfolder.Agent:
+// AgentChatPlacements is a fake chat-tree Chats AND Agent:
 // it holds the chat rows a Chats-panel move has to carry along, records the
 // placement writes made against them, mints and starts the ones a create asks
 // for, erases the ones a cascade purges, and records the lineage notes a move
@@ -1231,7 +1231,7 @@ func (s *AgentChatFolderStore) Delete(
 // worse than no note, since the record it writes into the chat's conversation is
 // permanent and is what a reader would believe afterwards.
 type AgentChatPlacements struct {
-	Rows      []domain.AgentChat
+	Rows      []domain.Chat
 	Purged    []string
 	Noted     []LineageNote
 	Spawned   []string
@@ -1258,7 +1258,7 @@ type AgentChatPlacements struct {
 	// GetChat answer while the read model is behind the log. A placement write
 	// returns as soon as the aggregate has it, so this is the daemon's ordinary
 	// state for the microseconds after every one, not an exotic interleaving.
-	Stale map[string]domain.AgentChat
+	Stale map[string]domain.Chat
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
@@ -1309,11 +1309,11 @@ func NewAgentChatPlacements() *AgentChatPlacements {
 func (s *AgentChatPlacements) ListByWorkspace(
 	ctx context.Context,
 	workspaceID string,
-) ([]domain.AgentChat, error) {
+) ([]domain.Chat, error) {
 	if s.ListErr != nil {
 		return nil, s.ListErr
 	}
-	rows := make([]domain.AgentChat, 0, len(s.Rows))
+	rows := make([]domain.Chat, 0, len(s.Rows))
 	for _, c := range s.Rows {
 		if c.WorkspaceID == workspaceID && c.ID != s.MissingID {
 			rows = append(rows, s.projected(c))
@@ -1325,8 +1325,8 @@ func (s *AgentChatPlacements) ListByWorkspace(
 // projected answers with the row as the READ MODEL has it, which is the row
 // itself unless a test is holding the projection behind the log.
 func (s *AgentChatPlacements) projected(
-	row domain.AgentChat,
-) domain.AgentChat {
+	row domain.Chat,
+) domain.Chat {
 	stale, ok := s.Stale[row.ID]
 	if !ok {
 		return row
@@ -1337,16 +1337,16 @@ func (s *AgentChatPlacements) projected(
 func (s *AgentChatPlacements) GetChat(
 	ctx context.Context,
 	id string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.GetErr != nil {
-		return domain.AgentChat{}, s.GetErr
+		return domain.Chat{}, s.GetErr
 	}
 	for _, c := range s.Rows {
 		if c.ID == id {
 			return s.projected(c), nil
 		}
 	}
-	return domain.AgentChat{}, apperr.ErrNotFound
+	return domain.Chat{}, apperr.ErrNotFound
 }
 
 // LoadChat is the log fold: it answers with the row as it actually stands,
@@ -1354,16 +1354,16 @@ func (s *AgentChatPlacements) GetChat(
 func (s *AgentChatPlacements) LoadChat(
 	ctx context.Context,
 	id string,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.LoadErr != nil {
-		return domain.AgentChat{}, s.LoadErr
+		return domain.Chat{}, s.LoadErr
 	}
 	for _, c := range s.Rows {
 		if c.ID == id {
 			return c, nil
 		}
 	}
-	return domain.AgentChat{}, apperr.ErrNotFound
+	return domain.Chat{}, apperr.ErrNotFound
 }
 
 func (s *AgentChatPlacements) SetPlacement(
@@ -1371,10 +1371,10 @@ func (s *AgentChatPlacements) SetPlacement(
 	chatID string,
 	parentID string,
 	order int,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	s.SetCalls++
 	if s.SetErr != nil {
-		return domain.AgentChat{}, s.SetErr
+		return domain.Chat{}, s.SetErr
 	}
 	s.Placed = append(s.Placed, PlacementWrite{ChatID: chatID, ParentID: parentID, Order: order})
 	for i := range s.Rows {
@@ -1384,7 +1384,7 @@ func (s *AgentChatPlacements) SetPlacement(
 			return s.Rows[i], nil
 		}
 	}
-	return domain.AgentChat{}, nil
+	return domain.Chat{}, nil
 }
 
 // SetOrder writes the index and leaves the parent exactly as it stands, like the
@@ -1394,9 +1394,9 @@ func (s *AgentChatPlacements) SetOrder(
 	ctx context.Context,
 	chatID string,
 	order int,
-) (domain.AgentChat, error) {
+) (domain.Chat, error) {
 	if s.OrderErr != nil {
-		return domain.AgentChat{}, s.OrderErr
+		return domain.Chat{}, s.OrderErr
 	}
 	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
 	for i := range s.Rows {
@@ -1405,7 +1405,7 @@ func (s *AgentChatPlacements) SetOrder(
 			return s.Rows[i], nil
 		}
 	}
-	return domain.AgentChat{}, nil
+	return domain.Chat{}, nil
 }
 
 func (s *AgentChatPlacements) PurgeChat(
@@ -1448,7 +1448,7 @@ func (s *AgentChatPlacements) SpawnChat(
 	}
 	s.Spawned = append(s.Spawned, providerID)
 	id := s.NextID
-	s.Rows = append(s.Rows, domain.AgentChat{ID: id, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: id, WorkspaceID: workspaceID})
 	return id, "runner-" + id, nil
 }
 
@@ -1460,7 +1460,7 @@ func (s *AgentChatPlacements) MintChat(
 		return "", s.MintErr
 	}
 	s.Minted = append(s.Minted, workspaceID)
-	s.Rows = append(s.Rows, domain.AgentChat{ID: s.NextID, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, WorkspaceID: workspaceID})
 	return s.NextID, nil
 }
 

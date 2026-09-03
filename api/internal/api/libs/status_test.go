@@ -12,14 +12,14 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 func TestStatusAndMessageNil(t *testing.T) {
@@ -290,6 +290,21 @@ func TestStatusAndMessage_CommandNotFoundIs424(t *testing.T) {
 
 	assert.Equal(t, http.StatusFailedDependency, status)
 	assert.Contains(t, msg, "claude")
+}
+
+// TestStatusAndMessage_FailedDependencyIs424: a vendor CLI that IS installed but died
+// on startup is the same class as one that was never installed — a dependency outside
+// the daemon that did not work. It reaches the mapper WRAPPED (the agent usecase always
+// annotates), so a chain that only matched the bare sentinel would answer 500 in
+// production while a bare-value test stayed green.
+func TestStatusAndMessage_FailedDependencyIs424(t *testing.T) {
+	err := fmt.Errorf("agent: spawn runner: provider process exited during startup: %w",
+		apperr.ErrFailedDependency)
+
+	status, msg := libs.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusFailedDependency, status)
+	assert.Contains(t, msg, "exited during startup")
 }
 
 // Every sentinel below reaches this mapper WRAPPED — the folder usecase always

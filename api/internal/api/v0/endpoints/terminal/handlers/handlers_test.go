@@ -16,8 +16,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 func TestMain(
@@ -69,7 +69,7 @@ func (stubEngine) ListSessionsForWorkspace(
 // SetHostTheme is a no-op here: the host theme's behaviour is covered where it has an
 // observable effect (a session's OSC 11 answer at birth, in the terminal engine's own
 // tests) and at the endpoint, by the recording engine in hosttheme_test.go.
-func (stubEngine) SetHostTheme(_ color.Color, _ color.Color) {}
+func (stubEngine) SetHostTheme(_, _ color.Color) {}
 
 func (stubEngine) StateOf(_ string) (string, bool) {
 	return "active", true

@@ -12,8 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // WSConn is the WebSocket abstraction used by the terminal engine Attach method.

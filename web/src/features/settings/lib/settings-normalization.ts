@@ -84,6 +84,23 @@ function normalizeTheme(value: unknown): Settings['theme'] {
   return getDefaultSetting('theme')
 }
 
+/**
+ * Anything but a boolean here — an older profile, a hand-edited export — carries
+ * no choice at all, so it resolves to the default rather than to `false`.
+ */
+function normalizeChatIsDefaultPresentation(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : getDefaultSetting('chatIsDefaultPresentation')
+}
+
+/**
+ * The dev split-view switch. Same rule as above and for the same reason: a value
+ * that is not a boolean carries no choice, so it resolves to the default (off)
+ * rather than to whatever `Boolean(value)` happens to say.
+ */
+function normalizeChatSplitPresentationEnabled(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : getDefaultSetting('chatSplitPresentationEnabled')
+}
+
 function isRenderWhitespaceMode(value: unknown): value is Settings['renderWhitespace'] {
   return (
     typeof value === 'string' && RENDER_WHITESPACE_MODES.has(value as Settings['renderWhitespace'])
@@ -176,6 +193,12 @@ export function normalizeSettings(settings: Settings): Settings {
   )
   normalizedSettings.fileTreeDensity = normalizeFileTreeDensity(normalizedSettings.fileTreeDensity)
   normalizedSettings.theme = normalizeTheme((normalizedSettings as { theme?: unknown }).theme)
+  normalizedSettings.chatIsDefaultPresentation = normalizeChatIsDefaultPresentation(
+    (normalizedSettings as { chatIsDefaultPresentation?: unknown }).chatIsDefaultPresentation,
+  )
+  normalizedSettings.chatSplitPresentationEnabled = normalizeChatSplitPresentationEnabled(
+    (normalizedSettings as { chatSplitPresentationEnabled?: unknown }).chatSplitPresentationEnabled,
+  )
 
   if (!normalizedSettings.themeMode) {
     normalizedSettings.themeMode = normalizedSettings.syncSystemTheme ? 'system' : 'light'
@@ -238,6 +261,14 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'theme') {
     return normalizeTheme(value) as Settings[K]
+  }
+
+  if (key === 'chatIsDefaultPresentation') {
+    return normalizeChatIsDefaultPresentation(value) as Settings[K]
+  }
+
+  if (key === 'chatSplitPresentationEnabled') {
+    return normalizeChatSplitPresentationEnabled(value) as Settings[K]
   }
 
   if (key === 'themeMode') {

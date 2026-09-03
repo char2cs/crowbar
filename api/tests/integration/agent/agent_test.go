@@ -31,17 +31,23 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrunner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestMain silences logs and enables gin test mode, mirroring every other
-// integration package.
+// TestMain silences logs and enables gin test mode like every other integration
+// package, and additionally polices the user's REAL provider homes across the run.
+//
+// This is the only package that spawns real vendor CLIs, and a vendor CLI records
+// trust by PLACE in a home Crowbar does not own. Every test here builds a throwaway
+// repo, so an un-isolated run appends one permanent, already-dead stanza per test to
+// the user's own ~/.codex/config.toml and ~/.claude.json. newHarness isolates both
+// homes; this fails the run if anything slipped past that.
 func TestMain(m *testing.M) {
-	kit.Main(m)
+	kit.MainGuardingProviderHomes(m)
 }
 
 // harness is a from-scratch daemon wired the same way cmd/crowbar's `serve`
@@ -76,6 +82,12 @@ func newHarness(t *testing.T) *harness {
 
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
+
+	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
+	// throwaway directories, so the trust each one records for this test's temp repo
+	// lands there instead of in the user's real config. Both trust barriers still
+	// work — see kit.IsolateProviderHomes and firstOfProvider.
+	kit.IsolateProviderHomes(t)
 
 	bin := buildCrowbarBinary(t)
 	t.Setenv("CROWBAR_HOOK_BIN", bin)
@@ -217,7 +229,7 @@ func requireCLI(t *testing.T, name string) {
 // at read time.
 func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
-	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "chat %s has no live runner (its CLI never started, or died immediately)", chatID)
 	require.NotEmpty(t, runner.TerminalSession)
 	return runner.TerminalSession
@@ -245,7 +257,7 @@ func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 // exists exactly while the vendor CLI's PTY does.
 func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
-	runner, err := h.app.Usecases.Agent.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
 		return ""
 	}
@@ -257,7 +269,7 @@ func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 // append-only history that succeeded the chat's embedded segment rows.
 func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
-	convs, err := h.app.Usecases.Agent.ConversationsForChat(context.Background(), chatID)
+	convs, err := h.app.Usecases.AgentRunner.ConversationsForChat(context.Background(), chatID)
 	require.NoError(t, err)
 	out := make([]string, 0, len(convs))
 	for _, c := range convs {
@@ -267,9 +279,9 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 }
 
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
-// the daemon's engine/terminal spawns a real `claude` with the descriptor-built
+// the daemon's core/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
-// POSTs over the daemon's unix socket to /v0/agent/hooks, which runs
+// POSTs over the daemon's unix socket to /v0/chats/hooks, which runs
 // IngestHook -> the reducer, and the active segment gets bound with a
 // non-empty ProviderSessionID — the full Go integration path, end to end.
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
@@ -292,7 +304,7 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	// this blocks on that hook ARRIVING rather than on a stopwatch.
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"claude's SessionStart hook never reached /v0/agent/hooks to bind a provider conversation; this means "+
+		"claude's SessionStart hook never reached /v0/chats/hooks to bind a provider conversation; this means "+
 			"either claude never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not "+
 			"reach the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v",
 		runner)
@@ -347,7 +359,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	newRunnerID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunnerID)
 
@@ -376,7 +388,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 
 	codexProviderSessionID, codexRunner := awaitSessionBound(t, h, newRunnerID, newTermSessID, codexTap)
 	require.NotEmpty(t, codexProviderSessionID,
-		"codex's SessionStart hook never reached /v0/agent/hooks to bind a conversation to the switched-to "+
+		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation to the switched-to "+
 			"runner; this means either codex never started in the new PTY, its SessionStart hook never fired, "+
 			"`crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
 			"outcome — runner observed: %+v", codexRunner)
@@ -387,7 +399,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.Equal(t, newRunnerID, liveRunnerID(t, h, chatID),
 		"the chat's live runner must now be the codex one — and the outgoing claude CLI must be gone from it")
 
-	postSwitchHandoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+	postSwitchHandoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, postSwitchHandoff, codeword, "handoff after switching to codex must still carry claude's turn")
 }

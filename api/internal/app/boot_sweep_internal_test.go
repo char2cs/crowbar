@@ -20,7 +20,7 @@ type fakeWorkspacePaths struct {
 	deleted bool
 }
 
-func (f *fakeWorkspacePaths) Put(_ context.Context, _ string, _ string) error { return nil }
+func (f *fakeWorkspacePaths) Put(_ context.Context, _, _ string) error { return nil }
 
 func (f *fakeWorkspacePaths) Get(_ context.Context, _ string) (string, error) {
 	return f.path, nil

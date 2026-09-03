@@ -1,19 +1,43 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { getChat, resumeChat, switchProvider } from '@/features/agent/api/agent-api'
+import {
+  getChat,
+  resumeChat,
+  switchProvider,
+  switchToNative,
+  switchToTerminal,
+} from '@/features/agent/api/agent-api'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
-import { XtermTerminal } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { ProviderSwitchDropdown } from './provider-switch-dropdown'
+import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import {
+  SPLIT_MIN_HALF_PX,
+  SPLIT_MIN_STACKED_PX,
+  useChatPresentation,
+  useTerminalGridSlack,
+} from '@/features/agent/hooks/use-chat-presentation'
+import { PaneSash } from '@/features/panes/components/pane-sash'
+import { cn } from '@/lib/utils'
+import {
+  AgentReturnToChatNotice,
+  AgentTerminalWaitBanner,
+} from '@/features/agent/components/agent-terminal-wait-banner'
+import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
+import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
+import {
+  AgentTerminalSurface,
+  type TerminalAttachment,
+} from '@/features/agent/terminal/agent-terminal-surface'
 
 // seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
 // plus the localStorage reconnect backstop, so XtermTerminal's
@@ -41,6 +65,26 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
   saveReconnect(wsId, terminalSessionId, terminalSessionId)
 }
 
+// ── The split view's geometry ─────────────────────────────────────────────
+//
+// A CLI TUI IS A FIXED-COLUMN GRID, and that is the only constraint here worth
+// spelling out. Squeeze a terminal and it does not scroll — it REFLOWS: box
+// drawing breaks apart, lines wrap mid-word, and the ground truth you opened the
+// split to read the chat AGAINST stops being readable. Every number below is one
+// answer to that, measured in the running app at the default terminal metrics
+// (~8.7px per column):
+//
+//   the DEFAULT gives the terminal the larger half, because the chat re-wraps to
+//     whatever it is handed and the TUI does not. On a full-width pane that lands
+//     the TUI at ~82 columns — a conventional screen, and the width the CLIs
+//     themselves lay out for.
+//   the FLOOR is a floor, not a working width: it stops a drag collapsing either
+//     half to a sliver you then cannot grab. A terminal held at it is narrow, and
+//     is meant to read as "you have dragged this too far".
+//   BELOW the side-by-side threshold there is no ratio that leaves the TUI usable,
+//     so the split STACKS instead of shrinking — a short terminal at the FULL pane
+//     width still wraps the way the CLI intended, where a tall narrow one does not.
+
 // The pane's attach outcome.
 //
 // `pending` is the pre-resolution state and renders nothing. It is NOT `idle`: it means
@@ -65,11 +109,9 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //              under the open pane (see handleSessionGone), or this chat has already
 //              spent its one revive on this mount (see attemptedRef). Honest, and it
 //              cannot be reached by merely opening a dormant chat.
-type Attachment =
-  | { state: 'pending' }
-  | { state: 'attached'; sessionId: string }
-  | { state: 'reviving'; message: string }
-  | { state: 'idle'; reason: 'exited' | 'failed' }
+// Declared beside the surface that renders it — the terminal is the only thing
+// that cares what a runner attachment looks like.
+type Attachment = TerminalAttachment
 
 interface AgentChatPaneProps {
   /** The chat this tab is pointed at. NOT stable for its life: the pane re-points it. */
@@ -144,7 +186,10 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId ?? '',
   )
-  // That runner's PTY. Empty exactly when liveRunnerId is: no runner, nothing to attach.
+  // That runner's PTY, if it has one to show right now. NOT a second liveness
+  // signal — a non-hotswap api-transport runner (codex) is legitimately live
+  // with this empty (nothing attached), so liveRunnerId above is the only
+  // thing that means "no runner, nothing to attach".
   const sessionId = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.terminalSessionId ?? '',
@@ -153,9 +198,25 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
+  const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
+  // Live mid-compaction, from the direct WS push — never derived from
+  // `activity`. See AgentChatsState.compacting's own doc comment for why.
+  const compacting = useStore(store, (s) => s.agentChats.compacting[shownChatId] ?? false)
+  const turnRevision = useStore(store, (s) => s.agentChats.turnRevision[shownChatId] ?? 0)
   const title = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
+  )
+  // The chat's sticky selection, '' when it has made none. Two narrow selectors
+  // rather than the chat object: a selector returning the row itself would re-run
+  // every consumer on any field of it.
+  const chatModel = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.model ?? '',
+  )
+  const chatEffort = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.effort ?? '',
   )
   const providers = useStore(store, (s) => s.agentChats.providers)
   // The provider this chat last ran under — what a failed revive has to NAME ("Claude
@@ -165,7 +226,58 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
 
+  // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
+  // trust dialog, a first-run screen, a login — which reaches the daemon through
+  // no hook and would otherwise render as nothing at all?
+  //
+  // A PRIMITIVE selector on purpose. `undefined` means nothing is blocking this
+  // chat; '' means it is blocked and the daemon could not identify by what; a
+  // non-empty string names the prompt. Selecting the object would re-run this on
+  // every reseed that rebuilt it, for a value that had not changed.
+  const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
+  const waiting = waitKind !== undefined
+
+  // Prompts the daemon has reported as delivered-and-over without a turn. The
+  // composer resolves a pending item when its text turns up in the ledger, and for
+  // a provider built-in it never does — see AgentChatsState.settledPrompts.
+  const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
+
+  // The message(s) the agent is mid-way through saying — an array because a
+  // turn can have more than one open item (Codex; Claude is always 0-or-1).
+  // One selector, not per-field primitives: this is an Immer store, so the
+  // array reference itself only changes when an entry's content actually
+  // does (structural sharing — including Immer's own no-op detection when an
+  // upsert writes byte-identical text, e.g. a resent frame), and narrowed to
+  // this ONE chat's slot so another chat's streaming update never reaches it.
+  const streamingMessages = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId])
+
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
+  const columnRef = useRef<HTMLDivElement>(null)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const {
+    presentation,
+    setPresentation,
+    splitEnabled,
+    splitting,
+    returnOffered,
+    setReturnOffered,
+    splitFocus,
+    setSplitFocus,
+    splitSizes,
+    setSplitSizes,
+    splitStacked,
+  } = useChatPresentation(shownChatId, splitContainerRef)
+  const [queuedPromptCount, setQueuedPromptCount] = useState(0)
+  const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
+  const [promptReplacing, setPromptReplacing] = useState(false)
+  const [deliveryPending, setDeliveryPending] = useState(false)
+  // Starts true (fail open): until the view reports otherwise, the safer guess
+  // is "the composer may not exist yet" — the cost of a stray frame of this
+  // pane's own reviving/idle banner sitting beside a composer that turns out to
+  // exist too is nothing; the cost of the other guess is the gap this exists
+  // to close, silently, on a brand-new chat.
+  const [chatBlank, setChatBlank] = useState(true)
+  const chatViewRef = useRef<AgentChatViewHandle>(null)
   // `pending` while the chat list is still in flight is DERIVED, not written by
   // the attach effect below. Dormancy is unknowable until the list lands, so
   // there is nothing for the machine to record — the pane simply has nothing to
@@ -174,74 +286,51 @@ export function AgentChatPane({
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
 
+  // The composer's own words for `attachment`, refined past the plain `live`
+  // boolean it gets alongside this — but only on the chat side of the gate.
+  // Both surfaces stay mounted (see the dormancy note by the split container
+  // below), and the terminal surface carries its OWN copy of this same
+  // reviving/idle treatment, gated the mirror-image way. Without this check
+  // BOTH copies would sit in the document at once — a visible duplicate in
+  // split, and one hidden behind `display:none` and just as duplicate to
+  // anything that reads the DOM instead of looking at it.
+  const revival: ComposerRevival | undefined =
+    presentation === 'terminal'
+      ? undefined
+      : attachment.state === 'reviving'
+        ? { state: 'reviving', message: attachment.message }
+        : attachment.state === 'idle'
+          ? { state: 'idle', reason: attachment.reason }
+          : undefined
+
+  // The session this pane currently WANTS attached, readable from a callback that
+  // must not re-identify on every attach. handleSessionGone compares against it.
+  // Tracked as the id STRING, not the Attachment object: `attachment` is rebuilt
+  // every render while `known` is false, so depending on the object would re-run
+  // this on every render for no change.
+  const attachedSessionId = attachment.state === 'attached' ? (attachment.sessionId ?? '') : ''
+  const desiredSessionRef = useRef('')
+  useEffect(() => {
+    desiredSessionRef.current = attachedSessionId
+  }, [attachedSessionId])
+
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
   const rootRef = useRef<HTMLDivElement>(null)
-  const columnRef = useRef<HTMLDivElement>(null)
   const terminalApiRef = useRef<{ focus: () => void } | null>(null)
 
-  // A TERMINAL DOES NOT RENDER TO THE EDGE OF ITS OWN BOX.
-  //
-  // xterm draws a character grid: it fits `floor(width / cellWidth)` columns and also
-  // holds back room for a scrollbar, so the canvas is NARROWER than the element that
-  // contains it — here by 16px. That strip is never drawn to. Align the status line to
-  // the terminal's ELEMENT and it lands perfectly on empty space, sitting visibly past
-  // where the agent's text actually stops. (Which is exactly what happened: the box was
-  // flush to the pixel while the switcher hung ~25px beyond the last column.)
-  //
-  // So measure the real thing — the canvas — and pad the status line by the difference.
-  // It cannot be a constant: it moves with the font metrics, the pane width, and the
-  // scrollbar reservation.
-  const [gridSlack, setGridSlack] = useState(0)
+  // The split's own three boxes: the container that defines 100%, and the two
+  // halves PaneSash mutates imperatively during a drag. They are the SAME divs
+  // that hold each surface in the other two modes — one element per surface,
+  // whichever mode is on — so nothing about chat or terminal changes shape when
+  // the diagnostic is off.
+  const chatSurfaceRef = useRef<HTMLDivElement>(null)
+  const terminalSurfaceRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const column = columnRef.current
-    if (attachment.state !== 'attached' || !column) {
-      setGridSlack(0)
-      return
-    }
-
-    const measure = () => {
-      const element = column.querySelector('.xterm')
-      const canvas = column.querySelector('.xterm canvas')
-      // No canvas yet — the renderer has not drawn. The MutationObserver below will call
-      // us back the moment it appears; do NOT fall back to 0, that is what pinned the
-      // status line to the element's edge instead of the grid's.
-      if (!element || !canvas) return
-      const slack = element.getBoundingClientRect().right - canvas.getBoundingClientRect().right
-      setGridSlack(Math.max(0, Math.round(slack)))
-    }
-
-    // Two different events change the answer, and BOTH are needed.
-    //
-    // MutationObserver — xterm builds its canvas asynchronously, after this effect's
-    // first frame. Measuring only on mount reads a terminal that has not rendered yet
-    // and silently yields 0, and since nothing then resizes, it stays 0 forever. That is
-    // precisely the bug that made this look "already aligned" while it wasn't.
-    //
-    // ResizeObserver — on relayout xterm re-fits to a new column count, so the slack
-    // changes. Measured a frame later, because the observer fires when the CONTAINER
-    // resizes and xterm re-fits after that; same-tick reads the stale canvas.
-    let frame = 0
-    const remeasure = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(measure)
-    }
-
-    const resize = new ResizeObserver(remeasure)
-    resize.observe(column)
-
-    const mutation = new MutationObserver(remeasure)
-    mutation.observe(column, { childList: true, subtree: true })
-
-    remeasure()
-
-    return () => {
-      cancelAnimationFrame(frame)
-      resize.disconnect()
-      mutation.disconnect()
-    }
-  }, [attachment.state])
+  const gridSlack = useTerminalGridSlack(
+    columnRef,
+    attachment.state === 'attached' && presentation === 'terminal',
+  )
 
   // Re-point the buffer at what this pane is actually showing. This is the write that
   // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
@@ -323,15 +412,54 @@ export function AgentChatPane({
     const chat = await getChat(wsId, shownChatId)
     const s = store.getState()
     s.upsertAgentChat(chat)
-    if (!chat.liveRunnerId || !chat.terminalSessionId) return false
+    s.setAgentChatWorking(chat.id, chat.working === true)
+    // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
+    // A non-hotswap api-transport runner (codex) is legitimately live with nothing
+    // attached: empty here means "no terminal to show right now", not "no runner".
+    if (!chat.liveRunnerId) return false
     s.bufferActions.repointAgentChatBuffer(bufferId, {
       chatId: chat.id,
       runnerId: chat.liveRunnerId,
     })
-    seedAttach(wsId, chat.terminalSessionId)
-    setAttachment({ state: 'attached', sessionId: chat.terminalSessionId })
+    if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
+    setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
     return true
   }, [store, wsId, bufferId, shownChatId])
+
+  // Re-check the aggregate after a prompt race. The prompt queue consumes only
+  // this server-folded value; it never guesses busy state from a lifecycle kind.
+  const refreshChatWorking = useCallback(async (): Promise<boolean> => {
+    const chat = await getChat(wsId, shownChatId)
+    const s = store.getState()
+    s.upsertAgentChat(chat)
+    s.setAgentChatWorking(chat.id, chat.working === true)
+    return chat.working === true
+  }, [store, wsId, shownChatId])
+
+  // A selection the SERVER accepted. It is written here rather than inside the
+  // picker because the store is the chat's owner, and the 202 carries no body and
+  // no lifecycle frame — nothing else would bring the new pair back.
+  const applySelection = useCallback(
+    (model: string, effort: string) => {
+      store.getState().setAgentChatSelection(shownChatId, model, effort)
+    },
+    [store, shownChatId],
+  )
+
+  // Bounds streamingMessages[shownChatId]: once useChatMessages reports an id
+  // the ledger now confirms for real, its store-side entry is dead weight —
+  // see pruneAgentChatStreamingMessages' own doc comment for why this is safe
+  // where clearing the whole array on a turn boundary was not.
+  const handleStreamingSettled = useCallback(
+    (ids: string[]) => {
+      store.getState().pruneAgentChatStreamingMessages(shownChatId, ids)
+    },
+    [store, shownChatId],
+  )
+
+  const handlePromptSpawned = useCallback(async () => {
+    await adopt()
+  }, [adopt])
 
   // A spawn we asked for onto this chat did not put a CLI on it. Say so — and SPEND THE
   // CHAT'S BUDGET while we are at it, whichever path failed: the pane is now looking at a
@@ -394,15 +522,19 @@ export function AgentChatPane({
     // Not knowable yet — `attachment` above already reads `pending` while this
     // is false, so there is nothing to write.
     if (!known) return
-    if (!sessionId) {
+    // liveRunnerId, not sessionId — a non-hotswap api-transport runner (codex) is
+    // legitimately live with an empty terminalSessionId (nothing attached right
+    // now), and that must not read as dormant: it would fire a revive onto a chat
+    // that already has a perfectly healthy runner on it.
+    if (!liveRunnerId) {
       if (switchingRef.current) return // the switch's own spinner stands
       // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must
       // NOT spawn a CLI: opening a workspace with N dormant chat tabs would otherwise
       // fire N revives at once, one CLI per hidden tab. A hidden dormant chat waits;
       // when the user switches to it (isVisible flips true, this effect re-runs) it
       // revives — exactly once, because the budget below is spent inside revive(). An
-      // already-attached chat has a sessionId and never reaches here, so it keeps its
-      // live PTY while hidden.
+      // already-attached chat has a liveRunnerId and never reaches here, so it keeps
+      // its live PTY while hidden.
       if (isVisible && !attemptedRef.current.has(shownChatId)) {
         void revive()
         return
@@ -415,9 +547,9 @@ export function AgentChatPane({
       )
       return
     }
-    seedAttach(wsId, sessionId)
-    setAttachment({ state: 'attached', sessionId })
-  }, [wsId, known, sessionId, shownChatId, revive, isVisible])
+    if (sessionId) seedAttach(wsId, sessionId)
+    setAttachment({ state: 'attached', sessionId: sessionId || null })
+  }, [wsId, known, liveRunnerId, sessionId, shownChatId, revive, isVisible])
 
   // The attach above proves the PTY was alive when the store last spoke. The CLI can die
   // at any moment while the pane sits here — daemon restart, /exit, crash — and the
@@ -439,8 +571,20 @@ export function AgentChatPane({
   // speak: when the daemon reaps the runner the chat goes dormant in the store, the effect
   // above sees it, and — budget permitting — revives it there, off the server's verdict
   // instead of our own. A CLI that dies twice in one mount stays down.
-  const handleSessionGone = useCallback(() => {
+  const handleSessionGone = useCallback((goneSessionId: string) => {
     if (switchingRef.current) return // our own switch killing the outgoing CLI: expected
+    // A DISPLACED PTY REPORTS ITS DEATH LATE. Prompt submission replaces the CLI, so
+    // the outgoing PTY dies by design — but the terminal notices the closed transport
+    // whenever it notices, which can be well after adopt() has already attached the
+    // replacement and the dispatch guard above has been dropped. Believing that report
+    // latched `exited` over a chat whose runner the SERVER still lists as live, and the
+    // React queue — which may only dispatch onto a live TUI — stalled there forever.
+    //
+    // So the guard is IDENTITY, not timing: only the session the pane still wants can
+    // report that pane's agent gone. An id we no longer hold is the outgoing corpse.
+    if (goneSessionId && desiredSessionRef.current && goneSessionId !== desiredSessionRef.current) {
+      return
+    }
     setAttachment({ state: 'idle', reason: 'exited' })
   }, [])
 
@@ -457,26 +601,49 @@ export function AgentChatPane({
   // spawn fails — and without a catch the rejection is unhandled: the dropdown just closes
   // and nothing happens. Surface it, matching the write-path error handling in
   // agent-chats-panel (create/rename/delete).
-  const handleSwitch = (providerId: string) => {
+  //
+  // AWAITABLE, and its answer is load-bearing. Picking another provider's model
+  // from the identity chip is one gesture but two writes, and the second is only
+  // legal once the first has landed: the selection endpoint validates the model
+  // against the chat's CURRENT provider, so writing `gpt-5.6-luna` while the chat
+  // is still on claude is a 400 and the user watches their pick bounce.
+  const handleSwitch = async (providerId: string): Promise<boolean> => {
+    if (
+      switchingRef.current ||
+      promptReplacing ||
+      deliveryPending ||
+      attachment.state === 'reviving'
+    )
+      return false
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
     // Held across the whole request: the outgoing CLI is killed FIRST, so this window is
     // exactly the transient dormancy — and its dead PTY's onSessionGone — that nothing
     // must mistake for a chat needing revival.
     switchingRef.current = true
     setAttachment({ state: 'reviving', message: `Starting ${name}…` })
-    void (async () => {
-      try {
-        await switchProvider(wsId, shownChatId, providerId)
-        if (!(await adopt())) fail()
-      } catch (err: unknown) {
+    try {
+      await switchProvider(wsId, shownChatId, providerId)
+      if (!(await adopt())) {
         fail()
-        // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
-        // PATH for every failure sends the user hunting for a problem they do not have.
-        toastSpawnFailure(err, name, 'switch to')
-      } finally {
-        switchingRef.current = false
+        return false
       }
-    })()
+      // A switch never toggles `presentation` itself, so a chat already ON the
+      // terminal surface stays there — but the runner underneath just changed,
+      // and only enterTerminal knows whether THIS provider needs a real
+      // switchToTerminal (non-hotswap) or is already showing a live PTY
+      // (hotswap). Skipped entirely on the far more common case of switching
+      // while on the chat surface, where there is nothing to re-attach yet.
+      if (presentation === 'terminal') enterTerminal(providerId)
+      return true
+    } catch (err: unknown) {
+      fail()
+      // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
+      // PATH for every failure sends the user hunting for a problem they do not have.
+      toastSpawnFailure(err, name, 'switch to')
+      return false
+    } finally {
+      switchingRef.current = false
+    }
   }
 
   // ⌘/ cycles this chat to the NEXT ENABLED provider, the way ⌘-tab cycles apps.
@@ -516,7 +683,7 @@ export function AgentChatPane({
     // at the top of the list rather than doing nothing.
     const next = enabled[(i + 1) % enabled.length]
     if (!next || next.id === activeProviderId) return
-    handleSwitch(next.id)
+    void handleSwitch(next.id)
   })
 
   useEffect(() => {
@@ -538,6 +705,201 @@ export function AgentChatPane({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [isActivePane, isVisible, cycleChord, wsId])
 
+  // ── Escorting the user to the terminal, and back ──────────────────────────
+  //
+  // escortRef records whether CROWBAR put the user in front of the terminal, and
+  // whether it still owns putting them back:
+  //
+  //   'none'     — we did not move them. We will not move them back either: a
+  //                user who walked to the terminal themselves is not lost.
+  //   'sent'     — we moved them and they have not touched the switcher since, so
+  //                the surface they are on is still OUR choice to undo.
+  //   'released' — they are here because of us, but they have since chosen a
+  //                surface themselves. From then on their choice outranks ours:
+  //                we OFFER the way back and never take it.
+  //
+  // A ref rather than state because nothing renders from it — it decides what an
+  // edge does, and a render in between would only be a chance for the two to
+  // disagree.
+  const escortRef = useRef<'none' | 'sent' | 'released'>('none')
+
+  // Is the user actually looking at THIS chat right now?
+  //
+  // Three independent things keep a chat mounted while they are somewhere else,
+  // and all three have to say yes before this pane may navigate on its own:
+  // another pane has focus (isActivePane), another tab is showing in this pane
+  // (isVisible), or another workspace is in view — which is invisible from here,
+  // because a retained workspace stays MOUNTED under display:none + inert. See
+  // the ⌘/ handler above for what happened the last time that third axis was
+  // assumed rather than asked.
+  const userIsWatching = useEffectEvent(
+    () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
+  )
+
+  // Flips presentation to 'terminal' — but a HOTSWAP provider's terminal is
+  // already live (a pure rendering choice), where a provider that hands its
+  // turn over instead (codex: attach declared, hotswap false) has no terminal
+  // session to render until Crowbar asks for one over switchToTerminal. Every
+  // path onto the terminal surface shares this check — the escort below, the
+  // wait banner's own button (openTerminalFromBanner), and the composer's
+  // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
+  // view with nothing behind it, the way calling setPresentation alone would.
+  // A PLAIN function, not an effect event: it is called from effect events
+  // (onWaitEdge below) as well as from plain click handlers (the banner
+  // button, the composer's terminal link), and useEffectEvent's own rule
+  // restricts it to being called only from effects/effect events in this
+  // component. Redefined every render, so it still always closes over the
+  // current provider list — nothing lists it in a dependency array, so there
+  // is no stale-closure risk to trade away by not memoizing it.
+  // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
+  // when the chat is already on the terminal surface and the switch itself
+  // never re-runs this gate — chatProviderId is this render's value from
+  // BEFORE the switch, so the caller passes the provider it just switched TO
+  // instead of relying on a re-render to catch up first.
+  const enterTerminal = (providerIdOverride?: string) => {
+    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
+    const hotswap = chatProvider ? chatProvider.hotswap === true : true
+    if (hotswap) {
+      setPresentation('terminal')
+      return
+    }
+    void (async () => {
+      try {
+        await switchToTerminal(wsId, shownChatId)
+        await adopt()
+        setPresentation('terminal')
+      } catch (err: unknown) {
+        // Left where they were — moving them to a view that never actually came
+        // up would be worse than staying put. But nothing else reports this
+        // failure (there was no "whatever surfaces the request's own error
+        // today" this comment used to assume): a refused switch — a turn still
+        // in flight, or codex before its first completed turn ever wrote a
+        // rollout to resume — used to be a click that silently did nothing,
+        // exactly the failure mode toastSpawnFailure exists to prevent
+        // elsewhere in this file. Same fix, here too.
+        const name = chatProvider?.displayName ?? providerIdOverride ?? chatProviderId
+        toastSpawnFailure(err, name, 'open the terminal view for')
+      }
+    })()
+  }
+
+  // What happens on each edge of "your agent is blocked in the terminal".
+  //
+  // An EFFECT EVENT, so it reads the current presentation and visibility without
+  // making them triggers: this must fire when the AGENT's state changes and at no
+  // other time. A pane that re-ran this because it gained focus would take a user
+  // to the terminal for a dialog that had been up, unchanged, for a minute.
+  const onWaitEdge = useEffectEvent((nowWaiting: boolean) => {
+    if (nowWaiting) {
+      // Take them there — but only if they are watching this chat. A surprise
+      // navigation in a pane nobody is looking at is worse than the banner they
+      // will find when they come back, and the banner is up either way.
+      //
+      // AN ESCORT ONLY EXISTS BECAUSE THE TERMINAL IS SOMEWHERE ELSE. In split it
+      // is not: it is on screen, beside the chat, and there is nothing to move
+      // anybody to. So the split declines the whole transaction — no navigation
+      // now, and (because escortRef stays 'none') no return trip and no offer
+      // when the prompt clears. Collapsing the split to terminal-only would be
+      // strictly worse than doing nothing: it would take away the chat half the
+      // user is deliberately watching, to show them something already in view.
+      if (presentation !== 'chat' || !userIsWatching()) return
+      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: this is a NAVIGATION on an edge, not a derivation. The surface must outlive the value that moved it: when `waiting` clears we may deliberately NOT switch back, so `presentation` cannot be computed from it.
+      enterTerminal()
+      escortRef.current = 'sent'
+      return
+    }
+    // Cleared: somebody answered the dialog, or the CLI behind it is gone.
+    const escort = escortRef.current
+    escortRef.current = 'none'
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above; the offer belongs to one edge and is dismissible, so it cannot be derived either.
+    setReturnOffered(false)
+    if (escort === 'none') return
+    if (escort === 'sent' && presentation === 'terminal' && userIsWatching()) {
+      // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above.
+      setPresentation('chat')
+      return
+    }
+    // We cannot put them back — they navigated away, or they picked this surface
+    // themselves — so we do not try. But we do not leave them here without a word
+    // either: they are in a terminal Crowbar sent them to, for a reason that has
+    // since gone away, and nothing else on screen would ever say so.
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: see above.
+    if (presentation === 'terminal') setReturnOffered(true)
+  })
+
+  useEffect(() => {
+    onWaitEdge(waiting)
+  }, [waiting])
+
+  // The user picking a surface ends Crowbar's claim on it. Picking Chat ends it
+  // outright — they are already back, so there will be nothing to offer later.
+  //
+  // SPLIT COUNTS AS BEING BACK, for exactly that reason: it SHOWS the chat. An
+  // offer to "return to chat" raised over a surface with the chat already on it
+  // would be nonsense, so the claim is dropped rather than released.
+  // A hotswap provider's terminal is already live — always has been, from spawn —
+  // so picking it is a pure rendering choice, same as it always was. A provider
+  // that hands its turn over instead (codex: attach declared, hotswap false) has
+  // NO terminal session to render until Crowbar asks for one: switching to it
+  // forks the native view first (switchToTerminal), and switching away from it
+  // tears that view down and re-establishes the api connection (switchToNative).
+  // Both are idle-only by construction — the control is disabled mid-turn (see
+  // ViewSwitcher's handoverBlocked) — so neither races a live turn.
+  const chooseSurface = (next: ChatPresentation) => {
+    if (escortRef.current !== 'none') escortRef.current = next === 'terminal' ? 'released' : 'none'
+    if (next !== 'terminal') setReturnOffered(false)
+    // Arrive with the caret where the user just was. Coming from Terminal they
+    // were typing at the CLI; coming from Chat they were typing a prompt.
+    if (next === 'split') setSplitFocus(presentation === 'terminal' ? 'terminal' : 'chat')
+
+    // An unresolved provider (catalogue not loaded yet, or this chat's provider
+    // simply isn't in it) defaults to hotswap — the ORIGINAL, always-synchronous
+    // behaviour every existing surface relies on — never to "must call the new
+    // endpoint": that direction fails outright the instant it does (no
+    // workspace/project scope to route through), where defaulting the other way
+    // just costs a non-hotswap provider one extra render before its capability
+    // loads in, same as any other capability-gated control.
+    const chatProvider = providers.find((p) => p.id === chatProviderId)
+    const hotswap = chatProvider ? chatProvider.hotswap === true : true
+    if (hotswap || next === presentation) {
+      setPresentation(next)
+      return
+    }
+    if (next === 'terminal') {
+      enterTerminal()
+      return
+    }
+    if (presentation === 'terminal') {
+      void (async () => {
+        try {
+          await switchToNative(wsId, shownChatId)
+        } finally {
+          await adopt()
+          setPresentation(next)
+        }
+      })()
+      return
+    }
+    setPresentation(next)
+  }
+
+  // The banner's own button. They are going because Crowbar asked them to, so it
+  // owes them the way back — but it did not move them, so it must not move them
+  // back unasked either. 'released' is exactly that: offer, never take.
+  //
+  // In split there is nowhere to go, so the button does the only useful thing
+  // left: it puts the CARET in the terminal, which is what the user wanted from
+  // it anyway. It must not collapse the split — see onWaitEdge.
+  const openTerminalFromBanner = () => {
+    if (splitting) {
+      setSplitFocus('terminal')
+      terminalApiRef.current?.focus()
+      return
+    }
+    escortRef.current = 'released'
+    enterTerminal()
+  }
+
   // Clicking the gutters or the column's padding focuses the terminal.
   //
   // Those regions LOOK like part of the chat — they are the same bg-background, and the
@@ -553,9 +915,23 @@ export function AgentChatPane({
   // menu, a future toolbar. Landing directly on a layout div is exactly what "the user
   // clicked empty space" means, and nothing else can accidentally match it.
   const focusTerminalFromEmptySpace = (e: React.MouseEvent) => {
-    if (attachment.state !== 'attached') return
+    if (attachment.state !== 'attached' || presentation !== 'terminal') return
     if (e.target !== rootRef.current && e.target !== columnRef.current) return
     e.preventDefault()
+    terminalApiRef.current?.focus()
+  }
+
+  // The split's version, and the reason it is a SEPARATE handler rather than a
+  // looser guard on the one above: in split the pane's gutters and the column's
+  // padding sit outside BOTH halves, so a click there names no surface at all and
+  // must not be answered by handing the keyboard to the terminal — that is
+  // precisely how a composer loses the keystroke the user is mid-way through.
+  // Only the terminal half's own empty strip counts, and the whitelist says so.
+  const focusTerminalFromSplitEmptySpace = (e: React.MouseEvent) => {
+    if (attachment.state !== 'attached') return
+    if (e.target !== terminalSurfaceRef.current) return
+    e.preventDefault()
+    setSplitFocus('terminal')
     terminalApiRef.current?.focus()
   }
 
@@ -590,95 +966,279 @@ export function AgentChatPane({
       onMouseDown={focusTerminalFromEmptySpace}
       className="flex h-full w-full flex-col"
     >
-      {/* THE COLUMN. Both the terminal and the switcher live inside it, and the
-          padding is on the column rather than on either of them. That is the whole
-          trick: the switcher cannot drift out of line with the agent's first
-          character, because they are inset by the SAME box. Alignment is structural
-          here, not a hand-tuned pixel — which is exactly what it was before, and it
-          broke every time anything moved.
+      {/* THE COLUMN. The terminal and the switcher live inside it, and the padding
+          is on the column rather than on either of them — the switcher cannot
+          drift out of line with the agent's first character, because they are
+          inset by the SAME box. Alignment is structural here, not a hand-tuned
+          pixel — which is exactly what it was before, and it broke every time
+          anything moved.
 
-          The cap is what makes the padding appear only when there is room to spare:
-          wide pane → real gutters; narrow pane → the column just fills it. And it
-          resizes the PTY, so the agent genuinely re-wraps to ~106 columns instead of
-          running lines to 164. Because the whole pane is one bg-background, the
-          padding and the gutters are invisible — you see breathing room, not a box. */}
+          The cap (and its padding) is what makes gutters appear only when
+          there is room to spare: wide pane → real gutters; narrow pane → the
+          column just fills it. It resizes the PTY, so the agent genuinely
+          re-wraps to ~106 columns instead of running lines to 164 — which is a
+          TERMINAL concern, not a chat one: the chat's own reading column
+          (`.center`, 768px) is already narrower than this cap and centers
+          itself regardless of how wide its scroller is, and `.scroll`'s own
+          padding-top (transcript.css) already gives the first message its
+          breathing room. Capping the column here too, and padding it, used to
+          nest the chat's scroll box a SECOND time inside both, which pushed
+          its native scrollbar and its top edge in from the pane's real corner
+          to this box's edge, then in again by the padding — so pure chat drops
+          the cap, the top gutter and the RIGHT gutter (the scrollbar's own
+          edge), same as split already does. The LEFT gutter stays: it is the
+          one edge with something else beyond it — the app's own sidebar — and
+          the composer's glass (`.dissolve`, composer.css) reaching flush to a
+          real neighbour read as smudging it, where reaching flush to the
+          pane's own scrollbar or top edge reads as intended. Only a lone
+          terminal keeps the full wrapped width and all four gutters. */}
       <div
         ref={columnRef}
-        className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-4 pt-4"
+        className={cn(
+          // The scope shared controls are styled under. The chat's own stylesheet
+          // is scoped to `.agent-chat`, which the TERMINAL surface is not inside —
+          // so the surface switcher sitting in its strip came out with no styling
+          // at all. Anything both surfaces draw hangs off this instead.
+          'agent-chat-pane',
+          'mx-auto flex min-h-0 w-full flex-1 flex-col',
+          splitting || presentation === 'chat' ? 'max-w-none' : 'max-w-4xl',
+          // Pure chat keeps only its LEFT gutter — see above — dropping the
+          // top and right ones this presentation would otherwise share with
+          // terminal/split.
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
+        )}
       >
-        <div className="min-h-0 flex-1">
-          {attachment.state === 'attached' && (
-            // NO key={sessionId}. When the agent's runner is replaced under a still-
-            // attached pane (a provider switch, or a revive that lands a new CLI), the
-            // sessionId changes but the terminal stays mounted: XtermTerminal swaps the
-            // PTY imperatively — detach the old, attach the new — instead of tearing the
-            // whole component (socket, observers, xterm) down and rebuilding it. A move
-            // (same PTY, new conversation) never changed the id and so never remounted;
-            // this makes a REPLACEMENT behave the same way.
-            <XtermTerminal
-              sessionId={attachment.sessionId}
-              // The chat's own workspace: a transport-drop reconnect on a hidden
-              // keep-alive workspace must listLive/attach against THIS workspace,
-              // or the agent's live PTY looks gone from the active one's list.
-              workspaceId={wsId}
-              // isActive = focused AND the visible tab; isVisible = the visible tab.
-              // A hidden keep-alive chat is neither, so its terminal fits locally but
-              // does not steal focus or (Task 4) push PTY resize while off-screen.
-              isActive={isActivePane && isVisible}
-              isVisible={isVisible}
-              attachOnly
-              // The column already supplies the inset; the terminal's own pl-[16px]
-              // would double it and push the agent out of line with the switcher.
-              flush
-              onTerminalRef={(api) => {
-                terminalApiRef.current = api
+        <div
+          ref={splitContainerRef}
+          className={cn(
+            'relative min-h-0 flex-1',
+            splitting && (splitStacked ? 'flex flex-col' : 'flex flex-row'),
+          )}
+        >
+          {/* Both presentations stay mounted. Keeping the queue mounted is what makes
+              a Terminal detour non-destructive; keeping xterm mounted preserves its
+              screen model while Chat is in front. Only the selected surface is active.
+
+              `hidden` IS THE DORMANCY MECHANISM, not a cosmetic. A surface under
+              display:none stops laying out, stops observing and — for xterm —
+              stops drawing, which is why chat and terminal cost nothing while the
+              other is up. Split deliberately gives that up for BOTH halves: it is
+              a diagnostic, it is off by default, and the whole point is that the
+              two are rendering at the same instant so a discrepancy between them
+              is a discrepancy in the data rather than in the timing. */}
+          <div
+            ref={chatSurfaceRef}
+            data-testid="agent-chat-surface"
+            data-surface-focused={splitting ? String(splitFocus === 'chat') : undefined}
+            onFocusCapture={splitting ? () => setSplitFocus('chat') : undefined}
+            className={cn(
+              splitting
+                ? // NO CARD. Split is two surfaces with a handle between them —
+                  // a border and a radius around each half turns a diagnostic
+                  // into two floating panels, and the focus ring drew a box
+                  // around whichever one you were typing in. The caret already
+                  // says that.
+                  'relative min-h-0 min-w-0 shrink grow-0'
+                : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
+            )}
+            style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
+          >
+            <AgentChatView
+              key={`${wsId}:${shownChatId}`}
+              ref={chatViewRef}
+              wsId={wsId}
+              chatId={shownChatId}
+              providerId={activeProviderId}
+              providers={providers}
+              onSwitchProvider={handleSwitch}
+              switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
+              working={working}
+              compacting={compacting}
+              turnRevision={turnRevision}
+              live={attachment.state === 'attached' || promptReplacing}
+              revival={revival}
+              onRevive={() => void revive()}
+              // In split the chat is genuinely in front of the user, so it is
+              // genuinely active: it dispatches its queue, refreshes its catalog
+              // and answers the barrier exactly as it does on its own.
+              active={presentation === 'chat' || splitting}
+              visible={isVisible}
+              onOpenTerminal={() => {
+                // Unchanged outside split — the chat view's own way through to the
+                // terminal, with no claim on bringing anybody back. In split there
+                // is nothing to open, so it hands over the CARET instead; see
+                // openTerminalFromBanner for why collapsing would be worse.
+                if (splitting) {
+                  setSplitFocus('terminal')
+                  terminalApiRef.current?.focus()
+                  return
+                }
+                enterTerminal()
               }}
-              onSessionGone={handleSessionGone}
+              terminalWaiting={waiting}
+              terminalWaitKind={waitKind ?? ''}
+              presentation={presentation}
+              splitEnabled={splitEnabled}
+              onSelectPresentation={chooseSurface}
+              settledPrompts={settledPrompts}
+              streamingMessages={streamingMessages}
+              onStreamingSettled={handleStreamingSettled}
+              onPromptDispatchStart={() => {
+                switchingRef.current = true
+                setPromptReplacing(true)
+              }}
+              onPromptDispatchSettled={() => {
+                // The prompt endpoint may fail after terminating the outgoing
+                // TUI. Reconcile before dropping the displacement guard, or the
+                // pane can remain "attached" to a dead PTY forever (the session
+                // change happened while the guard intentionally ignored it).
+                void (async () => {
+                  try {
+                    if (!(await adopt())) fail()
+                  } catch {
+                    fail()
+                  } finally {
+                    switchingRef.current = false
+                    setPromptReplacing(false)
+                  }
+                })()
+              }}
+              onPromptSpawned={handlePromptSpawned}
+              onRefreshChat={refreshChatWorking}
+              model={chatModel}
+              effort={chatEffort}
+              onSelectionChange={applySelection}
+              onQueueCountChange={setQueuedPromptCount}
+              onCancelableQueueCountChange={setCancelablePromptCount}
+              onDeliveryPendingChange={setDeliveryPending}
+              onBlankChange={setChatBlank}
+            />
+
+            {/* The composer's OWN reviving/idle signpost (`revival`, above) is
+                the normal home for these now — but it lives inside the dock,
+                and the dock does not exist on a blank chat (AgentEmptyDocument
+                stands in for it there). A CLI dying before its first turn ever
+                lands is not a rare edge of that: it is the ordinary shape of
+                "opened a chat, picked a provider, the provider never came up."
+                Proven wrong once already for terminal_wait below (dropping it
+                outright broke `agent-chat-pane-terminal-wait.test.tsx`), and
+                the same test-first check for reviving/idle
+                (agent-chat-pane.test.tsx, "…for a chat with no messages yet")
+                found the identical gap — so this is the fallback for exactly
+                the window `chatBlank` covers, not a second copy of the
+                composer's own signpost: `revival` above is already `undefined`
+                whenever `chatBlank` would make this render, because
+                `AgentChatView` never got far enough to read it. */}
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
+              <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
+                <FlickerSpinner className="size-4 text-foreground" />
+                {attachment.message}
+              </div>
+            )}
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
+              <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
+                <p className="min-w-0 text-muted-foreground">
+                  {attachment.reason === 'failed'
+                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
+                </p>
+                <Button
+                  className="shrink-0"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  data-testid="pane-resume"
+                  onClick={() => void revive()}
+                >
+                  Resume
+                </Button>
+              </div>
+            )}
+            {waiting && chatBlank && (
+              <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
+                <AgentTerminalWaitBanner
+                  kind={waitKind ?? ''}
+                  providerLabel={
+                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
+                  }
+                  onOpenTerminal={openTerminalFromBanner}
+                />
+              </div>
+            )}
+          </div>
+
+          {splitting && (
+            <PaneSash
+              direction={splitStacked ? 'vertical' : 'horizontal'}
+              sizes={splitSizes}
+              containerRef={splitContainerRef}
+              firstPaneRef={chatSurfaceRef}
+              secondPaneRef={terminalSurfaceRef}
+              onResizeCommit={setSplitSizes}
+              // The TUI's floor, not the pane grid's — see SPLIT_MIN_HALF_PX.
+              minPx={splitStacked ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
             />
           )}
-          {attachment.state === 'reviving' && (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-              <FlickerSpinner className="size-6 text-foreground" />
-              <p className="text-muted-foreground text-center text-sm">{attachment.message}</p>
-            </div>
-          )}
-          {/* The dormant states — and the ONLY place the Resume button lives. Opening a
-              chat no longer lands here: a dormant chat is revived on sight, so reaching
-              this means either the revive FAILED, or the CLI died a second time and this
-              pane has stopped bringing it back unasked. The button is the user's way in
-              from both; so is the provider dropdown below it. */}
-          {attachment.state === 'idle' && (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-              <p className="text-muted-foreground max-w-sm text-center text-sm">
-                {attachment.reason === 'failed'
-                  ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                  : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-              </p>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void revive()}>
-                Resume
-              </Button>
-            </div>
-          )}
-        </div>
 
-        {/* The chat's own status line, spanning the terminal's width: what this
-            conversation IS on the left, who is running it on the right. Both sit on the
-            column, so the title starts on the agent's first character and the switcher
-            ends on its last one.
-            min-w-0 is what lets a long title truncate instead of shoving the switcher
-            off the column — a flex child defaults to min-width:auto and refuses to
-            shrink below its content. */}
-        <div
-          className="flex items-center justify-between gap-3 py-2"
-          style={{ paddingRight: gridSlack }}
-        >
-          <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          <ProviderSwitchDropdown
+          <AgentTerminalSurface
+            ref={terminalSurfaceRef}
+            wsId={wsId}
+            attachment={attachment}
+            presentation={presentation}
+            splitting={splitting}
+            focused={splitFocus === 'terminal'}
+            basis={splitSizes[1]}
+            isActivePane={isActivePane}
+            isVisible={isVisible}
+            title={title}
+            gridSlack={gridSlack}
             providers={providers}
-            currentProviderId={activeProviderId}
-            onSwitch={handleSwitch}
+            activeProviderId={activeProviderId}
+            switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
+            splitEnabled={splitEnabled}
+            working={working}
+            onSwitchProvider={handleSwitch}
+            onSelectPresentation={chooseSurface}
+            onTakeFocus={() => setSplitFocus('terminal')}
+            onDeadSpaceMouseDown={focusTerminalFromSplitEmptySpace}
+            onTerminalRef={(api) => {
+              terminalApiRef.current = api
+            }}
+            onSessionGone={handleSessionGone}
+            onRevive={() => void revive()}
           />
         </div>
+
+        {presentation === 'terminal' && returnOffered && (
+          <AgentReturnToChatNotice
+            onReturn={() => chooseSurface('chat')}
+            onDismiss={() => setReturnOffered(false)}
+          />
+        )}
+
+        {presentation === 'terminal' && queuedPromptCount > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t py-2 text-muted-foreground text-xs">
+            <span>
+              {queuedPromptCount} {queuedPromptCount === 1 ? 'prompt' : 'prompts'} pending in Chat
+            </span>
+            <div className="flex items-center gap-1">
+              <Button size="xs" variant="ghost" onClick={() => setPresentation('chat')}>
+                Return to Chat
+              </Button>
+              {cancelablePromptCount > 0 && (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Cancel unsent prompts"
+                  tooltip="Cancel unsent prompts"
+                  onClick={() => chatViewRef.current?.cancelUnsentPrompts()}
+                >
+                  <Trash2Icon />
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

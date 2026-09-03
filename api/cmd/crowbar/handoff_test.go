@@ -33,12 +33,12 @@ func newHandoffTestSocket(t *testing.T, handler http.HandlerFunc) string {
 }
 
 // TestRunHandoffDump_PrintsHandoff proves runHandoffDump GETs the
-// workspace-nested /v0/projects/<p>/repos/<r>/workspaces/<w>/agent/chats/<id>/handoff
+// workspace-nested /v0/projects/<p>/repos/<r>/workspaces/<w>/chats/<id>/handoff
 // and writes the decoded data.handoff to out.
 func TestRunHandoffDump_PrintsHandoff(t *testing.T) {
 	sock := newHandoffTestSocket(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/agent/chats/chat-1/handoff", r.URL.Path)
+		require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/chats/chat-1/handoff", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": true,

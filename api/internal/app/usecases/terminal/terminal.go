@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Engine is the PTY-session surface the terminal usecase passes through to.

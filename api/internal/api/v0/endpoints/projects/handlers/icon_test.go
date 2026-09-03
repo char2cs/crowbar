@@ -77,7 +77,7 @@ func TestPutIconStoresBytesAndClearsEmoji(t *testing.T) {
 	}
 
 	stored := filepath.Join(home, "projects", "p1", "icon")
-	got, err := os.ReadFile(stored) //nolint:gosec // G304: test-owned temp path.
+	got, err := os.ReadFile(stored)
 	if err != nil {
 		t.Fatalf("icon not stored at %s: %v", stored, err)
 	}

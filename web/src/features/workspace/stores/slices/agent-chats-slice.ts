@@ -1,6 +1,16 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
+import type {
+  AgentChat,
+  AgentChatFolder,
+  AgentProvider,
+  AgentTerminalWait,
+} from '@/features/agent/api/agent-api'
+import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+
+// The queue that reads these is itself capped, so an id older than this window is
+// already unreachable by anything that could act on it.
+const SETTLED_PROMPTS_PER_CHAT = 20
 
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
 
@@ -66,6 +76,83 @@ export interface AgentChatsState {
    * just displays it.
    */
   working: Record<string, boolean>
+  /**
+   * Which chats have a CLI blocked behind a prompt Crowbar CANNOT answer, keyed
+   * by chat id. PRESENCE is the verdict: an absent entry means nothing is
+   * blocking that chat, and an entry with `kind: ''` means the daemon knows only
+   * that something is.
+   *
+   * A map rather than a field on the chat row, and for the same reason `working`
+   * is one: it arrives on its own lifecycle frame and has to be writable without
+   * a round trip, so it must not require replacing a chat object nobody else
+   * asked to change. It also keeps the read a PRIMITIVE — a consumer selects
+   * `terminalWaits[id]?.kind`, which is a string or undefined, so a narrow
+   * selector cannot churn on object identity.
+   *
+   * Never derived here. The gates that decide it (a live runner, an idle chat, no
+   * prompt the chat could answer, and a screen matching a declared needle) are
+   * folded once in the daemon against its own terminal model; a second copy of
+   * that rule in TypeScript would be a second thing to get wrong.
+   */
+  terminalWaits: Record<string, AgentTerminalWait>
+  /**
+   * Which chats are LIVE mid-compaction right now, keyed by chat id. PRESENCE
+   * is the verdict, same convention as terminalWaits.
+   *
+   * Driven ENTIRELY by the `compaction_started`/`compaction_stopped` WS
+   * frames (use-workspace-agent-chats-stream.ts) — never by the ledger's own
+   * interruption record. That record is born already resolved (a bare
+   * /compact prompt never opens a tracked turn), so it can never answer "is
+   * one happening right now"; only the live push can. The stream also
+   * self-heals this on any other lifecycle frame and a bounded timeout,
+   * because compact_post is not reliable — see the stream's own comments.
+   *
+   * A THIRD backstop lives in seedAgentChats: both of the above require the
+   * app to still be running to fire, so a compaction_stopped lost for good
+   * (the app closed for the whole compaction window) leaves this stuck true
+   * forever without it. seedAgentChats clears — never sets — an entry once
+   * its own fresh `working` comes back false, since a chat cannot genuinely
+   * be mid-compaction and idle at once.
+   */
+  compacting: Record<string, boolean>
+  /**
+   * Client request ids the daemon has reported as SETTLED: delivered to a CLI,
+   * and over, without ever having produced a turn.
+   *
+   * The composer's pending queue normally resolves an item when the prompt it sent
+   * turns up in the ledger as a user message. A provider's own built-in command
+   * never produces one — the CLI handles it and announces nothing — so the item
+   * would wait forever on evidence that is not coming. This is the other way an
+   * item can be resolved.
+   *
+   * Bounded to the most recent SETTLED_PROMPTS_PER_CHAT per chat. An id only
+   * matters while the queue still holds it, and the queue is itself capped, so
+   * anything older than that window is already unreachable.
+   */
+  settledPrompts: Record<string, string[]>
+  /**
+   * The assistant message(s) each chat is CURRENTLY producing, if any.
+   *
+   * An ARRAY, not a single slot: a turn can have more than one message item
+   * open (Codex splits a reply across several `agentMessage` items with
+   * distinct ids; Claude's turns only ever have one, so this is always
+   * length-0-or-1 for it). Upserted by id, never overwritten wholesale — a
+   * new item starting must not silently drop an earlier one still streaming.
+   *
+   * Transient by design and never persisted: entries are dropped ONLY once
+   * the message lands in the ledger (compared by text — see useChatMessages),
+   * never on a new turn starting — "interrupted" is a graceful request, not
+   * a kill, so the stopped turn's CLI can keep producing and complete on its
+   * own schedule after a different turn has already begun. Keeping it out
+   * of the ledger is what stops roughly 1.4 durable writes a second per
+   * streaming chat to store text that is superseded a moment later.
+   */
+  streamingMessages: Record<string, { id: string; text: string }[]>
+  /** Monotonic notification counter. It advances for every server turn state
+   *  write even when React batches a fast true→false pair into one render, and
+   *  on an authoritative reconnect reseed because a complete idle→idle turn
+   *  may have occurred while the socket was down. */
+  turnRevision: Record<string, number>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -83,10 +170,53 @@ export interface AgentChatsState {
 export interface AgentChatsSlice {
   agentChats: AgentChatsState
   seedAgentChats: (chats: AgentChat[], opts?: { keepWorking?: boolean }) => void
+  /** Invalidate every mounted chat transcript after a socket outage. This is
+   * independent of the reconnect GET so even a failed/superseded read cannot
+   * hide a complete idle-to-idle turn that happened while disconnected. */
+  notifyAgentChatMessages: () => void
   upsertAgentChat: (chat: AgentChat) => void
   removeAgentChat: (chatId: string) => void
   /** Write the server's folded busy state for a chat. Never computed client-side. */
   setAgentChatWorking: (chatId: string, working: boolean) => void
+  /**
+   * Write — or clear, with null — the daemon's answer to "is this chat's CLI
+   * blocked on something only the terminal can clear?".
+   *
+   * Both edges travel, because the CLEARING edge is what takes the banner down
+   * when somebody answers the dialog at the terminal or the CLI dies behind it.
+   */
+  setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
+  /** Write — or clear, with false — whether a chat is LIVE mid-compaction
+   *  right now. See AgentChatsState.compacting for why this must never be
+   *  derived from the ledger. */
+  setAgentChatCompacting: (chatId: string, active: boolean) => void
+  /** Record that one delivered prompt is over without having produced a turn. */
+  setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
+  /** Upsert (by id) one message a chat is mid-way through saying, or clear
+   *  ALL of a chat's in-flight messages with null (a new turn starting). */
+  setAgentChatStreamingMessage: (
+    chatId: string,
+    message: { id: string; text: string } | null,
+  ) => void
+  /** Drop the given ids' entries once the ledger has recorded them for real —
+   *  see useChatMessages' streamingBubbles for the matching id computation
+   *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
+   *  that was tried and reverted (use-workspace-agent-chats-stream.ts),
+   *  because an interrupted runner's stream can legitimately keep growing
+   *  after a new turn starts, and wiping the array on turn_stopped/started
+   *  deleted a reply that was still arriving. Pruning by CONFIRMED id instead
+   *  is what keeps the array bounded without that regression: an entry is
+   *  only ever removed once its own content is durably persisted elsewhere. */
+  pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
+  /**
+   * Write the chat's sticky model / effort selection after the server ACCEPTED it.
+   *
+   * The selection endpoint answers 202 with no body and rides no lifecycle frame,
+   * so nothing else would bring the accepted pair back into the store — the picker
+   * would keep painting from a value the server has already moved past until the
+   * next full read. '' on either half means the provider's own default.
+   */
+  setAgentChatSelection: (chatId: string, model: string, effort: string) => void
   setAgentChatOrder: (order: string[]) => void
   hydrateAgentChatOrder: () => void
   setActiveAgentChatId: (chatId: string | null) => void
@@ -117,6 +247,11 @@ export interface AgentChatsSlice {
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
+  terminalWaits: {},
+  compacting: {},
+  settledPrompts: {},
+  streamingMessages: {},
+  turnRevision: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -138,10 +273,10 @@ export const createAgentChatsSlice: StateCreator<
   //
   //  - Chats absent from the response are DROPPED. A `deleted` frame lost during
   //    the outage would otherwise leave a ghost row that never goes away.
-  //  - The working map is CLEARED. Working state is not carried in the seed, so it
-  //    is UNKNOWN at this point, and spec §2 mandates unknown → idle. Keeping it
-  //    would strand a spinner forever on any row whose `turn_stopped` was dropped
-  //    during the outage (until that chat happens to run another turn).
+  //  - The working map is REPLACED from each chat's server-folded `working` value.
+  //    This both clears a spinner whose `turn_stopped` was lost during the outage
+  //    and restores a spinner for a turn already in flight when the client joins.
+  //    Older daemons omit the field; omission still grounds to idle.
   //
   // `keepWorking` is the one exception, and it exists for the `created` reseed. That
   // reseed rides a LIVE socket — it fires because a new chat appeared, not because the
@@ -152,6 +287,10 @@ export const createAgentChatsSlice: StateCreator<
   seedAgentChats: (chats, opts) => {
     const prev = get().agentChats
     const present = new Set(chats.map((c) => c.id))
+    const vanished = prev.chats.reduce<string[]>((ids, chat) => {
+      if (!present.has(chat.id)) ids.push(chat.id)
+      return ids
+    }, [])
     const pruned = prev.order.filter((id) => present.has(id))
 
     // Chats that appeared since the last seed. A `created` frame reseeds the whole
@@ -183,8 +322,58 @@ export const createAgentChatsSlice: StateCreator<
         for (const id of Object.keys(s.agentChats.working)) {
           if (!present.has(id)) delete s.agentChats.working[id]
         }
+        // A live `created` reseed preserves surviving frame-derived answers, but
+        // newly arrived chats have no map entry yet. Seed only a positive server
+        // answer for those rows; absent/false is already represented by omission.
+        for (const chat of chats) {
+          if (s.agentChats.working[chat.id] === undefined && chat.working === true) {
+            s.agentChats.working[chat.id] = true
+          }
+        }
       } else {
         s.agentChats.working = {}
+        for (const chat of chats) {
+          if (chat.working === true) s.agentChats.working[chat.id] = true
+        }
+      }
+      // The blocked-in-the-terminal map, reconciled on exactly the same terms as
+      // `working` above and for the same reason: both are server-folded facts the
+      // list response carries, and both have a lifecycle frame that can be lost
+      // while the socket is down. A live `created` reseed (keepWorking) leaves the
+      // surviving answers alone — no frame was missed — and only seeds chats it
+      // has never seen; an authoritative reconnect replaces the lot.
+      if (opts?.keepWorking) {
+        for (const id of Object.keys(s.agentChats.terminalWaits)) {
+          if (!present.has(id)) delete s.agentChats.terminalWaits[id]
+        }
+        for (const chat of chats) {
+          if (s.agentChats.terminalWaits[chat.id] === undefined && chat.terminalWait) {
+            s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+          }
+        }
+      } else {
+        s.agentChats.terminalWaits = {}
+        for (const chat of chats) {
+          if (chat.terminalWait) s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+        }
+      }
+      // `compacting` has no ledger record to fall back on (see
+      // AgentChatsState.compacting) and, unlike `working`/`terminalWaits` above,
+      // cannot be REBUILT from this response — there is no `chat.compacting`
+      // field, only the live push knows "in progress". What this GET's own
+      // `working` CAN do is prove one stale: compaction keeps a chat busy the
+      // same as any other turn, so a fresh read showing it idle is the same
+      // proof the live self-heal already trusts for any other frame — clear
+      // only, never set. This is what repairs a `compaction_stopped` lost for
+      // good (the app closed for the whole compaction window, missing both the
+      // frame and the local backstop timer that died with it).
+      for (const chat of chats) {
+        if (s.agentChats.compacting[chat.id] && chat.working !== true) {
+          delete s.agentChats.compacting[chat.id]
+        }
+      }
+      for (const id of Object.keys(s.agentChats.turnRevision)) {
+        if (!present.has(id)) delete s.agentChats.turnRevision[id]
       }
       s.agentChats.order = nextOrder
       if (s.agentChats.activeChatId !== null && !present.has(s.agentChats.activeChatId)) {
@@ -193,6 +382,15 @@ export const createAgentChatsSlice: StateCreator<
     })
 
     if (arrived.length > 0 && nextOrder !== pruned) saveOrder(get().workspaceId, nextOrder)
+    for (const chatId of vanished) clearPersistedPromptQueue(get().workspaceId, chatId)
+  },
+
+  notifyAgentChatMessages: () => {
+    set((s) => {
+      for (const chat of s.agentChats.chats) {
+        s.agentChats.turnRevision[chat.id] = (s.agentChats.turnRevision[chat.id] ?? 0) + 1
+      }
+    })
   },
 
   // Upsert ONE chat, refetched because a WS frame said it changed.
@@ -217,6 +415,18 @@ export const createAgentChatsSlice: StateCreator<
       if (idx === -1) s.agentChats.chats.push(chat)
       else s.agentChats.chats[idx] = chat
 
+      // terminalWaits is deliberately NOT written here, exactly as `working` is
+      // not: both are frame-driven maps, and a single-chat REFETCH is a snapshot
+      // taken at the moment it was issued, not at the moment it lands.
+      //
+      // The race is real. A spawn emits `started` (which refetches) and the CLI
+      // then puts up its trust dialog a second later, which emits `terminal_wait`.
+      // If the older refetch resolved last, its "nothing is blocking this chat"
+      // would overwrite the newer truth — and since the daemon publishes only on a
+      // CHANGE, nothing would ever correct it. Repair comes from the authoritative
+      // reseed instead (initial load and reconnect), which is what repairs a lost
+      // `turn_stopped` too.
+
       if (!chat.liveRunnerId) return
       for (const c of s.agentChats.chats) {
         if (c.id !== chat.id && c.liveRunnerId === chat.liveRunnerId) {
@@ -226,17 +436,86 @@ export const createAgentChatsSlice: StateCreator<
       }
     }),
 
-  removeAgentChat: (chatId) =>
+  removeAgentChat: (chatId) => {
     set((s) => {
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
+      delete s.agentChats.terminalWaits[chatId]
+      delete s.agentChats.compacting[chatId]
+      delete s.agentChats.settledPrompts[chatId]
+      delete s.agentChats.streamingMessages[chatId]
+      delete s.agentChats.turnRevision[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
-    }),
+    })
+    clearPersistedPromptQueue(get().workspaceId, chatId)
+  },
 
   setAgentChatWorking: (chatId, working) =>
     set((s) => {
       s.agentChats.working[chatId] = working
+      s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
+    }),
+
+  setAgentChatTerminalWait: (chatId, wait) =>
+    set((s) => {
+      if (wait) s.agentChats.terminalWaits[chatId] = wait
+      else delete s.agentChats.terminalWaits[chatId]
+    }),
+
+  setAgentChatCompacting: (chatId, active) =>
+    set((s) => {
+      if (active) s.agentChats.compacting[chatId] = true
+      else delete s.agentChats.compacting[chatId]
+    }),
+
+  setAgentChatPromptSettled: (chatId, clientRequestId) =>
+    set((s) => {
+      const seen = s.agentChats.settledPrompts[chatId] ?? []
+      if (seen.includes(clientRequestId)) return
+      s.agentChats.settledPrompts[chatId] = [...seen, clientRequestId].slice(
+        -SETTLED_PROMPTS_PER_CHAT,
+      )
+    }),
+
+  setAgentChatStreamingMessage: (chatId, message) =>
+    set((s) => {
+      if (!message) {
+        delete s.agentChats.streamingMessages[chatId]
+        return
+      }
+      // In-place upsert on the Immer draft, not a rebuild — the array is
+      // expected to hold at most a handful of concurrently-open items, so
+      // this find is O(open items), and mutating avoids reallocating the
+      // array on every token the way `.map()`/spread would.
+      const list = (s.agentChats.streamingMessages[chatId] ??= [])
+      const existing = list.find((m) => m.id === message.id)
+      if (existing) existing.text = message.text
+      else list.push(message)
+    }),
+
+  pruneAgentChatStreamingMessages: (chatId, ids) =>
+    set((s) => {
+      if (ids.length === 0) return
+      const list = s.agentChats.streamingMessages[chatId]
+      if (!list) return
+      const drop = new Set(ids)
+      const kept = list.filter((m) => !drop.has(m.id))
+      if (kept.length === list.length) return
+      if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
+      else s.agentChats.streamingMessages[chatId] = kept
+    }),
+
+  setAgentChatSelection: (chatId, model, effort) =>
+    set((s) => {
+      const chat = s.agentChats.chats.find((c) => c.id === chatId)
+      if (!chat) return
+      // Both halves, always — they are one answer. The endpoint takes the whole
+      // selection because which effort levels are valid is a property of the
+      // model, and writing one half here would let the store hold a pair that was
+      // never jointly sent.
+      chat.model = model
+      chat.effort = effort
     }),
 
   setAgentChatOrder: (order) => {

@@ -184,14 +184,14 @@ func TestNewGORMStores_AgentChatFolderRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.AgentChatFolder{
+	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.ChatFolder{
 		ID: "cf1", WorkspaceID: "w1", Name: "spikes", Order: 3,
 	}))
-	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.AgentChatFolder{
+	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.ChatFolder{
 		ID: "cf2", WorkspaceID: "w2", Name: "elsewhere",
 	}))
 
-	scoped, err := stores.AgentChatFolders.FindWhere(ctx, domain.AgentChatFolder{WorkspaceID: "w1"})
+	scoped, err := stores.AgentChatFolders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: "w1"})
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	assert.Equal(t, "spikes", scoped[0].Name)

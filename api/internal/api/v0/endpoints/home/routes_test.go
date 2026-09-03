@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentroutes "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
+	agentroutes "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 )
 
@@ -24,15 +24,15 @@ import (
 // reviving a dead chat 404'd on exactly the workspace kind where the user's chats
 // live (project home). Unit tests passed; only the running app showed it.
 //
-// So: every /agent/... route the workspace group mounts must exist under /home
+// So: every /chats/... route the workspace group mounts must exist under /home
 // too. A new agent route now fails HERE rather than in the app.
 func TestHomeMountsEveryAgentRoute(t *testing.T) {
 	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		scope := r.Group("/scope")
-		// settingsRG carries only the GLOBAL /settings/agent/providers write route,
+		// settingsRG carries only the GLOBAL /settings/chat/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
-		// (it is not an /agent/... path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, noopWS)
+		// (it is not a /chats path), so home parity is unaffected by it.
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, noopWS)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
@@ -41,7 +41,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			nil, nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
 			noopWS,
 			nil, nil, noopWS,
-			nil,      // agent usecase
+			nil, nil, nil, nil, nil, // the five agent concerns
 			nil, nil, // chat-folder usecase + broadcast
 			noopWS, // agent WS
 			func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
@@ -68,7 +68,11 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 	var out []string
 	for _, ri := range r.Routes() {
 		path, ok := strings.CutPrefix(ri.Path, prefix)
-		if !ok || !strings.HasPrefix(path, "/agent/") {
+		// The whole chat surface lives under /chats — including folders, hooks,
+		// providers and the WS — so it stays identifiable by one prefix now that the
+		// /agent segment is gone. That identifiability is what makes this parity
+		// guard possible at all.
+		if !ok || !strings.HasPrefix(path, "/chats") {
 			continue
 		}
 		out = append(out, ri.Method+" "+path)

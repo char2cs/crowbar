@@ -1,0 +1,10 @@
+{
+  "method": "remoteControl/status/changed",
+  "params": {
+    "status": "disabled",
+    "serverName": "Mateos-MacBook-Pro.local",
+    "installationId": "f3c14828-cb83-44b9-a61c-069c797a2513",
+    "environmentId": null
+  },
+  "emittedAtMs": 1787518748033
+}

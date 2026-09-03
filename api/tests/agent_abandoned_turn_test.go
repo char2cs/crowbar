@@ -17,7 +17,7 @@ import (
 // resuming that chat and completing another turn ever did.
 //
 // The cause was WHERE the teardown asked "is there a turn here to close?". It asked the
-// READ MODEL (agent.closeAbandonedTurn read domain.AgentChat.Working through GetChat) and
+// READ MODEL (agent.closeAbandonedTurn read domain.Chat.Working through GetChat) and
 // went home when the answer was no — but the read model is folded by an ASYNCHRONOUS
 // projection, while the turn is durable in the event log the instant the user_prompt hook
 // returns. A prompt landing just before a teardown therefore read back as "idle", and the
@@ -68,7 +68,7 @@ func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	// The user closes the tab while the agent is still answering. The CLI is SIGTERMed
 	// mid-turn, so the turn_stop that would have closed this turn is never coming — the
 	// teardown is the only thing that can, and it gets no second chance.
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/agent/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

@@ -285,22 +285,28 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['parameter', 'hints', 'intellisense', 'function'],
   },
 
-  // Provider Settings
+  // Agents Settings
   //
-  // Every control the Providers tab exposes. Without them the tab was invisible
-  // to this search: typing "provider" scored nothing, the rail filtered down to
+  // Every control the Agents tab exposes. Without them the tab was invisible to
+  // this search: typing "provider" scored nothing, the rail filtered down to
   // "No matching settings", and the search HID the one tab that matched. The
   // records share a keyword set because a user hunting for any of them says the
   // same words — the CLI's name as often as the concept's.
+  //
+  // The tab reads "Agents" now (spec §11) and the labels follow it, but every
+  // `provider` keyword stays: the word is still what the rest of the product,
+  // the docs and half the muscle memory say, and a keyword is never shown.
   {
     id: 'providers-priority-order',
     tab: 'providers',
-    section: 'Providers',
-    label: 'Provider Priority',
-    description: 'Drag to set which provider a new chat opens first',
+    section: 'Agents',
+    label: 'Agent Priority',
+    description: 'Drag to set which agent a new chat opens first',
     keywords: [
       'provider',
+      'providers',
       'agent',
+      'agents',
       'cli',
       'claude',
       'codex',
@@ -313,10 +319,22 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
   {
     id: 'providers-enabled',
     tab: 'providers',
-    section: 'Providers',
-    label: 'Enable Provider',
-    description: 'Turn a provider off to hide it from every New chat surface',
-    keywords: ['provider', 'agent', 'cli', 'claude', 'codex', 'enable', 'disable', 'off', 'hide'],
+    section: 'Agents',
+    label: 'Enable Agent',
+    description: 'Turn an agent off to hide it from every New chat surface',
+    keywords: [
+      'provider',
+      'providers',
+      'agent',
+      'agents',
+      'cli',
+      'claude',
+      'codex',
+      'enable',
+      'disable',
+      'off',
+      'hide',
+    ],
   },
   {
     // The row calls this "Tools" and never says MCP — the transport is not what
@@ -324,12 +342,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     // term will type it, and keywords are never shown.
     id: 'providers-tools',
     tab: 'providers',
-    section: 'Providers',
+    section: 'Agents',
     label: 'Crowbar Tools',
-    description: "Let a provider's agent use Crowbar itself — your workspaces and review comments",
+    description: 'Let an agent use Crowbar itself — your workspaces and review comments',
     keywords: [
       'provider',
+      'providers',
       'agent',
+      'agents',
       'cli',
       'claude',
       'codex',
@@ -337,6 +357,26 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
       'mcp',
       'access',
       'permission',
+    ],
+  },
+  {
+    // Lives on the Agents tab but is about the CHAT surface, so it carries the
+    // surface's own vocabulary as well as the tab's.
+    id: 'agents-chat-default-presentation',
+    tab: 'providers',
+    section: 'Chat',
+    label: 'Chat By Default',
+    description: 'Open a chat on Chat rather than Terminal — both stay available either way',
+    keywords: [
+      'chat',
+      'terminal',
+      'default',
+      'presentation',
+      'surface',
+      'landing',
+      'agent',
+      'agents',
+      'provider',
     ],
   },
 

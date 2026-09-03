@@ -44,7 +44,7 @@ import (
 //
 // The chat is already titled by the time the tool could be called: the
 // UserPromptSubmit hook derives a title from the prompt's first line the instant it
-// is submitted (deriveTitle in internal/app/usecases/agent/agent.go), and this string
+// is submitted (deriveTitle in internal/app/usecases/chat/internal/runner), and this string
 // appears verbatim inside that prompt. What makes the two distinguishable is not the
 // string but the SHAPE — deriveTitle takes the whole first line, truncated at 60
 // runes, so the derived title is the sentence that asks for the rename, never the two
@@ -358,10 +358,18 @@ func awaitToolTitle(
 // a title: the call is dispatched SYNCHRONOUSLY inside the model's turn — the relay
 // holds the JSON-RPC reply until the daemon has answered, and every write is durable
 // before that reply is written — so an agent that reached the tool has necessarily
-// produced the effect BEFORE its turn_stop hook lands. A new assistant turn with the
-// effect still absent therefore means the agent finished and did not call the tool
-// (or called it and was refused), and waiting past that point could only wait out the
-// whole backstop for something that is never coming.
+// produced the effect BEFORE its turn ends. An agent that has FINISHED with the
+// effect still absent therefore did not call the tool (or called it and was refused),
+// and waiting past that point could only wait out the whole backstop for something
+// that is never coming.
+//
+// "Finished" is two conditions, and it used to be one. A recorded assistant turn is
+// NOT the end of the model's turn: the streaming path records each assistant message
+// as its own ledger turn, so a model that narrates its plan before calling anything
+// ("I'll start by getting the review threads…") banks a turn mid-flight and used to
+// trip this arm within seconds — the tool call it was about to make never got a
+// chance. The chat's Working flag is the signal that actually means turn_stop landed,
+// so the arm now needs BOTH: the model spoke, AND the model stopped.
 //
 // priorTurns must be sampled by the CALLER before the driving write; see
 // awaitToolTitle's comment for why a baseline taken in here would be useless.
@@ -387,7 +395,7 @@ func awaitToolEffect(
 		if effect() {
 			return true, true
 		}
-		if assistantTurnCount(t, h, wsID, chatID, provider) > priorTurns {
+		if assistantTurnCount(t, h, wsID, chatID, provider) > priorTurns && !chatWorking(t, h, chatID) {
 			return false, true
 		}
 		// A dead CLI can satisfy neither arm, so it must be a hard failure here
@@ -411,13 +419,28 @@ func assistantTurnCount(
 	return len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider))
 }
 
+// chatWorking reports whether the chat still has a turn in flight, read off the
+// aggregate the turn hooks maintain. It is the only signal here that means turn_stop
+// has landed — a recorded assistant message does not, because the streaming path
+// records one per message rather than one per turn.
+func chatWorking(
+	t *testing.T,
+	h *harness,
+	chatID string,
+) bool {
+	t.Helper()
+	chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+	require.NoError(t, err, "read chat %s back", chatID)
+	return chat.Working
+}
+
 func chatTitle(
 	t *testing.T,
 	h *harness,
 	chatID string,
 ) string {
 	t.Helper()
-	chat, err := h.app.Usecases.Agent.GetChat(context.Background(), chatID)
+	chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
 	require.NoError(t, err, "read chat %s back", chatID)
 	return chat.Title
 }
@@ -515,7 +538,7 @@ func TestMCP_ForgedTokenIsRejected(t *testing.T) {
 	_, _, _, chatID, runnerID := mustSpawnChat(t, h, "claude")
 	before := chatTitle(t, h, chatID)
 
-	out, send, err := h.app.Usecases.Agent.DispatchMCP(ctx, runnerID, "forged",
+	out, send, err := h.app.Usecases.AgentProvider.DispatchMCP(ctx, runnerID, "forged",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+
 			`{"name":"set_chat_title","arguments":{"title":"Nope"}}}`))
 	require.NoError(t, err)

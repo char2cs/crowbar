@@ -1,0 +1,410 @@
+# Codex — v3, event-centric, MIXED TRANSPORT: the app-server API carries the
+# interactive core (turns, streaming, answerable permissions, telemetry,
+# interrupt, compact); five events with no api-transport equivalent still
+# ride hooks (declared per-event below).
+#
+# `attach` is declared WITHOUT `hotswap`: confirmed live (codex-cli 0.149.1)
+# that a second live client on the same app-server process fails outright
+# ("no rollout found"), and codex enforces one writer per thread regardless.
+# It is idle-only sequential handoff instead — see runner/attach.go's
+# SwitchToTerminal, which tears the api connection down first, then forks a
+# plain hooks-transport CLI, and switching back re-establishes the api
+# connection over the same session via `resume:` below.
+id: codex
+display_name: Codex
+icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>'
+
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [codex, app-server, --listen, "unix://{socket}"]
+    # Never rendered at spawn (see applyAPITransport's Hotswap gate); only
+    # SwitchToTerminal forks this, and only once idle.
+    attach: [codex, resume, "{session_id}"]
+    handshake: { call: initialize }
+  hooks:
+    format: json
+    delivery: http
+    require_payload_fields: [transcript_path]
+  spawn:
+    cmd: codex
+
+events:
+  # codex's own spawned config.toml wires hooks.SessionStart unconditionally,
+  # so this canonical event has two live shapes: thread/started (thread.id,
+  # api transport) and a flat session_id delivery (hooks fallback). Every
+  # `||`-fallback event below shares this same dual-shape hazard.
+  session_start:
+    in: thread/started
+    map: { session_id: "thread.id || session_id" }
+
+  # item/started is a SUM TYPE selected by item.type. tool_id specifically is
+  # load-bearing: an unresolved id makes toolID() mint a fresh fallback per
+  # call, so tool_pre/tool_post never match and OpenWork reports the chat as
+  # perpetually mid-turn — confirmed live and by
+  # TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed.
+  user_prompt:
+    in: item/started
+    when: { item.type: userMessage }
+    map:
+      session_id: "threadId || session_id"
+      message:    "item.content[type=text].text || prompt"
+
+  # turn.lastAgentMessage does not exist — the answer is an item IN a list.
+  turn_stop:
+    in: turn/completed
+    map:
+      session_id: "threadId || session_id"
+      message:    "turn.items[type=agentMessage].text || last_assistant_message"
+
+  tool_pre:
+    in: item/started
+    when: { item.type: commandExecution || fileChange || mcpToolCall }
+    map:
+      session_id: "threadId || session_id"
+      tool_id:    "item.id || tool_use_id"
+      tool_name:  "item.type || tool_name"
+      tool_input: item
+
+  tool_post:
+    in: item/completed
+    when: { item.type: commandExecution || fileChange || mcpToolCall }
+    map:
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.type || tool_name"
+      tool_result: "item.content || tool_response"
+
+  # No index: this delta stream is already arrival-ordered.
+  message_delta:
+    in: item/agentMessage/delta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+
+  # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
+  telemetry:
+    in: thread/tokenUsage/updated
+    map:
+      session_id:              threadId
+      input_tokens:            tokenUsage.total.inputTokens
+      output_tokens:           tokenUsage.total.outputTokens
+      context.used_tokens:     tokenUsage.total.totalTokens
+      context.capacity_tokens: tokenUsage.modelContextWindow
+
+  # Same dual-shape hazard as session_start: a hooks-delivered
+  # PermissionRequest uses tool_name/tool_input, not this event's api names.
+  permission:
+    ask: item/permissions/requestApproval
+    timeout_seconds: 270
+    map:
+      tool_name:  "tool || tool_name"
+      tool_input: "params || tool_input"
+    reply:
+      allow: '{"decision":"approved"}'
+      deny:  '{"decision":"denied","message":{reason_json}}'
+
+  elicitation:
+    ask: mcpServer/elicitation/request
+    timeout_seconds: 270
+    map:
+      message: message
+      schema:  requestedSchema
+    reply:
+      accept:  '{"action":"accept","content":{content_json}}'
+      decline: '{"action":"decline"}'
+      cancel:  '{"action":"cancel"}'
+
+  # thread/start (fresh) and thread/resume (known but not yet loaded on this
+  # connection) are separate calls, each producing {session_id} `action`
+  # sends to. `input` is typed content blocks, not a bare string — the one
+  # reason `send:` is a tree here rather than the flat shape below.
+  #
+  # sandbox/approvalPolicy come from permission_levels.levels[level].vars
+  # (below) — the same source the hooks-transport spawn args render from, so
+  # the two can never drift apart.
+  prompt:
+    fresh:
+      - call: thread/start
+        send:
+          cwd:                   "{cwd}"
+          sandbox:               "{permission.sandbox}"
+          approvalPolicy:        "{permission.approvalPolicy}"
+          # Confirmed live as codex's api-transport handoff channel (mirrors
+          # context_inject's -c developer_instructions={context}) — without
+          # this a thread/start-ed codex has no memory of a provider switch.
+          developerInstructions: "{context}"
+        capture:
+          session_id: thread.id
+    resume:
+      - call: thread/resume
+        send:
+          threadId: "{session_id}"
+          cwd:      "{cwd}"
+    action:
+      - call: turn/start
+        send:
+          threadId: "{session_id}"
+          input:
+            - type: text
+              text: "{text}"
+        # A cancel is scoped to the TURN, not the thread — captured here for
+        # interrupt's own send: below, since thread/start never has it.
+        capture:
+          turn_id: turn.id
+
+  # Confirmed live: turn/interrupt needs both threadId and turnId, or it
+  # fails outright. The cancelled turn surfaces as an ordinary
+  # turn/completed (status "interrupted"), and the connection survives it.
+  interrupt:
+    out: turn/interrupt
+    send: { threadId: "{session_id}", turnId: "{turn_id}" }
+
+  compact_start:
+    out: thread/compact/start
+    send: { threadId: "{session_id}" }
+
+  # The api transport carries none of these five. transport: hooks means
+  # SOME codex process still fires them, but with no attach it is a
+  # separate, disconnected PTY spawnRunner still forks — driving its own
+  # unrelated conversation. Known gap, tracked as follow-up work.
+  subagent_pre:
+    transport: hooks
+    in: SubagentStart
+    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+
+  subagent_post:
+    transport: hooks
+    in: SubagentStop
+    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+
+  compact_pre:
+    transport: hooks
+    in: PreCompact
+    map: { session_id: session_id, trigger: trigger }
+
+  compact_post:
+    transport: hooks
+    in: PostCompact
+    map: { session_id: session_id, trigger: trigger }
+
+  session_end:
+    transport: hooks
+    in: SessionEnd
+    map: { session_id: session_id, reason: reason }
+
+# No guarded key: --ask-for-approval accepts only on-request/never
+# (confirmed via `codex --help`), so there is no "ask about everything" mode
+# to offer. A level omitted here is never offered, not clamped.
+#
+# Neither level drops the sandbox (NOT
+# --dangerously-bypass-approvals-and-sandbox) — full-auto only silences the
+# escalation prompt. vars feeds the SAME two values to prompt.fresh above.
+permission_levels:
+  strategy: restart_tui
+  levels:
+    trusted:
+      apply:
+        - pass_arg: { arg: "--sandbox", value: "workspace-write" }
+        - pass_arg: { arg: "--ask-for-approval", value: "on-request" }
+      vars:
+        sandbox: workspace-write
+        approvalPolicy: on-request
+    full-auto:
+      apply:
+        - pass_arg: { arg: "--sandbox", value: "workspace-write" }
+        - pass_arg: { arg: "--ask-for-approval", value: "never" }
+      vars:
+        sandbox: workspace-write
+        approvalPolicy: never
+
+catalog:
+  models:   { call: model/list }
+  commands: { call: skills/list }
+  limits:   { call: account/rateLimits/read }
+
+# at: mcp is unimplemented — nothing in Go calls it. at: context is: a
+# RESUME with a real gap to hand over sends the same {context} document
+# thread/start's developerInstructions carries on a fresh thread.
+#
+# items' shape was guessed from ThreadStartParams (unconstrained in the
+# schema) and confirmed live: a "message"/role "user" item is what the model
+# actually recalls next turn — "developer"/"system" items sat inert.
+inject:
+  - at: mcp
+    call: config/mcpServer/reload
+  - at: context
+    call: thread/inject_items
+    send:
+      threadId: "{session_id}"
+      items:
+        - type: message
+          role: user
+          content:
+            - type: input_text
+              text: "{context}"
+
+# --- carried across from v2 unchanged -------------------------------------
+# Validated against codex 0.139.0, except mcp_servers.crowbar (0.146.0).
+spawn:
+  cmd: codex
+  interactive_required: true
+  forbid_flags: ["exec"]
+  # --sandbox/--ask-for-approval are level-scoped (permission_levels above),
+  # not here. KNOWN GAP: on-request only escalates when the model steps
+  # OUTSIDE the sandbox, so an ordinary in-workspace write never reaches
+  # Crowbar's own dial at either level this CLI offers.
+  args:
+    - "--dangerously-bypass-hook-trust"
+session:
+  resume: { arg: "resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+  # `debug prompt-input` renders model-visible instructions without
+  # starting a turn; the native /skills menu may hold more.
+  slash_catalog:
+    completeness: model_visible
+    timeout_ms: 10000
+    max_stdout_bytes: 4194304
+    max_stderr_bytes: 262144
+    max_items: 200
+    pipeline:
+      adapter: json_text_section
+      command: ["debug", "prompt-input"]
+      text_path: "[].content[].text"
+      start_marker: "<skills_instructions>"
+      end_marker: "</skills_instructions>"
+      # First colon FOLLOWED BY WHITESPACE — a skill name may itself be
+      # plugin-qualified with a colon (`plugin:skill: Desc`).
+      item_pattern: '(?m)^- (?P<name>[^\r\n]+?):\s+(?P<description>.*?)(?:\s+\((?:file|orchestrator resource|environment resource|custom resource):[^\r\n]*\))?\r?$'
+      item:
+        label: "{name}"
+        description: "{description}"
+        insert_text: "${name} "
+        source: "model-visible"
+# A SNAPSHOT, not a declared list — measured with `codex debug models`, in
+# codex's own priority order. Drifts silently until re-measured.
+model:
+  available: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.4-mini]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+effort:
+  # No "*" fallback, deliberately: an unlisted model must answer with no
+  # levels, never another model's.
+  available:
+    gpt-5.6-sol:   [low, medium, high, xhigh, max, ultra]
+    gpt-5.6-terra: [low, medium, high, xhigh, max, ultra]
+    gpt-5.6-luna:  [low, medium, high, xhigh, max]
+    gpt-5.5:       [low, medium, high, xhigh]
+    gpt-5.4:       [low, medium, high, xhigh]
+    gpt-5.4-mini:  [low, medium, high, xhigh]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "-c", value: 'model_reasoning_effort="{effort}"' }
+# Crowbar does not own ~/.codex — everything below is a session-layer `-c`
+# override. Pointing CODEX_HOME at a Crowbar-owned dir (what this used to
+# do) made cleanup destroy the user's own threads.
+config_injection:
+  - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # TUI-native modals, suppressed rather than answered — no hook fires for
+  # these. Only the three unambiguous ones: migration-prompt keys contain
+  # dots, which a TOML dotted-key override would parse as nested tables. An
+  # unknown `-c` key is inert, so a wrong one here can only leave a modal up.
+  - pass_arg: { arg: "-c", value: 'notice.hide_rate_limit_model_nudge=true' }
+  - pass_arg: { arg: "-c", value: 'notice.hide_full_access_warning=true' }
+  - pass_arg: { arg: "-c", value: 'notice.hide_world_writable_warning=true' }
+  # workspace-write denies network, and a unix-socket connect IS network on
+  # macOS — grants network only, not the filesystem.
+  - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.UserPromptSubmit=[{hooks=[{type="command",command="{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  # codex exposes no Notification event. Absent capability, absent UI.
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.PreToolUse=[{hooks=[{type="command",command="{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.PostToolUse=[{hooks=[{type="command",command="{crowbar_hook} hook tool_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.SubagentStart=[{hooks=[{type="command",command="{crowbar_hook} hook subagent_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.SubagentStop=[{hooks=[{type="command",command="{crowbar_hook} hook subagent_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{crowbar_hook} hook permission --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.PreCompact=[{hooks=[{type="command",command="{crowbar_hook} hook compact_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.PostCompact=[{hooks=[{type="command",command="{crowbar_hook} hook compact_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+  - pass_arg:
+      arg: "-c"
+      value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{crowbar_hook} hook session_end --segment {segid} --provider {provider} {scope_flags}"}]}]'
+mcp_injection:
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
+  - pass_arg:
+      arg: "-c"
+      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
+  # codex starts an MCP server with a SCRUBBED environment — CROWBAR_HOME
+  # does not survive it, and that variable is the only thing selecting which
+  # daemon socket a `crowbar` subprocess dials. FORWARDED, not a literal: an
+  # unset CROWBAR_HOME must stay unset in the child.
+  - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.env_vars=["CROWBAR_HOME"]' }
+  # Without this codex stops on every Crowbar tool call and waits for a
+  # human — the shell's own approval policy never covers MCP calls, which
+  # default to prompting regardless of level. SERVER-WIDE by owner decision
+  # (2026-07-29): the per-tool key it replaced stalled on any tool that
+  # forgot a line. `approve` is the one mode verified live to suppress it.
+  - pass_arg:
+      arg: "-c"
+      value: 'mcp_servers.crowbar.default_tools_approval_mode="approve"'
+# No --append-system-prompt equivalent, and the positional [PROMPT] IS the
+# user's first message — developer_instructions is the additive channel
+# that leaves the composer empty. NOT model_instructions_file, which
+# REPLACES codex's system prompt.
+context_inject:
+  - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
+# NO resume_context_inject, deliberately: a resumed codex session is
+# entirely api-transport-owned, and the redundant hooks-only PTY never
+# resumes the same thread — there is no CLI argv left to ride. The api
+# connection delivers {context} instead, via inject: at: context above.
+#
+# UNKINDED, unlike claude's pair: "Press enter to continue" is generic
+# confirmation text, so a match only proves the CLI is blocked, not why.
+terminal_prompts:
+  - needle: "Press enter to continue"
+  # A second, distinct modal — the two needles share a prefix and diverge,
+  # so neither substring-matches the other.
+  - needle: "Press enter to confirm or esc to go back"
+# Captured live (0.146.0): a turn can end with no Stop/SessionEnd/exit, so
+# the runner-exit reconcile never fires and the turn stays open indefinitely
+# — `ends_turn: true` is the fix. Only the first line is declared; URLs and
+# reset time are account-specific and captured verbatim off the screen.
+#
+# NO idle needle: codex's composer placeholder rotates between sessions and
+# its busy indicator was never measured.
+terminal_notices:
+  - kind: usage_limit
+    needle: "You've hit your usage limit"
+    ends_turn: true

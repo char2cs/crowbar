@@ -55,12 +55,12 @@ func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 
 	// Dial the HOME agent lifecycle WS before creating so no frame is missed; its
 	// frames are the turn signals this test blocks on.
-	frames := dialAgentWS(t, h, homeBase+"/agent/ws/chats")
+	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
 
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(homeBase+"/agent/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	waitForChatFrame(t, frames, created.ID, "created")
 	h.Quiesce()
 

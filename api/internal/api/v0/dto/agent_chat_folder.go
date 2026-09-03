@@ -26,7 +26,7 @@ type AgentChatFolderDTO struct {
 
 // AgentChatFolderDTOFrom converts a domain AgentChatFolder into its wire DTO.
 func AgentChatFolderDTOFrom(
-	f domain.AgentChatFolder,
+	f domain.ChatFolder,
 ) AgentChatFolderDTO {
 	return AgentChatFolderDTO{
 		ID:          f.ID,
@@ -45,7 +45,7 @@ func AgentChatFolderDTOFrom(
 // client that got one order from the list and another from a reseed would watch
 // its panel reshuffle on every reconnect.
 func AgentChatFolderDTOList(
-	folders []domain.AgentChatFolder,
+	folders []domain.ChatFolder,
 ) []AgentChatFolderDTO {
 	dtos := make([]AgentChatFolderDTO, 0, len(folders))
 	for _, f := range folders {

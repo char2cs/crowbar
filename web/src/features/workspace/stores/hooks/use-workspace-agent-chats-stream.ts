@@ -1,7 +1,14 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-import { listChats, getChat, listProviders, listChatFolders } from '@/features/agent/api/agent-api'
+import {
+  listChats,
+  getChat,
+  listProviders,
+  listChatFolders,
+  type AgentTerminalWait,
+} from '@/features/agent/api/agent-api'
+import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   isLatestProviderWrite,
@@ -60,7 +67,8 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // One wire frame on the workspace-scoped agent feed. THREE vocabularies ride it:
 //
 //   CHAT frames    — created / turn_started / turn_stopped / title_set / session_bound /
-//                    deleted. About the conversation. They name no process.
+//                    deleted / compaction_started / compaction_stopped. About the
+//                    conversation. They name no process.
 //   RUNNER frames  — started / session_bound / moved / displaced / exited. About the
 //                    vendor-CLI PROCESS, which is a thing that moves between chats.
 //   FOLDER frames  — folder_created / folder_updated / folder_deleted. About the tree the
@@ -85,6 +93,11 @@ interface AgentStreamEvent {
     | 'session_bound'
     | 'turn_started'
     | 'turn_stopped'
+    | 'terminal_wait'
+    | 'prompt_settled'
+    | 'message_delta'
+    | 'compaction_started'
+    | 'compaction_stopped'
     | 'title_set'
     | 'deleted'
     | 'started'
@@ -122,6 +135,31 @@ interface AgentStreamEvent {
    * never reach the branch that reads it.
    */
   working?: boolean
+  /**
+   * What the chat's CLI is blocked on that Crowbar CANNOT answer, on the
+   * `terminal_wait` kind and nowhere else.
+   *
+   * Both edges ride this one kind, and the field's ABSENCE is the clearing edge:
+   * present means "your agent is stuck behind a dialog", absent means "it isn't
+   * any more". Carried on the frame rather than refetched for the same reason
+   * `working` is — the user is looking at a pane that explains nothing, and an
+   * answer a round trip later is an answer after they have given up.
+   */
+  terminalWait?: AgentTerminalWait
+  /**
+   * The client request id of one prompt that is over, on the `prompt_settled`
+   * kind and nowhere else. See AgentChatsState.settledPrompts.
+   */
+  clientRequestId?: string
+  /**
+   * An assistant message still being produced, on the `message_delta` kind.
+   *
+   * Carries the text SO FAR rather than the newest increment, so a client that
+   * missed a frame is correct again on the next one and needs no reassembly of
+   * its own. It is deliberately not in the ledger: a message still growing is a
+   * view, and the ledger gets it once, when it is finished.
+   */
+  message?: { id: string; text: string }
 }
 
 /**
@@ -132,6 +170,19 @@ interface AgentStreamEvent {
  *   - turn_started / turn_stopped: the frame carries the server's folded `working`
  *     — write it through, no refetch. `turn_stopped` is NOT "idle": a chat waiting on
  *     a background subagent keeps spinning through it.
+ *   - message_delta: an assistant message has grown. Transient; the ledger holds the
+ *     finished message and this only makes the growing one visible.
+ *   - prompt_settled: a delivered prompt is over without having produced a turn, so
+ *     the composer's pending item can be released — nothing else will release it.
+ *   - terminal_wait: the chat's CLI has become — or stopped being — blocked behind a
+ *     prompt Crowbar cannot answer. The frame carries the whole answer; its absence
+ *     on the payload is the clearing edge.
+ *   - compaction_started / compaction_stopped: the chat is LIVE mid-compaction right
+ *     now, or it just finished. The ledger's own interruption record for this is born
+ *     already resolved (a bare /compact prompt never opens a tracked turn), so this
+ *     push is the only place "in progress" is ever observable — see
+ *     AgentChatsState.compacting. Self-healed on any OTHER chat frame and a bounded
+ *     timeout, since compact_post is not reliable.
  *   - created: a new chat (and its ordering) may have appeared — reseed the whole list.
  *   - title_set / session_bound: refetch just that chat and upsert it.
  *   - deleted: drop the chat from the store and close its pane tab if open.
@@ -150,6 +201,32 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
 
+    // `message_delta` fires once per streamed token, each its own top-level WS
+    // callback — outside anything React 18 batches. A fast provider can emit
+    // several inside one animation frame; this collapses them into one store
+    // write per chat per frame instead of one per token. See the batcher for why.
+    const streamingMessages = createStreamingMessageBatcher((chatId, message) =>
+      stateOf().setAgentChatStreamingMessage(chatId, message),
+    )
+
+    // Bounded self-heal for `compaction_started` with no matching
+    // `compaction_stopped`. compact_post is NOT reliable (confirmed live:
+    // most compactions on a small chat never produce one), so a design that
+    // only clears `compacting` on that frame would leave the indicator stuck
+    // showing forever whenever it doesn't arrive. COMPACTION_TIMEOUT_MS is
+    // generous against the one real timing this session measured (~18s) —
+    // this is a backstop, not the primary clearing path (that is any OTHER
+    // lifecycle frame for the chat, below, since a new turn starting is
+    // itself proof compaction is over).
+    const COMPACTION_TIMEOUT_MS = 60_000
+    const compactionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const clearCompactionTimer = (chatId: string) => {
+      const timer = compactionTimers.get(chatId)
+      if (timer === undefined) return
+      clearTimeout(timer)
+      compactionTimers.delete(chatId)
+    }
+
     // Every single-chat read that lands bumps this. A list seed captures it before it
     // asks, and refuses to apply a snapshot that a fresher read has already overtaken —
     // see seedChats.
@@ -164,12 +241,17 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // newer chat existed, and that chat disappears from the sidebar with nothing
     // scheduled to bring it back.
     let listSeq = 0
+    // A reconnect may race a later live `created` reseed. Until one list read
+    // actually lands, every seed must replace `working` from the server instead
+    // of preserving the pre-outage map. Otherwise the newer created read wins
+    // sequencing but also preserves the stale state reconnect was meant to repair.
+    let needsReconnectReconcile = false
 
     // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
     // reconnect, and on reconnect it is the only thing that can repair frames the
     // socket dropped while it was down. seedAgentChats therefore drops chats the
-    // server no longer has (a missed `deleted`) and clears the working map (a missed
-    // `turn_stopped` must not strand a spinner; working is unknown here → idle).
+    // server no longer has (a missed `deleted`) and replaces the working map from
+    // each chat's server-folded value (repairing either missed turn edge).
     //
     // Being a REPLACE is exactly why it must not land out of order. A CLI walking into a
     // conversation Crowbar has never seen is TWO backend writes on TWO aggregates — mint
@@ -193,7 +275,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // caller: the `created` reseed. That reseed rides a LIVE socket (a new chat appeared,
     // the connection never dropped), so no turn frame was missed and clearing the working
     // map would needlessly blank the spinner on every OTHER mid-turn chat. Initial load and
-    // reconnect leave it false — working is genuinely unknown there and must reset to idle.
+    // reconnect leave it false — their list responses carry authoritative working state.
     const seedChats = async ({ keepWorking = false }: { keepWorking?: boolean } = {}) => {
       const seq = ++listSeq
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -217,8 +299,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             if (!present.has(c.id)) vanished.push(c.id)
           }
 
-          if (keepWorking) store.getState().seedAgentChats(chats, { keepWorking: true })
+          if (keepWorking && !needsReconnectReconcile)
+            store.getState().seedAgentChats(chats, { keepWorking: true })
           else store.getState().seedAgentChats(chats)
+          needsReconnectReconcile = false
 
           // A chat deleted during the outage never delivered its `deleted` frame, so
           // close its pane tab here exactly as that frame's handler would have.
@@ -437,11 +521,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     void seedChats()
     void seedProviders()
 
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/agent/ws/chats`, (frame) => {
+    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/chats/ws`, (frame) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+        // Invalidate transcript pages synchronously, before the repair GET. A
+        // complete turn can be idle before and after the outage, and a failed or
+        // superseded list request must not make its messages invisible forever.
+        stateOf().notifyAgentChatMessages()
+        needsReconnectReconcile = true
         void seedChats()
         // Folders too, and for exactly the reason the chat list is reseeded here:
         // every folder frame dropped during the outage is a rearrangement this
@@ -472,6 +561,20 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       }
       if (!ev.chatId) return
       const st = stateOf()
+      // Self-heal: ANY other chat frame arriving while this chat is marked
+      // compacting is itself proof the compaction is no longer the live
+      // state — a new turn, a message delta, a terminal-wait edge, none of
+      // those can happen mid-compaction. This is the PRIMARY way a missing
+      // compact_post gets noticed quickly; the timeout below is only the
+      // absolute backstop for a chat that goes silent altogether.
+      if (
+        ev.kind !== 'compaction_started' &&
+        ev.kind !== 'compaction_stopped' &&
+        st.agentChats.compacting[ev.chatId]
+      ) {
+        clearCompactionTimer(ev.chatId)
+        st.setAgentChatCompacting(ev.chatId, false)
+      }
       switch (ev.kind) {
         case 'turn_started':
         case 'turn_stopped':
@@ -483,6 +586,57 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          //
+          // Deliberately NOT clearing streamingMessages[chatId] here (tried,
+          // reverted): "interrupted" does not mean dead. Stopping a turn is a
+          // graceful request, not a kill — the CLI it was asked to stop can
+          // keep producing output and complete its OWN turn on its own
+          // schedule, arriving under its own message id well after a
+          // DIFFERENT turn (a provider switch mid-interrupt) has already
+          // started. A blanket clear on the next turn_started throws that
+          // still-alive entry away — the reader watches it vanish mid-
+          // sentence. Entries are removed only by useChatMessages's own
+          // dedup-against-the-ledger check, same as any other item.
+          return
+        case 'message_delta':
+          // The agent is mid-sentence. This is the only frame in the feed that is
+          // not a record of anything — it is replaced by the ledger's own copy the
+          // moment the message completes. Batched to the next frame rather than
+          // written straight through — see streamingMessages above.
+          if (ev.message) streamingMessages.schedule(ev.chatId, ev.message)
+          return
+        case 'compaction_started':
+          // The ledger's own interruption record for this is born already
+          // resolved (see AgentChatsState.compacting's doc comment) — this
+          // live push is the only place "in progress" is ever observable.
+          clearCompactionTimer(ev.chatId)
+          st.setAgentChatCompacting(ev.chatId, true)
+          compactionTimers.set(
+            ev.chatId,
+            setTimeout(() => {
+              compactionTimers.delete(ev.chatId)
+              if (cancelled) return
+              stateOf().setAgentChatCompacting(ev.chatId, false)
+            }, COMPACTION_TIMEOUT_MS),
+          )
+          return
+        case 'compaction_stopped':
+          clearCompactionTimer(ev.chatId)
+          st.setAgentChatCompacting(ev.chatId, false)
+          return
+        case 'prompt_settled':
+          // A prompt Crowbar delivered turned out not to produce a turn — a
+          // provider built-in, handled inside the CLI, announcing nothing. The
+          // composer's pending queue is waiting on a user message that is never
+          // coming, and this frame is the only thing that releases it.
+          if (ev.clientRequestId) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
+          return
+        case 'terminal_wait':
+          // The frame IS the answer, both ways round: a present payload raises
+          // the "waiting in the terminal" state, an absent one clears it. The
+          // daemon publishes only on a CHANGE, so a chat parked for an hour has
+          // sent exactly one of these.
+          st.setAgentChatTerminalWait(ev.chatId, ev.terminalWait ?? null)
           return
         case 'deleted': {
           st.removeAgentChat(ev.chatId)
@@ -503,6 +657,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     return () => {
       cancelled = true
       unsubscribe()
+      streamingMessages.dispose()
+      for (const timer of compactionTimers.values()) clearTimeout(timer)
+      compactionTimers.clear()
     }
   }, [wsId])
 }

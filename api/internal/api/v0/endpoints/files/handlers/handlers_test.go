@@ -33,12 +33,18 @@ func (stubFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider)
 func (stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{Content: "hello"}, nil
 }
+
 func (stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return nil }
-func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error         { return nil }
-func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error          { return nil }
-func (stubFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error            { return nil }
-func (stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error          { return nil }
-func (stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error             { return nil }
+
+func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error { return nil }
+
+func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error { return nil }
+
+func (stubFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error { return nil }
+
+func (stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error { return nil }
+
+func (stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error { return nil }
 
 func newRouter(
 	f handlers.Files,

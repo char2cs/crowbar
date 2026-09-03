@@ -4,14 +4,16 @@ package agent_test
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -50,7 +52,7 @@ import (
 const backstop = 5 * time.Minute
 
 // hookBarrier observes COMPLETED agent-hook requests: gin middleware fires it
-// after the handler chain for POST .../agent/hooks has returned.
+// after the handler chain for POST .../chats/hooks has returned.
 //
 // "After" is the whole point, and it is why this is middleware rather than a hub
 // subscription. When the handler returns, IngestHook has already run to
@@ -73,7 +75,7 @@ func newHookBarrier() *hookBarrier {
 func (b *hookBarrier) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
-		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/agent/hooks") {
+		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/chats/hooks") {
 			b.sig.Fire()
 		}
 	}
@@ -114,18 +116,78 @@ func awaitHook[T any](
 //
 //	claude: "❯ 1. Yes, I trust this folder" / "Enter to confirm · Esc to cancel"
 //	codex:  "› 1. Yes, continue"            / "Press enter to continue"
+//
+// Both vendor CLIs have since moved out from under this text, confirmed live
+// 2026-09-01 against claude 2.1.257 / codex 0.149.1:
+//
+//   - claude STILL shows this dialog, but its DEFAULT-SELECTED row flipped
+//     from "Yes, I trust this folder" to "No, exit" — the needle (the footer
+//     hint) still matches, but the blind Enter that used to accept trust now
+//     DECLINES it. See claudeTrustYesMarker below.
+//   - codex no longer shows this dialog AT ALL under
+//     --dangerously-bypass-hook-trust (the flag this harness always passes) —
+//     it now goes straight to its composer. See codexReadyNeedle below.
 var trustNeedle = map[string]string{
 	"claude": "Enter to confirm",
 	"codex":  "Press enter to continue",
 }
 
+// claudeTrustYesMarker is present on screen only when "Yes, I trust this
+// folder" is the currently-highlighted row of claude's trust dialog. Its
+// absence — the needle above still matched, so the dialog IS showing, just
+// with "No, exit" highlighted instead — is what tells settleCLI it must move
+// the selection before acknowledging.
+//
+// This can NEVER be checked with tap.Contains: Contains matches on
+// squeeze()'d bare alphanumerics, which throws away the "❯" glyph — the ONE
+// character that distinguishes the selected row from the unselected one.
+// "Yes, I trust this folder" is on screen, unselected, from the dialog's very
+// first paint, so tap.Contains(claudeTrustYesMarker) is true before any key
+// is ever sent — confirmed live 2026-09-01: it short-circuited settleCLI's
+// arrow-key branch entirely, sent a blind Enter onto the untouched default
+// ("No, exit"), and produced exactly the trust-declined hang this whole
+// mechanism exists to prevent. kit.Readable strips ANSI but keeps the glyph;
+// check the selection against that instead (see claudeSelectedYes).
+//
+// The gap between "❯" and "Yes" is NOT a stable single space either: claude's
+// FULL initial paint prints it as a literal space (kit.Readable keeps it),
+// but its INCREMENTAL repaint on the arrow key moves the cursor there with a
+// column jump instead of a printed space — kit.Readable has nothing to keep,
+// so the same selected row reads "❯Yes, I trust this folder" with no gap at
+// all. Confirmed against both real captures (see claudeSelectedYesRe).
+const claudeTrustYesMarker = "Yes, I trust this folder"
+
+// claudeSelectedYesRe matches claudeTrustYesMarker only when directly preceded
+// by the "❯" selection glyph, tolerating either gap kit.Readable can produce
+// between them (a literal space from a full paint, or none at all from an
+// incremental repaint — see claudeTrustYesMarker).
+var claudeSelectedYesRe = regexp.MustCompile(`❯\s*` + regexp.QuoteMeta(claudeTrustYesMarker))
+
+// codexReadyNeedle is codex's own composer placeholder — the ready signal
+// for the case trustNeedle can no longer detect: codex 0.149.1 (unlike
+// 0.139.0) skips its trust dialog entirely under
+// --dangerously-bypass-hook-trust and paints this directly.
+const codexReadyNeedle = "Ask Codex to do anything"
+
 // firstOfProvider reports whether this is the FIRST CLI of the given provider in
 // this harness — i.e. the one that will be shown a trust dialog — and records it.
 //
-// A vendor CLI asks about trust ONCE per place, and remembers the answer OUTSIDE
-// the temp home Crowbar controls: claude writes it to the user's real
-// ~/.claude.json keyed by the CWD (Crowbar cannot redirect that — CLAUDE_CONFIG_DIR
-// breaks its auth), codex to ~/.codex keyed by the REPOSITORY ROOT. Every test here
+// A vendor CLI asks about trust ONCE per place, and remembers the answer in ITS OWN
+// home, keyed by a path: claude by the CWD, codex by the REPOSITORY ROOT. Those homes
+// are the user's real ones in production and throwaway ones here — newHarness calls
+// kit.IsolateProviderHomes, so the answers this suite produces are written to a temp
+// directory and thrown away with it, instead of accumulating one dead stanza per test
+// run in the user's own ~/.codex/config.toml and ~/.claude.json forever.
+//
+// (Isolating claude was long believed impossible because CLAUDE_CONFIG_DIR "breaks its
+// auth". It does not break it so much as RENAME it: claude derives its keychain service
+// name from the config dir, so moving the dir makes it look up an item that does not
+// exist. CLAUDE_SECURESTORAGE_CONFIG_DIR="" pins the lookup back to the real
+// credential. See kit.IsolateProviderHomes.)
+//
+// What matters HERE is only that isolation does not change the SHAPE of the first run:
+// a throwaway home trusts nothing, exactly like a never-before-seen repo path in a real
+// home, so the dialog still appears exactly once per provider per test. Every test here
 // builds ONE fresh temp repo with ONE worktree, so within a single test:
 //
 //   - the first claude/codex spawned sees a brand-new path → it ALWAYS shows the
@@ -247,11 +309,17 @@ func settleCLI(
 	const (
 		sawNeedle = "needle"
 		sawBound  = "already-past"
+		sawReady  = "ready-no-modal"
 	)
 	outcome := kit.Await(t, ctx, provider+" to paint "+needle,
 		func() (string, bool) {
 			if tap.Contains(needle) {
 				return sawNeedle, true
+			}
+			// codex 0.149.1 (unlike 0.139.0) skips the trust dialog entirely under
+			// --dangerously-bypass-hook-trust — see codexReadyNeedle's own doc comment.
+			if provider == "codex" && tap.Contains(codexReadyNeedle) {
+				return sawReady, true
 			}
 			// Already bound == already past every modal: only a running CLI can have fired
 			// the SessionStart hook that binds it.
@@ -263,6 +331,32 @@ func settleCLI(
 			return "", false
 		}, tap.Signal(), h.hooks.sig)
 
+	// claude 2.1.257 (unlike 2.1.207) defaults this dialog's SELECTION to
+	// "No, exit" instead of "Yes, I trust this folder" — the needle above
+	// only proves the dialog is SHOWING, not which row is highlighted, so a
+	// blind Enter now DECLINES trust for a fresh claude. Move the selection
+	// down first when it is not already on "Yes" — see claudeTrustYesMarker
+	// for why that check reads kit.Readable(tap.Screen()) rather than
+	// tap.Contains. Verified live (a bare pty, no test-harness involved)
+	// that "\x1b[B" does move claude's highlighted row.
+	claudeSelectedYes := func() bool {
+		return claudeSelectedYesRe.MatchString(kit.Readable(tap.Screen()))
+	}
+	if outcome == sawNeedle && provider == "claude" && !claudeSelectedYes() {
+		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\x1b[B")); err != nil {
+			t.Fatalf("settleCLI: move %s's trust-dialog selection: %v", provider, err)
+		}
+		selCtx, selCancel := context.WithTimeout(context.Background(), backstop)
+		kit.Await(t, selCtx, provider+"'s trust-dialog selection to move to \"Yes\"",
+			func() (bool, bool) {
+				if claudeSelectedYes() {
+					return true, true
+				}
+				requireCLIAlive(t, h, tap, termSessID, provider, "while moving the trust-dialog selection")
+				return false, false
+			}, tap.Signal())
+		selCancel()
+	}
 	if outcome == sawNeedle {
 		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\r")); err != nil {
 			t.Fatalf("settleCLI: acknowledge %s's %q: %v", provider, needle, err)
@@ -287,6 +381,47 @@ func settleCLI(
 	//
 	// No test hit this before because every existing claude driver crosses
 	// awaitSessionBound first, and that wait happens to outlast the remount.
+	//
+	// KNOWN BROKEN as of 2026-09-01, tracked separately from the selection bug
+	// above (which IS fixed and verified: settleCLI's own screen capture right
+	// after Enter shows "❯ Yes, I trust this folder" correctly selected). Two
+	// CONFIRMED, INDEPENDENT facts, both root-caused live:
+	//
+	//  1. The daemon never learns claude bound: runner.CurrentSession stays ""
+	//     forever. Root cause CONFIRMED by manually re-running claude's own
+	//     SessionStart hook command (copied verbatim out of its --settings
+	//     file, same CROWBAR_HOME) against a hung test — CurrentSession
+	//     flipped to the manually-supplied session id within 2s. So the
+	//     daemon, socket, segment and token are all reachable and correct;
+	//     claude's ORIGINAL automatic delivery attempt failed once
+	//     (transient — most likely a race with the runner row not yet being
+	//     queryable at the exact moment SessionStart fires), and NOTHING
+	//     ever retries it here. In production this self-heals within 1s via
+	//     `go drainHookSpoolLoop(ctx, host)` (cmd/crowbar/main.go, started by
+	//     `crowbar serve`) — but this harness builds its daemon in-process
+	//     (newHarness) and never runs `serve`, so that retry loop never
+	//     starts. A real fix needs the client-side spool/drain logic in
+	//     cmd/crowbar/hook_spool.go (currently unexported, package main)
+	//     moved to an importable package so the test harness can run its own
+	//     copy of the retry loop — a moderate refactor, not attempted here.
+	//
+	//  2. claude's OWN terminal output freezes regardless of (1): manually
+	//     firing the retry above makes CurrentSession correct immediately,
+	//     but claude still never paints another byte — confirmed by watching
+	//     for 30+ seconds after the manual retry succeeded. So claude is not
+	//     blocked on the daemon learning about it; whatever it's stuck on is
+	//     a second, independent problem. `sample`ing the live claude process
+	//     mid-hang shows its main thread genuinely idle in kevent64 (not
+	//     spinning, not crashed) with several established HTTPS connections
+	//     (Anthropic API, GitHub CDN, a googleusercontent IP) — consistent
+	//     with claude legitimately waiting on some network response, but
+	//     WHICH one, and why only in this environment, is not yet found.
+	//     Ruled out as the cause: a hanging/slow SessionStart hook alone
+	//     (tolerated fine up to several seconds in a bare-pty replay), a
+	//     hanging MCP server alone or combined with hooks (also tolerated
+	//     fine), and inherited CLAUDE_CODE_MESSAGING_SOCKET/BRIDGE_SESSION_ID
+	//     env vars from the parent Claude Code session (explicitly unset and
+	//     the hang still reproduced identically).
 	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
 }
 
@@ -366,7 +501,7 @@ func spawnReady(
 	t.Helper()
 	ctx := context.Background()
 
-	chatID, runnerID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
 	if err != nil {
 		t.Fatalf("spawnReady: SpawnChat(%s): %v", provider, err)
 	}
@@ -460,12 +595,12 @@ func awaitSessionBound(
 	runnerID string,
 	termSessID string,
 	tap *kit.PTYTap,
-) (string, domain.AgentRunner) {
+) (string, agents.Runner) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), backstop)
 	defer cancel()
 
-	var last domain.AgentRunner
+	var last agents.Runner
 	sid := kit.Await(t, ctx, "runner "+runnerID+" to bind a provider conversation", func() (string, bool) {
 		h.app.Repositories.WaitQuiescent()
 		if runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil {
@@ -533,7 +668,7 @@ func awaitHandoffContains(
 ) string {
 	t.Helper()
 	return awaitHook(t, h, "the ledger to carry "+want, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(context.Background(), chatID)
+		blob, err := h.app.Usecases.AgentChat.AssembleHandoff(context.Background(), chatID)
 		if err != nil {
 			return "", false
 		}
@@ -553,6 +688,15 @@ func awaitHandoffContains(
 // rollout never recorded it, and the codex resumed later had nothing to recall. The
 // test that failed was the one asserting the resumed codex remembers; the bug was
 // four steps earlier, in what "the turn is done" was taken to mean.
+//
+// AN ASSISTANT ENTRY IS NO LONGER SUFFICIENT ON ITS OWN. Crowbar now records
+// every message of a turn rather than only the last, so the first thing a CLI
+// says lands in the record while the turn is still running — and a barrier that
+// stopped there would release mid-answer, which is precisely what the paragraph
+// above says must never happen. The chat's own Working flag is what closes the
+// gap: it is folded from turn_started/turn_stopped plus whatever asynchronous
+// work the CLI says it left running, so it goes false only when the turn is
+// genuinely over.
 func awaitTurnComplete(
 	t *testing.T,
 	h *harness,
@@ -561,8 +705,15 @@ func awaitTurnComplete(
 	provider string,
 ) {
 	t.Helper()
-	awaitHook(t, h, provider+" to finish its turn (an assistant entry in the ledger)", func() (bool, bool) {
-		ok := len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) > 0
-		return ok, ok
-	})
+	awaitHook(t, h, provider+" to finish its turn (an assistant entry, and the chat no longer working)",
+		func() (bool, bool) {
+			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) == 0 {
+				return false, false
+			}
+			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+			if err != nil {
+				return false, false
+			}
+			return !chat.Working, !chat.Working
+		})
 }

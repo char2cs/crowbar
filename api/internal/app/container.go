@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -22,13 +24,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/agenttools"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the
@@ -54,8 +55,14 @@ type Container struct {
 	// in one PTY, the thing that moves between chats on /clear and /resume.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
-	axAgentChat    asynx.Asynx[domain.AgentChat]
-	axAgentRunner  asynx.Asynx[domain.AgentRunner]
+	axAgentChat    asynx.Asynx[domain.Chat]
+	// axAgentActivity is the conversation record's own per-type singleton. It is
+	// separate from axAgentChat because their write rates differ by orders of
+	// magnitude: a chat emits a handful of events, its activity emits hundreds per
+	// turn, and sharing one single-writer event log would put a sidebar repaint
+	// behind a tool-call storm.
+	axAgentActivity asynx.Asynx[domain.ChatActivity]
+	axAgentRunner   asynx.Asynx[agents.Runner]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -81,7 +88,7 @@ func New(
 	// agentchat.NewEventSourced), and the agent usecase now sends every AgentChat
 	// mutation through it (the gorm-backed store was retired in the Task 10
 	// cutover).
-	axAgentChat, err := newAsynx[domain.AgentChat](adapters.AgentChatES(), adapters.AgentChatSS())
+	axAgentChat, err := newAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
@@ -90,9 +97,16 @@ func New(
 	// between chats (/clear, /resume) is a single write to a single aggregate
 	// instead of a delete-here/insert-there across two chats with no transaction.
 	// Built and its projections registered (via repositories.New ->
-	// agentrunner.NewEventSourced); nothing SENDS runner commands yet — that
+	// runner.NewEventSourced); nothing SENDS runner commands yet — that
 	// cutover is a later task — so it is additive for now.
-	axAgentRunner, err := newAsynx[domain.AgentRunner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
+	axAgentActivity, err := newAsynx[domain.ChatActivity](
+		adapters.AgentActivityES(), adapters.AgentActivitySS(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("app container: agent activity asynx: %w", err)
+	}
+
+	axAgentRunner, err := newAsynx[agents.Runner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}
@@ -103,6 +117,10 @@ func New(
 	}
 
 	h := hub.NewHub()
+	// The agent aggregates announce; the fanout decides what a client is told. The hub
+	// still reaches the repository layer for workspace frames, which are outside this
+	// subsystem.
+	agentFanout := agentusecase.NewFanout(h)
 	repos, err := repositories.New(
 		ctx,
 		adapters,
@@ -110,9 +128,12 @@ func New(
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
+		axAgentActivity,
 		axAgentRunner,
 		engines.Git,
 		terminateAgentSession(engines.Terminal),
+		agentFanout.ChatWatch(),
+		agentFanout.RunnerWatch(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
@@ -139,6 +160,7 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
+	startTerminalWaitSweep(ctx, h, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -154,16 +176,17 @@ func New(
 	)
 
 	return &Container{
-		Hub:            h,
-		Repositories:   repos,
-		GORM:           gormStores,
-		Usecases:       ucs,
-		Realtime:       rt,
-		engines:        engines,
-		axWorkspace:    axWorkspace,
-		axReviewThread: axReviewThread,
-		axAgentChat:    axAgentChat,
-		axAgentRunner:  axAgentRunner,
+		Hub:             h,
+		Repositories:    repos,
+		GORM:            gormStores,
+		Usecases:        ucs,
+		Realtime:        rt,
+		engines:         engines,
+		axWorkspace:     axWorkspace,
+		axReviewThread:  axReviewThread,
+		axAgentChat:     axAgentChat,
+		axAgentActivity: axAgentActivity,
+		axAgentRunner:   axAgentRunner,
 	}, nil
 }
 
@@ -240,6 +263,7 @@ func (c *Container) Shutdown(
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
+		c.axAgentActivity.Shutdown(ctx),
 	)
 }
 
@@ -306,6 +330,7 @@ func (c *Container) quiesceTerminal(
 // runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
 // are released promptly.
 func (c *Container) Close() {
+	shutdownAgentRunners(c.Usecases)
 	c.Realtime.Close()
 }
 
@@ -337,7 +362,7 @@ func terminateAgentSession(
 // repositories.Container.ReapChatFiles wants: the workspace-delete cascade
 // (repositories.Container.forgetAgentChats) calls it, per forgotten chat, to
 // remove that chat's own <chatsDir>/<chatID> directory. It reuses the EXACT
-// same path resolution and agent.RemoveUnderHome guard the standalone
+// same path resolution and agentusecase.RemoveUnderHome guard the standalone
 // PurgeChat path already routes through (Important-2) — no path logic is
 // reimplemented here — so a workspace delete no longer leaves a chat's
 // plaintext handoff ledger behind under .crowbar. ws is the SAME reader
@@ -345,7 +370,7 @@ func terminateAgentSession(
 // usecases.Container.AgentWorkspaceReader's doc comment for why this is wired
 // in after usecases.New returns rather than threaded into repositories.New).
 func reapAgentChatFiles(
-	ws agent.WorkspaceReader,
+	ws agentusecase.WorkspaceReader,
 ) func(ctx context.Context, wsID, chatID string) error {
 	return func(ctx context.Context, wsID, chatID string) error {
 		chatsDir, err := ws.AgentChatsDir(ctx, wsID)
@@ -356,12 +381,12 @@ func reapAgentChatFiles(
 		if err != nil {
 			return fmt.Errorf("resolve home: %w", err)
 		}
-		agent.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
+		agentusecase.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
 		return nil
 	}
 }
 
-// agentThreadBroadcast adapts the hub into the agenttools.ThreadBroadcast seam:
+// agentThreadBroadcast adapts the hub into the agentusecase.ToolThreadBroadcast seam:
 // when an agent posts a review comment, the resulting thread has to reach a review
 // pane that is already open, exactly as an HTTP-authored comment does.
 //
@@ -377,7 +402,7 @@ func reapAgentChatFiles(
 // handler's path never runs this.
 func agentThreadBroadcast(
 	h threadBroadcaster,
-) agenttools.ThreadBroadcast {
+) agentusecase.ToolThreadBroadcast {
 	return func(thread domain.ReviewThread, projectID, repoID string) {
 		h.BroadcastThread(dto.ThreadDTOFrom(thread, projectID, repoID))
 	}
@@ -402,7 +427,40 @@ func toUsecaseStores(
 		TerminalProfiles:         gormStores.TerminalProfiles,
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
+		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
 	}
+}
+
+// startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
+// modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
+// reach the daemon through no hook and otherwise leave a chat pane showing nothing
+// at all over a live, blocked process.
+//
+// Started HERE, beside the boot reconcile, rather than inside the usecase: the
+// detector publishes, and the thing it publishes through is the hub, which is a
+// layer above every usecase. It is also why the sweep begins after
+// reconcileAgentRunners — a restart's first census should be of runners already
+// reconciled, not of rows the reconcile is about to retire.
+func startTerminalWaitSweep(
+	ctx context.Context,
+	h *hub.Hub,
+	ucs *usecases.Container,
+) {
+	ucs.AgentRunner.StartTerminalWaitSweep(
+		ctx,
+		func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
+			h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
+		},
+		func(chatID, workspaceID, requestID string) {
+			h.BroadcastAgentChatPromptSettled(chatID, workspaceID, requestID)
+		},
+		func(chatID, workspaceID, messageID, text string) {
+			h.BroadcastAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+		},
+		func(chatID, workspaceID string, active bool) {
+			h.BroadcastAgentChatCompaction(chatID, workspaceID, active)
+		},
+	)
 }
 
 func startProviderSweep(
@@ -444,6 +502,7 @@ func startBootSweep(
 		return fmt.Errorf("app: boot sweep: paths store: %w", err)
 	}
 	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome(), repos.ForgetWorkspaceDependents))
+
 	return nil
 }
 
@@ -494,14 +553,8 @@ func bootSweepPurge(
 		// the SAME strict-under-home test is applied to the root too: a degenerate
 		// one-segment leaf (<home>/worktree) has filepath.Dir == home, and rm'ing
 		// that would nuke the entire crowbar home — refused here.
-		if underHome(path, crowbarHome) {
-			root := filepath.Dir(path)
-			if !underHome(root, crowbarHome) {
-				slog.Warn("app: boot sweep: refusing to rm workspace root at or above the crowbar home",
-					"root", root, "path", path, "home", crowbarHome)
-			} else if err := os.RemoveAll(root); err != nil {
-				return fmt.Errorf("rm workspace root %q: %w", root, err)
-			}
+		if err := removeWorkspaceRoot(path, crowbarHome); err != nil {
+			return err
 		}
 		if err := pathsStore.Delete(ctx, wsID); err != nil {
 			return fmt.Errorf("delete id-path row: %w", err)
@@ -511,6 +564,29 @@ func bootSweepPurge(
 		}
 		return nil
 	}
+}
+
+// removeWorkspaceRoot deletes the worktree's parent directory, and refuses to when
+// that parent is not itself strictly under the crowbar home.
+//
+// The second check is not redundant with the first: path can sit DIRECTLY in the
+// home, and then its parent IS the home. Removing that would take every project,
+// every workspace and the databases with it, so the refusal is logged and the
+// sweep continues rather than failing the boot.
+func removeWorkspaceRoot(path, crowbarHome string) error {
+	if !underHome(path, crowbarHome) {
+		return nil
+	}
+	root := filepath.Dir(path)
+	if !underHome(root, crowbarHome) {
+		slog.Warn("app: boot sweep: refusing to rm workspace root at or above the crowbar home",
+			"root", root, "path", path, "home", crowbarHome)
+		return nil
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return fmt.Errorf("rm workspace root %q: %w", root, err)
+	}
+	return nil
 }
 
 // underHome reports whether path is strictly nested under crowbarHome (home as a
@@ -579,12 +655,24 @@ func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,
 ) {
-	if ucs.Agent == nil {
+	if ucs.AgentRunner == nil {
 		return
 	}
-	if err := ucs.Agent.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
+	if err := ucs.AgentRunner.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
 	}
+}
+
+// shutdownAgentRunners kills every live api-transport connection before the
+// daemon exits. It is the shutdown-time mirror of reconcileAgentRunners:
+// nothing else in Close's chain (engine.Container.Close, Realtime.Close)
+// reaches this registry, so without this call every codex-style serve
+// process outlives the daemon that spawned it.
+func shutdownAgentRunners(ucs *usecases.Container) {
+	if ucs.AgentRunner == nil {
+		return
+	}
+	ucs.AgentRunner.ShutdownAPIConnections()
 }
 
 func sweepCallback(

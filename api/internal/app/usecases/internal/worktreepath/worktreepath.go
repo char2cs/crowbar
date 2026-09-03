@@ -12,8 +12,10 @@
 package worktreepath
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +66,8 @@ func Derive(
 	path := filepath.Join(root, project, slug, branch, "worktree")
 	if !UnderHome(path, root) {
 		return "", fmt.Errorf(
-			"worktreepath: derive escapes the crowbar home: %q is not under %q", path, root)
+			"worktreepath: derive escapes the crowbar home: %q is not under %q", path, root,
+		)
 	}
 	return path, nil
 }
@@ -113,12 +116,6 @@ func HomeDefaultChatsDir(
 	slug string,
 ) string {
 	return filepath.Join(home, "projects", project, slug, "default", "chats")
-}
-
-// AgentLedgerDir returns the per-chat handoff-ledger directory under an already
-// resolved chats directory.
-func AgentLedgerDir(chatsDir, chatID string) string {
-	return filepath.Join(chatsDir, chatID, "ledger")
 }
 
 // RunnerDir returns a runner's per-spawn config directory ({tmp}) — the rendered
@@ -382,4 +379,27 @@ func FreePathBranch(
 	return "", fmt.Errorf(
 		"%w: no free directory for branch %q after %d attempts",
 		ErrPathClash, branch, maxPathBranchAttempts)
+}
+
+// RemoveUnderHome deletes target only when it is strictly under crowbar home,
+// and never fails the caller.
+//
+// Every agent path the chat usecase reaps is derived from a workspace lookup, so
+// this guard is what stops a poisoned or misconfigured chats dir reaching the
+// user's real repository. It is best-effort by design: a reap that cannot happen
+// leaves disk behind, which is a nuisance; a reap that fails a delete would leave
+// a chat the user asked to erase still listed, which is not.
+func RemoveUnderHome(
+	ctx context.Context,
+	home string,
+	target string,
+) {
+	if !UnderHome(target, home) {
+		slog.WarnContext(ctx, "agent: refusing to rm agent path outside crowbar home (skipping)",
+			"target", target, "home", home)
+		return
+	}
+	if err := os.RemoveAll(target); err != nil {
+		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
+	}
 }

@@ -14,8 +14,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 func newTerminalUsecase(
@@ -353,7 +353,8 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 			LastActiveAt: base.Add(time.Duration(i) * time.Minute),
 		}
 		require.NoError(t, os.WriteFile(
-			filepath.Join(storageDir, id+".buf"), []byte("x"), 0o644))
+			filepath.Join(storageDir, id+".buf"), []byte("x"), 0o644,
+		))
 	}
 
 	eng := mocks.NewTerminalEngine()

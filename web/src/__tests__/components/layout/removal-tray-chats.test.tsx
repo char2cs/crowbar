@@ -28,8 +28,8 @@ const { sendChatRemoval, deleteWorkspace } = vi.hoisted(() => ({
   deleteWorkspace: vi.fn(async () => {}),
 }))
 
-vi.mock('@/features/agent/lib/chat-removal', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/lib/chat-removal')>()),
+vi.mock('@/features/agent/tree/lib/chat-removal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/tree/lib/chat-removal')>()),
   sendChatRemoval,
 }))
 

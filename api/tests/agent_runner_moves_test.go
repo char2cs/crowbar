@@ -26,7 +26,7 @@ import (
 // committed, the second failed on chat B's state, and chat A was left with no way
 // back into it — permanently unusable, from one keystroke inside a CLI.
 //
-// A move is now ONE write to ONE aggregate (agentrunner.Move). The runner points at
+// A move is now ONE write to ONE aggregate (runner.Move). The runner points at
 // the chat; the chat never points back, and the chat being LEFT is not written to at
 // all. Every test here is written against the specific OUTCOME the old model
 // produced — a bricked source chat, two live CLIs on one chat, a turn landing in a
@@ -34,7 +34,7 @@ import (
 // two-writes-two-aggregates fails them rather than sliding past.
 //
 // NO TIMING. Every wait blocks on a real signal:
-//   - POST /agent/hooks runs IngestHook SYNCHRONOUSLY, so its 202 means the move,
+//   - POST /chats/hooks runs IngestHook SYNCHRONOUSLY, so its 202 means the move,
 //     the eviction and the SIGTERM have all already happened;
 //   - runner commands are asynx SendWait, so a placement is durable AND visible to
 //     the read model the instant the command returns;
@@ -171,7 +171,7 @@ func announce(
 	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"`+sessionID+`"}`)
 }
 
-// chatHandoff reads a chat's assembled ledger (GET .../agent/chats/:id/handoff): the
+// chatHandoff reads a chat's assembled ledger (GET .../chats/:id/handoff): the
 // DURABLE record of what was actually said in it. It is the on-disk oracle for "did
 // this turn land in this chat", answerable long after any in-memory state is gone.
 func chatHandoff(
@@ -184,11 +184,11 @@ func chatHandoff(
 	var out struct {
 		Handoff string `json:"handoff"`
 	}
-	h.get(base+"/agent/chats/"+chatID+"/handoff", &out)
+	h.get(base+"/chats/"+chatID+"/handoff", &out)
 	return out.Handoff
 }
 
-// resumeChat revives a dormant chat (POST .../agent/chats/:id/resume) and returns the
+// resumeChat revives a dormant chat (POST .../chats/:id/resume) and returns the
 // id of the runner it brought back.
 func resumeChat(
 	t *testing.T,
@@ -200,7 +200,7 @@ func resumeChat(
 	var revived struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
+	h.post(base+"/chats/"+chatID+"/resume", nil, http.StatusOK, &revived)
 	return revived.ID
 }
 
@@ -237,7 +237,7 @@ func TestRegression_ResumeIntoOccupiedChat_DoesNotBrickSource(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runnerA := createLiveStubChat(t, h, ws)
 	chatB, runnerB := createLiveStubChat(t, h, ws)
@@ -340,7 +340,7 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runnerA := createLiveStubChat(t, h, ws)
 	chatB, runnerB1 := createLiveStubChat(t, h, ws)
@@ -358,7 +358,7 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	var switched struct {
 		ID string `json:"id"`
 	}
-	h.post(base+"/agent/chats/"+chatB+"/switch", map[string]string{"provider": "livestub"}, http.StatusOK, &switched)
+	h.post(base+"/chats/"+chatB+"/switch", map[string]string{"provider": "livestub"}, http.StatusOK, &switched)
 	runnerB2 := switched.ID
 	require.NotEmpty(t, runnerB2)
 	require.NotEqual(t, runnerB1, runnerB2, "a switch spawns a new CLI")
@@ -474,7 +474,7 @@ func TestRegression_HookAfterMove_DoesNotPolluteTheChatItLeft(t *testing.T) {
 	base := wsBase(ws)
 	ctx := context.Background()
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 	announce(t, h, ws, runner, "sess-A")
@@ -509,11 +509,11 @@ func TestRegression_HookAfterMove_DoesNotPolluteTheChatItLeft(t *testing.T) {
 	// And live turn state agrees: chat A must not be left spinning on somebody else's
 	// turn. (A workspace's whole working overlay is the OR of its chats', so a chat
 	// spinning on a turn it never took spins the workspace icon too.)
-	workingC, err := h.app.Usecases.Agent.GetChat(ctx, chatC)
+	workingC, err := h.app.Usecases.AgentChat.GetChat(ctx, chatC)
 	require.NoError(t, err)
 	assert.True(t, workingC.Working, "the chat the runner is on is mid-turn")
 
-	workingA, err := h.app.Usecases.Agent.GetChat(ctx, chatA)
+	workingA, err := h.app.Usecases.AgentChat.GetChat(ctx, chatA)
 	require.NoError(t, err)
 	assert.False(t, workingA.Working, "the chat the CLI left must not be working: the turn is not its turn")
 
@@ -546,7 +546,7 @@ func TestRegression_ClearMintsChat_KeepsSamePTY(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 
@@ -605,6 +605,30 @@ func TestRegression_ClearMintsChat_KeepsSamePTY(t *testing.T) {
 // its own history for it, so resuming it must not resurrect the purged chat (a move
 // onto a chat that does not exist is an invisible CLI writing nowhere, forever) — it
 // must land somewhere real.
+// requireChatHoldsText asserts that Crowbar's OWN record of a chat carries text.
+//
+// It reads the conversation record directly rather than through the chat's REST
+// surface, because the record outlives the chat that indexes it: only a direct read
+// distinguishes "the conversation was dropped" from "the chat that pointed at it was
+// dropped, and the plaintext is still sitting there".
+func requireChatHoldsText(
+	t *testing.T,
+	h *harness,
+	chatID string,
+	text string,
+	msg string,
+) {
+	t.Helper()
+	turns, err := h.app.Repositories.AgentActivity.Turns(context.Background(), chatID, 0, 0, 0)
+	require.NoError(t, err)
+	for _, turn := range turns {
+		if strings.Contains(turn.Text, text) {
+			return
+		}
+	}
+	t.Fatalf("%s: no turn of chat %s carries %q (%d turns recorded)", msg, chatID, text, len(turns))
+}
+
 func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -612,7 +636,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	base := wsBase(ws)
 	ctx := context.Background()
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	doomed, doomedRunner := createLiveStubChat(t, h, ws)
 	other, otherRunner := createLiveStubChat(t, h, ws)
@@ -622,9 +646,10 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	announce(t, h, ws, otherRunner, "sess-other")
 	frames.awaitRunner(otherRunner, "session_bound")
 
-	// Give the doomed chat a real ledger on disk — Crowbar's own plaintext footprint,
-	// the thing the purge MUST reap (leaving it behind is a privacy bug).
-	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"something private"}`)
+	// Give the doomed chat a real conversation — Crowbar's own plaintext copy of what
+	// was said, the thing the purge MUST reap (leaving it behind is a privacy bug).
+	const privateText = "something private"
+	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
 	frames.awaitChat(doomed, "turn_started")
 	h.Quiesce()
 
@@ -641,14 +666,20 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	require.False(t, strings.HasPrefix(vendorSession, h.home+string(os.PathSeparator)),
 		"precondition: a provider's session store lies outside crowbar home — Crowbar does not own it")
 
-	// Crowbar's own on-disk footprint for the chat.
-	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(ctx, ws.workspaceID)
-	require.NoError(t, err)
-	crowbarChatDir := filepath.Join(chatsDir, doomed)
-	require.DirExists(t, crowbarChatDir, "precondition: the chat has a plaintext ledger under crowbar home")
+	// Crowbar's own copy of that conversation, read from the record itself rather
+	// than through the chat — after the delete the chat is gone, so a read routed
+	// through it could only ever answer "not found" and would prove nothing about
+	// whether the text was actually dropped.
+	//
+	// The record IS the footprint now: the per-chat plaintext ledger directory this
+	// once asserted on is gone, and the conversation lives in the activity record
+	// PurgeChat forgets (agent.ChatUsecase.PurgeChat — "the conversation itself no longer
+	// lives here, it is in the record dropped above").
+	requireChatHoldsText(t, h, doomed, privateText,
+		"precondition: Crowbar keeps its own plaintext copy of what was said")
 
 	// --- hard delete ---
-	resp := h.raw(http.MethodDelete, base+"/agent/chats/"+doomed, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	frames.awaitChat(doomed, "deleted")
 	frames.awaitRunner(doomedRunner, "displaced") // its CLI is taken off the chat and killed
@@ -665,10 +696,12 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 
 	// Crowbar's OWN footprint IS reaped — so the assertion above is a real confinement
 	// claim (the purge ran, removed what is Crowbar's, and stopped), not a vacuous one.
-	assert.NoDirExists(t, crowbarChatDir,
-		"the chat's plaintext handoff ledger must be reaped with the chat: a hard delete that leaves the "+
-			"conversation on disk under .crowbar has not deleted anything the user cares about")
-	gone := h.raw(http.MethodGet, base+"/agent/chats/"+doomed, nil, http.StatusNotFound)
+	turns, err := h.app.Repositories.AgentActivity.Turns(ctx, doomed, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, turns,
+		"the chat's conversation record must be reaped with the chat: a hard delete that leaves what was "+
+			"said readable under .crowbar has not deleted anything the user cares about")
+	gone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)
 	_ = gone.Body.Close()
 
 	// And now the consequence of leaving the vendor's file alone: that conversation is
@@ -684,7 +717,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	assert.NotEqual(t, other, landed, "an unknown conversation mints a NEW chat")
 	h.Quiesce()
 
-	stillGone := h.raw(http.MethodGet, base+"/agent/chats/"+doomed, nil, http.StatusNotFound)
+	stillGone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)
 	_ = stillGone.Body.Close()
 	assert.Equal(t, otherRunner, getAgentChat(t, h, base, landed).LiveRunnerID,
 		"the CLI is placed on the chat it landed on, and is reachable there")
@@ -708,7 +741,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 // the whole path: the runner-keyed rename ROUTE is gone with the shell command that was
 // its only caller, and the agent's set_chat_title tool calls this method directly after
 // the MCP resolver has turned its per-boot token into a runner. Reaching the tool over
-// /agent/runners/:segid/mcp instead would need that token, which is minted inside the
+// /chats/runners/:segid/mcp instead would need that token, which is minted inside the
 // daemon and deliberately not published — so the transport is skipped and the property
 // the regression is about (runner → CURRENT chat, resolved late) is exercised whole.
 func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
@@ -717,7 +750,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := wsBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/agent/ws/chats")
+	frames := recordAgentWS(t, h, base+"/chats/ws")
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 	announce(t, h, ws, runner, "sess-A")
@@ -733,8 +766,9 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	// The agent titles itself. This is exactly what set_chat_title passes: the
 	// RUNNER's id, and a title. No chat id — it does not have one.
 	const title = "Titled after the clear"
-	require.NoError(t, h.app.Usecases.Agent.RenameByRunner(
-		context.Background(), runner, title, "agent"))
+	require.NoError(t, h.app.Usecases.AgentChat.RenameByRunner(
+		context.Background(), runner, title, "agent",
+	))
 
 	frames.awaitChat(chatC, "title_set")
 	h.Quiesce()

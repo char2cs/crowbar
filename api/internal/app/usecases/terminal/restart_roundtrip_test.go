@@ -27,8 +27,8 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ type restartFrame struct {
 	Snapshot bool   `json:"snapshot"`
 }
 
-// restartConn implements engine/terminal.WSConn. WriteMessage decodes each frame
+// restartConn implements core/terminal.WSConn. WriteMessage decodes each frame
 // into an in-memory slice (never errors) and broadcasts on a sync.Cond so a
 // waiter wakes on the REAL arrival of output; ReadMessage blocks until the conn
 // is closed. This lets us capture all PTY output for assertion without blocking

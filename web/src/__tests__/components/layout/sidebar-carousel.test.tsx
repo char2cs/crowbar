@@ -7,7 +7,7 @@ import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 vi.mock('@/components/layout/workspace-tree', () => ({
   WorkspaceTree: () => <div data-testid="panel-workspaces" />,
 }))
-vi.mock('@/features/agent/components/agent-chats-panel', () => ({
+vi.mock('@/features/agent/tree/agent-chats-panel', () => ({
   AgentChatsPanel: () => <div data-testid="panel-chats" />,
 }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({

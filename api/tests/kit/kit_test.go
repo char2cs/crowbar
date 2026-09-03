@@ -12,9 +12,11 @@ import (
 )
 
 // TestMain is the kit package's own integration entry point (silence logs, gin
-// test mode) so the harness self-test can run under `-tags integration`.
+// test mode) so the harness self-test can run under `-tags integration`. It uses the
+// provider-home-guarding variant because this package's own tests spawn a real vendor
+// CLI, which makes the guard a self-test too.
 func TestMain(m *testing.M) {
-	Main(m)
+	MainGuardingProviderHomes(m)
 }
 
 // TestHarness_SocketBootAndRestart is the Task 16 harness self-test (spec §5):

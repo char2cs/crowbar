@@ -22,12 +22,18 @@ func (e errFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider
 func (e errFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
 	return domain.FileContent{}, e.err
 }
+
 func (e errFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return e.err }
-func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error         { return e.err }
-func (e errFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error          { return e.err }
-func (e errFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error            { return e.err }
-func (e errFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error          { return e.err }
-func (e errFiles) Delete(_ context.Context, _, _ string, _ time.Time) error             { return e.err }
+
+func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error { return e.err }
+
+func (e errFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error { return e.err }
+
+func (e errFiles) Copy(_ context.Context, _, _, _ string, _ time.Time) error { return e.err }
+
+func (e errFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error { return e.err }
+
+func (e errFiles) Delete(_ context.Context, _, _ string, _ time.Time) error { return e.err }
 
 func TestFileHandlers_ErrorPaths(
 	t *testing.T,

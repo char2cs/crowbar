@@ -1,0 +1,11 @@
+[
+  {
+    "role": "developer",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "before\n<skills_instructions>\n## Skills\n- imagegen: Generate or edit images. (file: /Users/example/.codex/skills/.system/imagegen/SKILL.md)\n- plugin-management:plugin-management: Discover installed plugins and connections. (file: /Users/example/.codex/plugins/cache/plugin-management/SKILL.md)\n</skills_instructions>\nafter token=fixture-secret"
+      }
+    ]
+  }
+]

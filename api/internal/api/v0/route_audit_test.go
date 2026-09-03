@@ -247,36 +247,44 @@ func extraRoutes() []string {
 		// Agentic-chat surface (00 agentic-engine spec §7): the workspace-scoped
 		// REST + lifecycle WS the FE Chats tab drives, nested under the workspace
 		// group (agent.Register).
-		"POST " + ws + "/agent/chats",
-		"GET " + ws + "/agent/chats",
-		"GET " + ws + "/agent/chats/:id",
-		"POST " + ws + "/agent/chats/:id/switch",
-		"POST " + ws + "/agent/chats/:id/rename",
-		"GET " + ws + "/agent/chats/:id/handoff",
-		"DELETE " + ws + "/agent/chats/:id",
+		"POST " + ws + "/chats",
+		"GET " + ws + "/chats",
+		"GET " + ws + "/chats/:id",
+		"POST " + ws + "/chats/:id/switch",
+		"POST " + ws + "/chats/:id/rename",
+		"GET " + ws + "/chats/:id/handoff",
+		"DELETE " + ws + "/chats/:id",
 		// Chat placement: where a chat hangs in the Chats tree and where it sits
 		// among its siblings. A route of its own rather than a field on the chat
 		// PATCH-equivalents, because it writes something different in kind — a
 		// chat's parent IS its context lineage, so this is what turns a standalone
 		// chat into a THREAD of another and back.
-		"PATCH " + ws + "/agent/chats/:id/placement",
+		"PATCH " + ws + "/chats/:id/placement",
 		// Chat folder CRUD: the Chats panel's organisation layer. Workspace-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
 		// chat interleave at every level, which is why the placement route above and
 		// these four are the two halves of the same gesture.
-		"GET " + ws + "/agent/folders",
-		"POST " + ws + "/agent/folders",
-		"PATCH " + ws + "/agent/folders/:folderId",
-		"DELETE " + ws + "/agent/folders/:folderId",
-		"POST " + ws + "/agent/hooks",
-		"GET " + ws + "/agent/providers",
-		"GET " + ws + "/agent/ws/chats",
+		"GET " + ws + "/chats/folders",
+		"POST " + ws + "/chats/folders",
+		"PATCH " + ws + "/chats/folders/:folderId",
+		"DELETE " + ws + "/chats/folders/:folderId",
+		"POST " + ws + "/chats/hooks",
+		"GET " + ws + "/chats/providers",
+		"GET " + ws + "/chats/ws",
 		// The runner model added resume and never declared it here, which is exactly
 		// the drift this audit exists to catch — it caught it. A chat whose CLI is gone
 		// is not gone: its ledger and its provider conversation both outlive the
 		// process, so a dormant chat can be handed a NEW runner that picks the
 		// conversation back up.
-		"POST " + ws + "/agent/chats/:id/resume",
+		"POST " + ws + "/chats/:id/resume",
+		// The two directions of the native-TUI/React-terminal split: SwitchToTerminal
+		// hands the live PTY to the terminal pane, SwitchToNative reverses it. Never
+		// declared here — the exact drift this audit exists to catch.
+		"POST " + ws + "/chats/:id/switch-to-terminal",
+		"POST " + ws + "/chats/:id/switch-to-native",
+		// The chat's own guarded/trusted/full-auto dial, PUT-only: the read side is
+		// folded into the chat GET, so only the write leg is a route of its own.
+		"PUT " + ws + "/chats/:id/permission-level",
 		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
 		//   RUNNER because the CLI knows which process it is and never which chat it
 		//   currently sits on — the runner is what maps one to the other, and it keeps
@@ -288,16 +296,43 @@ func extraRoutes() []string {
 		//   Its runner-keyed sibling, .../runners/:segid/rename, is deliberately GONE.
 		//   It existed for a shell command the agent was asked to retype; titling is a
 		//   tool on this MCP surface now, and a second path competed with it.
-		"POST " + ws + "/agent/runners/:segid/mcp",
+		"POST " + ws + "/chats/runners/:segid/mcp",
 		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
-		"POST " + ws + "/agent/chats/:id/stop",
+		"POST " + ws + "/chats/:id/stop",
+		"POST " + ws + "/chats/:id/compact",
+		// The read surface the Chats tab polls: the activity feed, a tool call's
+		// full payload, open choices, message history, and provider telemetry.
+		"GET " + ws + "/chats/:id/activity",
+		"GET " + ws + "/chats/:id/activity/:toolId/payload",
+		"GET " + ws + "/chats/:id/choices",
+		"GET " + ws + "/chats/:id/messages",
+		"GET " + ws + "/chats/:id/telemetry",
+		// The provider's own slash-command list, so the composer can autocomplete
+		// commands the CLI itself defines.
+		"GET " + ws + "/chats/:id/slash-catalog",
+		// The chat's sticky model/reasoning-effort choice.
+		"PATCH " + ws + "/chats/:id/selection",
+		// A human deciding a question the agent put to them mid-turn.
+		"POST " + ws + "/chats/:id/choices/:choiceId/answer",
+		// Submitting the user's own text into the chat.
+		"POST " + ws + "/chats/:id/prompts",
+		// The answer channel's other two legs (routes.go): the in-PTY relay parking
+		// alive while the provider's gate stays open, and what it reports when the
+		// provider decided at the terminal instead.
+		"POST " + ws + "/chats/hooks/await",
+		"POST " + ws + "/chats/hooks/abandon",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
-		// counterpart of the workspace-scoped enriched GET .../agent/providers.
-		"PUT /v0/settings/agent/providers",
+		// counterpart of the workspace-scoped enriched GET .../chats/providers.
+		"PUT /v0/settings/chat/providers",
+		// The install-wide default permission level new chats seed from, read and
+		// written beside the provider-priority setting above for the same reason:
+		// a global CLI-level dial, not a per-workspace one.
+		"GET /v0/settings/chat/permission-level",
+		"PUT /v0/settings/chat/permission-level",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
@@ -333,36 +368,57 @@ func extraRoutes() []string {
 		// Agentic chats re-mounted under the home group so project-home
 		// workspaces get chats too (Task 6). Same handler set as the
 		// workspace-scoped agent surface, each RequireHomeWorkspace-scoped.
-		"POST " + home + "/agent/chats",
-		"GET " + home + "/agent/chats",
-		"GET " + home + "/agent/chats/:id",
-		"POST " + home + "/agent/chats/:id/switch",
-		"POST " + home + "/agent/chats/:id/rename",
-		"GET " + home + "/agent/chats/:id/handoff",
-		"DELETE " + home + "/agent/chats/:id",
-		"POST " + home + "/agent/hooks",
-		"GET " + home + "/agent/providers",
-		"GET " + home + "/agent/ws/chats",
+		"POST " + home + "/chats",
+		"GET " + home + "/chats",
+		"GET " + home + "/chats/:id",
+		"POST " + home + "/chats/:id/switch",
+		"POST " + home + "/chats/:id/rename",
+		"GET " + home + "/chats/:id/handoff",
+		"DELETE " + home + "/chats/:id",
+		"POST " + home + "/chats/hooks",
+		"GET " + home + "/chats/providers",
+		"GET " + home + "/chats/ws",
 		// The repo home hosts chats like any workspace, so it gets the runner model's
 		// resume too — same reason as the ws block above. A chat in the home is still a
 		// chat: its CLI can die and be resumed.
-		"POST " + home + "/agent/chats/:id/resume",
+		"POST " + home + "/chats/:id/resume",
+		// Same native-TUI/React-terminal split and permission-level write, mounted
+		// on the home group for the same reason as the rest of this block.
+		"POST " + home + "/chats/:id/switch-to-terminal",
+		"POST " + home + "/chats/:id/switch-to-native",
+		"PUT " + home + "/chats/:id/permission-level",
 		// An agent in a home chat has the same tools as one anywhere else, so the
 		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
 		// runner-keyed rename route beside it.
-		"POST " + home + "/agent/runners/:segid/mcp",
+		"POST " + home + "/chats/runners/:segid/mcp",
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
-		"POST " + home + "/agent/chats/:id/stop",
+		"POST " + home + "/chats/:id/stop",
+		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
 		// worktree workspace, so the surface that most needs somewhere to put them
 		// is exactly the one a single mount would have left without folders.
-		"PATCH " + home + "/agent/chats/:id/placement",
-		"GET " + home + "/agent/folders",
-		"POST " + home + "/agent/folders",
-		"PATCH " + home + "/agent/folders/:folderId",
-		"DELETE " + home + "/agent/folders/:folderId",
+		"PATCH " + home + "/chats/:id/placement",
+		"GET " + home + "/chats/folders",
+		"POST " + home + "/chats/folders",
+		"PATCH " + home + "/chats/folders/:folderId",
+		"DELETE " + home + "/chats/folders/:folderId",
+		// The same read surface, slash-catalog, selection, answer, and prompts
+		// routes, mounted on the home group for the same reason as the rest of this
+		// block: a chat in the project home behaves like a chat anywhere else.
+		"GET " + home + "/chats/:id/activity",
+		"GET " + home + "/chats/:id/activity/:toolId/payload",
+		"GET " + home + "/chats/:id/choices",
+		"GET " + home + "/chats/:id/messages",
+		"GET " + home + "/chats/:id/telemetry",
+		"GET " + home + "/chats/:id/slash-catalog",
+		"PATCH " + home + "/chats/:id/selection",
+		"POST " + home + "/chats/:id/choices/:choiceId/answer",
+		"POST " + home + "/chats/:id/prompts",
+		// And the same answer-channel pair, for the same reason.
+		"POST " + home + "/chats/hooks/await",
+		"POST " + home + "/chats/hooks/abandon",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
 		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a

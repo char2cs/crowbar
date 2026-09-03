@@ -192,25 +192,8 @@ func (h *Handlers) Patch(
 	ctx := c.Request.Context()
 	projectID := c.Param("projectId")
 
-	if body.Name != nil {
-		name := strings.TrimSpace(*body.Name)
-		if name == "" {
-			libs.WriteErr(c, http.StatusBadRequest, "name must not be empty")
-			return
-		}
-		updated, err := h.reader.Update(ctx, projectID, project.Update{Name: &name})
-		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
-			return
-		}
-		// Broadcast now only when this request is a rename ALONE. Paired with a
-		// reorder the densify below re-delivers every row anyway, and sending
-		// this one twice would have clients apply the same frame either side of
-		// a list that moved under it.
-		if body.Order == nil {
-			h.broadcast(dto.ProjectDTOFrom(updated))
-		}
+	if body.Name != nil && !h.rename(c, ctx, projectID, *body.Name, body.Order == nil) {
+		return
 	}
 
 	if body.Order != nil {
@@ -298,4 +281,36 @@ func (h *Handlers) Delete(
 		}
 		h.broadcast(dto.ProjectDTO{ID: id, Status: "deleted"})
 	})
+}
+
+// rename applies a project rename and reports whether the request may continue.
+// It writes the error response itself on failure, so a false return means the
+// handler is finished.
+//
+// broadcast says whether to announce the new row NOW. A rename paired with a
+// reorder must not: the densify that follows re-delivers every row anyway, and
+// sending this one twice would have clients apply the same frame either side of a
+// list that moved under it.
+func (h *Handlers) rename(
+	c *gin.Context,
+	ctx context.Context,
+	projectID string,
+	raw string,
+	broadcast bool,
+) bool {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "name must not be empty")
+		return false
+	}
+	updated, err := h.reader.Update(ctx, projectID, project.Update{Name: &name})
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return false
+	}
+	if broadcast {
+		h.broadcast(dto.ProjectDTOFrom(updated))
+	}
+	return true
 }

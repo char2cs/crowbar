@@ -9,7 +9,7 @@ import {
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { AgentChatTabIcon } from '@/features/agent/components/agent-chat-tab-icon'
+import { AgentChatTabIcon } from '@/features/agent/shared/agent-chat-tab-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'

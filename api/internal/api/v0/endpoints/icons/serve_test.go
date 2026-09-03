@@ -119,7 +119,7 @@ func TestStoreCreatesTheParentDirectory(t *testing.T) {
 	if err := icons.Store(path, png()); err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	got, err := os.ReadFile(path) //nolint:gosec // G304: test-owned temp path.
+	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -243,7 +243,6 @@ func TestDefaultCrowbarHomeHonoursTheEnvOverride(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", "/tmp/crowbar-test-home")
 
 	got, err := icons.DefaultCrowbarHome()
-
 	if err != nil {
 		t.Fatalf("home: %v", err)
 	}

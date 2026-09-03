@@ -32,3 +32,31 @@ var ErrInvalidArgument = errors.New("apperr: invalid argument")
 // workspace repo wraps this sentinel so handlers map it to HTTP 503 via
 // errors.Is, telling the client to retry.
 var ErrUnavailable = errors.New("apperr: service unavailable")
+
+// ErrConflict signals that a syntactically valid request conflicts with a
+// concurrent or previously accepted operation. It maps to HTTP 409.
+var ErrConflict = errors.New("apperr: conflict")
+
+// ErrUnprocessable signals that a syntactically valid request cannot be
+// performed for the entity's current capabilities or state. It maps to HTTP
+// 422 without pretending the request body was malformed.
+var ErrUnprocessable = errors.New("apperr: unprocessable entity")
+
+// ErrTimeout signals that a bounded downstream operation exceeded its deadline.
+// It maps to HTTP 504.
+var ErrTimeout = errors.New("apperr: gateway timeout")
+
+// ErrBadGateway signals that a deterministic external command returned a
+// malformed or failed response. It maps to HTTP 502.
+var ErrBadGateway = errors.New("apperr: bad gateway")
+
+// ErrFailedDependency signals that something OUTSIDE the server, which the
+// request depends on, failed — the user's vendor CLI above all. The request was
+// well-formed and the daemon is healthy, so it is neither a 4xx the client can
+// rephrase nor a 500 the server can be blamed for: it maps to HTTP 424 Failed
+// Dependency, alongside engineterminal.ErrCommandNotFound (the CLI that is not
+// installed) which was the first member of this class.
+//
+// It is the sentinel for a dependency that is present but did not work — a CLI
+// that starts and dies on the spot — as opposed to one that is missing outright.
+var ErrFailedDependency = errors.New("apperr: failed dependency")

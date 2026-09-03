@@ -1,0 +1,6 @@
+{
+  "chat.open": 1583,
+  "chat.scroll.frame": 17,
+  "chat.stream.token": 1155,
+  "_note": "chat.stream.token currently measures one mount-batch of seeded historical messages, not a single streamed token, due to a shared-mark-name bug in this span's caller (agent-transcript.tsx's MarkdownMessage usage) that collapses many per-token marks into one measurement outside live streaming. Treat this budget as provisional until that's fixed and the baseline is re-captured against real token-by-token streaming."
+}
