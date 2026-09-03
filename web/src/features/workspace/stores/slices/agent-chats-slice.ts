@@ -106,6 +106,13 @@ export interface AgentChatsState {
    * one happening right now"; only the live push can. The stream also
    * self-heals this on any other lifecycle frame and a bounded timeout,
    * because compact_post is not reliable — see the stream's own comments.
+   *
+   * A THIRD backstop lives in seedAgentChats: both of the above require the
+   * app to still be running to fire, so a compaction_stopped lost for good
+   * (the app closed for the whole compaction window) leaves this stuck true
+   * forever without it. seedAgentChats clears — never sets — an entry once
+   * its own fresh `working` comes back false, since a chat cannot genuinely
+   * be mid-compaction and idle at once.
    */
   compacting: Record<string, boolean>
   /**
@@ -345,6 +352,21 @@ export const createAgentChatsSlice: StateCreator<
         s.agentChats.terminalWaits = {}
         for (const chat of chats) {
           if (chat.terminalWait) s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+        }
+      }
+      // `compacting` has no ledger record to fall back on (see
+      // AgentChatsState.compacting) and, unlike `working`/`terminalWaits` above,
+      // cannot be REBUILT from this response — there is no `chat.compacting`
+      // field, only the live push knows "in progress". What this GET's own
+      // `working` CAN do is prove one stale: compaction keeps a chat busy the
+      // same as any other turn, so a fresh read showing it idle is the same
+      // proof the live self-heal already trusts for any other frame — clear
+      // only, never set. This is what repairs a `compaction_stopped` lost for
+      // good (the app closed for the whole compaction window, missing both the
+      // frame and the local backstop timer that died with it).
+      for (const chat of chats) {
+        if (s.agentChats.compacting[chat.id] && chat.working !== true) {
+          delete s.agentChats.compacting[chat.id]
         }
       }
       for (const id of Object.keys(s.agentChats.turnRevision)) {

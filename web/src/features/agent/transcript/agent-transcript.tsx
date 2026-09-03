@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo } from 'react'
+import { Fragment, useCallback, useEffect, useMemo } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -65,6 +65,16 @@ interface AgentTranscriptProps {
   onRetryPrompt: (id: string) => void
   /** The one queued row allowed to offer the terminal detour, if any. */
   showTerminalHintFor?: string
+  /**
+   * The docked composer's own measured height, published as `--agent-dock-h`
+   * by the caller (agent-chat-view.tsx) — see `TranscriptAnchor.notifyReflow`
+   * for why this has to be threaded in rather than discovered locally: the
+   * dock overlays this transcript via padding, not flex sizing, so growing
+   * it changes `.scroll`'s `scrollHeight` without ever resizing `.scroll`
+   * or its content, which is the one change this component's own resize
+   * watching structurally cannot see.
+   */
+  dockHeight?: number
 }
 
 /** The `at` of the user turn each assistant reply actually answers, keyed by
@@ -82,6 +92,35 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
     }
   }
   return map
+}
+
+/** Which assistant replies are the LAST one before either a user turn or the
+ *  end of the loaded window — auto mode lets the agent answer its own reply
+ *  and keep going with no human in between, and each of those self-continued
+ *  steps is a genuine, separate turn in the ledger (its own turnId, its own
+ *  real elapsed time), not a fragment of one. But the turnbar (copy, elapsed
+ *  time) reads as "a finished reply you might want to act on", and showing
+ *  it on every intermediate step — when the agent is about to answer itself
+ *  again with no pause for the reader — is what a screenshot flagged live as
+ *  clutter, not signal: it should mark only the step that actually hands
+ *  control back. A harness/notice row does not break the run (the agent did
+ *  not stop for one), only a real user turn does — a backward pass one
+ *  cheap way to ask "is a later assistant reply still coming before the next
+ *  user turn". */
+function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
+  const last = new Set<number>()
+  let sawAssistantSinceUser = false
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (!message) continue
+    if (message.role === 'user') {
+      sawAssistantSinceUser = false
+    } else if (message.role === 'assistant') {
+      if (!sawAssistantSinceUser) last.add(message.sequence)
+      sawAssistantSinceUser = true
+    }
+  }
+  return last
 }
 
 /** `.stream`'s own `gap: 18px` (transcript.css), which an absolutely-positioned
@@ -219,6 +258,7 @@ function TranscriptRowView({
   firstReplySequence,
   callsByTurn,
   precedingUserAt,
+  lastInAgentRun,
 }: {
   row: TranscriptRow
   providers: AgentProvider[]
@@ -226,6 +266,7 @@ function TranscriptRowView({
   firstReplySequence: number | undefined
   callsByTurn: Map<string, AgentToolCall[]>
   precedingUserAt: Map<number, string>
+  lastInAgentRun: Set<number>
 }) {
   switch (row.kind) {
     case 'event-divider':
@@ -239,6 +280,7 @@ function TranscriptRowView({
           providers={providers}
           firstTurn={row.message.sequence === firstTurnSequence}
           firstReply={row.message.sequence === firstReplySequence}
+          turnbar={lastInAgentRun.has(row.message.sequence)}
           toolCallsByTurn={row.message.role === 'assistant' ? callsByTurn : undefined}
           precedingUserAt={precedingUserAt.get(row.message.sequence)}
         />
@@ -254,14 +296,23 @@ function TranscriptRowView({
  * actually happen in.
  */
 export function AgentTranscript(props: AgentTranscriptProps) {
-  const { messages, queue } = props
+  const { messages, queue, dockHeight } = props
   const anchor = useTranscriptAnchor()
   const scrollFrame = useScrollFrameSpan()
+  // The dock overlays this transcript rather than sizing it (see
+  // `TranscriptAnchor.notifyReflow`'s own doc), so a height change here is
+  // invisible to the anchor's internal ResizeObservers — this is the only
+  // signal that ever reaches it. Fires on mount too, which is a harmless,
+  // idempotent no-op: the initial layout is already correct by construction.
+  useEffect(() => {
+    anchor.notifyReflow()
+  }, [dockHeight, anchor.notifyReflow])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
   )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
+  const lastInAgentRun = useMemo(() => lastInAgentRunSequences(messages), [messages])
   // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
   // paging in more history must not retroactively unfreeze a message that was
   // never actually the beginning of the conversation. Only meaningful once
@@ -335,6 +386,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         scrollFrame.onScrollEvent()
       }}
     >
+      {/* Bottom-anchor for a SHORT conversation — see transcript.css's own
+          comment on `.scroll-spacer` for why this is a separate flex-grow
+          sibling and not `margin-top: auto` on `.stream` itself. */}
+      <div className="scroll-spacer" aria-hidden="true" />
       <div className="center stream">
         {props.hasOlder && (
           <Button
@@ -401,6 +456,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     firstReplySequence={firstReplySequence}
                     callsByTurn={callsByTurn}
                     precedingUserAt={precedingUserAt}
+                    lastInAgentRun={lastInAgentRun}
                   />
                 </div>
               )
@@ -451,6 +507,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
         />
+        {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
+            `.dock-spacer`'s own comment in transcript.css for why: the
+            reservation has to be part of `.stream`'s actual, natural content
+            height for `.scroll`'s scrollHeight to unambiguously include it). */}
+        <div className="dock-spacer" aria-hidden="true" />
       </div>
     </div>
   )

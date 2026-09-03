@@ -36,6 +36,19 @@
      and swapping in --pane-background just made it a fainter version of the
      same mistake). The dock stays genuinely colourless; only the pill and
      the chips paint anything, each with its own opaque surface. */
+  /* Regression, reported live: a scroll gesture anywhere in this box's own
+     (invisible) padding did NOTHING — not "short of the true bottom", the
+     wheel itself had no effect, because `.scroll` sits UNDER this the whole
+     height of the pane (`.agent-chat.chat`'s own containing block; see its
+     own comment) and this box, absolutely positioned with no fill, was still
+     the hit-test target across its entire empty area. `pointer-events: none`
+     here lets a gesture over that empty space fall through to `.scroll`
+     underneath; `auto` on each real child below restores it exactly where
+     something is actually painted and clickable. */
+  pointer-events: none;
+}
+.agent-chat .dock > * {
+  pointer-events: auto;
 }
 /* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
    chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —

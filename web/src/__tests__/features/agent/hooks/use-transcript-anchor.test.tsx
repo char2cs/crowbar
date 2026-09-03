@@ -222,6 +222,107 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(1500)
   })
 
+  // Regression: a real browser stops INVOKING requestAnimationFrame callbacks
+  // while the OS window is unfocused — confirmed live via Tauri MCP: a
+  // chained rAF promise never resolved for as long as the app's window sat
+  // unfocused, even though `document.visibilityState` stayed "visible" the
+  // whole time (so `visibilitychange` never fires, and can't be the signal
+  // this hook listens for). But the CALL to requestAnimationFrame itself is
+  // never refused — the spec (and real engines) hand back a genuine, unique,
+  // non-zero request id synchronously regardless of visibility; only the
+  // callback's invocation is deferred, indefinitely if focus never returns.
+  // vitest's own fake rAF has no such notion at all (a scheduled callback
+  // just sits pending and fires on the next `advanceTimersByTime`), so both
+  // tests below model it with a stub instead: a monotonic id is always
+  // issued, and only registration of its callback is gated on `frozen`.
+  const stubFrozenRaf = (startFrozen: boolean) => {
+    let frozen = startFrozen
+    let nextId = 1
+    const pending = new Map<number, FrameRequestCallback>()
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      const id = nextId++
+      if (!frozen) pending.set(id, cb)
+      return id
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      pending.delete(id)
+    })
+    return {
+      freeze: () => {
+        frozen = true
+      },
+      unfreeze: () => {
+        frozen = false
+      },
+      pending,
+    }
+  }
+
+  it('catches up to the true bottom on window refocus, after growth that landed while requestAnimationFrame was frozen', () => {
+    const raf = stubFrozenRaf(true)
+
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600) // mount ceiling: 1000 - 400
+
+    // A reply keeps streaming while the window sits unfocused — the resize
+    // observer still fires (it is not rAF-gated), but the glide it kicks off
+    // never actually gets a frame to run.
+    grow(1400) // new ceiling: 1400 - 400 = 1000
+    expect(scroller.scrollTop).toBe(600) // unmoved — no frame has run
+
+    // The window regains focus — rAF can schedule again.
+    raf.unfreeze()
+    fireEvent(window, new Event('focus'))
+
+    expect(raf.pending.size).toBe(1)
+    act(() => [...raf.pending.values()][0](performance.now() + 50))
+    expect(scroller.scrollTop).toBeGreaterThan(600)
+  })
+
+  // Regression: the fix above alone still misses the far more common shape
+  // of this bug. `createFollowScroll`'s `setTarget` only schedules a FRESH
+  // rAF request when its own internal `raf === 0` — i.e. only when nothing
+  // is already (supposedly) pending. If a glide was already IN FLIGHT the
+  // instant focus was lost — the ordinary case, since a reply is usually
+  // mid-stream, not idle, when someone alt-tabs away — that pending
+  // request's id is still sitting in `raf`, non-zero, forever: real engines
+  // never invoke it (confirmed live), so it will never come back on its
+  // own. A window-focus handler that just calls the SAME `setTarget` the
+  // ResizeObserver already uses inherits that guard and silently no-ops —
+  // `target` is updated but nothing ever reads it again. This is "the
+  // scroll bug came back" as reported live: the first fix only covered
+  // focus lost while already caught up, not focus lost mid-glide.
+  it('recovers even when a glide was already in flight the instant focus was lost — a stale pending request id must not block a fresh one', () => {
+    const raf = stubFrozenRaf(false) // starts focused: an ordinary glide can actually schedule
+
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    // A normal glide starts while still focused — a real request is now
+    // pending, exactly as it would be mid-stream.
+    grow(1400) // new ceiling: 1400 - 400 = 1000
+    expect(raf.pending.size).toBe(1)
+    const idsBeforeFreeze = new Set(raf.pending.keys())
+
+    // Focus is lost mid-glide: the request above will now NEVER be invoked
+    // (confirmed live) — real engines do not cancel it, they just stop
+    // calling it. More growth arrives while frozen; nothing can move.
+    raf.freeze()
+    grow(1800) // new ceiling: 1800 - 400 = 1400 — still nothing moves
+    expect(scroller.scrollTop).toBe(600) // unmoved the whole time
+
+    raf.unfreeze()
+    fireEvent(window, new Event('focus'))
+
+    // A FRESH request must exist — not merely the one from before the
+    // freeze, which this environment has already proven will never fire.
+    const freshIds = [...raf.pending.keys()].filter((id) => !idsBeforeFreeze.has(id))
+    expect(freshIds.length).toBeGreaterThan(0)
+    act(() => raf.pending.get(freshIds[0])?.(performance.now() + 50))
+    expect(scroller.scrollTop).toBeGreaterThan(600)
+  })
+
   // Regression: the follow target was `el.scrollHeight` — the whole content
   // height, not the scrollable CEILING (`scrollHeight - clientHeight`). Both
   // eventually clamp to the same final position, so a large-growth test
@@ -251,5 +352,49 @@ describe('useTranscriptAnchor', () => {
 
     vi.advanceTimersByTime(1500) // several time constants — fully settled
     expect(scroller.scrollTop).toBe(1050)
+  })
+
+  // Regression, reported live: "the turn has closed, but I can't reach the
+  // bottom — until more text pushes past it." The docked composer OVERLAYS
+  // the transcript — `.scroll`'s `padding-bottom` reserves room for it —
+  // rather than taking dedicated flex space, so the composer growing (a
+  // halted-turn banner appearing on one particular close path, say) changes
+  // `scrollHeight` alone: neither `.scroll`'s own box nor its content's
+  // moved, so the ResizeObserver this hook already runs never fires, and
+  // the follow target is left stale short of the new true bottom. The
+  // caller has no way to reach in and re-trigger the SAME resync a real
+  // resize would have caused — until `notifyReflow`.
+  it('notifyReflow catches up to a scrollHeight change neither internal ResizeObserver could have seen', () => {
+    let anchor: TranscriptAnchor | undefined
+    const { getByTestId } = render(<Host onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600) // mount ceiling: 1000 - 400
+
+    // The dock grows: scrollHeight moves because the padding it drives grew,
+    // not because anything this hook observes was resized.
+    scrollHeight = 1400 // new ceiling: 1400 - 400 = 1000
+    expect(scroller.scrollTop).toBe(600) // unmoved — nothing told it to look
+
+    act(() => anchor?.notifyReflow())
+    vi.advanceTimersByTime(1500) // several time constants — fully settled
+
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  it('notifyReflow is a no-op once the reader has scrolled away — it must not fight a real gesture back to the bottom', () => {
+    let anchor: TranscriptAnchor | undefined
+    const { getByTestId } = render(<Host onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    grow(1400) // ceiling: 1400 - 400 = 1000
+    vi.advanceTimersByTime(1500)
+    scroller.scrollTop = 200
+    fireEvent.scroll(scroller) // a real gesture — following stops
+
+    scrollHeight = 1800 // the dock grows again while scrolled away
+    act(() => anchor?.notifyReflow())
+    vi.advanceTimersByTime(1500)
+
+    expect(scroller.scrollTop).toBe(200)
   })
 })

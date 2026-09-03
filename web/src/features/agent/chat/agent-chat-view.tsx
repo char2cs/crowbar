@@ -586,6 +586,7 @@ export function AgentChatView({
       eventsBefore={eventsBefore}
       suppressSequence={halted?.sequence}
       trailingInterruption={trailingInterruption}
+      dockHeight={dockHeight}
     />
   )
 

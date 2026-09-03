@@ -256,6 +256,53 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.working.stale).toBeUndefined()
   })
 
+  // ── seedAgentChats: reconciling a stuck `compacting` flag ──────────────────
+  // Regression: `compacting` is driven ENTIRELY by the live compaction_started/
+  // compaction_stopped WS frames (there is no ledger record to fall back on —
+  // see AgentChatsState.compacting's own doc comment), and unlike `working` and
+  // `terminalWaits` it was never reconciled by this reseed at all. If the
+  // compaction_stopped edge — and the local 60s backstop timer racing it — are
+  // BOTH lost (the app is closed for the whole compaction window, then reopened),
+  // nothing ever clears it: reported live as "/compact finished, closed the chat
+  // mid-compaction, reopened it, and Crowbar still thinks it's compacting."
+  // A chat the fresh GET reports as NOT working cannot possibly still be
+  // compacting (compaction keeps the chat busy the same as any other turn), so
+  // that is the same proof the live self-heal already trusts for any other
+  // frame, applied here to the GET this reseed IS reading.
+
+  it("seedAgentChats clears a stuck `compacting` flag once the authoritative reseed shows the chat isn't busy — the missed compact_post/closed-app case", () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: false }])
+
+    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
+  })
+
+  it('seedAgentChats leaves `compacting` alone while the fresh reseed still shows the chat busy', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: true }])
+
+    expect(s.getState().agentChats.compacting.c1).toBe(true)
+  })
+
+  it('a live `created` reseed (keepWorking) also clears a stuck `compacting` flag for a chat the fresh read shows idle', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats(
+      [
+        { ...chat('c1', '2026-01-01T00:00:00Z'), working: false },
+        chat('new', '2026-01-02T00:00:00Z'),
+      ],
+      { keepWorking: true },
+    )
+
+    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
+  })
+
   it('notifyAgentChatMessages advances every current chat revision independently of reconnect GETs', () => {
     const s = createWorkspaceStore('w1')
     s.getState().seedAgentChats([

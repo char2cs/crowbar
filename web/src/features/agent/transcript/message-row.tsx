@@ -67,6 +67,7 @@ function MessageRowComponent({
   streaming = false,
   toolCallsByTurn,
   precedingUserAt,
+  turnbar = true,
 }: {
   message: AgentChatMessage
   providers: AgentProvider[]
@@ -100,6 +101,13 @@ function MessageRowComponent({
    *  in the loaded window (a harness-injected one, say), where the turnbar
    *  falls back to reporting how long ago it happened instead. */
   precedingUserAt?: string
+  /** False for an assistant reply that is not the last step of its run — auto
+   *  mode lets the agent answer itself and keep going with no user turn in
+   *  between, and the turnbar (copy, elapsed time) reads as "a finished reply
+   *  you might want to act on". Showing it on every self-continued step reads
+   *  as clutter, not signal; only the step that actually hands control back
+   *  gets it. See `lastInAgentRunSequences` in `agent-transcript.tsx`. */
+  turnbar?: boolean
 }) {
   const user = message.role === 'user'
   const assistant = message.role === 'assistant'
@@ -206,7 +214,7 @@ function MessageRowComponent({
         {assistant && !streaming && toolCallsByTurn && (
           <AgentTurnTools callsByTurn={toolCallsByTurn} turnId={message.turnId ?? ''} />
         )}
-        {assistant && !streaming && (
+        {assistant && !streaming && turnbar && (
           <div className="turnbar" data-testid="message-turn-actions">
             {glyph && <ProviderIcon svg={glyph} className="size-3" />}
             <Button

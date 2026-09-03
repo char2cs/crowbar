@@ -78,6 +78,42 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
+  it('gives only the LAST self-continued step of an auto-mode run a turnbar, not each intermediate one', () => {
+    draw([
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'step one', at: '' },
+      { turnId: 't3', sequence: 3, role: 'assistant', providerId: 'claude', text: 'step two', at: '' },
+      { turnId: 't4', sequence: 4, role: 'assistant', providerId: 'claude', text: 'step three', at: '' },
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-3').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-4').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
+  it('gives the assistant reply a fresh turnbar again once a new user turn starts a new run', () => {
+    draw([
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'step one', at: '' },
+      { turnId: 't3', sequence: 3, role: 'assistant', providerId: 'claude', text: 'step two', at: '' },
+      { turnId: 't4', sequence: 4, role: 'user', providerId: '', text: 'thanks', at: '' },
+      { turnId: 't5', sequence: 5, role: 'assistant', providerId: 'claude', text: 'reply', at: '' },
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-3').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-5').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
   it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
     draw(
       [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],

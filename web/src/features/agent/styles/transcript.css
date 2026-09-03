@@ -20,13 +20,9 @@
   min-height: 0;
 }
 /* Bottom-anchored: a chat is read from its newest end, so a short conversation
-   sits ON the composer rather than floating at the top of an empty pane.
-   The anchoring is `margin-top: auto` on the stream, NOT `justify-content:
-   flex-end` here. They look identical until the conversation outgrows the pane,
-   at which point flex-end overflows past the START edge, which is not
-   scrollable: scrollTop stays pinned at 0 and every message above the fold
-   becomes unreachable. The auto margin collapses to nothing once the content is
-   taller, so it anchors a short chat and gets out of the way of a long one. */
+   sits ON the composer rather than floating at the top of an empty pane. See
+   `.scroll-spacer` below for the mechanism and why it is NOT `margin-top:
+   auto` on `.stream` (which is what this used to be). */
 .agent-chat .scroll {
   flex: 1;
   min-height: 0;
@@ -48,15 +44,21 @@
      fully transparent, so that snap is never visible either. */
   opacity: 1;
   transition: opacity 320ms cubic-bezier(0, 0, 0.2, 1);
-  /* THE CONVERSATION RUNS UNDER THE COMPOSER. Reserving exactly the dock's own
-     height plus a gap means the newest message can be scrolled clear of the box
-     — it stops a line above it rather than touching its edge — while everything
-     older passes behind it and fades out instead of being cut off by a hard
-     border. The height is measured and published by the view, because the dock
-     grows with the box. */
-  padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
-  /* The scroller owns the bottom gutter now, so the stream must not add its own
-     on top of it. */
+  /* THE CONVERSATION RUNS UNDER THE COMPOSER — reserved by `.dock-spacer`
+     (below `.stream`, transcript.css), NOT a `padding-bottom` here. This
+     used to BE that padding, and it is exactly what a live report traced
+     the "no scrollbar, no wheel response" bug to for a chat whose raw
+     content happens to land just under `.scroll`'s own clientHeight: a
+     `padding-bottom` on `.scroll` reserves the SAME visual gap, but it is
+     `.scroll`'s own box, one layer removed from what `.stream`'s natural
+     content height actually measures — and in that borderline case the
+     browser settled on a `scrollHeight` that never counted it, so CSS
+     itself concluded there was nothing to scroll to. `.dock-spacer` is a
+     real, flex-shrink:0 child of `.stream` instead: the reservation is
+     `.stream`'s own measured content now, not a property of its container,
+     so there is no longer a second place for the two numbers to disagree.
+     See `.dock-spacer`'s own comment below `.stream` for the reservation
+     value. */
   scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
   /* Text passing under the dock fades by OPACITY, not a colour overlay — see
      composer.css. The gradient spans the same --agent-dock-h + 88px band as
@@ -98,16 +100,71 @@
   margin: 0 auto;
   padding: 0 24px;
 }
+/* Regression, reported live: a chat whose content genuinely outgrew the pane
+   had NO scrollbar and no wheel response at all — not "short of the true
+   bottom" (that class of bug is use-transcript-anchor.ts's), but the browser
+   itself reporting no scrollable overflow to reach. `margin-top: auto` on a
+   flex item — this used to be exactly that — is a real, currently-live
+   WebKit bug in this app's own Tauri webview: the auto margin's contribution
+   to `.scroll`'s SCROLLABLE overflow is computed from before it collapses,
+   not from the collapsed (0) value actually used to paint the layout, so a
+   conversation taller than the pane still reports `scrollHeight ≈
+   clientHeight` and nothing is reachable no matter how far you scroll. This
+   was ruled out here once already for the same reason on `justify-content:
+   flex-end` (both are auto-alignment on the scroll axis) — the two behave
+   identically once content overflows, which the comment that used to sit
+   here did not anticipate. A `flex: 1 1 auto` SPACER sibling (see
+   `.scroll-spacer` above `.stream` in the JSX) has no such ambiguity: its
+   resolved size — 0 once there is no free space to give it — is the ONE
+   value used for both painting and scrollable-overflow, so the browser's
+   own scroll metrics can never disagree with what is on screen. */
+.agent-chat .scroll-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 /* PADDING-BOTTOM ONLY. `.stream` shares an element with `.center`, at the same
    specificity and later in the file, so the `padding` SHORTHAND here silently
    reset `.center`'s `0 24px` and the conversation rendered 48px wider than the
    composer under it — the two stopped sharing a measure. The top space is the
-   scroller's, so it cannot reach this element at all. */
+   scroller's, so it cannot reach this element at all.
+
+   `flex-shrink: 0`, for the SAME reason `.virtual-rows` below already has it
+   (see that comment) — but one level up, and the one that actually matters
+   for `.scroll`'s own overflow math. `.stream` is ITSELF a flex item of
+   `.scroll`, sitting beside `.scroll-spacer` above, and without this it was
+   the ONE flex item left holding all the real weight once the spacer's own
+   empty (zero) basis contributed nothing to the shrink distribution — so a
+   long conversation compressed `.stream`'s own box down to fit `.scroll`,
+   not the other way around. Compressing it doesn't clip anything (this box
+   is `overflow: visible`, `.virtual-rows` inside it still paints in full via
+   its own `flex-shrink: 0`) — it silently UNDERSTATES what `.scroll` thinks
+   its scrollable content is, since that math reads `.stream`'s own
+   (now-too-small) laid-out size, not the true rendered extent of what
+   overflowed past it. That is a browser reporting `scrollHeight ≈
+   clientHeight` for a pane that is visibly, unmistakably taller than it —
+   no scrollbar, no wheel response, nothing to scroll TO, which is exactly
+   what a screenshot and a live trackpad both reported the same afternoon
+   this was found. */
 .agent-chat .stream {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 18px;
-  margin-top: auto;
+}
+
+/* THE CONVERSATION RUNS UNDER THE COMPOSER — this is the reservation for
+   that, a real LAST CHILD of `.stream` (agent-transcript.tsx) rather than
+   `.scroll`'s own `padding-bottom` (which is what this used to be; see that
+   rule's own comment in this file for the live bug that came from it).
+   Being actual content means there is exactly one place this measurement
+   lives: `.stream`'s natural height already includes it, so `.scroll`'s
+   `scrollHeight` does too, unconditionally — no flex distribution, no
+   container-vs-content indirection, nothing left for the two to disagree
+   about. Same value as the mask below reads off `--agent-dock-h` for the
+   fade, so the reserved gap and the visible fade band always agree. */
+.agent-chat .dock-spacer {
+  flex-shrink: 0;
+  height: calc(var(--agent-dock-h, 92px) + 120px);
 }
 
 /* The windowed historical record — one flex child of `.stream` holding every

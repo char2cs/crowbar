@@ -9,12 +9,31 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
 const STICK_SLACK = 96
 
 export interface TranscriptAnchor {
-  /** Goes on the scroll container. Its first element child is the content. */
+  /** Goes on the scroll container. Its LAST element child is the content
+   *  watched for growth — see this file's own effect for why it is the
+   *  last child and not (as it used to be, back when it was the only
+   *  child) simply the first. */
   scrollRef: React.RefObject<HTMLDivElement | null>
   /** Goes on the same container's onScroll. */
   onScroll: () => void
   /** Call immediately BEFORE prepending older messages. */
   preservePosition: () => void
+  /**
+   * Call whenever something OUTSIDE this container changed the true
+   * scrollable bottom without changing this container's own box, or the
+   * content's — the one case the internal ResizeObserver structurally
+   * cannot see. The docked composer is exactly that: `.scroll`'s
+   * `padding-bottom` reserves room for it via `--agent-dock-h`, but the
+   * composer OVERLAYS the transcript rather than sizing it, so growing —
+   * a halted-turn banner appearing on one particular close path, say —
+   * changes `scrollHeight` alone. Neither the content box nor the
+   * container's own box moved, so nothing this hook already watches fires,
+   * and the follow target goes stale short of the new true bottom: the
+   * last lines sit reachable in principle but behind the (now taller)
+   * composer, which is exactly what "closed, but the end is unreachable
+   * until more text pushes past it" was reported as live.
+   */
+  notifyReflow: () => void
 }
 
 /**
@@ -45,6 +64,10 @@ export function useTranscriptAnchor(): TranscriptAnchor {
   // landing mid-flight, since both change the same property. Null whenever
   // nothing is currently following.
   const expectedScrollTop = useRef<number | null>(null)
+  // The effect below rebuilds `resync` on every mount — a ref is how
+  // `notifyReflow`, a STABLE callback returned once, reaches whichever
+  // instance is currently live rather than closing over a stale one.
+  const resyncRef = useRef<() => void>(() => {})
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -53,12 +76,24 @@ export function useTranscriptAnchor(): TranscriptAnchor {
 
   useEffect(() => {
     const el = scrollRef.current
-    const content = el?.firstElementChild
+    // The LAST child, not the first: `.scroll`'s first child is now
+    // `.scroll-spacer` (transcript.css), a decorative flex-grow sibling
+    // that bottom-anchors a short conversation and is DELIBERATELY pinned
+    // at 0 height for the entire time a conversation overflows — which is
+    // exactly when growth needs to be seen. Watching it instead of the real
+    // content meant every message after the first one to cause overflow
+    // grew `.stream` (the actual content, now the LAST child) with nobody
+    // watching: the ResizeObserver below never fired again, and follow
+    // silently stopped following. `.stream` is always the last child by
+    // construction (agent-transcript.tsx renders `.scroll-spacer` first).
+    const content = el?.lastElementChild
     if (!el || !content) return
-    follow.current = createFollowScroll(el, (v) => {
-      expectedScrollTop.current = v
-    })
-    const observer = new ResizeObserver(() => {
+    const buildFollow = () =>
+      createFollowScroll(el, (v) => {
+        expectedScrollTop.current = v
+      })
+    follow.current = buildFollow()
+    const resync = () => {
       const keep = restoreFromBottom.current
       if (keep !== null) {
         // Older messages just landed above the fold. Holding the distance from
@@ -80,7 +115,9 @@ export function useTranscriptAnchor(): TranscriptAnchor {
       // ceiling — which the native scrollTop setter then clamps to
       // instantly. The result is indistinguishable from no easing at all.
       if (stuck.current) follow.current?.setTarget(el.scrollHeight - el.clientHeight)
-    })
+    }
+    resyncRef.current = resync
+    const observer = new ResizeObserver(resync)
     // BOTH, and the second one is the half that was missing. The conversation
     // slides out of view for two different reasons: the content grows (a turn
     // streams) or the VIEWPORT shrinks (the composer grows a line under it).
@@ -88,11 +125,47 @@ export function useTranscriptAnchor(): TranscriptAnchor {
     // newest message behind the box — nothing had resized, so nothing followed.
     observer.observe(content)
     observer.observe(el)
+    // The OS window losing focus — switching to another app while a turn is
+    // still streaming — freezes requestAnimationFrame in this webview
+    // entirely (confirmed live: rAF callbacks stop firing the instant
+    // `document.hasFocus()` goes false, even though `document.visibilityState`
+    // stays "visible" the whole time, so `visibilitychange` never fires and
+    // can't be the signal here). The follow's own glide is built entirely on
+    // rAF (follow-scroll.ts), so a reply that keeps growing while the window
+    // sits unfocused leaves scrollTop wherever the glide's last real frame
+    // wrote it — short of the true bottom — with nothing left to finish the
+    // catch-up once rAF stalls.
+    //
+    // Calling `resync` alone is NOT enough, and was the bug in an earlier
+    // version of this fix: requestAnimationFrame is never refused, only its
+    // callback's invocation is deferred — a real engine hands back a genuine
+    // request id synchronously even while frozen, and that id is never
+    // invoked once focus is lost for good (confirmed live). `setTarget`
+    // only schedules a FRESH request when its own `raf` bookkeeping reads
+    // zero, i.e. only when nothing is already (supposedly) pending — so the
+    // instant ANY resize happened while unfocused (the ordinary case for a
+    // mid-stream reply, not an edge case), that guard is already pinned on
+    // a request that will never fire, and plain `resync` silently no-ops
+    // forever. Rebuilding the whole loop guarantees a BRAND NEW request,
+    // made after focus has actually returned — which this environment has
+    // already been confirmed to honor.
+    const onWindowFocus = () => {
+      follow.current?.stop()
+      follow.current = buildFollow()
+      resync()
+    }
+    window.addEventListener('focus', onWindowFocus)
     return () => {
       observer.disconnect()
+      window.removeEventListener('focus', onWindowFocus)
       follow.current?.stop()
       follow.current = null
+      resyncRef.current = () => {}
     }
+  }, [])
+
+  const notifyReflow = useCallback(() => {
+    resyncRef.current()
   }, [])
 
   const onScroll = useCallback(() => {
@@ -122,5 +195,5 @@ export function useTranscriptAnchor(): TranscriptAnchor {
     if (el) restoreFromBottom.current = el.scrollHeight - el.scrollTop
   }, [])
 
-  return { scrollRef, onScroll, preservePosition }
+  return { scrollRef, onScroll, preservePosition, notifyReflow }
 }
