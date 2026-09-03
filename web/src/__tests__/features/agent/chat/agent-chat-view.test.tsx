@@ -6,6 +6,7 @@ import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persist
 import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
   () => ({
@@ -936,6 +937,65 @@ describe('AgentChatView composer controls', () => {
   })
 })
 
+describe('AgentChatView type-to-focus', () => {
+  beforeEach(() => {
+    setActiveWorkspaceId('w1')
+  })
+
+  const type = (...keys: string[]) => {
+    for (const key of keys) fireEvent.keyDown(window, { key })
+  }
+
+  it('redirects into the composer once a fourth key is typed while nothing is focused', async () => {
+    setup()
+    await composer()
+    type('h', 'e', 'l', 'l')
+    expect(await composer()).toHaveValue('hell')
+  })
+
+  it('does not redirect on three keys or fewer', async () => {
+    setup()
+    await composer()
+    type('h', 'e', 'l')
+    expect(await composer()).toHaveValue('')
+  })
+
+  it('does not redirect when a different workspace is active', async () => {
+    setActiveWorkspaceId('other-ws')
+    setup()
+    await composer()
+    type('h', 'e', 'l', 'l')
+    expect(await composer()).toHaveValue('')
+  })
+
+  it('does not redirect when the composer already has focus', async () => {
+    setup()
+    const input = await composer()
+    act(() => input.focus())
+    for (const key of ['h', 'e', 'l', 'l']) fireEvent.keyDown(input, { key })
+    expect(await composer()).toHaveValue('')
+  })
+
+  it('does not redirect while the pane is inactive or hidden', async () => {
+    const view = setup({ active: false })
+    await composer()
+    type('h', 'e', 'l', 'l')
+    expect(await composer()).toHaveValue('')
+
+    view.rerenderProps({ active: true, visible: false })
+    type('w', 'o', 'r', 'd')
+    expect(await composer()).toHaveValue('')
+  })
+
+  it('ignores a modifier-held key and leaves the buffer for the plain keys after it', async () => {
+    setup()
+    await composer()
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    type('h', 'e', 'l', 'l')
+    expect(await composer()).toHaveValue('hell')
+  })
+})
+
 describe('AgentChatView streaming', () => {
   // These are about the PILL: its slash picker, its multiline behaviour, the
   // bubble that streams above it. None of them exist on a blank chat, which is
@@ -1483,7 +1543,9 @@ describe('AgentChatView non-conversational roles', () => {
       const notice = await screen.findByText(/model_not_found|gpt-5\.4-mini/i)
       const divider = await screen.findByTestId('agent-event-divider')
       expect(divider.textContent).toMatch(/Switched to Claude/i)
-      expect(notice.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(
+        notice.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
     })
   })
 })

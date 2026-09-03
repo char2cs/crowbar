@@ -462,7 +462,16 @@
     background-color 0.12s ease,
     border-color 0.12s ease;
 }
-.agent-chat .send svg {
+/* :not([class*='size-']) — the same opt-out Button/Tabs/Select/Badge/Toolbar
+   already use (see flicker-strip.ts's own comment) — because this rule isn't
+   only sizing StopIcon/UpIcon (which already set width/height={16} inline;
+   only the stroke-width below does real work for them). It is also a
+   descendant of FlickerSpinner's sprite strip, whose own single <svg> carries
+   `class="size-full"` and needs to size itself as a PERCENTAGE of its
+   (frames-wide) strip container. A flat 16px override collapsed that whole
+   multi-frame-wide viewBox into a 16px box — squashing the spinner into a
+   thin, "skinny" sliver instead of the icon it should read as. */
+.agent-chat .send svg:not([class*='size-']) {
   width: 16px;
   height: 16px;
   stroke-width: 1.9;

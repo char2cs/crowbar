@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { KeyboardEvent, Ref } from 'react'
 import {
   stopChat,
@@ -12,7 +20,10 @@ import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
-import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
+import {
+  resolveComposerState,
+  type ComposerRevival,
+} from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
@@ -25,6 +36,12 @@ import {
 } from '@/features/agent/chat/agent-empty-document'
 import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
 import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width'
+import {
+  advanceTypeToFocus,
+  EMPTY_TYPE_BUFFER,
+  isFocusInEditable,
+  type TypeBuffer,
+} from '@/features/agent/chat/lib/type-to-focus'
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
@@ -32,6 +49,7 @@ import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
@@ -524,6 +542,52 @@ export function AgentChatView({
       }
     }
   }
+
+  // Type anywhere in this chat and land in the composer — the way every other
+  // native chat surface people compare this one to already behaves. A WINDOW
+  // listener, because the whole point is that the box is NOT focused yet.
+  //
+  // Guarded exactly like the provider-cycle chord below (agent-chat-pane.tsx's
+  // own onCycleProvider effect): a retained (hidden) workspace stays mounted
+  // under display:none, and a window listener that only checked `active` and
+  // `visible` would still fire for a chat nobody is looking at — that class of
+  // bug already happened once for the chord. `getActiveWorkspaceId` is asked
+  // INSIDE the handler, not the guard, for the same reason: the active
+  // workspace can change without this component re-rendering.
+  const typeBufferRef = useRef<TypeBuffer>(EMPTY_TYPE_BUFFER)
+  const onTypeToFocusKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (getActiveWorkspaceId() !== wsId) return
+    if (isFocusInEditable(document.activeElement)) return
+    // Nowhere for the redirected text to land — signpost/choice/halted render
+    // no field at all (see resolveComposerState) — so this leaves the buffer
+    // untouched rather than silently swallowing keystrokes into a draft no one
+    // can see.
+    const state = resolveComposerState({
+      live,
+      revival,
+      submitUnavailable,
+      terminalWait: terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined,
+      compacting,
+      activity,
+      haltedMessage: halted?.text,
+      haltedResetsAt: limitResetsAt(telemetry),
+    })
+    if (state.kind !== 'input' && state.kind !== 'compacting') return
+    const result = advanceTypeToFocus(typeBufferRef.current, event, Date.now())
+    typeBufferRef.current = result.buffer
+    if (result.action === 'redirect') {
+      event.preventDefault()
+      event.stopPropagation()
+      seedDraft(draft + result.text)
+    }
+  })
+  useEffect(() => {
+    if (!active || !visible) return
+    typeBufferRef.current = EMPTY_TYPE_BUFFER
+    const onKeyDown = (event: globalThis.KeyboardEvent) => onTypeToFocusKey(event)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [active, visible])
 
   // A chat with nothing in it is a DIFFERENT SURFACE, not an empty transcript
   // with a message box under it: the first thing it asks for is a description of
