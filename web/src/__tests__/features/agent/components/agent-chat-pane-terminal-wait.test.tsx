@@ -1,14 +1,15 @@
 import { createElement } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn, listMessagesFn, slashCatalogFn } = vi.hoisted(() => ({
+const { getChatFn, listMessagesFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
   listMessagesFn: vi.fn(),
   slashCatalogFn: vi.fn(),
+  switchToTerminalFn: vi.fn(),
 }))
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
     listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
     submitAgentPrompt: vi.fn(),
     getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+    switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   }
 })
 
@@ -94,6 +96,43 @@ function seed(wait?: { kind: string }) {
 
 type Store = ReturnType<typeof seed>
 
+// A non-hotswap api-transport provider (codex: attach declared, hotswap
+// false). Its terminal is not already live the way claude's is — reaching it
+// has to go through switchToTerminal first — so a chat on this provider has
+// no terminalSessionId until that call succeeds.
+const nonHotswapProviders: AgentProvider[] = [
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    icon: '<svg/>',
+    connected: true,
+    enabled: true,
+    mcpEnabled: true,
+    hotswap: false,
+  },
+]
+
+function nonHotswapChat(wait?: { kind: string }): AgentChat {
+  return {
+    id: 'c1',
+    workspaceId: 'w1',
+    title: 'Chat c1',
+    liveRunnerId: 'r1',
+    terminalSessionId: '',
+    activeProviderId: 'codex',
+    createdAt: '',
+    order: 0,
+    terminalWait: wait,
+  }
+}
+
+function seedNonHotswap(wait?: { kind: string }) {
+  const store = createWorkspaceStore('w1')
+  store.getState().setAgentProviders(nonHotswapProviders)
+  store.getState().seedAgentChats([nonHotswapChat(wait)])
+  return store
+}
+
 /** Render the pane directly rather than through a buffer: these tests are about
  *  the surface the pane SELECTS, and the three visibility axes are exactly the
  *  props under test — so they have to be settable one at a time. */
@@ -141,6 +180,8 @@ beforeEach(() => {
   getChatFn.mockReset()
   listMessagesFn.mockReset()
   slashCatalogFn.mockReset()
+  switchToTerminalFn.mockReset()
+  switchToTerminalFn.mockResolvedValue('term-session-1')
   listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
   slashCatalogFn.mockResolvedValue({
     providerId: 'claude',
@@ -366,5 +407,61 @@ describe('AgentChatPane — waiting in the terminal', () => {
     expect(showing()).toBe('chat')
     expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
     expect(screen.queryByTestId('agent-return-to-chat')).not.toBeInTheDocument()
+  })
+})
+
+// Regression: a non-hotswap api-transport provider (codex) has no terminal
+// session live until switchToTerminal forks one — every path onto the
+// terminal surface used to call setPresentation('terminal') directly, which
+// left the pane showing a terminal with nothing behind it and, from the
+// user's side, no way to ever reach the provider's real TUI. The suite above
+// only ever exercises claude (hotswap:true), where that shortcut happens to
+// be correct — see its own `providers` fixture comment.
+describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () => {
+  it('calls switchToTerminal before showing the terminal on the automatic escort', async () => {
+    const store = seedNonHotswap()
+    getChatFn.mockImplementation(() =>
+      Promise.resolve({ ...nonHotswapChat(), terminalSessionId: 'term-session-1', conversations: [] }),
+    )
+    await renderPane(store)
+    expect(showing()).toBe('chat')
+
+    await setWait(store, { kind: 'workspace_trust' })
+
+    expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
+      'Codex is asking whether you trust this folder',
+    )
+    await waitFor(() => expect(showing()).toBe('terminal'))
+    expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  it('calls switchToTerminal when the wait banner\'s Open Terminal button is used', async () => {
+    const store = seedNonHotswap()
+    getChatFn.mockImplementation(() =>
+      Promise.resolve({ ...nonHotswapChat(), terminalSessionId: 'term-session-1', conversations: [] }),
+    )
+    await renderPane(store, { isVisible: false })
+    await setWait(store, { kind: 'workspace_trust' })
+    expect(showing()).toBe('chat')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+
+    await waitFor(() => expect(showing()).toBe('terminal'))
+    expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  // A refused switch (turn in flight, no completed turn yet, etc.) must leave
+  // the user on chat rather than stranding them on an empty terminal view —
+  // the same "left where they were" contract chooseSurface's own click path
+  // already had.
+  it('leaves the user on chat when switchToTerminal is refused', async () => {
+    switchToTerminalFn.mockRejectedValue(new Error('agent: provider cannot hand a live turn'))
+    const store = seedNonHotswap()
+    await renderPane(store)
+
+    await setWait(store, { kind: 'workspace_trust' })
+    await waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+
+    expect(showing()).toBe('chat')
   })
 })

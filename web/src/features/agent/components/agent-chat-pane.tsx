@@ -729,6 +729,36 @@ export function AgentChatPane({
     () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
   )
 
+  // Flips presentation to 'terminal' — but a HOTSWAP provider's terminal is
+  // already live (a pure rendering choice), where a provider that hands its
+  // turn over instead (codex: attach declared, hotswap false) has no terminal
+  // session to render until Crowbar asks for one over switchToTerminal. Every
+  // path onto the terminal surface shares this check — the escort below, the
+  // wait banner's own button (openTerminalFromBanner), and the composer's
+  // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
+  // view with nothing behind it, the way calling setPresentation alone would.
+  // An EFFECT EVENT so it always reads the current provider list without
+  // becoming a dependency of whatever effect calls it.
+  const enterTerminal = useEffectEvent(() => {
+    const chatProvider = providers.find((p) => p.id === chatProviderId)
+    const hotswap = chatProvider ? chatProvider.hotswap === true : true
+    if (hotswap) {
+      setPresentation('terminal')
+      return
+    }
+    void (async () => {
+      try {
+        await switchToTerminal(wsId, shownChatId)
+        await adopt()
+        setPresentation('terminal')
+      } catch {
+        // Left where they were — a blocked/unavailable switch is reported by
+        // whatever surfaces the request's own error today, not by moving them
+        // to a view that never actually came up.
+      }
+    })()
+  })
+
   // What happens on each edge of "your agent is blocked in the terminal".
   //
   // An EFFECT EVENT, so it reads the current presentation and visibility without
@@ -750,7 +780,7 @@ export function AgentChatPane({
       // user is deliberately watching, to show them something already in view.
       if (presentation !== 'chat' || !userIsWatching()) return
       // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: this is a NAVIGATION on an edge, not a derivation. The surface must outlive the value that moved it: when `waiting` clears we may deliberately NOT switch back, so `presentation` cannot be computed from it.
-      setPresentation('terminal')
+      enterTerminal()
       escortRef.current = 'sent'
       return
     }
@@ -812,17 +842,7 @@ export function AgentChatPane({
       return
     }
     if (next === 'terminal') {
-      void (async () => {
-        try {
-          await switchToTerminal(wsId, shownChatId)
-          await adopt()
-          setPresentation('terminal')
-        } catch {
-          // Left where they were — a blocked/unavailable switch is reported by
-          // whatever surfaces the request's own error today, not by moving them
-          // to a view that never actually came up.
-        }
-      })()
+      enterTerminal()
       return
     }
     if (presentation === 'terminal') {
@@ -853,7 +873,7 @@ export function AgentChatPane({
       return
     }
     escortRef.current = 'released'
-    setPresentation('terminal')
+    enterTerminal()
   }
 
   // Clicking the gutters or the column's padding focuses the terminal.
@@ -1029,7 +1049,7 @@ export function AgentChatPane({
                   terminalApiRef.current?.focus()
                   return
                 }
-                setPresentation('terminal')
+                enterTerminal()
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
