@@ -54,6 +54,13 @@ func newFixture(t *testing.T) fixture {
 
 	repo, err := activity.NewEventSourced(ax, es, db, dir)
 	require.NoError(t, err)
+	// Several tests here drive hundreds of commands (InvokeTool, OpenChoice...)
+	// at one aggregate with no snapshotting command interleaved; without this,
+	// each one pays a full cold event replay from version 1 (O(n^2) overall).
+	// Forcing a snapshot periodically cannot change any assertion — asynx's
+	// snapshot+delta path always reconstructs the same state as a full replay
+	// — it only bounds how much history a read has to walk.
+	activity.SetSnapshotIntervalForTest(repo, 20)
 	return fixture{repo: repo, wait: ax.WaitPublish, db: db, ax: ax, es: es, dir: dir, ctx: context.Background()}
 }
 
