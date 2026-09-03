@@ -15,10 +15,14 @@ import {
 import type { ThreadDTO } from '@/features/git/api/review-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
+// §3: workspace-scoped URLs are hierarchical; register scopes for the test
+// wsIds. Review is addressed through the chat owning the worktree now
+// (reviewBaseForWorkspace), so each scope also carries an owningChatId — the
+// /threads routes exercised below stay workspace-scoped and don't need one,
+// but recording it unconditionally keeps every wsId usable by both.
 beforeEach(() => {
   for (const wsId of ['ws-1', 'ws-2', 'ws-3', 'ws-4', 'ws-5', 'ws-6']) {
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-of-${wsId}` })
   }
 })
 
@@ -195,7 +199,7 @@ describe('mapThread', () => {
 })
 
 describe('review-api request shapes', () => {
-  it('getReview reads the workspace-scoped /review route and returns threads:[]', async () => {
+  it('getReview reads the chat-scoped /review route and returns threads:[]', async () => {
     const fetchMock = mockFetchEnvelope({
       description: 'desc',
       mergeStrategy: 'squash',
@@ -207,20 +211,20 @@ describe('review-api request shapes', () => {
 
     const review = await getReview('ws-1')
 
-    expect(fetchMock.mock.calls[0][0]).toContain('/v0/projects/p1/repos/r1/workspaces/ws-1/review')
+    expect(fetchMock.mock.calls[0][0]).toContain('/v0/chats/chat-of-ws-1/review')
     expect(review.mergeStrategy).toBe('squash')
     // threads must be [] — sourced from /threads not from /review
     expect(review.threads).toEqual([])
     expect(review.conversations).toEqual([])
   })
 
-  it('setMergeStrategy PATCHes /review with the strategy body', async () => {
+  it('setMergeStrategy PATCHes the chat-scoped /review with the strategy body', async () => {
     const fetchMock = mockFetchEnvelope({ mergeStrategy: 'rebase' })
 
     const result = await setMergeStrategy('ws-2', 'rebase')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-2/review')
+    expect(url).toContain('/v0/chats/chat-of-ws-2/review')
     expect(init.method).toBe('PATCH')
     expect(JSON.parse(init.body as string)).toEqual({ mergeStrategy: 'rebase' })
     expect(result).toBe('rebase')

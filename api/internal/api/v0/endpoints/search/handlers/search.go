@@ -20,8 +20,7 @@ func (h *Handlers) Search(
 		return
 	}
 
-	wsID := ctx.Param("wsId")
-	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
+	ws, err := h.resolveWorkspace(ctx)
 	if err != nil {
 		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
@@ -70,8 +69,7 @@ func (h *Handlers) Replace(
 		return
 	}
 
-	wsID := ctx.Param("wsId")
-	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
+	ws, err := h.resolveWorkspace(ctx)
 	if err != nil {
 		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return

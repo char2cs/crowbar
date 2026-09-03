@@ -76,27 +76,68 @@ func (stubUsecase) SearchDiff(
 	return nil, false, nil
 }
 
-func TestRegisterMountsRoutes(
-	t *testing.T,
-) {
-	r := gin.New()
-	review.Register(r.Group("/v0"), stubUsecase{})
-
-	cases := []struct {
+// reviewSurface is the method+relative-path set review.Register mounts,
+// written once and asserted against BOTH live prefixes (mirroring git's
+// routes_test.go, spec §8 step 4b's reference implementation for this step).
+func reviewSurface() []struct {
+	method string
+	path   string
+} {
+	return []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/review"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/files"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/outline"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/patch?path=a.go"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/search?q=todo"},
-		{http.MethodPatch, "/v0/workspaces/ws1/review"},
+		{http.MethodGet, ""},
+		{http.MethodGet, "/files"},
+		{http.MethodGet, "/outline"},
+		{http.MethodGet, "/patch?path=a.go"},
+		{http.MethodGet, "/search?q=todo"},
+		{http.MethodPatch, ""},
 	}
-	for _, tc := range cases {
+}
+
+// registerBothMounts wires review.Register the way router.go does: the old
+// workspace-scoped group and the flat chat-scoped one, on one engine.
+func registerBothMounts(
+	t *testing.T,
+) *gin.Engine {
+	t.Helper()
+	r := gin.New()
+	v0 := r.Group("/v0")
+	review.Register(v0, v0.Group("/chats/:chatId"), stubUsecase{})
+	return r
+}
+
+// TestRegisterMountsChatScopedRoutes is the route half of this step: every
+// review route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
+func TestRegisterMountsChatScopedRoutes(
+	t *testing.T,
+) {
+	r := registerBothMounts(t)
+
+	for _, tc := range reviewSurface() {
+		path := "/v0/chats/chat1/review" + tc.path
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+	}
+}
+
+// TestRegisterKeepsWorkspaceScopedRoutes is the regression bar for the
+// coexistence this step deliberately ships: the workspace-scoped surface is
+// NOT retired here (spec §8 step 6 does that, once every group has moved), so
+// every one of its routes must still answer exactly as before.
+func TestRegisterKeepsWorkspaceScopedRoutes(
+	t *testing.T,
+) {
+	r := registerBothMounts(t)
+
+	for _, tc := range reviewSurface() {
+		path := "/v0/workspaces/ws1/review" + tc.path
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
 	}
 }

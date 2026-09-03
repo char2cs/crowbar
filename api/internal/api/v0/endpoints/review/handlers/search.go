@@ -47,7 +47,7 @@ func (h *Handlers) SearchDiff(
 	}
 	hits, truncated, err := h.reviewUsecase.SearchDiff(
 		ctx.Request.Context(),
-		ctx.Param("wsId"),
+		h.workspaceID(ctx),
 		scopeCommit(ctx),
 		ctx.Query("q"),
 		opts,

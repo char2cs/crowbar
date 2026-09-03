@@ -214,8 +214,16 @@ func (c *Container) Register(
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 	)
+	// Search, review, and identity are the rest of spec §4.2's SHARED bucket
+	// (§8 step 4c): one worktree, one answer, and every chat holding it sees
+	// the same reads. Each mounts on BOTH groups for now — the chat prefix is
+	// where it lives, and the workspace prefix is simply not retired until §8
+	// step 6 — and needs no workspace reader on the chat mount, because
+	// chatScoped's resolveChatWorktree middleware has already resolved the
+	// worktree onto the request context.
 	search.Register(
 		repoScoped,
+		chatScoped,
 		c.eng.Search,
 		c.app.Repositories.Workspace,
 	)
@@ -226,6 +234,7 @@ func (c *Container) Register(
 	)
 	review.Register(
 		repoScoped,
+		chatScoped,
 		c.app.Usecases.BranchReview,
 	)
 	threads.Register(
@@ -244,6 +253,7 @@ func (c *Container) Register(
 	)
 	identity.Register(
 		repoScoped,
+		chatScoped,
 		c.eng.Identity,
 		c.app.Repositories.Workspace,
 	)

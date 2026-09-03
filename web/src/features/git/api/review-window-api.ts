@@ -1,5 +1,5 @@
 import { apiFetch, apiFetchRaw } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { reviewBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // The WINDOWED branch-review client: geometry, one file's patch, and search.
 //
@@ -19,7 +19,7 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 // — see getReviewPatch.
 
 function reviewBase(wsId: string): string {
-  return `${workspaceBase(wsId)}/review`
+  return reviewBaseForWorkspace(wsId)
 }
 
 /** The query parameter that narrows a windowed read from the workspace's whole

@@ -52,6 +52,38 @@ export function gitBaseForWorkspace(wsId: string): string {
   return `${chatBase(chatId)}/git`
 }
 
+/**
+ * The review base for the chat that owns `wsId`'s worktree: the branch-review
+ * composite read, the windowed diff API (outline/patch/search), and the
+ * merge-strategy write.
+ *
+ * SHARED state like gitBaseForWorkspace — one worktree, one review, regardless
+ * of which sibling chat asks — for the same reason: a chat is the only thing a
+ * route may name (backend spec law 1). See gitBaseForWorkspace's doc comment
+ * for the throw contract and the workspace-scoped-routes-still-exist caveat;
+ * both apply identically here.
+ */
+export function reviewBaseForWorkspace(wsId: string): string {
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${chatBase(chatId)}/review`
+}
+
+/**
+ * The identity base for the chat that owns `wsId`'s worktree: the current
+ * human's GitHub/git identity for the workspace's remote.
+ *
+ * SHARED state like gitBaseForWorkspace and reviewBaseForWorkspace — one
+ * worktree, one identity answer, regardless of which sibling chat asks. See
+ * gitBaseForWorkspace's doc comment for the throw contract and the
+ * workspace-scoped-routes-still-exist caveat; both apply identically here.
+ */
+export function identityBaseForWorkspace(wsId: string): string {
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${chatBase(chatId)}/identity`
+}
+
 // §3/§7: build the hierarchical base for a workspace-scoped API/WS URL. Every
 // files/git/lsp/terminal route nests under the owning project+repo now; callers
 // still pass only a wsId (the identifier they hold), and the project/repo are

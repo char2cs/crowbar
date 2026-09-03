@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { identityBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 export interface IdentityDTO {
   login: string
@@ -9,5 +9,5 @@ export interface IdentityDTO {
 
 /** GET the GitHub/GitLab identity associated with the active workspace's remote. */
 export async function getIdentity(wsId: string): Promise<IdentityDTO> {
-  return apiFetch<IdentityDTO>(`${workspaceBase(wsId)}/identity`)
+  return apiFetch<IdentityDTO>(identityBaseForWorkspace(wsId))
 }

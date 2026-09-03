@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { reviewBaseForWorkspace, workspaceBase } from '@/lib/workspace-scope-url'
 import type { DiffScope } from './review-window-api'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type {
@@ -9,16 +9,19 @@ import type {
 } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
-// Branch-review REST client. All routes are workspace-scoped under
-// /v0/workspaces/:wsId/review and return the standard {success,data} envelope,
-// which apiFetch already unwraps for us (see git-diff-api.ts for the pattern).
+// Branch-review REST client. Review routes hang off the chat that owns the
+// workspace's worktree (reviewBaseForWorkspace, /v0/chats/:chatId/review) and
+// return the standard {success,data} envelope, which apiFetch already unwraps
+// for us (see git-diff-api.ts for the pattern). The /threads routes below are
+// a separate endpoint group and stay workspace-scoped (workspaceBase) — this
+// step does not move them.
 //
 // Scope: this is the LOCAL branch-vs-parent review surface (description +
 // multi-file diff + inline threads + merge strategy). It does NOT create remote
 // PRs or execute the merge — those are out of scope for this surface.
 
 function reviewBase(wsId: string): string {
-  return `${workspaceBase(wsId)}/review`
+  return reviewBaseForWorkspace(wsId)
 }
 
 // ── Wire shapes ─────────────────────────────────────────────────────

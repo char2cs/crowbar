@@ -156,6 +156,13 @@ func specRoutes() []string {
 		// §2.9 Review
 		"GET " + ws + "/review",
 		"PATCH " + ws + "/review",
+		// §2.9 Review, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
+		// §8 step 4c). The SAME routes as the workspace-scoped pair above, and
+		// both are genuinely live for the same reason git's chat-scoped block
+		// is: the flat chat prefix is where review is addressed from now on,
+		// and the workspace prefix is simply not retired until §8 step 6.
+		"GET " + chat + "/review",
+		"PATCH " + chat + "/review",
 		// §2.9a Threads (promoted out of /review into a first-class endpoint, W9)
 		"GET " + ws + "/threads",
 		"POST " + ws + "/threads",
@@ -168,6 +175,11 @@ func specRoutes() []string {
 		// §2.10 Search
 		"POST " + ws + "/search",
 		"POST " + ws + "/search/replace",
+		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
+		// §8 step 4c). The SAME routes as the workspace-scoped pair above; see
+		// the review chat-scoped comment above for why both are live.
+		"POST " + chat + "/search",
+		"POST " + chat + "/search/replace",
 		// §2.11 Terminal (+profiles). The profile CRUD is a global user setting
 		// and stays top-level. The session routes moved onto the flat
 		// /v0/chats/:chatId prefix (chat-scoped API spec §8 step 3): a terminal
@@ -200,6 +212,8 @@ func extraRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
 	const home = "/v0/projects/:projectId/home"
+	// chat is the flat chat-scoped prefix (spec §7.1), same as specRoutes'.
+	const chat = "/v0/chats/:chatId"
 	return []string{
 		"DELETE /v0/projects/:projectId",
 		// Project reorder: the sidebar's manual project order, a single store
@@ -265,6 +279,13 @@ func extraRoutes() []string {
 		"GET " + ws + "/review/outline",
 		"GET " + ws + "/review/patch",
 		"GET " + ws + "/review/search",
+		// The same four review reads, chat-scoped (spec §4.2's SHARED bucket,
+		// §8 step 4c) — see the specRoutes review chat-scoped comment for why
+		// both prefixes are live.
+		"GET " + chat + "/review/files",
+		"GET " + chat + "/review/outline",
+		"GET " + chat + "/review/patch",
+		"GET " + chat + "/review/search",
 		"POST " + ws + "/lsp/didOpen",
 		"POST " + ws + "/lsp/didChange",
 		"POST " + ws + "/lsp/didClose",
@@ -282,6 +303,10 @@ func extraRoutes() []string {
 		"POST " + ws + "/detach-holder",
 		"POST " + ws + "/retry-provision",
 		"GET " + ws + "/identity",
+		// The same identity read, chat-scoped (spec §4.2's SHARED bucket, §8
+		// step 4c) — see the specRoutes review chat-scoped comment for why
+		// both prefixes are live.
+		"GET " + chat + "/identity",
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",

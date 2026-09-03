@@ -8,10 +8,12 @@ import {
 import { ApiError } from '@/lib/api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
+// The windowed review routes are addressed through the chat owning the
+// worktree now (reviewBaseForWorkspace), so each scope also carries an
+// owningChatId.
 beforeEach(() => {
   for (const wsId of ['ws-1', 'ws-2', 'ws-3']) {
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-of-${wsId}` })
   }
 })
 
@@ -19,7 +21,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const WS_BASE = '/v0/projects/p1/repos/r1/workspaces'
+const CHAT_BASE = '/v0/chats'
 
 function mockEnvelope(data: unknown): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async () => ({
@@ -49,7 +51,7 @@ function urlOf(fetchMock: ReturnType<typeof vi.fn>, call = 0): string {
 }
 
 describe('getReviewOutline', () => {
-  it('GETs the workspace-scoped /review/outline route and returns the files', async () => {
+  it('GETs the chat-scoped /review/outline route and returns the files', async () => {
     const fetchMock = mockEnvelope({
       files: [
         {
@@ -63,7 +65,7 @@ describe('getReviewOutline', () => {
 
     const outline = await getReviewOutline({ wsId: 'ws-1' })
 
-    expect(urlOf(fetchMock)).toContain(`${WS_BASE}/ws-1/review/outline`)
+    expect(urlOf(fetchMock)).toContain(`${CHAT_BASE}/chat-of-ws-1/review/outline`)
     expect(outline).toHaveLength(1)
     expect(outline[0].path).toBe('src/a.ts')
     expect(outline[0].hunks).toEqual([{ oldStart: 1, oldLines: 4, newStart: 1, newLines: 9 }])
@@ -126,7 +128,7 @@ describe('getReviewPatch', () => {
     const result = await getReviewPatch({ wsId: 'ws-1' }, 'src/x.ts')
 
     const url = urlOf(fetchMock)
-    expect(url).toContain(`${WS_BASE}/ws-1/review/patch`)
+    expect(url).toContain(`${CHAT_BASE}/chat-of-ws-1/review/patch`)
     expect(url).toContain('path=src%2Fx.ts')
     expect(result.patch).toBe(patch)
   })
@@ -244,7 +246,7 @@ describe('searchReviewDiff', () => {
     const result = await searchReviewDiff({ wsId: 'ws-1' }, 'todo')
 
     const url = urlOf(fetchMock)
-    expect(url).toContain(`${WS_BASE}/ws-1/review/search`)
+    expect(url).toContain(`${CHAT_BASE}/chat-of-ws-1/review/search`)
     expect(url).toContain('q=todo')
     expect(result.hits).toEqual([
       { path: 'src/a.ts', side: 'new', lineNumber: 42, preview: 'const todo = 1' },

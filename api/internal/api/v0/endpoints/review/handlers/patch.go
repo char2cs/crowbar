@@ -82,7 +82,7 @@ func (h *Handlers) streamPatch(
 	ctx.Status(http.StatusOK)
 	_, _, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
-		ctx.Param("wsId"),
+		h.workspaceID(ctx),
 		scopeCommit(ctx),
 		path,
 		maxLines,
@@ -105,7 +105,7 @@ func (h *Handlers) bufferedPatch(
 	var buf bytes.Buffer
 	_, truncated, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
-		ctx.Param("wsId"),
+		h.workspaceID(ctx),
 		scopeCommit(ctx),
 		path,
 		maxLines,

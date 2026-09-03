@@ -45,7 +45,7 @@ func reviewErrorStatus(
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
-	review, err := h.reviewUsecase.Get(ctx.Request.Context(), ctx.Param("wsId"))
+	review, err := h.reviewUsecase.Get(ctx.Request.Context(), h.workspaceID(ctx))
 	if err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
@@ -65,7 +65,7 @@ func (h *Handlers) SetMergeStrategy(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), ctx.Param("wsId"), body.MergeStrategy); err != nil {
+	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), h.workspaceID(ctx), body.MergeStrategy); err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}
