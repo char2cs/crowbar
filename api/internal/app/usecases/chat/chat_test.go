@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1476,6 +1477,67 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
+}
+
+// TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded
+// guards a chat that predates PermissionLevel seeding entirely — the
+// "carried through the chat-model migration, never had this field" case
+// domain.Chat's own doc comment documents as a real, if transient, edge
+// case. f.chats.Create bypasses Conversations.MintChat/SeedPermissionLevel
+// on purpose, to construct exactly that state: every real chat-creation
+// path this package wires up already seeds a real level, so a chat spawned
+// through the ordinary helpers can never observe it.
+func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded(t *testing.T) {
+	f := newFixtureWithPermissionDefault(t, "full-auto")
+	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
+
+	chatID := uuid.NewString()
+	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
+		ID: chatID, WorkspaceID: "ws1", Now: time.Now(),
+	})
+	require.NoError(t, err)
+	f.wait()
+	chat, err := f.chats.GetChat(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Empty(t, chat.PermissionLevel, "precondition: an unseeded chat")
+
+	_, err = f.usecase.StartRunner(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "full-auto", live.LaunchPermissionLevel,
+		"an unseeded chat must spawn under the GLOBAL default, never silently guarded")
+}
+
+// TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart is the real,
+// confirmed-live sequence: a chat that predates seeding (see the test above) has
+// its permission level explicitly PUT to full-auto, then its very next prompt —
+// which always forces a full CLI restart for a restart_tui provider like claude —
+// must launch under that explicit choice, not fall back to guarded.
+func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testing.T) {
+	f := newFixtureWithPermissionDefault(t, "guarded")
+	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
+
+	chatID := uuid.NewString()
+	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
+		ID: chatID, WorkspaceID: "ws1", Now: time.Now(),
+	})
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.StartRunner(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.SetChatPermissionLevel(f.ctx, chatID, "full-auto"))
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString())
+	require.NoError(t, err)
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "full-auto", live.LaunchPermissionLevel,
+		"the restart the next prompt forces must launch under the level just explicitly set")
 }
 
 func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
