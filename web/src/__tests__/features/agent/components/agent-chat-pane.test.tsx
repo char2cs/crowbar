@@ -735,7 +735,9 @@ describe('AgentChatPane', () => {
       switchToTerminalFn.mockResolvedValue('pty-attached')
       getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
         Promise.resolve(
-          detail(liveChat({ id: String(id), runnerId: 'r1', pty: 'pty-attached', provider: 'codex' })),
+          detail(
+            liveChat({ id: String(id), runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }),
+          ),
         ),
       )
       await renderPane(store, openBuffer(store, 'c1', 'r1'))
@@ -755,6 +757,35 @@ describe('AgentChatPane', () => {
           'aria-selected',
           'true',
         ),
+      )
+    })
+
+    // Regression: a refused switch (a turn still in flight, or codex before its
+    // first completed turn ever wrote a rollout to resume — both real 409s the
+    // backend already returns, see attach.go's ErrTurnInProgress /
+    // ErrNativeViewNotYetAvailable) used to be swallowed with no feedback at
+    // all: the tab click did nothing visible, which reads as broken rather than
+    // refused.
+    it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockRejectedValue(
+        new ApiError(
+          'agent: provider has no completed turn yet to show its native view of: conflict',
+          409,
+        ),
+      )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      await vi.waitFor(() => expect(toastErrorFn).toHaveBeenCalledTimes(1))
+      const [title] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(title).toContain('Codex')
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
       )
     })
   })
@@ -1266,6 +1297,38 @@ describe('AgentChatPane', () => {
 
       expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
       expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    // Regression: a switch never toggles `presentation` itself (see the test
+    // above — it stays on whatever surface the user was already looking at),
+    // and switchProvider/adopt alone never re-request an attach. A chat already
+    // ON the terminal surface that switches from a hotswap provider (claude) to
+    // a non-hotswap one (codex) used to strand the view on the OLD provider's
+    // live PTY label with the new runner's empty attachment underneath it —
+    // "This agent has no terminal view attached right now" — because nothing
+    // ever asked codex for one.
+    it('re-requests an attach when switching TO a non-hotswap provider while already on the terminal surface', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn
+        .mockResolvedValueOnce(
+          detail(liveChatNoTerminal({ id: 'c1', runnerId: 'r1', title: 'Chat c1' })),
+        )
+        .mockResolvedValueOnce(
+          detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' })),
+        )
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      expect(screen.queryByText(/no terminal view attached/i)).not.toBeInTheDocument()
     })
   })
 

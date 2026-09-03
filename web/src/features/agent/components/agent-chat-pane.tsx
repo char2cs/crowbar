@@ -627,6 +627,13 @@ export function AgentChatPane({
         fail()
         return false
       }
+      // A switch never toggles `presentation` itself, so a chat already ON the
+      // terminal surface stays there — but the runner underneath just changed,
+      // and only enterTerminal knows whether THIS provider needs a real
+      // switchToTerminal (non-hotswap) or is already showing a live PTY
+      // (hotswap). Skipped entirely on the far more common case of switching
+      // while on the chat surface, where there is nothing to re-attach yet.
+      if (presentation === 'terminal') enterTerminal(providerId)
       return true
     } catch (err: unknown) {
       fail()
@@ -744,8 +751,13 @@ export function AgentChatPane({
   // component. Redefined every render, so it still always closes over the
   // current provider list — nothing lists it in a dependency array, so there
   // is no stale-closure risk to trade away by not memoizing it.
-  const enterTerminal = () => {
-    const chatProvider = providers.find((p) => p.id === chatProviderId)
+  // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
+  // when the chat is already on the terminal surface and the switch itself
+  // never re-runs this gate — chatProviderId is this render's value from
+  // BEFORE the switch, so the caller passes the provider it just switched TO
+  // instead of relying on a re-render to catch up first.
+  const enterTerminal = (providerIdOverride?: string) => {
+    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap) {
       setPresentation('terminal')
@@ -756,10 +768,17 @@ export function AgentChatPane({
         await switchToTerminal(wsId, shownChatId)
         await adopt()
         setPresentation('terminal')
-      } catch {
-        // Left where they were — a blocked/unavailable switch is reported by
-        // whatever surfaces the request's own error today, not by moving them
-        // to a view that never actually came up.
+      } catch (err: unknown) {
+        // Left where they were — moving them to a view that never actually came
+        // up would be worse than staying put. But nothing else reports this
+        // failure (there was no "whatever surfaces the request's own error
+        // today" this comment used to assume): a refused switch — a turn still
+        // in flight, or codex before its first completed turn ever wrote a
+        // rollout to resume — used to be a click that silently did nothing,
+        // exactly the failure mode toastSpawnFailure exists to prevent
+        // elsewhere in this file. Same fix, here too.
+        const name = chatProvider?.displayName ?? providerIdOverride ?? chatProviderId
+        toastSpawnFailure(err, name, 'open the terminal view for')
       }
     })()
   }
