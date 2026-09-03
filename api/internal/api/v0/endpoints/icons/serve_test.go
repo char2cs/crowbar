@@ -7,7 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -286,5 +289,121 @@ func TestIsSingleEmojiRefusesInvalidUTF8(t *testing.T) {
 	// cluster count alone would let it through and store a broken label.
 	if icons.IsSingleEmoji("\xff") {
 		t.Fatal("invalid UTF-8 was accepted as an emoji")
+	}
+}
+
+func TestServe404sWhenTheFileCannotBeOpened(t *testing.T) {
+	// Stat succeeds (the file exists and is under the size cap) but the
+	// subsequent os.Open fails — a corrupted-permissions icon file must 404
+	// exactly like a missing one, not panic or leak an fs error to the client.
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
+	}
+	path := filepath.Join(t.TempDir(), "icon")
+	if err := os.WriteFile(path, png(), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	c, _ := ctx(httptest.NewRequest(http.MethodGet, "/", nil))
+
+	icons.Serve(c, path)
+
+	if c.Writer.Status() != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", c.Writer.Status())
+	}
+}
+
+func TestServe404sWhenTheFileCannotBeRead(t *testing.T) {
+	// A directory stats fine and opens fine on Unix; the READ is what fails.
+	// Serve must 404 rather than surface the "is a directory" read error.
+	dir := t.TempDir()
+	c, _ := ctx(httptest.NewRequest(http.MethodGet, "/", nil))
+
+	icons.Serve(c, dir)
+
+	if c.Writer.Status() != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", c.Writer.Status())
+	}
+}
+
+func TestReadUploadRefusesAPathWithNoReadPermission(t *testing.T) {
+	// Stat succeeds (a file exists under the cap) but the subsequent os.Open
+	// fails — distinct from TestReadUploadRefusesAPathThatCannotBeRead, which
+	// exercises the LimitReader/ReadAll failure once Open has already
+	// succeeded (a directory opens fine on Unix; only the read fails there).
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
+	}
+	path := filepath.Join(t.TempDir(), "icon.png")
+	if err := os.WriteFile(path, png(), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"path":"`+path+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	c, rec := ctx(req)
+
+	if _, ok := icons.ReadUpload(c); ok {
+		t.Fatal("an unreadable file was accepted as an icon")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+// TestReadUploadRefusesAPathThatGrowsPastTheCapBetweenStatAndRead pins the
+// "Hardening applied" guarantee on readFromPath's doc comment: LimitReader
+// catches a file that grew larger than MaxBytes AFTER the size-rejecting Stat
+// call. A FIFO makes this deterministic without a real race: Stat reports a
+// pipe's size as 0 (always under the cap), so the size check passes; the
+// actual bytes read past the writer's other end are what trip the post-read
+// oversize guard. Opening one end of a FIFO blocks until the other end opens,
+// so the writer goroutine's ordering relative to ReadUpload never matters —
+// there is no interval to guess at and nothing to re-sample.
+func TestReadUploadRefusesAPathThatGrowsPastTheCapBetweenStatAndRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipes are unix-only")
+	}
+	fifo := filepath.Join(t.TempDir(), "growing")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+		if err != nil {
+			return
+		}
+		defer func() { _ = w.Close() }()
+		// One byte past MaxBytes+1 so the LimitReader-capped read still comes
+		// back oversize regardless of how many bytes actually land.
+		_, _ = w.Write(make([]byte, icons.MaxBytes+2))
+	}()
+	t.Cleanup(wg.Wait)
+
+	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"path":"`+fifo+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	c, rec := ctx(req)
+
+	if _, ok := icons.ReadUpload(c); ok {
+		t.Fatal("a file that grew past the cap after Stat was accepted")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
 	}
 }

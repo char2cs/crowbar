@@ -324,3 +324,94 @@ func TestPlaceWorkspace_CrossRepoFolderIsRefusedNotSilentlyDropped(t *testing.T)
 	assert.ErrorIs(t, err, folder.ErrFolderCrossRepo)
 	assert.ErrorContains(t, err, "p2/r9", "the message names where the folder actually lives")
 }
+
+// TestPlaceWorkspace_SurfacesACrossRepoLookupError proves checkFolderTarget
+// reports a genuine store failure while resolving a folder id outside the
+// current snapshot, rather than treating a read error the same as "not found
+// anywhere" (which TestPlaceWorkspace_CrossRepoFolderIsRefusedNotSilentlyDropped
+// pins for the found-elsewhere case).
+func TestPlaceWorkspace_SurfacesACrossRepoLookupError(t *testing.T) {
+	folders, workspaces, uc := newUsecase(t)
+	seedWorkspace(workspaces, "w1", 1)
+	folders.FindByKeyErr = errors.New("store unavailable")
+
+	far := "far"
+	_, _, err := uc.PlaceWorkspace(context.Background(), projectID, repoID, "w1",
+		folder.PlaceInput{FolderID: &far})
+
+	assert.ErrorContains(t, err, "store unavailable")
+}
+
+// TestPlaceWorkspace_EmptyFolderIDUnfilesToRoot proves resolvePlacement treats
+// an explicit empty string as "un-file to the repo root", distinct from a nil
+// FolderID (which leaves the workspace's current folder untouched).
+func TestPlaceWorkspace_EmptyFolderIDUnfilesToRoot(t *testing.T) {
+	_, workspaces, uc := newUsecase(t)
+	seedWorkspace(workspaces, "w1", 1)
+	created, _, err := uc.Create(context.Background(), folder.CreateInput{
+		ProjectID: projectID, RepoID: repoID, Name: "spikes",
+	})
+	require.NoError(t, err)
+	inFolder := created.ID
+	_, _, err = uc.PlaceWorkspace(context.Background(), projectID, repoID, "w1",
+		folder.PlaceInput{FolderID: &inFolder})
+	require.NoError(t, err)
+
+	empty := ""
+	placed, _, err := uc.PlaceWorkspace(context.Background(), projectID, repoID, "w1",
+		folder.PlaceInput{FolderID: &empty})
+
+	require.NoError(t, err)
+	assert.Empty(t, placed.FolderID, "an explicit empty FolderID must un-file the workspace to the repo root")
+}
+
+func TestMove_SurfacesASnapshotError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.Rows = append(folders.Rows, domain.Folder{
+		ID: "f1", ProjectID: projectID, RepoID: repoID, Name: "spikes",
+	})
+	folders.FindWhereErr = errors.New("scan failed")
+
+	_, _, err := uc.Move(context.Background(), "f1", folder.MoveInput{Order: index(0)})
+
+	assert.ErrorContains(t, err, "scan failed")
+}
+
+func TestDelete_SurfacesASnapshotError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.Rows = append(folders.Rows, domain.Folder{
+		ID: "f1", ProjectID: projectID, RepoID: repoID, Name: "spikes",
+	})
+	folders.FindWhereErr = errors.New("scan failed")
+
+	_, err := uc.Delete(context.Background(), "f1")
+
+	assert.ErrorContains(t, err, "scan failed")
+}
+
+func TestDelete_SurfacesARowDeleteError(t *testing.T) {
+	folders, _, uc := newUsecase(t)
+	folders.Rows = append(folders.Rows, domain.Folder{
+		ID: "f1", ProjectID: projectID, RepoID: repoID, Name: "spikes",
+	})
+	folders.DeleteErr = errors.New("row locked")
+
+	_, err := uc.Delete(context.Background(), "f1")
+
+	assert.ErrorContains(t, err, "row locked")
+}
+
+// TestNextSlot_ReturnsTheNextAvailableSlot pins NextSlot's plumbing: it snapshots
+// the repo's tree and asks the plan for the next free position in the given
+// container — the only usecase entry point that reads a slot without mutating
+// anything.
+func TestNextSlot_ReturnsTheNextAvailableSlot(t *testing.T) {
+	_, workspaces, uc := newUsecase(t)
+	seedWorkspace(workspaces, "w1", 1)
+	seedWorkspace(workspaces, "w2", 2)
+
+	slot, err := uc.NextSlot(context.Background(), projectID, repoID, "")
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, slot, "two root-level rows already occupy slots 0 and 1")
+}

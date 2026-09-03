@@ -247,6 +247,121 @@ func TestRenameBranch_RecordWriteFailureSurfacesAndMovesNothing(t *testing.T) {
 		"the workspace must be untouched whatever the record does")
 }
 
+// TestRenameBranch_GetWorkspaceErrorPropagates covers the lookup failure at the
+// very top of RenameBranch, before any guard or git call runs.
+func TestRenameBranch_GetWorkspaceErrorPropagates(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+
+	_, err := f.uc.RenameBranch(context.Background(), "does-not-exist", "renamed")
+
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
+}
+
+// TestRenameBranch_RejectsPlaceholderWithNoWorktreeYet covers a workspace row
+// that has no worktree checked out anywhere yet — there is nothing for git to
+// rename, so the guard must refuse before it ever calls git.
+func TestRenameBranch_RejectsPlaceholderWithNoWorktreeYet(t *testing.T) {
+	placeholder := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "", Status: domain.WorkspaceStatusNew,
+	}
+	f := newRenameFixture(t, "testing", []domain.Workspace{placeholder})
+
+	_, err := f.uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
+	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
+}
+
+// TestRenameBranch_BranchExistsCheckErrorPropagates covers a failure listing
+// workspaces while the guard checks whether another workspace already holds
+// the destination branch.
+func TestRenameBranch_BranchExistsCheckErrorPropagates(t *testing.T) {
+	self := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "/home/projects/p1/repo/testing/worktree",
+		Status:       domain.WorkspaceStatusNew,
+	}
+	listErr := errors.New("list workspaces: boom")
+	ws := &fakeWorkspace{
+		GetFn:  func(_ context.Context, id string) (domain.Workspace, error) { return self, nil },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, listErr },
+	}
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, listErr)
+}
+
+// TestRenameBranch_CrowbarHomeErrorPropagates covers a failure resolving the
+// crowbar home directory, used by the guard to tell an adopted (unmanaged)
+// checkout apart from a Crowbar-managed one.
+func TestRenameBranch_CrowbarHomeErrorPropagates(t *testing.T) {
+	self := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "/home/projects/p1/repo/testing/worktree",
+		Status:       domain.WorkspaceStatusNew,
+	}
+	homeErr := errors.New("crowbar home: boom")
+	ws := &fakeWorkspace{
+		GetFn:  func(_ context.Context, id string) (domain.Workspace, error) { return self, nil },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return []domain.Workspace{self}, nil },
+	}
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(),
+		func() (string, error) { return "", homeErr })
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, homeErr)
+}
+
+// TestRenameBranch_RepoPathLookupErrorPropagates covers a failure resolving the
+// repo's on-disk path, which RenameBranch needs to pass to git.
+func TestRenameBranch_RepoPathLookupErrorPropagates(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+	repoErr := errors.New("find repo: boom")
+	f.uc = worktree.New(
+		&fakeWorkspace{
+			GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+				return domain.Workspace{
+					ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+					WorktreePath: filepath.Join(f.oldRoot, "worktree"),
+					Status:       domain.WorkspaceStatusNew,
+				}, nil
+			},
+			ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
+		},
+		f.git, &fakeProvider{}, &fakeRepoStore{err: repoErr}, newNow(),
+		func() (string, error) { return f.home, nil },
+	)
+
+	_, err := f.uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, repoErr)
+	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
+}
+
+// TestRenameBranch_GitRenameErrorPropagates covers git itself refusing the
+// rename. The fake models a client disconnect via context cancellation — see
+// fakeGit.RenameBranch above — which is exactly how the real git.Engine seam
+// surfaces a cancelled ctx.
+func TestRenameBranch_GitRenameErrorPropagates(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := f.uc.RenameBranch(ctx, "w1", "renamed")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, f.renamed.called, "the record must not be written if git refused")
+}
+
 // countOp counts how many times op appears in a fakeGit call log.
 func countOp(ops []string, want string) int {
 	n := 0
@@ -256,4 +371,129 @@ func countOp(ops []string, want string) int {
 		}
 	}
 	return n
+}
+
+// TestRenameBranch_GetWorkspaceError proves a failure resolving the workspace
+// (not merely "not found", any Get failure) surfaces wrapped and touches
+// nothing else — no git work, no record write.
+func TestRenameBranch_GetWorkspaceError(t *testing.T) {
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
+			return domain.Workspace{}, errBoom
+		},
+	}
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, errBoom)
+	assert.Empty(t, g.calls, "no git work runs when the workspace cannot be resolved")
+}
+
+// TestRenameBranch_RejectsUnprovisionedWorkspace proves a placeholder (no
+// branch checked out anywhere yet) is refused before any git or record write —
+// there is nothing to rename.
+func TestRenameBranch_RejectsUnprovisionedWorkspace(t *testing.T) {
+	placeholder := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		Status: domain.WorkspaceStatusNew, // unlocked, but no worktree yet
+	}
+	f := newRenameFixture(t, "testing", []domain.Workspace{placeholder})
+
+	_, err := f.uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
+	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
+	assert.False(t, f.renamed.called)
+}
+
+// TestRenameBranch_BranchWorkspaceExistsListError proves a failure checking
+// whether the destination branch is already held by a sibling workspace
+// surfaces wrapped, before git runs.
+func TestRenameBranch_BranchWorkspaceExistsListError(t *testing.T) {
+	self := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "/anything/worktree", Status: domain.WorkspaceStatusNew,
+	}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == "w1" {
+				return self, nil
+			}
+			return domain.Workspace{}, apperr.ErrNotFound
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
+	}
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, errBoom)
+	assert.Empty(t, g.calls, "git must not be touched when the sibling-branch check fails")
+}
+
+// TestRenameBranch_CrowbarHomeError proves a failure resolving crowbar home
+// (needed to tell a managed workspace from an adopted checkout) surfaces
+// wrapped and stops before git runs.
+func TestRenameBranch_CrowbarHomeError(t *testing.T) {
+	self := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "/anything/worktree", Status: domain.WorkspaceStatusNew,
+	}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
+			return self, nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return []domain.Workspace{self}, nil },
+	}
+	g := &fakeGit{}
+	badHome := func() (string, error) { return "", errBoom }
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), badHome)
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, errBoom)
+	assert.Empty(t, g.calls, "git must not be touched when crowbar home cannot be resolved")
+}
+
+// TestRenameBranch_RepoPathForError proves a failure resolving the workspace's
+// repository (needed to run `git branch -m` against it) surfaces wrapped,
+// after the guard has already cleared the rename.
+func TestRenameBranch_RepoPathForError(t *testing.T) {
+	self := domain.Workspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
+		WorktreePath: "/home/projects/p1/github.com/test/repo/testing/worktree",
+		Status:       domain.WorkspaceStatusNew,
+	}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
+			return self, nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return []domain.Workspace{self}, nil },
+	}
+	g := &fakeGit{}
+	repos := &fakeRepoStore{err: errBoom}
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), func() (string, error) { return "/home", nil })
+
+	_, err := uc.RenameBranch(context.Background(), "w1", "renamed")
+
+	require.ErrorIs(t, err, errBoom)
+	assert.Empty(t, g.calls, "git must not be touched when the repo path cannot be resolved")
+}
+
+// TestRenameBranch_GitRenameBranchError proves a git-level failure (here, a
+// cancelled request — the client-disconnect seam every rename test in this
+// file is built around) surfaces cleanly and never reaches the record write:
+// the workspace is left exactly as it was, on its old branch.
+func TestRenameBranch_GitRenameBranchError(t *testing.T) {
+	f := newRenameFixture(t, "testing", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := f.uc.RenameBranch(ctx, "w1", "renamed")
+
+	require.Error(t, err)
+	assert.False(t, f.renamed.called, "the record must not be touched when git itself refused")
 }

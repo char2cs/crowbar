@@ -82,6 +82,30 @@ func TestProjectUsecase_Get_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
+// TestProjectUsecase_Get_StoreError covers a lookup failure (e.g. a DB error),
+// which must surface distinctly from the not-found case above rather than
+// being folded into it.
+func TestProjectUsecase_Get_StoreError(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	projects.FindErr = errors.New("db down")
+
+	_, err := uc.Get(ctx, "p1")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperr.ErrNotFound, "a lookup failure is not a not-found")
+}
+
+// TestProjectUsecase_List_StoreError covers List surfacing the underlying
+// store's read failure rather than an empty list.
+func TestProjectUsecase_List_StoreError(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	projects.FindAllErr = errors.New("db down")
+
+	_, err := uc.List(ctx)
+	assert.ErrorContains(t, err, "db down")
+}
+
 func TestProjectUsecase_TouchProjectActivity_HappyPath(t *testing.T) {
 	projects, repos, uc := newProjectUsecase(t)
 	ctx := context.Background()

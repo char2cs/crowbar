@@ -26,6 +26,21 @@ type fakeSubscriber struct {
 	agentChatFolders []agentChatFolderPush
 	agentChatWaits   []agentChatWaitPush
 	agentCompactions []agentCompactionPush
+	promptSettled    []promptSettledPush
+	messageDeltas    []messageDeltaPush
+}
+
+type promptSettledPush struct {
+	chatID      string
+	workspaceID string
+	requestID   string
+}
+
+type messageDeltaPush struct {
+	chatID      string
+	workspaceID string
+	messageID   string
+	text        string
 }
 
 type agentCompactionPush struct {
@@ -135,8 +150,26 @@ func (f *fakeSubscriber) PushAgentChatTerminalWait(
 	})
 }
 
-func (f *fakeSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
-func (f *fakeSubscriber) PushAgentChatMessageDelta(_, _, _, _ string) {}
+func (f *fakeSubscriber) PushAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	f.promptSettled = append(f.promptSettled, promptSettledPush{
+		chatID: chatID, workspaceID: workspaceID, requestID: requestID,
+	})
+}
+
+func (f *fakeSubscriber) PushAgentChatMessageDelta(
+	chatID string,
+	workspaceID string,
+	messageID string,
+	text string,
+) {
+	f.messageDeltas = append(f.messageDeltas, messageDeltaPush{
+		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
+	})
+}
 
 func (f *fakeSubscriber) PushAgentChatCompaction(
 	chatID string,
@@ -377,6 +410,66 @@ func TestHub_BroadcastAgentRunner_FansOut(t *testing.T) {
 	assert.Equal(t,
 		agentRunnerPush{runnerID: "r1", workspaceID: "w1", chatID: "chat-b", kind: "moved"},
 		a.agentRunner[0])
+}
+
+// TestHub_BroadcastAgentChatPromptSettled_FansOut proves the "prompt retired
+// without ever opening a turn" edge reaches every registered subscriber with
+// the chat/workspace/request ids intact — this is the frame that clears a
+// pending "waiting on you" affordance when a runner picks a prompt up without
+// ever producing a turn for it.
+func TestHub_BroadcastAgentChatPromptSettled_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1")
+
+	want := []promptSettledPush{{chatID: "c1", workspaceID: "w1", requestID: "req-1"}}
+	assert.Equal(t, want, a.promptSettled)
+	assert.Equal(t, want, b.promptSettled)
+}
+
+// TestHub_BroadcastAgentChatMessageDelta_FansOut proves the growing-message
+// edge reaches every registered subscriber with the chat/workspace/message ids
+// and the delta text intact. This broadcast is the highest-frequency one on the
+// hub (roughly 1.4/s per streaming chat) and deliberately never touches durable
+// storage, so a dropped fan-out here is invisible anywhere but the live client.
+func TestHub_BroadcastAgentChatMessageDelta_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text")
+
+	want := []messageDeltaPush{
+		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial tex"},
+		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial text"},
+	}
+	assert.Equal(t, want, a.messageDeltas)
+	assert.Equal(t, want, b.messageDeltas)
+}
+
+// TestHub_BroadcastAgentChatFolder_FansOut proves a chat-folder lifecycle
+// event reaches every registered subscriber on the same workspace-scoped feed
+// as BroadcastAgentChat — a chat folder is a plain GORM row with no aggregate
+// projection to ride, so nothing else pushes this fact to subscribers.
+func TestHub_BroadcastAgentChatFolder_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatFolder("f1", "w1", "folder_created")
+
+	want := []agentChatFolderPush{{folderID: "f1", workspaceID: "w1", kind: "folder_created"}}
+	assert.Equal(t, want, a.agentChatFolders)
+	assert.Equal(t, want, b.agentChatFolders)
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

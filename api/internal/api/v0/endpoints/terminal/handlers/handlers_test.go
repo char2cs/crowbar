@@ -165,6 +165,7 @@ func mountSessions(
 	scoped.GET("/terminals", h.ListSessions)
 	scoped.POST("/terminals", h.CreateSession)
 	scoped.DELETE("/terminals/:sessionId", h.KillSession)
+	scoped.GET("/terminals/:sessionId/ws", h.WS)
 }
 
 func newRouter() *gin.Engine {

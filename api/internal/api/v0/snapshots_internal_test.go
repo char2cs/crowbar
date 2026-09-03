@@ -251,6 +251,18 @@ func TestLSPSnapshot_ListErrorReturnsNil(t *testing.T) {
 	assert.Nil(t, lspSnapshot(a, eng)(""))
 }
 
+// TestLSPSnapshot_UnknownWorkspaceScope_ReturnsNil covers the guard that
+// preserves scopedWorkspaceRows' literal nil (an unresolvable workspace id)
+// rather than upgrading it to a non-nil empty slice — mirroring
+// TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil for the LSP source.
+func TestLSPSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Nil(t, lspSnapshot(a, eng)("does-not-exist"))
+}
+
 func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
 	a := newAppForSnapshot(t)
 	_, err := a.Repositories.Workspace.Create(

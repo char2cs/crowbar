@@ -255,6 +255,52 @@ func TestOutline_MatchesPatchAndNumstat(t *testing.T) {
 	}
 }
 
+// TestOutline_BlankContextLine covers a context line that is truly empty: git
+// renders it with no leading space at all (there is nothing to prefix), which
+// is the one case body() must decrement both hunk counters from a zero-length
+// line rather than mistaking it for the hunk having ended.
+func TestOutline_BlankContextLine(t *testing.T) {
+	repo := initRepo(t)
+	writeFile(t, repo, "f.txt", "a\nb\n\nc\nd\n")
+	commitAll(t, repo, "base")
+	ref := headSHA(t, repo)
+	writeFile(t, repo, "f.txt", "a\nb\n\nC\nd\n")
+
+	files, err := diff.Outline(context.Background(), repo, ref)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	// A miscounted blank context line closes the hunk early and reopens a
+	// second, spurious one from what remains — one correctly-sized hunk is the
+	// proof the blank line was consumed as context, not as a boundary.
+	assert.Equal(t, []gitdomain.HunkShape{
+		{OldStart: 1, OldLines: 5, NewStart: 1, NewLines: 5},
+	}, files[0].Hunks)
+}
+
+// TestOutline_NonexistentRepoPath_ReturnsStartError covers the branch before
+// any streaming begins: GitStream failing to even start the subprocess (a
+// nonexistent working directory makes the underlying chdir fail synchronously
+// on Start), distinct from a started process that later exits non-zero.
+func TestOutline_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
+	_, err := diff.Outline(context.Background(), "/nonexistent/path/xyz123", "HEAD")
+
+	require.Error(t, err)
+}
+
+// TestOutline_InvalidRef_ReturnsWaitError covers Outline's wait() error
+// branch: an unresolvable ref makes `git diff` itself exit non-zero, which
+// only surfaces once the stream is drained and the subprocess is waited on.
+func TestOutline_InvalidRef_ReturnsWaitError(t *testing.T) {
+	repo := initRepo(t)
+	writeFile(t, repo, "f.txt", "a\n")
+	commitAll(t, repo, "base")
+
+	_, err := diff.Outline(context.Background(), repo, "not-a-real-ref")
+
+	require.Error(t, err)
+}
+
 func outlineByPath(
 	files []gitdomain.FileOutline,
 ) map[string]gitdomain.FileOutline {

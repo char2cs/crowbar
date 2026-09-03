@@ -21,6 +21,10 @@ type ProjectStore struct {
 	Saved   []domain.Project
 	SaveErr error
 	FindErr error
+	// FindAllErr, when set, fails FindAll independently of FindErr (which only
+	// guards FindByKey) — so a test can fail the list read without also
+	// breaking every by-id lookup on the same store.
+	FindAllErr error
 }
 
 // NewProjectStore returns an empty ProjectStore.
@@ -48,10 +52,20 @@ func (s *ProjectStore) Save(
 	return nil
 }
 
+// Delete removes the row so Saved reflects the net persisted state (a
+// rollback after a Save leaves no row), mirroring RepositoryStore.Delete and
+// the real GORM store.
 func (s *ProjectStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
+	kept := s.Saved[:0]
+	for _, p := range s.Saved {
+		if p.ID != id {
+			kept = append(kept, p)
+		}
+	}
+	s.Saved = kept
 	return nil
 }
 
@@ -73,6 +87,9 @@ func (s *ProjectStore) FindByKey(
 func (s *ProjectStore) FindAll(
 	ctx context.Context,
 ) ([]domain.Project, error) {
+	if s.FindAllErr != nil {
+		return nil, s.FindAllErr
+	}
 	return s.Saved, nil
 }
 
@@ -83,6 +100,24 @@ type RepositoryStore struct {
 	// FindErr, when set, fails FindAll — the read failure that callers such as
 	// CheckRepoImportable deliberately degrade past rather than block on.
 	FindErr error
+	// FindByKeyErr, when set, fails FindByKey only — separate from FindErr so a
+	// test can fail the single-row lookup without also breaking FindAll/FindWhere.
+	FindByKeyErr error
+	// SaveErrForID, when set for a given repo id, fails only that Save call —
+	// separate from SaveErr so a test can fail one row's write (e.g. a sibling
+	// renumbered by a densify pass) while another row's write in the same
+	// operation still succeeds.
+	SaveErrForID map[string]error
+	// FindByKeyFn, when set, overrides the default lookup entirely — used when a
+	// test needs to distinguish repeat FindByKey calls for the SAME id (e.g. the
+	// load at the top of an update vs. the re-fetch after its Save) rather than
+	// failing every call alike.
+	FindByKeyFn func(id string) (*domain.Repository, error)
+	// FindWhereFn, when set, overrides the default scoped query entirely — used
+	// when a test needs one FindWhere call (e.g. densifying the ORIGIN project
+	// after a cross-project repo move) to fail while another (the destination
+	// project) succeeds, which a single blanket FindErr cannot express.
+	FindWhereFn func(match domain.Repository) ([]domain.Repository, error)
 }
 
 // NewRepositoryStore returns an empty RepositoryStore.
@@ -99,6 +134,9 @@ func (s *RepositoryStore) Save(
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
+	}
+	if err := s.SaveErrForID[item.ID]; err != nil {
+		return err
 	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == item.ID {
@@ -130,6 +168,12 @@ func (s *RepositoryStore) FindByKey(
 	ctx context.Context,
 	id string,
 ) (*domain.Repository, error) {
+	if s.FindByKeyFn != nil {
+		return s.FindByKeyFn(id)
+	}
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == id {
 			return &s.Saved[i], nil
@@ -154,6 +198,9 @@ func (s *RepositoryStore) FindWhere(
 	ctx context.Context,
 	match domain.Repository,
 ) ([]domain.Repository, error) {
+	if s.FindWhereFn != nil {
+		return s.FindWhereFn(match)
+	}
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}
@@ -248,6 +295,12 @@ type FolderStore struct {
 	SaveErr      error
 	FindErr      error
 	FindByKeyErr error
+	// FindWhereErr, when set, fails FindWhere independently of FindErr (which
+	// FindByKey also falls back to) — so a test can fail the tree-snapshot scan
+	// while a preceding FindByKey-based load still succeeds.
+	FindWhereErr error
+	// DeleteErr, when set, fails Delete.
+	DeleteErr error
 }
 
 // NewFolderStore returns an empty FolderStore.
@@ -280,6 +333,9 @@ func (s *FolderStore) FindWhere(
 	ctx context.Context,
 	match domain.Folder,
 ) ([]domain.Folder, error) {
+	if s.FindWhereErr != nil {
+		return nil, s.FindWhereErr
+	}
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}
@@ -317,6 +373,9 @@ func (s *FolderStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
+	if s.DeleteErr != nil {
+		return s.DeleteErr
+	}
 	kept := s.Rows[:0]
 	for _, f := range s.Rows {
 		if f.ID != id {
@@ -412,6 +471,15 @@ type GitEngine struct {
 	UpstreamsSet []string
 	// SetUpstreamErr forces SetUpstream to fail (best-effort tracking path).
 	SetUpstreamErr error
+	// WorktreeRemoveErr forces WorktreeRemove to fail (orphaned-worktree cleanup
+	// after a failed workspace-row create).
+	WorktreeRemoveErr error
+	// RevParseErr forces RevParse to fail (the non-essential fork-point read
+	// after a protected-branch worktree add).
+	RevParseErr error
+	// FetchRefErr forces FetchRef to fail (best-effort origin refresh before
+	// checking a protected branch out at its origin ref).
+	FetchRefErr error
 }
 
 // WorktreeAddCall records a fake WorktreeAdd invocation.
@@ -504,6 +572,9 @@ func (g *GitEngine) FetchRef(
 	repoPath string,
 	branch string,
 ) error {
+	if g.FetchRefErr != nil {
+		return g.FetchRefErr
+	}
 	g.FetchedRefs = append(g.FetchedRefs, branch)
 	return nil
 }
@@ -574,6 +645,9 @@ func (g *GitEngine) WorktreeRemove(
 	repoPath string,
 	worktreePath string,
 ) error {
+	if g.WorktreeRemoveErr != nil {
+		return g.WorktreeRemoveErr
+	}
 	g.WorktreeRemoves = append(g.WorktreeRemoves, worktreePath)
 	return nil
 }
@@ -592,6 +666,9 @@ func (g *GitEngine) RevParse(
 	repoPath string,
 	rev string,
 ) (string, error) {
+	if g.RevParseErr != nil {
+		return "", g.RevParseErr
+	}
 	if sha, ok := g.RevParseShas[rev]; ok {
 		return sha, nil
 	}

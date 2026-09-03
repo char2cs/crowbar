@@ -482,7 +482,9 @@ func (rs *Runners) RequirePromptRestart(
 	if err != nil {
 		return err
 	}
-	launched := engineagents.Selection{Model: live.LaunchModel, Effort: live.LaunchEffort}
+	launched := engineagents.Selection{
+		Model: live.LaunchModel, Effort: live.LaunchEffort, PermissionLevel: live.LaunchPermissionLevel,
+	}
 	if descriptor.SelectionRestart(launched, desired) {
 		return nil
 	}

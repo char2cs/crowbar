@@ -289,6 +289,41 @@ func TestSearchDiff_UnknownRefIsAnError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestSearchDiff_NonexistentRepoPath_ReturnsStartError covers the branch
+// before any streaming begins: GitStream failing to even start the
+// subprocess, distinct from UnknownRefIsAnError above (a started process that
+// exits non-zero once waited on).
+func TestSearchDiff_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
+	_, _, err := diff.SearchDiff(
+		context.Background(), "/nonexistent/path/xyz123", "HEAD", "alpha", gitdomain.SearchOpts{},
+	)
+
+	require.Error(t, err)
+}
+
+// TestSearchDiff_BlankContextLine covers a context line that is truly empty
+// (git emits no leading space for it, since there is nothing to prefix) —
+// body() must still advance both line counters from a zero-length line rather
+// than mistaking it for something else.
+func TestSearchDiff_BlankContextLine(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "f.txt", "a\nb\n\nc\nd\n")
+	mustGit(t, dir, "add", "-A")
+	mustGit(t, dir, "commit", "-m", "base")
+	base := headSHA(t, dir)
+	writeFile(t, dir, "f.txt", "a\nb\n\nc\nMATCHME\n")
+
+	hits, truncated, err := diff.SearchDiff(context.Background(), dir, base, "MATCHME", gitdomain.SearchOpts{})
+
+	require.NoError(t, err)
+	assert.False(t, truncated)
+	// Line 5, not 4: a miscounted blank line at 3 would shift every line
+	// number after it down by one.
+	assert.Equal(t, []gitdomain.SearchHit{
+		{Path: "f.txt", Side: "new", LineNumber: 5, Preview: "MATCHME"},
+	}, hits)
+}
+
 // TestSearchDiff_LongLineBeyondScannerLimit: bufio.Scanner's default 64 KB
 // token limit would abort the whole scan on a minified bundle, and a preview of
 // the whole line would put 70 KB into a JSON response per hit.

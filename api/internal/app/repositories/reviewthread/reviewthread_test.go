@@ -260,6 +260,14 @@ func TestReviewThread_DeleteThread_Forgets(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestReviewThread_DeleteThread_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	err := repo.DeleteThread(ctx, "does-not-exist")
+
+	assert.Error(t, err, "forgetting an aggregate that was never opened is a caller bug, not a no-op")
+}
+
 // TestReviewThread_ConcurrentReplies_NoWriteMu_OCC proves the writeMu deletion
 // (decision 10) for reviewthread: many replies targeting the SAME thread at once
 // must ALL commit via Send + OCC retry (shard routing + (id,version) uniqueness +
@@ -440,6 +448,100 @@ func TestReviewThread_ListByWorkspace_StorageError(t *testing.T) {
 
 	_, err = repo.ListByWorkspace(ctx, "w1")
 	assert.Error(t, err)
+}
+
+// TestReviewThread_EditMessage_UpdatesBody pins EditMessage's happy path: it
+// rewrites the target message's body in place without touching the others.
+func TestReviewThread_EditMessage_UpdatesBody(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1, 0)
+	_, err := repo.Open(ctx, reviewthread.OpenInput{ID: "t1", WsID: "w1", MessageID: "m1", Body: "first"}, now)
+	require.NoError(t, err)
+	_, err = repo.Reply(ctx, reviewthread.ReplyInput{ID: "t1", MessageID: "m2", Body: "second"}, now)
+	require.NoError(t, err)
+
+	edited, err := repo.EditMessage(ctx, "t1", "m2", "second, corrected")
+
+	require.NoError(t, err)
+	require.Len(t, edited.Messages, 2)
+	assert.Equal(t, "first", edited.Messages[0].Body, "editing m2 must not touch m1")
+	assert.Equal(t, "second, corrected", edited.Messages[1].Body)
+}
+
+func TestReviewThread_EditMessage_ErrorOnMissingThread(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.EditMessage(ctx, "does-not-exist", "m1", "x")
+
+	assert.Error(t, err)
+}
+
+func TestReviewThread_EditMessage_ErrorOnUnknownMessageID(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Open(ctx, reviewthread.OpenInput{ID: "t1", WsID: "w1", MessageID: "m1", Body: "first"}, time.Unix(1, 0))
+	require.NoError(t, err)
+
+	_, err = repo.EditMessage(ctx, "t1", "no-such-message", "x")
+
+	assert.Error(t, err)
+}
+
+// TestReviewThread_DeleteMessage_RemovesAReply pins DeleteMessage's happy path:
+// a non-root reply is removed and the root comment (Messages[0]) survives.
+func TestReviewThread_DeleteMessage_RemovesAReply(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1, 0)
+	_, err := repo.Open(ctx, reviewthread.OpenInput{ID: "t1", WsID: "w1", MessageID: "m1", Body: "first"}, now)
+	require.NoError(t, err)
+	_, err = repo.Reply(ctx, reviewthread.ReplyInput{ID: "t1", MessageID: "m2", Body: "second"}, now)
+	require.NoError(t, err)
+
+	deleted, err := repo.DeleteMessage(ctx, "t1", "m2")
+
+	require.NoError(t, err)
+	require.Len(t, deleted.Messages, 1)
+	assert.Equal(t, "m1", deleted.Messages[0].ID)
+}
+
+func TestReviewThread_DeleteMessage_ErrorOnMissingThread(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.DeleteMessage(ctx, "does-not-exist", "m1")
+
+	assert.Error(t, err)
+}
+
+// TestReviewThread_DeleteMessage_ErrorOnRootComment pins the domain rule (09
+// §3): the root comment cannot be deleted this way, only by forgetting the
+// whole thread — deleting it would leave a review thread with no anchor.
+func TestReviewThread_DeleteMessage_ErrorOnRootComment(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Open(ctx, reviewthread.OpenInput{ID: "t1", WsID: "w1", MessageID: "m1", Body: "first"}, time.Unix(1, 0))
+	require.NoError(t, err)
+
+	_, err = repo.DeleteMessage(ctx, "t1", "m1")
+
+	assert.Error(t, err)
+}
+
+// TestReviewThread_OccSend_UnrecognizedErrorSurfacedImmediately pins occSend's
+// default disposition (spec §3.5, decision 10): an error that is none of the
+// three classified sentinels is neither retried nor translated — it is
+// exactly the terminal-error branch the switch's default case exists for.
+func TestReviewThread_OccSend_UnrecognizedErrorSurfacedImmediately(t *testing.T) {
+	ctx := context.Background()
+	cmd := rtcmds.ResolveReviewThread{ID: "t1"}
+	sentinel := fmt.Errorf("unclassified failure")
+	calls := 0
+	send := func(context.Context, asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
+		calls++
+		return asynxModels.Event[domain.ReviewThread]{}, sentinel
+	}
+
+	_, err := reviewthread.OccSend(ctx, send, cmd)
+
+	require.ErrorIs(t, err, sentinel)
+	assert.Equal(t, 1, calls, "an unclassified error must not be retried")
 }
 
 func TestReviewThread_New_ErrorOnBadDB(t *testing.T) {

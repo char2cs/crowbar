@@ -234,6 +234,22 @@ func (rs *Runners) quitOutgoingCLI(
 	return nil
 }
 
+// sessionAnnounceCrashWindow bounds how recently a conversation must have been
+// FIRST SEEN for a turnless session to still be read as the announce-then-crash
+// race resumableConversation exists to catch, rather than as a conversation
+// that simply predates the activity table (see below). A provider that crashes
+// before completing its first turn does so within moments of announcing the
+// session — it is a startup crash, not a stall — so tens of seconds comfortably
+// covers the race without also swallowing conversations that are merely old.
+//
+// termwait's constants (DefaultStallQuiet and friends) are NOT reused here:
+// every one of them bounds how long a LIVE, currently-running CLI may go quiet
+// before Crowbar treats it as stuck. This is a different question — how old a
+// conversation's FIRST ANNOUNCEMENT is — asked long after any such CLI is gone,
+// so borrowing one would just be reaching for a number that happens to exist
+// rather than one that means the right thing.
+const sessionAnnounceCrashWindow = 30 * time.Second
+
 func (rs *Runners) resumableConversation(
 	ctx context.Context,
 	chat domain.Chat,
@@ -245,9 +261,11 @@ func (rs *Runners) resumableConversation(
 	}
 	// Oldest first, so the LAST match is the most recent conversation this provider
 	// held in this chat.
+	var firstSeenAt time.Time
 	for _, c := range convs {
 		if c.ProviderID == targetProviderID {
 			sessionID = c.SessionID
+			firstSeenAt = c.FirstSeenAt
 		}
 	}
 	if sessionID == "" {
@@ -258,14 +276,33 @@ func (rs *Runners) resumableConversation(
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("last turn for session: %w", err)
 	}
-	if !found {
-		// The CLI reported this conversation id but never recorded a turn under it, so
-		// there is no conversation on disk to resume. Spawn fresh.
+	if found {
+		return sessionID, leftAt, nil
+	}
+	// No turn is recorded for this session in the activity table. That alone is
+	// ambiguous: it is exactly what a provider that announced a session and then
+	// crashed before its first turn also looks like — but it is ALSO exactly what
+	// every conversation from before the activity table existed looks like,
+	// forever, no matter how much real history it has on the provider's own side
+	// (see this function's package-level doc references for the migration this
+	// guards against). Age is what tells the two apart.
+	if time.Since(firstSeenAt) < sessionAnnounceCrashWindow {
+		// Recent enough to be the genuine crash race: the CLI reported this
+		// conversation id but never recorded a turn under it, so there is no
+		// conversation on disk to resume. Spawn fresh.
 		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns; spawning fresh instead of resuming",
 			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
 		return "", time.Time{}, nil
 	}
-	return sessionID, leftAt, nil
+	// Old enough that the missing row means "predates this table", not "crashed
+	// before its first turn". The session id is still real and still resumable —
+	// refusing it here would be strictly more destructive than the race this
+	// guard exists to catch. There is no per-turn record to draw the gap cutoff
+	// from, so chat.LastActivityAt (folded from the chat's own turn events, which
+	// survive this migration untouched) stands in for it.
+	slog.InfoContext(ctx, "agent: prior conversation predates recorded turns; resuming anyway using the chat's last activity as the gap cutoff",
+		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
+	return sessionID, chat.LastActivityAt, nil
 }
 
 // forceSwitchAfter bounds how long a switch waits for the outgoing turn before

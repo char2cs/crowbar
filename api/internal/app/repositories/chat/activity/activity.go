@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -126,6 +127,43 @@ type EventStore interface {
 type eventSourced struct {
 	ax    asynx.Asynx[domain.ChatActivity]
 	store *store.Store
+
+	// snapshotInterval and snapshotCounter exist purely as a test seam (see
+	// SetSnapshotIntervalForTest in export_test.go). asynx defers snapshot
+	// cadence entirely to each command's own ShouldSnapshot(), which most
+	// high-frequency commands here (InvokeTool, CompleteTool, OpenChoice...)
+	// correctly leave off the hot path in production. A test that drives
+	// hundreds of such commands at one aggregate with no snapshotting
+	// command interleaved pays full cold-replay-from-version-1 on every one
+	// (O(n^2)); forcing an occasional snapshot bounds that without changing
+	// any observable state, since snapshot+delta replay must always
+	// reconstruct the same state as a full replay.
+	snapshotInterval atomic.Int64
+	snapshotCounter  atomic.Int64
+}
+
+// snapshotForcingCommand overrides ShouldSnapshot to true while forwarding
+// every other Command method to the wrapped command unchanged.
+type snapshotForcingCommand struct {
+	asynxModels.Command[domain.ChatActivity]
+}
+
+func (snapshotForcingCommand) ShouldSnapshot() bool { return true }
+
+// maybeForceSnapshot wraps cmd so it snapshots once every snapshotInterval
+// dispatched commands, when an interval has been set (test-only; zero is the
+// production default and returns cmd unchanged).
+func (r *eventSourced) maybeForceSnapshot(
+	cmd asynxModels.Command[domain.ChatActivity],
+) asynxModels.Command[domain.ChatActivity] {
+	n := r.snapshotInterval.Load()
+	if n <= 0 {
+		return cmd
+	}
+	if r.snapshotCounter.Add(1)%n != 0 {
+		return cmd
+	}
+	return snapshotForcingCommand{cmd}
 }
 
 func NewEventSourced(
@@ -142,11 +180,11 @@ func NewEventSourced(
 }
 
 func (r *eventSourced) send(ctx context.Context, cmd asynxModels.Command[domain.ChatActivity]) error {
-	return r.dispatch(ctx, r.ax.Send, cmd)
+	return r.dispatch(ctx, r.ax.Send, r.maybeForceSnapshot(cmd))
 }
 
 func (r *eventSourced) sendWait(ctx context.Context, cmd asynxModels.Command[domain.ChatActivity]) error {
-	return r.dispatch(ctx, r.ax.SendWait, cmd)
+	return r.dispatch(ctx, r.ax.SendWait, r.maybeForceSnapshot(cmd))
 }
 
 type sendFunc func(

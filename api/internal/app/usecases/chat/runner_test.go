@@ -624,6 +624,93 @@ func TestResumeChat_ConversationWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom
 	}
 }
 
+// TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh
+// is the fix for the bug a real user hit reopening tonight's Nightly build on their
+// production data: EVERY existing chat, on reopen, spawned a brand-new provider session
+// instead of resuming the old one — losing the CLI's own native conversation memory for
+// every chat they had.
+//
+// PR #151 introduced the agent_turns activity table (queried via
+// activity.LastTurnForSession) to record turns from hooks. That table did not exist
+// before the migration, so it has ZERO rows for every conversation that predates it —
+// which looks identical to the guard's original, legitimate target: a provider that
+// announced a session and then crashed before completing its first turn. The chat's
+// history (ConversationsForChat) is untouched and still names the real, resumable
+// session id; only the brand-new table is empty. The old code refused to resume on that
+// empty table alone and threw the real session away.
+//
+// This seeds exactly that shape directly on the runner store (bypassing the
+// session_start hook, which always stamps "now" — there is no other seam to backdate
+// FirstSeenAt): one real session, first seen weeks ago, with no turn ever recorded under
+// it. Reopening the chat must resume that exact session, not mint a fresh one.
+func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	// Bind the runner's ONE AND ONLY conversation directly on the store, exactly as
+	// ConversationsForChat would report it for a real chat untouched since before the
+	// activity table existed: a real session id, first seen long ago, with no turn ever
+	// recorded under it in agent_turns (nothing here ever calls turn()).
+	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
+	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo)
+	require.NoError(t, err)
+	f.wait()
+
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	newRunnerID, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+	assert.Equal(t, newRunnerID, live.ID)
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, "sid-legacy-session", argAfter(t, argv, "--resume"),
+		"a conversation that predates the activity table must still be resumed by its "+
+			"real session id, not thrown away for a freshly minted one; argv was %v", argv)
+}
+
+// TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh is the
+// regression-of-the-regression-guard for the fix above: it must not also swallow the
+// genuine race resumableConversation was originally written to catch. A provider that
+// announces a session and crashes before its first turn looks — in the activity table —
+// identical to an old, pre-migration conversation: zero rows either way. Only how
+// recently the session was first seen tells them apart, and this pins that a session
+// announced moments ago is still read as the crash, not as history, and is still
+// refused so a fresh one is spawned.
+func TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	// The CLI reported its conversation id moments ago and never took a turn under
+	// it — the genuine startup-crash race, not an old conversation.
+	f.announce(t, runnerID, "sid-crashed-session")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, -1, indexOf(argv, "--resume"),
+		"a session announced moments ago with no recorded turn is still the crash race "+
+			"and must NOT be resumed; argv was %v", argv)
+	for _, a := range argv {
+		assert.NotContains(t, a, "sid-crashed-session")
+	}
+}
+
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
 // switch-back path. A provider that ran in this chat but never said anything has no
 // conversation to return to, so it is spawned fresh — and, having no history of its

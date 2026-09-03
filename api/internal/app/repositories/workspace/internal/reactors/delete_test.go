@@ -1,8 +1,10 @@
 package reactors
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -94,6 +96,8 @@ type fakePaths struct {
 	mu          sync.Mutex
 	rows        map[string]string
 	deleteCalls []string
+	getErr      error
+	deleteErr   error
 }
 
 func newFakePaths() *fakePaths {
@@ -117,6 +121,9 @@ func (f *fakePaths) Get(
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.getErr != nil {
+		return "", f.getErr
+	}
 	path, ok := f.rows[workspaceID]
 	if !ok {
 		return "", wspaths.ErrNotFound
@@ -130,6 +137,9 @@ func (f *fakePaths) Delete(
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deleteCalls = append(f.deleteCalls, workspaceID)
 	delete(f.rows, workspaceID)
 	return nil
@@ -369,6 +379,216 @@ func (f *fakeAx) Subscribe(
 	_ ...asynxModels.SubscriptionOpt[domain.Workspace],
 ) (string, error) {
 	return "", f.subscribeErr
+}
+
+// TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty proves onEvent's id
+// resolution: some event sources leave AggregateID unset, and the reactor must
+// still resolve the aggregate from evt.Aggregate.ID rather than purging nothing.
+func TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty(t *testing.T) {
+	ctx, ax := newAx(t)
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1"})
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
+	rmCh := make(chan string, 1)
+	rmWorktree := func(path string) error {
+		rmCh <- path
+		return nil
+	}
+	gate := drain.New()
+	r := newDeleteReactor(
+		ax, reader, paths,
+		func(context.Context, string) error { return nil },
+		rmWorktree, gate,
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.onEvent(ctx, asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
+
+	path := <-rmCh
+	assert.Equal(t, "/wt/w1", path, "an empty AggregateID must fall back to evt.Aggregate.ID")
+	gate.WaitIdle(context.Background())
+}
+
+// TestDeleteReactor_OnEvent_RefusedOnceDraining proves the gate actually stops the
+// reactor from spawning new purge work once a drain has begun (spec §3.6): a
+// refused event is not a dropped one, but it must not touch the worktree either.
+func TestDeleteReactor_OnEvent_RefusedOnceDraining(t *testing.T) {
+	ctx, ax := newAx(t)
+	gate := drain.New()
+	gate.Wait(context.Background()) // begins draining; nothing is admitted yet, so this converges immediately
+
+	rmCalled := false
+	r := newDeleteReactor(
+		ax, &fakeStoreReader{}, newFakePaths(),
+		func(context.Context, string) error { return nil },
+		func(string) error { rmCalled = true; return nil },
+		gate,
+	)
+
+	r.onEvent(ctx, asynxModels.Event[domain.Workspace]{AggregateID: "w1"})
+
+	assert.False(t, rmCalled, "a refused event must not spawn purge work")
+}
+
+// TestDeleteReactor_ResolvePath_RealStoreErrorAbortsPurge proves that a genuine
+// id-path store error (as opposed to wspaths.ErrNotFound) aborts the whole purge
+// rather than being treated as "nothing to remove" — the tombstone must survive
+// for the boot sweep to re-drive it.
+func TestDeleteReactor_ResolvePath_RealStoreErrorAbortsPurge(t *testing.T) {
+	ctx, ax := newAx(t)
+	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	paths := newFakePaths()
+	paths.getErr = errors.New("id-path store unavailable")
+
+	rtCalled := false
+	rmCalled := false
+	r := newDeleteReactor(
+		ax, reader, paths,
+		func(context.Context, string) error { rtCalled = true; return nil },
+		func(string) error { rmCalled = true; return nil },
+		drain.New(),
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.purge(ctx, "w1")
+
+	assert.False(t, rtCalled, "resolvePath's own error must abort before the review-thread cascade runs")
+	assert.False(t, rmCalled)
+	exists, err := ax.Exists(ctx, "w1")
+	require.NoError(t, err)
+	assert.True(t, exists, "the aggregate must survive an id-path store error for the boot sweep to re-drive")
+}
+
+// TestDeleteReactor_ReviewThreadForget_ErrorAbortsPurge proves the cascade
+// ordering contract: if the review-thread forget cascade fails, the reactor must
+// not proceed to remove the worktree or forget the aggregate — otherwise a
+// crash-recovered re-drive could never re-run the cascade against a worktree
+// that is already gone.
+func TestDeleteReactor_ReviewThreadForget_ErrorAbortsPurge(t *testing.T) {
+	ctx, ax := newAx(t)
+	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
+
+	rmCalled := false
+	r := newDeleteReactor(
+		ax, reader, paths,
+		func(context.Context, string) error { return errors.New("cascade failed") },
+		func(string) error { rmCalled = true; return nil },
+		drain.New(),
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.purge(ctx, "w1")
+
+	assert.False(t, rmCalled, "the worktree must not be removed once the cascade has failed")
+	assert.Empty(t, paths.deletes())
+	exists, err := ax.Exists(ctx, "w1")
+	require.NoError(t, err)
+	assert.True(t, exists, "the aggregate must survive a cascade failure for the boot sweep to re-drive")
+}
+
+// TestDeleteReactor_RemoveWorktree_ErrorAbortsPurge proves that a failed rm
+// leaves the id↔path row and the aggregate intact, so a re-drive can retry the
+// removal instead of silently losing track of the worktree.
+func TestDeleteReactor_RemoveWorktree_ErrorAbortsPurge(t *testing.T) {
+	ctx, ax := newAx(t)
+	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
+
+	r := newDeleteReactor(
+		ax, reader, paths,
+		func(context.Context, string) error { return nil },
+		func(string) error { return errors.New("permission denied") },
+		drain.New(),
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.purge(ctx, "w1")
+
+	assert.Empty(t, paths.deletes(), "a failed rm must abort before the id-path row is ever deleted")
+	exists, err := ax.Exists(ctx, "w1")
+	require.NoError(t, err)
+	assert.True(t, exists, "the aggregate must survive a failed rm for the boot sweep to re-drive")
+}
+
+// TestDeleteReactor_PathsDelete_ErrorAbortsForget proves the terminal Forget is
+// never reached once the id↔path row cannot be deleted — Forgetting anyway would
+// drop the read-model row while the id↔path row still points at a removed
+// worktree, breaking the boot sweep's ability to find it.
+func TestDeleteReactor_PathsDelete_ErrorAbortsForget(t *testing.T) {
+	ctx, ax := newAx(t)
+	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
+	paths.deleteErr = errors.New("row locked")
+
+	r := newDeleteReactor(
+		ax, reader, paths,
+		func(context.Context, string) error { return nil },
+		func(string) error { return nil },
+		drain.New(),
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.purge(ctx, "w1")
+
+	exists, err := ax.Exists(ctx, "w1")
+	require.NoError(t, err)
+	assert.True(t, exists, "the aggregate must survive a failed id-path delete for the boot sweep to re-drive")
+}
+
+// fakeAxForget wraps a real asynx.Asynx[domain.Workspace] but overrides Forget so
+// a test can force the one error class production code treats as a real failure
+// (as opposed to ErrValidation, which forget() swallows as an idempotent re-drive).
+type fakeAxForget struct {
+	asynx.Asynx[domain.Workspace]
+	forgetErr error
+}
+
+func (f *fakeAxForget) Forget(context.Context, string) error {
+	return f.forgetErr
+}
+
+// TestDeleteReactor_Forget_LogsARealErrorInstead proves the terminal step's error
+// disposition: an ErrValidation is a swallowed idempotent re-drive (covered by
+// TestDeleteReactor_Purge_Idempotent), but any OTHER error must be logged rather
+// than silently dropped, since it is the last chance to notice the aggregate was
+// never actually forgotten.
+func TestDeleteReactor_Forget_LogsARealErrorInstead(t *testing.T) {
+	reader := &fakeStoreReader{}
+	reader.set(&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted})
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(context.Background(), "w1", "/wt/w1"))
+
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	r := newDeleteReactor(
+		&fakeAxForget{forgetErr: errors.New("event store unavailable")},
+		reader, paths,
+		func(context.Context, string) error { return nil },
+		func(string) error { return nil },
+		drain.New(),
+		WithGatePollInterval(2*time.Millisecond),
+	)
+
+	r.purge(context.Background(), "w1")
+
+	assert.Contains(t, logged.String(), "workspace delete reactor: forget aggregate")
+	assert.Contains(t, logged.String(), "event store unavailable")
 }
 
 func TestRegisterDeleteReactor_SubscribeError(t *testing.T) {

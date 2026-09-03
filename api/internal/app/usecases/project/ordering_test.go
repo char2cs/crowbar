@@ -244,3 +244,146 @@ func TestReorder_MissingAfterTheWriteIs404(t *testing.T) {
 	_, err := uc.Reorder(ctx, "b", 0)
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
+
+// TestReorder_ListStoreError covers Reorder surfacing a failure reading the
+// project list it renumbers over, before any row is touched.
+func TestReorder_ListStoreError(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	projects.FindAllErr = errors.New("db down")
+
+	_, err := uc.Reorder(context.Background(), "a", 0)
+	assert.ErrorContains(t, err, "db down")
+}
+
+// TestUpdateRepo_LookupStoreError covers the repo lookup at the very top of
+// UpdateRepo failing (as opposed to the repo simply not existing, covered by
+// TestProjectUsecase_UpdateRepo_NotFound).
+func TestUpdateRepo_LookupStoreError(t *testing.T) {
+	_, repos, uc := newProjectUsecase(t)
+	repos.FindByKeyErr = errors.New("db down")
+
+	_, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// TestUpdateRepo_TargetProjectLookupError covers applyRepoProject surfacing a
+// failure resolving the destination project, distinct from that project simply
+// not existing (TestUpdateRepo_UnknownProjectIs404 above).
+func TestUpdateRepo_TargetProjectLookupError(t *testing.T) {
+	projects, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+	projects.FindErr = errors.New("db down")
+
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// TestUpdateRepo_DensifySaveError covers densifyRepos surfacing a failure
+// saving a sibling row it renumbers — as opposed to the row being explicitly
+// moved, whose own (unrelated) metadata save already succeeded earlier in
+// UpdateRepo.
+func TestUpdateRepo_DensifySaveError(t *testing.T) {
+	_, repos, uc := newProjectUsecase(t)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Order: 0}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Order: 1}))
+	// r2 moves to the front, which pushes r1 back a slot — r1 is the sibling
+	// whose densify-save fails.
+	repos.SaveErrForID = map[string]error{"r1": errors.New("disk full")}
+
+	_, err := uc.UpdateRepo(ctx, "r2", project.RepoUpdate{Order: index(0)})
+	assert.ErrorContains(t, err, "disk full")
+}
+
+// TestRegression_UpdateRepo_OriginDensifyErrorSurfacesAfterAlreadyCommittedMove
+// covers the SECOND densify call UpdateRepo makes on a cross-project move —
+// renumbering the project the repo LEFT. The move itself (the repo's own row)
+// has already been saved by the time this runs, so a failure here surfaces to
+// the caller even though the repo has, in fact, already relocated; nothing
+// unwinds that, because the next reconcile of either project's list corrects
+// the numbering from what's on disk.
+func TestRegression_UpdateRepo_OriginDensifyErrorSurfacesAfterAlreadyCommittedMove(t *testing.T) {
+	projects, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
+	ctx := context.Background()
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1"}))
+	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Order: 0}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Order: 1}))
+	// Once r1 leaves p1, r2 is the sole remaining row and must densify from
+	// order 1 down to order 0 — that save is the one made to fail.
+	repos.SaveErrForID = map[string]error{"r2": errors.New("disk full")}
+
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
+
+	assert.ErrorContains(t, err, "disk full")
+	moved, findErr := repos.FindByKey(ctx, "r1")
+	require.NoError(t, findErr)
+	require.NotNil(t, moved)
+	assert.Equal(t, "p2", moved.ProjectID,
+		"the repo's own move already committed before the origin densify ran")
+}
+
+// repositoryStoreMissingAfterSave is a one-off store.ScopedStore[domain.Repository, string]
+// fake: it answers the first FindByKey (UpdateRepo's initial lookup) and every
+// FindWhere (the densify passes) normally, but the SECOND FindByKey call (the
+// post-save re-fetch UpdateRepo uses to return what was actually persisted)
+// comes back not-found — modelling a row removed by something else between the
+// save and the re-read.
+type repositoryStoreMissingAfterSave struct {
+	row           domain.Repository
+	findByKeyCall int
+}
+
+func (s *repositoryStoreMissingAfterSave) Save(context.Context, domain.Repository) error {
+	return nil
+}
+
+func (s *repositoryStoreMissingAfterSave) Delete(context.Context, string) error { return nil }
+
+func (s *repositoryStoreMissingAfterSave) FindByKey(
+	_ context.Context,
+	id string,
+) (*domain.Repository, error) {
+	s.findByKeyCall++
+	if s.findByKeyCall > 1 {
+		return nil, nil
+	}
+	if id != s.row.ID {
+		return nil, nil
+	}
+	row := s.row
+	return &row, nil
+}
+
+func (s *repositoryStoreMissingAfterSave) FindAll(
+	context.Context,
+) ([]domain.Repository, error) {
+	return []domain.Repository{s.row}, nil
+}
+
+func (s *repositoryStoreMissingAfterSave) FindWhere(
+	_ context.Context,
+	match domain.Repository,
+) ([]domain.Repository, error) {
+	if match.ProjectID != "" && match.ProjectID != s.row.ProjectID {
+		return nil, nil
+	}
+	return []domain.Repository{s.row}, nil
+}
+
+// TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty
+// pins the fallback at the end of UpdateRepo: the row was just saved
+// successfully, so a nil/failed re-fetch is not treated as the update having
+// failed — the caller gets back what it just wrote instead of an error.
+func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
+	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
+	uc := project.New(mocks.NewProjectStore(), repos, nil)
+
+	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
+
+	require.NoError(t, err, "a vanished post-save re-fetch must not fail an update that already succeeded")
+	assert.Equal(t, "renamed", got.Name, "the caller gets back the row it just wrote")
+}

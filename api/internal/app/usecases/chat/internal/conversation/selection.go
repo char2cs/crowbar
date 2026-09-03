@@ -143,8 +143,26 @@ func (c *Conversations) ChatSelection(
 	if err != nil {
 		return engineagents.Selection{}, fmt.Errorf("agent: chat selection: %w", err)
 	}
+	level := chat.PermissionLevel
+	if level == "" {
+		// Should never happen — domain.Chat's own doc comment says a chat is
+		// always seeded with a real level at creation — except for one that
+		// predates the seeding logic and was carried through unseeded (a chat
+		// from before this feature existed, replayed through the chat-model
+		// migration that never had this field at all). Read as "not seeded
+		// yet", never as a genuine choice: resolve the CURRENT global default
+		// here, the same as a fresh mint, and seed it durably so this chat
+		// stops being unseeded rather than repeating this fallback — and
+		// resolving to guarded on it — on every future spawn.
+		level, err = c.defaultPermissionLevel(ctx)
+		if err != nil {
+			level = "guarded"
+		} else {
+			c.SeedPermissionLevel(ctx, chatID)
+		}
+	}
 	return engineagents.Selection{
-		Model: chat.Model, Effort: chat.Effort, PermissionLevel: chat.PermissionLevel,
+		Model: chat.Model, Effort: chat.Effort, PermissionLevel: level,
 	}, nil
 }
 
