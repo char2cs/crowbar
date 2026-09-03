@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
 import { PointApi, RangeApi, type Value } from 'platejs'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
@@ -167,7 +167,17 @@ export function ChatMarkdownEditor({
   // The editable's height, for whatever rides its last line. Observed rather
   // than derived from the text: a wrapped line and a typed newline are the same
   // thing to a reader, and only the browser knows where the wrap fell.
-  useEffect(() => {
+  //
+  // LAYOUT effect, not a plain one: a plain `useEffect` runs AFTER the browser
+  // paints, so a box that mounts (or grows) already multi-line — a recalled or
+  // recovered draft, a large paste — painted its real, already-tall DOM height
+  // for at least one real frame BEFORE this got a chance to report it and flip
+  // `.pill` to `.multi` (composer.css). That frame is the pill's fully-round
+  // single-line radius stretched over box the height of many lines — reported
+  // live as "the input box's corners are wrong on a big message". A layout
+  // effect runs synchronously before paint, so the height (and therefore the
+  // right radius) is correct in the very first frame the box is visible in.
+  useLayoutEffect(() => {
     const host = hostRef.current
     const editable = host?.querySelector<HTMLElement>('[data-slate-editor]')
     if (!editable || !onHeightChange) return
