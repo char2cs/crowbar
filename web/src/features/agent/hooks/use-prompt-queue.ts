@@ -281,7 +281,11 @@ export function usePromptQueue(options: PromptQueueOptions) {
   /** Evidence still outstanding, for the ledger's recovery walk. */
   const pendingEvidence = useCallback(() => queueRef.current.some(awaitingEvidence), [])
   const pendingBaselines = useCallback(
-    () => queueRef.current.filter(awaitingEvidence).map((item) => item.baselineSequence),
+    () =>
+      queueRef.current.reduce<number[]>((sequences, item) => {
+        if (awaitingEvidence(item)) sequences.push(item.baselineSequence)
+        return sequences
+      }, []),
     [],
   )
   const onRecoveryExhausted = useCallback(() => {

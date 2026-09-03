@@ -1,5 +1,5 @@
 import type { AgentActivity, AgentChoice, AgentTerminalWait } from '@/features/agent/api/agent-api'
-import { blockedOn, pendingChoices } from '@/features/agent/lib/agent-activity'
+import { pendingChoices } from '@/features/agent/lib/agent-activity'
 
 /**
  * What occupies the composer's slot.
@@ -144,11 +144,4 @@ export function resolveComposerState(inputs: ComposerInputs): ComposerState {
 /** Can the user type? Everything that is not an input queues or refuses. */
 export function acceptsTyping(state: ComposerState): boolean {
   return state.kind === 'input' || state.kind === 'compacting'
-}
-
-/** The interruption worth naming beside the bar, if any. Only the latest — they
- *  are states, not a log, and a stack of them tells a reader nothing the top one
- *  does not. */
-export function currentInterruption(activity: AgentActivity) {
-  return blockedOn(activity)
 }

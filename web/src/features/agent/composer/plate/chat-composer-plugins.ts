@@ -131,6 +131,11 @@ const STATIC_EXCLUDED_KEYS = new Set(ChatFloatingToolbarKit.map((plugin) => plug
  * content difference, see callout-content.tsx/link-kit.tsx) get swapped, and
  * `ChatFloatingToolbarKit` gets dropped entirely (see STATIC_EXCLUDED_KEYS).
  */
-export const chatComposerPluginsStatic = chatComposerPlugins
-  .filter((plugin) => !STATIC_EXCLUDED_KEYS.has(plugin.key))
-  .map((plugin) => STATIC_NODE_OVERRIDES[plugin.key] ?? plugin)
+export const chatComposerPluginsStatic = chatComposerPlugins.reduce<typeof chatComposerPlugins>(
+  (plugins, plugin) => {
+    if (!STATIC_EXCLUDED_KEYS.has(plugin.key))
+      plugins.push(STATIC_NODE_OVERRIDES[plugin.key] ?? plugin)
+    return plugins
+  },
+  [],
+)

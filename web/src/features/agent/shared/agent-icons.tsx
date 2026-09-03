@@ -103,24 +103,6 @@ export const StopIcon = icon(
   'StopIcon',
 )
 
-export const CubeIcon = icon(
-  <>
-    <path d="M12 3.5 20 8v8l-8 4.5L4 16V8z" />
-    <path d="M4 8l8 4.5L20 8" />
-    <path d="M12 12.5v8" />
-  </>,
-  'CubeIcon',
-)
-
-export const CompactIcon = icon(
-  <>
-    <path d="M8 4.5 12 8.5l4-4" />
-    <path d="M8 19.5 12 15.5l4 4" />
-    <path d="M4 12h16" />
-  </>,
-  'CompactIcon',
-)
-
 export const SubagentIcon = icon(
   <>
     <circle cx="12" cy="5.5" r="2.4" />
@@ -132,35 +114,10 @@ export const SubagentIcon = icon(
   'SubagentIcon',
 )
 
-export const ClockIcon = icon(
-  <>
-    <circle cx="12" cy="12" r="8.2" />
-    <path d="M12 7.5V12l3 1.8" />
-  </>,
-  'ClockIcon',
-)
-
-export const AlertIcon = icon(
-  <>
-    <path d="M12 4.5 21 19.5H3z" />
-    <path d="M12 10v4" />
-    <path d="M12 16.6h.01" />
-  </>,
-  'AlertIcon',
-)
-
 export const CopyIcon = icon(
   <>
     <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
     <path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
   </>,
   'CopyIcon',
-)
-
-export const ShieldIcon = icon(
-  <>
-    <path d="M12 3 5 6v5.5c0 4.2 2.9 7.6 7 9.5 4.1-1.9 7-5.3 7-9.5V6z" />
-    <path d="M9.5 12.2 11.4 14l3.4-3.6" />
-  </>,
-  'ShieldIcon',
 )

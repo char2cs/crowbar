@@ -70,8 +70,13 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
   // A chat/provider switch invalidates whatever is cached — those are a
   // different CLI's skills, never shown stale under a menu that looks like
   // it belongs to the one now running.
+  // This hook is called from AgentChatView, which already remounts on chatId
+  // (key={wsId:chatId}) — but not on providerId alone, which this also depends
+  // on, so a key cannot fully replace this reset.
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
     setOpen(false)
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
     setState({ state: 'closed' })
   }, [wsId, chatId, providerId])
 

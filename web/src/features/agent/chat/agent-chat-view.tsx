@@ -174,6 +174,10 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
  * every piece of markup in a component — what is left is the wiring between
  * them, which is the only thing that genuinely belongs to "the chat view".
  */
+// Deliberately long for the reason above, not unfactored: splitting the wiring
+// itself into more components would scatter the one place that shows how the
+// hooks and pieces fit together, not simplify it. Flagged, not restructured.
+// react-doctor-disable-next-line react-doctor/no-giant-component
 export function AgentChatView({
   wsId,
   chatId,
@@ -260,6 +264,11 @@ export function AgentChatView({
     const report = () => setDockHeight(node.getBoundingClientRect().height)
     report()
     const observer = new ResizeObserver(report)
+    // False positive: this IS the cleanup path. dockRef is a stable ref callback
+    // (see the comment above), so React invokes it with node=null on unmount —
+    // the disconnect() above runs before every observe(), including that final
+    // null call.
+    // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     observer.observe(node)
     dockObserver.current = observer
   }, [])
@@ -270,6 +279,11 @@ export function AgentChatView({
   const [fieldHeight, setFieldHeight] = useState(20)
   const [composerError, setComposerError] = useState('')
   const [submitUnavailable, setSubmitUnavailable] = useState(false)
+  // The view already remounts on a chatId change (key={wsId:chatId} in
+  // AgentChatPane), which would clear this for free — but NOT on a providerId
+  // change alone, which this effect also depends on and which the key does not
+  // cover. Real, needed reset; a key alone cannot replace it.
+  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
   useEffect(() => setSubmitUnavailable(false), [chatId, providerId])
 
   // The queue baselines its evidence on the ledger's cursor and asks it to
@@ -340,7 +354,11 @@ export function AgentChatView({
   // ArrowUp/ArrowDown actually walk. Never reaches past a page not yet loaded,
   // same as a terminal's history running out at the start of the session.
   const userTexts = useMemo(
-    () => ledger.messages.filter((m) => m.role === 'user').map((m) => m.text),
+    () =>
+      ledger.messages.reduce<string[]>((texts, m) => {
+        if (m.role === 'user') texts.push(m.text)
+        return texts
+      }, []),
     [ledger.messages],
   )
   const history = usePromptHistory(userTexts)
@@ -349,13 +367,20 @@ export function AgentChatView({
     prompts.cancelUnsentPrompts,
   ])
 
+  // These three notify an ANCESTOR outside this subtree (the tab strip's badge
+  // counts) of state usePromptQueue owns internally — there is no shared parent
+  // to lift the state INTO short of hoisting the whole queue hook, which is a
+  // real architecture change, not a quick fix. Flagged, deliberately deferred.
   const { queue } = prompts
+  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
   useEffect(() => onQueueCountChange?.(queue.length), [queue.length, onQueueCountChange])
   useEffect(
+    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
     () => onCancelableQueueCountChange?.(prompts.cancelableCount),
     [prompts.cancelableCount, onCancelableQueueCountChange],
   )
   useEffect(
+    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
     () => onDeliveryPendingChange?.(prompts.deliveryPending),
     [prompts.deliveryPending, onDeliveryPendingChange],
   )
@@ -596,6 +621,9 @@ export function AgentChatView({
   // beginning of a conversation, and so is a failed load worth retrying.
   const nothingYet = ledger.messages.length === 0 && queue.length === 0
   const blank = !ledger.error && nothingYet
+  // Same "notify an ancestor outside this subtree" shape as the queue-count
+  // effects above, and the same reason it is deferred rather than restructured.
+  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
   useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
   // WHICH SURFACE IS NOT KNOWN UNTIL THE FIRST PAGE LANDS, and guessing shows the
   // wrong one: an empty ledger that has not answered yet is indistinguishable

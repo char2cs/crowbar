@@ -20,7 +20,11 @@ const POLL_MS = 5000
 export function useAgentTelemetry(wsId: string, chatId: string, visible: boolean) {
   const [telemetry, setTelemetry] = useState<AgentTelemetry | null>(null)
 
+  // Read by two independent consumers (the gauge and the composer, per the doc
+  // comment above) rather than owned by one component that could key-remount on
+  // chatId, so there is no caller-side key to replace this with.
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
     setTelemetry(null)
   }, [chatId])
 

@@ -287,7 +287,10 @@ export const createAgentChatsSlice: StateCreator<
   seedAgentChats: (chats, opts) => {
     const prev = get().agentChats
     const present = new Set(chats.map((c) => c.id))
-    const vanished = prev.chats.filter((chat) => !present.has(chat.id)).map((chat) => chat.id)
+    const vanished = prev.chats.reduce<string[]>((ids, chat) => {
+      if (!present.has(chat.id)) ids.push(chat.id)
+      return ids
+    }, [])
     const pruned = prev.order.filter((id) => present.has(id))
 
     // Chats that appeared since the last seed. A `created` frame reseeds the whole

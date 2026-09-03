@@ -203,6 +203,10 @@ export function useChatMessages(options: ChatMessagesOptions) {
       if (generation !== loadGeneration.current || isAbort(err)) return
       setError(err instanceof Error ? err : new Error(String(err)))
     } finally {
+      // False positive: this line IS the finally block's own body (see the
+      // `finally {` immediately above) — it already runs on both the success and
+      // rejection path.
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
       if (generation === loadGeneration.current) setLoading(false)
     }
   }, [wsId, chatId, applyMessages, pendingEvidence, pendingBaselines, onRecoveryExhausted])
@@ -322,9 +326,14 @@ export function useChatMessages(options: ChatMessagesOptions) {
   // never a wasted re-render loop.
   useEffect(() => {
     if (!streamingMessages?.length || !onStreamingSettled) return
-    const confirmed = streamingMessages
-      .filter((m) => messages.some((r) => r.role === 'assistant' && r.turnId === `msg-${m.id}`))
-      .map((m) => m.id)
+    const confirmed = streamingMessages.reduce<string[]>((ids, m) => {
+      if (messages.some((r) => r.role === 'assistant' && r.turnId === `msg-${m.id}`)) ids.push(m.id)
+      return ids
+    }, [])
+    // onStreamingSettled prunes a SEPARATE store (streamingMessages[chatId]) this
+    // hook does not own — there is no shared parent to lift into, only a prune
+    // call to make in response to this hook's own derived state changing.
+    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
     if (confirmed.length > 0) onStreamingSettled(confirmed)
   }, [streamingMessages, messages, onStreamingSettled])
 

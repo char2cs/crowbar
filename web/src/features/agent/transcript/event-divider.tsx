@@ -55,8 +55,8 @@ export function EventDivider({
   return (
     <div className="divider" role="separator" data-testid="agent-event-divider">
       <span className="ln" />
-      {tags.map((tag, i) => (
-        <span key={`${tag.kind}-${i}`} className="tag" data-testid={tagTestId(tag)}>
+      {tags.map((tag) => (
+        <span key={tag.kind} className="tag" data-testid={tagTestId(tag)}>
           {tagLabel(tag, providers)}
         </span>
       ))}
