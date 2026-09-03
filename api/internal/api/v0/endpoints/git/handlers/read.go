@@ -10,12 +10,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Status GET /v0/workspaces/:wsId/git/status
+// Status GET /v0/chats/:chatId/git/status
 func (h *Handlers) Status(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	status, err := h.git.Status(rctx, id)
 	if err != nil {
@@ -28,12 +28,12 @@ func (h *Handlers) Status(
 	libs.WriteQueryOK(ctx, dto.GitStatusDTOFrom(status))
 }
 
-// Diff GET /v0/workspaces/:wsId/git/diff?staged=true|false
+// Diff GET /v0/chats/:chatId/git/diff?staged=true|false
 func (h *Handlers) Diff(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	stagedStr := ctx.DefaultQuery("staged", "false")
 	staged, err := strconv.ParseBool(stagedStr)
@@ -52,12 +52,12 @@ func (h *Handlers) Diff(
 	libs.WriteQueryOK(ctx, diffs)
 }
 
-// Log GET /v0/workspaces/:wsId/git/log?limit=50&skip=0
+// Log GET /v0/chats/:chatId/git/log?limit=50&skip=0
 func (h *Handlers) Log(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	limitStr := ctx.DefaultQuery("limit", "50")
 	skipStr := ctx.DefaultQuery("skip", "0")
@@ -84,12 +84,12 @@ func (h *Handlers) Log(
 	libs.WriteQueryOK(ctx, commits)
 }
 
-// Blame GET /v0/workspaces/:wsId/git/blame?path=<filePath>
+// Blame GET /v0/chats/:chatId/git/blame?path=<filePath>
 func (h *Handlers) Blame(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	filePath := ctx.Query("path")
 	if filePath == "" {
@@ -107,12 +107,12 @@ func (h *Handlers) Blame(
 	libs.WriteQueryOK(ctx, entries)
 }
 
-// Branches GET /v0/workspaces/:wsId/git/branches
+// Branches GET /v0/chats/:chatId/git/branches
 func (h *Handlers) Branches(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	branches, err := h.git.Branches(rctx, id)
 	if err != nil {
@@ -124,12 +124,12 @@ func (h *Handlers) Branches(
 	libs.WriteQueryOK(ctx, branches)
 }
 
-// Stashes GET /v0/workspaces/:wsId/git/stashes
+// Stashes GET /v0/chats/:chatId/git/stashes
 func (h *Handlers) Stashes(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	stashes, err := h.git.Stashes(rctx, id)
 	if err != nil {
@@ -141,12 +141,12 @@ func (h *Handlers) Stashes(
 	libs.WriteQueryOK(ctx, stashes)
 }
 
-// Conflicts GET /v0/workspaces/:wsId/git/conflicts
+// Conflicts GET /v0/chats/:chatId/git/conflicts
 func (h *Handlers) Conflicts(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	files, err := h.git.ConflictedFiles(rctx, id)
 	if err != nil {
@@ -158,12 +158,12 @@ func (h *Handlers) Conflicts(
 	libs.WriteQueryOK(ctx, files)
 }
 
-// ConflictHunks GET /v0/workspaces/:wsId/git/conflict-hunks?path=<filePath>
+// ConflictHunks GET /v0/chats/:chatId/git/conflict-hunks?path=<filePath>
 func (h *Handlers) ConflictHunks(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	filePath := ctx.Query("path")
 	if filePath == "" {
@@ -181,12 +181,12 @@ func (h *Handlers) ConflictHunks(
 	libs.WriteQueryOK(ctx, hunks)
 }
 
-// CommitDiff GET /v0/workspaces/:wsId/git/commit-diff?sha=<sha>
+// CommitDiff GET /v0/chats/:chatId/git/commit-diff?sha=<sha>
 func (h *Handlers) CommitDiff(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
-	id := ctx.Param("wsId")
+	id := h.workspaceID(ctx)
 
 	sha := ctx.Query("sha")
 	if sha == "" {

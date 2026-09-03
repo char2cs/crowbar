@@ -6,7 +6,7 @@ import { getBranches } from '../api/git-branches-api'
 import { getStashes } from '../api/git-stash-api'
 import type { GitCommit, GitStash, GitStatus } from '../types/git-types'
 import { createLoadableSlice } from '@/lib/store/loadable-slice'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { idle, success, type Loadable } from '@/lib/loadable'
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200
@@ -104,7 +104,7 @@ export const useGitStore = create<GitState>((set, get) => ({
     const slice = createLoadableSlice<GitData>({
       store: 'git-data',
       fetcher: fetchAllGitData,
-      wsEndpoint: (wsId: string) => `${workspaceBase(wsId)}/git/status`,
+      wsEndpoint: (wsId: string) => `${gitBaseForWorkspace(wsId)}/status`,
     })(
       // setter: remap the slice's { data } writes onto the host's gitData field.
       // The slice only ever calls set({ data: ... }) (verified in loadable-slice.ts);

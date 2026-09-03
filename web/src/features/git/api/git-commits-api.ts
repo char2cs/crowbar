@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { GitCommit } from '../types/git-types'
 
 // Commit the staged changes. The first line is the subject; anything after a
@@ -7,7 +7,7 @@ import type { GitCommit } from '../types/git-types'
 export const commitChanges = async (wsId: string, message: string): Promise<boolean> => {
   const [subject, ...rest] = message.split('\n\n')
   try {
-    await apiFetch(`${workspaceBase(wsId)}/git/commit`, {
+    await apiFetch(`${gitBaseForWorkspace(wsId)}/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject: subject.trim(), body: rest.join('\n\n').trim() }),
@@ -21,7 +21,7 @@ export const commitChanges = async (wsId: string, message: string): Promise<bool
 
 export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
   try {
-    return await apiFetch<GitCommit[]>(`${workspaceBase(wsId)}/git/log?limit=${limit}&skip=${skip}`)
+    return await apiFetch<GitCommit[]>(`${gitBaseForWorkspace(wsId)}/log?limit=${limit}&skip=${skip}`)
   } catch {
     return []
   }

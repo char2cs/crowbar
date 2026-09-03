@@ -166,8 +166,15 @@ func (c *Container) Register(
 		c.app.Usecases.File,
 		c.files.Handle,
 	)
+	// Git is the first of spec §4.2's SHARED bucket to move (§8 step 4): one
+	// worktree, one answer, and every chat holding it sees the same writes. It
+	// mounts on BOTH groups for now — the chat prefix is where it lives, and
+	// the workspace prefix is simply not retired until §8 step 6 — and needs no
+	// workspace reader on either, because each group resolves the worktree
+	// before the handlers run.
 	git.Register(
 		repoScoped,
+		chatScoped,
 		c.app.Usecases.Git,
 		c.app.Repositories.Workspace,
 		c.app.Repositories,

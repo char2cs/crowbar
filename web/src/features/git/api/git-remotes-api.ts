@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { GitRemote } from '../types/git-types'
 
 // Remote listing has no daemon endpoint yet — still a stub.
@@ -34,7 +34,7 @@ const gitRemoteOp = async (
   action: 'push' | 'pull' | 'fetch',
 ): Promise<GitRemoteActionResult> => {
   try {
-    await apiFetch(`${workspaceBase(wsId)}/git/${action}`, { method: 'POST' })
+    await apiFetch(`${gitBaseForWorkspace(wsId)}/${action}`, { method: 'POST' })
     return { success: true }
   } catch (error) {
     console.error(`Failed to ${action}:`, error)

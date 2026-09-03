@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getGitStatus } from '@/features/git/api/git-status-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// §3: workspace-scoped URLs are hierarchical now; the api resolves project/repo
-// from the route-recorded scope. Register one for the test wsId.
+// git is addressed through the chat that owns the worktree, so the api resolves
+// its base from the route-recorded scope's owningChatId. Register one for the
+// test wsId.
 beforeEach(() => {
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 })
 
 function mockFetchEnvelope(data: unknown): void {

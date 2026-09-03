@@ -129,53 +129,103 @@ func passthrough(
 	return rest
 }
 
-func TestRegisterMountsRoutes(
-	t *testing.T,
-) {
-	r := gin.New()
-	git.Register(r.Group("/v0"), stubGit{}, stubLastErrors{}, stubWork{}, func(_ *gin.Context) {}, passthrough)
-
-	cases := []struct {
+// gitSurface is the method+relative-path set git.Register mounts, written once
+// and asserted against BOTH live prefixes. The relative half is deliberately
+// prefix-free: a route that reached only one of the two mounts is the failure
+// this shape makes impossible to miss.
+func gitSurface() []struct {
+	method string
+	path   string
+} {
+	return []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/git/status"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/diff"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/log"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/blame"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/branches"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/stashes"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/conflicts"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/conflict-hunks"},
-		{http.MethodGet, "/v0/workspaces/ws1/git/commit-diff"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/stage"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/stage-hunk"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/unstage"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/unstage-hunk"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/discard"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/commit"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/push"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/fetch"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/pull"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/branches"},
-		{http.MethodPatch, "/v0/workspaces/ws1/git/branches"},
-		{http.MethodDelete, "/v0/workspaces/ws1/git/branches"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/switch"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/stash"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/stash-apply"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/stash-pop"},
-		{http.MethodDelete, "/v0/workspaces/ws1/git/stash"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/reset"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/merge"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/rebase"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/resolve-hunk"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/operation/continue"},
-		{http.MethodPost, "/v0/workspaces/ws1/git/operation/abort"},
+		{http.MethodGet, "/status"},
+		{http.MethodGet, "/diff"},
+		{http.MethodGet, "/log"},
+		{http.MethodGet, "/blame"},
+		{http.MethodGet, "/branches"},
+		{http.MethodGet, "/stashes"},
+		{http.MethodGet, "/conflicts"},
+		{http.MethodGet, "/conflict-hunks"},
+		{http.MethodGet, "/commit-diff"},
+		{http.MethodPost, "/stage"},
+		{http.MethodPost, "/stage-hunk"},
+		{http.MethodPost, "/unstage"},
+		{http.MethodPost, "/unstage-hunk"},
+		{http.MethodPost, "/discard"},
+		{http.MethodPost, "/commit"},
+		{http.MethodPost, "/push"},
+		{http.MethodPost, "/fetch"},
+		{http.MethodPost, "/pull"},
+		{http.MethodPost, "/branches"},
+		{http.MethodPatch, "/branches"},
+		{http.MethodDelete, "/branches"},
+		{http.MethodPost, "/switch"},
+		{http.MethodPost, "/stash"},
+		{http.MethodPost, "/stash-apply"},
+		{http.MethodPost, "/stash-pop"},
+		{http.MethodDelete, "/stash"},
+		{http.MethodPost, "/reset"},
+		{http.MethodPost, "/merge"},
+		{http.MethodPost, "/rebase"},
+		{http.MethodPost, "/resolve-hunk"},
+		{http.MethodPost, "/operation/continue"},
+		{http.MethodPost, "/operation/abort"},
 	}
-	for _, tc := range cases {
+}
+
+// registerBothMounts wires git.Register the way router.go does: the old
+// workspace-scoped group and the flat chat-scoped one, on one engine.
+func registerBothMounts(
+	t *testing.T,
+) *gin.Engine {
+	t.Helper()
+	r := gin.New()
+	v0 := r.Group("/v0")
+	git.Register(
+		v0,
+		v0.Group("/chats/:chatId"),
+		stubGit{},
+		stubLastErrors{},
+		stubWork{},
+		func(_ *gin.Context) {},
+		passthrough,
+	)
+	return r
+}
+
+// TestRegisterMountsChatScopedRoutes is the route half of this step: every git
+// route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
+func TestRegisterMountsChatScopedRoutes(
+	t *testing.T,
+) {
+	r := registerBothMounts(t)
+
+	for _, tc := range gitSurface() {
+		path := "/v0/chats/chat1/git" + tc.path
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+	}
+}
+
+// TestRegisterKeepsWorkspaceScopedRoutes is the regression bar for the
+// coexistence this step deliberately ships: the workspace-scoped surface is
+// NOT retired here (spec §8 step 6 does that, once every group has moved), so
+// every one of its routes must still answer exactly as before.
+func TestRegisterKeepsWorkspaceScopedRoutes(
+	t *testing.T,
+) {
+	r := registerBothMounts(t)
+
+	for _, tc := range gitSurface() {
+		path := "/v0/workspaces/ws1/git" + tc.path
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
 	}
 }

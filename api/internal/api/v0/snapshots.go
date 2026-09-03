@@ -167,16 +167,20 @@ func threadsSnapshot(
 	}
 }
 
-// scopedWorkspaceRows resolves scope to the workspace(s) gitSnapshot/lspSnapshot
-// should cover. The broadcaster (ws/broadcaster.go Handle) always invokes
-// Snapshot with clientScope's full hierarchical "p/r/w" prefix — never the bare
-// id ScopeKey/scopeWsID resolves for the separate OnSubscribe/OnUnsubscribe
-// lifecycle hooks (watcher/LSP/origin-sync refcounting) — so scope here is
-// parsed exactly like threadsSnapshot/terminalsSnapshot parse it: the third
-// segment is the workspace id. A scope with fewer than 3 segments (or callers,
-// such as unit tests, that pass a bare workspace id directly with no "/") is
-// treated as already being the workspace id verbatim, so a direct call like
-// gitSnapshot(a)("w1") still resolves.
+// scopedWorkspaceRows resolves a HIERARCHICAL scope to the workspace(s)
+// gitSnapshot/lspSnapshot should cover. For a workspace-scoped route the
+// broadcaster (ws/broadcaster.go Handle) invokes Snapshot with clientScope's
+// full "p/r/w" prefix — never the bare id ScopeKey/scopeWsID resolves for the
+// separate OnSubscribe/OnUnsubscribe lifecycle hooks (watcher/LSP/origin-sync
+// refcounting) — so scope here is parsed exactly like
+// threadsSnapshot/terminalsSnapshot parse it: the third segment is the
+// workspace id. A scope with fewer than 3 segments is treated as already being
+// the workspace id verbatim, which is what a caller passing one directly (LSP's
+// unit tests) means by it.
+//
+// The bare form no longer reaches here from GIT: a bare scope on that topic is
+// a CHAT id now, and gitSnapshot resolves it before this function is reached.
+// See its doc comment.
 //
 // Only the resolved workspace is returned — not its repo siblings — because
 // gitDef/lspDef scope their WS subscription to exactly one wsId with an
@@ -208,13 +212,35 @@ func scopedWorkspaceRows(
 }
 
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current
-// GitStatus per workspace as the wsId-scoped GitStatusEvent the live broadcaster
-// uses. Each client's wsId predicate filters the snapshot down to its workspace.
+// GitStatus for the subscribing client's worktree, as the same GitStatusEvent
+// the live broadcaster carries, so the client's own predicate filters the
+// replay exactly the way it filters live frames.
+//
+// It answers the TWO scope shapes git's two live routes produce, and it can
+// tell them apart because they are shaped differently, not because it is told
+// which mount it came from (a snapshot is built for a connecting client, with
+// no handler and no route in sight — see ws.Broadcaster.Handle):
+//
+//   - HIERARCHICAL ("p/r/w"), from the workspace-scoped route: ws.clientScope
+//     joins its projectId/repoId/wsId path params, and the workspace is the
+//     third segment. Unchanged from before this step.
+//   - BARE (a single segment), from /v0/chats/:chatId/git/status: that route
+//     binds none of those three, so ws.clientScope falls back to the bare chat
+//     id and the worktree has to be RESOLVED from it (spec §3), exactly as the
+//     route's own middleware resolved it for the REST handlers.
+//
+// A bare id is therefore a CHAT id here, never a workspace id. It used to be
+// read as the latter, as an affordance for unit tests calling this directly;
+// that affordance is gone rather than kept beside the new meaning, because one
+// string cannot honestly mean both and the real broadcaster never produced it.
 func gitSnapshot(
 	appContainer *app.Container,
 ) func(scope string) []gitdomain.GitStatusEvent {
 	return func(scope string) []gitdomain.GitStatusEvent {
 		ctx := context.Background()
+		if chatID, ok := bareChatScope(scope); ok {
+			return chatGitSnapshot(ctx, appContainer, chatID)
+		}
 		rows, err := scopedWorkspaceRows(ctx, appContainer, scope)
 		if err != nil {
 			return nil
@@ -234,6 +260,45 @@ func gitSnapshot(
 	}
 }
 
+// bareChatScope reports whether scope is the flat, single-segment form the
+// chat-scoped route produces, and returns the chat id it names. An empty scope
+// is not one: it is the list-level subscribe scopedWorkspaceRows already
+// handles defensively.
+func bareChatScope(
+	scope string,
+) (string, bool) {
+	if scope == "" || strings.Contains(scope, "/") {
+		return "", false
+	}
+	return scope, true
+}
+
+// chatGitSnapshot replays the worktree behind chatID. A chat whose worktree
+// cannot be resolved — no worktree anywhere in its ancestry, or a racing delete
+// — yields nil, the same degradation an unresolvable workspace scope takes:
+// the connection still opens and simply replays nothing.
+func chatGitSnapshot(
+	ctx context.Context,
+	appContainer *app.Container,
+	chatID string,
+) []gitdomain.GitStatusEvent {
+	if appContainer == nil || appContainer.Usecases == nil || appContainer.Usecases.Worktree == nil {
+		return nil
+	}
+	workspace, err := appContainer.Usecases.Worktree.Resolve(ctx, chatID)
+	if err != nil {
+		return nil
+	}
+	return appendGitStatus(ctx, appContainer, make([]gitdomain.GitStatusEvent, 0, 1), workspace.ID)
+}
+
+// appendGitStatus appends wsID's current status as the fully-scoped event.
+//
+// It stamps the fan-out set for the same reason PushGit does: a snapshot frame
+// and a live frame are filtered by the SAME compiled predicate, so a replay
+// that carried no chat ids would be silently dropped for exactly the
+// chat-scoped clients this step exists to serve — a connection that opens,
+// replays nothing, and only comes alive on the next file change.
 func appendGitStatus(
 	ctx context.Context,
 	appContainer *app.Container,
@@ -249,7 +314,29 @@ func appendGitStatus(
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
-	return append(events, gitdomain.GitStatusEvent{WsID: wsID, Status: status})
+	return append(events, gitdomain.GitStatusEvent{
+		WsID:    wsID,
+		ChatIDs: snapshotChatsHolding(ctx, appContainer, wsID),
+		Status:  status,
+	})
+}
+
+// snapshotChatsHolding resolves wsID's fan-out set for a replay frame,
+// degrading to no chats rather than an error — the same way every other read on
+// this path degrades a snapshot instead of failing a subscribe.
+func snapshotChatsHolding(
+	ctx context.Context,
+	appContainer *app.Container,
+	wsID string,
+) []string {
+	if appContainer.Usecases == nil || appContainer.Usecases.Worktree == nil {
+		return nil
+	}
+	chatIDs, err := appContainer.Usecases.Worktree.ChatsForWorkspace(ctx, wsID)
+	if err != nil {
+		return nil
+	}
+	return chatIDs
 }
 
 // lspSnapshot builds the LSP snapshot-on-subscribe source (03 §1a): the current

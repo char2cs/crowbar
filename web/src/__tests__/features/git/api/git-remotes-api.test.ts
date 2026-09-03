@@ -3,8 +3,10 @@ import { pushChanges, pullChanges, fetchChanges } from '@/features/git/api/git-r
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api', () => ({ apiFetch }))
+// git is addressed through the chat holding the worktree now, never through the
+// workspace: the api module resolves the base via gitBaseForWorkspace.
 vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (wsId: string) => `/v0/ws/${wsId}`,
+  gitBaseForWorkspace: (wsId: string) => `/v0/chats/chat-of-${wsId}/git`,
 }))
 
 beforeEach(() => {
@@ -13,21 +15,21 @@ beforeEach(() => {
 })
 
 describe('git-remotes-api remote ops', () => {
-  it('pushChanges POSTs to the workspace push route', async () => {
+  it('pushChanges POSTs to the chat-scoped push route', async () => {
     const res = await pushChanges('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/git/push', { method: 'POST' })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-of-w1/git/push', { method: 'POST' })
     expect(res).toEqual({ success: true })
   })
 
-  it('pullChanges POSTs to the workspace pull route', async () => {
+  it('pullChanges POSTs to the chat-scoped pull route', async () => {
     const res = await pullChanges('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/git/pull', { method: 'POST' })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-of-w1/git/pull', { method: 'POST' })
     expect(res).toEqual({ success: true })
   })
 
-  it('fetchChanges POSTs to the workspace fetch route', async () => {
+  it('fetchChanges POSTs to the chat-scoped fetch route', async () => {
     const res = await fetchChanges('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/git/fetch', { method: 'POST' })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-of-w1/git/fetch', { method: 'POST' })
     expect(res).toEqual({ success: true })
   })
 

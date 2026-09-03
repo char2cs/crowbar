@@ -272,7 +272,7 @@ func TestGitSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 	seedWorkspace(t, a, "w2", "p2", "r2", "", "")
 
-	got := gitSnapshot(a)("w1")
+	got := gitSnapshot(a)("p1/r1/w1")
 
 	ids := make([]string, len(got))
 	for i, e := range got {
@@ -295,7 +295,7 @@ func TestGitSnapshot_ExcludesSameRepoSibling(t *testing.T) {
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 	seedWorkspace(t, a, "w3", "p1", "r1", "", "")
 
-	got := gitSnapshot(a)("w1")
+	got := gitSnapshot(a)("p1/r1/w1")
 
 	ids := make([]string, len(got))
 	for i, e := range got {
@@ -316,5 +316,33 @@ func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 
 func TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
-	assert.Nil(t, gitSnapshot(a)("does-not-exist"))
+	assert.Nil(t, gitSnapshot(a)("p1/r1/does-not-exist"))
+}
+
+// TestGitSnapshot_UnknownChatScope_ReturnsNil covers the OTHER shape a scope
+// arrives in now: a bare id from the chat-scoped route. An id no chat answers
+// to degrades to an empty replay, exactly as an unknown workspace does — the
+// subscription still opens, it simply has nothing to replay.
+func TestGitSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	assert.Nil(t, gitSnapshot(a)("chat-does-not-exist"))
+}
+
+// TestGitSnapshot_BareScopeIsNotReadAsAWorkspaceID pins the meaning change a
+// silent mis-read would otherwise hide.
+//
+// A bare scope reaches gitSnapshot only from /v0/chats/:chatId/git/status, so
+// it is a CHAT id and has to be resolved. It used to be taken verbatim as a
+// workspace id — and if that reading survived, a chat id would simply fail to
+// match any workspace and the snapshot would look correctly empty, while a
+// WORKSPACE id passed bare would wrongly succeed. That second half is what this
+// asserts: w1 exists, and naming it bare must NOT replay it.
+func TestGitSnapshot_BareScopeIsNotReadAsAWorkspaceID(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+
+	require.NotEmpty(t, gitSnapshot(a)("p1/r1/w1"),
+		"the hierarchical scope must still replay the workspace it names")
+	assert.Empty(t, gitSnapshot(a)("w1"),
+		"a bare id is a chat id: no chat is called w1, so there is nothing to replay")
 }

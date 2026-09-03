@@ -107,8 +107,9 @@ func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {
 func TestGitDef_Lambdas(t *testing.T) {
 	def := gitDef(nil)
 	evt := gitdomain.GitStatusEvent{
-		WsID:   "w1",
-		Status: gitdomain.GitStatus{Branch: "main"},
+		WsID:    "w1",
+		ChatIDs: []string{"chat-a", "chat-b"},
+		Status:  gitdomain.GitStatus{Branch: "main"},
 	}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
@@ -117,9 +118,17 @@ func TestGitDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "main")
 	assert.NotContains(t, string(data), "wsId")
+	assert.NotContains(t, string(data), "chat-a",
+		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	require.Len(t, def.Filters, 1)
+	// TWO filters, one per live mount: the workspace-scoped route resolves
+	// wsId, the chat-scoped one resolves chatId, and each client activates only
+	// the one its own request binds.
+	require.Len(t, def.Filters, 2)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[1].Param)
+	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[1].ExtractSet(evt))
 }
 
 func TestFilesDef_Lambdas(t *testing.T) {

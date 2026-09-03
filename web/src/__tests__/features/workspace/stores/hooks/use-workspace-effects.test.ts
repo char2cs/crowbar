@@ -14,9 +14,11 @@ import {
 import { resetWorkspaceScopedStores } from '@/features/workspace/lib/reset-workspace-scoped-stores'
 import type { AppFile } from '@/features/file-system/types/app'
 
-// §3: workspace-scoped WS endpoints are hierarchical now; record the scope so
-// workspaceBase resolves the project/repo for 'ws-test'.
+// The files topic is still workspace-scoped and hierarchical; git has moved to
+// the flat chat prefix, resolved from the chat that owns 'ws-test''s worktree.
+// Both are recorded on the same scope, which is why it carries an owningChatId.
 const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws-test'
+const GIT_BASE = '/v0/chats/chat-test/git'
 
 const mockBufferActions = {
   openContent: vi.fn(() => 'buf-id'),
@@ -61,7 +63,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastEr
 beforeEach(() => {
   vi.clearAllMocks()
   __resetActivationFreshnessForTests()
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
   fetchFileTree.mockResolvedValue([
     { name: 'src', path: 'src', isDir: true, children: undefined },
     { name: 'README.md', path: 'README.md', isDir: false },
@@ -167,12 +169,13 @@ describe('useWorkspaceEffects', () => {
 
   it('subscribes to the git WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/git/status`, expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${GIT_BASE}/status`, expect.any(Function))
   })
 
-  // The home (project-level) workspace has no git surface — the backend mounts
-  // no /home/git/* routes. The effect must skip the git stream for it (no
-  // git/status 404s) while keeping files (the file tree watcher stays).
+  // The home (project-level) workspace has no git surface: the project root is
+  // not a git worktree. Its scope deliberately records NO owning chat, so the
+  // git base could not even be built for it — the effect must skip the git
+  // stream before reaching for one, while keeping files (the tree watcher).
   it('skips the git stream for a home workspace but keeps the files stream', () => {
     setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
     renderHook(() => useWorkspaceEffects('home-ws'))
@@ -220,7 +223,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       expect(gitCall).toBeDefined()
       const onGitFrame = gitCall![1]
 
@@ -261,7 +264,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       gitCall![1]({ branch: 'main', files: [] })
       await vi.advanceTimersByTimeAsync(500)
 
@@ -285,7 +288,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       const onGitFrame = gitCall![1]
 
       // Settle the initial frame's reload first.
@@ -405,7 +408,7 @@ describe('useWorkspaceEffects', () => {
       markWorkspaceDeactivated('ws-test')
 
       // B activates: reset points the global store at B, B seeds its own tree.
-      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B' })
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B', owningChatId: 'chat-B' })
       fetchFileTree.mockResolvedValueOnce(treeB)
       resetWorkspaceScopedStores('ws-B')
       const b = renderHook(() => useWorkspaceEffects('ws-B'))
@@ -415,7 +418,7 @@ describe('useWorkspaceEffects', () => {
 
       // A returns WITHIN the window. Reset normalises the store back to A with
       // an empty loading tree — the fast path must refuse it and refetch.
-      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test' })
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
       fetchFileTree.mockClear()
       fetchFileTree.mockResolvedValueOnce(treeA)
       resetWorkspaceScopedStores('ws-test')
@@ -440,7 +443,7 @@ describe('useWorkspaceEffects', () => {
 
         const gitHandler = () => {
           const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-          return calls.filter(([ep]) => ep.startsWith(`${WS_BASE}/git`)).pop()![1]
+          return calls.filter(([ep]) => ep.startsWith(GIT_BASE)).pop()![1]
         }
 
         // Cold mount: the stream pushes frame F1 → one reload; unmount preserves F1.

@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 interface BranchDTO {
   name: string
@@ -12,7 +12,7 @@ interface BranchDTO {
 
 export const getBranches = async (wsId: string): Promise<string[]> => {
   try {
-    const branches = await apiFetch<BranchDTO[]>(`${workspaceBase(wsId)}/git/branches`)
+    const branches = await apiFetch<BranchDTO[]>(`${gitBaseForWorkspace(wsId)}/branches`)
     return branches.map((b) => b.name)
   } catch {
     return []

@@ -20,7 +20,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace, isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import {
@@ -315,10 +315,12 @@ export function useWorkspaceEffects(wsId: string) {
   // topic. Branches/stashes change rarely — those reload on explicit git
   // actions.
   //
-  // The home (project-level) workspace has no git surface — the backend mounts
-  // no /home/git/* routes (the project root is not a per-workspace git
-  // worktree). Skip all git loading and the git/status stream for it so we never
-  // fire requests that 404. Files and threads remain enabled for home.
+  // The home (project-level) workspace has no git surface: the project root is
+  // not a git worktree at all, so there is nothing for status/log/branches to
+  // answer. That was true when git was addressed by workspace and is still true
+  // now that it is addressed by chat — the route changed, the absence of a
+  // worktree did not. Skip all git loading and the git/status stream for it.
+  // Files and threads remain enabled for home.
   useEffect(() => {
     if (isHomeWorkspace(wsId)) return
     let cancelled = false
@@ -374,7 +376,7 @@ export function useWorkspaceEffects(wsId: string) {
     // SAME status doesn't retrigger a reload; a differing frame still does (the
     // self-heal for a change that landed while hidden). Null on a cold seed.
     let lastFrame: unknown = gitFresh ? peekGitFrame(wsId) : null
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/git/status`, (frame) => {
+    const unsubscribe = wsManager.subscribe(`${gitBaseForWorkspace(wsId)}/status`, (frame) => {
       if (framesEqual(lastFrame, frame)) return
       lastFrame = frame
       scheduleStatusReload()

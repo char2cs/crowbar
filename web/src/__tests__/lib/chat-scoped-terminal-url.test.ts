@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { terminalCreate, terminalClose, __getBridgeInternals } from '@/lib/crowbar-bridge'
-import { chatBase, terminalsBaseForWorkspace, workspaceBase } from '@/lib/workspace-scope-url'
+import {
+  chatBase,
+  gitBaseForWorkspace,
+  terminalsBaseForWorkspace,
+  workspaceBase,
+} from '@/lib/workspace-scope-url'
 import {
   recordWorkspaceScope,
   setWorkspaceScope,
@@ -80,11 +85,46 @@ describe('terminalsBaseForWorkspace', () => {
   })
 
   it('leaves the hierarchical workspaceBase alone for the routes that still nest', () => {
-    // files/git/lsp have not moved yet; this proves the terminal cutover did not
-    // drag them along.
+    // files/lsp/review have not moved yet; this proves the chat-scoped cutovers
+    // did not drag them along. (git HAS moved — see gitBaseForWorkspace below.)
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' })
 
     expect(workspaceBase('ws-1')).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1')
+  })
+})
+
+describe('gitBaseForWorkspace', () => {
+  // git is spec §4.2's SHARED bucket: one worktree, one answer, and every chat
+  // holding it reads the same state. It is addressed through a chat not because
+  // a chat owns it — several chats share it — but because a chat is the only
+  // thing a route may name.
+  it('builds the flat chat-scoped git base for the chat holding the worktree', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
+
+    expect(gitBaseForWorkspace('ws-1')).toBe('/v0/chats/chat-1/git')
+  })
+
+  it('names no workspace anywhere in the URL', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
+
+    expect(gitBaseForWorkspace('ws-1')).not.toContain('/workspaces/')
+    expect(gitBaseForWorkspace('ws-1')).not.toContain('ws-1')
+  })
+
+  // Two chats over ONE worktree is the ordinary shape, not the exotic one: each
+  // subscribes to its own URL, and the daemon fans a single push out to both.
+  it('gives each chat sharing a worktree its own base', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a', owningChatId: 'chat-a' })
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-b', owningChatId: 'chat-b' })
+
+    expect(gitBaseForWorkspace('ws-a')).toBe('/v0/chats/chat-a/git')
+    expect(gitBaseForWorkspace('ws-b')).toBe('/v0/chats/chat-b/git')
+  })
+
+  it('throws rather than falling back to the retiring workspace-scoped route', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-2' })
+
+    expect(() => gitBaseForWorkspace('ws-2')).toThrow(/no owning chat/)
   })
 })
 

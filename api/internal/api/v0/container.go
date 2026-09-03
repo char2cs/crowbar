@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -227,13 +228,28 @@ func withProviderPollLifecycle[T any](
 	return def
 }
 
-// scopeWsID resolves the workspace id from the path param, falling back to the
+// scopeWsID resolves the workspace id the per-scope WS resources (the file
+// watcher, the LSP host, the protected-branch origin sync) are refcounted by:
+// the path param, then the chat group's already-resolved workspace, then the
 // query param, mirroring the dual-served Git/Files/LSP routes (T15).
+//
+// The reqscope step is what keeps those resources alive for a CHAT-scoped
+// subscriber. A client on /v0/chats/:chatId/git/status binds no :wsId at all,
+// so without it this resolved "" — and the acquire/release calls this feeds are
+// per-workspace refcounts, so the file watcher that PRODUCES git-status pushes
+// would never have been started for that workspace. The subscription would
+// connect, replay its snapshot, and then sit silent forever, which is the
+// failure mode the whole re-key would otherwise have shipped. resolveChatWorktree
+// has already resolved the workspace by the time the broadcaster reads the
+// scope, so this is a context read, not a second resolve.
 func scopeWsID(
 	c *gin.Context,
 ) string {
 	if id := c.Param("wsId"); id != "" {
 		return id
+	}
+	if ws, ok := reqscope.Workspace(c); ok && ws.ID != "" {
+		return ws.ID
 	}
 	return c.Query("wsId")
 }
@@ -273,8 +289,23 @@ func (c *Container) PushTerminalSession(
 	c.terminals.Push(s)
 }
 
-// PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
-// event so the Git broadcaster can scope the fan-out to a single workspace.
+// PushGit implements hub.Subscriber. It wraps the status in an event carrying
+// BOTH scoping answers — the workspace it describes, and every chat currently
+// holding that workspace — so one Push serves the workspace-scoped route and
+// fans out to the chat-scoped one in a single pass (spec §7.4).
+//
+// This is the single production push site for the git topic: hub.BroadcastGit
+// is called only by the realtime watcher dispatcher's OnGitStatus. The "watcher
+// broadcast" that git's own write handlers name in their doc comments IS this
+// path — a write completes, the file watcher notices, and the post-op state
+// arrives here — not a second, handler-driven push of its own.
+//
+// The set is resolved at PUSH time rather than at connect time on purpose: a
+// client's predicate is compiled once, when it subscribes, so a chat forked
+// onto this worktree AFTER that moment can only be reached by news the event
+// itself carries. The resolve costs one chat-forest read per push, and the
+// watcher already dedups against its previous status, so it runs on real
+// change rather than per tick.
 func (c *Container) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
@@ -284,7 +315,30 @@ func (c *Container) PushGit(
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
-	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
+	c.git.Push(gitdomain.GitStatusEvent{
+		WsID:    wsID,
+		ChatIDs: c.chatsHolding(context.Background(), wsID),
+		Status:  status,
+	})
+}
+
+// chatsHolding answers which chats currently resolve to workspaceID, degrading
+// to the empty set rather than an error: a fan-out that cannot be resolved
+// reaches nobody, which leaves the workspace-scoped subscribers on the same
+// event untouched. It never returns a nil-vs-empty distinction, because a set
+// carrying nothing already matches nobody (ws.FilterDef.ExtractSet).
+func (c *Container) chatsHolding(
+	ctx context.Context,
+	workspaceID string,
+) []string {
+	if c.app == nil || c.app.Usecases == nil || c.app.Usecases.Worktree == nil {
+		return nil
+	}
+	chatIDs, err := c.app.Usecases.Worktree.ChatsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil
+	}
+	return chatIDs
 }
 
 // PushFile implements hub.Subscriber.
@@ -524,12 +578,40 @@ func terminalsDef(
 	}
 }
 
-// gitDef scopes the Git topic to a single workspace by wsId. The wsId resolves
-// from the PATH param on the dual-served .../workspaces/:wsId/git/status route
-// (the dedicated /ws/git route was removed in W7-2). The wire
-// payload is a bare GitStatus (the embedded Status), matching the REST snapshot
-// of the dual-serve route; only the WsID is used for filtering, never serialized
-// onto the Git stream.
+// gitDef scopes the Git topic to a single worktree, named either way its two
+// live routes name one. The wire payload is a bare GitStatus (the embedded
+// Status), matching the REST snapshot of the dual-serve route; neither scoping
+// field is ever serialized onto the Git stream.
+//
+// ONE StreamDef serves both routes, because there is one Broadcaster: it is
+// built once, in New, and every client registers against the same compiled
+// def regardless of which route it upgraded on. So the two filters below are
+// not alternatives the wiring picks between — both are declared for every
+// client, and each client activates whichever one its own request resolves:
+//
+//   - /projects/:p/repos/:r/workspaces/:wsId/git/status binds :wsId and no
+//     :chatId, so the wsId filter is active and scopes it to exactly one
+//     workspace, exactly as before this step, and the chatId filter resolves
+//     nothing and goes inactive.
+//   - /chats/:chatId/git/status binds :chatId and no :wsId, so the chatId
+//     filter is active and matches by MEMBERSHIP against the fan-out set the
+//     event carries — every chat holding that worktree, resolved at push time
+//     (PushGit) — while the wsId filter goes inactive.
+//
+// matchesAll requires every ACTIVE filter to match, so each client is scoped by
+// the one it actually resolved, and neither route can see the other's traffic.
+//
+// NEITHER filter is Required, and that is forced rather than chosen. Required
+// makes a client that resolves no value for the param match NOTHING instead of
+// dropping the filter — the guard ws.ChatFanoutFilter carries, and the right
+// one once /chats is the only way in. Setting it on chatId today would refuse
+// every client of the still-live workspace-scoped route, which cannot resolve a
+// :chatId; setting it on wsId would refuse every chat-scoped one. The trap
+// Required exists to close — a client resolving NEITHER param and being handed
+// every workspace on the daemon — needs a mount binding neither, and the two
+// above are the only mounts of this broadcaster's Handle (router.go). When
+// spec §8 step 6 deletes the workspace-scoped mount, the wsId filter goes with
+// it and the chatId filter becomes ws.ChatFanoutFilter, Required and all.
 func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
@@ -540,6 +622,11 @@ func gitDef(
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
 			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			{
+				Param:      "chatId",
+				ExtractSet: func(e gitdomain.GitStatusEvent) []string { return e.ChatIDs },
+				Match:      ws.ExactMatch,
+			},
 		},
 	}
 }

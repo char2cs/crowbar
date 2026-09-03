@@ -43,12 +43,12 @@ func bindPaths(
 	return body.Paths, true
 }
 
-// Stage POST /workspaces/:wsId/git/stage
+// Stage POST /v0/chats/:chatId/git/stage
 func (h *Handlers) Stage(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	paths, ok := bindPaths(ctx)
 	if !ok {
@@ -67,12 +67,12 @@ func (h *Handlers) Stage(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// StageHunk POST /workspaces/:wsId/git/stage-hunk
+// StageHunk POST /v0/chats/:chatId/git/stage-hunk
 func (h *Handlers) StageHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path   string `json:"path"`
@@ -100,12 +100,12 @@ func (h *Handlers) StageHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// Unstage POST /workspaces/:wsId/git/unstage
+// Unstage POST /v0/chats/:chatId/git/unstage
 func (h *Handlers) Unstage(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	paths, ok := bindPaths(ctx)
 	if !ok {
@@ -124,12 +124,12 @@ func (h *Handlers) Unstage(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// UnstageHunk POST /workspaces/:wsId/git/unstage-hunk
+// UnstageHunk POST /v0/chats/:chatId/git/unstage-hunk
 func (h *Handlers) UnstageHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path   string `json:"path"`
@@ -157,12 +157,12 @@ func (h *Handlers) UnstageHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// Discard POST /workspaces/:wsId/git/discard
+// Discard POST /v0/chats/:chatId/git/discard
 func (h *Handlers) Discard(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	paths, ok := bindPaths(ctx)
 	if !ok {
@@ -181,12 +181,12 @@ func (h *Handlers) Discard(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// Commit POST /workspaces/:wsId/git/commit
+// Commit POST /v0/chats/:chatId/git/commit
 func (h *Handlers) Commit(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Subject string `json:"subject"`
@@ -211,13 +211,13 @@ func (h *Handlers) Commit(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// Push POST /workspaces/:wsId/git/push is a slow git op: it returns 202 and runs
+// Push POST /v0/chats/:chatId/git/push is a slow git op: it returns 202 and runs
 // the push in the background, leaving the post-push state to the git-status
 // watcher broadcast and a failure to the workspace LastError (00 §4).
 func (h *Handlers) Push(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	libs.WriteAccepted(ctx)
 	h.runAsync(
@@ -229,11 +229,11 @@ func (h *Handlers) Push(
 	)
 }
 
-// Fetch POST /workspaces/:wsId/git/fetch is a slow git op (202 + async).
+// Fetch POST /v0/chats/:chatId/git/fetch is a slow git op (202 + async).
 func (h *Handlers) Fetch(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	libs.WriteAccepted(ctx)
 	h.runAsync(
@@ -245,11 +245,11 @@ func (h *Handlers) Fetch(
 	)
 }
 
-// Pull POST /workspaces/:wsId/git/pull is a slow git op (202 + async).
+// Pull POST /v0/chats/:chatId/git/pull is a slow git op (202 + async).
 func (h *Handlers) Pull(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	libs.WriteAccepted(ctx)
 	h.runAsync(
@@ -261,12 +261,12 @@ func (h *Handlers) Pull(
 	)
 }
 
-// CreateBranch POST /workspaces/:wsId/git/branches
+// CreateBranch POST /v0/chats/:chatId/git/branches
 func (h *Handlers) CreateBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Name string `json:"name"`
@@ -289,12 +289,12 @@ func (h *Handlers) CreateBranch(
 	ctx.Status(http.StatusCreated)
 }
 
-// RenameBranch PATCH /workspaces/:wsId/git/branches
+// RenameBranch PATCH /v0/chats/:chatId/git/branches
 func (h *Handlers) RenameBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		From string `json:"from"`
@@ -322,12 +322,12 @@ func (h *Handlers) RenameBranch(
 	ctx.Status(http.StatusOK)
 }
 
-// DeleteBranch DELETE /workspaces/:wsId/git/branches
+// DeleteBranch DELETE /v0/chats/:chatId/git/branches
 func (h *Handlers) DeleteBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Name string `json:"name"`
@@ -349,12 +349,12 @@ func (h *Handlers) DeleteBranch(
 	ctx.Status(http.StatusNoContent)
 }
 
-// Switch POST /workspaces/:wsId/git/switch
+// Switch POST /v0/chats/:chatId/git/switch
 func (h *Handlers) Switch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Branch string `json:"branch"`
@@ -377,12 +377,12 @@ func (h *Handlers) Switch(
 	ctx.Status(http.StatusOK)
 }
 
-// StashPush POST /workspaces/:wsId/git/stash
+// StashPush POST /v0/chats/:chatId/git/stash
 func (h *Handlers) StashPush(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Message string `json:"message"`
@@ -399,12 +399,12 @@ func (h *Handlers) StashPush(
 	ctx.Status(http.StatusOK)
 }
 
-// StashApply POST /workspaces/:wsId/git/stash-apply
+// StashApply POST /v0/chats/:chatId/git/stash-apply
 func (h *Handlers) StashApply(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Index int `json:"index"`
@@ -424,12 +424,12 @@ func (h *Handlers) StashApply(
 	ctx.Status(http.StatusOK)
 }
 
-// StashPop POST /workspaces/:wsId/git/stash-pop
+// StashPop POST /v0/chats/:chatId/git/stash-pop
 func (h *Handlers) StashPop(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Index int `json:"index"`
@@ -471,12 +471,12 @@ func resolveStashIndex(
 	return idx, ""
 }
 
-// StashDrop DELETE /workspaces/:wsId/git/stash
+// StashDrop DELETE /v0/chats/:chatId/git/stash
 func (h *Handlers) StashDrop(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Index *int `json:"index"`
@@ -498,12 +498,12 @@ func (h *Handlers) StashDrop(
 	ctx.Status(http.StatusNoContent)
 }
 
-// Reset POST /workspaces/:wsId/git/reset
+// Reset POST /v0/chats/:chatId/git/reset
 func (h *Handlers) Reset(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Mode string `json:"mode"`
@@ -526,13 +526,13 @@ func (h *Handlers) Reset(
 	ctx.Status(http.StatusOK)
 }
 
-// Merge POST /workspaces/:wsId/git/merge is a slow git op: it validates the
+// Merge POST /v0/chats/:chatId/git/merge is a slow git op: it validates the
 // target branch synchronously (4xx) then returns 202 and runs the merge in the
 // background (00 §4).
 func (h *Handlers) Merge(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Branch string `json:"branch"`
@@ -556,13 +556,13 @@ func (h *Handlers) Merge(
 	)
 }
 
-// Rebase POST /workspaces/:wsId/git/rebase is a slow git op: it validates the
+// Rebase POST /v0/chats/:chatId/git/rebase is a slow git op: it validates the
 // onto branch synchronously (4xx) then returns 202 and runs the rebase in the
 // background (00 §4).
 func (h *Handlers) Rebase(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Branch string `json:"branch"`
@@ -586,12 +586,12 @@ func (h *Handlers) Rebase(
 	)
 }
 
-// ResolveHunk POST /workspaces/:wsId/git/resolve-hunk
+// ResolveHunk POST /v0/chats/:chatId/git/resolve-hunk
 func (h *Handlers) ResolveHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path            string `json:"path"`
@@ -631,12 +631,12 @@ func (h *Handlers) ResolveHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// OperationContinue POST /workspaces/:wsId/git/operation/continue
+// OperationContinue POST /v0/chats/:chatId/git/operation/continue
 func (h *Handlers) OperationContinue(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	if err := h.git.OperationContinue(reqCtx, wsID, time.Now()); err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -647,12 +647,12 @@ func (h *Handlers) OperationContinue(
 	ctx.Status(http.StatusOK)
 }
 
-// OperationAbort POST /workspaces/:wsId/git/operation/abort
+// OperationAbort POST /v0/chats/:chatId/git/operation/abort
 func (h *Handlers) OperationAbort(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	if err := h.git.OperationAbort(reqCtx, wsID, time.Now()); err != nil {
 		status, msg := libs.StatusAndMessage(err)

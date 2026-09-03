@@ -30,6 +30,28 @@ export function terminalsBaseForWorkspace(wsId: string): string {
   return `${chatBase(chatId)}/terminals`
 }
 
+/**
+ * The git base for the chat that owns `wsId`'s worktree: REST and the live
+ * status stream both hang off it.
+ *
+ * Unlike terminals, git is SHARED state — one worktree, one answer — so every
+ * chat holding this worktree reads the same status and sees each other's
+ * writes; the daemon fans one push out to all of them. Addressing it through a
+ * chat is not about ownership here, it is simply that a chat is the only thing
+ * a route may name (backend spec law 1).
+ *
+ * Throws when no owning chat is recorded, for the same reason
+ * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
+ * and guessing a URL from it would produce a 404 far from the cause. The
+ * workspace-scoped git routes do still exist on the daemon for now, but they
+ * are being retired and are deliberately not a fallback.
+ */
+export function gitBaseForWorkspace(wsId: string): string {
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${chatBase(chatId)}/git`
+}
+
 // §3/§7: build the hierarchical base for a workspace-scoped API/WS URL. Every
 // files/git/lsp/terminal route nests under the owning project+repo now; callers
 // still pass only a wsId (the identifier they hold), and the project/repo are
