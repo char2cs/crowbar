@@ -2,11 +2,14 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
@@ -15,6 +18,86 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// bareEventStore satisfies asynxModels.Store (via embedding a nil one — its
+// promoted methods are never called by anything under test) but deliberately
+// does NOT implement serialize.AggregateLister, exercising rebuild's
+// "event store can't enumerate" no-op branch.
+type bareEventStore struct {
+	asynxModels.Store
+}
+
+// listerEventStore satisfies both asynxModels.Store and serialize.AggregateLister,
+// letting a test control exactly which raw keys rebuild sees without needing a
+// real event store that happens to hold them.
+type listerEventStore struct {
+	asynxModels.Store
+	ids []string
+	err error
+}
+
+func (l *listerEventStore) AggregateIDs(context.Context) ([]string, error) {
+	return l.ids, l.err
+}
+
+func newServiceOver(
+	t *testing.T,
+	es asynxModels.Store,
+) (context.Context, store.Store, asynx.Asynx[domain.Workspace]) {
+	t.Helper()
+	ctx := context.Background()
+	realES, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Workspace]().
+		WithEventStore(realES).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := store.New(db, es, ax)
+	require.NoError(t, err)
+	return ctx, st, ax
+}
+
+// TestListOrRebuild_SkipsRebuildWhenEventStoreLacksAggregateLister proves the
+// best-effort contract stated on serialize.AggregateLister's own doc comment: an
+// event store without the capability is a silent no-op, not an error, so a
+// deployment on such a store degrades to "never heals" rather than crashing.
+func TestListOrRebuild_SkipsRebuildWhenEventStoreLacksAggregateLister(t *testing.T) {
+	ctx, st, _ := newServiceOver(t, &bareEventStore{})
+
+	rows, err := st.ListOrRebuild(ctx)
+
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestListOrRebuild_ErrorWhenAggregateIDsFails(t *testing.T) {
+	ctx, st, _ := newServiceOver(t, &listerEventStore{err: errors.New("event log unavailable")})
+
+	_, err := st.ListOrRebuild(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enumerate aggregate ids")
+}
+
+// TestListOrRebuild_SkipsNonEventKeys proves rebuild only replays "events:"
+// keys: the event store's raw key space also holds "snapshots:<id>" rows for the
+// same aggregate, and replaying those as if they were an aggregate id would
+// either error or double-replay.
+func TestListOrRebuild_SkipsNonEventKeys(t *testing.T) {
+	ctx, st, _ := newServiceOver(t, &listerEventStore{ids: []string{"snapshots:w1"}})
+
+	rows, err := st.ListOrRebuild(ctx)
+
+	require.NoError(t, err, "a non-event key must be skipped, never replayed")
+	assert.Empty(t, rows)
+}
 
 // TestListOrRebuild_RebuildsWhenModelEmptyButLogNonEmpty proves the lazy Replay
 // repair (spec §3.7, decision 7): after the durable read model is lost but the
@@ -101,4 +184,80 @@ func TestListOrRebuild_EmptyLogReturnsEmpty(t *testing.T) {
 	rows, err := st.ListOrRebuild(ctx)
 	require.NoError(t, err)
 	require.Empty(t, rows)
+}
+
+// TestListOrRebuild_ReplayErrorAbortsTheWholeRebuild proves rebuild does NOT
+// tolerate one corrupt aggregate the way a sibling journal's own rebuild does
+// (chat/internal/store skips an unreplayable entry and heals everything else):
+// here a single "events:" key that Replay cannot fold aborts the entire heal, so
+// a caller sees the failure rather than a silently incomplete read model.
+func TestListOrRebuild_ReplayErrorAbortsTheWholeRebuild(t *testing.T) {
+	ctx := context.Background()
+
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Workspace]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := store.New(db, es, ax)
+	require.NoError(t, err)
+
+	// A "poison" aggregate whose stored bytes were never written by a domain.Workspace
+	// command — asynx's own envelope, not a raw domain.Workspace blob, so Replay must
+	// fail decoding it rather than folding garbage into the read model.
+	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+
+	_, err = st.ListOrRebuild(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replay poison")
+}
+
+// TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced proves foldReplayed
+// treats a read-model persistence failure as best-effort logging, not a hard
+// error: List's own SELECT still works against a read-only connection, only the
+// write inside the replay's fold callback fails, and ListOrRebuild must still
+// succeed with the row simply absent rather than surfacing that internal error.
+func TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced(t *testing.T) {
+	ctx := context.Background()
+
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Workspace]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := store.New(db, es, ax)
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+
+	// Lose the durable row, then make the connection read-only: List's SELECT
+	// still succeeds (empty), but the replay's fold can no longer persist the
+	// healed row back.
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_workspaces").Error)
+	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
+
+	rows, err := st.ListOrRebuild(ctx)
+
+	require.NoError(t, err, "a Fold failure during replay must be logged, not surfaced")
+	assert.Empty(t, rows, "the row could not be persisted back, so it is still absent")
 }

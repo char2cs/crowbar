@@ -92,3 +92,70 @@ func TestImport_SkipsTheCheckWithNoRemoteWired(t *testing.T) {
 
 	assert.Less(t, rec.Code, 400)
 }
+
+// TestImport_BadJSON_Returns400 proves a malformed body 400s before any repo
+// lookup or branch validation runs.
+func TestImport_BadJSON_Returns400(t *testing.T) {
+	rec := do(importRouter(nil), http.MethodPost, importTarget, `{not-json`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestImport_RepoLookupError_ReturnsMappedStatus proves a repos.FindByKey
+// failure is mapped through libs.StatusAndMessage rather than falling
+// through to the "repo not found" 404 or panicking on a nil repo.
+func TestImport_RepoLookupError_ReturnsMappedStatus(t *testing.T) {
+	repos := &fakeRepos{err: errors.New("db unreachable")}
+	h := workspacehandlers.New(&fakeReader{}, &fakeHierarchy{}, repos, &fakeLastErrors{}, fakeWork{})
+	r := gin.New()
+	r.POST("/v0/projects/:projectId/repos/:repoId/workspaces/import", h.Import)
+
+	rec := do(r, http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestImport_RepoNotFound_Returns404 proves a nil repo (FindByKey found
+// nothing but returned no error) is refused with 404 before any branch
+// validation or background import runs.
+func TestImport_RepoNotFound_Returns404(t *testing.T) {
+	repos := &fakeRepos{repo: nil}
+	hierarchy := &fakeHierarchy{}
+	h := workspacehandlers.New(&fakeReader{}, hierarchy, repos, &fakeLastErrors{}, fakeWork{})
+	r := gin.New()
+	r.POST("/v0/projects/:projectId/repos/:repoId/workspaces/import", h.Import)
+
+	rec := do(r, http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "repo not found")
+	assert.Empty(t, hierarchy.gotImport.Branches, "no import may run for a repo that was never found")
+}
+
+// TestImport_AsyncFailureReachesHierarchyButNeverBroadcastsLastError proves
+// two things about a background CreateFromImport failure: the batch still
+// reaches the hierarchy usecase with the validated input (it is not silently
+// dropped), and — because the accepted 202 never produced a workspace id —
+// broadcastLastError's blank-id no-op means the failure is NOT attached to
+// any entity. Import's own doc comment names this trade-off explicitly: a
+// batch that fails before producing a workspace is "best-effort logged (no
+// entity to hang LastError on)".
+func TestImport_AsyncFailureReachesHierarchyButNeverBroadcastsLastError(t *testing.T) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	hierarchy := &fakeHierarchy{importErr: errors.New("clone failed")}
+	lastErrors := &fakeLastErrors{}
+	h := workspacehandlers.New(&fakeReader{}, hierarchy, repos, lastErrors, fakeWork{})
+	r := gin.New()
+	r.POST("/v0/projects/:projectId/repos/:repoId/workspaces/import", h.Import)
+
+	rec := do(r, http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	assert.Equal(t, []string{"feature/x"}, hierarchy.gotImport.Branches,
+		"the failing batch must still reach the hierarchy usecase")
+	assert.Empty(t, lastErrors.gotID,
+		"an import failure with no produced workspace has no entity to attach the error to")
+}

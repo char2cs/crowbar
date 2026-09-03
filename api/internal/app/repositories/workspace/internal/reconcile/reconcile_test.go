@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -166,6 +167,85 @@ func TestReconciler_OnOpen_IgnoresEmptyID(t *testing.T) {
 	gate.WaitIdle(context.Background())
 
 	assert.Zero(t, atomic.LoadInt32(&deriveCalls))
+}
+
+// TestWithTimeout_OnlyAcceptsAPositiveDuration pins the Opt contract stated in
+// its own doc comment: a non-positive duration is ignored rather than zeroing
+// out the reconciler's bound (which would make every background task
+// cancel-race against a zero-length context).
+func TestWithTimeout_OnlyAcceptsAPositiveDuration(t *testing.T) {
+	gate := drain.New()
+
+	r := New(nil, nil, nil, gate, WithTimeout(5*time.Second))
+	assert.Equal(t, 5*time.Second, r.timeout)
+
+	ignored := New(nil, nil, nil, gate, WithTimeout(0), WithTimeout(-time.Second))
+	assert.Equal(t, defaultReconcileTimeout, ignored.timeout, "a non-positive duration must be ignored, not adopted")
+}
+
+// TestReconciler_OnOpen_RefusedOnceDraining proves the gate actually stops a new
+// reconcile task from spawning once a drain has begun, AND that the refused
+// claim is released rather than left wedged "in flight" forever (see the
+// comment on OnOpen: a leaked claim would silently block every future open for
+// that workspace id).
+func TestReconciler_OnOpen_RefusedOnceDraining(t *testing.T) {
+	gate := drain.New()
+	gate.Wait(context.Background()) // begins draining; converges immediately since nothing is admitted yet
+
+	var deriveCalls int32
+	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {
+		atomic.AddInt32(&deriveCalls, 1)
+		return nil, nil
+	}
+	r := New(derive, nil, nil, gate)
+
+	r.OnOpen(context.Background(), "w1")
+
+	assert.Zero(t, atomic.LoadInt32(&deriveCalls), "a refused claim must not spawn the reconcile task")
+	r.mu.Lock()
+	_, stillClaimed := r.inflight["w1"]
+	r.mu.Unlock()
+	assert.False(t, stillClaimed, "a refused claim must be released, or this id can never reconcile again")
+}
+
+// TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend proves that a real derive
+// error (anything other than apperr.ErrNotFound) stops before SendWait and
+// before broadcast — reconcile must not fold a command it never derived.
+func TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend(t *testing.T) {
+	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {
+		return nil, errors.New("git worktree unreadable")
+	}
+	var sendCalls int32
+	sendWait := func(context.Context, asynxModels.Command[domain.Workspace]) (asynxModels.Event[domain.Workspace], error) {
+		atomic.AddInt32(&sendCalls, 1)
+		return asynxModels.Event[domain.Workspace]{}, nil
+	}
+	spy := &broadcastSpy{}
+	r := New(derive, sendWait, spy.record, drain.New())
+
+	r.reconcile(context.Background(), "w1")
+
+	assert.Zero(t, atomic.LoadInt32(&sendCalls), "a real derive error must never reach SendWait")
+	assert.Empty(t, spy.all())
+}
+
+// TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast proves that a real
+// SendWait error (anything other than asynxModels.ErrValidation) still stops
+// the broadcast — clients must never see a corrected frame the command never
+// actually applied.
+func TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast(t *testing.T) {
+	derive := func(_ context.Context, wsID string) (asynxModels.Command[domain.Workspace], error) {
+		return wscmds.SyncWorkingTreeState{ID: wsID, Now: time.Unix(2, 0).UTC()}, nil
+	}
+	sendWait := func(context.Context, asynxModels.Command[domain.Workspace]) (asynxModels.Event[domain.Workspace], error) {
+		return asynxModels.Event[domain.Workspace]{}, errors.New("event store unavailable")
+	}
+	spy := &broadcastSpy{}
+	r := New(derive, sendWait, spy.record, drain.New())
+
+	r.reconcile(context.Background(), "w1")
+
+	assert.Empty(t, spy.all(), "a real SendWait error must never reach broadcast")
 }
 
 func newAx(

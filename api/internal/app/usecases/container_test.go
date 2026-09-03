@@ -256,6 +256,30 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	bare := &repositories.Container{}
 	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast)
 	require.Error(t, err, "no repository stores")
+
+	// A container with SOME stores wired still refuses a genuinely partial
+	// surface: bare's AgentChat==nil check alone can never exercise the
+	// Workspace/ReviewThread branches behind it in the same guard.
+	chatOnly := &repositories.Container{AgentChat: repos.AgentChat}
+	_, err = usecases.NewAgentToolDepsForTest(minter, chatOnly, review, noopThreadBroadcast)
+	require.Error(t, err, "no workspace store")
+
+	noReviewThread := &repositories.Container{AgentChat: repos.AgentChat, Workspace: repos.Workspace}
+	_, err = usecases.NewAgentToolDepsForTest(minter, noReviewThread, review, noopThreadBroadcast)
+	require.Error(t, err, "no review thread store")
+}
+
+// TestContainer_New_SurfacesAgentWiringError proves New itself propagates a
+// failure from newAgentWiring (here: a repos container missing the agent-chat
+// store) rather than returning a Container with a nil agentic surface a caller
+// would only discover on first use.
+func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
+	_, gormStores, eng := newContainerDeps(t)
+
+	_, err := usecases.New(&repositories.Container{}, gormStores, eng,
+		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+
+	require.Error(t, err)
 }
 
 // noopThreadBroadcast stands in for the app layer's hub adapter. These tests build

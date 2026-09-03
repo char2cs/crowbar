@@ -204,3 +204,73 @@ func TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
 }
+
+// TestAgentWorkspaceReader_AgentChatsDir_WorkspaceGetError proves an unknown
+// workspace id surfaces the repo's error wrapped, mirroring
+// TestAgentWorkspaceReader_WorktreeDir_WorkspaceGetError for the sibling method.
+func TestAgentWorkspaceReader_AgentChatsDir_WorkspaceGetError(t *testing.T) {
+	wantErr := errors.New("workspace not found")
+	r := &agentWorkspaceReader{
+		workspaces:  fakeWorkspaceGetter{err: wantErr},
+		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
+	}
+
+	_, err := r.AgentChatsDir(context.Background(), "missing")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+}
+
+// TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates proves that an
+// adopted-checkout workspace (outside home) whose owning repo cannot be
+// resolved aborts AgentChatsDir rather than falling through to an empty slug.
+func TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates(t *testing.T) {
+	wantErr := errors.New("read model unavailable")
+	r := &agentWorkspaceReader{
+		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
+			ID:           "wh",
+			ProjectID:    "p1",
+			RepoID:       "r1",
+			WorktreePath: "/Users/dev/my-real-repo", // outside home → must resolve a slug
+		}},
+		repos:       fakeRepoGetter{err: wantErr},
+		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
+	}
+
+	_, err := r.AgentChatsDir(context.Background(), "wh")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+}
+
+// TestAgentWorkspaceReader_RepoSlug_EmptyRepoIDYieldsEmptySlug pins the
+// project-level home shortcut: no repo id means no lookup at all.
+func TestAgentWorkspaceReader_RepoSlug_EmptyRepoIDYieldsEmptySlug(t *testing.T) {
+	r := &agentWorkspaceReader{
+		repos: fakeRepoGetter{err: errors.New("must not be looked up for a blank repo id")},
+	}
+
+	slug, err := r.repoSlug(context.Background(), "")
+	require.NoError(t, err)
+	assert.Empty(t, slug)
+}
+
+// TestAgentWorkspaceReader_RepoSlug_FindByKeyErrorPropagates proves a real
+// store failure is wrapped and surfaced, not swallowed as "not found".
+func TestAgentWorkspaceReader_RepoSlug_FindByKeyErrorPropagates(t *testing.T) {
+	wantErr := errors.New("store down")
+	r := &agentWorkspaceReader{repos: fakeRepoGetter{err: wantErr}}
+
+	_, err := r.repoSlug(context.Background(), "r1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+}
+
+// TestAgentWorkspaceReader_RepoSlug_UnknownRepoIsAnError proves a repo id that
+// resolves to no row (a dangling reference) is reported, not silently
+// collapsed to an empty slug that would misroute the chats dir.
+func TestAgentWorkspaceReader_RepoSlug_UnknownRepoIsAnError(t *testing.T) {
+	r := &agentWorkspaceReader{repos: fakeRepoGetter{repo: nil}}
+
+	_, err := r.repoSlug(context.Background(), "does-not-exist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `repo "does-not-exist" not found`)
+}

@@ -54,6 +54,16 @@ func TestFilePatch_ModifiedFile(t *testing.T) {
 	assert.Equal(t, countLines(out), lines)
 }
 
+// TestFilePatch_NonexistentRepoPath_ReturnsStartError covers the branch before
+// any streaming begins: GitStream failing to even start the subprocess (a
+// nonexistent working directory fails the chdir synchronously on Start).
+func TestFilePatch_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
+	var buf bytes.Buffer
+	_, _, err := diff.FilePatch(context.Background(), "/nonexistent/path/xyz123", "HEAD", "a.txt", 0, &buf)
+
+	require.Error(t, err)
+}
+
 // TestFilePatch_PathNotInDiff proves a path that simply has no changes is not
 // an error — it is an empty patch, which is what a client asking for a file it
 // no longer has changes in must see.

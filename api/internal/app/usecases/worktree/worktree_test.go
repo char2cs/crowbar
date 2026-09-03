@@ -212,6 +212,11 @@ type fakeGit struct {
 	addErr                 error
 	revParseSha            string
 	revParseErr            error
+	// revParseByRev overrides revParseSha for a specific rev argument, so a test
+	// can make RevParse("refs/heads/x") answer differently from
+	// RevParse("origin/x") in the same call — needed to give a local branch tip a
+	// genuinely different SHA from the resolved origin tip.
+	revParseByRev map[string]string
 	mergeBaseSha           string
 	mergeBaseErr           error
 	mergeErr               error
@@ -419,6 +424,9 @@ func (f *fakeGit) RevParse(
 	rev string,
 ) (string, error) {
 	f.record("RevParse", repoPath, rev)
+	if sha, ok := f.revParseByRev[rev]; ok {
+		return sha, f.revParseErr
+	}
 	return f.revParseSha, f.revParseErr
 }
 
@@ -538,6 +546,8 @@ type fakeProvider struct {
 	engineprovider.Engine
 	protected []string
 	err       error
+	prLinks   []engineprovider.PRLink
+	prErr     error
 }
 
 func (f *fakeProvider) ProtectedBranches(
@@ -545,6 +555,13 @@ func (f *fakeProvider) ProtectedBranches(
 	_ string,
 ) ([]string, error) {
 	return f.protected, f.err
+}
+
+func (f *fakeProvider) OpenPullRequests(
+	_ context.Context,
+	_ string,
+) ([]engineprovider.PRLink, error) {
+	return f.prLinks, f.prErr
 }
 
 type fakeRepoStore struct {

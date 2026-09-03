@@ -34,6 +34,18 @@ func RemoveStaleLock(
 	return removeStaleLock(lockPath)
 }
 
+// ClassifyTimeout exposes classifyTimeout to the external test package. The
+// "no parent deadline" branch it drives needs this: reaching it for real means
+// waiting out the actual 60s GitOpTimeout constant, which cannot be shortened
+// for a test (it's a const, not a var like the engine's network timeouts).
+func ClassifyTimeout(
+	boundedErr error,
+	parentErr error,
+	r Result,
+) Result {
+	return classifyTimeout(boundedErr, parentErr, r)
+}
+
 // SetSleepForTest replaces the retry backoff sleeper and returns a restore func.
 func SetSleepForTest(
 	fn func(time.Duration),

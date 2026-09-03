@@ -277,6 +277,76 @@ func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
 	}
 }
 
+// --- coverage of the selector grammar's malformed shapes --------------------
+
+// A bracketed segment that is not a valid `field=value` selector (no `=`, or
+// an empty field name before it) must fall back to a PLAIN key rather than
+// being treated as a selector — parseSelector's own contract.
+func TestString_ASelectorSegmentWithNoEqualsIsAPlainKey(t *testing.T) {
+	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
+	if got := mapping.String(d, "arr[novalue]"); got != "" {
+		t.Fatalf("got %q, want empty: a bracket with no '=' is not a selector", got)
+	}
+}
+
+func TestString_ASelectorSegmentWithAnEmptyFieldIsAPlainKey(t *testing.T) {
+	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
+	if got := mapping.String(d, "arr[=novalue]"); got != "" {
+		t.Fatalf("got %q, want empty: a selector needs a non-empty field name", got)
+	}
+}
+
+// selectFrom must fail closed, not panic, when the path segment BEFORE the
+// selector does not resolve to a list at all.
+func TestString_ArraySelectionOnANonArrayIsEmpty(t *testing.T) {
+	d := map[string]any{"obj": "not a list"}
+	if got := mapping.String(d, "obj[type=foo]"); got != "" {
+		t.Fatalf("got %q, want empty: a selector over a non-array must not resolve", got)
+	}
+}
+
+// An element of the list that is not itself an object must be skipped, not
+// mistaken for a match or a panic — real payloads mix shapes inside one array.
+func TestString_ArraySelectionSkipsNonObjectElements(t *testing.T) {
+	d := map[string]any{
+		"items": []any{"not an object", map[string]any{"type": "foo", "val": "kept"}},
+	}
+	if got := mapping.String(d, "items[type=foo].val"); got != "kept" {
+		t.Fatalf("got %q, want kept: the non-object element must be skipped, not matched", got)
+	}
+}
+
+// --- coverage of the JSON and Objects accessors' failure branches ----------
+
+// A present-but-EMPTY string leaf renders as no bytes at all, distinct from a
+// leaf holding the literal two-byte string `""`.
+func TestJSON_AnEmptyStringLeafIsNilNotEmptyQuotes(t *testing.T) {
+	d := map[string]any{"s": ""}
+	if got := mapping.JSON(d, "s"); got != nil {
+		t.Fatalf("got %q, want nil for an empty string leaf", got)
+	}
+}
+
+// A leaf holding a value json.Marshal cannot encode (a channel, here — a
+// shape resolve() never produces from real JSON, but the accessor still must
+// not panic on it) must fail closed to nil rather than propagating the
+// encoding error nowhere the caller could see it.
+func TestJSON_AnUnmarshalableLeafIsNil(t *testing.T) {
+	d := map[string]any{"bad": make(chan int)}
+	if got := mapping.JSON(d, "bad"); got != nil {
+		t.Fatalf("got %q, want nil for a value json.Marshal cannot encode", got)
+	}
+}
+
+// Objects on a leaf that resolves but is not an array must yield nil, the
+// same "fail closed" contract as a missing path.
+func TestObjects_ANonArrayLeafIsNilNotAPanic(t *testing.T) {
+	d := map[string]any{"notarray": "text"}
+	if got := mapping.Objects(d, "notarray"); got != nil {
+		t.Fatalf("got %+v, want nil for a non-array leaf", got)
+	}
+}
+
 // A false bool is an ANSWER, not an absence: alternation must not skip past it.
 func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
 	d := map[string]any{"f": false, "zero": float64(0), "blank": "", "nil": nil}

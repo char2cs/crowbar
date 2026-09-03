@@ -1091,3 +1091,61 @@ func TestNew_RejectsNilWatch(t *testing.T) {
 }
 
 func noopBroadcast(_ store.RunnerEvent) {}
+
+// subscribeFailsOnCall wraps a real Asynx and refuses its Nth Subscribe call,
+// so a test can force EITHER of New's two Subscribe-registering steps to fail
+// without needing a real asynx failure mode. New calls registerStoreProjection
+// before registerHubProjection, so failOn:1 targets the first and failOn:2 the
+// second — proving each one's OWN error is what New surfaces, not just "some
+// error happened".
+type subscribeFailsOnCall struct {
+	asynx.Asynx[agents.Runner]
+	failOn int
+	calls  int
+}
+
+func (f *subscribeFailsOnCall) Subscribe(
+	pattern string,
+	handler asynxModels.ProjectionHandler[agents.Runner],
+	opts ...asynxModels.SubscriptionOpt[agents.Runner],
+) (string, error) {
+	f.calls++
+	if f.calls == f.failOn {
+		return "", errors.New("bus refused the subscription")
+	}
+	return f.Asynx.Subscribe(pattern, handler, opts...)
+}
+
+// TestNew_StoreProjectionSubscribeFailurePropagates pins that a failure
+// registering the READ-MODEL projection aborts construction with ITS OWN
+// error, not a generic one — registerStoreProjection is the first of New's two
+// Subscribe calls.
+func TestNew_StoreProjectionSubscribeFailurePropagates(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	_, err = store.New(db, es, &subscribeFailsOnCall{Asynx: newAx(t, es), failOn: 1}, noopBroadcast)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner store projection: subscribe:",
+		"the failure must be attributed to the read-model projection specifically")
+}
+
+// TestNew_HubProjectionSubscribeFailurePropagates is the sibling for the SECOND
+// Subscribe call: the read-model projection registers fine, and only the hub
+// (WS fan-out) projection fails — pinning that New still surfaces it, rather
+// than treating registerStoreProjection's success as construction being done.
+func TestNew_HubProjectionSubscribeFailurePropagates(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	_, err = store.New(db, es, &subscribeFailsOnCall{Asynx: newAx(t, es), failOn: 2}, noopBroadcast)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner hub projection: subscribe:",
+		"the failure must be attributed to the hub projection, reached only after the read-model one succeeded")
+}

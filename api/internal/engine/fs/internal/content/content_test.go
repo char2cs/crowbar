@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,6 +119,79 @@ func TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful(
 	decoded, err := base64.StdEncoding.DecodeString(fc.Content)
 	require.NoError(t, err)
 	assert.Equal(t, data, decoded, "base64 round-trip must be byte-identical to the original")
+}
+
+// TestRead_PermissionDenied exercises readWithCap's os.Open error path: Stat
+// succeeds (it doesn't require read permission on the file itself) but the
+// subsequent os.Open fails because the file has no read permission.
+func TestRead_PermissionDenied(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the unreadable-file permission")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.txt")
+	require.NoError(t, os.WriteFile(path, []byte("hello"), 0o600))
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	_, err := content.Read(dir, "secret.txt")
+	require.Error(t, err)
+}
+
+// TestRead_DirectoryPath exercises readWithCap's io.ReadAll error path: Stat
+// and Open both succeed against a directory on Unix, but reading from it fails
+// with "is a directory".
+func TestRead_DirectoryPath(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o755))
+
+	_, err := content.Read(dir, "sub")
+	require.Error(t, err)
+}
+
+// TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat pins the
+// TOCTOU guard readWithCap's doc comment describes: Stat can only see a file's
+// size at one instant, so the actual read is independently bounded by
+// LimitReader(cap+1) — a file that grows between Stat and the read must still
+// be rejected rather than silently truncated or accepted. A FIFO makes this
+// deterministic without a real race: Stat reports a pipe's size as 0 (always
+// under the injected cap), and opening one end blocks until the other end
+// opens, so the writer goroutine's ordering relative to the read never matters.
+func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipes are unix-only")
+	}
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "growing")
+	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+		if err != nil {
+			return
+		}
+		defer func() { _ = w.Close() }()
+		// Comfortably past the 4-byte injected cap regardless of how many bytes
+		// the capped read actually consumes.
+		_, _ = w.Write(make([]byte, 10))
+	}()
+	t.Cleanup(func() { <-done })
+
+	_, err := content.ReadWithCap(dir, "growing", 4)
+	require.Error(t, err)
+	require.ErrorIs(t, err, content.ErrFileTooLarge,
+		"a file that grew past the cap after Stat must still be rejected as oversize")
 }
 
 func TestWrite_CreatesFile(

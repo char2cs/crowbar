@@ -292,6 +292,74 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnres
 	assert.Equal(t, "fork-sha", summaryBase, "an unresolvable base branch must fall back to the recorded fork point")
 }
 
+// TestWorkspaceUsecase_ResolveConflicts_ClearsStatusAndRollsUp is
+// ResolveConflicts' only test: the git usecase calls it after a successful
+// operation-continue in a workspace's own worktree, to drop the sticky
+// pr-conflicts status. It must both return the cleared workspace and touch the
+// owning repo's activity, exactly like every other mutation in this usecase.
+func TestWorkspaceUsecase_ResolveConflicts_ClearsStatusAndRollsUp(t *testing.T) {
+	repo, _, roll, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+	now := time.Unix(2000, 0)
+
+	repo.ResolveConflictsFn = func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, RepoID: "r1", Status: ""}, nil
+	}
+
+	got, err := uc.ResolveConflicts(ctx, "w1", now)
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Status, "a resolved conflict clears the sticky pr-conflicts status")
+	assert.Equal(t, "r1", roll.TouchedRepoID)
+	assert.True(t, roll.Touched)
+}
+
+func TestWorkspaceUsecase_ResolveConflicts_Error(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.ResolveConflictsFn = func(_ context.Context, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("boom")
+	}
+
+	_, err := uc.ResolveConflicts(ctx, "w1", time.Now())
+
+	assert.Error(t, err)
+}
+
+// TestWorkspaceUsecase_SyncWorkingTreeState_ChildParentLookupFails_FallsBackToForkPoint
+// covers summaryBase's parent-Get error branch specifically — as opposed to
+// TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable,
+// which covers the branch-cannot-resolve-via-RevParse fallback. Here the parent
+// row itself cannot be fetched at all (e.g. it was deleted between the child
+// being forked and this summary running).
+func TestWorkspaceUsecase_SyncWorkingTreeState_ChildParentLookupFails_FallsBackToForkPoint(t *testing.T) {
+	repo, git, _, uc := newWorkspaceUsecase(t)
+	ctx := context.Background()
+
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		if id == "parent" {
+			return domain.Workspace{}, errors.New("parent gone")
+		}
+		return domain.Workspace{
+			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "fork-sha",
+		}, nil
+	}
+	var summaryBase string
+	git.WorkingTreeSummaryFn = func(_ context.Context, _, base string) (int, int, bool, bool, error) {
+		summaryBase = base
+		return 0, 0, false, false, nil
+	}
+	repo.SyncWorkingTreeFn = func(_ context.Context, in wsrepo.SyncInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID}, nil
+	}
+
+	_, err := uc.SyncWorkingTreeState(ctx, "w1", time.Unix(1, 0))
+
+	require.NoError(t, err)
+	assert.Equal(t, "fork-sha", summaryBase, "an unresolvable parent row must fall back to the recorded fork point")
+}
+
 func TestWorkspaceUsecase_SyncWorkingTreeState_GetError(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()

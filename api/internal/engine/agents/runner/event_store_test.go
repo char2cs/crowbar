@@ -415,6 +415,112 @@ func TestAgentRunner_OccSendErrorDisposition(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "r1", evt.Aggregate.ID)
 	})
+
+	// An error that is none of the three classified sentinels (a plain DB
+	// blip, say) is neither retried nor translated — it is the occSend
+	// contract's default disposition, and the one this table had never
+	// exercised: every other case matches a known sentinel.
+	t.Run("an unclassified error surfaces as-is, never retried", func(t *testing.T) {
+		calls := 0
+		sentinel := fmt.Errorf("connection reset")
+		send := func(context.Context, asynxModels.Command[agents.Runner]) (asynxModels.Event[agents.Runner], error) {
+			calls++
+			return asynxModels.Event[agents.Runner]{}, sentinel
+		}
+		_, err := runner.OccSend(ctx, send, cmd)
+		require.ErrorIs(t, err, sentinel)
+		assert.Equal(t, 1, calls, "an unclassified error must not be retried like ErrPipelineFailed")
+	})
+}
+
+// TestAgentRunner_Displace_UnknownRunnerSurfacesTheWrappedError and its Exit
+// sibling pin that eventSourced wraps a write-path failure with its own
+// "agentrunner: <verb>:" prefix rather than returning the underlying command
+// error bare — the same contract Start already has its own duplicate test for.
+func TestAgentRunner_Displace_UnknownRunnerSurfacesTheWrappedError(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.Displace(ctx, "does-not-exist")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	assert.Contains(t, err.Error(), "agentrunner: displace:")
+}
+
+func TestAgentRunner_Exit_UnknownRunnerSurfacesTheWrappedError(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.Exit(ctx, "does-not-exist", time.Unix(1, 0))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	assert.Contains(t, err.Error(), "agentrunner: exit:")
+}
+
+// TestAgentRunner_ReadErrorsPropagateFromTheStore pins the remaining read
+// paths' error-wrapping. TestAgentRunner_Get_MissingBridgesToPackageErrNotFound
+// and its siblings already pin mapNotFound's TRANSLATE branch (a store miss
+// becomes the package's own ErrNotFound); this pins the other half — mapNotFound
+// must pass a genuine, non-NotFound store failure through UNCHANGED rather than
+// mistaking it for "dormant" — plus the plural list reads and ForgetChat, which
+// had no failure-path test at all. A closed read DB is the same technique the
+// store package's own tests use to force a real DB error.
+func TestAgentRunner_ReadErrorsPropagateFromTheStore(t *testing.T) {
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[agents.Runner]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	repo, err := runner.NewEventSourced(ax, es, db, func(runner.RunnerEvent) {})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	_, err = repo.Start(ctx, runner.StartInput{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "term-r1", ChatID: "chat-a", Now: time.Unix(1000, 0).UTC(),
+	})
+	require.NoError(t, err)
+	runner.WaitQuiescentForTest(repo)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.LiveRunnersForChat(ctx, "chat-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: live runners for chat:")
+	assert.NotErrorIs(t, err, runner.ErrNotFound, "a genuine DB failure must never be mistaken for an empty result")
+
+	_, err = repo.LiveRunnersForSession(ctx, "w1", "sess-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: live runners for session:")
+
+	_, err = repo.ConversationsForChat(ctx, "chat-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: conversations for chat:")
+
+	err = repo.ForgetChat(ctx, "chat-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: forget chat:")
+
+	// The single-row reads route their error through mapNotFound, which must
+	// pass a non-ErrNotFound failure through UNCHANGED rather than mistaking a
+	// broken DB for "dormant" — a live CLI must never be reported as absent.
+	_, err = repo.Get(ctx, "r1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: get:")
+	assert.NotErrorIs(t, err, runner.ErrNotFound, "a live runner must never read back as merely missing")
+
+	_, err = repo.LiveRunnerForChat(ctx, "chat-a")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, runner.ErrNotFound)
 }
 
 // TestAgentRunner_Start_ErrorOnDuplicate: a runner id is minted once per spawn,

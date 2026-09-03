@@ -421,6 +421,94 @@ func TestWorkspace_UpdateForkPoint_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestWorkspace_SetLock_OverridesTheProviderDecision(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: "/some/path",
+	}, now)
+	require.NoError(t, err)
+
+	locked := true
+	ws, err := repo.SetLock(ctx, "w1", &locked, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
+}
+
+func TestWorkspace_SetLock_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	locked := true
+	_, err := repo.SetLock(ctx, "no-such", &locked, false)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_ResolveConflicts_ClearsPRConflictsStatus(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	_, err = repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "w1", HasConflicts: true}, now)
+	require.NoError(t, err)
+
+	ws, err := repo.ResolveConflicts(ctx, "w1", now)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
+}
+
+func TestWorkspace_ResolveConflicts_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.ResolveConflicts(ctx, "no-such", time.Unix(1000, 0).UTC())
+	assert.Error(t, err)
+}
+
+func TestWorkspace_ProvisionInPlace_AttachesTheWorktree(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", HeldByPath: "/holder",
+	}, now)
+	require.NoError(t, err)
+
+	ws, err := repo.ProvisionInPlace(ctx, "w1", "/new/worktree", "sha1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "/new/worktree", ws.WorktreePath)
+	assert.Equal(t, "sha1", ws.ForkPointSha)
+	assert.Empty(t, ws.HeldByPath, "provisioning in place must clear the prior holder")
+}
+
+func TestWorkspace_ProvisionInPlace_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.ProvisionInPlace(ctx, "no-such", "/path", "sha")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_ClearBranch_BlanksTheBranch(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feature-x"}, now)
+	require.NoError(t, err)
+
+	ws, err := repo.ClearBranch(ctx, "w1")
+
+	require.NoError(t, err)
+	assert.Empty(t, ws.Branch)
+}
+
+func TestWorkspace_ClearBranch_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.ClearBranch(ctx, "no-such")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_RenameBranch_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.RenameBranch(ctx, "no-such", "new-branch-name")
+	assert.Error(t, err)
+}
+
 func TestWorkspace_Delete_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
 	err := repo.Delete(ctx, "no-such")
@@ -511,6 +599,51 @@ func TestWorkspace_Create_RollsBackPathRowOnFailure(t *testing.T) {
 		"a failed Create must roll back its id→path row, not orphan it")
 }
 
+// TestWorkspace_New_ErrorFromUnderlyingStore proves New surfaces a failure from
+// store.New itself, distinct from the four nil-dependency guards above: every
+// dependency here is non-nil, but the store's read-model DB connection is
+// already closed, so New must still fail rather than hand back a repo backed by
+// a dead connection.
+func TestWorkspace_New_ErrorFromUnderlyingStore(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
+	require.NoError(t, err)
+
+	storeDB := ad.WorkspaceView()
+	sqlDB, err := storeDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), storeDB, pathsStore)
+	assert.Error(t, err)
+}
+
+// TestWorkspace_Create_ErrorWhenPathsStoreWriteFails proves Create surfaces a
+// paths-store write failure BEFORE it ever attempts to send the CreateWorkspace
+// command — the id→path row must be recorded durably up front (§3.9), so a
+// write failure here must abort the create rather than proceed to an aggregate
+// with no resolvable on-disk path.
+func TestWorkspace_Create_ErrorWhenPathsStoreWriteFails(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	ctx := context.Background()
+
+	// pathsStore is built over ad.GlobalView(); closing its connection after the
+	// repo is built (but before the write) forces Put to fail.
+	sqlDB, err := ad.GlobalView().DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.Create(ctx, workspace.CreateInput{
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		WorktreePath: "/some/path",
+	}, time.Unix(1, 0).UTC())
+
+	assert.Error(t, err)
+}
+
 func TestListInRepo_ScopesToRepo(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Create(ctx, workspace.CreateInput{
@@ -570,6 +703,106 @@ func TestGetHomeForProject_NotFound(t *testing.T) {
 	_, repo := newRepo(t)
 	_, err := repo.GetHomeForProject(context.Background(), "nonexistent-project")
 	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestWorkspace_List_StorageError(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	sqlDB, err := ad.WorkspaceView().DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.List(context.Background())
+
+	assert.Error(t, err)
+}
+
+func TestListInRepo_StorageError(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	sqlDB, err := ad.WorkspaceView().DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.ListInRepo(context.Background(), "p1", "r1")
+
+	assert.Error(t, err)
+}
+
+func TestGetHomeForProject_StorageError(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	sqlDB, err := ad.WorkspaceView().DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.GetHomeForProject(context.Background(), "p1")
+
+	assert.Error(t, err)
+}
+
+// TestCreateHome_ErrorPropagatesFromCreate proves CreateHome wraps and
+// surfaces a failure from the underlying Create call (here, a paths-store write
+// failure) rather than swallowing it — a lazily-provisioned home workspace must
+// never appear to succeed while leaving no resolvable on-disk path.
+func TestCreateHome_ErrorPropagatesFromCreate(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo, _ := buildRepo(t, ad)
+	sqlDB, err := ad.GlobalView().DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.CreateHome(context.Background(), "p1", "/some/path", time.Unix(1, 0).UTC())
+
+	assert.Error(t, err)
+}
+
+// TestCreateHome_ProvisionsAHomeWorkspaceFindableByProject proves CreateHome's
+// happy path end to end: it mints a fresh id, sets Kind=home, and the result is
+// durably findable via GetHomeForProject — the whole point of the lazy
+// provisioning GetHomeForProject's own ErrNotFound path exists to trigger.
+func TestCreateHome_ProvisionsAHomeWorkspaceFindableByProject(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+
+	created, err := repo.CreateHome(ctx, "p1", "/projects/p1", now)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceKindHome, created.Kind)
+	assert.Equal(t, "p1", created.ProjectID)
+	assert.Equal(t, "/projects/p1", created.WorktreePath)
+	assert.NotEmpty(t, created.ID, "CreateHome must mint a fresh id")
+
+	workspace.WaitQuiescentForTest(repo)
+	found, err := repo.GetHomeForProject(ctx, "p1")
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, found.ID)
+}
+
+// TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow proves the
+// boot orphan-sweep seam (spec §3.8): every row the durable read model still
+// carries as Status=deleted is handed to the caller-supplied purge, exactly
+// once, so a crash mid-cascade is recovered on the next boot.
+func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	require.NoError(t, repo.Delete(ctx, "w1"))
+	listQuiescent(t, ctx, repo, 2)
+
+	sweeper, ok := repo.(workspace.BootSweeper)
+	require.True(t, ok, "the concrete repo must satisfy BootSweeper")
+
+	var purged []string
+	sweeper.Sweep(ctx, func(_ context.Context, wsID string) error {
+		purged = append(purged, wsID)
+		return nil
+	})
+
+	assert.Equal(t, []string{"w1"}, purged, "only the residual deleted row is re-purged; the live workspace is left alone")
 }
 
 // spyReconciler records the ids passed to OnOpen so a test can assert which read

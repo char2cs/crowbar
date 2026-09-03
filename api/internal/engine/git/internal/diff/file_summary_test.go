@@ -9,6 +9,7 @@ import (
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
+	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
 // TestFileSummaries_FullBranchPicture drives FileSummaries against a real repo
@@ -83,4 +84,44 @@ func TestFileSummaries_CleanTree(t *testing.T) {
 	files, err := diff.FileSummaries(context.Background(), dir, head, dirtyPaths(t, dir))
 	require.NoError(t, err)
 	assert.Empty(t, files)
+}
+
+// TestFileSummaries_NameStatusExecError covers the exec.RequireSuccess guard
+// on the leading `git diff --name-status` invocation: any directory that
+// isn't a git repository at all fails there, before summaryCounts ever runs.
+func TestFileSummaries_NameStatusExecError(t *testing.T) {
+	dir := t.TempDir() // not a git repo
+
+	_, err := diff.FileSummaries(context.Background(), dir, "HEAD", nil)
+
+	require.Error(t, err)
+}
+
+// TestFileSummaries_CommittedCountsErrorPropagates proves a failure inside the
+// committed-count half of the dirty-set split (summaryCounts's cached
+// ref->HEAD numstat query) reaches the caller through FileSummaries' own error
+// check, not just summaryCounts's internal one. The seam is runGit, not
+// exec.Git, so the name-status call FileSummaries runs first is unaffected and
+// succeeds normally against the real repo; only the treeCounts half is made to
+// fail.
+func TestFileSummaries_CommittedCountsErrorPropagates(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "1\n")
+	mustGit(t, dir, "add", "-A")
+	mustGit(t, dir, "commit", "-m", "c1")
+	writeFile(t, dir, "a.txt", "1\n2\n")
+
+	diff.ResetSummaryCache()
+	t.Cleanup(diff.ResetSummaryCache)
+	_, restore := diff.SetGitRunner(func(_ context.Context, _ string, _ ...string) exec.Result {
+		return exec.Result{ExitCode: 1, Stderr: "fatal: injected treeCounts failure"}
+	})
+	t.Cleanup(restore)
+
+	// dirty must be non-nil (and not a range ref) to route through the
+	// committed/dirty split rather than straight to worktreeCounts.
+	_, err := diff.FileSummaries(context.Background(), dir, "HEAD", []string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "injected treeCounts failure")
 }

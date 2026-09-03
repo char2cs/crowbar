@@ -190,3 +190,79 @@ func TestStoreProjector_SaveRetriesTransientIOError(t *testing.T) {
 	p.onEvent(context.Background(), asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
 	require.Len(t, fi.saved, 1, "save must succeed after retrying the transient disk I/O errors")
 }
+
+// TestStoreProjector_SaveExhaustsRetriesOnPersistentIOError proves the retry
+// bound is actually a bound: three straight transient failures must stop
+// retrying and surface the last error, not retry forever or fall through
+// silently as success.
+func TestStoreProjector_SaveExhaustsRetriesOnPersistentIOError(t *testing.T) {
+	fi := &flakyInner{failsLeft: 3}
+	p := &storeProjector{store: &Store{inner: fi}}
+
+	err := p.saveWithRetry(context.Background(), domain.Workspace{ID: "w1"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk I/O error")
+	assert.Empty(t, fi.saved, "a save that never succeeds within the retry bound must not report success")
+}
+
+func TestNewStore_ErrorOnBadDB(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = NewStore(db)
+
+	assert.Error(t, err)
+}
+
+func TestStore_List_ErrorOnStorageFailure(t *testing.T) {
+	st := &Store{inner: &errInner{err: errors.New("db down")}}
+
+	_, err := st.List(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "find all")
+}
+
+func TestStore_Get_ErrorOnStorageFailure(t *testing.T) {
+	st := &Store{inner: &errInner{err: errors.New("db down")}}
+
+	_, err := st.Get(context.Background(), "w1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "find")
+}
+
+// corruptInner returns rows whose Data is not valid JSON, simulating a
+// read-model row written by an incompatible/older version of the schema.
+type corruptInner struct{}
+
+func (corruptInner) Save(context.Context, workspaceRow) error { return nil }
+func (corruptInner) Delete(context.Context, string) error     { return nil }
+func (corruptInner) FindByKey(context.Context, string) (*workspaceRow, error) {
+	return &workspaceRow{ID: "w1", Data: []byte("not valid json")}, nil
+}
+func (corruptInner) FindAll(context.Context) ([]workspaceRow, error) {
+	return []workspaceRow{{ID: "w1", Data: []byte("not valid json")}}, nil
+}
+
+func TestStore_List_ErrorOnCorruptRow(t *testing.T) {
+	st := &Store{inner: corruptInner{}}
+
+	_, err := st.List(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal")
+}
+
+func TestStore_Get_ErrorOnCorruptRow(t *testing.T) {
+	st := &Store{inner: corruptInner{}}
+
+	_, err := st.Get(context.Background(), "w1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal")
+}

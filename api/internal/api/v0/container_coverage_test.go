@@ -272,6 +272,184 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	assert.Equal(t, "bound", got["kind"])
 }
 
+// TestContainer_PushAgentChatTerminalWait_ReachesFilteredClient proves the
+// terminal-wait edge fans out on the SAME workspace-scoped agent-chat
+// WebSocket as PushAgentChat, carrying the wait's kind through untouched.
+func TestContainer_PushAgentChatTerminalWait_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChatTerminalWait("chat-in-b", "B", &dto.AgentTerminalWaitDTO{Kind: "skip"})
+	c.PushAgentChatTerminalWait("chat-1", "A", &dto.AgentTerminalWaitDTO{Kind: "permission"})
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "terminal_wait", got["kind"])
+	wait, ok := got["terminalWait"].(map[string]any)
+	require.True(t, ok, "terminalWait must be present on a terminal_wait frame")
+	assert.Equal(t, "permission", wait["kind"])
+}
+
+// TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient proves the
+// prompt-settled fact fans out on the SAME workspace-scoped feed, carrying the
+// client's original request id so it can retire the pending submission.
+func TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChatPromptSettled("chat-in-b", "B", "req-skip")
+	c.PushAgentChatPromptSettled("chat-1", "A", "req-1")
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "prompt_settled", got["kind"])
+	assert.Equal(t, "req-1", got["clientRequestId"])
+}
+
+// TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient proves a
+// streaming message delta fans out on the SAME workspace-scoped feed, and
+// exercises the broadcaster's CoalesceKey path (message_delta is the one kind
+// this feed coalesces).
+func TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChatMessageDelta("chat-in-b", "B", "m1", "skip")
+	c.PushAgentChatMessageDelta("chat-1", "A", "m1", "hello")
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "message_delta", got["kind"])
+	msg, ok := got["message"].(map[string]any)
+	require.True(t, ok, "message must be present on a message_delta frame")
+	assert.Equal(t, "m1", msg["id"])
+	assert.Equal(t, "hello", msg["text"])
+}
+
+// TestContainer_PushAgentChatCompaction_ReachesFilteredClient proves the
+// compaction lifecycle kind picks compaction_started/compaction_stopped by the
+// active flag, on the SAME workspace-scoped feed.
+func TestContainer_PushAgentChatCompaction_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChatCompaction("chat-in-b", "B", true)
+	c.PushAgentChatCompaction("chat-1", "A", true)
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "compaction_started", got["kind"])
+
+	c.PushAgentChatCompaction("chat-1", "A", false)
+	got = readJSON(t, conn)
+	assert.Equal(t, "compaction_stopped", got["kind"])
+}
+
+// TestContainer_PushAgentChatFolder_ReachesFilteredClient proves a chat-folder
+// lifecycle event fans out on the SAME workspace-scoped feed as PushAgentChat,
+// carrying the folder id and kind rather than a row.
+func TestContainer_PushAgentChatFolder_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChatFolder("f-skip", "B", "folder_created")
+	c.PushAgentChatFolder("f1", "A", "folder_created")
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "f1", got["folderId"])
+	assert.Equal(t, "folder_created", got["kind"])
+}
+
+// TestContainer_PushAgentRunner_ReachesFilteredClient proves a runner lifecycle
+// event fans out on the SAME workspace-scoped feed, carrying RunnerID (empty
+// on the chat kinds) alongside the chat it is currently pointed at.
+func TestContainer_PushAgentRunner_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET(
+		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
+		func(ctx *gin.Context) { c.agentChats.Handle(ctx) },
+	)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentRunner("runner-skip", "B", "chat-skip", "moved")
+	c.PushAgentRunner("runner-1", "A", "chat-1", "moved")
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "runner-1", got["runnerId"])
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "moved", got["kind"])
+}
+
+// TestNew_PanicsOnNilAppContainer proves the constructor fails fast rather than
+// building a Container that would nil-panic on its first real request.
+func TestNew_PanicsOnNilAppContainer(t *testing.T) {
+	assert.PanicsWithValue(t, "v0: appContainer is required", func() {
+		New(nil, nil)
+	})
+}
+
 // TestScopeWsID_PrefersPathThenQuery proves scopeWsID reads the :wsId path
 // param when present, falling back to the "wsId" query param, and returning ""
 // when neither is set (T15's dual-served-route scoping).

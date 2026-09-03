@@ -138,3 +138,56 @@ func TestNew_ProjectionsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }
+
+// fakeAxFailsHubSubscribe lets the FIRST Subscribe (registerStoreProjection's
+// own) succeed, then fails the SECOND (registerHubProjection's) — pinning
+// New's OWN error wrap around registerHubProjection specifically, as distinct
+// from the registerStoreProjection failure TestNew_ProjectionsError already
+// covers. Without this, a bug that dropped New's second error check (returning
+// nil after silently discarding registerHubProjection's failure) would pass
+// every other test in this file.
+type fakeAxFailsHubSubscribe struct {
+	asynx.Asynx[domain.Chat]
+	subscribeCalls int
+}
+
+func (f *fakeAxFailsHubSubscribe) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domain.Chat],
+	_ ...asynxModels.SubscriptionOpt[domain.Chat],
+) (string, error) {
+	f.subscribeCalls++
+	if f.subscribeCalls == 1 {
+		return "sub-store", nil
+	}
+	return "", errors.New("bus down for hub")
+}
+
+func (f *fakeAxFailsHubSubscribe) OnForget(
+	_ asynxModels.ForgetHandler[domain.Chat],
+) (string, error) {
+	return "onforget-id", nil
+}
+
+func TestNew_HubProjectionError(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	_, err = New(db, nil, &fakeAxFailsHubSubscribe{}, func(ChatEvent) {})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentchat store: projections")
+}
+
+// TestFoldReplayed_SaveError_DoesNotPanic proves foldReplayed (the Replay
+// callback healOne/rebuild pass to s.ax.Replay) LOGS a persist failure rather
+// than propagating or panicking: Replay's own contract has no error return
+// path back through a projection handler, so a Save failure here can only
+// ever be surfaced by logging it — silently degrading to "this one row did
+// not heal" rather than crashing the whole heal.
+func TestFoldReplayed_SaveError_DoesNotPanic(t *testing.T) {
+	s := &service{storage: &storageStore{inner: &errInner{err: errors.New("db down")}}}
+	assert.NotPanics(t, func() {
+		s.foldReplayed(context.Background(), asynxModels.Event[domain.Chat]{
+			Aggregate: domain.Chat{ID: "c1"},
+		})
+	})
+}

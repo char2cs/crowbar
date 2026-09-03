@@ -62,6 +62,70 @@ func ExportedParseNumstat(
 	return parseNumstat(output)
 }
 
+// ExportedCommitDistanceToHead wraps commitDistanceToHead so tests can drive
+// its rev-list failure paths through a fake exec (NewWithExec) without a real
+// git subprocess ever needing to fail rev-list on a valid merge-base.
+func ExportedCommitDistanceToHead(
+	e Engine,
+	ctx context.Context,
+	repoPath string,
+	rev string,
+) int {
+	return e.(*engine).commitDistanceToHead(ctx, repoPath, rev)
+}
+
+// ExportedNumstatFromBase wraps numstatFromBase for the same reason: a real
+// resolved base essentially never makes `git diff --numstat` fail, so the
+// ExitCode != 0 branch needs a fake exec to reach.
+func ExportedNumstatFromBase(
+	e Engine,
+	ctx context.Context,
+	repoPath string,
+	base string,
+) (int, int, error) {
+	return e.(*engine).numstatFromBase(ctx, repoPath, base)
+}
+
+// ExportedResolveDiffBase wraps resolveDiffBase so a fake exec (NewWithExec)
+// can drive `merge-base`'s output directly — a real git merge-base never
+// exits 0 with blank stdout, so the "candidate produced no usable SHA" guard
+// needs a fake exec to reach.
+func ExportedResolveDiffBase(
+	e Engine,
+	ctx context.Context,
+	repoPath string,
+	base string,
+) string {
+	return e.(*engine).resolveDiffBase(ctx, repoPath, base)
+}
+
+// ExportedLooksLikeCommitSHA wraps looksLikeCommitSHA for a direct unit test
+// of its hex-digit guard.
+func ExportedLooksLikeCommitSHA(
+	s string,
+) bool {
+	return looksLikeCommitSHA(s)
+}
+
+// ExportedIsStaleWorktreeConflict wraps isStaleWorktreeConflict for a unit
+// test of its nil-error guard, which WorktreeAdd's short-circuited caller
+// (`rawErr != nil && isStaleWorktreeConflict(rawErr)`) never actually
+// exercises with a nil argument.
+func ExportedIsStaleWorktreeConflict(
+	err error,
+) bool {
+	return isStaleWorktreeConflict(err)
+}
+
+// ExportedReclassifyError wraps reclassifyError for unit tests exercising the
+// branch unreachable from any public engine method: an err that is not a
+// *gitexec.GitError at all.
+func ExportedReclassifyError(
+	err error,
+) error {
+	return reclassifyError(err)
+}
+
 // ExportedDetectInProgressOp wraps detectInProgressOp for unit tests.
 func ExportedDetectInProgressOp(
 	ctx context.Context,
