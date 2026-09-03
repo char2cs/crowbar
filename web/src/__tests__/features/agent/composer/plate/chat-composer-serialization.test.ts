@@ -60,6 +60,33 @@ describe('the chat composer codec', () => {
     })
   })
 
+  // REGRESSION: a genuinely empty document — a fresh, untouched box, or one
+  // typed into and then cleared back out — normalizes (Slate cannot hold zero
+  // children) to a single empty paragraph. The underlying codec serializes
+  // THAT as a lone U+200B (zero-width space), its own placeholder for telling
+  // an intentionally-blank paragraph apart from no paragraph at all on a
+  // markdown round trip. `.trim()` does not touch it — U+200B is a Cf
+  // formatting character, not whitespace — so this reached `isPromptTextWithinLimit`
+  // as one "real" character and a box that looked, and read via .textContent,
+  // completely empty could be sent as a real turn.
+  describe('a document with nothing actually typed in it', () => {
+    it('serializes a single empty paragraph to the empty string, not U+200B', () => {
+      expect(chatValueToMarkdown([p('')] as Value)).toBe('')
+    })
+
+    it('serializes several empty paragraphs (Enter pressed with nothing typed) to empty', () => {
+      expect(chatValueToMarkdown([p(''), p('')] as Value)).toBe('')
+    })
+
+    it('treats a whitespace-only paragraph the same way', () => {
+      expect(chatValueToMarkdown([p('   ')] as Value)).toBe('')
+    })
+
+    it('never leaves a stray U+200B in real content around an empty paragraph', () => {
+      expect(chatValueToMarkdown([p('hello'), p('')] as Value)).toBe('hello')
+    })
+  })
+
   // A code line's indentation IS the program. It is the one place the encoder
   // never runs and the one place trimming would corrupt the prompt.
   it('keeps the indentation inside a fenced block', () => {
