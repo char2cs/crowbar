@@ -935,6 +935,16 @@ describe('AgentChatView composer controls', () => {
     // Back past the newest turn: the live draft, empty since nothing was typed.
     expect(await composer()).toHaveValue('')
   })
+
+  // Enter reaches enqueueDraft even on an empty box (the send BUTTON is
+  // disabled for empty, but Enter bypasses it) — nothing sent is correct, but
+  // surfacing an alert for it is friction over nothing gone wrong.
+  it('says nothing when Enter is pressed on an empty box — there is nothing to warn about', async () => {
+    setup()
+    fireEvent.keyDown(await composer(), { key: 'Enter', shiftKey: false })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(submitPromptFn).not.toHaveBeenCalled()
+  })
 })
 
 describe('AgentChatView type-to-focus', () => {

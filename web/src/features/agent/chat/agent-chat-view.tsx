@@ -435,7 +435,7 @@ export function AgentChatView({
   const enqueueDraft = (text?: string) => {
     const result = prompts.enqueue(text ?? draft)
     if (!result.ok) {
-      setComposerError(result.error)
+      setComposerError(result.error ?? '')
       return
     }
     // Only ever meaningful for the chat's FIRST send: `blank` reads the render
