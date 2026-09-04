@@ -81,6 +81,8 @@ func Register(
 	wsScoped.POST("/chats/:id/prompts", h.SubmitPrompt)
 	wsScoped.GET("/chats/:id/activity", h.Activity)
 	wsScoped.GET("/chats/:id/activity/:toolId/payload", h.ToolPayload)
+	wsScoped.POST("/chats/:id/attachments", h.UploadAttachment)
+	wsScoped.GET("/chats/:id/attachments/:file", h.Attachment)
 	wsScoped.GET("/chats/:id/choices", h.Choices)
 	wsScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
 	wsScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)

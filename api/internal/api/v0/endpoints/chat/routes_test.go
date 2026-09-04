@@ -333,6 +333,8 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
+		{http.MethodPost, base + "/chats/c1/attachments"},
+		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},
 		{http.MethodPost, base + "/chats/c1/rename"},
 		{http.MethodGet, base + "/chats/c1/handoff"},
@@ -445,4 +447,14 @@ func (stubUsecase) SetChatPermissionLevel(
 
 func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
+}
+
+func (stubUsecase) UploadAttachment(
+	context.Context, string, agentusecase.UploadAttachmentInput,
+) (agentusecase.StoredAttachment, error) {
+	return agentusecase.StoredAttachment{}, nil
+}
+
+func (stubUsecase) ReadAttachment(context.Context, string, string) ([]byte, string, error) {
+	return nil, "", nil
 }

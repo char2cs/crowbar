@@ -122,6 +122,22 @@ type TurnUsecase interface {
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
+
+	// UploadAttachment stores one attachment into chatID's durable attachment
+	// store and returns the logical reference the caller writes back into the
+	// message's own markdown text.
+	UploadAttachment(
+		ctx context.Context,
+		chatID string,
+		in agentusecase.UploadAttachmentInput,
+	) (agentusecase.StoredAttachment, error)
+
+	// ReadAttachment resolves chatID's stored attachment fileName to bytes and a
+	// sniffed content type, or repoattachments.ErrNotFound.
+	ReadAttachment(
+		ctx context.Context,
+		chatID, fileName string,
+	) ([]byte, string, error)
 }
 
 // RunnerUsecase is the vendor CLI itself: which one is on a chat, what it has

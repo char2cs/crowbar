@@ -169,6 +169,15 @@ type fakeAgentUsecase struct {
 	pendingErr    error
 	pendingCalls  []string
 
+	uploadAttachmentCalls []uploadAttachmentCall
+	uploadAttachmentOut   agentusecase.StoredAttachment
+	uploadAttachmentErr   error
+
+	readAttachmentCalls []readAttachmentCall
+	readAttachmentData  []byte
+	readAttachmentType  string
+	readAttachmentErr   error
+
 	answerable  []string
 	answerCalls []answerCall
 	answerErr   error
