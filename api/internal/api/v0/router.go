@@ -86,6 +86,20 @@ func (c *Container) Register(
 	chats := rg.Group("/chats")
 	chatScoped := chats.Group("/:chatId")
 	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
+	// The per-CHAT lifecycle stream: the same agent-chat broadcaster the
+	// repo-scoped .../chats/ws mount serves, scoped by agentChatDef's chatId
+	// filter to the one chat named here.
+	//
+	// It is the chat-scoped replacement for watching ONE workspace's stream, and
+	// it is load-bearing beyond the frames it carries. Subscribing to a single
+	// workspace is what starts the daemon's provider poll — the GitHub/GitLab
+	// PR-status detection that moves a branch to pr-open/pr-merged/pr-closed —
+	// and the repo-wide list scope resolves no workspace, so it never did. This
+	// mount resolves one through chatScoped's own resolveChatWorktree, which is
+	// exactly what scopeWsID reads, so a client watching a chat starts the poll
+	// for the worktree that chat holds. Without it, a frontend that stopped
+	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
+	chatScoped.GET("/ws", c.agentChats.Handle)
 
 	projectsPkg.Register(
 		rg,
@@ -229,6 +243,12 @@ func (c *Container) Register(
 		// branch: the create needs the repo's on-disk path and remote to describe
 		// the branch it is adopting (spec §4.1).
 		c.app.GORM.Repositories,
+		// The git fields a worktree-owning chat carries on its own DTO (spec §5),
+		// so ONE read of the chat list answers everything the workspace list used
+		// to. The home group deliberately mounts these handlers WITHOUT it: the
+		// project home is a bare project-level row with no repo and no git surface
+		// at all, so there is no worktree there to describe.
+		chatWorktrees{app: c.app},
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 	)

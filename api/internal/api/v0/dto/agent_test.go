@@ -25,7 +25,7 @@ func TestAgentChatDTOFrom_CarriesIdentityAndTitle(t *testing.T) {
 		WorkspaceID: "ws1",
 		Title:       "a title",
 		CreatedAt:   created,
-	}, dto.ChatRuntime{})
+	}, dto.ChatRuntime{}, nil)
 
 	assert.Equal(t, "c1", got.ID)
 	assert.Equal(t, "ws1", got.WorkspaceID)
@@ -46,7 +46,7 @@ func TestAgentChatDTOFrom_LiveRunnerIsTheLivenessAnswer(t *testing.T) {
 			CurrentChatID:   "c1",
 		},
 		Conversations: []agents.ChatConversation{{ChatID: "c1", ProviderID: "vendor-a"}},
-	})
+	}, nil)
 
 	assert.Equal(t, "run-1", got.LiveRunnerID)
 	assert.Equal(t, "term-1", got.TerminalSessionID)
@@ -69,7 +69,7 @@ func TestAgentChatDTOFrom_LiveAPIConnectionBlanksTheCompanionPTY(t *testing.T) {
 			CurrentChatID:   "c1",
 		},
 		HasLiveAPIConnection: true,
-	})
+	}, nil)
 
 	assert.Equal(t, "run-1", got.LiveRunnerID)
 	assert.Empty(t, got.TerminalSessionID, "the companion PTY must never be reported as a view")
@@ -89,7 +89,7 @@ func TestAgentChatDTOFrom_AttachedSessionOutranksLiveAPIConnection(t *testing.T)
 		},
 		AttachedSessionID:    "attach-1",
 		HasLiveAPIConnection: true,
-	})
+	}, nil)
 
 	assert.Equal(t, "attach-1", got.TerminalSessionID)
 }
@@ -104,7 +104,7 @@ func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC()},
 			{ChatID: "c1", ProviderID: "vendor-b", FirstSeenAt: time.Unix(2, 0).UTC()},
 		},
-	})
+	}, nil)
 
 	assert.Empty(t, got.LiveRunnerID)
 	assert.Empty(t, got.TerminalSessionID)
@@ -114,7 +114,7 @@ func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 // TestAgentChatDTOFrom_NeverRanIsAllEmpty proves a chat no runner has ever been placed
 // on derives to empty strings everywhere rather than erroring or inventing a provider.
 func TestAgentChatDTOFrom_NeverRanIsAllEmpty(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{}, nil)
 
 	assert.Empty(t, got.LiveRunnerID)
 	assert.Empty(t, got.TerminalSessionID)
@@ -130,7 +130,7 @@ func TestAgentChatDTOFrom_NeverRanIsAllEmpty(t *testing.T) {
 // distinguish, unlike ParentID/Order's documented ""/0-is-meaningful pattern.
 func TestAgentChatDTOFrom_CarriesTheRowType(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", Type: domain.ChatTypeBranch},
-		dto.ChatRuntime{})
+		dto.ChatRuntime{}, nil)
 
 	assert.Equal(t, domain.ChatTypeBranch, got.Type)
 
@@ -143,7 +143,7 @@ func TestAgentChatDTOFrom_CarriesTheRowType(t *testing.T) {
 // proves each row derives from ITS OWN runtime: the map is keyed by chat id, and a chat
 // missing from it (in neither runner projection) reads as dormant with no history.
 func TestAgentChatDTOList_IsNonNil(t *testing.T) {
-	got := dto.AgentChatDTOList(nil, nil)
+	got := dto.AgentChatDTOList(nil, nil, nil)
 	require.NotNil(t, got)
 	assert.Empty(t, got)
 
@@ -152,6 +152,7 @@ func TestAgentChatDTOList_IsNonNil(t *testing.T) {
 		map[string]dto.ChatRuntime{
 			"c1": {LiveRunner: &agents.Runner{ID: "run-1", ProviderID: "vendor-a", TerminalSession: "term-1"}},
 		},
+		nil,
 	)
 	require.Len(t, got, 2)
 	assert.Equal(t, "c1", got[0].ID)
@@ -178,6 +179,7 @@ func TestAgentChatDetailDTOFrom_CarriesConversations(t *testing.T) {
 			LiveRunner:    &agents.Runner{ID: "run-1", ProviderID: "vendor-b", TerminalSession: "term-1"},
 			Conversations: convs,
 		},
+		nil,
 	)
 
 	assert.Equal(t, "c1", got.ID)
@@ -189,7 +191,7 @@ func TestAgentChatDetailDTOFrom_CarriesConversations(t *testing.T) {
 // TestAgentChatDetailDTOFrom_ConversationsNeverNull keeps the envelope carrying [] on a
 // chat that has hosted no conversation yet, so the FE can map over it unguarded.
 func TestAgentChatDetailDTOFrom_ConversationsNeverNull(t *testing.T) {
-	got := dto.AgentChatDetailDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDetailDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{}, nil)
 
 	require.NotNil(t, got.Conversations)
 	assert.Empty(t, got.Conversations)
@@ -205,7 +207,7 @@ func TestAgentChatDetailDTOFrom_ConversationsNeverNull(t *testing.T) {
 // current value.
 func TestAgentChatDTOFrom_CarriesTheStickySelection(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", Model: "opus", Effort: "high"},
-		dto.ChatRuntime{})
+		dto.ChatRuntime{}, nil)
 
 	assert.Equal(t, "opus", got.Model)
 	assert.Equal(t, "high", got.Effort)
@@ -216,7 +218,7 @@ func TestAgentChatDTOFrom_CarriesTheStickySelection(t *testing.T) {
 // client might render as a selected value. Crowbar does not know what the default
 // resolves to and must not imply that it does.
 func TestAgentChatDTOFrom_UnselectedChatOmitsTheSelection(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{}, nil)
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
@@ -273,7 +275,7 @@ func TestTerminalWaitDTOFrom_WaitingCarriesKind(t *testing.T) {
 // what it was before TerminalWait existed. A present-but-null field would break
 // that promise just as much as a wrong value would.
 func TestAgentChatDTOFrom_TerminalWaitOmittedWhenNotWaiting(t *testing.T) {
-	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{})
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{}, nil)
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
@@ -288,7 +290,7 @@ func TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting(t *testing.T) {
 			Waiting: true,
 			Kind:    domain.AgentTerminalWaitTrust,
 		},
-	})
+	}, nil)
 
 	require.NotNil(t, got.TerminalWait)
 	assert.Equal(t, domain.AgentTerminalWaitTrust, got.TerminalWait.Kind)
@@ -306,7 +308,7 @@ func TestAgentChatDTOFrom_TerminalWaitCarriesKindWhenWaiting(t *testing.T) {
 func TestAgentChatDTOFrom_UnidentifiedTerminalWaitMarshalsAsEmptyObject(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		TerminalWait: domain.AgentTerminalWait{Waiting: true},
-	})
+	}, nil)
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)

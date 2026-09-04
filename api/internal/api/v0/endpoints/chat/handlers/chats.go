@@ -227,7 +227,8 @@ func (h *Handlers) List(
 		runtimes[c.ID] = rt
 	}
 
-	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes))
+	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(
+		chats, runtimes, h.repoWorktrees(rctx, ctx.Param("projectId"), ctx.Param("repoId"))))
 }
 
 // listChats backs List: wsID scopes to ListChatsByWorkspace when the request
@@ -274,7 +275,8 @@ func (h *Handlers) Get(
 		return
 	}
 
-	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(chat, rt))
+	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(
+		chat, rt, h.chatWorktree(ctx.Request.Context(), chat)))
 }
 
 // chatRuntime derives a chat's process view at read time by joining the two runner
@@ -434,7 +436,8 @@ func (h *Handlers) Promote(
 		return
 	}
 
-	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(promoted, rt))
+	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(
+		promoted, rt, h.chatWorktree(ctx.Request.Context(), promoted)))
 }
 
 // SetSelection handles PATCH .../repos/:repoId/chats/:id/selection:

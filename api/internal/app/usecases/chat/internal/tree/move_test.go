@@ -21,7 +21,8 @@ func newUsecaseWithWork(
 	chats := mocks.NewAgentChatPlacements()
 	work := inflight.NewWork()
 	roster := mocks.NewAgentWorkspaceRoster()
-	return chats, tree.New(chats, chats, work, mocks.NewAgentWorkspaceGitStatus(), roster), work
+	return chats, tree.New(chats, chats, work, mocks.NewAgentWorkspaceGitStatus(), roster,
+		mocks.NewAgentWorkspaceReaper()), work
 }
 
 // seedFolderTree creates "root" and "other" as sibling folders and files

@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -235,11 +236,35 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
-// DeleteChat erases chatID and every chat threaded below it. A FOLDER id is
-// refused as not-found rather than served: the folder verb PROMOTES what it
-// held and this one CASCADES into it, so accepting a folder here would erase
-// every chat filed inside one on a route that only ever meant to delete a
-// conversation. See loadChat's own doc for the other half of the same guard.
+// DeleteChat erases chatID and every chat threaded below it, TOGETHER WITH THE
+// WORKTREE each of those chats owned. A FOLDER id is refused as not-found
+// rather than served: the folder verb PROMOTES what it held and this one
+// CASCADES into it, so accepting a folder here would erase every chat filed
+// inside one on a route that only ever meant to delete a conversation. See
+// loadChat's own doc for the other half of the same guard.
+//
+// The worktrees go FIRST, before a single chat is purged, and that ordering is
+// the whole of the failure contract. A workspace is reachable only through the
+// chat that owns it, so the two orders fail in opposite directions: reap-then-
+// purge leaves, on failure, a chat that still exists and still owns its
+// worktree — nothing lost, the user retries — while purge-then-reap leaves a
+// real worktree on disk that nothing can ever name again, which is exactly the
+// orphan spec §0 diagnosed and the reason this cascade exists at all.
+//
+// So a failed reap FAILS THE DELETE and is returned, not logged. That is the
+// same principle Promote's own unpromote states ("the workspace is discarded
+// only once nothing owns it") applied to a verb whose chat does not survive:
+// there, the surviving chat is what must not be left pointing at a deleted
+// directory; here, nothing survives to point, so the thing that must not be
+// left is the directory itself. It differs from the rollback paths
+// (discardMintedWorkspace) only because those already have a cause to report
+// and this one does not — the reap failure IS what went wrong.
+//
+// The cost is disclosed and accepted: a chat whose worktree cannot be torn down
+// — one whose branch is locked, or whose subtree owns a working chat — cannot
+// be deleted until that is resolved. Both of those are refusals the workspace
+// delete already makes for the same reasons, so this door is no stricter than
+// the other one; it is merely no longer looser.
 func (u *chatFolderUsecase) DeleteChat(
 	ctx context.Context,
 	chatID string,
@@ -260,6 +285,9 @@ func (u *chatFolderUsecase) DeleteChat(
 	}
 	chats, folders := snapshot.subtree(chatID)
 	chats = append(chats, chatID)
+	if err := u.reapWorktrees(ctx, snapshot, chats); err != nil {
+		return ChatDeletion{}, err
+	}
 	if err := u.purgeAll(ctx, snapshot, chats); err != nil {
 		return ChatDeletion{}, err
 	}
@@ -272,6 +300,48 @@ func (u *chatFolderUsecase) DeleteChat(
 		return ChatDeletion{}, err
 	}
 	return ChatDeletion{Chats: chats, Folders: folders, Shifted: shifted}, nil
+}
+
+// reapWorktrees tears down the worktree every chat in the doomed subtree owns,
+// deepest first — the order the subtree already arrives in, and the one that
+// matters: a child workspace is reaped before the cascade of its lineage parent
+// could reach it, so no reap ever runs against a row an earlier one removed.
+//
+// A workspace already gone is not an error. DeleteCascade takes a workspace's
+// git-lineage descendants with it, and those need not be the same set as the
+// chat subtree's, so a later id in this walk can legitimately have been reaped
+// by an earlier one's cascade. Treating that as a failure would refuse a delete
+// that had in fact already done exactly what was asked.
+//
+// A chat with no workspace of its own is skipped: a bubble borrows its
+// ancestor's ground and owns nothing to tear down. That is what keeps deleting
+// a thread from reaping the worktree its parent is still working in.
+//
+// Each workspace is reaped ONCE however many rows in the subtree name it. A
+// thread carries its parent's workspace id, so a chat and its threads routinely
+// name one worktree between them; asking for the same teardown twice would work
+// (the second is a tolerated not-found) but would report a cascade running that
+// is not, and would hide a genuine repeat behind an expected one.
+func (u *chatFolderUsecase) reapWorktrees(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	ids []string,
+) error {
+	reaped := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		row := snapshot.row(id)
+		if row == nil || row.WorkspaceID == "" || reaped[row.WorkspaceID] {
+			continue
+		}
+		reaped[row.WorkspaceID] = true
+		err := u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
+		if err == nil || errors.Is(err, apperr.ErrNotFound) {
+			continue
+		}
+		return fmt.Errorf("agent chat folder: delete chat %s: reap worktree %s: %w",
+			id, row.WorkspaceID, err)
+	}
+	return nil
 }
 
 // purgeAll erases each chat in order and takes it out of the plan as it goes, so

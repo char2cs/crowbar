@@ -226,6 +226,30 @@ type WorkspaceRoster interface {
 	) ([]domain.Workspace, error)
 }
 
+// WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
+// worktree a chat OWNED, in the same breath the chat is erased.
+//
+// Without it a delete violated the invariant this whole surface exists to hold.
+// A workspace is reachable only through the chat that owns it, so deleting that
+// chat and leaving the workspace behind produced exactly the orphan spec §0
+// diagnosed — a real worktree on disk with nothing anywhere able to name it —
+// from the opposite direction to the import path that first produced one.
+//
+// The method name is the one the port it is satisfied by already uses
+// (chat.WorktreeCreator.DiscardChildWorkspace), and deliberately so: the
+// container hands this the SAME adapter, so a delete here and a failed
+// promotion's rollback tear a workspace down through one call
+// (hierarchy.DeleteCascade) rather than two ways that could diverge. Its own
+// guards — a locked root, a subtree owning a working chat — therefore apply
+// here too, which is correct: a protected branch's worktree is no more
+// deletable through the chat door than through the workspace one.
+type WorkspaceReaper interface {
+	DiscardChildWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) error
+}
+
 // CreateInput carries the fields needed to create a folder. ParentID is a
 // chat id, another folder's id, or "" for the panel root; the new folder is
 // appended at the end of that sibling space. RepoID is carried rather than a

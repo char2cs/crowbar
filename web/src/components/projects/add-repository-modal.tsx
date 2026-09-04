@@ -13,7 +13,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { postRepo } from '@/lib/api'
+import { fetchWorkspaces, postRepo, workspaceDTOFromWorktreeFrame } from '@/lib/api'
 import { useProjectStore } from '@/lib/store/projects'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
@@ -71,12 +71,14 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       const repoName = name.trim() || fallbackName
 
       // §3/§4 subscribe-before-POST: postRepo answers 202 with no body. The
-      // daemon imports the repo AND auto-imports its default-branch workspace,
-      // broadcasting the RepoDTO on the repos stream and the WorkspaceDTO on the
-      // per-repo workspaces stream. We do NOT post the default-branch workspace
-      // ourselves (that double-create would collide). Subscribe to the repos
-      // stream first, fire the POST, resolve the new repo by matching its path,
-      // then resolve its default WorkspaceDTO and navigate into the IDE.
+      // daemon imports the repo AND auto-imports its default-branch worktree,
+      // broadcasting the RepoDTO on the repos stream and the worktree on the
+      // repo's CHAT stream (a worktree is held by a chat, so its live updates
+      // ride that feed's `worktree_state` frames). We do NOT post the
+      // default-branch workspace ourselves (that double-create would collide).
+      // Subscribe to the repos stream first, fire the POST, resolve the new repo
+      // by matching its path, then resolve its default WorkspaceDTO and navigate
+      // into the IDE.
       const repo = await awaitEntity<RepoDTO>({
         endpoint: `/v0/projects/${activeProjectId}/repos`,
         match: (r) => r.path === trimmedPath,
@@ -84,12 +86,26 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       })
 
       const ws = await awaitEntity<WorkspaceDTO>({
-        endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/workspaces`,
+        endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/chats/ws`,
+        // The frames are chat lifecycle events, not workspace DTOs — pick the
+        // owning row's worktree state out and build the DTO from it. Every
+        // other kind maps to null and is skipped before `match` ever runs.
+        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, activeProjectId, repo.id),
         match: (w) => w.repoId === repo.id && w.status !== 'deleted',
         action: () => Promise.resolve(),
-        // The default workspace is created as a side effect of the repo POST
-        // above, so it is already in this stream's snapshot-on-subscribe burst —
-        // accept that existing row instead of banking it and timing out (R4).
+        // The default worktree is created as a side effect of the repo POST in
+        // the await ABOVE, so by the time this subscribes it usually already
+        // exists — and the chat lifecycle feed, unlike the workspace stream this
+        // replaced, replays NOTHING on connect. So the row is read once over
+        // REST rather than waited for: without this the common path announces no
+        // frame at all and the import hangs to the 30s timeout.
+        //
+        // The socket stays live alongside it for the other ordering, where the
+        // worktree is still being provisioned when we get here and arrives as a
+        // `worktree_state` frame. acceptExisting keeps that frame eligible: the
+        // row is "pre-existing" from this await's point of view, and banking it
+        // would strand the caller.
+        seed: () => fetchWorkspaces(activeProjectId, repo.id),
         acceptExisting: true,
       })
 

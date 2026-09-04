@@ -1,6 +1,7 @@
 import type {
   ChatDTO,
   ChatType,
+  ChatWorktreeDTO,
   FolderDTO,
   Project,
   Prerequisites,
@@ -9,6 +10,7 @@ import type {
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
+import { getOwningChatId } from '@/lib/workspace-scope'
 import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -181,8 +183,20 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
   return apiFetch(`/v0/projects/${projectId}/repos`)
 }
 
-export function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
+/**
+ * One repo's workspaces, read off its CHAT list.
+ *
+ * There is no workspace resource to list any more: a worktree is held by a chat,
+ * so the git half rides each chat row as `worktree` and this derives the
+ * `WorkspaceDTO`s from it. Several rows can carry ONE worktree (a thread carries
+ * its parent's workspaceId), so the mapping keeps only the owning row — see
+ * `workspaceDTOFromChat` — and the result is still one DTO per worktree.
+ */
+export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
+  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
+  return (rows ?? [])
+    .map((row) => workspaceDTOFromChat(row, projectId, repoId))
+    .filter((ws): ws is WorkspaceDTO => ws !== null)
 }
 
 /**
@@ -265,6 +279,102 @@ export interface RepoChatWireDTO {
    *  never omitted — "" is not a real ChatType), so an absent value here only
    *  ever means a frame older than the field. */
   type?: ChatType
+  /** The worktree this row HOLDS. Present iff `workspaceId` is non-empty — on
+   *  EVERY row carrying that workspace, not just the one that owns it. */
+  worktree?: ChatWorktreeDTO
+}
+
+/**
+ * The one place a `ChatWorktreeDTO` becomes a `WorkspaceDTO`.
+ *
+ * Both the chat LIST (`workspaceDTOFromChat`) and the chat lifecycle STREAM
+ * (`workspaceDTOFromWorktreeFrame`) carry the same nested object, so they map it
+ * through here rather than each grounding the optionals their own way — the
+ * sidebar merges a live frame over a seeded row field by field
+ * (`build-repo-tree.ts`'s `toSidebarWorkspace`), and two mappings that disagree
+ * on what an absent `prUrl` means would show up as a field that never clears.
+ */
+function workspaceDTOFromWorktree(
+  worktree: ChatWorktreeDTO,
+  workspaceId: string,
+  projectId: string,
+  repoId: string,
+): WorkspaceDTO {
+  return {
+    id: workspaceId,
+    repoId,
+    projectId,
+    branch: worktree.branch ?? '',
+    parentId: worktree.parentId ?? '',
+    forkPointSha: worktree.forkPointSha ?? '',
+    status: worktree.status ?? 'new',
+    working: worktree.working ?? false,
+    lastError: worktree.lastError ?? '',
+    isDefault: worktree.isDefault ?? false,
+    added: worktree.added ?? 0,
+    deleted: worktree.deleted ?? 0,
+    mergeStrategy: worktree.mergeStrategy ?? '',
+    canMergeLocally: worktree.canMergeLocally ?? false,
+    mergeConflicts: worktree.mergeConflicts ?? false,
+    parentBranch: worktree.parentBranch ?? '',
+    prUrl: worktree.prUrl ?? '',
+    prTitle: worktree.prTitle ?? '',
+    prTargetBranch: worktree.prTargetBranch ?? '',
+    localPath: worktree.localPath ?? '',
+    heldByPath: worktree.heldByPath ?? '',
+    owningChatId: worktree.owningChatId,
+  }
+}
+
+/**
+ * One chat row -> the `WorkspaceDTO` for the worktree it OWNS, or null.
+ *
+ * Null covers all three ways a row is not a worktree's row: a bubble chat holds
+ * none at all, a thread carries its parent's `worktree` object but is not the
+ * row that owns it (`row.id !== worktree.owningChatId`), and a row with no
+ * `workspaceId` has no id to key the workspace by. Mapping a whole chat list
+ * through this therefore yields exactly one DTO per worktree, however many rows
+ * share it.
+ */
+export function workspaceDTOFromChat(
+  row: RepoChatWireDTO,
+  projectId: string,
+  repoId: string,
+): WorkspaceDTO | null {
+  const worktree = row.worktree
+  if (!worktree || worktree.owningChatId !== row.id || !row.workspaceId) return null
+  return workspaceDTOFromWorktree(worktree, row.workspaceId, projectId, repoId)
+}
+
+/** One frame of the chat lifecycle feed (`AgentChatEvent`), as far as the
+ *  worktree half is concerned. Every other kind rides the same socket. */
+interface WorktreeStateFrame {
+  chatId?: string
+  workspaceId?: string
+  kind?: string
+  worktree?: ChatWorktreeDTO
+}
+
+/**
+ * A chat-stream frame -> a `WorkspaceDTO`, or null for every frame that is not
+ * this chat's own worktree state.
+ *
+ * The chat sockets carry lifecycle EVENTS, not entity DTOs, and most kinds
+ * (`turn_started`, `deleted`, `folder_created`, …) say nothing about a worktree.
+ * The owning-row rule is the same one `workspaceDTOFromChat` applies to the
+ * list: a thread of the owning chat gets `worktree_state` frames too, and
+ * letting one through would write the workspace under the wrong chat's identity.
+ */
+export function workspaceDTOFromWorktreeFrame(
+  raw: unknown,
+  projectId: string,
+  repoId: string,
+): WorkspaceDTO | null {
+  const frame = raw as WorktreeStateFrame | null
+  if (!frame || frame.kind !== 'worktree_state') return null
+  const worktree = frame.worktree
+  if (!worktree || !frame.workspaceId || worktree.owningChatId !== frame.chatId) return null
+  return workspaceDTOFromWorktree(worktree, frame.workspaceId, projectId, repoId)
 }
 
 /** `RepoChatWireDTO` -> the sidebar's own `ChatDTO`, filling in the repo/project
@@ -309,14 +419,31 @@ export async function fetchRepoChats(projectId: string, repoId: string): Promise
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
-export function fetchWorkspace(
+/**
+ * One workspace, read through the CHAT that owns its worktree.
+ *
+ * Callers still hold only a wsId, so the owning chat is resolved from the scope
+ * registry the sidebar records — and a missing one throws rather than guessing a
+ * URL, the same contract `worktreeVerbBaseForWorkspace` keeps.
+ */
+export async function fetchWorkspace(
   projectId: string,
   repoId: string,
   wsId: string,
 ): Promise<WorkspaceDTO> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`)
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  const row = await apiFetch<RepoChatWireDTO>(
+    `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
+  )
+  const workspace = row ? workspaceDTOFromChat(row, projectId, repoId) : null
+  if (!workspace) throw new Error(`chat ${chatId} holds no worktree for workspace ${wsId}`)
+  return workspace
 }
 
+// The PROJECT-level home workspace, which is a different entity from a repo's
+// default branch: it rides no repo at all, so it appears in NO repo's chat list
+// and cannot be derived from one. This route stays as it is.
 export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
   return apiFetch(`/v0/projects/${projectId}/home`)
 }
@@ -436,19 +563,25 @@ export function deleteRepo(projectId: string, repoId: string, init?: RequestInit
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE', ...init })
 }
 
-// Rename a workspace's branch. The daemon renames the git branch AND relocates
-// the workspace's directory (whose path is derived from the branch name), then
-// broadcasts the updated WorkspaceDTO on the workspaces WS stream — so, as with
-// renameRepo, callers do not update the sidebar store themselves. Answers
-// synchronously: a refusal (name taken, workspace locked) arrives as a 409 with
-// a readable message while the inline editor is still on screen.
+// Rename a worktree's branch, addressed through the CHAT that holds it — a
+// worktree verb like lock and merge, on the same repo-scoped chat prefix. The
+// daemon renames the git ref and nothing else: the directory is NOT relocated
+// any more, so a chat's cwd survives the rename. The updated worktree arrives on
+// the chat stream, so — as with renameRepo — callers do not update the sidebar
+// store themselves. Answers synchronously: a refusal (name taken, worktree
+// locked, branch adopted, not provisioned) arrives as a 409 with a readable
+// message while the inline editor is still on screen.
+//
+// `projectId`/`repoId` stay on the signature for the callers that hold them;
+// the URL comes from the recorded scope, which is the only place the owning
+// chat is known.
 export function renameWorkspaceBranch(
-  projectId: string,
-  repoId: string,
+  _projectId: string,
+  _repoId: string,
   wsId: string,
   branch: string,
 ): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
+  return apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/branch`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ branch }),

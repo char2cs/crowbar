@@ -312,6 +312,97 @@ describe('subscribeEntityStream', () => {
     })
   })
 
+  // A feed whose frames are lifecycle EVENTS, not entity DTOs — which is how a
+  // worktree's live updates arrive now that a chat holds it.
+  describe('mapFrame', () => {
+    const frameFor = (id: string, status?: string) => ({
+      chatId: `chat-${id}`,
+      workspaceId: id,
+      kind: 'worktree_state',
+      worktree: { owningChatId: `chat-${id}`, branch: 'main', status },
+    })
+
+    const mapFrame = (raw: unknown): WorkspaceDTO | null => {
+      const f = raw as ReturnType<typeof frameFor>
+      if (!f || f.kind !== 'worktree_state') return null
+      if (f.worktree.owningChatId !== f.chatId) return null
+      return makeWorkspace({ id: f.workspaceId, status: f.worktree.status as 'new' })
+    }
+
+    it('caches the entity a raw frame carries, not the frame', async () => {
+      subscribeEntityStream<WorkspaceDTO>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        store: 'crowbar_workspaces',
+        seed: async () => [],
+        mapFrame,
+      })
+      await vi.waitFor(() => expect(subscribe).toHaveBeenCalled())
+
+      emit(frameFor('w1'))
+      await vi.waitFor(async () => {
+        const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+        expect(all.map((w) => w.id)).toEqual(['w1'])
+      })
+    })
+
+    it('drops a frame it maps to null, without reaching the cache', async () => {
+      const onChange = vi.fn()
+      subscribeEntityStream<WorkspaceDTO>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        store: 'crowbar_workspaces',
+        seed: async () => [],
+        mapFrame,
+        onChange,
+      })
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith({ kind: 'seed' }))
+      onChange.mockClear()
+
+      emit({ chatId: 'chat-w1', workspaceId: 'w1', kind: 'turn_started', working: true })
+      // A thread of the owning chat carries the same worktree; not its row.
+      emit({ ...frameFor('w1'), chatId: 'chat-w1-thread' })
+      await Promise.resolve()
+
+      expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toEqual([])
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('reads the tombstone off the MAPPED value', async () => {
+      subscribeEntityStream<WorkspaceDTO>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        store: 'crowbar_workspaces',
+        seed: async () => [makeWorkspace({ id: 'w1' })],
+        mapFrame,
+      })
+      await vi.waitFor(async () => {
+        expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(1)
+      })
+
+      emit(frameFor('w1', 'deleted'))
+      await vi.waitFor(async () => {
+        expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toEqual([])
+      })
+    })
+
+    it('never sees the reconnect sentinel — that still reseeds', async () => {
+      const seen: unknown[] = []
+      const seed = vi.fn(async () => [makeWorkspace({ id: 'w1' })])
+      subscribeEntityStream<WorkspaceDTO>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        store: 'crowbar_workspaces',
+        seed,
+        mapFrame: (raw) => {
+          seen.push(raw)
+          return mapFrame(raw)
+        },
+      })
+      await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(1))
+
+      emit({ reconnected: true })
+      await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(2))
+      expect(seen).toEqual([])
+    })
+  })
+
   it('unsubscribes from the underlying wsManager channel', async () => {
     const seed = vi.fn(async () => [])
     const dispose = subscribeEntityStream<WorkspaceDTO>({

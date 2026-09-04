@@ -1,6 +1,7 @@
-import { deleteProject, deleteRepo, deleteWorkspace } from '@/lib/api'
+import { deleteProject, deleteRepo } from '@/lib/api'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
+import { getOwningChatId } from '@/lib/workspace-scope'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
@@ -74,8 +75,20 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
   // an argument on the wire-facing signature that only the unload flush uses.
   const opts: [RequestInit] | [] = init ? [init] : []
   switch (entry.kind) {
-    case 'workspace':
-      return deleteWorkspace(entry.projectId, entry.repoId, entry.id, ...opts)
+    case 'workspace': {
+      // A worktree is taken by deleting the CHAT that holds it: DELETE
+      // .../chats/:id now cascades the worktree teardown, so this is the same
+      // destruction the workspace route did, addressed by the only id a route
+      // may name. No fallback to that route — a missing owning chat is a
+      // scope-recording bug, and quietly deleting through a retiring URL would
+      // hide it. Rejected rather than thrown, so `flushDrainingRemovals`'s
+      // `.catch` on an unloading page still catches it.
+      const owningChatId = getOwningChatId(entry.id)
+      if (!owningChatId) {
+        return Promise.reject(new Error(`no owning chat recorded for workspace ${entry.id}`))
+      }
+      return deleteChat(entry.id, owningChatId, ...opts)
+    }
     case 'folder':
       // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
       // above never checks `r.folders` at all, so `releaseWhenGone` below always

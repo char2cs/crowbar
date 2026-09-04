@@ -206,6 +206,16 @@ func specRoutes() []string {
 		// chat-scoped block is. /protected-branches does NOT move — spec §4.2
 		// is explicit that it is repo-level, not worktree-owned.
 		"GET " + chat + "/provider",
+		// The per-CHAT lifecycle stream: the same agent-chat broadcaster the
+		// repo-scoped .../chats/ws mount serves, narrowed by agentChatDef's
+		// chatId filter to one chat.
+		//
+		// It is the chat-scoped replacement for watching ONE workspace's stream,
+		// and it carries that stream's SIDE EFFECT as well as its frames:
+		// subscribing to a single workspace is what starts the daemon's provider
+		// poll, and this mount resolves a workspace (chatScoped's own
+		// resolveChatWorktree) where the repo-wide list scope resolves none.
+		"GET " + chat + "/ws",
 		// §2.10 Search
 		"POST " + ws + "/search",
 		"POST " + ws + "/search/replace",
@@ -401,6 +411,16 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rebase-onto-parent",
 		"POST " + repo + "/chats/:id/retry-provision",
 		"POST " + repo + "/chats/:id/detach-holder",
+		// The chat-keyed BRANCH rename: the half of PATCH .../workspaces/:wsId
+		// that had no chat-scoped equivalent at all until now. It runs the very
+		// same guards its :wsId twin does (locked branch, unprovisioned
+		// placeholder, repo-wide name collision, adopted checkout) because it
+		// routes through the same applyRename/hierarchy.RenameBranch body.
+		//
+		// Deliberately NOT folded into POST .../chats/:id/rename, which stays
+		// title-only — see ChatRenameBranch for why that half of spec §7.5 was
+		// declined.
+		"PATCH " + repo + "/chats/:id/branch",
 		// Batch branch import, relocated onto the surface that survives (spec §8
 		// step 6b). It is a route of its own beside POST .../chats — that one
 		// adopts ONE named branch, this one takes a set and resolves the repo's

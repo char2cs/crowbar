@@ -88,6 +88,10 @@ type (
 	// TreeWorkspaceRoster is the boot backfill's census of every workspace the
 	// daemon knows.
 	TreeWorkspaceRoster = tree.WorkspaceRoster
+	// TreeWorkspaceReaper is the teardown a cascading chat delete puts each
+	// worktree in its subtree through, so a workspace never outlives the chat
+	// that owned it.
+	TreeWorkspaceReaper = tree.WorkspaceReaper
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -162,8 +166,9 @@ func NewTree(
 	work *inflight.Work,
 	workspaces TreeWorkspaceGitStatus,
 	roster TreeWorkspaceRoster,
+	reaper TreeWorkspaceReaper,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, roster)
+	return tree.New(chats, agent, work, workspaces, roster, reaper)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components

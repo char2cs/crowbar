@@ -25,7 +25,8 @@ func newUsecaseWithGitStatus(
 	chats := mocks.NewAgentChatPlacements()
 	git := mocks.NewAgentWorkspaceGitStatus()
 	work := inflight.NewWork()
-	return chats, tree.New(chats, chats, work, git, mocks.NewAgentWorkspaceRoster()), git
+	return chats, tree.New(chats, chats, work, git, mocks.NewAgentWorkspaceRoster(),
+		mocks.NewAgentWorkspaceReaper()), git
 }
 
 // A folder's subtree can span more than one independent workspace (the whole

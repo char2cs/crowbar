@@ -64,3 +64,58 @@ func (h *Handlers) chatWorkspace(
 	}
 	return ws.ID, true
 }
+
+// renameBranchRequest is the PATCH .../chats/:id/branch body: the whole of what
+// this verb takes, since the branch being renamed FROM is the daemon's own
+// answer and never the caller's to assert.
+type renameBranchRequest struct {
+	Branch string `json:"branch"`
+}
+
+// ChatRenameBranch handles PATCH .../chats/:id/branch: renames the branch of
+// the worktree a chat holds, with every guard the :wsId PATCH's own rename half
+// enforces.
+//
+// It is a SEPARATE verb from POST .../chats/:id/rename, which stays title-only.
+// Spec §7.5 proposed folding the two — "renaming a worktree-owning chat renames
+// the branch, renaming a bubble renames the title" — and that is the one
+// decision here taken against the spec text, deliberately: a chat's title and
+// its branch are independently meaningful (the sidebar draws both), the fold
+// makes a title edit silently rewrite a git ref for some rows and not others,
+// and the two carry different guards and different failure modes. One verb that
+// does two different irreversible things depending on what the row turns out to
+// be is not one verb.
+//
+// The guards are not reimplemented here, and that is the point of routing
+// through applyRename: locked-branch refusal, the unprovisioned-placeholder
+// refusal, the repo-wide name-collision check and the adopted-checkout refusal
+// all live below this handler in hierarchy.RenameBranch's own guardRenameBranch,
+// so the chat-keyed door is exactly as strict as the workspace-keyed one. The
+// raw PATCH /v0/chats/:chatId/git/branches is NOT that: it takes the old name
+// from the caller, enforces none of those, and leaves domain.Workspace.Branch
+// stale — which is why this exists rather than pointing a client at it.
+//
+// The body is bound BEFORE the target is resolved, matching lock's own order:
+// a malformed request is refused for what is wrong with it rather than for a
+// chat lookup it never got to.
+//
+// It answers with the CHAT id, not the workspace's. Past law 1 a workspace has
+// no id a client may hold, and handing one back on a chat-keyed route would be
+// the read-only workspaceId §6 explicitly rejects.
+func (h *Handlers) ChatRenameBranch(
+	c *gin.Context,
+) {
+	var body renameBranchRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	wsID, ok := h.chatWorkspace(c)
+	if !ok {
+		return
+	}
+	if err := h.applyRename(c, wsID, &body.Branch); err != nil {
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusOK, c.Param("id"))
+}

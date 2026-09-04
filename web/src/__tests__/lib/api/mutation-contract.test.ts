@@ -5,8 +5,10 @@ import {
   renameRepo,
   importBranches,
   deleteWorkspace,
+  renameWorkspaceBranch,
   apiFetch,
 } from '@/lib/api'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
 // answers 202 Accepted with an EMPTY body and the real entity arrives over the
@@ -17,10 +19,12 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
   vi.stubGlobal('fetch', fetchMock)
+  __resetWorkspaceScopesForTest()
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  __resetWorkspaceScopesForTest()
 })
 
 function lastCall(): [string, RequestInit] {
@@ -85,6 +89,25 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
     expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/w1')
     expect(init.method).toBe('DELETE')
     expect(res).toBeUndefined()
+  })
+
+  // A branch rename is a WORKTREE verb, so it is addressed by the chat holding
+  // it — beside lock/merge/reparent on the same repo-scoped chat prefix, not on
+  // a workspace route of its own. The old PATCH .../workspaces/:w also relocated
+  // the worktree directory; this one renames the git ref and nothing else.
+  test('PATCH .../chats/:chatId/branch body {branch}', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1', owningChatId: 'c1' })
+    await renameWorkspaceBranch('p1', 'r1', 'w1', 'feature/renamed')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/branch')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/renamed' })
+  })
+
+  test('refuses to rename a workspace whose owning chat was never recorded', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w-orphan' })
+    expect(() => renameWorkspaceBranch('p1', 'r1', 'w-orphan', 'x')).toThrow(/no owning chat/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

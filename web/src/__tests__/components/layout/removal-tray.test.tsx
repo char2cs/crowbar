@@ -47,8 +47,16 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  deleteWorkspace: vi.fn(() => Promise.resolve()),
   deleteRepo: vi.fn(() => Promise.resolve()),
+}))
+
+// A worktree is taken by deleting the CHAT that holds it — DELETE .../chats/:id
+// cascades the worktree teardown now, so there is no workspace DELETE left to
+// spy on. Note the argument order: `deleteChat(wsId, chatId)`, where the first
+// is only the workspace the URL is scoped by.
+vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+  deleteChat: vi.fn(() => Promise.resolve()),
 }))
 
 vi.mock('@/lib/api/sidebar-placement', () => ({
@@ -74,7 +82,9 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   deleteFolder: vi.fn(() => Promise.resolve([])),
 }))
 
-import { deleteRepo, deleteWorkspace } from '@/lib/api'
+import { deleteRepo } from '@/lib/api'
+import { deleteChat } from '@/features/agent/api/agent-api'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { idle, success } from '@/lib/loadable'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
@@ -193,10 +203,19 @@ beforeEach(() => {
   // Rows are only built for a repo whose tree has been read back — see
   // SidebarTreeSurface's own gate.
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
+  // Which CHAT holds each worktree. Removing a workspace deletes that chat (the
+  // DELETE cascades the worktree), so a row with no owning chat recorded cannot
+  // be removed at all — the sidebar records these off WorkspaceDTO.owningChatId
+  // for real; this suite drives the store directly, so it records them itself.
+  __resetWorkspaceScopesForTest()
+  for (const wsId of ['a', 'kid', 'b', 'w-default']) {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-${wsId}` })
+  }
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  __resetWorkspaceScopesForTest()
 })
 
 describe('holding a row', () => {
@@ -206,7 +225,7 @@ describe('holding a row', () => {
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
     expect(rows()).toEqual(['crowbar', 'beta', 'spikes'])
-    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(deleteChat).not.toHaveBeenCalled()
     expect(screen.getByText('Removing')).toBeInTheDocument()
   })
 
@@ -250,13 +269,13 @@ describe('the countdown', () => {
     await act(async () => {
       vi.advanceTimersByTime(7999)
     })
-    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(deleteChat).not.toHaveBeenCalled()
 
     await act(async () => {
       vi.advanceTimersByTime(1)
     })
     // The daemon owns the cascade — the descendant is not deleted twice.
-    expect(deleteWorkspace).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'a')
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('a', 'chat-a')
     expect(document.querySelector('[data-removal-entry]')).toBeNull()
   })
 
@@ -269,7 +288,7 @@ describe('the countdown', () => {
     })
 
     expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1')
-    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(deleteChat).not.toHaveBeenCalled()
   })
 })
 
@@ -320,7 +339,7 @@ describe('the seconds, in figures', () => {
       vi.advanceTimersByTime(8000)
     })
 
-    expect(deleteWorkspace).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'a')
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('a', 'chat-a')
     expect(secs()).toBeUndefined()
   })
 
@@ -389,7 +408,7 @@ describe('cancelling', () => {
     await act(async () => {
       vi.advanceTimersByTime(20000)
     })
-    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(deleteChat).not.toHaveBeenCalled()
   })
 })
 
@@ -479,13 +498,13 @@ describe('a page that ends mid-drain', () => {
     // straight back off the daemon.
     render(<TestSidebar />)
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
-    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(deleteChat).not.toHaveBeenCalled()
 
     await act(async () => {
       window.dispatchEvent(new Event('pagehide'))
     })
 
-    expect(deleteWorkspace).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'a', {
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('a', 'chat-a', {
       // Without keepalive the request is cancelled with the document, which is
       // the whole reason a pagehide handler normally cannot do this.
       keepalive: true,

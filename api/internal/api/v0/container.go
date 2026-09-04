@@ -72,7 +72,7 @@ func New(
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		agentChats: ws.NewBroadcaster(agentChatDef()),
+		agentChats: ws.NewBroadcaster(withChatProviderPollLifecycle(agentChatDef(), appContainer)),
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
 		eng:        engContainer,
@@ -261,6 +261,41 @@ func scopeWsID(
 	return c.Query("wsId")
 }
 
+// withChatProviderPollLifecycle attaches the provider-poll subscription
+// triggers to the agent-chat stream, scoped by the worktree the CHAT mount
+// resolved and by nothing else.
+//
+// It exists rather than reusing withProviderPollLifecycle because that one
+// keys on scopeWsID, which also answers the :wsId PATH param — and the home
+// mount (.../home/chats/ws) binds one. Reusing it would silently start a
+// PR-status poll on the project-home row, which has no repo, no remote and no
+// git surface at all: work that cannot succeed, on a stream that never asked
+// for it. scopeChatWorktreeID reads ONLY the chat group's resolved worktree, so
+// the repo mount and the home mount both resolve "" and no-op exactly as they
+// did before this stream carried a lifecycle at all.
+func withChatProviderPollLifecycle[T any](
+	def ws.StreamDef[T],
+	appContainer *app.Container,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeChatWorktreeID
+	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
+	return def
+}
+
+// scopeChatWorktreeID answers the workspace the /v0/chats/:chatId group's own
+// resolveChatWorktree middleware put on the request, and "" anywhere that
+// middleware did not run. It is deliberately NOT scopeWsID: see
+// withChatProviderPollLifecycle.
+func scopeChatWorktreeID(
+	c *gin.Context,
+) string {
+	if ws, ok := reqscope.Workspace(c); ok {
+		return ws.ID
+	}
+	return ""
+}
+
 // scopeLSPOwnerID resolves the key the LSP topic's lifecycle (withLSPLifecycle)
 // refcounts by: the chat id on the new /v0/chats/:chatId/lsp/ws mount, or
 // scopeWsID's answer (the workspace id) on every other mount.
@@ -294,11 +329,56 @@ func (c *Container) PushRepo(
 	c.repos.Push(r)
 }
 
-// PushWorkspace implements hub.Subscriber.
+// PushWorkspace implements hub.Subscriber. It serves BOTH scoping answers from
+// one push — the workspace topic a workspace-scoped client watches, and the
+// chat topic a chat-scoped one does (spec §5) — which is the same shape PushGit
+// already takes for the same reason: the two are answers to one question, and a
+// client that got them from independently-built frames would watch its sidebar
+// disagree with itself.
 func (c *Container) PushWorkspace(
 	w dto.WorkspaceDTO,
 ) {
 	c.workspaces.Push(w)
+	c.pushChatWorktree(w)
+}
+
+// pushChatWorktree fans a workspace's git state out on the CHAT feed, keyed on
+// the chat that owns it.
+//
+// It reads the owning chat id off the frame rather than resolving one, and that
+// is deliberate: enrichFrame has already resolved it, through the same
+// branch-preferring ResolveOwningChat every other surface uses, so taking it
+// here means the chat frame names exactly the row the workspace frame says owns
+// this worktree — never a second, independently derived answer that could pick
+// a different one.
+//
+// A workspace with no resolved owning chat pushes nothing. That is the honest
+// answer rather than a broadcast to nobody: such a row is the orphan spec §0
+// diagnosed, it has no chat for a client to draw it on, and the boot backfill
+// (not this push) is what gives it one.
+//
+// RepoID comes straight off the workspace, with no chat-forest walk: unlike a
+// bubble, whose repo is derived from where its cwd lands, a worktree-owning row
+// names its own repo outright.
+func (c *Container) pushChatWorktree(
+	w dto.WorkspaceDTO,
+) {
+	if w.OwningChatID == "" {
+		return
+	}
+	// Working is deliberately LEFT UNSET. The frame's own Working field is the
+	// CHAT's folded turn state (see AgentChatEvent.Working), and a workspace's
+	// is a different fact — a long-running git operation, not a conversation in
+	// flight. Putting the workspace's answer there would make a client's spinner
+	// follow whichever of the two moved last. The workspace's own busy state
+	// rides the worktree object, where it belongs.
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      w.OwningChatID,
+		WorkspaceID: w.ID,
+		RepoID:      w.RepoID,
+		Kind:        dto.AgentChatKindWorktreeState,
+		Worktree:    dto.ChatWorktreeFrom(w),
+	})
 }
 
 // PushThread implements hub.Subscriber.
@@ -762,6 +842,7 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		Filters: []ws.FilterDef[dto.AgentChatEvent]{
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
 			{Param: "repoId", Extract: func(e dto.AgentChatEvent) string { return e.RepoID }, Match: matchRepoOrUnscoped},
+			{Param: "chatId", Extract: func(e dto.AgentChatEvent) string { return e.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }

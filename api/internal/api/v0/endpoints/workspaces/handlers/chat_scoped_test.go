@@ -335,3 +335,120 @@ func TestChatVerbs_ReachTheSameUsecaseCallAsTheirWorkspaceKeyedTwin(
 		assert.Equal(t, viaWS.gotNewParent, viaChat.gotNewParent)
 	})
 }
+
+// The chat-keyed BRANCH rename (spec §5's missing half). Every test below asks
+// the same question the rest of this file does — is it the SAME verb? — because
+// the whole reason this route exists rather than pointing a client at the raw
+// PATCH /v0/chats/:chatId/git/branches is that the raw one enforces none of
+// these guards and leaves domain.Workspace.Branch stale behind a bare
+// `git branch -m`.
+
+func TestChatRenameBranch_RenamesTheBranchOfTheWorktreeTheChatHolds(
+	t *testing.T,
+) {
+	hierarchy := &fakeHierarchy{renamed: domain.Workspace{ID: "w1", Branch: "feature/x"}}
+	worktrees := heldWorkspace()
+	r, _ := newPairedRouter(&fakeReader{}, hierarchy, worktrees)
+
+	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "c1", worktrees.gotChat, "the chat in the URL is what gets resolved")
+	assert.Equal(t, "w1", hierarchy.gotRenameID,
+		"and the workspace it holds is what gets renamed")
+	assert.Equal(t, "feature/x", hierarchy.gotRenameTo)
+	assert.Contains(t, rec.Body.String(), "c1",
+		"the answer names the CHAT — past law 1 a workspace has no id a client may hold")
+}
+
+// The same call the :wsId PATCH's rename half makes, proven by making both and
+// comparing — not by asserting a hard-coded expectation twice.
+func TestChatRenameBranch_ReachesTheSameUsecaseCallAsTheWorkspaceRoute(
+	t *testing.T,
+) {
+	hierarchy := &fakeHierarchy{renamed: domain.Workspace{ID: "w1", Branch: "feature/x"}}
+	r, _ := newPairedRouter(&fakeReader{}, hierarchy, heldWorkspace())
+
+	require.Equal(t, http.StatusOK,
+		do(r, http.MethodPatch, wsBase, `{"branch":"feature/x"}`).Code)
+	viaWorkspace := hierarchy.gotRenameID + "/" + hierarchy.gotRenameTo
+	hierarchy.gotRenameID, hierarchy.gotRenameTo = "", ""
+
+	require.Equal(t, http.StatusOK,
+		do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`).Code)
+	viaChat := hierarchy.gotRenameID + "/" + hierarchy.gotRenameTo
+
+	assert.Equal(t, viaWorkspace, viaChat, "one verb, two keyings, no second implementation")
+}
+
+// Every refusal guardRenameBranch makes — a locked branch, a repo-wide name
+// collision, an unprovisioned placeholder, an adopted checkout the user owns —
+// must arrive through the chat door exactly as it does through the workspace
+// one. This is the assertion that the guards were CARRIED OVER rather than
+// re-implemented: they all live below the handler, so all this has to prove is
+// that the handler still routes through them.
+func TestChatRenameBranch_CarriesEveryGuardTheWorkspaceRouteEnforces(
+	t *testing.T,
+) {
+	for name, refusal := range map[string]error{
+		"locked branch":             workspace.ErrWorkspaceLocked,
+		"branch name taken":         workspace.ErrBranchWorkspaceExists,
+		"unprovisioned placeholder": workspace.ErrParentUnprovisioned,
+		"adopted checkout":          workspace.ErrRenameUnmanagedWorkspace,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, _ := newPairedRouter(
+				&fakeReader{}, &fakeHierarchy{renameErr: refusal}, heldWorkspace())
+
+			rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)
+
+			assert.Equal(t, http.StatusConflict, rec.Code)
+			assert.Contains(t, rec.Body.String(), refusal.Error())
+		})
+	}
+}
+
+// A blank name never reaches the usecase, the same refusal the :wsId route
+// makes — and it is refused for what is wrong with it rather than for a chat
+// lookup the request never got to.
+func TestChatRenameBranch_BlankBranchIsRefusedBeforeTheUsecase(
+	t *testing.T,
+) {
+	hierarchy := &fakeHierarchy{}
+	r, _ := newPairedRouter(&fakeReader{}, hierarchy, heldWorkspace())
+
+	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"   "}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, hierarchy.gotRenameID, "a blank name must never reach the usecase")
+}
+
+// A malformed body is refused BEFORE the chat is resolved, matching lock's own
+// order and the :wsId route's: a body that cannot be parsed is not yet a
+// request about any particular chat.
+func TestChatRenameBranch_BadJSONIsRefusedBeforeTheChatIsResolved(
+	t *testing.T,
+) {
+	worktrees := heldWorkspace()
+	r, _ := newPairedRouter(&fakeReader{}, &fakeHierarchy{}, worktrees)
+
+	rec := do(r, http.MethodPatch, chatBase+"/branch", `{`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, worktrees.gotChat, "nothing was resolved for an unparseable request")
+}
+
+// A chat whose worktree cannot be resolved — an unknown id, or a bubble hanging
+// off nothing — is the same 404 every other chat-keyed verb answers.
+func TestChatRenameBranch_UnresolvableChatIs404(
+	t *testing.T,
+) {
+	hierarchy := &fakeHierarchy{}
+	r, _ := newPairedRouter(
+		&fakeReader{}, hierarchy, &fakeWorktrees{err: worktree.ErrNoWorktreeInAncestry})
+
+	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, hierarchy.gotRenameID, "nothing may be renamed for a chat holding nothing")
+}

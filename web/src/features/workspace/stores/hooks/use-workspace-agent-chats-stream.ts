@@ -80,6 +80,16 @@ const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
   'terminal_wait',
   'prompt_settled',
   'session_bound',
+  // `worktree_state` belongs here for exactly the reason the three hot kinds
+  // above do. It carries the git state of the worktree a chat owns — diff
+  // counts, PR state, lock status — and it is emitted from the same push site
+  // as every workspace frame, so it fires on each working-tree sync and each
+  // provider poll. It moves no row: the frame names a chat that already exists
+  // and changes only what is drawn ON it, and the whole payload rides the frame
+  // (see AgentChatEvent.Worktree), so there is nothing to re-read. Treating it
+  // as structural would reseed a whole repo's chat list every time somebody
+  // saved a file.
+  'worktree_state',
 ])
 
 // Where is this runner? Two independent answers, and we want the first that exists:

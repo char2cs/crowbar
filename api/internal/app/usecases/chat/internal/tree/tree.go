@@ -48,6 +48,7 @@ type chatFolderUsecase struct {
 	work       *inflight.Work
 	workspaces WorkspaceGitStatus
 	roster     WorkspaceRoster
+	reaper     WorkspaceReaper
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -64,13 +65,18 @@ type chatFolderUsecase struct {
 // what a hook just announced.
 //
 // workspaces is DeletePreview's seam onto the workspace layer; roster is
-// BackfillOwningChats'. Nothing else here reads a workspace at all.
+// BackfillOwningChats'; reaper is DeleteChat's, and it is REQUIRED rather than
+// optional for the reason ChatTreeUsecase itself is: a delete wired without it
+// would erase a chat and silently strand the worktree it owned, which is the
+// bug this port exists to close. Making it a parameter puts that mis-wire in
+// front of the compiler instead of in front of a user.
 func New(
 	chats Chats,
 	agent Agent,
 	work *inflight.Work,
 	workspaces WorkspaceGitStatus,
 	roster WorkspaceRoster,
+	reaper WorkspaceReaper,
 ) Usecase {
 	return &chatFolderUsecase{
 		chats:      chats,
@@ -78,6 +84,7 @@ func New(
 		work:       work,
 		workspaces: workspaces,
 		roster:     roster,
+		reaper:     reaper,
 	}
 }
 

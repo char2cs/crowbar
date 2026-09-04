@@ -32,7 +32,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		// settingsRG carries only the GLOBAL /settings/chat/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
 		// (it is not a /chats path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {

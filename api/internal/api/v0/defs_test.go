@@ -176,14 +176,19 @@ func TestAgentChatDef_Lambdas(t *testing.T) {
 	assert.Contains(t, string(data), "c1")
 	assert.Contains(t, string(data), "bound")
 
-	// TWO filters: wsId narrows the HOME mount (RequireHomeWorkspace injects a
-	// :wsId for it to resolve), and repoId narrows the REPO mount, which binds
-	// no :wsId at all and was therefore scoped by nothing before repoId existed.
-	require.Len(t, def.Filters, 2)
+	// THREE filters, one per mount, each inactive where its param is unbound:
+	// wsId narrows the HOME mount (RequireHomeWorkspace injects a :wsId for it
+	// to resolve), repoId narrows the REPO mount, which binds no :wsId at all
+	// and was therefore scoped by nothing before repoId existed, and chatId
+	// narrows the per-CHAT mount (/v0/chats/:chatId/ws) that replaces watching
+	// one workspace's stream — and that carries the provider poll with it.
+	require.Len(t, def.Filters, 3)
 	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 	assert.Equal(t, "repoId", def.Filters[1].Param)
 	assert.Equal(t, "r1", def.Filters[1].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[2].Param)
+	assert.Equal(t, "c1", def.Filters[2].Extract(evt))
 
 	// No snapshot: a freshly-connected client waits for the next lifecycle
 	// event rather than replaying a "current state".

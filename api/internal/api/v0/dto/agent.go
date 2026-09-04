@@ -144,15 +144,31 @@ type AgentChatDTO struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 
+	// Worktree is the git state of the worktree this chat OWNS — branch, diff
+	// counts, lock status, merge and PR state — and is present exactly when
+	// WorkspaceID is non-empty (spec §5). It is what lets one read of the chat
+	// list answer everything the deleted workspace list used to, in ONE object
+	// per row rather than two fetches a client has to join by id.
+	//
+	// Omitted, not zero, for a chat that owns no worktree: see ChatWorktreeDTO.
+	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
 // wire shape. The zero ChatRuntime (no live runner, no history) is the honest shape of
 // a chat that has never had a runner: every derived field reads "".
+//
+// wt is the chat's own worktree state, ALREADY RESOLVED by the caller, and nil
+// for a chat that owns none. It is a resolved value rather than a lookup for
+// the same reason WorkspaceDTOFrom takes an eligibility instead of computing
+// one: resolving it needs the row's repo siblings, and doing that per row would
+// put a repo-wide read on the broadcast hot path (spec §10).
 func AgentChatDTOFrom(
 	c domain.Chat,
 	rt ChatRuntime,
+	wt *ChatWorktreeDTO,
 ) AgentChatDTO {
 	out := AgentChatDTO{
 		ID:               c.ID,
@@ -165,6 +181,7 @@ func AgentChatDTOFrom(
 		Order:            c.Order,
 		Model:            c.Model,
 		Effort:           c.Effort,
+		Worktree:         wt,
 		CreatedAt:        c.CreatedAt,
 	}
 	if rt.LiveRunner != nil {
@@ -504,13 +521,25 @@ func activeProviderID(
 // runtimes is keyed by chat id; a chat with no entry is rendered from the zero
 // ChatRuntime — dormant, no history — which is exactly what a chat missing from both
 // runner projections is.
+//
+// worktreeFn resolves each row's owned worktree, and is the exact counterpart
+// of WorkspaceDTOList's eligFn/owningChatIDFn: a closure the CALLER builds over
+// the repo-wide reads it has already taken once, so the enrichment costs one
+// repo read for the whole list rather than one per row. A nil worktreeFn — the
+// honest wiring for a surface that serves only folder rows, which own no
+// worktree by construction — leaves every row's Worktree absent.
 func AgentChatDTOList(
 	chats []domain.Chat,
 	runtimes map[string]ChatRuntime,
+	worktreeFn func(domain.Chat) *ChatWorktreeDTO,
 ) []AgentChatDTO {
 	out := make([]AgentChatDTO, 0, len(chats))
 	for _, c := range chats {
-		out = append(out, AgentChatDTOFrom(c, runtimes[c.ID]))
+		var wt *ChatWorktreeDTO
+		if worktreeFn != nil {
+			wt = worktreeFn(c)
+		}
+		out = append(out, AgentChatDTOFrom(c, runtimes[c.ID], wt))
 	}
 	return out
 }
@@ -531,13 +560,14 @@ type AgentChatDetailDTO struct {
 func AgentChatDetailDTOFrom(
 	c domain.Chat,
 	rt ChatRuntime,
+	wt *ChatWorktreeDTO,
 ) AgentChatDetailDTO {
 	convs := rt.Conversations
 	if convs == nil {
 		convs = []agents.ChatConversation{}
 	}
 	return AgentChatDetailDTO{
-		AgentChatDTO:  AgentChatDTOFrom(c, rt),
+		AgentChatDTO:  AgentChatDTOFrom(c, rt, wt),
 		Conversations: convs,
 	}
 }
@@ -666,6 +696,18 @@ type AgentChatEvent struct {
 	// forever on evidence that is not coming.
 	ClientRequestID string `json:"clientRequestId,omitempty"`
 
+	// Worktree rides the `worktree_state` kind and nothing else: the git state of
+	// the worktree ChatID owns, as of this event.
+	//
+	// It is on the frame rather than refetched for the same reason Working and
+	// TerminalWait are — the fact IS the change, and a client that had to ask for
+	// it would repaint a round trip after the diff counts moved. It is also what
+	// makes the chat feed a complete substitute for the workspace stream a client
+	// used to watch alongside it (spec §5): the same push site serves both, so a
+	// chat-scoped subscriber and a workspace-scoped one learn of a git change in
+	// the same instant and from the same bytes.
+	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
+
 	// Message is an assistant message still being produced, on the message_delta
 	// kind and nowhere else.
 	//
@@ -702,6 +744,15 @@ const AgentChatKindPromptSettled = "prompt_settled"
 // self-heals on the next one. It stops when the message is complete: the message
 // then exists in the ledger, and the ledger is what the chat reads.
 const AgentChatKindMessageDelta = "message_delta"
+
+// AgentChatKindWorktreeState announces that the git state of the worktree a
+// chat OWNS has moved: a commit, a file edited, a PR opened, a lock taken.
+//
+// It is a CHAT kind — it names the row a client draws, carries no runner id,
+// and is emitted from the one place a workspace frame is already built, so the
+// chat-scoped feed and the workspace-scoped stream can never disagree about the
+// same branch. A chat that owns no worktree never produces one.
+const AgentChatKindWorktreeState = "worktree_state"
 
 // AgentChatKindTerminalWait is the lifecycle kind that announces a change in
 // whether a chat's CLI is blocked behind a terminal-only prompt.

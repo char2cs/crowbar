@@ -91,6 +91,43 @@ export interface WorkspaceDTO {
   owningChatId?: string
 }
 
+/**
+ * The worktree a chat row HOLDS, nested on `RepoChatWireDTO` — the workspace's
+ * git half, now served off the chat list instead of a resource of its own.
+ *
+ * Several chats can carry the same `workspaceId` (a thread carries its parent's)
+ * and every one of them gets this object, all naming the SAME `owningChatId`.
+ * Exactly one row therefore satisfies `row.id === row.worktree.owningChatId`,
+ * and that row is the one the worktree's `WorkspaceDTO` is built from — see
+ * `workspaceDTOFromChat` in lib/api.ts.
+ *
+ * Optional here means `omitempty` on the wire, not "a daemon that predates the
+ * field": an absent string/flag is the empty/false value, never unknown.
+ */
+export interface ChatWorktreeDTO {
+  branch: string
+  status?: WorkspaceStatusDTO
+  lastError?: string
+  working: boolean
+  isDefault?: boolean
+  added: number
+  deleted: number
+  mergeStrategy: string
+  canMergeLocally: boolean
+  mergeConflicts: boolean
+  parentBranch?: string
+  prUrl?: string
+  prTitle?: string
+  prTargetBranch?: string
+  localPath?: string
+  heldByPath?: string
+  forkPointSha?: string
+  /** The FORK parent — another workspace's id, not a sidebar placement. */
+  parentId?: string
+  /** Which chat owns this worktree. Always sent, on every row carrying it. */
+  owningChatId: string
+}
+
 export interface RepoDTO {
   id: string
   projectId: string

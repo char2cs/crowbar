@@ -348,6 +348,11 @@ func newAgentWiring(
 		chat.Work(),
 		workspaceGitStatusReader{workspace: workspaceUsecase},
 		repos.Workspace,
+		// The SAME adapter the chat usecase's own WorktreeCreator is satisfied
+		// with, handed here a second time on purpose: a cascading delete and a
+		// failed promotion's rollback must tear a workspace down through one call
+		// (hierarchy.DeleteCascade), not two implementations that could drift.
+		worktreeChildCreator{worktree: workspaceUsecase},
 	)
 	return agentWiring{
 		chat:     chat,

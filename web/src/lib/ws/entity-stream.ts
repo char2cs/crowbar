@@ -53,12 +53,26 @@ export interface SubscribeEntityStreamOptions<T> {
    * per-repo list, `(repo) => repo.projectId === projectId` for the repo list.
    */
   pruneScope?: (cached: T) => boolean
+  /**
+   * Turn ONE raw frame into the entity it is about, or null to ignore it.
+   *
+   * Every frame goes through this BEFORE the `id` check, so a feed whose frames
+   * are not entity DTOs at all can still drive this cache. That is now the
+   * normal case for `crowbar_workspaces`: a worktree is held by a chat, so its
+   * live updates ride the chat LIFECYCLE socket, where a `worktree_state` event
+   * carries the worktree nested inside it and every other kind
+   * (`turn_started`, `deleted`, `folder_created`, …) is about something else
+   * entirely and maps to null.
+   *
+   * Omitted, the frame is cast exactly as it always was.
+   */
+  mapFrame?: (raw: unknown) => T | null
 }
 
 export function subscribeEntityStream<T extends { id: string; status?: string }>(
   opts: SubscribeEntityStreamOptions<T>,
 ): () => void {
-  const { endpoint, store, seed, onChange, pruneScope } = opts
+  const { endpoint, store, seed, onChange, pruneScope, mapFrame } = opts
   let disposed = false
 
   // §6 ordering: every cache mutation (seed + each live frame) is queued onto a
@@ -143,7 +157,13 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
       runSeed()
       return
     }
-    const frame = data as EntityFrame
+    // Mapped BEFORE the id check: on a lifecycle feed the raw frame has no `id`
+    // of its own at all, and the entity it is about is nested inside it.
+    // Tombstones are read off the MAPPED value below, so a mapper is free to
+    // produce one.
+    const mapped = mapFrame ? mapFrame(data) : (data as EntityFrame)
+    if (mapped === null) return
+    const frame = mapped as EntityFrame
     if (!frame || typeof frame.id !== 'string') return
     applyChain = applyChain
       .then(() => applyFrame(frame))

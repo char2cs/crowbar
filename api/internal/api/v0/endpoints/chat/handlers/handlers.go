@@ -450,6 +450,7 @@ type Handlers struct {
 	providers       ProviderUsecase
 	folders         ChatTreeUsecase
 	repos           Repos
+	worktrees       Worktrees
 	broadcastFolder func(folderID, workspaceID, kind string)
 }
 
@@ -500,6 +501,21 @@ func (h *Handlers) WithRepos(
 ) *Handlers {
 	if repos != nil {
 		h.repos = repos
+	}
+	return h
+}
+
+// WithWorktrees wires the workspace reads a chat's own git fields are resolved
+// through (spec §5). Left unwired, every chat serializes with its worktree
+// absent — see Worktrees — which is why this is a builder rather than a New
+// parameter: it is the same optional-capability shape WithRepos already has,
+// and the surfaces that mount these handlers without it serve rows that own no
+// worktree anyway.
+func (h *Handlers) WithWorktrees(
+	worktrees Worktrees,
+) *Handlers {
+	if worktrees != nil {
+		h.worktrees = worktrees
 	}
 	return h
 }

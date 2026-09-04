@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -744,4 +745,122 @@ func TestPlaceChat_SurfacesAPlacementWriteFailure(t *testing.T) {
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2",
 		tree.PlaceInput{ParentID: name("c1")})
 	assert.ErrorContains(t, err, "aggregate down")
+}
+
+// newUsecaseOverRoster builds the tree usecase over a workspace census the
+// reaper actually removes from, so a delete's effect on a WORKSPACE can be
+// asserted as absence from that census — not as "a method was called".
+func newUsecaseOverRoster(
+	t *testing.T,
+	workspaces ...domain.Workspace,
+) (*mocks.AgentChatPlacements, tree.Usecase, *mocks.AgentWorkspaceRoster, *mocks.AgentWorkspaceReaper) {
+	t.Helper()
+	chats := mocks.NewAgentChatPlacements()
+	roster := mocks.NewAgentWorkspaceRoster()
+	roster.Rows = append(roster.Rows, workspaces...)
+	reaper := mocks.NewAgentWorkspaceReaperOver(roster)
+	uc := tree.New(chats, chats, inflight.NewWork(),
+		mocks.NewAgentWorkspaceGitStatus(), roster, reaper)
+	return chats, uc, roster, reaper
+}
+
+// seedWorktreeChat appends a chat that OWNS wsID — the row a branch or a fork
+// is, as distinct from a bubble that borrows its ancestor's ground.
+func seedWorktreeChat(
+	chats *mocks.AgentChatPlacements,
+	id string,
+	wsID string,
+	parentID string,
+) {
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID:          id,
+		Type:        domain.ChatTypeChat,
+		WorkspaceID: wsID,
+		ParentID:    parentID,
+	})
+}
+
+// TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace is the
+// test for the bug spec §0 diagnosed, reached from the other direction.
+//
+// A workspace is reachable ONLY through the chat that owns it. DeleteChat used
+// to purge the chat and its threads and stop there — chat, runner, ledger — so
+// deleting the row that owned a worktree left a real git worktree on disk with
+// nothing anywhere able to name it again: an orphan identical in shape to the
+// one the import path produced, and produced by the ordinary panel delete every
+// user makes.
+//
+// The assertion is deliberately about the CENSUS and not about the reap call:
+// "the workspace is gone" is the invariant, and a test that only proved a
+// method ran would still pass if that method stopped tearing anything down.
+func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testing.T) {
+	chats, uc, roster, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
+	seedWorktreeChat(chats, "owner", "ws-fork", "")
+
+	removed, err := uc.DeleteChat(context.Background(), "owner")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"owner"}, removed.Chats, "the chat row goes")
+	assert.Empty(t, roster.Rows,
+		"and so does the worktree it owned — a workspace must never outlive its chat")
+}
+
+// TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce pins the
+// cascade over the whole SUBTREE, and the deduplication that keeps it honest.
+//
+// A thread carries its parent's workspace id, so a chat and the threads under
+// it routinely name ONE worktree between them. Every row in the subtree is
+// therefore considered, but the teardown runs once per distinct workspace: the
+// worktree must go, and it must not be asked to go twice.
+func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.T) {
+	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
+	seedWorktreeChat(chats, "root", "ws-root", "")
+	seedWorktreeChat(chats, "thread", "ws-root", "root")
+
+	removed, err := uc.DeleteChat(context.Background(), "root")
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"thread", "root"}, removed.Chats,
+		"the chat and its threads all go")
+	assert.Empty(t, roster.Rows, "and the worktree they shared goes with them")
+	assert.Equal(t, []string{"ws-root"}, reaper.Reaped,
+		"torn down once, however many rows named it")
+}
+
+// TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact pins the
+// failure contract the reap ORDER exists to give.
+//
+// The two orderings fail in opposite directions, and only one of them is safe.
+// Reaping first means a failure leaves a chat that still exists and still owns
+// its worktree — nothing lost, and the user can retry. Purging first would mean
+// a failure leaves the worktree behind with its only route to it deleted, which
+// is precisely the orphan this cascade was added to prevent. So a reap that
+// fails FAILS THE DELETE, and nothing is purged.
+func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *testing.T) {
+	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-locked"})
+	seedWorktreeChat(chats, "owner", "ws-locked", "")
+	wedged := errors.New("worktree is locked")
+	reaper.ErrFor["ws-locked"] = wedged
+
+	_, err := uc.DeleteChat(context.Background(), "owner")
+
+	require.ErrorIs(t, err, wedged)
+	assert.Empty(t, chats.Purged,
+		"a delete that cannot tear the worktree down must not erase the only row naming it")
+	assert.Len(t, roster.Rows, 1, "and the worktree itself is untouched")
+}
+
+// TestDeleteChat_ABubbleReapsNothing keeps the cascade off the ground a bubble
+// merely BORROWS. A chat with no workspace of its own reads its ancestor's
+// worktree; reaping on its delete would destroy the directory its parent is
+// still working in.
+func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
+	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-parent"})
+	seedWorktreeChat(chats, "bubble", "", "")
+
+	_, err := uc.DeleteChat(context.Background(), "bubble")
+
+	require.NoError(t, err)
+	assert.Empty(t, reaper.Reaped, "a bubble owns no worktree to tear down")
+	assert.Len(t, roster.Rows, 1, "its ancestor's worktree is untouched")
 }

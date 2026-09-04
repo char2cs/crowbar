@@ -335,7 +335,7 @@ func TestRegisterMountsRoutes(
 	settingsRG := r.Group("/v0")
 	wsHit := false
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil,
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil,
 		func(c *gin.Context) {
 			wsHit = true
 			c.Status(http.StatusOK)
@@ -394,7 +394,7 @@ func TestChatRoutes_OldWorkspaceScopedPathGone(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil,
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil,
 		func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequest(http.MethodGet,
@@ -421,7 +421,7 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil,
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil,
 		func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})

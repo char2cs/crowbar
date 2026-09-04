@@ -24,8 +24,11 @@ vi.mock('@/lib/ws/entity-stream', () => ({
   subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
 }))
 
-vi.mock('@/lib/api', () => ({
-  API_BASE: '',
+// Only the network seams are faked — `workspaceDTOFromWorktreeFrame` (the chat
+// stream's frame mapper) stays REAL, so a test that reaches for it gets the
+// mapping the provider actually installs.
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
@@ -335,7 +338,10 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(endpoints().filter((e) => e === '/v0/projects/p2/repos').length).toBe(openedCount)
   })
 
-  it("subscribes a visible project's repo workspace streams, and not a collapsed repo's", async () => {
+  // A repo's worktrees ride its CHAT stream now — a worktree is held by a chat,
+  // so `.../chats/ws` is where its `worktree_state` frames arrive; there is no
+  // `.../workspaces` stream left to open.
+  it("subscribes a visible project's repo worktree streams, and not a collapsed repo's", async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -347,16 +353,16 @@ describe('AppSyncProvider subscribes by visibility', () => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p1')])
     })
     await settle()
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r1/workspaces')
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r2/workspaces')
+    expect(endpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
+    expect(endpoints()).toContain('/v0/projects/p1/repos/r2/chats/ws')
 
     act(() => {
       useSidebarStore.getState().toggleRepo('r2')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
 
-    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/workspaces')
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/workspaces')
+    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
+    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/chats/ws')
   })
 
   // Task 34: folders no longer open a WS subscription at all (their dedicated
@@ -430,7 +436,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     })
     await settle(SUBSCRIPTION_GRACE_MS)
 
-    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/workspaces')
+    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
     fetchFolders.mockClear()
 
     act(() => {
@@ -455,13 +461,13 @@ describe('AppSyncProvider subscribes by visibility', () => {
       useSidebarStore.getState().toggleRepo('r1')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
-    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/workspaces')
+    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
 
     act(() => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1', { defaultWorking: false })])
     })
     await settle(SUBSCRIPTION_GRACE_MS)
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r1/workspaces')
+    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r1/chats/ws')
   })
 })
 
@@ -482,7 +488,7 @@ describe('AppSyncProvider merges frames incrementally', () => {
     })
     await settle()
 
-    const workspaces = streamFor('/v0/projects/p1/repos/r1/workspaces')!
+    const workspaces = streamFor('/v0/projects/p1/repos/r1/chats/ws')!
     const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
     rebuild.mockClear()
 
@@ -511,7 +517,7 @@ describe('AppSyncProvider merges frames incrementally', () => {
     })
     await settle()
 
-    const workspaces = streamFor('/v0/projects/p1/repos/r1/workspaces')!
+    const workspaces = streamFor('/v0/projects/p1/repos/r1/chats/ws')!
     const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
     rebuild.mockClear()
 
@@ -548,7 +554,7 @@ describe('AppSyncProvider merges frames incrementally', () => {
     })
     await settle()
 
-    const workspaces = streamFor('/v0/projects/p1/repos/r1/workspaces')!
+    const workspaces = streamFor('/v0/projects/p1/repos/r1/chats/ws')!
     const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
     rebuild.mockClear()
 
@@ -576,8 +582,8 @@ describe('AppSyncProvider merges frames incrementally', () => {
     rebuild.mockClear()
 
     act(() => {
-      streamFor('/v0/projects/p1/repos/r1/workspaces')!.options.onChange!({ kind: 'seed' })
-      streamFor('/v0/projects/p1/repos/r2/workspaces')!.options.onChange!({ kind: 'seed' })
+      streamFor('/v0/projects/p1/repos/r1/chats/ws')!.options.onChange!({ kind: 'seed' })
+      streamFor('/v0/projects/p1/repos/r2/chats/ws')!.options.onChange!({ kind: 'seed' })
       streamFor('/v0/projects/p1/repos')!.options.onChange!({ kind: 'seed' })
     })
     await settle()

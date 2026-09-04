@@ -88,4 +88,9 @@ func Register(
 	rg.POST("/chats/:id/rebase-onto-parent", h.ChatRebaseOntoParent)
 	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
 	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
+	// The chat-keyed branch rename: the half of PATCH /workspaces/:wsId that had
+	// no chat-scoped equivalent at all. It is a PATCH on the branch and NOT a
+	// second meaning for POST /chats/:id/rename — see ChatRenameBranch for why
+	// that fold was declined.
+	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
 }

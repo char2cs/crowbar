@@ -84,13 +84,20 @@ type placeChatResponse struct {
 // WITHIN a parent, so the list is not a single ordered sequence — it is every
 // level's sequence, interleaved; the client groups by parentId and reads each
 // group in this order.
-func folderDTOList(
+//
+// It resolves the worktree enrichment despite its name, because a SHIFTED row
+// is not always a folder: a densify renumbers every row at the affected level,
+// and those levels interleave folders with worktree-owning chats. Serializing
+// one of those without its git fields would hand a client a complete-looking
+// chat whose branch and diff counts had vanished, on a response about nothing
+// but sort order.
+func (h *Handlers) folderDTOList(
+	ctx *gin.Context,
 	rows []domain.Chat,
 ) []dto.AgentChatDTO {
-	out := make([]dto.AgentChatDTO, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, dto.AgentChatDTOFrom(row, dto.ChatRuntime{}))
-	}
+	worktreeFn := h.repoWorktrees(
+		ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"))
+	out := dto.AgentChatDTOList(rows, nil, worktreeFn)
 	slices.SortFunc(out, compareFolderDTOs)
 	return out
 }
@@ -117,7 +124,7 @@ func (h *Handlers) ListFolders(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	libs.WriteQueryOK(ctx, folderDTOList(rows))
+	libs.WriteQueryOK(ctx, h.folderDTOList(ctx, rows))
 }
 
 // CreateFolder handles POST .../chats/folders. The URL scope names the repo the
@@ -144,8 +151,8 @@ func (h *Handlers) CreateFolder(
 	h.announceFolders(wsID, shifted, "folder_updated")
 	h.announceFolders(wsID, []domain.Chat{created}, "folder_created")
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, folderResponse{
-		Folder:  dto.AgentChatDTOFrom(created, dto.ChatRuntime{}),
-		Shifted: folderDTOList(shifted),
+		Folder:  dto.AgentChatDTOFrom(created, dto.ChatRuntime{}, nil),
+		Shifted: h.folderDTOList(ctx, shifted),
 	})
 }
 
@@ -169,8 +176,8 @@ func (h *Handlers) PatchFolder(
 	}
 	h.announceFolders(wsID, append(shifted, updated), "folder_updated")
 	libs.WriteQueryOK(ctx, folderResponse{
-		Folder:  dto.AgentChatDTOFrom(updated, dto.ChatRuntime{}),
-		Shifted: folderDTOList(shifted),
+		Folder:  dto.AgentChatDTOFrom(updated, dto.ChatRuntime{}, nil),
+		Shifted: h.folderDTOList(ctx, shifted),
 	})
 }
 
@@ -208,7 +215,7 @@ func (h *Handlers) DeleteFolder(
 	}
 	h.announceFolders(wsID, promoted, "folder_updated")
 	h.broadcastFolder(id, wsID, "folder_deleted")
-	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: folderDTOList(promoted)})
+	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: h.folderDTOList(ctx, promoted)})
 }
 
 // PlaceChat handles PATCH .../chats/:id/placement: where the chat hangs in
@@ -259,8 +266,8 @@ func (h *Handlers) PlaceChat(
 		return
 	}
 	libs.WriteQueryOK(ctx, placeChatResponse{
-		Chat:    dto.AgentChatDTOFrom(placed, rt),
-		Shifted: folderDTOList(shifted),
+		Chat:    dto.AgentChatDTOFrom(placed, rt, h.chatWorktree(ctx.Request.Context(), placed)),
+		Shifted: h.folderDTOList(ctx, shifted),
 	})
 }
 

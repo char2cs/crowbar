@@ -445,6 +445,8 @@ func newPairedRouter(
 	rg.POST("/chats/:id/rebase-onto-parent", h.ChatRebaseOntoParent)
 	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
 	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
+	rg.PATCH("/workspaces/:wsId", h.Patch)
+	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
 	return r, h
 }
 

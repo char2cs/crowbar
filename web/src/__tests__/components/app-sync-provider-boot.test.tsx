@@ -22,8 +22,11 @@ const { fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats, subscribe } =
   subscribe: vi.fn(),
 }))
 
-vi.mock('@/lib/api', () => ({
-  API_BASE: '',
+// Only the network seams are faked. `workspaceDTOFromWorktreeFrame` stays REAL:
+// a worktree's live updates ride the chat lifecycle socket, so that mapper is
+// part of the daemon→cache→tree path this file exists to exercise end to end.
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
@@ -88,6 +91,45 @@ const wsDTO = (
   prTitle: '',
   prTargetBranch: '',
   ...over,
+})
+
+/**
+ * The chat-stream frame that carries `ws`'s worktree state.
+ *
+ * A worktree is HELD BY A CHAT, so it has no push channel of its own any more:
+ * its live updates arrive as `worktree_state` events on the repo's chat feed,
+ * with the git half nested inside. The chat is named twice on purpose —
+ * `chatId` is who the event is about, `worktree.owningChatId` is who holds the
+ * worktree — because a thread of that chat receives the SAME worktree object and
+ * is filtered out by exactly that comparison.
+ */
+const worktreeFrame = (ws: WorkspaceDTO, chatId = `chat-${ws.id}`, owningChatId = chatId) => ({
+  chatId,
+  workspaceId: ws.id,
+  repoId: ws.repoId,
+  kind: 'worktree_state',
+  working: ws.working,
+  worktree: {
+    branch: ws.branch,
+    status: ws.status,
+    lastError: ws.lastError,
+    working: ws.working,
+    isDefault: ws.isDefault,
+    added: ws.added,
+    deleted: ws.deleted,
+    mergeStrategy: ws.mergeStrategy,
+    canMergeLocally: ws.canMergeLocally,
+    mergeConflicts: ws.mergeConflicts,
+    parentBranch: ws.parentBranch,
+    prUrl: ws.prUrl,
+    prTitle: ws.prTitle,
+    prTargetBranch: ws.prTargetBranch,
+    localPath: ws.localPath,
+    heldByPath: ws.heldByPath,
+    forkPointSha: ws.forkPointSha,
+    parentId: ws.parentId,
+    owningChatId,
+  },
 })
 
 const folderDTO = (
@@ -258,11 +300,11 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
   })
 
-  it('a live workspace frame updates the row it names', async () => {
+  it('a live worktree_state frame updates the row it names', async () => {
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w1', 'r1', 'p1', { working: true, status: 'pr-open' }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { working: true, status: 'pr-open' })),
     )
     await waitFor(() => {
       const w1 = useSidebarStore.getState().repos[0].workspaces.find((w) => w.id === 'w1')!
@@ -276,8 +318,10 @@ describe('AppSyncProvider boot, end to end', () => {
     // tree row, so the incremental merge has to lift it onto the header itself.
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w-default', 'r1', 'p1', { isDefault: true, branch: 'main', working: true }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(
+        wsDTO('w-default', 'r1', 'p1', { isDefault: true, branch: 'main', working: true }),
+      ),
     )
     await waitFor(() => expect(useSidebarStore.getState().repos[0].defaultWorking).toBe(true))
     // ...and it still is not a row.
@@ -287,15 +331,44 @@ describe('AppSyncProvider boot, end to end', () => {
   it('a live tombstone removes the row', async () => {
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w1', 'r1', 'p1', { status: 'deleted' }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { status: 'deleted' })),
     )
     await waitFor(() => expect(workspaceIdsOf('r1')).toEqual([]))
   })
 
+  // The chat feed carries THREE vocabularies (chats, runners, folders) and only
+  // one of them is about a worktree. Everything else has to fall straight
+  // through, or the hottest frames in the app (a turn starting and stopping)
+  // would each write the workspace cache.
+  it('ignores every frame on the chat feed that is not this chat’s worktree state', async () => {
+    await boot()
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'chat-w1',
+      workspaceId: 'w1',
+      kind: 'turn_started',
+      working: true,
+    })
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'chat-w1',
+      kind: 'folder_created',
+      folderId: 'f9',
+    })
+    // A THREAD of the owning chat gets the same worktree object; only the
+    // owning row is the worktree's row.
+    await push(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { status: 'deleted' }), 'chat-w1-thread', 'chat-w1'),
+    )
+
+    expect(workspaceIdsOf('r1')).toEqual(['w1'])
+    const w1 = useSidebarStore.getState().repos[0].workspaces.find((w) => w.id === 'w1')!
+    expect(w1.working).toBe(false)
+  })
+
   it('a reconnect sentinel reseeds without emptying the tree', async () => {
     await boot()
-    await push('/v0/projects/p1/repos/r1/workspaces', { reconnected: true })
+    await push('/v0/projects/p1/repos/r1/chats/ws', { reconnected: true })
     await waitFor(() => expect(workspaceIdsOf('r1')).toEqual(['w1']))
   })
 

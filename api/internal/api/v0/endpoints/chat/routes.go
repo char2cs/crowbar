@@ -73,6 +73,12 @@ import (
 // outside the entity hierarchy — mirroring /settings/terminal/profiles. It is the
 // counterpart of the repo-scoped enriched GET .../chats/providers above, and
 // is mounted exactly once (the home group re-mounts the GET but never this write).
+// worktrees resolves the git state a worktree-owning chat carries on its own
+// DTO (spec §5): the workspace it owns, that workspace's repo siblings, and the
+// merge overlay resolved over them. It is what lets ONE read of the chat list
+// answer everything the workspace list used to, so a client never joins two
+// resources by id to draw one row.
+//
 // repos resolves :repoId for the one route that needs the repository itself:
 // POST /chats with an `import` body, which adopts a branch that already exists
 // in that repo (spec §4.1 — Create and Import are ONE route with a
@@ -87,11 +93,13 @@ func Register(
 	providers agenthandlers.ProviderUsecase,
 	folders agenthandlers.ChatTreeUsecase,
 	repos agenthandlers.Repos,
+	worktrees agenthandlers.Worktrees,
 	broadcastFolder func(folderID, workspaceID, kind string),
 	wsHandle gin.HandlerFunc,
 ) {
 	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder).
-		WithRepos(repos)
+		WithRepos(repos).
+		WithWorktrees(worktrees)
 
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)

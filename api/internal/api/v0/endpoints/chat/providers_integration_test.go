@@ -47,7 +47,7 @@ func newProviderServer(
 	wsScoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	settingsRG := r.Group("/v0")
 	chat.Register(wsScoped, settingsRG, uc, uc, uc, uc, uc,
-		nil, nil, nil, func(c *gin.Context) { c.Status(http.StatusOK) })
+		nil, nil, nil, nil, func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
 }
 

@@ -7,7 +7,13 @@ import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
-import { fetchFolders, fetchRepoChats, fetchRepos, fetchWorkspaces } from '@/lib/api'
+import {
+  fetchFolders,
+  fetchRepoChats,
+  fetchRepos,
+  fetchWorkspaces,
+  workspaceDTOFromWorktreeFrame,
+} from '@/lib/api'
 import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream'
 import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -19,7 +25,7 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 //   /v0/projects                            always — one stream, a handful of rows
 //   a project's repos                       while that project is visible
 //                                           (not folded away, or the active one)
-//   a repo's workspaces                     while that repo is expanded, holds the
+//   a repo's worktrees (via its chats)      while that repo is expanded, holds the
 //                                           active workspace, or has live work to
 //                                           report on its header
 //   a repo's tree rows (folders + chats)    while that repo is expanded or holds
@@ -57,7 +63,7 @@ const KEY_SEP = '|'
 const homeKey = (projectId: string): string => `home${KEY_SEP}${projectId}`
 /** A project's repo list stream. */
 const reposKey = (projectId: string): string => `repos${KEY_SEP}${projectId}`
-/** One repo's workspace list stream. */
+/** One repo's worktrees, seeded and pushed through its chat surface. */
 const workspacesKey = (projectId: string, repoId: string): string =>
   `workspaces${KEY_SEP}${projectId}${KEY_SEP}${repoId}`
 /** One repo's sidebar tree rows — its folders AND its chats, on one reseed
@@ -392,10 +398,22 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       if (kind === 'tree') {
         return openRepoTreeSubscription(projectId, repoId)
       }
+      // A repo's worktrees, read and pushed through its CHATS. There is no
+      // workspace resource left to subscribe: a worktree is held by a chat, so
+      // the seed is the chat list (`fetchWorkspaces` derives the DTOs from it)
+      // and the live half is the repo-wide chat lifecycle feed, whose
+      // `worktree_state` frames carry the worktree nested inside them. Every
+      // other kind on that socket maps to null and is ignored.
+      //
+      // This feed resolves no single workspace, so — exactly as the old
+      // repo-level workspace LIST stream did not — it never starts the daemon's
+      // provider PR-status poll. That is the per-CHAT stream's job; see
+      // use-workspace-provider-stream.ts.
       return subscribeEntityStream<WorkspaceDTO>({
-        endpoint: `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
+        endpoint: `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
         store: 'crowbar_workspaces',
         seed: () => fetchWorkspaces(projectId, repoId),
+        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
         onChange: onWorkspacesChange,
         // Authoritative over THIS repo's workspaces only — crowbar_workspaces
         // also holds every other repo's rows; pruning the whole store would
