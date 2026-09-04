@@ -14,7 +14,7 @@ type report struct {
 	lines     []string
 	project   projectDTO
 	repo      repoDTO
-	workspace workspaceDTO
+	workspace chatDTO
 }
 
 func (r *report) note(
@@ -62,7 +62,10 @@ func (r *report) noteThreads(
 }
 
 func (r *report) write() error {
-	route := fmt.Sprintf("/ide/%s/%s/%s", r.project.ID, r.repo.ID, r.workspace.ID)
+	// The route names the WORKSPACE the feature chat owns, not the chat itself:
+	// the frontend's /ide/:projectId/:repoId/:wsId route predates chat-scoping
+	// and was not part of this refactor (spec §8 step 6 left it alone).
+	route := fmt.Sprintf("/ide/%s/%s/%s", r.project.ID, r.repo.ID, r.workspace.WorkspaceID)
 	_, err := fmt.Fprintf(r.out, `
 Crowbar dev instance seeded.
 
@@ -80,9 +83,9 @@ Crowbar dev instance seeded.
 		strings.Join(r.lines, "\n"),
 		seedProjectName, r.project.ID,
 		r.repo.Name, r.repo.ID,
-		seedFeatureBranch, r.workspace.ID,
-		r.workspace.Branch,
-		r.workspace.LocalPath,
+		seedFeatureBranch, r.workspace.WorkspaceID,
+		r.workspace.Worktree.Branch,
+		r.workspace.Worktree.LocalPath,
 		route, route,
 	)
 	if err != nil {

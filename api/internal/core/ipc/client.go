@@ -74,11 +74,23 @@ func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
 }
 
 func (c *Client) PostJSON(ctx context.Context, path string, body any) (int, []byte, error) {
+	return c.doJSON(ctx, http.MethodPost, path, body)
+}
+
+// PatchJSON issues a PATCH request against path with body marshalled as JSON,
+// over the daemon's unix socket. It mirrors PostJSON exactly (including its
+// non-2xx-is-not-an-error contract) for the routes that mutate in place
+// rather than create — the worktree lifecycle's branch rename among them.
+func (c *Client) PatchJSON(ctx context.Context, path string, body any) (int, []byte, error) {
+	return c.doJSON(ctx, http.MethodPatch, path, body)
+}
+
+func (c *Client) doJSON(ctx context.Context, method string, path string, body any) (int, []byte, error) {
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: marshal: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix"+path, bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, bytes.NewReader(buf))
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: request: %w", err)
 	}

@@ -40,6 +40,34 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	_ = os.Remove(sock)
 }
 
+func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
+	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
+	tmpDir := filepath.Join("/tmp", "cp.sock")
+	sock := filepath.Join(tmpDir, "t.sock")
+	defer os.RemoveAll(tmpDir)
+	_ = os.MkdirAll(tmpDir, 0o755)
+	ln, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	defer ln.Close()
+
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		require.Equal(t, "/v0/chats/c1/branch", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"id":"c1"}}`))
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	c, err := ipc.NewClient("unix://" + sock)
+	require.NoError(t, err)
+	status, body, err := c.PatchJSON(context.Background(), "/v0/chats/c1/branch", map[string]string{"branch": "feature/x"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, string(body), "c1")
+	_ = os.Remove(sock)
+}
+
 func TestClient_Get_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cg.sock")

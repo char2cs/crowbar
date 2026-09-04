@@ -47,6 +47,18 @@ func (t *tcpTransport) PostJSON(
 	return t.do(ctx, http.MethodPost, path, buf)
 }
 
+func (t *tcpTransport) PatchJSON(
+	ctx context.Context,
+	path string,
+	body any,
+) (int, []byte, error) {
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("tcp: marshal body for %s: %w", path, err)
+	}
+	return t.do(ctx, http.MethodPatch, path, buf)
+}
+
 func (t *tcpTransport) do(
 	ctx context.Context,
 	method string,
