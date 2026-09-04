@@ -1,5 +1,9 @@
 package main
 
+// TEMP: no-op comment, added only to trigger go-checks CI for a throwaway
+// verification PR (measuring the ci.yml race+coverage dedupe fix). Not part
+// of the real change; this branch is not meant to be merged.
+
 import (
 	"context"
 	"fmt"
