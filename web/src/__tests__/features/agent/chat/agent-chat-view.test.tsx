@@ -7,6 +7,8 @@ import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
   () => ({
@@ -185,13 +187,23 @@ const baseProps = () => ({
 
 function setup(overrides: Partial<ReturnType<typeof baseProps>> = {}) {
   const props = { ...baseProps(), ...overrides }
-  const rendered = render(<AgentChatView {...props} />)
+  const store = createWorkspaceStore(props.wsId)
+  const rendered = render(
+    <WorkspaceStoreContext.Provider value={store}>
+      <AgentChatView {...props} />
+    </WorkspaceStoreContext.Provider>,
+  )
   return {
     props,
+    store,
     ...rendered,
     rerenderProps(next: Partial<typeof props>) {
       Object.assign(props, next)
-      rendered.rerender(<AgentChatView {...props} />)
+      rendered.rerender(
+        <WorkspaceStoreContext.Provider value={store}>
+          <AgentChatView {...props} />
+        </WorkspaceStoreContext.Provider>,
+      )
     },
   }
 }
@@ -567,7 +579,12 @@ describe('AgentChatView durable FIFO', () => {
       }),
     )
     const ref = createRef<AgentChatViewHandle>()
-    render(<AgentChatView {...baseProps()} working ref={ref} />)
+    const store = createWorkspaceStore('w1')
+    render(
+      <WorkspaceStoreContext.Provider value={store}>
+        <AgentChatView {...baseProps()} working ref={ref} />
+      </WorkspaceStoreContext.Provider>,
+    )
     expect(await screen.findByText('queued prompt')).toBeInTheDocument()
 
     await act(async () => ref.current?.cancelUnsentPrompts())
@@ -1834,6 +1851,50 @@ describe('chat.open perf span', () => {
 
     await waitFor(() => {
       expect(performance.getEntriesByName('chat.open', 'measure')).toHaveLength(1)
+    })
+  })
+})
+
+// Wiring only — the scroll math itself (instant-vs-eased, distance-from-bottom
+// restore) is unit-tested against a real scrollHeight/clientHeight mock in
+// use-transcript-anchor.test.tsx; jsdom has no layout engine, so every
+// dimension here reads 0 regardless of what the reader "did". What matters at
+// this level is that AgentChatView is actually wired to the WORKSPACE store —
+// a future refactor dropping the prop-threading between here and
+// AgentTranscript would silently break restore without any of the anchor's
+// own unit tests noticing, since they exercise the hook in isolation.
+describe('AgentChatView scroll position', () => {
+  it('writes the transcript scroll position to the workspace store on unmount', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const view = setup()
+    await screen.findByText('Question')
+
+    expect(view.store.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+
+    view.unmount()
+
+    expect(view.store.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: expect.any(Boolean),
+      distanceFromBottom: expect.any(Number),
+    })
+  })
+
+  it('reads a previously-saved scroll position from the workspace store without crashing', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const store = createWorkspaceStore('w1')
+    store.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 120 })
+
+    render(
+      <WorkspaceStoreContext.Provider value={store}>
+        <AgentChatView {...baseProps()} />
+      </WorkspaceStoreContext.Provider>,
+    )
+
+    expect(await screen.findByText('Question')).toBeInTheDocument()
+    // The seeded entry is left untouched until THIS mount's own unmount.
+    expect(store.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: false,
+      distanceFromBottom: 120,
     })
   })
 })

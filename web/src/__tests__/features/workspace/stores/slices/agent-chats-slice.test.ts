@@ -148,6 +148,44 @@ describe('agent-chats-slice', () => {
     ])
   })
 
+  // ── scrollPositions: per-chat, in-memory, read once on the chat's next
+  //    mount this session — see AgentChatsState.scrollPositions' own doc.
+
+  it('setAgentChatScrollPosition writes the position for that chat only', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    s.getState().setAgentChatScrollPosition('c2', { stuck: true, distanceFromBottom: 0 })
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: false,
+      distanceFromBottom: 240,
+    })
+    expect(s.getState().agentChats.scrollPositions['c2']).toEqual({
+      stuck: true,
+      distanceFromBottom: 0,
+    })
+  })
+
+  it('setAgentChatScrollPosition replaces a chat’s previous entry, not merges it', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    s.getState().setAgentChatScrollPosition('c1', { stuck: true, distanceFromBottom: 400 })
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: true,
+      distanceFromBottom: 400,
+    })
+  })
+
+  it('removeAgentChat forgets the saved scroll position', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+
+    s.getState().removeAgentChat('c1')
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+  })
+
   // ── The sticky model / effort selection ───────────────────────────────────
   // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
   // is the only thing that brings an accepted pair back into the store.

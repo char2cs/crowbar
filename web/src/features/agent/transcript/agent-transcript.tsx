@@ -11,7 +11,10 @@ import type {
 } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { WorkingLine } from '@/features/agent/activity/working-line'
-import { useTranscriptAnchor } from '@/features/agent/hooks/use-transcript-anchor'
+import {
+  useTranscriptAnchor,
+  type TranscriptScrollPosition,
+} from '@/features/agent/hooks/use-transcript-anchor'
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { EventDivider } from '@/features/agent/transcript/event-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
@@ -75,6 +78,12 @@ interface AgentTranscriptProps {
    * watching structurally cannot see.
    */
   dockHeight?: number
+  /** A previously-saved scroll position for this exact chat, this session —
+   *  see useTranscriptAnchor's own doc. Omitted or null: land at the
+   *  bottom. */
+  initialScrollPosition?: TranscriptScrollPosition | null
+  /** Called once, on unmount, with wherever the reader ended up. */
+  onScrollPositionChange?: (position: TranscriptScrollPosition) => void
 }
 
 /** The `at` of the user turn each assistant reply actually answers, keyed by
@@ -297,7 +306,11 @@ function TranscriptRowView({
  */
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue, dockHeight } = props
-  const anchor = useTranscriptAnchor()
+  const anchor = useTranscriptAnchor({
+    loadingHistory: props.loading,
+    initialPosition: props.initialScrollPosition,
+    onPositionChange: props.onScrollPositionChange,
+  })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see
   // `TranscriptAnchor.notifyReflow`'s own doc), so a height change here is
