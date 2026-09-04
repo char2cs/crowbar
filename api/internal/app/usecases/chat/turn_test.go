@@ -2034,7 +2034,10 @@ func TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever(t *testing.T)
 
 // TestCodexTurnStop_NeverReportsAsyncWork is the PROVIDER-AGNOSTIC requirement through the
 // live usecase: codex maps no async_work, so even a Stop payload that happens to carry a
-// background_tasks array leaves it turn-only and bit-identical to before this existed.
+// background_tasks array leaves ev.AsyncWork at 0 — an unmapped field must never be
+// counted. With no tool call or subagent open either (see
+// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking for that half), turn_stop
+// is simply idle, same as before OpenWork's fallback existed.
 func TestCodexTurnStop_NeverReportsAsyncWork(t *testing.T) {
 	f := newFixture(t)
 
@@ -2047,6 +2050,50 @@ func TestCodexTurnStop_NeverReportsAsyncWork(t *testing.T) {
 	f.wait()
 
 	chat := f.chat(t, chatID)
-	require.False(t, chat.Working, "codex maps no async_work: turn_stop is simply idle")
+	require.False(t, chat.Working, "codex maps no async_work and has no open tool/subagent: idle")
 	require.Equal(t, 0, chat.AsyncWork, "an unmapped field must never be counted")
+}
+
+// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking is the bug reported live:
+// codex maps no async_work (TestCodexTurnStop_NeverReportsAsyncWork), so a subagent still
+// running when codex's own top-level turn ends has nothing to restate it — the spinner
+// went dark the instant codex sent its first mid-turn answer, even though the subagent it
+// had just delegated to kept working. closeTurnFromStop's OpenWork fallback (the same
+// generic tool/subagent open-close pairing OpenWork already answers termwait's idle check
+// from) is what catches it here, since codex has no self-reported level like claude's
+// background_tasks to restate it with (see stop_turn.go).
+func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+	prompt(t, f, runnerID, "codex", "investigate and delegate to a subagent")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+
+	// codex's own top-level turn ends — with the subagent it just spawned still running.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		stopPayload(t, "I'll delegate this to a subagent.", 0)))
+	f.wait()
+
+	chat := f.chat(t, chatID)
+	require.True(t, chat.Working,
+		"the spinner must KEEP SPINNING: codex's turn ended but its own subagent is still working")
+	require.Nil(t, chat.CurrentTurnStarted, "the turn itself really did end")
+
+	// The subagent finishes. Nothing else will ever restate this for codex — closing the
+	// last piece of open work is what must clear it, or the fix would just trade "clears
+	// too early" for "never clears".
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+
+	chat = f.chat(t, chatID)
+	require.False(t, chat.Working, "once the subagent finishes the spinner MUST stop — no stuck-on")
 }
