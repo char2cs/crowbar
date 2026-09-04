@@ -1,0 +1,285 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>attachments: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments/attachments.go (92.7%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">// Package attachments is the durable per-chat attachment store: validating,
+// naming, writing and serving the files a chat's composer sends alongside a
+// message — images, PDFs, and anything too large or too binary to inline in
+// the message text itself (chat attachments design spec).
+//
+// It is the storage half of a handler -&gt; usecase -&gt; storage layering that
+// mirrors agentactivity's own Payload seam (ReadToolPayload -&gt; EventStore.Payload
+// -&gt; content store): chat/handlers owns the HTTP ingestion shapes, the chat
+// usecase resolves WHICH directory a chat's attachments live in, and this
+// package owns what happens once both bytes and a destination are known.
+package attachments
+
+import (
+        "errors"
+        "fmt"
+        "io"
+        "net/http"
+        "os"
+        "path/filepath"
+        "regexp"
+        "strings"
+
+        "github.com/char2cs/crowbar/api/internal/app/apperr"
+        "github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
+)
+
+// MaxBytes caps a single stored attachment at 25 MiB.
+//
+// Icons cap at 2 MiB (a small avatar) and the tool-call content store caps at
+// 8 MiB (bounded provider output); a chat attachment is neither — it is a
+// user-picked image, PDF or CSV export, and a modern phone photo alone can
+// clear 10-15 MiB before a scanned PDF is even in the picture. 25 MiB matches
+// this codebase's own existing ceiling for a single file read
+// (safepath.ErrFileTooLarge, the workspace file-read cap) rather than
+// inventing a new number — one large-file boundary to reason about, not two.
+const MaxBytes = 25 &lt;&lt; 20
+
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// ValidID reports whether id is safe to use as the shortid half of a stored
+// filename. The frontend mints these with nanoid; this is the daemon's own
+// check, never a trust of the client's generator.
+func ValidID(id string) bool <span class="cov8" title="1">{ return idPattern.MatchString(id) }</span>
+
+var unsafeFileNameChars = regexp.MustCompile(`[\s()\[\]]+`)
+
+// sanitizeName reduces name to a safe, markdown-safe base filename: no path
+// separators, no "." or "..", and no whitespace/parens/brackets — a stored
+// filename becomes the trailing segment of a ![]()/[]() reference (design
+// spec), so an unescaped paren or a space in the ORIGINAL name would corrupt
+// the very markdown syntax storing it. Collapsed to "_", not rejected: "my
+// photo (1).png" is an entirely ordinary name to refuse outright.
+func sanitizeName(name string) string <span class="cov8" title="1">{
+        base := filepath.Base(filepath.Clean(name))
+        if base == "" || base == "." || base == ".." || base == string(filepath.Separator) </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+        <span class="cov8" title="1">return unsafeFileNameChars.ReplaceAllString(base, "_")</span>
+}
+
+// Store writes data as a new attachment under dir (a chat's AttachmentsDir),
+// named "&lt;id&gt;-&lt;sanitized originalName&gt;", creating dir if needed.
+//
+// Refuses with apperr.ErrInvalidArgument for an invalid id or a blank
+// original name (a caller with no filename — a clipboard paste — must
+// synthesize one first, see SyntheticName), with safepath.ErrFileTooLarge
+// over MaxBytes, and with apperr.ErrConflict when the target filename
+// already exists: the id is client-generated per attachment, so a collision
+// means the SAME id was submitted twice, and overwriting silently would let
+// a second upload invisibly replace bytes a message may already reference.
+func Store(
+        dir, id, originalName string,
+        data []byte,
+) (fileName, contentType string, err error) <span class="cov8" title="1">{
+        if !ValidID(id) </span><span class="cov8" title="1">{
+                return "", "", fmt.Errorf("attachments: invalid id: %w", apperr.ErrInvalidArgument)
+        }</span>
+        <span class="cov8" title="1">base := sanitizeName(originalName)
+        if base == "" </span><span class="cov8" title="1">{
+                return "", "", fmt.Errorf("attachments: original name required: %w", apperr.ErrInvalidArgument)
+        }</span>
+        <span class="cov8" title="1">if len(data) &gt; MaxBytes </span><span class="cov8" title="1">{
+                return "", "", fmt.Errorf("attachments: %w", safepath.ErrFileTooLarge)
+        }</span>
+        <span class="cov8" title="1">fileName = id + "-" + base
+        //nolint:gosec // G301: 0o700 matches RunnerDir's own perms for daemon-managed chat state.
+        if err := os.MkdirAll(dir, 0o700); err != nil </span><span class="cov0" title="0">{
+                return "", "", fmt.Errorf("attachments: create directory: %w", err)
+        }</span>
+        <span class="cov8" title="1">dest := filepath.Join(dir, fileName)
+        if _, statErr := os.Stat(dest); statErr == nil </span><span class="cov8" title="1">{
+                return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, apperr.ErrConflict)
+        }</span> else<span class="cov8" title="1"> if !errors.Is(statErr, os.ErrNotExist) </span><span class="cov0" title="0">{
+                return "", "", fmt.Errorf("attachments: stat destination: %w", statErr)
+        }</span>
+        //nolint:gosec // G306: served back over HTTP to this same daemon's own clients; 0o600 keeps it off other local users.
+        <span class="cov8" title="1">if err := os.WriteFile(dest, data, 0o600); err != nil </span><span class="cov0" title="0">{
+                return "", "", fmt.Errorf("attachments: write: %w", err)
+        }</span>
+        <span class="cov8" title="1">return fileName, ContentType(data), nil</span>
+}
+
+// SyntheticName builds a fallback filename for an attachment with no original
+// name — a clipboard image paste, which carries raw bytes and a sniffed
+// content type but nothing a browser or OS ever called a "filename". now is
+// injected so the name is deterministic under test. Wired into the upload
+// handler (Task 4) as a defensive fallback for a blank filename — the client
+// should always send a real name where it can, but this closes the gap when
+// it can't.
+func SyntheticName(contentType string, now func() string) string <span class="cov8" title="1">{
+        return "pasted-image-" + now() + extensionFor(contentType)
+}</span>
+
+func extensionFor(contentType string) string <span class="cov8" title="1">{
+        switch contentType </span>{
+        case "image/png":<span class="cov8" title="1">
+                return ".png"</span>
+        case "image/jpeg":<span class="cov8" title="1">
+                return ".jpg"</span>
+        case "image/gif":<span class="cov8" title="1">
+                return ".gif"</span>
+        case "image/webp":<span class="cov8" title="1">
+                return ".webp"</span>
+        case "application/pdf":<span class="cov8" title="1">
+                return ".pdf"</span>
+        default:<span class="cov8" title="1">
+                return ".bin"</span>
+        }
+}
+
+// ContentType sniffs a Content-Type from data, the same way
+// icons.ContentType does (deliberately re-implemented here rather than
+// imported: icons lives in the API layer, and this repository package must
+// not depend upward on it). http.DetectContentType has no SVG signature —
+// it sniffs SVG as text/* — so SVG is special-cased.
+func ContentType(data []byte) string <span class="cov8" title="1">{
+        ct := http.DetectContentType(data)
+        if strings.HasPrefix(ct, "image/") </span><span class="cov8" title="1">{
+                return ct
+        }</span>
+        <span class="cov8" title="1">head := data
+        if len(head) &gt; 512 </span><span class="cov8" title="1">{
+                head = head[:512]
+        }</span>
+        <span class="cov8" title="1">if strings.Contains(string(head), "&lt;svg") </span><span class="cov8" title="1">{
+                return "image/svg+xml"
+        }</span>
+        <span class="cov8" title="1">return ct</span>
+}
+
+// ErrNotFound reports that no attachment exists at the requested reference.
+var ErrNotFound = errors.New("attachments: not found")
+
+// Read returns fileName's bytes and sniffed content type from dir, or
+// ErrNotFound. Stat-rejected and capped exactly like icons.Serve: dir holds
+// files this daemon wrote, but a corrupted or replaced file must never cause
+// an unbounded read. fileName must be a bare filename with no separators —
+// the shape Store produces — so a caller forwarding an unsanitized URL path
+// segment cannot escape dir.
+func Read(
+        dir, fileName string,
+) (data []byte, contentType string, err error) <span class="cov8" title="1">{
+        if fileName == "" || fileName != filepath.Base(fileName) </span><span class="cov8" title="1">{
+                return nil, "", ErrNotFound
+        }</span>
+        <span class="cov8" title="1">path := filepath.Join(dir, fileName)
+        info, statErr := os.Stat(path)
+        if statErr != nil || info.Size() &gt; MaxBytes </span><span class="cov8" title="1">{
+                return nil, "", ErrNotFound
+        }</span>
+        //nolint:gosec // G304: dir is chat-scoped and already resolved by the caller; fileName is verified above to carry no separators.
+        <span class="cov8" title="1">f, err := os.Open(path)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, "", ErrNotFound
+        }</span>
+        <span class="cov8" title="1">defer func() </span><span class="cov8" title="1">{ _ = f.Close() }</span>()
+        <span class="cov8" title="1">data, err = io.ReadAll(io.LimitReader(f, MaxBytes+1))
+        if err != nil || int64(len(data)) &gt; MaxBytes </span><span class="cov8" title="1">{
+                return nil, "", ErrNotFound
+        }</span>
+        <span class="cov8" title="1">return data, ContentType(data), nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

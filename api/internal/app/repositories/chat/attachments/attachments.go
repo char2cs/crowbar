@@ -11,6 +11,7 @@
 package attachments
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -88,13 +89,17 @@ func Store(
 		return "", "", fmt.Errorf("attachments: create directory: %w", err)
 	}
 	dest := filepath.Join(dir, fileName)
-	if _, statErr := os.Stat(dest); statErr == nil {
-		return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, apperr.ErrConflict)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return "", "", fmt.Errorf("attachments: stat destination: %w", statErr)
+	//nolint:gosec // G304: dir is chat-scoped and already resolved by the caller; fileName is validated above to carry no separators.
+	// O_EXCL makes this atomic: both create and exclusive-exist check happen in one syscall, preventing TOCTOU races.
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, apperr.ErrConflict)
+		}
+		return "", "", fmt.Errorf("attachments: create: %w", err)
 	}
-	//nolint:gosec // G306: served back over HTTP to this same daemon's own clients; 0o600 keeps it off other local users.
-	if err := os.WriteFile(dest, data, 0o600); err != nil {
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(data); err != nil {
 		return "", "", fmt.Errorf("attachments: write: %w", err)
 	}
 	return fileName, ContentType(data), nil
@@ -142,7 +147,7 @@ func ContentType(data []byte) string {
 	if len(head) > 512 {
 		head = head[:512]
 	}
-	if strings.Contains(string(head), "<svg") {
+	if bytes.Contains(head, []byte("<svg")) {
 		return "image/svg+xml"
 	}
 	return ct
@@ -174,8 +179,10 @@ func Read(
 		return nil, "", ErrNotFound
 	}
 	defer func() { _ = f.Close() }()
-	data, err = io.ReadAll(io.LimitReader(f, MaxBytes+1))
-	if err != nil || int64(len(data)) > MaxBytes {
+	size := info.Size()
+	data = make([]byte, size)
+	_, err = io.ReadFull(f, data)
+	if err != nil {
 		return nil, "", ErrNotFound
 	}
 	return data, ContentType(data), nil

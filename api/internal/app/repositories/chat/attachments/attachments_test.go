@@ -312,18 +312,32 @@ func TestRead_OpenErrorReturnsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, attachments.ErrNotFound)
 }
 
-func TestStore_StatPermissionErrorsNotConflict(t *testing.T) {
+func TestStore_MkdirAllFailureReturnsError(t *testing.T) {
 	dir := t.TempDir()
-	subdir := filepath.Join(dir, "subdir")
-	err := os.Mkdir(subdir, 0o000)
+	// Pre-create a plain file at the path where we want to create a dir
+	blockingFile := filepath.Join(dir, "blocked")
+	err := os.WriteFile(blockingFile, []byte("x"), 0o600)
 	require.NoError(t, err)
-	defer os.Chmod(subdir, 0o755) // Restore for cleanup
 
-	// Try to store in the permission-denied directory
-	// This tests the stat error path that is not ENOENT
-	_, _, err = attachments.Store(subdir, "ab12", "test.png", []byte("data"))
-	// Should get an error (either from MkdirAll or from stat)
+	// Try to store with this blocking file as the target dir
+	// os.MkdirAll will fail with ENOTDIR (not a directory)
+	_, _, err = attachments.Store(blockingFile, "ab12", "test.png", []byte("data"))
 	assert.Error(t, err)
-	// Should NOT be a conflict error - it's a different kind of error
+	// Should NOT be a conflict error - it's an MkdirAll failure
+	assert.NotErrorIs(t, err, apperr.ErrConflict)
+}
+
+func TestStore_OpenFileFailureReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	// Pre-create the dir, then restrict write permissions
+	err := os.Chmod(dir, 0o500) // r-x------: can read/search but not write
+	require.NoError(t, err)
+	defer os.Chmod(dir, 0o755) // Restore for cleanup
+
+	// Try to create a file in the write-protected dir
+	// os.OpenFile will fail with EACCES (permission denied) on the create
+	_, _, err = attachments.Store(dir, "ab12", "test.png", []byte("data"))
+	assert.Error(t, err)
+	// Should NOT be a conflict error - it's a create/permission failure
 	assert.NotErrorIs(t, err, apperr.ErrConflict)
 }
