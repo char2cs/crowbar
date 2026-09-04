@@ -15,7 +15,7 @@ type syncOK struct {
 	OK bool `json:"ok"`
 }
 
-// DidOpen handles POST /v0/workspaces/:wsId/lsp/didOpen, forwarding a
+// DidOpen handles POST /v0/chats/:chatId/lsp/didOpen, forwarding a
 // textDocument/didOpen notification with the full buffer text.
 func (h *Handlers) DidOpen(
 	c *gin.Context,
@@ -48,7 +48,7 @@ func (h *Handlers) DidOpen(
 	libs.WriteQueryOK(c, syncOK{OK: true})
 }
 
-// DidChange handles POST /v0/workspaces/:wsId/lsp/didChange, forwarding a
+// DidChange handles POST /v0/chats/:chatId/lsp/didChange, forwarding a
 // textDocument/didChange notification with the full replacement buffer text.
 func (h *Handlers) DidChange(
 	c *gin.Context,
@@ -80,7 +80,7 @@ func (h *Handlers) DidChange(
 	libs.WriteQueryOK(c, syncOK{OK: true})
 }
 
-// DidClose handles POST /v0/workspaces/:wsId/lsp/didClose, forwarding a
+// DidClose handles POST /v0/chats/:chatId/lsp/didClose, forwarding a
 // textDocument/didClose notification.
 func (h *Handlers) DidClose(
 	c *gin.Context,

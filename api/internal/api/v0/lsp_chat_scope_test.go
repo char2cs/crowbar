@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,8 +28,8 @@ import (
 // worktree receives the SAME status (TestGitFanout_
 // OnePushReachesEveryChatHoldingTheWorktree). Editor/LSP is spec §4.2's
 // OWNED bucket instead: two chats holding the same worktree never share a
-// session, so neither a sibling chat's diagnostics NOR the legacy
-// workspace-scoped route's diagnostics ever reach a chat-scoped subscriber.
+// session, so a sibling chat's diagnostics never reach a chat-scoped
+// subscriber.
 
 // TestLSPDelivery_ChatScopedClientReceivesItsOwnSessionDiagnostics is the
 // baseline this file's isolation tests are contrasted against: a plain push
@@ -72,45 +73,23 @@ func TestLSPIsolation_ASiblingChatOnTheSameWorktreeDoesNotReceiveAnotherChatsSes
 		"a sibling chat sharing this worktree must see only its OWN LSP session, never chat-a's")
 }
 
-// TestLSPCoexistence_TheWorkspaceScopedRouteIsUnchanged is this step's
-// regression bar, and the reason NEITHER of lspDef's filters is Required: the
-// old workspace-scoped route (spec §8 step 6 retires it, not this step) binds
-// :wsId and can never bind a :chatId, so a Required chatId filter would
-// silently kill it.
-func TestLSPCoexistence_TheWorkspaceScopedRouteIsUnchanged(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+// TestLSPCoexistence_TheWorkspaceScopedRouteIsGone proves spec §8 step 6's
+// deletion is real over the REAL delivery path: a WebSocket upgrade attempt on
+// the old /workspaces/:wsId/lsp/ws mount fails outright. Unlike git/files,
+// editor/LSP has no surviving second mount (no home LSP route) — the flat
+// chat prefix is the ONLY way in.
+func TestLSPCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
+	_, srv, _ := chatScopeEnv(t)
 
-	legacy := dialWSAt(t, srv, workspaceGitRoute+"ws-a/lsp/ws")
-	c.lsp.WaitNRegistered(1)
-
-	c.lsp.Push(lspdomain.DiagnosticsEvent{WsID: "ws-z", Diagnostics: []lspdomain.Diagnostic{{FilePath: "z.go"}}})
-	c.lsp.Push(lspdomain.DiagnosticsEvent{WsID: "ws-a", Diagnostics: []lspdomain.Diagnostic{{FilePath: "a.go"}}})
-
-	assert.Equal(t, "ws-a", readJSON(t, legacy)["wsId"],
-		"a wsId-scoped client must still receive its own workspace, and only it")
-}
-
-// TestLSPCoexistence_EachMountAddressesItsOwnSessionKey pins the OWNED-bucket
-// divergence from git's dual mount: unlike git/files, where one worktree
-// answers identically through either route, editor/LSP's session key ITSELF
-// differs by mount (handlers.Handlers.lspOwnerID) — the chat id on the new
-// mount, the workspace id on the old one — so a diagnostics push under one
-// key is invisible to a subscriber on the other, even though chat-a and the
-// legacy ws-a route both resolve to the very same worktree.
-func TestLSPCoexistence_EachMountAddressesItsOwnSessionKey(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
-
-	viaChat := dialWSAt(t, srv, "/v0/chats/chat-a/lsp/ws")
-	viaWorkspace := dialWSAt(t, srv, workspaceGitRoute+"ws-a/lsp/ws")
-	c.lsp.WaitNRegistered(2)
-
-	c.lsp.Push(lspdomain.DiagnosticsEvent{WsID: "ws-a", Diagnostics: []lspdomain.Diagnostic{{FilePath: "legacy.go"}}})
-	c.lsp.Push(lspdomain.DiagnosticsEvent{WsID: "chat-a", Diagnostics: []lspdomain.Diagnostic{{FilePath: "new.go"}}})
-
-	assert.Equal(t, "chat-a", readJSON(t, viaChat)["wsId"],
-		"the chat-scoped client must see only its own chat-keyed session")
-	assert.Equal(t, "ws-a", readJSON(t, viaWorkspace)["wsId"],
-		"the workspace-scoped client must see only the legacy workspace-keyed session")
+	url := "ws" + srv.URL[len("http"):] + workspaceGitRoute + "ws-a/lsp/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+	require.Error(t, err, "the old workspace-scoped lsp mount must no longer upgrade")
 }
 
 // TestLSPStreamScopeKey_AChatSubscriberRefcountsTheChatNotTheWorkspace pins
@@ -140,11 +119,23 @@ func TestLSPStreamScopeKey_AChatSubscriberRefcountsTheChatNotTheWorkspace(t *tes
 
 	assert.Equal(t, "chat-a", def.ScopeKey(viaChat),
 		"an owned LSP session must be refcounted by the chat that opened it, not by the workspace it resolves to")
+}
+
+// TestLSPStreamScopeKey_NoChatIDResolvesEmpty pins the other half of spec §8
+// step 6's deletion for LSP: unlike scopeWsID (still shared with files' home
+// mount), scopeLSPOwnerID has no fallback left at all — the old
+// /workspaces/:wsId/lsp/ws mount is gone and nothing else binds this stream's
+// lifecycle, so a request naming no :chatId resolves the empty scope rather
+// than falling back to any :wsId a caller might still supply.
+func TestLSPStreamScopeKey_NoChatIDResolvesEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a, eng := newAppAndEngine(t)
+	def := withLSPLifecycle(lspDef(a, eng), a)
 
 	viaWorkspace, _ := gin.CreateTestContext(httptest.NewRecorder())
 	viaWorkspace.Request = httptest.NewRequest("GET", workspaceGitRoute+"ws-direct/lsp/ws", nil)
 	viaWorkspace.Params = gin.Params{{Key: "wsId", Value: "ws-direct"}}
 
-	assert.Equal(t, "ws-direct", def.ScopeKey(viaWorkspace),
-		"the workspace-scoped route keeps naming its own workspace, unchanged")
+	assert.Empty(t, def.ScopeKey(viaWorkspace),
+		"scopeLSPOwnerID must not fall back to a :wsId param any more")
 }

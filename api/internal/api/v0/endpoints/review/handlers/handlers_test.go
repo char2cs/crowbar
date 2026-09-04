@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -112,16 +113,24 @@ func (s stubUsecase) SearchDiff(
 	}, false, nil
 }
 
+// routerFor wires the review handlers onto the flat chat-scoped group the way
+// router.go does, with a stand-in for chatScoped's resolveChatWorktree
+// middleware: the resolved workspace's id is the :chatId path param, which is
+// all these happy-path tests need from it.
 func routerFor(uc handlers.ReviewUsecase) *gin.Engine {
 	r := gin.New()
 	h := handlers.New(uc)
-	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/review", h.Get)
-	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
-	rg.GET("/workspaces/:wsId/review/outline", h.GetOutline)
-	rg.GET("/workspaces/:wsId/review/patch", h.GetPatch)
-	rg.GET("/workspaces/:wsId/review/search", h.SearchDiff)
-	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
+	rg := r.Group("/v0/chats/:chatId")
+	rg.Use(func(c *gin.Context) {
+		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId")})
+		c.Next()
+	})
+	rg.GET("/review", h.Get)
+	rg.GET("/review/files", h.GetFiles)
+	rg.GET("/review/outline", h.GetOutline)
+	rg.GET("/review/patch", h.GetPatch)
+	rg.GET("/review/search", h.SearchDiff)
+	rg.PATCH("/review", h.SetMergeStrategy)
 	return r
 }
 
@@ -150,10 +159,10 @@ func TestReviewHandlers_HappyPath(
 ) {
 	r := newRouter()
 
-	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil)
+	rec := do(r, http.MethodGet, "/v0/chats/chat1/review", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/review",
+	rec = do(r, http.MethodPatch, "/v0/chats/chat1/review",
 		map[string]any{"mergeStrategy": "merge"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -163,7 +172,7 @@ func TestReviewHandlers_GetFiles(
 ) {
 	r := newRouter()
 
-	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/review/files", nil)
+	rec := do(r, http.MethodGet, "/v0/chats/chat1/review/files", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var env struct {

@@ -9,10 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
@@ -135,19 +133,8 @@ func (stubGit) Blame(
 	return nil, nil
 }
 
-type stubWSReader struct{}
-
-func (stubWSReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{WorktreePath: "/repo"}, nil
-}
-
 // editorSurface is the method+relative-path set editor.Register mounts,
-// written once and asserted against BOTH live prefixes. The relative half is
-// deliberately prefix-free: a route that reached only one of the two mounts is
-// the failure this shape makes impossible to miss.
+// written once. The relative half is deliberately prefix-free.
 func editorSurface() []struct {
 	method string
 	path   string
@@ -171,20 +158,19 @@ func editorSurface() []struct {
 	}
 }
 
-// registerBothMounts wires editor.Register the way router.go does: the old
-// workspace-scoped group and the flat chat-scoped one, on one engine.
-func registerBothMounts(
+// registerChatScoped wires editor.Register the way router.go does: on the
+// flat chat-scoped group alone (spec §8 step 6 retired the old
+// workspace-scoped mount).
+func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
 	t.Helper()
 	r := gin.New()
 	v0 := r.Group("/v0")
 	editor.Register(
-		v0,
 		v0.Group("/chats/:chatId"),
 		stubLSP{},
 		stubGit{},
-		stubWSReader{},
 		func(_ *gin.Context) {},
 	)
 	return r
@@ -193,7 +179,7 @@ func registerBothMounts(
 // TestRegisterMountsChatScopedRoutes is the route half of this step: every
 // editor route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
 func TestRegisterMountsChatScopedRoutes(t *testing.T) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	for _, tc := range editorSurface() {
 		path := "/v0/chats/chat1" + tc.path
@@ -204,84 +190,32 @@ func TestRegisterMountsChatScopedRoutes(t *testing.T) {
 	}
 }
 
-// TestRegisterKeepsWorkspaceScopedRoutes is the regression bar for the
-// coexistence this step deliberately ships: the workspace-scoped surface is
-// NOT retired here (spec §8 step 6 does that, once every group has moved), so
-// every one of its routes must still answer exactly as before.
-func TestRegisterKeepsWorkspaceScopedRoutes(t *testing.T) {
-	r := registerBothMounts(t)
+// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
+// real for editor/LSP: the old /v0/workspaces/:wsId/{blame,lsp/*} mount, kept
+// alive alongside the chat-scoped one through the rest of this refactor,
+// answers nothing any more.
+func TestRegisterDropsWorkspaceScopedRoutes(t *testing.T) {
+	r := registerChatScoped(t)
 
 	for _, tc := range editorSurface() {
 		path := "/v0/workspaces/ws1" + tc.path
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 }
 
 // TestRegister_MountsLSPWSRoute pins the co-located diagnostics WS upgrade
-// route on both prefixes, separately from editorSurface's REST routes since it
-// takes a pre-built handler rather than a Handlers method.
+// route, separately from editorSurface's REST routes since it takes a
+// pre-built handler rather than a Handlers method.
 func TestRegister_MountsLSPWSRoute(t *testing.T) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	mounted := make(map[string]bool)
 	for _, route := range r.Routes() {
 		mounted[route.Method+" "+route.Path] = true
 	}
-	assert.True(t, mounted["GET /v0/workspaces/:wsId/lsp/ws"], "old lsp/ws route not mounted")
-	assert.True(t, mounted["GET /v0/chats/:chatId/lsp/ws"], "new lsp/ws route not mounted")
-}
-
-func TestRegister_MountsAllRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	editor.Register(
-		r.Group("/v0"),
-		r.Group("/v0/chats/:chatId"),
-		stubLSP{},
-		stubGit{},
-		stubWSReader{},
-		func(_ *gin.Context) {},
-	)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	want := []string{
-		"/v0/workspaces/:wsId/blame",
-		"/v0/workspaces/:wsId/lsp/completion",
-		"/v0/workspaces/:wsId/lsp/hover",
-		"/v0/workspaces/:wsId/lsp/definition",
-		"/v0/workspaces/:wsId/lsp/references",
-		"/v0/workspaces/:wsId/lsp/rename",
-		"/v0/workspaces/:wsId/lsp/codeAction",
-		"/v0/workspaces/:wsId/lsp/documentSymbol",
-		"/v0/workspaces/:wsId/lsp/diagnostics",
-		"/v0/workspaces/:wsId/lsp/didOpen",
-		"/v0/workspaces/:wsId/lsp/didChange",
-		"/v0/workspaces/:wsId/lsp/didClose",
-		"/v0/chats/:chatId/blame",
-		"/v0/chats/:chatId/lsp/completion",
-		"/v0/chats/:chatId/lsp/hover",
-		"/v0/chats/:chatId/lsp/definition",
-		"/v0/chats/:chatId/lsp/references",
-		"/v0/chats/:chatId/lsp/rename",
-		"/v0/chats/:chatId/lsp/codeAction",
-		"/v0/chats/:chatId/lsp/documentSymbol",
-		"/v0/chats/:chatId/lsp/diagnostics",
-		"/v0/chats/:chatId/lsp/didOpen",
-		"/v0/chats/:chatId/lsp/didChange",
-		"/v0/chats/:chatId/lsp/didClose",
-	}
-	mounted := make(map[string]bool)
-	for _, route := range r.Routes() {
-		mounted[route.Path] = true
-	}
-	for _, path := range want {
-		assert.True(t, mounted[path], "route %s not mounted", path)
-	}
+	assert.True(t, mounted["GET /v0/chats/:chatId/lsp/ws"], "lsp/ws route not mounted")
+	assert.False(t, mounted["GET /v0/workspaces/:wsId/lsp/ws"], "old lsp/ws route must be gone")
 }

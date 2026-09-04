@@ -18,15 +18,15 @@ import (
 )
 
 // This file pins the handler half of review's move onto /v0/chats/:chatId
-// (spec §4.2's shared bucket, §8 step 4c): WHICH worktree a handler acts on,
-// for each of the two prefixes the surface is currently mounted at.
+// (spec §4.2's shared bucket, §8 step 4c): WHICH worktree a handler acts on.
 //
 // review has no WorkspaceReader seam (unlike search/identity): every method
-// read ctx.Param("wsId") directly and handed it straight to the usecase. On a
-// chat-scoped route that param does not exist, so an unguarded handler would
-// call the usecase with the EMPTY string — not a 404, not a panic, just every
-// review read aimed at nothing. Asserting a status code would not have caught
-// it; only asserting the id the usecase was actually handed does.
+// hands workspaceID's answer straight to the usecase. A handler that read
+// ctx.Param("wsId") on this chat-scoped route would find that param absent,
+// so it would call the usecase with the EMPTY string — not a 404, not a
+// panic, just every review read aimed at nothing. Asserting a status code
+// would not have caught it; only asserting the id the usecase was actually
+// handed does.
 
 // recordingUsecase is a ReviewUsecase that records which workspace id each
 // call was made with.
@@ -100,7 +100,7 @@ func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", ProjectID: "p1", RepoID: "r1"}
 }
 
-// reviewRouterForScopes wires review's two live mounts the way router.go
+// reviewRouterForScopes wires review's one live mount the way router.go
 // does, including the chat group's middleware — the piece that makes a
 // chat-scoped request resolvable at all.
 func reviewRouterForScopes(
@@ -118,10 +118,6 @@ func reviewRouterForScopes(
 	})
 	chatScoped.GET("/review", h.Get)
 	chatScoped.GET("/review/files", h.GetFiles)
-
-	wsScoped := r.Group("/v0")
-	wsScoped.GET("/workspaces/:wsId/review", h.Get)
-	wsScoped.GET("/workspaces/:wsId/review/files", h.GetFiles)
 
 	return r
 }
@@ -156,34 +152,14 @@ func TestChatScoped_ActsOnTheResolvedWorktreeNotTheChat(t *testing.T) {
 	assert.NotEmpty(t, got, "an unresolved :wsId would silently aim review at nothing")
 }
 
-// TestWorkspaceScopedRoutesStillActOnTheirPathParam is the regression bar for
-// the mount this step deliberately leaves standing: the old route keeps
-// naming its workspace directly, and reqscope — never set on that group —
-// must not have displaced it.
-func TestWorkspaceScopedRoutesStillActOnTheirPathParam(t *testing.T) {
+// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real:
+// the old /v0/workspaces/:wsId/review/... mount this handler set used to also
+// serve answers nothing on this router any more.
+func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	uc := &recordingUsecase{}
 	r := reviewRouterForScopes(t, uc)
 
 	rec := doReviewRequest(t, r, http.MethodGet, "/v0/workspaces/ws-direct/review/files")
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotEmpty(t, uc.seen)
-	assert.Equal(t, "ws-direct", uc.seen[len(uc.seen)-1])
-}
-
-// TestBothMountsReachTheSameHandlerSet proves the two prefixes are one
-// surface rather than two implementations kept in step by hand: the same
-// handler value answers both, so a behaviour change lands on both at once.
-func TestBothMountsReachTheSameHandlerSet(t *testing.T) {
-	uc := &recordingUsecase{}
-	r := reviewRouterForScopes(t, uc)
-
-	require.Equal(t, http.StatusOK,
-		doReviewRequest(t, r, http.MethodGet, "/v0/chats/chat-1/review").Code)
-	require.Equal(t, http.StatusOK,
-		doReviewRequest(t, r, http.MethodGet, "/v0/workspaces/ws-resolved/review").Code)
-
-	require.Len(t, uc.seen, 2)
-	assert.Equal(t, uc.seen[0], uc.seen[1],
-		"one worktree named two ways must reach the review usecase identically")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

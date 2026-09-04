@@ -96,15 +96,16 @@ func reviewSurface() []struct {
 	}
 }
 
-// registerBothMounts wires review.Register the way router.go does: the old
-// workspace-scoped group and the flat chat-scoped one, on one engine.
-func registerBothMounts(
+// registerChatScoped wires review.Register the way router.go does: on the
+// flat chat-scoped group alone (spec §8 step 6 retired the old
+// workspace-scoped mount).
+func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
 	t.Helper()
 	r := gin.New()
 	v0 := r.Group("/v0")
-	review.Register(v0, v0.Group("/chats/:chatId"), stubUsecase{})
+	review.Register(v0.Group("/chats/:chatId"), stubUsecase{})
 	return r
 }
 
@@ -113,7 +114,7 @@ func registerBothMounts(
 func TestRegisterMountsChatScopedRoutes(
 	t *testing.T,
 ) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	for _, tc := range reviewSurface() {
 		path := "/v0/chats/chat1/review" + tc.path
@@ -124,20 +125,20 @@ func TestRegisterMountsChatScopedRoutes(
 	}
 }
 
-// TestRegisterKeepsWorkspaceScopedRoutes is the regression bar for the
-// coexistence this step deliberately ships: the workspace-scoped surface is
-// NOT retired here (spec §8 step 6 does that, once every group has moved), so
-// every one of its routes must still answer exactly as before.
-func TestRegisterKeepsWorkspaceScopedRoutes(
+// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
+// real for review: the old /v0/workspaces/:wsId/review... mount, kept alive
+// alongside the chat-scoped one through the rest of this refactor, answers
+// nothing any more.
+func TestRegisterDropsWorkspaceScopedRoutes(
 	t *testing.T,
 ) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	for _, tc := range reviewSurface() {
 		path := "/v0/workspaces/ws1/review" + tc.path
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 }

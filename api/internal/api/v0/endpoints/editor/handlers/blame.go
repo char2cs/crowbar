@@ -9,7 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Blame handles GET /v0/workspaces/:wsId/blame, annotating each line of the
+// Blame handles GET /v0/chats/:chatId/blame, annotating each line of the
 // ?path= file with its last-changing commit. The data field carries a
 // BlameEntry array, empty for an unblamed file.
 func (h *Handlers) Blame(

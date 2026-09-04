@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -218,66 +219,24 @@ func TestGitFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
 		"chat-z holds ws-z: the ws-a frame must never have reached it")
 }
 
-// TestGitCoexistence_TheWorkspaceScopedRouteIsUnchanged is this step's
-// regression bar, and the reason NEITHER of gitDef's filters is Required.
-//
-// The workspace-scoped route is deliberately still mounted (spec §8 step 6
-// retires it, not this step). Its clients bind :wsId and can never bind a
-// :chatId — so a Required chatId filter would compile their predicate to "match
-// nothing" and silently kill the git panel for every one of them. This is what
-// that regression would look like, and it must not happen.
-func TestGitCoexistence_TheWorkspaceScopedRouteIsUnchanged(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+// TestGitCoexistence_TheWorkspaceScopedRouteIsGone proves spec §8 step 6's
+// deletion is real over the REAL delivery path: a WebSocket upgrade attempt on
+// the old /workspaces/:wsId/git/status mount fails outright — the route no
+// longer exists to upgrade — rather than connecting and silently seeing
+// nothing (the failure mode gitDef's Required chatId filter would produce if
+// the mount were somehow still reachable).
+func TestGitCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
+	_, srv, _ := chatScopeEnv(t)
 
-	legacy := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
-	c.git.WaitNRegistered(1)
-
-	c.PushGit("ws-z", gitdomain.GitStatus{Branch: "feature/z"})
-	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "feature/a"})
-
-	assert.Equal(t, "feature/a", readJSON(t, legacy)["branch"],
-		"a wsId-scoped client must still receive its own workspace, and only it")
-}
-
-// TestGitCoexistence_OneBroadcasterServesBothRoutesFromOnePush pins the shape
-// the two live mounts actually have: ONE Broadcaster, ONE StreamDef, compiled
-// once at construction. The two routes are not two streams that could drift —
-// they are two ways of naming a client's scope on the same stream, and each
-// client is held to whichever param its own request bound.
-func TestGitCoexistence_OneBroadcasterServesBothRoutesFromOnePush(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
-
-	viaChat := dialWSAt(t, srv, "/v0/chats/chat-b/git/status")
-	viaWorkspace := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
-	c.git.WaitNRegistered(2)
-
-	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "feature/a"})
-
-	assert.Equal(t, "feature/a", readJSON(t, viaChat)["branch"])
-	assert.Equal(t, "feature/a", readJSON(t, viaWorkspace)["branch"])
-}
-
-// TestGitCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic walks both
-// mounts past a workspace neither of them holds, so a filter that had gone
-// INACTIVE — the real failure mode here, since an unresolvable filter is
-// dropped rather than denied — would show up as a firehose rather than as
-// silence.
-func TestGitCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
-
-	chatOnA := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
-	legacyOnA := dialWSAt(t, srv, workspaceGitRoute+"ws-a/git/status")
-	c.git.WaitNRegistered(2)
-
-	// ws-z first: neither client holds it, so neither may receive it. Both must
-	// read the ws-a frame that follows as their FIRST frame.
-	c.PushGit("ws-z", gitdomain.GitStatus{Branch: "feature/z"})
-	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "feature/a"})
-
-	assert.Equal(t, "feature/a", readJSON(t, chatOnA)["branch"],
-		"the chat-scoped client must not have been handed another worktree's status")
-	assert.Equal(t, "feature/a", readJSON(t, legacyOnA)["branch"],
-		"the workspace-scoped client must not have been handed another worktree's status")
+	url := "ws" + srv.URL[len("http"):] + workspaceGitRoute + "ws-a/git/status"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+	require.Error(t, err, "the old workspace-scoped git mount must no longer upgrade")
 }
 
 // TestGitFanout_AChatForkedAfterAClientConnectedWidensTheSet is why the
@@ -383,12 +342,16 @@ func TestGitStreamScopeKey_AChatSubscriberRefcountsTheResolvedWorkspace(t *testi
 	assert.Equal(t, "ws-a", def.ScopeKey(viaChat),
 		"the watcher must be refcounted against the resolved worktree, not against nothing")
 
-	viaWorkspace, _ := gin.CreateTestContext(httptest.NewRecorder())
-	viaWorkspace.Request = httptest.NewRequest("GET", workspaceGitRoute+"ws-direct/git/status", nil)
-	viaWorkspace.Params = gin.Params{{Key: "wsId", Value: "ws-direct"}}
+	// scopeWsID itself is shared, general-purpose infrastructure (files' home
+	// mount still binds a real :wsId param, see files_chat_scope_test.go) even
+	// though git's own :wsId-bound route is gone (spec §8 step 6); this proves
+	// its path-param branch still resolves correctly wherever it IS bound.
+	viaPathParam, _ := gin.CreateTestContext(httptest.NewRecorder())
+	viaPathParam.Request = httptest.NewRequest("GET", workspaceGitRoute+"ws-direct/git/status", nil)
+	viaPathParam.Params = gin.Params{{Key: "wsId", Value: "ws-direct"}}
 
-	assert.Equal(t, "ws-direct", def.ScopeKey(viaWorkspace),
-		"the workspace-scoped route keeps naming its own workspace")
+	assert.Equal(t, "ws-direct", def.ScopeKey(viaPathParam),
+		"a bound :wsId path param must still resolve directly")
 }
 
 // TestGitPush_CarriesTheFanoutSetResolvedAtPushTime asserts the wiring this

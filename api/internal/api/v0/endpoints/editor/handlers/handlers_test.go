@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -26,10 +26,7 @@ func TestMain(
 	m.Run()
 }
 
-var (
-	errBoom     = errors.New("boom")
-	errNotFound = apperr.ErrNotFound
-)
+var errBoom = errors.New("boom")
 
 type fakeLSP struct {
 	completion     json.RawMessage
@@ -172,48 +169,57 @@ func (f *fakeGit) Blame(
 
 var _ editorhandlers.GitEngine = (*fakeGit)(nil)
 
-type fakeWSReader struct {
-	worktreePath string
-	err          error
+// mountEditorRoutes registers editor's REST surface under rg — the shared
+// route table newRouter and newRouterNoWorkspace both mount, so the two never
+// drift into testing different surfaces.
+func mountEditorRoutes(
+	rg *gin.RouterGroup,
+	h *editorhandlers.Handlers,
+) {
+	rg.GET("/blame", h.Blame)
+	rg.POST("/lsp/completion", h.Completion)
+	rg.POST("/lsp/hover", h.Hover)
+	rg.POST("/lsp/definition", h.Definition)
+	rg.POST("/lsp/references", h.References)
+	rg.POST("/lsp/rename", h.Rename)
+	rg.POST("/lsp/codeAction", h.CodeAction)
+	rg.POST("/lsp/documentSymbol", h.DocumentSymbol)
+	rg.GET("/lsp/diagnostics", h.Diagnostics)
+	rg.POST("/lsp/didOpen", h.DidOpen)
+	rg.POST("/lsp/didChange", h.DidChange)
+	rg.POST("/lsp/didClose", h.DidClose)
 }
 
-func (f *fakeWSReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	if f.err != nil {
-		return domain.Workspace{}, f.err
-	}
-	return domain.Workspace{WorktreePath: f.worktreePath}, nil
-}
-
-var _ editorhandlers.WorkspaceReader = (*fakeWSReader)(nil)
-
+// newRouter wires editor's handlers onto the flat chat-scoped group the way
+// router.go does, with a stand-in for chatScoped's resolveChatWorktree
+// middleware that always resolves a fixed workspace — the happy-path fixture
+// every test in this package but the wiring-bug guard below uses.
 func newRouter(
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,
-	wsReader editorhandlers.WorkspaceReader,
 ) *gin.Engine {
 	r := gin.New()
-	h := editorhandlers.New(lsp, git, wsReader)
-	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/blame", h.Blame)
-	rg.POST("/workspaces/:wsId/lsp/completion", h.Completion)
-	rg.POST("/workspaces/:wsId/lsp/hover", h.Hover)
-	rg.POST("/workspaces/:wsId/lsp/definition", h.Definition)
-	rg.POST("/workspaces/:wsId/lsp/references", h.References)
-	rg.POST("/workspaces/:wsId/lsp/rename", h.Rename)
-	rg.POST("/workspaces/:wsId/lsp/codeAction", h.CodeAction)
-	rg.POST("/workspaces/:wsId/lsp/documentSymbol", h.DocumentSymbol)
-	rg.GET("/workspaces/:wsId/lsp/diagnostics", h.Diagnostics)
-	rg.POST("/workspaces/:wsId/lsp/didOpen", h.DidOpen)
-	rg.POST("/workspaces/:wsId/lsp/didChange", h.DidChange)
-	rg.POST("/workspaces/:wsId/lsp/didClose", h.DidClose)
+	h := editorhandlers.New(lsp, git)
+	rg := r.Group("/v0/chats/:chatId")
+	rg.Use(func(c *gin.Context) {
+		reqscope.SetWorkspace(c, domain.Workspace{WorktreePath: "/repo"})
+		c.Next()
+	})
+	mountEditorRoutes(rg, h)
 	return r
 }
 
-func okWSReader() *fakeWSReader {
-	return &fakeWSReader{worktreePath: "/repo"}
+// newRouterNoWorkspace wires the same surface WITHOUT resolveChatWorktree's
+// stand-in ever running, the wiring-bug case Handlers.workspace guards
+// against: a route mounted outside the chat group's middleware.
+func newRouterNoWorkspace(
+	lsp editorhandlers.LSPEngine,
+	git editorhandlers.GitEngine,
+) *gin.Engine {
+	r := gin.New()
+	h := editorhandlers.New(lsp, git)
+	mountEditorRoutes(r.Group("/v0/chats/:chatId"), h)
+	return r
 }
 
 func do(

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
@@ -41,13 +42,6 @@ func (stubEngine) ProtectedBranches(
 
 type stubReader struct{}
 
-func (stubReader) Get(
-	_ context.Context,
-	id string,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, WorktreePath: "/repo", Branch: "main"}, nil
-}
-
 func (stubReader) List(
 	_ context.Context,
 ) ([]domain.Workspace, error) {
@@ -56,15 +50,35 @@ func (stubReader) List(
 	}, nil
 }
 
+// newRouter wires provider's handlers onto the flat chat-scoped group and the
+// repo-scoped group the way router.go does, with a stand-in for chatScoped's
+// resolveChatWorktree middleware for State's route.
 func newRouter(
 	eng handlers.ProviderEngine,
 	r handlers.WorkspaceReader,
 ) *gin.Engine {
 	router := gin.New()
 	h := handlers.New(eng, r)
-	rg := router.Group("/v0")
-	rg.GET("/workspaces/:wsId/provider", h.State)
-	rg.GET("/repos/:repoId/protected-branches", h.ProtectedBranches)
+	chatScoped := router.Group("/v0/chats/:chatId")
+	chatScoped.Use(func(c *gin.Context) {
+		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId"), WorktreePath: "/repo", Branch: "main"})
+		c.Next()
+	})
+	chatScoped.GET("/provider", h.State)
+	router.Group("/v0").GET("/repos/:repoId/protected-branches", h.ProtectedBranches)
+	return router
+}
+
+// newRouterNoWorkspace wires the same State route WITHOUT resolveChatWorktree's
+// stand-in ever running — the wiring-bug case Handlers.workspace guards
+// against.
+func newRouterNoWorkspace(
+	eng handlers.ProviderEngine,
+	r handlers.WorkspaceReader,
+) *gin.Engine {
+	router := gin.New()
+	h := handlers.New(eng, r)
+	router.Group("/v0/chats/:chatId").GET("/provider", h.State)
 	return router
 }
 
@@ -83,7 +97,7 @@ func TestProviderHandlers_HappyPath(
 ) {
 	r := newRouter(stubEngine{}, stubReader{})
 
-	rec := do(r, "/v0/workspaces/ws1/provider")
+	rec := do(r, "/v0/chats/chat1/provider")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, "/v0/repos/r1/protected-branches")

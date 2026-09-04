@@ -30,7 +30,7 @@ func reviewErrorStatus(
 	return http.StatusInternalServerError
 }
 
-// Get handles GET /v0/workspaces/:wsId/review, returning the composite
+// Get handles GET /v0/chats/:chatId/review, returning the composite
 // branch-review read model for the workspace.
 //
 // The response goes through BranchReviewDTOFrom rather than the domain object.
@@ -53,7 +53,7 @@ func (h *Handlers) Get(
 	libs.WriteQueryOK(ctx, dto.BranchReviewDTOFrom(review))
 }
 
-// SetMergeStrategy handles PATCH /v0/workspaces/:wsId/review, updating the
+// SetMergeStrategy handles PATCH /v0/chats/:chatId/review, updating the
 // merge strategy for the workspace.
 func (h *Handlers) SetMergeStrategy(
 	ctx *gin.Context,

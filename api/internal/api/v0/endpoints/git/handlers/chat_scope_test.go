@@ -20,14 +20,13 @@ import (
 )
 
 // This file pins the handler half of git's move onto /v0/chats/:chatId (spec
-// §4.2's shared bucket, §8 step 4): WHICH worktree a handler acts on, for each
-// of the two prefixes the surface is currently mounted at.
+// §4.2's shared bucket, §8 step 4): WHICH worktree a handler acts on.
 //
-// The trap it exists for is quiet rather than loud. Every git handler read
-// ctx.Param("wsId"); on a chat-scoped route that param does not exist, so the
-// handler would have called the git usecase with the EMPTY string — not a 404,
-// not a panic, just every git operation aimed at nothing. Asserting a status
-// code would not have caught it; only asserting the id the usecase was actually
+// The trap it exists for is quiet rather than loud. A handler that read
+// ctx.Param("wsId") on this chat-scoped route would find that param absent, so
+// it would call the git usecase with the EMPTY string — not a 404, not a
+// panic, just every git operation aimed at nothing. Asserting a status code
+// would not have caught it; only asserting the id the usecase was actually
 // handed does.
 
 // recordingGit is stubGit with one question answered: which workspace id did
@@ -101,7 +100,7 @@ func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", ProjectID: "p1", RepoID: "r1"}
 }
 
-// gitRouterForScopes wires git's two live mounts the way router.go does,
+// gitRouterForScopes wires git's one live mount the way router.go does,
 // including the chat group's middleware — the piece that makes a chat-scoped
 // request resolvable at all.
 func gitRouterForScopes(
@@ -120,11 +119,6 @@ func gitRouterForScopes(
 	chatScoped.GET("/git/status", h.Status)
 	chatScoped.POST("/git/commit", h.Commit)
 	chatScoped.POST("/git/push", h.Push)
-
-	wsScoped := r.Group("/v0")
-	wsScoped.GET("/workspaces/:wsId/git/status", h.Status)
-	wsScoped.POST("/workspaces/:wsId/git/commit", h.Commit)
-	wsScoped.POST("/workspaces/:wsId/git/push", h.Push)
 
 	return r
 }
@@ -195,49 +189,13 @@ func TestChatScopedAsyncWrite_ActsOnTheResolvedWorktree(t *testing.T) {
 	assert.Equal(t, "ws-resolved", git.awaitCall(t))
 }
 
-// TestWorkspaceScopedRoutesStillActOnTheirPathParam is the regression bar for
-// the mount this step deliberately leaves standing: the old route keeps naming
-// its workspace directly, and reqscope — never set on that group — must not
-// have displaced it.
-func TestWorkspaceScopedRoutesStillActOnTheirPathParam(t *testing.T) {
+// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real: the
+// old /v0/workspaces/:wsId/git/... mount this handler set used to also serve
+// answers nothing on this router any more.
+func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	git := newRecordingGit()
 	r := gitRouterForScopes(t, git)
 
-	cases := []struct {
-		name   string
-		method string
-		path   string
-		body   string
-		status int
-	}{
-		{"read", http.MethodGet, "/v0/workspaces/ws-direct/git/status", "", http.StatusOK},
-		{"write", http.MethodPost, "/v0/workspaces/ws-direct/git/commit", `{"subject":"s"}`, http.StatusOK},
-		{"async write", http.MethodPost, "/v0/workspaces/ws-direct/git/push", "", http.StatusAccepted},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := doGitRequest(t, r, tc.method, tc.path, tc.body)
-			require.Equal(t, tc.status, rec.Code)
-			assert.Equal(t, "ws-direct", git.awaitCall(t))
-		})
-	}
-}
-
-// TestBothMountsReachTheSameHandlerSet proves the two prefixes are one surface
-// rather than two implementations kept in step by hand: the same handler value
-// answers both, so a behaviour change lands on both at once.
-func TestBothMountsReachTheSameHandlerSet(t *testing.T) {
-	git := newRecordingGit()
-	r := gitRouterForScopes(t, git)
-
-	require.Equal(t, http.StatusOK,
-		doGitRequest(t, r, http.MethodGet, "/v0/chats/chat-1/git/status", "").Code)
-	viaChat := git.awaitCall(t)
-
-	require.Equal(t, http.StatusOK,
-		doGitRequest(t, r, http.MethodGet, "/v0/workspaces/ws-resolved/git/status", "").Code)
-	viaWorkspace := git.awaitCall(t)
-
-	assert.Equal(t, viaWorkspace, viaChat,
-		"one worktree named two ways must reach the git usecase identically")
+	rec := doGitRequest(t, r, http.MethodGet, "/v0/workspaces/ws-direct/git/status", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

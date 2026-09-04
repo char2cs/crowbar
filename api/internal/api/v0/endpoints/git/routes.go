@@ -11,32 +11,24 @@ import (
 	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
 )
 
-// Register mounts the git REST and WebSocket surface on BOTH scoping groups it
-// is currently addressable through.
+// Register mounts the git REST and WebSocket surface on the flat chat-scoped
+// group (spec §7.1), the only surface git is addressable through:
+// /v0/chats/:chatId/git/... .
 //
 // git is spec §4.2's shared bucket: the worktree answers once, and every chat
-// holding it gets that answer. chatScoped is where that lives from now on —
-// /v0/chats/:chatId/git/... , the flat prefix §7.1 closes on — and the
-// frontend talks to it exclusively.
+// holding it gets that answer, resolved from the request context by
+// chatScoped's own resolveChatWorktree middleware (see
+// handlers.Handlers.workspaceID).
 //
-// wsScoped is the OLD /projects/:projectId/repos/:repoId/workspaces/:wsId/git/...
-// surface, mounted unchanged. It is not a fallback and nothing chooses between
-// the two: it is simply a route that has not been retired yet, and retiring it
-// is spec §8 step 6's job, once every group has moved and the workspaces/home
-// groups are deleted wholesale. Deleting THIS call is the whole of git's share
-// of that step.
-//
-// One route table serves both, so the two can never drift into different
-// surfaces: mount is called twice with different prefixes, and a route added to
-// it appears on both by construction. The handlers themselves take the worktree
-// from whichever mount the request arrived on — see handlers.workspaceID.
+// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/git/... mount
+// is gone (spec §8 step 6): every caller had already moved to the mount kept
+// here.
 //
 // gitWS is the pre-built broadcaster handle for the live git-status stream; it
-// is dual-served on the /git/status route of each prefix (a plain GET answers
-// REST, a WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route
-// is gone (W7-2).
+// is dual-served on the /git/status route (a plain GET answers REST, a
+// WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route is gone
+// (W7-2).
 func Register(
-	wsScoped *gin.RouterGroup,
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
 	lastErrors githandlers.LastErrorSetter,
@@ -46,11 +38,10 @@ func Register(
 ) {
 	h := githandlers.New(gitSvc, lastErrors, working)
 	mount(chatScoped, "/git", h, gitWS, dispatch)
-	mount(wsScoped, "/workspaces/:wsId/git", h, gitWS, dispatch)
 }
 
-// mount registers the 32-route git surface under prefix on rg. It is the single
-// definition of that surface; Register calls it once per live scoping group.
+// mount registers the 32-route git surface under prefix on rg. It is the
+// single definition of that surface.
 //
 //nolint:funlen // Flat route table: one line per route. Splitting it would scatter the surface across helpers for no gain, and this list IS the audited surface (route_audit_test.go).
 func mount(

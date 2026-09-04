@@ -15,10 +15,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// State handles GET .../provider, on either of the two groups provider is
-// currently mounted on (routes.go). Runs PollOnView for the resolved workspace
-// and returns its ProviderState JSON. When capability is disabled, returns
-// ProviderState{Protected: false, PR: nil}.
+// State handles GET /v0/chats/:chatId/provider (routes.go). Runs PollOnView
+// for the resolved workspace and returns its ProviderState JSON. When
+// capability is disabled, returns ProviderState{Protected: false, PR: nil}.
 func (h *Handlers) State(
 	ctx *gin.Context,
 ) {
@@ -45,28 +44,19 @@ func (h *Handlers) State(
 	libs.WriteQueryOK(ctx, state)
 }
 
-// workspace answers which workspace this request acts on, for either of the
-// two groups provider's State route is currently mounted on (routes.go).
-//
-// On /v0/chats/:chatId/provider the chat group's resolveChatWorktree
-// middleware has already resolved the chat's worktree and stashed the
-// workspace on the context, so it is read back from reqscope — never resolved
-// a second time per request. The :wsId branch serves the old workspace-scoped
-// mount, unretired until spec §8 step 6; when that mount goes, so does the
-// branch. /protected-branches does not move (spec §4.2) and keeps its own
-// repo-scoped resolution (worktreeForRepo below), untouched by this helper.
-//
-// reqscope is consulted first because it is the resolved truth: the two
-// mounts are disjoint, so exactly one source is ever populated.
+// workspace answers which workspace provider's State route acts on
+// (routes.go): the chat group's resolveChatWorktree middleware has already
+// resolved the chat's worktree and stashed it on the context, so it is read
+// back from reqscope. A miss means the route is mounted outside that
+// middleware, which is a wiring bug rather than anything the caller did.
+// /protected-branches does not move (spec §4.2) and keeps its own repo-scoped
+// resolution (worktreeForRepo below), untouched by this helper.
 func (h *Handlers) workspace(
 	ctx *gin.Context,
 ) (domain.Workspace, bool) {
-	if ws, ok := reqscope.Workspace(ctx); ok {
-		return ws, true
-	}
-	ws, err := h.wsReader.Get(ctx.Request.Context(), ctx.Param("wsId"))
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
+	ws, ok := reqscope.Workspace(ctx)
+	if !ok {
+		libs.WriteErr(ctx, http.StatusInternalServerError, "chat worktree not resolved")
 		return domain.Workspace{}, false
 	}
 	return ws, true

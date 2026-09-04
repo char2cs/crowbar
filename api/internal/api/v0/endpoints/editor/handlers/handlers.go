@@ -114,41 +114,21 @@ type GitEngine interface {
 	) ([]gitdomain.BlameEntry, error)
 }
 
-// WorkspaceReader resolves a workspace id to its aggregate, supplying the
-// worktree path the LSP and git engines operate against. It mirrors the
-// workspace repository's Get method.
-//
-// Only the old .../workspaces/:wsId/... mount (routes.go) still needs it: the
-// chat-scoped mount's resolveChatWorktree middleware has already resolved the
-// workspace onto the request context (reqscope), so a reader on this struct is
-// consulted only when reqscope comes back empty.
-type WorkspaceReader interface {
-	Get(
-		ctx context.Context,
-		id string,
-	) (domain.Workspace, error)
-}
-
-// Handlers serves the /v0 editor routes from the LSP host, the git engine, and
-// the workspace reader. A nil lsp or git engine surfaces as a 503 on the
-// affected route.
+// Handlers serves the /v0 editor routes from the LSP host and the git engine.
+// A nil lsp or git engine surfaces as a 503 on the affected route.
 type Handlers struct {
-	lsp      LSPEngine
-	git      GitEngine
-	wsReader WorkspaceReader
+	lsp LSPEngine
+	git GitEngine
 }
 
-// New builds the editor Handlers from the LSP host, the git engine, and the
-// workspace reader.
+// New builds the editor Handlers from the LSP host and the git engine.
 func New(
 	lsp LSPEngine,
 	git GitEngine,
-	wsReader WorkspaceReader,
 ) *Handlers {
 	return &Handlers{
-		lsp:      lsp,
-		git:      git,
-		wsReader: wsReader,
+		lsp: lsp,
+		git: git,
 	}
 }
 
@@ -180,33 +160,20 @@ func (h *Handlers) requireGit(
 	return true
 }
 
-// workspace answers which workspace this request acts on, for either of the
-// two groups editor is currently mounted on (routes.go).
-//
-// On /v0/chats/:chatId/... the chat group's resolveChatWorktree middleware has
-// already resolved the chat's worktree and stashed the workspace on the
-// context, so it is read back from reqscope — never resolved a second time per
-// request. The :wsId branch serves the old workspace-scoped mount, unretired
-// until spec §8 step 6; when that mount goes, so does the branch.
-//
-// reqscope is consulted first because it is the resolved truth: the two mounts
-// are disjoint, so exactly one source is ever populated.
+// workspace answers which workspace this request acts on: the chat group's
+// resolveChatWorktree middleware has already resolved the chat's worktree and
+// stashed it on the context, so it is read back from reqscope. A miss means
+// the route is mounted outside that middleware, which is a wiring bug rather
+// than anything the caller did.
 func (h *Handlers) workspace(
 	c *gin.Context,
 ) (domain.Workspace, bool) {
-	if ws, ok := reqscope.Workspace(c); ok {
-		return ws, true
-	}
-	row, err := h.wsReader.Get(
-		c.Request.Context(),
-		c.Param("wsId"),
-	)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	ws, ok := reqscope.Workspace(c)
+	if !ok {
+		libs.WriteErr(c, http.StatusInternalServerError, "chat worktree not resolved")
 		return domain.Workspace{}, false
 	}
-	return row, true
+	return ws, true
 }
 
 func (h *Handlers) worktreePath(
@@ -220,21 +187,13 @@ func (h *Handlers) worktreePath(
 }
 
 // lspOwnerID answers the key the LSP engine's per-session pool is addressed
-// by, for either of editor's two live mounts (routes.go). Editor/LSP is spec
-// §4.2's OWNED bucket: the resolver still finds the worktree for a CWD, but
-// the session itself is never shared with a sibling chat that happens to hold
-// the same worktree (spec law 5).
-//
-//   - /v0/chats/:chatId/lsp/... binds :chatId, so a sibling chat sharing this
-//     worktree gets its own key and therefore its own LSP session.
-//   - The old .../workspaces/:wsId/lsp/... mount binds no :chatId, so this
-//     falls back to :wsId — unchanged from before this step, exactly the
-//     coexistence this mount is kept for.
+// by: the :chatId path param. Editor/LSP is spec §4.2's OWNED bucket, so the
+// resolver still finds the worktree for a CWD, but the session itself is
+// never shared with a sibling chat that happens to hold the same worktree
+// (spec law 5) — keying by chat id rather than by worktree is what gives each
+// sibling its own LSP session.
 func (h *Handlers) lspOwnerID(
 	c *gin.Context,
 ) string {
-	if chatID := c.Param("chatId"); chatID != "" {
-		return chatID
-	}
-	return c.Param("wsId")
+	return c.Param("chatId")
 }

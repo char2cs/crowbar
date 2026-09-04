@@ -156,8 +156,10 @@ func (c *Container) resolveWorkspaceScope(
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
-// StreamDef, scoping the refcount by wsId resolved from the path or query and
-// delegating to the app-layer realtime service.
+// StreamDef, scoping the refcount by wsId resolved from the path (still bound
+// on files' home mount; git's own :wsId mount is gone as of spec §8 step 6),
+// the chat group's resolved workspace, or the query, and delegating to the
+// app-layer realtime service.
 func withWatcherLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
@@ -217,9 +219,10 @@ func withOriginSyncLifecycle[T any](
 }
 
 // scopeWsID resolves the workspace id the per-scope WS resources (the file
-// watcher, the LSP host, the protected-branch origin sync) are refcounted by:
-// the path param, then the chat group's already-resolved workspace, then the
-// query param, mirroring the dual-served Git/Files/LSP routes (T15).
+// watcher, the protected-branch origin sync) are refcounted by: the path
+// param (still bound on files' home mount, and query-bound on neither git nor
+// files' own live mounts any more), then the chat group's already-resolved
+// workspace, then the query param.
 //
 // The reqscope step is what keeps those resources alive for a CHAT-scoped
 // subscriber. A client on /v0/chats/:chatId/git/status binds no :wsId at all,
@@ -278,22 +281,19 @@ func scopeChatWorktreeID(
 }
 
 // scopeLSPOwnerID resolves the key the LSP topic's lifecycle (withLSPLifecycle)
-// refcounts by: the chat id on the new /v0/chats/:chatId/lsp/ws mount, or
-// scopeWsID's answer (the workspace id) on every other mount.
+// refcounts by: the :chatId path param on /v0/chats/:chatId/lsp/ws, the only
+// live mount of this stream (spec §8 step 6 retired the old
+// /workspaces/:wsId/lsp/ws mount).
 //
 // LSP is spec §4.2's OWNED bucket, not shared like the file watcher/origin
-// sync scopeWsID otherwise serves: a chat id is checked FIRST, ahead of
-// scopeWsID's own reqscope fallback, so that a chat-scoped subscriber
-// refcounts the same per-chat key its REST calls key their LSP session by
-// (handlers.Handlers.lspOwnerID) — not the workspace those calls only resolve
-// the worktree from.
+// sync scopeWsID otherwise serves: keying by chat id rather than workspace id
+// is what makes a chat-scoped subscriber refcount the same per-chat key its
+// REST calls key their LSP session by (handlers.Handlers.lspOwnerID) — not
+// the workspace those calls only resolve the worktree from.
 func scopeLSPOwnerID(
 	c *gin.Context,
 ) string {
-	if id := c.Param("chatId"); id != "" {
-		return id
-	}
-	return scopeWsID(c)
+	return c.Param("chatId")
 }
 
 // PushProject implements hub.Subscriber.
@@ -661,40 +661,19 @@ func terminalsDef(
 	}
 }
 
-// gitDef scopes the Git topic to a single worktree, named either way its two
-// live routes name one. The wire payload is a bare GitStatus (the embedded
-// Status), matching the REST snapshot of the dual-serve route; neither scoping
-// field is ever serialized onto the Git stream.
+// gitDef scopes the Git topic to a single worktree, named by the chat that
+// holds it. The wire payload is a bare GitStatus (the embedded Status),
+// matching the REST snapshot of the dual-serve route; the scoping field is
+// never serialized onto the Git stream.
 //
-// ONE StreamDef serves both routes, because there is one Broadcaster: it is
-// built once, in New, and every client registers against the same compiled
-// def regardless of which route it upgraded on. So the two filters below are
-// not alternatives the wiring picks between — both are declared for every
-// client, and each client activates whichever one its own request resolves:
-//
-//   - /projects/:p/repos/:r/workspaces/:wsId/git/status binds :wsId and no
-//     :chatId, so the wsId filter is active and scopes it to exactly one
-//     workspace, exactly as before this step, and the chatId filter resolves
-//     nothing and goes inactive.
-//   - /chats/:chatId/git/status binds :chatId and no :wsId, so the chatId
-//     filter is active and matches by MEMBERSHIP against the fan-out set the
-//     event carries — every chat holding that worktree, resolved at push time
-//     (PushGit) — while the wsId filter goes inactive.
-//
-// matchesAll requires every ACTIVE filter to match, so each client is scoped by
-// the one it actually resolved, and neither route can see the other's traffic.
-//
-// NEITHER filter is Required, and that is forced rather than chosen. Required
-// makes a client that resolves no value for the param match NOTHING instead of
-// dropping the filter — the guard ws.ChatFanoutFilter carries, and the right
-// one once /chats is the only way in. Setting it on chatId today would refuse
-// every client of the still-live workspace-scoped route, which cannot resolve a
-// :chatId; setting it on wsId would refuse every chat-scoped one. The trap
-// Required exists to close — a client resolving NEITHER param and being handed
-// every workspace on the daemon — needs a mount binding neither, and the two
-// above are the only mounts of this broadcaster's Handle (router.go). When
-// spec §8 step 6 deletes the workspace-scoped mount, the wsId filter goes with
-// it and the chatId filter becomes ws.ChatFanoutFilter, Required and all.
+// The chatId filter matches by MEMBERSHIP against the fan-out set the event
+// carries — every chat holding that worktree, resolved at push time (PushGit)
+// — via ws.ChatFanoutFilter, Required: a subscriber resolving no chat id at
+// all gets nothing rather than every workspace on the daemon (the trap
+// Required exists to close). The old /workspaces/:wsId/git/status mount that
+// once needed a second, non-required wsId filter beside this one is gone
+// (spec §8 step 6) — /chats/:chatId/git/status is the only live mount of this
+// broadcaster's Handle (router.go).
 func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
@@ -704,12 +683,7 @@ func gitDef(
 		Snapshot:      gitSnapshot(appContainer),
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
-			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
-			{
-				Param:      "chatId",
-				ExtractSet: func(e gitdomain.GitStatusEvent) []string { return e.ChatIDs },
-				Match:      ws.ExactMatch,
-			},
+			ws.ChatFanoutFilter(func(e gitdomain.GitStatusEvent) []string { return e.ChatIDs }),
 		},
 	}
 }
@@ -824,32 +798,18 @@ func matchRepoOrUnscoped(
 	return value == "" || param == value
 }
 
-// lspDef scopes the LSP diagnostics topic to a single owned session, named
-// either way its live routes name one.
+// lspDef scopes the LSP diagnostics topic to a single owned session, named by
+// the chat that owns it.
 //
-// ONE StreamDef serves both routes, because there is one Broadcaster: it is
-// built once, in New, and every client registers against the same compiled def
-// regardless of which route it upgraded on. So the two filters below are not
-// alternatives the wiring picks between — both are declared for every client,
-// and each client activates whichever one its own request resolves:
+// The chatId filter scopes a client to exactly the diagnostics that chat's
+// own lsp/didOpen etc. calls produced (handlers.Handlers.lspOwnerID) — never a
+// sibling chat's, even one sharing this chat's worktree. It is NOT a fan-out
+// membership match (ExtractSet) the way gitDef/filesDef's chatId filter is:
+// editor/LSP is spec §4.2's OWNED bucket, so an event has exactly one owner.
 //
-//   - /projects/:p/repos/:r/workspaces/:wsId/lsp/ws binds :wsId and no
-//     :chatId, so the wsId filter is active and scopes it to exactly one
-//     workspace's diagnostics, exactly as before this step.
-//   - /chats/:chatId/lsp/ws binds :chatId and no :wsId, so the chatId filter
-//     is active and scopes it to exactly the diagnostics that chat's own
-//     lsp/didOpen etc. calls produced (handlers.Handlers.lspOwnerID) — never a
-//     sibling chat's, even one sharing this chat's worktree.
-//
-// Unlike gitDef/filesDef's chatId filter, this one is NOT a fan-out membership
-// match (ExtractSet): editor/LSP is spec §4.2's OWNED bucket, so an event has
-// exactly one owner, never a set of chats to reach, and both filters extract
-// the very same field.
-//
-// NEITHER filter is Required, for the same reason gitDef's aren't: Required on
-// chatId would refuse every client of the still-live workspace-scoped route,
-// which cannot resolve a :chatId; Required on wsId would refuse every
-// chat-scoped one.
+// The old /workspaces/:wsId/lsp/ws mount that once needed a second, matching
+// wsId filter beside this one is gone (spec §8 step 6) — /chats/:chatId/lsp/ws
+// is the only live mount of this broadcaster's Handle (router.go).
 func lspDef(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -860,7 +820,6 @@ func lspDef(
 		Snapshot:      lspSnapshot(appContainer, engContainer),
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
-			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 			{Param: "chatId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}

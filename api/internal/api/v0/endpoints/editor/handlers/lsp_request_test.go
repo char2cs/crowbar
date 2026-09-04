@@ -13,9 +13,9 @@ import (
 
 func TestCompletion_200Raw(t *testing.T) {
 	lsp := &fakeLSP{completion: json.RawMessage(`{"items":[{"label":"Println"}]}`)}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/completion", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/completion", map[string]any{
 		"path":     "main.go",
 		"position": map[string]int{"line": 1, "character": 2},
 	})
@@ -30,9 +30,9 @@ func TestCompletion_200Raw(t *testing.T) {
 }
 
 func TestCompletion_NoServer_NullData(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/completion", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/completion", map[string]any{
 		"path": "file.unknownext",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -43,9 +43,9 @@ func TestCompletion_NoServer_NullData(t *testing.T) {
 }
 
 func TestHover_200(t *testing.T) {
-	r := newRouter(&fakeLSP{hover: json.RawMessage(`{"contents":"doc"}`)}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{hover: json.RawMessage(`{"contents":"doc"}`)}, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/hover", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/hover", map[string]any{
 		"path": "main.go",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -54,9 +54,9 @@ func TestHover_200(t *testing.T) {
 
 func TestDefinition_200Locations(t *testing.T) {
 	lsp := &fakeLSP{definition: []domlsp.Location{{FilePath: "/repo/x.go"}}}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/definition", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/definition", map[string]any{
 		"path": "main.go",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -69,9 +69,9 @@ func TestDefinition_200Locations(t *testing.T) {
 }
 
 func TestReferences_200EmptyArray(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/references", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/references", map[string]any{
 		"path": "main.go",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -84,9 +84,9 @@ func TestRename_200(t *testing.T) {
 	lsp := &fakeLSP{rename: domlsp.WorkspaceEdit{
 		Changes: map[string][]domlsp.TextEdit{"main.go": {{NewText: "Foo"}}},
 	}}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/rename", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/rename", map[string]any{
 		"path":    "main.go",
 		"newName": "Foo",
 	})
@@ -99,10 +99,10 @@ func TestCodeActionDocumentSymbol_200(t *testing.T) {
 		codeAction:     json.RawMessage(`[]`),
 		documentSymbol: json.RawMessage(`[]`),
 	}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
 	for _, route := range []string{"codeAction", "documentSymbol"} {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, map[string]any{
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, map[string]any{
 			"path":  "main.go",
 			"range": map[string]any{"start": map[string]int{}, "end": map[string]int{}},
 		})
@@ -126,38 +126,41 @@ func lspRequestRoutes() map[string]map[string]any {
 }
 
 func TestLSPRequest_BadBody_400(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
 	for route := range lspRequestRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, map[string]any{})
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, map[string]any{})
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "route %s", route)
 		assert.False(t, decode(t, rec).Success, "route %s", route)
 	}
 }
 
-func TestLSPRequest_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
+// TestLSPRequest_NoResolvedWorkspace_500 is the wiring-bug guard: a route
+// mounted outside chatScoped's resolveChatWorktree middleware finds no
+// workspace on reqscope and reports a 500 (Handlers.workspace).
+func TestLSPRequest_NoResolvedWorkspace_500(t *testing.T) {
+	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 
 	for route, body := range lspRequestRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ghost/lsp/"+route, body)
-		assert.Equal(t, http.StatusNotFound, rec.Code, "route %s", route)
+		rec := do(t, r, http.MethodPost, "/v0/chats/chat1/lsp/"+route, body)
+		assert.Equal(t, http.StatusInternalServerError, rec.Code, "route %s", route)
 	}
 }
 
 func TestLSPRequest_EngineError_500(t *testing.T) {
-	r := newRouter(&fakeLSP{err: errBoom}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{err: errBoom}, &fakeGit{})
 
 	for route, body := range lspRequestRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, body)
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, body)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code, "route %s", route)
 	}
 }
 
 func TestLSPRequest_NilEngine_503(t *testing.T) {
-	r := newRouter(nil, &fakeGit{}, okWSReader())
+	r := newRouter(nil, &fakeGit{})
 
 	for route, body := range lspRequestRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, body)
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, body)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "route %s", route)
 		assert.Equal(t, "lsp engine not available", decode(t, rec).Error, "route %s", route)
 	}

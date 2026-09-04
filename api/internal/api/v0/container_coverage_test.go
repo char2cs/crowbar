@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -162,19 +163,46 @@ func TestContainer_PushTerminalSession_ReachesClient(t *testing.T) {
 	assert.Equal(t, "s1", got["id"])
 }
 
+// stubChatsHolding is the minimal usecases.WorktreeResolver PushGit's fan-out
+// (chatsHolding) needs: ChatsForWorkspace answers a fixed roster per
+// workspace id, and Resolve is never called from this path so it degrades to
+// not-found.
+type stubChatsHolding map[string][]string
+
+func (s stubChatsHolding) Resolve(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, apperr.ErrNotFound
+}
+
+func (s stubChatsHolding) ChatsForWorkspace(
+	_ context.Context,
+	workspaceID string,
+) ([]string, error) {
+	return s[workspaceID], nil
+}
+
+// TestContainer_PushGit_ReachesFilteredClient proves PushGit reaches only a
+// subscriber whose :chatId is among the fan-out set it resolves for the
+// pushed workspace — gitDef's chatId filter is a Required membership match
+// (spec §8 step 6: the old :wsId-bound route this test used to dial is gone,
+// and so is its non-required wsId filter), so the route here binds :chatId
+// like the real /v0/chats/:chatId/git/status mount does.
 func TestContainer_PushGit_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
+	a.Usecases.Worktree = stubChatsHolding{"A": {"chat-a"}, "B": {"chat-b"}}
 	c := New(a, nil)
 	r := gin.New()
 	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/git/status",
+		"/v0/chats/:chatId/git/status",
 		func(ctx *gin.Context) { c.git.Handle(ctx) },
 	)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/git/status")
+	conn := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
 	c.git.WaitRegistered()
 
 	c.PushGit("B", gitdomain.GitStatus{Branch: "branch-B"})

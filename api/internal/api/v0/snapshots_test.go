@@ -110,11 +110,16 @@ func initGitRepo(
 	return dir
 }
 
-// TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe:
-// a wsId-scoped client receives the current GitStatus of its workspace only.
+// TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe
+// over the flat chat-scoped mount (spec §8 step 6 retired the old
+// .../workspaces/:wsId/git/status twin): a chat-scoped client receives the
+// current GitStatus of the worktree it resolves to only — gitSnapshot's BARE
+// chat-id branch (chatGitSnapshot), exercised end to end through a real
+// resolveChatWorktree resolve rather than pinned as a unit test in isolation.
 func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "rA")
+	seedRepo(t, tc, "rB")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 	repoA := initGitRepo(t)
@@ -132,17 +137,23 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 		now,
 	)
 	require.NoError(t, err)
+	// wsToChats matters here, not just chatToWs: the replay frame carries the
+	// SAME fan-out set a live push would (appendGitStatus), and gitDef's
+	// chatId filter is a Required membership match — an empty set would drop
+	// the snapshot exactly as it would drop a live frame.
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-a": "A"},
+		wsToChats:  map[string][]string{"A": {"chat-a"}},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 
 	// Settle the projections before subscribing (see
-	// TestSnapshot_Workspaces_DeliveredOnConnect). Doubly required here: the
-	// scope guard below reads the same read model, so losing the race rejects
-	// the upgrade rather than merely emptying the snapshot.
+	// TestSnapshot_Workspaces_DeliveredOnConnect): resolveChatWorktree's own
+	// resolve reads the same read model the projection settles.
 	tc.app.Repositories.WaitQuiescent()
 
-	// The URL scope must match workspace A's actual repo (rA): the scope guard
-	// now rejects a :wsId that does not belong to the :repoId in the path.
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/rA/workspaces/A/git/status")
+	conn := dialV0(t, srv, "/v0/chats/chat-a/git/status")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "main", got["branch"])
@@ -150,8 +161,12 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	assert.False(t, hasWsID, "git payload is bare GitStatus")
 }
 
-// TestSnapshot_LSP_DeliveredOnConnect proves the LSP snapshot-on-subscribe: a
-// wsId-scoped client receives the engine's current diagnostics for its workspace.
+// TestSnapshot_LSP_DeliveredOnConnect proves the LSP snapshot-on-subscribe over
+// the flat chat-scoped mount (spec §8 step 6 retired editor/LSP's old
+// .../workspaces/:wsId/lsp/ws twin entirely): a chat-scoped client receives
+// the engine's current diagnostics for its OWN session — lspSnapshot's BARE
+// chat-id branch (chatLSPSnapshot) keys the engine lookup by the chat id
+// itself (spec §4.2's OWNED bucket), not by the workspace it resolves to.
 func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "r1")
@@ -164,21 +179,26 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 		now,
 	)
 	require.NoError(t, err)
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 	tc.eng.LSP = seededLSP{
 		Engine: tc.eng.LSP,
-		diags:  map[string][]lspdomain.Diagnostic{"w1": {{Message: "boom"}}},
+		diags:  map[string][]lspdomain.Diagnostic{"chat-1": {{Message: "boom"}}},
 	}
 
 	// Settle the projections before subscribing (see
-	// TestSnapshot_Workspaces_DeliveredOnConnect); the wsId scope guard on this
-	// route reads the workspace read model too.
+	// TestSnapshot_Workspaces_DeliveredOnConnect): resolveChatWorktree's own
+	// resolve (confirming the chat has a worktree at all) reads the same read
+	// model the projection settles.
 	tc.app.Repositories.WaitQuiescent()
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
+	conn := dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
 
 	got := readSnapshot(t, conn)
-	assert.Equal(t, "w1", got["wsId"])
+	assert.Equal(t, "chat-1", got["wsId"])
 	diags, _ := got["diagnostics"].([]any)
 	require.Len(t, diags, 1)
 }

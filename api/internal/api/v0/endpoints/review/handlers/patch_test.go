@@ -23,7 +23,7 @@ func getPatch(
 	rec *httptest.ResponseRecorder,
 	query string,
 ) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/review/patch"+query, http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/v0/chats/chat1/review/patch"+query, http.NoBody)
 	r.ServeHTTP(rec, req)
 	return rec
 }
@@ -267,7 +267,7 @@ func TestReviewHandlers_GetPatch_ForwardsPathAndWorkspace(t *testing.T) {
 	}
 	getPatch(routerFor(uc), httptest.NewRecorder(), "?path=dir%2Fwe%2Aird%5B1%5D.txt")
 
-	assert.Equal(t, "ws1", gotWs)
+	assert.Equal(t, "chat1", gotWs)
 	assert.Equal(t, "dir/we*ird[1].txt", gotPath)
 }
 

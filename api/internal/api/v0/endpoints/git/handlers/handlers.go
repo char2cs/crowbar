@@ -99,28 +99,15 @@ func New(
 	}
 }
 
-// workspaceID answers which worktree this request acts on, for either of the
-// two groups git is currently mounted on (routes.go).
-//
-// On /v0/chats/:chatId/git/... the chat group's resolveChatWorktree middleware
-// has already resolved the chat's worktree and stashed the workspace on the
-// context, so the answer is read back from reqscope — never resolved a second
-// time per request, and never taken from a URL, because no chat-scoped URL
-// carries a workspace id to take it from (spec law 1).
-//
-// The :wsId branch is the old workspace-scoped mount, unretired until spec §8
-// step 6. When that mount goes, so does the branch, and this collapses to the
-// reqscope read alone.
-//
-// reqscope is consulted FIRST because it is the resolved truth: the two mounts
-// are disjoint, so exactly one source is ever populated, and preferring the
-// middleware's answer means a future mount that carries both cannot silently
-// act on the URL instead of on the chat.
+// workspaceID answers which worktree this request acts on: the chat group's
+// resolveChatWorktree middleware has already resolved the chat's worktree and
+// stashed the workspace on the context, so the answer is read back from
+// reqscope — never resolved a second time per request, and never taken from a
+// URL, because no chat-scoped URL carries a workspace id to take it from
+// (spec law 1).
 func (h *Handlers) workspaceID(
 	ctx *gin.Context,
 ) string {
-	if ws, ok := reqscope.Workspace(ctx); ok {
-		return ws.ID
-	}
-	return ctx.Param("wsId")
+	ws, _ := reqscope.Workspace(ctx)
+	return ws.ID
 }

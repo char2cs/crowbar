@@ -12,15 +12,15 @@ import (
 )
 
 // windowedReviewRoutes is the three-route windowed diff API, spelled at the
-// depth the production tree mounts it: under the hierarchical
-// /projects/:projectId/repos/:repoId/workspaces/:wsId prefix, NOT at the
-// /workspaces/:wsId the endpoint package registers relative to.
+// depth the production tree mounts it: under the flat /v0/chats/:chatId
+// prefix (spec §7.1) — the old /workspaces/:wsId twin the endpoint package
+// used to also register is gone (spec §8 step 6).
 func windowedReviewRoutes() []string {
-	const ws = "/v0/projects/:projectId/repos/:repoId/workspaces/:wsId"
+	const chat = "/v0/chats/:chatId"
 	return []string{
-		"GET " + ws + "/review/outline",
-		"GET " + ws + "/review/patch",
-		"GET " + ws + "/review/search",
+		"GET " + chat + "/review/outline",
+		"GET " + chat + "/review/patch",
+		"GET " + chat + "/review/search",
 	}
 }
 
@@ -46,23 +46,23 @@ func TestAPI_New_WindowedReviewRoutesMountedUnderV0(
 }
 
 // TestAPI_New_WindowedReviewRoutesAnswerOnRealRouter walks the whole production
-// chain — every global middleware plus the v0 group's scope guards — to each of
-// the three routes.
+// chain — every global middleware plus the chat group's resolveChatWorktree
+// guard — to each of the three routes.
 //
-// The empty test home has no such project, so the scope guard answers 404. That
-// is the point: gin's 404 for an UNMOUNTED path is the plain-text "404 page not
-// found", while a mounted route rejected by the guard answers the v0 error
-// envelope. Only the second proves the route exists and its middleware chain
-// ran.
+// The empty test home has no such chat, so the guard answers 404 "chat not
+// found". That is the point: gin's 404 for an UNMOUNTED path is the plain-text
+// "404 page not found", while a mounted route rejected by the guard answers
+// the v0 error envelope. Only the second proves the route exists and its
+// middleware chain ran.
 func TestAPI_New_WindowedReviewRoutesAnswerOnRealRouter(
 	t *testing.T,
 ) {
 	handler := newRealAPI(t).Handler()
 
 	paths := []string{
-		"/v0/projects/p1/repos/r1/workspaces/w1/review/outline",
-		"/v0/projects/p1/repos/r1/workspaces/w1/review/patch?path=a.go",
-		"/v0/projects/p1/repos/r1/workspaces/w1/review/search?q=todo",
+		"/v0/chats/chat1/review/outline",
+		"/v0/chats/chat1/review/patch?path=a.go",
+		"/v0/chats/chat1/review/search?q=todo",
 	}
 	for _, path := range paths {
 		rec := httptest.NewRecorder()
@@ -75,6 +75,6 @@ func TestAPI_New_WindowedReviewRoutesAnswerOnRealRouter(
 		}
 		require.NoErrorf(t, json.Unmarshal(rec.Body.Bytes(), &env), "path %q served gin's unmounted 404", path)
 		assert.False(t, env.Success)
-		assert.Equalf(t, "repository not found", env.Error, "path %q", path)
+		assert.Equalf(t, "chat not found", env.Error, "path %q", path)
 	}
 }

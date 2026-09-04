@@ -12,49 +12,35 @@ import (
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
 )
 
-// Register mounts the editor REST + WS surface on BOTH scoping groups it is
-// currently addressable through.
+// Register mounts the editor REST + WS surface on the flat chat-scoped group
+// (spec §7.1), the only surface editor/LSP is addressable through:
+// /v0/chats/:chatId/{blame,lsp/*} .
 //
 // editor/LSP is spec §4.2's OWNED bucket: the resolver still runs, for a CWD,
 // but the session itself is never shared with a sibling chat that happens to
-// hold the same worktree (spec law 5). chatScoped is where it lives from now
-// on — /v0/chats/:chatId/{blame,lsp/*} , the flat prefix §7.1 closes on — and
-// the frontend talks to it exclusively.
+// hold the same worktree (spec law 5). The worktree is resolved from the
+// request context by chatScoped's own resolveChatWorktree middleware (see
+// handlers.Handlers.workspace), and the LSP engine calls key their session by
+// the chat id (handlers.Handlers.lspOwnerID), so a sibling chat sharing this
+// worktree gets its own LSP session.
 //
-// wsScoped is the OLD
-// /projects/:projectId/repos/:repoId/workspaces/:wsId/{blame,lsp/*} surface,
-// mounted unchanged. It is not a fallback and nothing chooses between the two:
-// it is simply a route that has not been retired yet, and retiring it is spec
-// §8 step 6's job. Deleting THIS call is the whole of editor's share of that
-// step.
-//
-// One route table serves both groups here, so the two can never drift into
-// different surfaces: mount is called twice with different prefixes, and a
-// route added to it appears on both by construction. The handlers themselves
-// take the worktree from whichever mount the request arrived on
-// (handlers.Handlers.workspace), and the LSP engine calls key their session by
-// whichever mount too (handlers.Handlers.lspOwnerID) — the chat id on the new
-// mount, so a sibling chat sharing this worktree gets its own LSP session, and
-// the workspace id on the old mount, unchanged.
+// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/{blame,lsp/*}
+// mount is gone (spec §8 step 6): every caller had already moved to the mount
+// kept here.
 //
 // lspWSHandle is the pre-built broadcaster handle for the live diagnostics
 // stream, dual-mounted the same way as the REST routes.
 func Register(
-	wsScoped *gin.RouterGroup,
 	chatScoped *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,
-	wsReader editorhandlers.WorkspaceReader,
 	lspWSHandle gin.HandlerFunc,
 ) {
-	h := editorhandlers.New(lsp, git, wsReader)
+	h := editorhandlers.New(lsp, git)
 	mount(chatScoped, "", h, lspWSHandle)
-	mount(wsScoped, "/workspaces/:wsId", h, lspWSHandle)
 }
 
-// mount registers the 13-route editor surface under prefix on rg. It is the
-// single definition of that surface; Register calls it once per live scoping
-// group.
+// mount registers the 13-route editor surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

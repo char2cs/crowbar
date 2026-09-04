@@ -11,7 +11,7 @@ import (
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-// Search handles POST /v0/workspaces/:wsId/search.
+// Search handles POST /v0/chats/:chatId/search.
 func (h *Handlers) Search(
 	ctx *gin.Context,
 ) {
@@ -60,7 +60,7 @@ func (h *Handlers) Search(
 	libs.WriteQueryOK(ctx, resp)
 }
 
-// Replace handles POST /v0/workspaces/:wsId/search/replace.
+// Replace handles POST /v0/chats/:chatId/search/replace.
 func (h *Handlers) Replace(
 	ctx *gin.Context,
 ) {

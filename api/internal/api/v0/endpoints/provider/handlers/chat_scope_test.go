@@ -17,8 +17,8 @@ import (
 )
 
 // This file pins the handler half of provider's move onto /v0/chats/:chatId
-// (spec §4.2's OWNED bucket, §8 step 5): WHICH workspace a State poll resolves
-// for each of its two live mounts.
+// (spec §4.2's OWNED bucket, §8 step 5): WHICH workspace a State poll
+// resolves.
 //
 // Unlike editor/LSP's session key, PollOnView's own wsID parameter is never
 // consulted by the production engine (it polls purely from repoPath/branch),
@@ -54,14 +54,14 @@ var _ handlers.ProviderEngine = (*recordingEngine)(nil)
 
 // resolvedWorkspace is the workspace the chat group's resolveChatWorktree
 // middleware stashes for chat "chat-1". Its worktree path and branch
-// deliberately differ from the old mount's fixture (stubReader/okReader),
-// so a handler that reached for the wrong source would fail rather than pass
-// by coincidence.
+// deliberately differ from any other test fixture in this package, so a
+// handler that reached for the wrong source would fail rather than pass by
+// coincidence.
 func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path", Branch: "resolved-branch"}
 }
 
-// providerRouterForScopes wires provider's two live State mounts the way
+// providerRouterForScopes wires provider's live State mount the way
 // router.go does, including the chat group's middleware.
 func providerRouterForScopes(
 	t *testing.T,
@@ -78,9 +78,6 @@ func providerRouterForScopes(
 		c.Next()
 	})
 	chatScoped.GET("/provider", h.State)
-
-	wsScoped := r.Group("/v0/workspaces/:wsId")
-	wsScoped.GET("/provider", h.State)
 
 	return r
 }
@@ -101,11 +98,10 @@ func TestChatScopedState_PollsTheResolvedWorktree(t *testing.T) {
 	assert.Equal(t, "resolved-branch", eng.seenBranch)
 }
 
-// TestWorkspaceScopedState_StillActsOnItsPathParam is the regression bar for
-// the mount this step deliberately leaves standing: the old route keeps
-// resolving via the workspace reader, and reqscope — never set on that
-// group — must not have displaced it.
-func TestWorkspaceScopedState_StillActsOnItsPathParam(t *testing.T) {
+// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real:
+// the old /v0/workspaces/:wsId/provider mount this handler set used to also
+// serve answers nothing on this router any more.
+func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	eng := &recordingEngine{}
 	r := providerRouterForScopes(t, eng, stubReader{})
 
@@ -113,7 +109,5 @@ func TestWorkspaceScopedState_StillActsOnItsPathParam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/provider", http.NoBody)
 	r.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "/repo", eng.seenPath, "the old mount resolves via wsReader.Get(:wsId), unchanged")
-	assert.Equal(t, "main", eng.seenBranch)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

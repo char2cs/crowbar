@@ -10,41 +10,28 @@ import (
 	reviewhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
 )
 
-// Register mounts the branch-review read and merge-strategy routes on BOTH
-// scoping groups review is currently addressable through, backed by the
-// branch-review usecase. Thread CRUD now lives on the first-class /threads
-// endpoint (W9).
+// Register mounts the branch-review read and merge-strategy routes on the
+// flat chat-scoped group (spec §7.1), the only surface review is addressable
+// through: /v0/chats/:chatId/review... . Thread CRUD lives on the
+// first-class /threads endpoint (W9).
 //
 // review is spec §4.2's shared bucket: the worktree answers once, and every
-// chat holding it gets that answer. chatScoped is where that lives from now
-// on — /v0/chats/:chatId/review... , the flat prefix §7.1 closes on — and the
-// frontend talks to it exclusively.
+// chat holding it gets that answer, resolved from the request context by
+// chatScoped's own resolveChatWorktree middleware (see
+// handlers.Handlers.workspaceID).
 //
-// wsScoped is the OLD /projects/:projectId/repos/:repoId/workspaces/:wsId/
-// review... surface, mounted unchanged. It is not a fallback and nothing
-// chooses between the two: it is simply a route that has not been retired
-// yet, and retiring it is spec §8 step 6's job, once every group has moved
-// and the workspaces/home groups are deleted wholesale. Deleting THIS call is
-// the whole of review's share of that step.
-//
-// One route table serves both, so the two can never drift into different
-// surfaces: mount is called twice with different prefixes, and a route added
-// to it appears on both by construction. The handlers themselves take the
-// worktree from whichever mount the request arrived on — see
-// handlers.Handlers.workspaceID.
+// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/review... mount
+// is gone (spec §8 step 6): every caller had already moved to the mount kept
+// here.
 func Register(
-	wsScoped *gin.RouterGroup,
 	chatScoped *gin.RouterGroup,
 	reviewUsecase reviewhandlers.ReviewUsecase,
 ) {
 	h := reviewhandlers.New(reviewUsecase)
 	mount(chatScoped, "/review", h)
-	mount(wsScoped, "/workspaces/:wsId/review", h)
 }
 
-// mount registers the 6-route review surface under prefix on rg. It is the
-// single definition of that surface; Register calls it once per live scoping
-// group.
+// mount registers the 6-route review surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

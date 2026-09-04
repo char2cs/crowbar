@@ -29,7 +29,7 @@ type searchResponse struct {
 	Truncated bool                  `json:"truncated"`
 }
 
-// SearchDiff handles GET /v0/workspaces/:wsId/review/search?q=&regex=&case=&limit=,
+// SearchDiff handles GET /v0/chats/:chatId/review/search?q=&regex=&case=&limit=,
 // returning the file and line number of every match in the branch diff's
 // content plus whether the limit cut the results short.
 //

@@ -10,9 +10,9 @@ import (
 
 func TestDocumentSync_200(t *testing.T) {
 	lsp := &fakeLSP{}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
-	open := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/didOpen", map[string]any{
+	open := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/didOpen", map[string]any{
 		"path":       "main.go",
 		"languageId": "go",
 		"text":       "package main",
@@ -20,13 +20,13 @@ func TestDocumentSync_200(t *testing.T) {
 	require.Equal(t, http.StatusOK, open.Code)
 	assert.True(t, decode(t, open).Success)
 
-	change := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/didChange", map[string]any{
+	change := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/didChange", map[string]any{
 		"path": "main.go",
 		"text": "package main\n",
 	})
 	require.Equal(t, http.StatusOK, change.Code)
 
-	closed := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/didClose", map[string]any{
+	closed := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/didClose", map[string]any{
 		"path": "main.go",
 	})
 	require.Equal(t, http.StatusOK, closed.Code)
@@ -37,9 +37,9 @@ func TestDocumentSync_200(t *testing.T) {
 }
 
 func TestDidOpen_BadBody_400(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/didOpen", map[string]any{
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/didOpen", map[string]any{
 		"path": "main.go",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -55,37 +55,40 @@ func lspSyncRoutes() map[string]map[string]any {
 }
 
 func TestLSPSync_BadBody_400(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
 	for route := range lspSyncRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, map[string]any{})
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, map[string]any{})
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "route %s", route)
 	}
 }
 
-func TestLSPSync_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
+// TestLSPSync_NoResolvedWorkspace_500 is the wiring-bug guard: a route
+// mounted outside chatScoped's resolveChatWorktree middleware finds no
+// workspace on reqscope and reports a 500 (Handlers.workspace).
+func TestLSPSync_NoResolvedWorkspace_500(t *testing.T) {
+	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 
 	for route, body := range lspSyncRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ghost/lsp/"+route, body)
-		assert.Equal(t, http.StatusNotFound, rec.Code, "route %s", route)
+		rec := do(t, r, http.MethodPost, "/v0/chats/chat1/lsp/"+route, body)
+		assert.Equal(t, http.StatusInternalServerError, rec.Code, "route %s", route)
 	}
 }
 
 func TestLSPSync_EngineError_500(t *testing.T) {
-	r := newRouter(&fakeLSP{err: errBoom}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{err: errBoom}, &fakeGit{})
 
 	for route, body := range lspSyncRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, body)
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, body)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code, "route %s", route)
 	}
 }
 
 func TestLSPSync_NilEngine_503(t *testing.T) {
-	r := newRouter(nil, &fakeGit{}, okWSReader())
+	r := newRouter(nil, &fakeGit{})
 
 	for route, body := range lspSyncRoutes() {
-		rec := do(t, r, http.MethodPost, "/v0/workspaces/ws1/lsp/"+route, body)
+		rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/"+route, body)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "route %s", route)
 	}
 }

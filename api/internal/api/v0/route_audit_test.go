@@ -3,6 +3,7 @@
 package v0_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,48 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// workspaceGetter is the read the real workspace repository (and this stub)
+// both satisfy: Get(ctx, id) (domain.Workspace, error).
+type workspaceGetter interface {
+	Get(ctx context.Context, id string) (domain.Workspace, error)
+}
+
+// stubChatWorktreeResolver is the minimal usecases.WorktreeResolver the
+// chat-scoped group's resolveChatWorktree middleware (and PushGit/PushFile's
+// chatsHolding fan-out) need: Resolve answers a fixed workspace id per chat
+// id, looked up through the SAME workspace reader the test seeded its row
+// through, so the returned aggregate is the real seeded row rather than an
+// empty stand-in. ChatsForWorkspace answers wsToChats's fixed roster per
+// workspace id — nil (no chats) for any workspace not listed, which is
+// exactly the "no chat holds this" degradation a real fan-out gives an
+// unrelated push.
+type stubChatWorktreeResolver struct {
+	chatToWs   map[string]string
+	wsToChats  map[string][]string
+	workspaces workspaceGetter
+}
+
+func (s stubChatWorktreeResolver) Resolve(
+	ctx context.Context,
+	chatID string,
+) (domain.Workspace, error) {
+	wsID, ok := s.chatToWs[chatID]
+	if !ok {
+		return domain.Workspace{}, apperr.ErrNotFound
+	}
+	return s.workspaces.Get(ctx, wsID)
+}
+
+func (s stubChatWorktreeResolver) ChatsForWorkspace(
+	_ context.Context,
+	workspaceID string,
+) ([]string, error) {
+	return s.wsToChats[workspaceID], nil
+}
 
 // expectedRoutes is the canonical method+path set the v0 surface must register,
 // audited against docs/specs/v0/02-api-surface.md §2 (REST) + §3 (WS). It is the
@@ -30,14 +72,17 @@ func expectedRoutes() map[string]struct{} {
 	return out
 }
 
-// specRoutes is every route in 02 §2 + §3, one per spec line, re-nested under
-// the hierarchical /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/...
-// prefix (spec §3). Health, system, and the terminal profiles CRUD remain
-// top-level (outside /projects), and the terminal SESSION routes now hang off
-// the flat /v0/chats/:chatId prefix. The dedicated /ws/* routes are GONE
-// (W7-2): the entity list+detail GET routes dual-serve REST/WS, and the
-// raw/diagnostic streams are co-located as .../files/ws, .../lsp/ws, and
-// /v0/chats/:chatId/terminals/:sessionId/ws.
+// specRoutes is every route in 02 §2 + §3, one per spec line. Health, system,
+// and the terminal profiles CRUD remain top-level (outside /projects).
+// git, files, review, search, identity, editor/LSP, and provider's State
+// route all live on the flat /v0/chats/:chatId prefix (chat-scoped API spec
+// §7.1) — their old .../workspaces/:wsId/... twins are gone (spec §8 step 6),
+// asserted directly by TestRouteAudit_NoWorkspaceScopedGroupRoutes. threads
+// keeps its own /workspaces/:wsId/threads prefix permanently (spec §4.4) —
+// it is repo-level review commentary, never a worktree read, and never moved.
+// The dedicated /ws/* routes are GONE (W7-2): the entity list+detail GET
+// routes dual-serve REST/WS, and the raw/diagnostic streams are co-located as
+// .../files/ws, .../lsp/ws, and /v0/chats/:chatId/terminals/:sessionId/ws.
 func specRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
@@ -61,42 +106,18 @@ func specRoutes() []string {
 		// TestRouteAudit_NoWorkspaceGroupRoutes.
 		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
 		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
-		// §2.4 Files
-		"GET " + ws + "/files/tree",
-		"GET " + ws + "/files/content",
-		"PUT " + ws + "/files/content",
-		"POST " + ws + "/files",
-		"PATCH " + ws + "/files",
-		"DELETE " + ws + "/files",
-		// §2.4 Files, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4). The SAME routes as the workspace-scoped block above, and
-		// both are genuinely live: the flat chat prefix is where files is
-		// addressed from now on, and the workspace prefix is simply not retired
-		// until §8 step 6. Listing both is what makes THIS audit the thing that
-		// notices when one of them gains or loses a route the other did not.
+		// §2.4 Files (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6):
+		// the flat chat prefix is the only surface left; the old
+		// .../workspaces/:wsId/files/... twin is gone.
 		"GET " + chat + "/files/tree",
 		"GET " + chat + "/files/content",
 		"PUT " + chat + "/files/content",
 		"POST " + chat + "/files",
 		"PATCH " + chat + "/files",
 		"DELETE " + chat + "/files",
-		// §2.5 Editor / LSP (+blame)
-		"GET " + ws + "/blame",
-		"POST " + ws + "/lsp/completion",
-		"POST " + ws + "/lsp/hover",
-		"POST " + ws + "/lsp/definition",
-		"POST " + ws + "/lsp/references",
-		"POST " + ws + "/lsp/rename",
-		"POST " + ws + "/lsp/codeAction",
-		"POST " + ws + "/lsp/documentSymbol",
-		"GET " + ws + "/lsp/diagnostics",
-		// §2.5 Editor / LSP, chat-scoped (chat-scoped API spec §4.2's OWNED
-		// bucket, §8 step 5). The SAME routes as the workspace-scoped block
-		// above, and both are genuinely live: the flat chat prefix is where
-		// editor/LSP is addressed from now on, and the workspace prefix is
-		// simply not retired until §8 step 6. Listing both is what makes THIS
-		// audit the thing that notices when one of them gains or loses a
-		// route the other did not.
+		// §2.5 Editor / LSP (+blame), chat-scoped (chat-scoped API spec §4.2's
+		// OWNED bucket, §8 step 5/6): the flat chat prefix is the only surface
+		// left; the old .../workspaces/:wsId/{blame,lsp/*} twin is gone.
 		"GET " + chat + "/blame",
 		"POST " + chat + "/lsp/completion",
 		"POST " + chat + "/lsp/hover",
@@ -106,48 +127,10 @@ func specRoutes() []string {
 		"POST " + chat + "/lsp/codeAction",
 		"POST " + chat + "/lsp/documentSymbol",
 		"GET " + chat + "/lsp/diagnostics",
-		// §2.6 Git — Read
-		"GET " + ws + "/git/status",
-		"GET " + ws + "/git/log",
-		"GET " + ws + "/git/diff",
-		"GET " + ws + "/git/blame",
-		"GET " + ws + "/git/branches",
-		"GET " + ws + "/git/stashes",
-		"GET " + ws + "/git/conflicts",
-		"GET " + ws + "/git/conflict-hunks",
-		"GET " + ws + "/git/commit-diff",
-		// §2.7 Git — Write
-		"POST " + ws + "/git/stage",
-		"POST " + ws + "/git/stage-hunk",
-		"POST " + ws + "/git/unstage",
-		"POST " + ws + "/git/unstage-hunk",
-		"POST " + ws + "/git/discard",
-		"POST " + ws + "/git/commit",
-		"POST " + ws + "/git/push",
-		"POST " + ws + "/git/pull",
-		"POST " + ws + "/git/fetch",
-		"POST " + ws + "/git/branches",
-		"PATCH " + ws + "/git/branches",
-		"DELETE " + ws + "/git/branches",
-		"POST " + ws + "/git/switch",
-		"POST " + ws + "/git/stash",
-		"POST " + ws + "/git/stash-apply",
-		"POST " + ws + "/git/stash-pop",
-		"DELETE " + ws + "/git/stash",
-		"POST " + ws + "/git/reset",
-		"POST " + ws + "/git/merge",
-		"POST " + ws + "/git/rebase",
-		"POST " + ws + "/git/resolve-hunk",
-		// §2.8 Conflicts (+operation)
-		"POST " + ws + "/git/operation/continue",
-		"POST " + ws + "/git/operation/abort",
-		// §2.8 Git, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4). The SAME 32 routes as the workspace-scoped block above,
-		// and both are genuinely live: the flat chat prefix is where git is
-		// addressed from now on, and the workspace prefix is simply not retired
-		// until §8 step 6 deletes the workspaces/home groups wholesale. Listing
-		// both is what makes THIS audit the thing that notices when one of them
-		// gains or loses a route the other did not.
+		// §2.6-2.8 Git (read, write, conflicts/operation), chat-scoped
+		// (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6): the flat
+		// chat prefix is the only surface left; the old
+		// .../workspaces/:wsId/git/... 32-route twin is gone.
 		"GET " + chat + "/git/status",
 		"GET " + chat + "/git/log",
 		"GET " + chat + "/git/diff",
@@ -180,31 +163,27 @@ func specRoutes() []string {
 		"POST " + chat + "/git/resolve-hunk",
 		"POST " + chat + "/git/operation/continue",
 		"POST " + chat + "/git/operation/abort",
-		// §2.9 Review
-		"GET " + ws + "/review",
-		"PATCH " + ws + "/review",
 		// §2.9 Review, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4c). The SAME routes as the workspace-scoped pair above, and
-		// both are genuinely live for the same reason git's chat-scoped block
-		// is: the flat chat prefix is where review is addressed from now on,
-		// and the workspace prefix is simply not retired until §8 step 6.
+		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
+		// .../workspaces/:wsId/review twin is gone.
 		"GET " + chat + "/review",
 		"PATCH " + chat + "/review",
-		// §2.9a Threads (promoted out of /review into a first-class endpoint, W9)
+		// §2.9a Threads (promoted out of /review into a first-class endpoint,
+		// W9). This is the one workspace-scoped prefix that survives spec §8
+		// step 6 permanently (spec §4.4): review comments are repo-level
+		// commentary, not a worktree read, and were never re-keyed to chat.
 		"GET " + ws + "/threads",
 		"POST " + ws + "/threads",
 		"GET " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId",
 		"POST " + ws + "/threads/:threadId/replies",
-		// §2.9b Provider (read-only)
-		"GET " + ws + "/provider",
-		"GET " + repo + "/protected-branches",
-		// §2.9b Provider, chat-scoped (chat-scoped API spec §4.2's OWNED
-		// bucket, §8 step 5). The SAME State route as the workspace-scoped one
-		// above, and both are genuinely live for the same reason editor/LSP's
-		// chat-scoped block is. /protected-branches does NOT move — spec §4.2
-		// is explicit that it is repo-level, not worktree-owned.
+		// §2.9b Provider (read-only). State is chat-scoped (chat-scoped API
+		// spec §4.2's OWNED bucket, §8 step 5/6): the old
+		// .../workspaces/:wsId/provider twin is gone. /protected-branches does
+		// NOT move — spec §4.2 is explicit that it is repo-level, not
+		// worktree-owned — and stays on repo.
 		"GET " + chat + "/provider",
+		"GET " + repo + "/protected-branches",
 		// The per-CHAT lifecycle stream: the same agent-chat broadcaster the
 		// repo-scoped .../chats/ws mount serves, narrowed by agentChatDef's
 		// chatId filter to one chat.
@@ -215,12 +194,9 @@ func specRoutes() []string {
 		// poll, and this mount resolves a workspace (chatScoped's own
 		// resolveChatWorktree) where the repo-wide list scope resolves none.
 		"GET " + chat + "/ws",
-		// §2.10 Search
-		"POST " + ws + "/search",
-		"POST " + ws + "/search/replace",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4c). The SAME routes as the workspace-scoped pair above; see
-		// the review chat-scoped comment above for why both are live.
+		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
+		// .../workspaces/:wsId/search twin is gone.
 		"POST " + chat + "/search",
 		"POST " + chat + "/search/replace",
 		// §2.11 Terminal (+profiles). The profile CRUD is a global user setting
@@ -239,18 +215,11 @@ func specRoutes() []string {
 		"GET /v0/system/prerequisites",
 		// §2.13 Health
 		"GET /v0/health",
-		// §3 WebSocket endpoints — co-located on the nested tree (W7-2). The
-		// entity list+detail GET routes dual-serve REST/WS in place (no separate
-		// path); the raw/diagnostic streams hang off their workspace subtree.
-		"GET " + ws + "/files/ws",
-		// The same live file-change stream, chat-scoped: one Broadcaster, one
-		// StreamDef, two ways of naming a subscriber's scope (container.go
-		// filesDef).
+		// §3 WebSocket endpoints, chat-scoped (W7-2 co-location; §8 step 6
+		// retired their .../workspaces/:wsId/... twins): the entity
+		// list+detail GET routes dual-serve REST/WS in place (no separate
+		// path); the raw/diagnostic streams hang off the flat chat prefix.
 		"GET " + chat + "/files/ws",
-		"GET " + ws + "/lsp/ws",
-		// The same live diagnostics stream, chat-scoped: one Broadcaster, one
-		// StreamDef, two ways of naming a subscriber's scope (container.go
-		// lspDef).
 		"GET " + chat + "/lsp/ws",
 		"GET " + chat + "/terminals/:sessionId/ws",
 	}
@@ -299,49 +268,38 @@ func extraRoutes() []string {
 		// beside the branch list above.
 		"GET " + repo + "/pull-requests",
 		// File copy: the duplicate op the file tree's context menu drives,
-		// sibling of the create/rename/delete file routes the §2.4 list carries.
-		"POST " + ws + "/files/copy",
-		// The same copy verb, chat-scoped, for the same reason the §2.4
-		// chat-scoped block above lists the rest of the files surface.
+		// sibling of the create/rename/delete file routes the §2.4 list
+		// carries. Chat-scoped only (spec §4.2's SHARED bucket, §8 step 6) —
+		// the old .../workspaces/:wsId/files/copy twin is gone.
 		"POST " + chat + "/files/copy",
 		// Branch Review's file list: the full changed-file set of the review,
-		// read alongside the GET/PATCH .../review pair in §2.9.
-		"GET " + ws + "/review/files",
-		// Branch Review's WINDOWED diff API (diff perf phase 2). /review carries
-		// the whole diff as JSON and is O(lines); these three replace it with
-		// reads no single one of which is: the outline is the hunk geometry of
-		// every file and nothing else (O(hunks)), patch streams ONE file's
-		// unified patch as text/plain, and search is the server-side
-		// find-in-diff the client can no longer do locally once it only holds a
-		// window. All three resolve the diff ref exactly as /review/files does.
-		"GET " + ws + "/review/outline",
-		"GET " + ws + "/review/patch",
-		"GET " + ws + "/review/search",
-		// The same four review reads, chat-scoped (spec §4.2's SHARED bucket,
-		// §8 step 4c) — see the specRoutes review chat-scoped comment for why
-		// both prefixes are live.
+		// read alongside the GET/PATCH .../review pair in §2.9. Branch
+		// Review's WINDOWED diff API (diff perf phase 2) follows it: /review
+		// carries the whole diff as JSON and is O(lines); these three replace
+		// it with reads no single one of which is: the outline is the hunk
+		// geometry of every file and nothing else (O(hunks)), patch streams
+		// ONE file's unified patch as text/plain, and search is the
+		// server-side find-in-diff the client can no longer do locally once it
+		// only holds a window. All four resolve the diff ref the same way, and
+		// all four are chat-scoped only (spec §4.2's SHARED bucket, §8 step
+		// 6) — their .../workspaces/:wsId/review/... twins are gone.
 		"GET " + chat + "/review/files",
 		"GET " + chat + "/review/outline",
 		"GET " + chat + "/review/patch",
 		"GET " + chat + "/review/search",
-		"POST " + ws + "/lsp/didOpen",
-		"POST " + ws + "/lsp/didChange",
-		"POST " + ws + "/lsp/didClose",
-		// The same three document-sync notifications, chat-scoped — see the
-		// specRoutes editor/LSP chat-scoped comment for why both prefixes are
-		// live.
+		// The three document-sync notifications, chat-scoped only (spec §4.2's
+		// OWNED bucket, §8 step 6) — their .../workspaces/:wsId/lsp/... twins
+		// are gone.
 		"POST " + chat + "/lsp/didOpen",
 		"POST " + chat + "/lsp/didChange",
 		"POST " + chat + "/lsp/didClose",
 		// Registered feature routes the §2 spec list did not yet enumerate: the
-		// git-identity read and the review-thread message CRUD. (The hierarchy
-		// ops that used to sit here — rebase-onto-parent, detach-holder,
-		// retry-provision and the branch-renaming PATCH — are chat-keyed now and
-		// are listed with the rest of the lifecycle verbs below.)
-		"GET " + ws + "/identity",
-		// The same identity read, chat-scoped (spec §4.2's SHARED bucket, §8
-		// step 4c) — see the specRoutes review chat-scoped comment for why
-		// both prefixes are live.
+		// git-identity read (chat-scoped only, spec §4.2's SHARED bucket, §8
+		// step 6 — its .../workspaces/:wsId/identity twin is gone) and the
+		// review-thread message CRUD. (The hierarchy ops that used to sit here
+		// — rebase-onto-parent, detach-holder, retry-provision and the
+		// branch-renaming PATCH — are chat-keyed now and are listed with the
+		// rest of the lifecycle verbs below.)
 		"GET " + chat + "/identity",
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
@@ -718,29 +676,151 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 	assert.True(t, ok, "the threads group's workspace-scoped mount must survive")
 }
 
+// TestRouteAudit_NoWorkspaceScopedGroupRoutes is the proof this step's own
+// deletion is real: not one of the seven re-keyed groups' old
+// .../workspaces/:wsId/... mounts (git, files, review, search, identity,
+// editor/LSP, provider's State) is registered any more. Every one had a
+// chat-keyed replacement live and in use before it went (asserted as part of
+// specRoutes()/expectedRoutes() above), so a re-mount here is a regression,
+// not a fallback.
+//
+// It also pins what deliberately SURVIVES this deletion: threads' own
+// /workspaces/:wsId/threads prefix (spec §4.4 — repo-level review commentary,
+// never re-keyed), the home group's own /home/files/... surface (a
+// project-level row no chat resolves to), and provider's repo-level
+// /protected-branches (spec §4.2 — never worktree-owned, never moved).
+func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	got := registeredRoutes(t)
+
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	const ws = repo + "/workspaces/:wsId"
+	deleted := []string{
+		"GET " + ws + "/files/tree",
+		"GET " + ws + "/files/content",
+		"PUT " + ws + "/files/content",
+		"POST " + ws + "/files",
+		"PATCH " + ws + "/files",
+		"DELETE " + ws + "/files",
+		"POST " + ws + "/files/copy",
+		"GET " + ws + "/files/ws",
+		"GET " + ws + "/blame",
+		"POST " + ws + "/lsp/completion",
+		"POST " + ws + "/lsp/hover",
+		"POST " + ws + "/lsp/definition",
+		"POST " + ws + "/lsp/references",
+		"POST " + ws + "/lsp/rename",
+		"POST " + ws + "/lsp/codeAction",
+		"POST " + ws + "/lsp/documentSymbol",
+		"GET " + ws + "/lsp/diagnostics",
+		"POST " + ws + "/lsp/didOpen",
+		"POST " + ws + "/lsp/didChange",
+		"POST " + ws + "/lsp/didClose",
+		"GET " + ws + "/lsp/ws",
+		"GET " + ws + "/git/status",
+		"GET " + ws + "/git/log",
+		"GET " + ws + "/git/diff",
+		"GET " + ws + "/git/blame",
+		"GET " + ws + "/git/branches",
+		"GET " + ws + "/git/stashes",
+		"GET " + ws + "/git/conflicts",
+		"GET " + ws + "/git/conflict-hunks",
+		"GET " + ws + "/git/commit-diff",
+		"POST " + ws + "/git/stage",
+		"POST " + ws + "/git/stage-hunk",
+		"POST " + ws + "/git/unstage",
+		"POST " + ws + "/git/unstage-hunk",
+		"POST " + ws + "/git/discard",
+		"POST " + ws + "/git/commit",
+		"POST " + ws + "/git/push",
+		"POST " + ws + "/git/pull",
+		"POST " + ws + "/git/fetch",
+		"POST " + ws + "/git/branches",
+		"PATCH " + ws + "/git/branches",
+		"DELETE " + ws + "/git/branches",
+		"POST " + ws + "/git/switch",
+		"POST " + ws + "/git/stash",
+		"POST " + ws + "/git/stash-apply",
+		"POST " + ws + "/git/stash-pop",
+		"DELETE " + ws + "/git/stash",
+		"POST " + ws + "/git/reset",
+		"POST " + ws + "/git/merge",
+		"POST " + ws + "/git/rebase",
+		"POST " + ws + "/git/resolve-hunk",
+		"POST " + ws + "/git/operation/continue",
+		"POST " + ws + "/git/operation/abort",
+		"GET " + ws + "/review",
+		"PATCH " + ws + "/review",
+		"GET " + ws + "/review/files",
+		"GET " + ws + "/review/outline",
+		"GET " + ws + "/review/patch",
+		"GET " + ws + "/review/search",
+		"POST " + ws + "/search",
+		"POST " + ws + "/search/replace",
+		"GET " + ws + "/identity",
+		"GET " + ws + "/provider",
+	}
+	require.Len(t, deleted, 63, "the seven groups mounted sixty-three :wsId routes; all must be checked")
+	for _, r := range deleted {
+		_, ok := got[r]
+		assert.Falsef(t, ok, "deleted workspace-scoped group route is still registered: %s", r)
+	}
+
+	// The chat-keyed replacement every one of those was retired in favour of
+	// is already asserted live by TestRouteAudit_AllSpecRoutesRegistered
+	// (specRoutes() lists only the chat-scoped shape now). What this test adds
+	// is proof the OLD shape is gone, not just that the new one exists.
+
+	// Threads' own workspace-scoped prefix survives permanently (spec §4.4).
+	for _, r := range []string{
+		"GET " + ws + "/threads",
+		"POST " + ws + "/threads",
+		"GET " + ws + "/threads/:threadId",
+		"PATCH " + ws + "/threads/:threadId",
+		"DELETE " + ws + "/threads/:threadId",
+		"POST " + ws + "/threads/:threadId/replies",
+		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
+		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
+	} {
+		_, ok := got[r]
+		assert.Truef(t, ok, "threads' workspace-scoped route must survive: %s", r)
+	}
+
+	// Provider's repo-level /protected-branches survives, untouched (spec §4.2).
+	_, ok := got["GET "+repo+"/protected-branches"]
+	assert.True(t, ok, "protected-branches must remain repo-scoped")
+
+	// The home group's own file surface is a different mount entirely (a
+	// project-level row no chat resolves to) and is untouched by this step.
+	const home = "/v0/projects/:projectId/home"
+	_, ok = got["GET "+home+"/files/tree"]
+	assert.True(t, ok, "home's own files surface must be untouched by this step")
+}
+
 // TestRouteAudit_DualServe_RestMode proves the dual-served live-read routes
 // answer a plain (non-Upgrade) GET on REST — the complement of the WS-upgrade
 // proofs below, so both modes of every route are covered. It exercises the
 // entity list+detail routes (projects, projects/:id, repos, repos/:id) plus
-// git/status.
+// the chat-scoped git/status (spec §8 step 6 retired its workspace-scoped
+// twin, so a resolvable CHAT is what admits the request now, not a seeded
+// :wsId).
 func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedWorkspace(t, tc, "w1")
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
-	seedWorkspace(t, tc, "w1")
-
 	for _, path := range []string{
 		"/v0/projects",
 		"/v0/projects/p1",
 		"/v0/projects/p1/repos",
 		"/v0/projects/p1/repos/r1",
-		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
+		"/v0/chats/chat-1/git/status",
 	} {
 		resp, err := http.Get(srv.URL + path)
 		require.NoError(t, err)
@@ -757,25 +837,25 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 
 // TestRouteAudit_DualServe_WsMode proves every dual-served route upgrades to a
 // live WebSocket stream when the request carries Upgrade: websocket — including
-// the new project/repo/workspace detail routes (W7-2).
+// the project/repo detail routes (W7-2) and the chat-scoped git/status (spec
+// §8 step 6 retired its workspace-scoped twin).
 func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedWorkspace(t, tc, "w1")
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
-	seedWorkspace(t, tc, "w1")
-
 	for _, path := range []string{
 		"/v0/projects",
 		"/v0/projects/p1",
 		"/v0/projects/p1/repos",
 		"/v0/projects/p1/repos/r1",
-		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
+		"/v0/chats/chat-1/git/status",
 	} {
 		url := "ws" + srv.URL[len("http"):] + path
 		conn, resp, err := websocket.DefaultDialer.Dial(url, nil)

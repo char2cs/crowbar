@@ -28,6 +28,10 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
@@ -35,7 +39,9 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
+	// spec §8 step 6 retired files' repo-scoped .../workspaces/:wsId/files/ws
+	// mount; the flat chat prefix is the only surface left.
+	conn := dialWS(t, srv, "/v0/chats/chat-1/files/ws")
 	c.WaitFilesRegistered()
 	t.Cleanup(func() { _ = conn.Close() })
 

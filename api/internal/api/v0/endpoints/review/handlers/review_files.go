@@ -14,7 +14,7 @@ type reviewFilesResponse struct {
 	Files []gitdomain.ReviewFileSummary `json:"files"`
 }
 
-// GetFiles handles GET /v0/workspaces/:wsId/review/files, returning the
+// GetFiles handles GET /v0/chats/:chatId/review/files, returning the
 // files-only branch-review summary. It is the cheap, O(file count) counterpart
 // to Get: the sidebar uses it to show the complete changed-files list without
 // pulling the line-level branch diff that Get's read model carries.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -75,66 +76,25 @@ func TestFilesFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
 		"chat-z holds ws-z: the ws-a frame must never have reached it")
 }
 
-// TestFilesCoexistence_TheWorkspaceScopedRouteIsUnchanged is this step's
-// regression bar, and the reason NEITHER of filesDef's filters is Required.
-//
-// The workspace-scoped route is deliberately still mounted (spec §8 step 6
-// retires it, not this step), and the HOME route reaches the same broadcaster
-// through a :wsId its own middleware injects. Neither can ever bind a :chatId —
-// so a Required chatId filter would compile their predicates to "match nothing"
-// and silently freeze the file tree for every one of their clients.
-func TestFilesCoexistence_TheWorkspaceScopedRouteIsUnchanged(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+// TestFilesCoexistence_TheWorkspaceScopedRouteIsGone proves spec §8 step 6's
+// deletion is real over the REAL delivery path: a WebSocket upgrade attempt on
+// the old /workspaces/:wsId/files/ws mount fails outright — the route no
+// longer exists to upgrade. filesDef's wsId filter itself is NOT retired: the
+// project-home mount (endpoints/home) still injects a real :wsId and shares
+// this exact broadcaster (see files/routes.go), which is why filesDef keeps
+// it even though this repo-scoped twin is gone.
+func TestFilesCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
+	_, srv, _ := chatScopeEnv(t)
 
-	legacy := dialWSAt(t, srv, workspaceFilesRoute+"ws-a/files/ws")
-	c.files.WaitNRegistered(1)
-
-	c.PushFile(fileChange("ws-z", "z.go"))
-	c.PushFile(fileChange("ws-a", "a.go"))
-
-	assert.Equal(t, "a.go", readJSON(t, legacy)["path"],
-		"a wsId-scoped client must still receive its own workspace, and only it")
-}
-
-// TestFilesCoexistence_OneBroadcasterServesBothRoutesFromOnePush pins the shape
-// the live mounts actually have: ONE Broadcaster, ONE StreamDef, compiled once
-// at construction. The routes are not separate streams that could drift — they
-// are ways of naming a client's scope on the same stream, and each client is
-// held to whichever param its own request bound.
-func TestFilesCoexistence_OneBroadcasterServesBothRoutesFromOnePush(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
-
-	viaChat := dialWSAt(t, srv, "/v0/chats/chat-b/files/ws")
-	viaWorkspace := dialWSAt(t, srv, workspaceFilesRoute+"ws-a/files/ws")
-	c.files.WaitNRegistered(2)
-
-	c.PushFile(fileChange("ws-a", "a.go"))
-
-	assert.Equal(t, "a.go", readJSON(t, viaChat)["path"])
-	assert.Equal(t, "a.go", readJSON(t, viaWorkspace)["path"])
-}
-
-// TestFilesCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic walks both
-// mounts past a workspace neither of them holds, so a filter that had gone
-// INACTIVE — the real failure mode here, since an unresolvable filter is
-// dropped rather than denied — would show up as a firehose rather than as
-// silence.
-func TestFilesCoexistence_NeitherRouteSeesTheOthersUnrelatedTraffic(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
-
-	chatOnA := dialWSAt(t, srv, "/v0/chats/chat-a/files/ws")
-	legacyOnA := dialWSAt(t, srv, workspaceFilesRoute+"ws-a/files/ws")
-	c.files.WaitNRegistered(2)
-
-	// ws-z first: neither client holds it, so neither may receive it. Both must
-	// read the ws-a frame that follows as their FIRST frame.
-	c.PushFile(fileChange("ws-z", "z.go"))
-	c.PushFile(fileChange("ws-a", "a.go"))
-
-	assert.Equal(t, "a.go", readJSON(t, chatOnA)["path"],
-		"the chat-scoped client must not have been handed another worktree's changes")
-	assert.Equal(t, "a.go", readJSON(t, legacyOnA)["path"],
-		"the workspace-scoped client must not have been handed another worktree's changes")
+	url := "ws" + srv.URL[len("http"):] + workspaceFilesRoute + "ws-a/files/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+	require.Error(t, err, "the old workspace-scoped files mount must no longer upgrade")
 }
 
 // TestFilesFanout_AChatForkedAfterAClientConnectedWidensTheSet is why the

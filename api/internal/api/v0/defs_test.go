@@ -107,14 +107,14 @@ func TestGitDef_Lambdas(t *testing.T) {
 	assert.NotContains(t, string(data), "chat-a",
 		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	// TWO filters, one per live mount: the workspace-scoped route resolves
-	// wsId, the chat-scoped one resolves chatId, and each client activates only
-	// the one its own request binds.
-	require.Len(t, def.Filters, 2)
-	assert.Equal(t, "wsId", def.Filters[0].Param)
-	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
-	assert.Equal(t, "chatId", def.Filters[1].Param)
-	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[1].ExtractSet(evt))
+	// ONE filter: the chat-scoped mount is the only live route left (spec §8
+	// step 6 retired the old workspace-scoped one), matched by MEMBERSHIP
+	// against the fan-out set the event carries, and Required — a subscriber
+	// resolving no chat id gets nothing rather than every workspace.
+	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "chatId", def.Filters[0].Param)
+	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[0].ExtractSet(evt))
+	assert.True(t, def.Filters[0].Required)
 }
 
 func TestFilesDef_Lambdas(t *testing.T) {
@@ -129,9 +129,10 @@ func TestFilesDef_Lambdas(t *testing.T) {
 	assert.NotContains(t, string(data), "chat-a",
 		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	// TWO filters, for the three live mounts: the workspace-scoped and home
-	// routes both resolve wsId, the chat-scoped one resolves chatId, and each
-	// client activates only the one its own request binds.
+	// TWO filters, for the two live mounts left (spec §8 step 6 retired the
+	// repo-scoped workspace mount): the home route resolves wsId (its own
+	// RequireHomeWorkspace injects one), the chat-scoped one resolves chatId,
+	// and each client activates only the one its own request binds.
 	require.Len(t, def.Filters, 2)
 	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
@@ -206,13 +207,11 @@ func TestLSPDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "w1")
 
-	// TWO filters, one per live mount: the workspace-scoped route resolves
-	// wsId, the chat-scoped one resolves chatId — LSP has no fan-out (spec
-	// §4.2 owned bucket), so both extract the SAME field rather than a
-	// membership set the way gitDef's chatId filter does.
-	require.Len(t, def.Filters, 2)
-	assert.Equal(t, "wsId", def.Filters[0].Param)
+	// ONE filter: the chat-scoped mount is the only live route left (spec §8
+	// step 6 retired the old workspace-scoped one). LSP has no fan-out (spec
+	// §4.2 owned bucket), so this is a plain field match, not a membership set
+	// the way gitDef's chatId filter is.
+	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "chatId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
-	assert.Equal(t, "chatId", def.Filters[1].Param)
-	assert.Equal(t, "w1", def.Filters[1].Extract(evt))
 }

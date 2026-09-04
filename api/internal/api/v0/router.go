@@ -40,11 +40,12 @@ import (
 //
 // There is no dedicated /workspaces/:wsId sub-group any more: terminal was its
 // only member and has moved to the flat /v0/chats/:chatId prefix below (spec
-// §8 step 3). The `workspaces` endpoint group itself is gone as of §8 step 6 —
-// every one of its thirteen routes had a chat-keyed replacement live and in use
-// before it went. What still builds a "/workspaces/:wsId/..." path off
-// repoScoped is the legacy mount each re-keyed group keeps beside its chat one,
-// plus threads, which is repo-level review commentary and never moved (§4.4).
+// §8 step 3). The `workspaces` endpoint group itself is gone as of §8 step 6,
+// and so is every other group's legacy "/workspaces/:wsId/..." twin (git,
+// files, review, search, editor, identity, provider) — each had a chat-keyed
+// replacement live and in use before its old mount went. What still builds a
+// "/workspaces/:wsId/..." path off repoScoped is threads alone, which is
+// repo-level review commentary and never moved (§4.4).
 //
 //nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
@@ -184,26 +185,25 @@ func (c *Container) Register(
 		c.app.Usecases.Worktree,
 	)
 	// Files completes spec §4.2's SHARED bucket (§8 step 4): one worktree, one
-	// tree, and every chat holding it reads and writes the same files. It mounts
-	// on BOTH groups for now — the chat prefix is where it lives, and the
-	// workspace prefix is simply not retired until §8 step 6 — and needs no
-	// workspace reader on either, because each group resolves the worktree
-	// before the handlers run. The home group above keeps its own /home/files
-	// surface, for the project-level row no chat resolves to.
+	// tree, and every chat holding it reads and writes the same files. It
+	// mounts on the flat chat prefix alone now — the old workspace-scoped mount
+	// is gone (spec §8 step 6) — and needs no workspace reader, because
+	// chatScoped's resolveChatWorktree middleware has already resolved the
+	// worktree before the handlers run. The home group above keeps its own
+	// /home/files surface, for the project-level row no chat resolves to, and
+	// reuses this same c.files.Handle broadcaster (see filesDef, container.go).
 	files.Register(
-		repoScoped,
 		chatScoped,
 		c.app.Usecases.File,
 		c.files.Handle,
 	)
 	// Git is the first of spec §4.2's SHARED bucket to move (§8 step 4): one
 	// worktree, one answer, and every chat holding it sees the same writes. It
-	// mounts on BOTH groups for now — the chat prefix is where it lives, and
-	// the workspace prefix is simply not retired until §8 step 6 — and needs no
-	// workspace reader on either, because each group resolves the worktree
-	// before the handlers run.
+	// mounts on the flat chat prefix alone now — the old workspace-scoped mount
+	// is gone (spec §8 step 6) — and needs no workspace reader, because
+	// chatScoped's resolveChatWorktree middleware has already resolved the
+	// worktree before the handlers run.
 	git.Register(
-		repoScoped,
 		chatScoped,
 		c.app.Usecases.Git,
 		c.app.Repositories.Workspace,
@@ -256,24 +256,20 @@ func (c *Container) Register(
 	)
 	// Search, review, and identity are the rest of spec §4.2's SHARED bucket
 	// (§8 step 4c): one worktree, one answer, and every chat holding it sees
-	// the same reads. Each mounts on BOTH groups for now — the chat prefix is
-	// where it lives, and the workspace prefix is simply not retired until §8
-	// step 6 — and needs no workspace reader on the chat mount, because
-	// chatScoped's resolveChatWorktree middleware has already resolved the
-	// worktree onto the request context.
+	// the same reads. Each mounts on the flat chat prefix alone now — the old
+	// workspace-scoped mount is gone (spec §8 step 6) — and needs no workspace
+	// reader, because chatScoped's resolveChatWorktree middleware has already
+	// resolved the worktree onto the request context.
 	search.Register(
-		repoScoped,
 		chatScoped,
 		c.eng.Search,
-		c.app.Repositories.Workspace,
 	)
 	// Provider is the second group of spec §4.2's OWNED bucket to move (§8
 	// step 5): the poll answers per chat's resolved worktree, and the session
-	// itself is never shared with a sibling. It mounts on BOTH groups for now
-	// — the chat prefix is where the State route lives, and the workspace
-	// prefix is simply not retired until §8 step 6 — while /protected-branches
-	// stays exactly where it was: it is repo-level, not worktree-owned, and
-	// does not move.
+	// itself is never shared with a sibling. State mounts on the flat chat
+	// prefix alone now — the old workspace-scoped mount is gone (spec §8 step
+	// 6) — while /protected-branches stays exactly where it was: it is
+	// repo-level, not worktree-owned, and does not move.
 	provider.Register(
 		repoScoped,
 		chatScoped,
@@ -281,7 +277,6 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 	)
 	review.Register(
-		repoScoped,
 		chatScoped,
 		c.app.Usecases.BranchReview,
 	)
@@ -294,23 +289,19 @@ func (c *Container) Register(
 	)
 	// Editor/LSP completes spec §4.2's OWNED bucket (§8 step 5): the resolver
 	// still runs, for a CWD, but the LSP session itself is never shared with a
-	// sibling chat holding the same worktree (spec law 5). It mounts on BOTH
-	// groups for now — the chat prefix is where it lives, and the workspace
-	// prefix is simply not retired until §8 step 6 — and needs no workspace
-	// reader on the chat mount, because chatScoped's resolveChatWorktree
-	// middleware has already resolved the worktree onto the request context.
+	// sibling chat holding the same worktree (spec law 5). It mounts on the
+	// flat chat prefix alone now — the old workspace-scoped mount is gone
+	// (spec §8 step 6) — and needs no workspace reader, because chatScoped's
+	// resolveChatWorktree middleware has already resolved the worktree onto
+	// the request context.
 	editor.Register(
-		repoScoped,
 		chatScoped,
 		c.eng.LSP,
 		c.eng.Git,
-		c.app.Repositories.Workspace,
 		c.lsp.Handle,
 	)
 	identity.Register(
-		repoScoped,
 		chatScoped,
 		c.eng.Identity,
-		c.app.Repositories.Workspace,
 	)
 }

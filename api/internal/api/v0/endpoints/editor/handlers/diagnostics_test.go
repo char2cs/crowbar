@@ -13,9 +13,9 @@ import (
 
 func TestDiagnostics_200Snapshot(t *testing.T) {
 	lsp := &fakeLSP{snapshot: []domlsp.Diagnostic{{Message: "boom", Severity: "error"}}}
-	r := newRouter(lsp, &fakeGit{}, okWSReader())
+	r := newRouter(lsp, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/lsp/diagnostics", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/lsp/diagnostics", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	env := decode(t, rec)
@@ -27,16 +27,19 @@ func TestDiagnostics_200Snapshot(t *testing.T) {
 	assert.Equal(t, "boom", evt.Diagnostics[0].Message)
 }
 
-func TestDiagnostics_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
+// TestDiagnostics_NoResolvedWorkspace_500 is the wiring-bug guard: a route
+// mounted outside chatScoped's resolveChatWorktree middleware finds no
+// workspace on reqscope and reports a 500 (Handlers.workspace).
+func TestDiagnostics_NoResolvedWorkspace_500(t *testing.T) {
+	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ghost/lsp/diagnostics", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec := do(t, r, http.MethodGet, "/v0/chats/chat1/lsp/diagnostics", nil)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestDiagnostics_NilEngine_503(t *testing.T) {
-	r := newRouter(nil, &fakeGit{}, okWSReader())
+	r := newRouter(nil, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/lsp/diagnostics", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/lsp/diagnostics", nil)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }

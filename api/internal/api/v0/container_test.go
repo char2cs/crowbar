@@ -270,17 +270,26 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	assert.Equal(t, "keep", got["name"])
 }
 
+// TestV0_PushLSP_ReachesFilteredClient dials the flat chat-scoped mount
+// (spec §8 step 6 retired editor/LSP's .../workspaces/:wsId/lsp/ws twin
+// entirely): editor/LSP's OWNED-bucket key is the chat id itself
+// (handlers.Handlers.lspOwnerID), so a diagnostics event is keyed by "chat-1"
+// rather than by the workspace it resolves to.
 func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedWorkspace(t, tc, "w1")
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	seedWorkspace(t, tc, "w1")
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws"
+	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/lsp/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -289,31 +298,41 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitLSPRegistered()
 
-	// An event for a different workspace must be filtered out; the matching one
+	// An event for a different chat must be filtered out; the matching one
 	// must arrive.
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
+	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other-chat", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
+	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "chat-1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
 
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "w1", got["wsId"])
+	assert.Equal(t, "chat-1", got["wsId"])
 	diags, _ := got["diagnostics"].([]any)
 	require.Len(t, diags, 1)
 }
 
-func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
+// TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace dials the flat
+// chat-scoped mount (spec §8 step 6 retired git's .../workspaces/:wsId/git/
+// status twin entirely): a push for a workspace no chat resolves to (or a
+// DIFFERENT chat's worktree) must never reach this subscriber, which
+// gitDef's Required chatId membership filter is what now guarantees.
+func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedWorkspace(t, tc, "A")
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "A"},
+		wsToChats:  map[string][]string{"A": {"chat-1"}},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	seedWorkspace(t, tc, "A")
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
+	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -322,37 +341,8 @@ func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitGitRegistered()
 
-	// A push for workspace B must be filtered out; only A's status arrives.
-	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
-	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
-
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got gitdomain.GitStatus
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "branch-A", got.Branch)
-}
-
-func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	// The dual-served route scopes by the :wsId PATH param, not a query param.
-	seedWorkspace(t, tc, "A")
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitGitRegistered()
-
+	// A push for workspace B (no chat resolves to it here) must be filtered
+	// out; only chat-1's own worktree status (A) arrives.
 	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
 	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
 
@@ -366,14 +356,22 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedWorkspace(t, tc, "w1")
+	// files' own repo-scoped .../workspaces/:wsId/files/ws mount is gone (spec
+	// §8 step 6); the flat chat prefix is what's left, fanned out by chat id
+	// (wsToChats) the same way git's chatId filter works.
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		wsToChats:  map[string][]string{"w1": {"chat-1"}},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	seedWorkspace(t, tc, "w1")
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/files/ws"
+	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/files/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()

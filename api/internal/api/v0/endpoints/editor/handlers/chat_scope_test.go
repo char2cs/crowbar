@@ -20,13 +20,10 @@ import (
 )
 
 // This file pins the handler half of editor/LSP's move onto /v0/chats/:chatId
-// (spec §4.2's OWNED bucket, §8 step 5): WHICH worktree a handler resolves for
-// each of its two live mounts, and WHICH key the LSP engine's per-session pool
-// is addressed by on each.
+// (spec §4.2's OWNED bucket, §8 step 5): WHICH worktree a handler resolves,
+// and WHICH key the LSP engine's per-session pool is addressed by.
 //
-// Editor/LSP diverges from git/files' shared-bucket shape here: git blame (and
-// the worktree lookup itself) resolves the same worktree either way, but the
-// LSP engine calls must NOT key a chat-scoped session by the resolved
+// The LSP engine calls must NOT key a chat-scoped session by the resolved
 // workspace id — that would let a sibling chat sharing this worktree collide
 // with, or read, this chat's own LSP session, exactly the sharing spec law 5
 // exists to rule out.
@@ -98,7 +95,7 @@ func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path"}
 }
 
-// editorRouterForScopes wires editor's two live mounts the way router.go
+// editorRouterForScopes wires editor's one live mount the way router.go
 // does, including the chat group's middleware — the piece that makes a
 // chat-scoped request resolvable at all.
 func editorRouterForScopes(
@@ -107,7 +104,7 @@ func editorRouterForScopes(
 	git handlers.GitEngine,
 ) *gin.Engine {
 	t.Helper()
-	h := handlers.New(lsp, git, okWSReader())
+	h := handlers.New(lsp, git)
 	r := gin.New()
 
 	chatScoped := r.Group("/v0/chats/:chatId")
@@ -119,12 +116,6 @@ func editorRouterForScopes(
 	chatScoped.POST("/lsp/completion", h.Completion)
 	chatScoped.POST("/lsp/didOpen", h.DidOpen)
 	chatScoped.GET("/lsp/diagnostics", h.Diagnostics)
-
-	wsScoped := r.Group("/v0/workspaces/:wsId")
-	wsScoped.GET("/blame", h.Blame)
-	wsScoped.POST("/lsp/completion", h.Completion)
-	wsScoped.POST("/lsp/didOpen", h.DidOpen)
-	wsScoped.GET("/lsp/diagnostics", h.Diagnostics)
 
 	return r
 }
@@ -210,25 +201,12 @@ func TestChatScopedDiagnostics_KeysTheSnapshotByTheChatID(t *testing.T) {
 	assert.Equal(t, "chat-1", lsp.seenOwner)
 }
 
-// TestWorkspaceScopedRoutesStillActOnTheirPathParam is the regression bar for
-// the mount this step deliberately leaves standing: the old route keeps
-// naming its workspace directly, and reqscope — never set on that group —
-// must not have displaced it, for either the shared blame read or the owned
-// LSP session key.
-func TestWorkspaceScopedRoutesStillActOnTheirPathParam(t *testing.T) {
-	lsp := &recordingLSP{}
-	git := &recordingGit{}
-	r := editorRouterForScopes(t, lsp, git)
+// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real:
+// the old /v0/workspaces/:wsId/... mount this handler set used to also serve
+// answers nothing on this router any more.
+func TestWorkspaceScopedRouteIsGone(t *testing.T) {
+	r := editorRouterForScopes(t, &recordingLSP{}, &recordingGit{})
 
 	rec := doEditorRequest(t, r, http.MethodGet, "/v0/workspaces/ws-direct/blame?path=main.go", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "/repo", git.seenPath, "the old mount resolves via wsReader, not reqscope")
-
-	rec = doEditorRequest(
-		t, r,
-		http.MethodPost, "/v0/workspaces/ws-direct/lsp/completion",
-		`{"path":"main.go","position":{"line":0,"character":0}}`,
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "ws-direct", lsp.seenOwner, "the old mount keys the LSP session by :wsId, unchanged")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

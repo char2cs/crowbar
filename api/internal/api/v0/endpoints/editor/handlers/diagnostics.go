@@ -7,7 +7,7 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// Diagnostics handles GET /v0/workspaces/:wsId/lsp/diagnostics. The data field
+// Diagnostics handles GET /v0/chats/:chatId/lsp/diagnostics. The data field
 // carries the latest diagnostics snapshot for the workspace under the
 // DiagnosticsEvent shape, empty until diagnostics arrive.
 func (h *Handlers) Diagnostics(

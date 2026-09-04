@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -30,24 +29,16 @@ func (stubResolver) CurrentIdentity(
 	return gitdomain.Identity{}
 }
 
-type stubReader struct{}
-
-func (stubReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
-// registerBothMounts wires identity.Register the way router.go does: the old
-// workspace-scoped group and the flat chat-scoped one, on one engine.
-func registerBothMounts(
+// registerChatScoped wires identity.Register the way router.go does: on the
+// flat chat-scoped group alone (spec §8 step 6 retired the old
+// workspace-scoped mount).
+func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
 	t.Helper()
 	r := gin.New()
 	v0 := r.Group("/v0")
-	identity.Register(v0, v0.Group("/chats/:chatId"), stubResolver{}, stubReader{})
+	identity.Register(v0.Group("/chats/:chatId"), stubResolver{})
 	return r
 }
 
@@ -57,7 +48,7 @@ func registerBothMounts(
 func TestRegisterMountsChatScopedRoute(
 	t *testing.T,
 ) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v0/chats/chat1/identity", http.NoBody)
@@ -65,17 +56,17 @@ func TestRegisterMountsChatScopedRoute(
 	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegisterKeepsWorkspaceScopedRoute is the regression bar for the
-// coexistence this step deliberately ships: the workspace-scoped surface is
-// NOT retired here (spec §8 step 6 does that, once every group has moved), so
-// it must still answer exactly as before.
-func TestRegisterKeepsWorkspaceScopedRoute(
+// TestRegisterDropsWorkspaceScopedRoute proves spec §8 step 6's deletion is
+// real for identity: the old /v0/workspaces/:wsId/identity mount, kept alive
+// alongside the chat-scoped one through the rest of this refactor, answers
+// nothing any more.
+func TestRegisterDropsWorkspaceScopedRoute(
 	t *testing.T,
 ) {
-	r := registerBothMounts(t)
+	r := registerChatScoped(t)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/identity", http.NoBody)
 	r.ServeHTTP(rec, req)
-	assert.NotEqual(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
