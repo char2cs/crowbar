@@ -15,8 +15,10 @@ import (
 // durable attachment store: ![alt](chats/<chatID>/attachments/<file>) or
 // [name](chats/<chatID>/attachments/<file>). Attachment filenames are always
 // server-generated (attachments.Store strips whitespace/parens/brackets out
-// of the original name), so a bare ")"-delimited capture is safe.
-var attachmentRefPattern = regexp.MustCompile(`\]\((chats/([^/\s)]+)/attachments/([^)\s]+))\)`)
+// of the original name), and never contain path separators — chatID excludes
+// "/" (rejects traversal from the chat name), and filename excludes "/" too
+// (rejects traversal via ../ or absolute paths in the filename segment).
+var attachmentRefPattern = regexp.MustCompile(`\]\((chats/([^/\s)]+)/attachments/([^/)\s]+))\)`)
 
 type attachmentRef struct {
 	logical  string
@@ -63,6 +65,12 @@ func materializeAttachmentsForDispatch(
 	durableDir := worktreepath.AttachmentsDir(chatsDir, chatID)
 	out := text
 	for _, ref := range refs {
+		// Belt-and-suspenders: even though the regex excludes "/", reject any
+		// fileName that isn't a bare filename (contains path separators). This
+		// guards against future regex changes and makes the guarantee robust.
+		if filepath.Base(ref.fileName) != ref.fileName {
+			continue
+		}
 		data, _, err := repoattachments.Read(durableDir, ref.fileName)
 		if err != nil {
 			continue

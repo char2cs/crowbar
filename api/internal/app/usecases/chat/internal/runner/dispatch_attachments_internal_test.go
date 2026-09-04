@@ -185,6 +185,29 @@ func TestMaterializeAttachmentsForDispatch_WriteFileError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestMaterializeAttachmentsForDispatch_RejectsPathTraversalInFileName(t *testing.T) {
+	// Security: a reference with the caller's own valid chatID but containing
+	// path traversal in the filename segment must never be processed. The
+	// tightened regex excludes "/" from the filename group, so this reference
+	// never matches the pattern. Even if a malformed ref somehow bypassed the
+	// regex, the belt-and-suspenders filepath.Base check in the loop would
+	// reject it before it reaches repoattachments.Read or filepath.Join.
+	text := "![](chats/chat-1/attachments/../../chat-2/attachments/secret.png)"
+	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", text)
+	require.NoError(t, err)
+	// Text must be completely unrewritten: the traversal path never matches the tightened regex
+	assert.Equal(t, text, out, "a filename segment containing / must not match the pattern and must stay unrewritten")
+}
+
+func TestMaterializeAttachmentsForDispatch_RejectsAbsolutePathInFileName(t *testing.T) {
+	// Security: absolute paths in the filename segment (e.g., /etc/passwd)
+	// must also not match the regex pattern and must stay unrewritten.
+	text := "![](chats/chat-1/attachments//etc/passwd)"
+	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", text)
+	require.NoError(t, err)
+	assert.Equal(t, text, out, "a filename segment starting with / must not match and must stay unrewritten")
+}
+
 // findStringIndex finds the index of substr in s starting from startPos, returns -1 if not found.
 func findStringIndex(s, substr string, startPos int) int {
 	idx := findIndex([]byte(s[startPos:]), []byte(substr))
