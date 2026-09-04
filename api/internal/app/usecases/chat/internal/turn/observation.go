@@ -43,12 +43,17 @@ func (t *Turns) handleObservation(
 			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
+		// Closing the last open tool call after the turn itself already closed is the
+		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
+		// zero too.
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPre:
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookSubagentPost:
 		note(ctx, "subagent stopped",
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
 		// Minted ONCE, threaded to both calls below — two independent
