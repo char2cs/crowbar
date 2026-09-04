@@ -50,6 +50,7 @@ import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
@@ -217,6 +218,17 @@ export function AgentChatView({
 }: AgentChatViewProps) {
   const activity = useAgentActivity(wsId, chatId, working, visible)
   const telemetry = useAgentTelemetry(wsId, chatId, visible)
+  const store = useWorkspaceStore()
+  // Read exactly once, at construction — this component remounts wholesale
+  // on every chat switch (key={wsId:chatId} in AgentChatPane), so "once per
+  // component instance" already means "once per chat". A lazy useState
+  // initializer, not a plain read: the value has to be ready for the very
+  // FIRST render (it flows down into AgentTranscript's own mount-time
+  // scroll-restore effect), before any effect in this component tree could
+  // read it instead.
+  const [initialScrollPosition] = useState(
+    () => store.getState().agentChats.scrollPositions[chatId] ?? null,
+  )
 
   const [draft, setDraft] = useState('')
   // The box is UNCONTROLLED — a controlled contenteditable rebuilds itself under
@@ -688,6 +700,10 @@ export function AgentChatView({
       suppressSequence={halted?.sequence}
       trailingInterruption={trailingInterruption}
       dockHeight={dockHeight}
+      initialScrollPosition={initialScrollPosition}
+      onScrollPositionChange={(position) =>
+        store.getState().setAgentChatScrollPosition(chatId, position)
+      }
     />
   )
 

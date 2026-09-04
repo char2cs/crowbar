@@ -7,6 +7,7 @@ import type {
   AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+import type { TranscriptScrollPosition } from '@/features/agent/hooks/use-transcript-anchor'
 
 // The queue that reads these is itself capped, so an id older than this window is
 // already unreachable by anything that could act on it.
@@ -153,6 +154,18 @@ export interface AgentChatsState {
    *  on an authoritative reconnect reseed because a complete idle→idle turn
    *  may have occurred while the socket was down. */
   turnRevision: Record<string, number>
+  /**
+   * Where the reader last left each chat's transcript, keyed by chat id —
+   * read once when a chat's AgentTranscript (re)mounts (a chat remounts
+   * wholesale on every switch, `key={wsId:chatId}` in AgentChatPane, so
+   * nothing else survives a switch-away/switch-back to carry this).
+   *
+   * In-memory only, deliberately never persisted to disk (unlike
+   * agent-chat-order's localStorage above): "still hot" means this running
+   * session, not "restore across an app restart" — a cold app open has
+   * nothing more useful to land on than the newest message anyway.
+   */
+  scrollPositions: Record<string, TranscriptScrollPosition>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -208,6 +221,9 @@ export interface AgentChatsSlice {
    *  is what keeps the array bounded without that regression: an entry is
    *  only ever removed once its own content is durably persisted elsewhere. */
   pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
+  /** Record wherever the reader left a chat's transcript, for its next
+   *  mount this session to restore — see AgentChatsState.scrollPositions. */
+  setAgentChatScrollPosition: (chatId: string, position: TranscriptScrollPosition) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -252,6 +268,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   settledPrompts: {},
   streamingMessages: {},
   turnRevision: {},
+  scrollPositions: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -445,6 +462,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.turnRevision[chatId]
+      delete s.agentChats.scrollPositions[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
     })
@@ -504,6 +522,11 @@ export const createAgentChatsSlice: StateCreator<
       if (kept.length === list.length) return
       if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
       else s.agentChats.streamingMessages[chatId] = kept
+    }),
+
+  setAgentChatScrollPosition: (chatId, position) =>
+    set((s) => {
+      s.agentChats.scrollPositions[chatId] = position
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

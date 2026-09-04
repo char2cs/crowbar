@@ -8,6 +8,50 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
    grew faster than the scroll did. */
 const STICK_SLACK = 96
 
+/** Where the reader was, captured on unmount so the NEXT time this exact
+ *  chat mounts (a switch back, this session) it can pick up from here
+ *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
+export interface TranscriptScrollPosition {
+  /** Was the reader following the newest message (see STICK_SLACK)? */
+  stuck: boolean
+  /** `el.scrollHeight - el.scrollTop` at the moment this was captured. A
+   *  distance from the BOTTOM, not a raw scrollTop: content can legitimately
+   *  grow while the chat is away (new turns landing), and anchoring to the
+   *  bottom is what a reader mid-history actually expects to still hold,
+   *  the same reasoning `preservePosition`/`restoreFromBottom` already use
+   *  for a prepend. */
+  distanceFromBottom: number
+}
+
+export interface UseTranscriptAnchorOptions {
+  /**
+   * True while the chat's initial page of history is still being fetched.
+   * While true — and for one quiet frame after it goes false, see
+   * `easedArmed` below — every resync snaps instantly instead of easing.
+   *
+   * Without this, a cold or warm chat open reads as the whole transcript
+   * sweeping from wherever the empty/loading state left it up to the true
+   * bottom: the virtualized list's OWN initial estimated→measured row-height
+   * corrections (routinely dozens, as the first page's rows settle in one
+   * by one) each retarget the SAME eased glide this hook builds for a
+   * single new line streaming in, and a burst of those reads as one long,
+   * visible glide rather than the instant landing a reopen should be.
+   *
+   * Defaults to false: a caller that never mentions loading gets this
+   * hook's original always-eased behaviour, unmodified.
+   */
+  loadingHistory?: boolean
+  /** A previously-saved position for this exact chat — read ONCE, at mount.
+   *  Omitted or null: land at the bottom, same as before this option
+   *  existed. */
+  initialPosition?: TranscriptScrollPosition | null
+  /** Called once, from unmount, with wherever the reader ended up. Not
+   *  called on every scroll: nothing reads the value before the NEXT mount
+   *  of this same chat, so there is nothing to keep current in the
+   *  meantime. */
+  onPositionChange?: (position: TranscriptScrollPosition) => void
+}
+
 export interface TranscriptAnchor {
   /** Goes on the scroll container. Its LAST element child is the content
    *  watched for growth — see this file's own effect for why it is the
@@ -52,9 +96,9 @@ export interface TranscriptAnchor {
  * a chat that yanks you back to the bottom while you are reading history is
  * worse than one that never follows at all.
  */
-export function useTranscriptAnchor(): TranscriptAnchor {
+export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): TranscriptAnchor {
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const stuck = useRef(true)
+  const stuck = useRef(options.initialPosition?.stuck ?? true)
   // Distance from the bottom to restore after a prepend, or null when the next
   // resize is ordinary growth.
   const restoreFromBottom = useRef<number | null>(null)
@@ -68,10 +112,35 @@ export function useTranscriptAnchor(): TranscriptAnchor {
   // `notifyReflow`, a STABLE callback returned once, reaches whichever
   // instance is currently live rather than closing over a stale one.
   const resyncRef = useRef<() => void>(() => {})
+  // How the loadingHistory-transition effect below reaches the SAME
+  // scheduleArm the ResizeObserver effect's own resync uses, rather than
+  // running a second, independent requestAnimationFrame of its own — one
+  // pending arm request at a time, always through `armFrame`, however it
+  // gets triggered.
+  const scheduleArmRef = useRef<() => void>(() => {})
+  // Read only inside the two mount-only (`[]` deps) effects below, so they
+  // see the LATEST callbacks/values without re-running on every render —
+  // this hook's caller remounts wholesale on every chat switch anyway, so
+  // identity churn mid-life is not a real concern, but a ref costs nothing
+  // and avoids depending on that.
+  const optionsRef = useRef(options)
+  optionsRef.current = options
+  // Armed once the initial history load's own measurement settle is over —
+  // see UseTranscriptAnchorOptions.loadingHistory. Starts armed unless a
+  // caller says otherwise, reproducing this hook's original (always-eased)
+  // behaviour exactly when `loadingHistory` is never mentioned.
+  const easedArmed = useRef(!(options.loadingHistory ?? false))
+  const armFrame = useRef(0)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    const initial = optionsRef.current.initialPosition
+    if (initial && !initial.stuck) {
+      el.scrollTop = Math.max(0, el.scrollHeight - initial.distanceFromBottom)
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
   }, [])
 
   useEffect(() => {
@@ -93,6 +162,18 @@ export function useTranscriptAnchor(): TranscriptAnchor {
         expectedScrollTop.current = v
       })
     follow.current = buildFollow()
+    // Re-armed by every unarmed resync below, so eased mode only engages once
+    // a FULL frame passes with nothing left to settle — a burst of initial
+    // measurement corrections keeps pushing this back, the same way a burst
+    // of new lines keeps retargeting the eased loop itself (follow-scroll.ts).
+    const scheduleArm = () => {
+      if (easedArmed.current) return
+      cancelAnimationFrame(armFrame.current)
+      armFrame.current = requestAnimationFrame(() => {
+        easedArmed.current = true
+      })
+    }
+    scheduleArmRef.current = scheduleArm
     const resync = () => {
       const keep = restoreFromBottom.current
       if (keep !== null) {
@@ -105,6 +186,7 @@ export function useTranscriptAnchor(): TranscriptAnchor {
         el.scrollTop = el.scrollHeight - keep
         return
       }
+      if (!stuck.current) return
       // The scrollable ceiling, not the raw content height — el.scrollTop can
       // never legally exceed scrollHeight - clientHeight. Feeding the raw
       // scrollHeight in here doesn't just settle at the wrong place: the
@@ -114,7 +196,16 @@ export function useTranscriptAnchor(): TranscriptAnchor {
       // chunk's growth) makes the very first frame overshoot the REAL
       // ceiling — which the native scrollTop setter then clamps to
       // instantly. The result is indistinguishable from no easing at all.
-      if (stuck.current) follow.current?.setTarget(el.scrollHeight - el.clientHeight)
+      const target = el.scrollHeight - el.clientHeight
+      if (!easedArmed.current) {
+        // Still settling (see UseTranscriptAnchorOptions.loadingHistory):
+        // land on the real target instantly, same as the prepend branch
+        // above, and push the arm-check back another frame.
+        el.scrollTop = target
+        scheduleArm()
+        return
+      }
+      follow.current?.setTarget(target)
     }
     resyncRef.current = resync
     const observer = new ResizeObserver(resync)
@@ -161,8 +252,27 @@ export function useTranscriptAnchor(): TranscriptAnchor {
       follow.current?.stop()
       follow.current = null
       resyncRef.current = () => {}
+      scheduleArmRef.current = () => {}
+      cancelAnimationFrame(armFrame.current)
+      // Wherever the reader ends up, for this exact chat's next mount this
+      // session (a switch back) to restore — see
+      // UseTranscriptAnchorOptions.onPositionChange.
+      optionsRef.current.onPositionChange?.({
+        stuck: stuck.current,
+        distanceFromBottom: el.scrollHeight - el.scrollTop,
+      })
     }
   }, [])
+
+  // Backstops `scheduleArm` above for a chat whose initial page causes NO
+  // resize at all (a brand-new, empty chat, say) — nothing would otherwise
+  // ever arm eased mode for it. Runs only on the loadingHistory transition
+  // (or immediately, for a caller that starts already not-loading), so it
+  // does not re-fire on the unrelated renders in between.
+  useEffect(() => {
+    if (options.loadingHistory) return
+    scheduleArmRef.current()
+  }, [options.loadingHistory])
 
   const notifyReflow = useCallback(() => {
     resyncRef.current()

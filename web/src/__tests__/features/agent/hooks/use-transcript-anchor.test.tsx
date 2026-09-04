@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   useTranscriptAnchor,
   type TranscriptAnchor,
+  type UseTranscriptAnchorOptions,
 } from '@/features/agent/hooks/use-transcript-anchor'
 
 /**
@@ -61,8 +62,14 @@ describe('useTranscriptAnchor', () => {
     })
   }
 
-  function Host({ onReady }: { onReady?: (anchor: TranscriptAnchor) => void }) {
-    const anchor = useTranscriptAnchor()
+  function Host({
+    onReady,
+    anchorOptions,
+  }: {
+    onReady?: (anchor: TranscriptAnchor) => void
+    anchorOptions?: UseTranscriptAnchorOptions
+  }) {
+    const anchor = useTranscriptAnchor(anchorOptions)
     useEffect(() => {
       onReady?.(anchor)
     }, [anchor, onReady])
@@ -396,5 +403,121 @@ describe('useTranscriptAnchor', () => {
     vi.advanceTimersByTime(1500)
 
     expect(scroller.scrollTop).toBe(200)
+  })
+
+  // Regression: a cold/warm chat open reads as the whole transcript sweeping
+  // from wherever the loading state left it up to the true bottom, because
+  // the virtualized list's own initial estimated→measured row corrections
+  // retarget the SAME eased glide built for a single new line streaming in.
+  describe('loadingHistory (initial-load settling)', () => {
+    it('snaps instantly, not eased, on every resync while loadingHistory is true', () => {
+      const { getByTestId } = render(<Host anchorOptions={{ loadingHistory: true }} />)
+      const scroller = getByTestId('scroller')
+      expect(scroller.scrollTop).toBe(600) // mount ceiling: 1000 - 400
+
+      // Simulates the virtualizer's own initial estimated→measured corrections.
+      grow(1400) // ceiling: 1400 - 400 = 1000
+      // Instant: already at the target with zero time advanced — the eased
+      // path would still be short of it here (compare the "eases toward the
+      // bottom" test above, which advances 50ms and asserts strictly less).
+      expect(scroller.scrollTop).toBe(1000)
+
+      grow(1800) // a second correction lands
+      expect(scroller.scrollTop).toBe(1400) // ceiling: 1800 - 400
+    })
+
+    it('arms eased follow only once loadingHistory goes false AND a full frame passes with nothing left to settle', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
+      const scroller = getByTestId('scroller')
+
+      // The initial page's rows are still settling.
+      grow(1400)
+      expect(scroller.scrollTop).toBe(1000) // instant, as above
+
+      // loadInitial resolves — but another correction lands right after,
+      // still within the same settle burst.
+      rerender(<Host anchorOptions={{ loadingHistory: false }} />)
+      grow(1500)
+      expect(scroller.scrollTop).toBe(1100) // still instant: 1500 - 400
+
+      // Quiet now: let the pending arm frame actually fire.
+      vi.advanceTimersByTime(16)
+
+      // A genuinely new message streams in — now eased, not instant.
+      grow(1900) // ceiling: 1900 - 400 = 1500
+      vi.advanceTimersByTime(50)
+      expect(scroller.scrollTop).toBeGreaterThan(1100)
+      expect(scroller.scrollTop).toBeLessThan(1500)
+
+      vi.advanceTimersByTime(1500) // several time constants — fully settled
+      expect(scroller.scrollTop).toBe(1500)
+    })
+
+    it('arms eased follow even with no resize at all — an empty chat whose loadingHistory simply goes false', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
+      const scroller = getByTestId('scroller')
+
+      rerender(<Host anchorOptions={{ loadingHistory: false }} />)
+      vi.advanceTimersByTime(16) // the backstop's own arm frame
+
+      grow(1400) // ceiling: 1400 - 400 = 1000
+      vi.advanceTimersByTime(50)
+      expect(scroller.scrollTop).toBeGreaterThan(600)
+      expect(scroller.scrollTop).toBeLessThan(1000)
+    })
+  })
+
+  // Regression: no per-chat scroll persistence existed at all — switching
+  // chats and back always defaulted to the bottom, even for a chat the
+  // reader had deliberately scrolled up in.
+  describe('initialPosition / onPositionChange (per-chat restore)', () => {
+    it('restores a saved non-bottom position instantly on mount, and marks it not-stuck', () => {
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: false, distanceFromBottom: 500 } }} />,
+      )
+      const scroller = getByTestId('scroller')
+      // scrollHeight 1000 - distanceFromBottom 500.
+      expect(scroller.scrollTop).toBe(500)
+
+      // Not-stuck carried over: ordinary growth must not auto-follow.
+      grow(1400)
+      vi.advanceTimersByTime(1500)
+      expect(scroller.scrollTop).toBe(500)
+    })
+
+    it('a saved stuck position still lands at the bottom, same as no saved position', () => {
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: true, distanceFromBottom: 300 } }} />,
+      )
+      expect(getByTestId('scroller').scrollTop).toBe(600) // ceiling: 1000 - 400
+    })
+
+    it('reports the final position, once, on unmount', () => {
+      const onPositionChange = vi.fn()
+      const { getByTestId, unmount } = render(<Host anchorOptions={{ onPositionChange }} />)
+      const scroller = getByTestId('scroller')
+      scroller.scrollTop = 250 // well short of the 600 ceiling — not stuck
+      fireEvent.scroll(scroller)
+
+      expect(onPositionChange).not.toHaveBeenCalled()
+      unmount()
+
+      // distanceFromBottom is scrollHeight (1000) - scrollTop (250), not
+      // relative to the ceiling — see the type's own doc.
+      expect(onPositionChange).toHaveBeenCalledTimes(1)
+      expect(onPositionChange).toHaveBeenCalledWith({ stuck: false, distanceFromBottom: 750 })
+    })
+
+    it('a chat that stayed stuck to the bottom reports stuck: true on unmount', () => {
+      const onPositionChange = vi.fn()
+      const { unmount } = render(<Host anchorOptions={{ onPositionChange }} />)
+
+      unmount()
+
+      // At the mount ceiling (scrollTop 600), distanceFromBottom is
+      // scrollHeight (1000) - 600 = 400 — clientHeight is the closest a
+      // fully-stuck reader's own distance-from-bottom ever gets to zero.
+      expect(onPositionChange).toHaveBeenCalledWith({ stuck: true, distanceFromBottom: 400 })
+    })
   })
 })
