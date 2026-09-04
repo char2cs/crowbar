@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,4 +85,21 @@ func materializeAttachmentsForDispatch(
 		out = strings.ReplaceAll(out, ref.logical, rel)
 	}
 	return out, nil
+}
+
+// rewritePromptTextForDispatch is materializeAttachmentsForDispatch with the
+// chatsDir lookup folded in, for a call site that only has a workspaceID —
+// submitPromptOverAPI (prompts.go), the live api-push delivery path.
+// spawnRunner (spawn.go) already resolves chatsDir as part of spawnPaths for
+// its own unrelated reasons and calls materializeAttachmentsForDispatch
+// directly with it, so it has no need for this wrapper.
+func (rs *Runners) rewritePromptTextForDispatch(
+	ctx context.Context,
+	workspaceID, chatID, worktree, runnerID, text string,
+) (string, error) {
+	chatsDir, err := rs.ws.AgentChatsDir(ctx, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: submit prompt: chats dir: %w", err)
+	}
+	return materializeAttachmentsForDispatch(chatsDir, worktree, chatID, runnerID, text)
 }
