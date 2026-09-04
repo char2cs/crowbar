@@ -1,6 +1,7 @@
 package worktreepath
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -351,4 +352,47 @@ func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "feature/x-2", got)
+}
+
+// --- Attachment durable store and scratch dir (Task 1) ---
+
+func TestAttachmentsDir(t *testing.T) {
+	dir := AttachmentsDir("/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "/crow/projects/p1/slug/branch/chats/chat-1/attachments", dir)
+}
+
+func TestAttachmentScratchDir(t *testing.T) {
+	dir := AttachmentScratchDir("/work/tree", "runner-1")
+	assert.Equal(t, "/work/tree/.crowbar-attachments/runner-1", dir)
+}
+
+func TestUnderWorktree(t *testing.T) {
+	assert.True(t, UnderWorktree("/work/tree/.crowbar-attachments/r1", "/work/tree"))
+	assert.False(t, UnderWorktree("/work/tree", "/work/tree"), "worktree itself is never under worktree")
+	assert.False(t, UnderWorktree("/work/tree-other/x", "/work/tree"), "string-prefix sibling is not nested")
+	assert.False(t, UnderWorktree("", "/work/tree"))
+	assert.False(t, UnderWorktree("/work/tree/x", ""))
+}
+
+func TestRemoveUnderWorktree(t *testing.T) {
+	base := t.TempDir()
+	worktree := filepath.Join(base, "worktree")
+	target := filepath.Join(worktree, ".crowbar-attachments", "r1")
+	require.NoError(t, os.MkdirAll(target, 0o755))
+
+	RemoveUnderWorktree(context.Background(), worktree, target)
+
+	_, err := os.Stat(target)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestRemoveUnderWorktree_RefusesAPathOutsideTheWorktree(t *testing.T) {
+	base := t.TempDir()
+	worktree := filepath.Join(base, "worktree")
+	outside := filepath.Join(base, "outside")
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+
+	RemoveUnderWorktree(context.Background(), worktree, outside)
+
+	assert.DirExists(t, outside, "must never remove a path outside the worktree")
 }

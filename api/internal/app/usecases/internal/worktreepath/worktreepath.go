@@ -403,3 +403,64 @@ func RemoveUnderHome(
 		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
 	}
 }
+
+// AttachmentsDir returns a chat's durable attachment store: the directory the
+// upload endpoint writes into and the asset-serving GET endpoint reads from.
+//
+// Path: <chatsDir>/<chatID>/attachments. It nests under the same chats/
+// sibling directory ChatsDir already roots the ledger and RunnerDir under
+// (never inside the git worktree, so an upload never appears in git status),
+// keyed by the chat's own id — unlike RunnerDir, an attachment's chat pointer
+// is never erased, and deleting the chat already removes chats/<chatID>
+// wholesale, so there is no separate cleanup path to get right here.
+func AttachmentsDir(chatsDir, chatID string) string {
+	return filepath.Join(chatsDir, chatID, "attachments")
+}
+
+// AttachmentScratchDirName is the dot-prefixed directory, at a workspace's
+// worktree root, that holds per-runner scratch copies of attachments
+// materialized for CLI dispatch. Deliberately absent from the worktree's own
+// .gitignore — writing to a file the user owns and tracks is not this
+// daemon's business, least of all for a directory that only exists for the
+// seconds-to-minutes a turn referencing an attachment is in flight (chat
+// attachments design spec, "Storage & agent delivery").
+const AttachmentScratchDirName = ".crowbar-attachments"
+
+// AttachmentScratchDir returns runnerID's scratch attachment directory inside
+// worktree, keyed by runnerID for the same reason RunnerDir is: it is what a
+// runner's onExit callback already has in hand on a clean death, and what
+// boot reconciliation can re-derive from a bare dead-runner row with no chat
+// pointer needed.
+func AttachmentScratchDir(worktree, runnerID string) string {
+	return filepath.Join(worktree, AttachmentScratchDirName, runnerID)
+}
+
+// UnderWorktree reports whether path is strictly nested under worktree — the
+// scratch-attachment analogue of UnderHome, for a path living INSIDE the git
+// worktree rather than under crowbar home.
+func UnderWorktree(path, worktree string) bool {
+	if path == "" || worktree == "" {
+		return false
+	}
+	return strings.HasPrefix(path, strings.TrimRight(worktree, "/")+"/")
+}
+
+// RemoveUnderWorktree deletes target only when it is strictly under worktree,
+// and never fails the caller — the scratch-attachment analogue of
+// RemoveUnderHome. RunnerDir's own reap helper checks crowbarHome; a scratch
+// attachment copy lives INSIDE the git worktree instead, so it needs this
+// separate boundary rather than reusing that one.
+func RemoveUnderWorktree(
+	ctx context.Context,
+	worktree string,
+	target string,
+) {
+	if !UnderWorktree(target, worktree) {
+		slog.WarnContext(ctx, "agent: refusing to rm attachment scratch path outside the worktree (skipping)",
+			"target", target, "worktree", worktree)
+		return
+	}
+	if err := os.RemoveAll(target); err != nil {
+		slog.WarnContext(ctx, "agent: reap attachment scratch path", "target", target, "err", err)
+	}
+}
