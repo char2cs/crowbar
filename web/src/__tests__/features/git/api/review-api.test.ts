@@ -273,13 +273,17 @@ describe('review-api request shapes', () => {
     expect(thread.side).toBe('new')
   })
 
-  it('mergeIntoParent POSTs to /merge-into-parent with the strategy body', async () => {
+  // Merging is a worktree LIFECYCLE verb, not a review read: it goes to the
+  // chat that HOLDS the worktree, on the same repo-scoped chat prefix the other
+  // six verbs share — not to reviewBase and not to the retired workspace path.
+  it('mergeIntoParent POSTs to the owning chat’s /merge-into-parent verb', async () => {
     const fetchMock = mockFetchEnvelope(null)
 
     await mergeIntoParent('ws-5', 'squash')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-5/merge-into-parent')
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/chat-of-ws-5/merge-into-parent')
+    expect(url).not.toContain('/workspaces/')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: false })
   })

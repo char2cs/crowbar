@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createFolder, placeFolder, deleteFolder } from '@/lib/api/sidebar-placement'
+import {
+  createFolder,
+  placeFolder,
+  deleteFolder,
+  placeWorkspace,
+} from '@/lib/api/sidebar-placement'
+import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -97,5 +103,65 @@ describe('deleteFolder', () => {
       new Response(JSON.stringify({ success: true, data: null }), { status: 200 }),
     )
     expect(await deleteFolder('p1', 'r1', 'f1')).toEqual([])
+  })
+})
+
+// Spec §7.5: the retired `PATCH .../workspaces/:wsId` did nothing for placement
+// but resolve this same owning chat and call the same command, so filing a
+// worktree-owning row now goes straight to the chat's own placement route.
+describe('placeWorkspace', () => {
+  beforeEach(() => {
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-1',
+      owningChatId: 'chat-ws-1',
+    })
+  })
+
+  it("PATCHes the owning chat's placement route, never the workspace one", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+
+    await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/chat-ws-1/placement')
+    expect(url).not.toContain('/workspaces/')
+    expect(init.method).toBe('PATCH')
+  })
+
+  // A chat, a folder and a worktree-owning row share ONE sibling space, so the
+  // route names the destination `parentId`. Sending `folderId` — the field the
+  // retired workspace PATCH took — would bind nothing and silently leave the
+  // row where it was.
+  it('sends the folder as parentId, the field the placement route reads', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+
+    await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ parentId: 'f-rev', order: 2 })
+  })
+
+  // Both fields are "leave it as it is" when omitted, on this route as on the
+  // one it replaced. Sending an explicit null/undefined would re-root the row.
+  it('omits a field the caller did not set rather than sending an empty one', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+
+    await placeWorkspace('ws-1', { order: 0 })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ order: 0 })
+  })
+
+  // The repo ROOT is a real destination, spelled '' — distinct from "unset".
+  it('sends the repo root as an empty parentId, not as an omission', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+
+    await placeWorkspace('ws-1', { folderId: '', order: 1 })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ parentId: '', order: 1 })
   })
 })

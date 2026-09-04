@@ -401,6 +401,13 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rebase-onto-parent",
 		"POST " + repo + "/chats/:id/retry-provision",
 		"POST " + repo + "/chats/:id/detach-holder",
+		// Batch branch import, relocated onto the surface that survives (spec §8
+		// step 6b). It is a route of its own beside POST .../chats — that one
+		// adopts ONE named branch, this one takes a set and resolves the repo's
+		// open-PR graph across it, creating missing ancestors and falling back to
+		// a placeholder for a branch held elsewhere. Its …/workspaces/import
+		// mount above is still served by this very same handler.
+		"POST " + repo + "/chats/import-batch",
 		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
 		// chat interleave at every level, which is why the placement route above and

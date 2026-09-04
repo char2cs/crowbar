@@ -35,6 +35,16 @@ import (
 // the error sink and runAsync in the chat package to serve them would be a
 // second copy of this file's entire dependency set. Spec §8 step 6b retires the
 // :wsId twins above; what is left here is exactly this block.
+//
+// .../chats/import-batch is the BATCH import, and it is a route of its own
+// beside POST .../chats rather than a loop over it. POST .../chats with an
+// `import` body adopts ONE named branch; this one takes a set and resolves the
+// repo's open-PR head→base graph across it, creating the ancestors a branch is
+// parented under and falling back to a placeholder row for a branch another
+// worktree already holds. Driving it as N single creates would silently drop all
+// three of those, so the handler moves here by its MOUNT only — the body is
+// already chat-first (it is what spec §8 step 1 rewrote) and reads :repoId
+// exactly as the importing create does.
 func Register(
 	rg *gin.RouterGroup,
 	reader workspacehandlers.Reader,
@@ -67,6 +77,7 @@ func Register(
 	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
+	rg.POST("/chats/import-batch", h.Import)
 	if worktrees == nil {
 		return
 	}

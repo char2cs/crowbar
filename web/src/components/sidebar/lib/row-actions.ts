@@ -289,7 +289,7 @@ export async function performSetWorkspaceLock(
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
-    await setWorkspaceLock(projectId, repo.id, wsId, locked)
+    await setWorkspaceLock(wsId, locked)
     useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to update lock')

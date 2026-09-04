@@ -151,7 +151,7 @@ describe('SidebarRowContextMenu', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, FORK_ROW_ID)
     fireEvent.click(screen.getByText('Lock'))
-    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', true)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
   // Amended in fix round 1: a folder row with `ownsWorktree: true` (matching
@@ -189,7 +189,7 @@ describe('SidebarRowContextMenu', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
       fireEvent.click(screen.getByText('Unlock'))
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-2', false)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-2', false)
     })
 
     // Finding 2 of the same review: `performCreateFolder` matched `parentId`

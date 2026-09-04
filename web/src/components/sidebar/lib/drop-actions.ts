@@ -314,11 +314,11 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // refused, in which case it throws and the follow-up placement call
       // below never fires).
       const wait = watchReparent(call.wsId, call.parentId)
-      await reparentWorkspace(call.projectId, call.repoId, call.wsId, call.parentId)
+      await reparentWorkspace(call.wsId, call.parentId)
       return wait()
     }
     case 'workspace':
-      return placeWorkspace(call.projectId, call.repoId, call.wsId, {
+      return placeWorkspace(call.wsId, {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
       })

@@ -7,6 +7,8 @@ import {
   gitBaseForWorkspace,
   terminalsBaseForWorkspace,
   workspaceBase,
+  worktreeVerbBaseForWorkspace,
+  repoChatsBaseForWorkspace,
 } from '@/lib/workspace-scope-url'
 import {
   recordWorkspaceScope,
@@ -251,5 +253,67 @@ describe('terminalCreate', () => {
     const deletedUrl = String(fetchSpy.mock.calls[0][0])
     expect(deletedUrl).toContain('/v0/chats/chat-7/terminals/sess-2')
     expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+  })
+})
+
+// The seven worktree LIFECYCLE verbs (backend spec §4.3) are the one part of
+// the chat surface that KEPT its project/repo nesting: creation and repo-level
+// listing stay hierarchical (§7.1), and these mount beside the chat's own
+// promote/rename/placement verbs rather than in a second chat surface. So they
+// deliberately do NOT use chatBase's flat `/v0/chats/:chatId` shape.
+describe('worktreeVerbBaseForWorkspace', () => {
+  it("addresses the verb to the chat HOLDING the worktree, under its repo", () => {
+    recordWorkspaceScope({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-1',
+      owningChatId: 'chat-1',
+    })
+    expect(worktreeVerbBaseForWorkspace('ws-1')).toBe('/v0/projects/p1/repos/r1/chats/chat-1')
+  })
+
+  it('keeps the repo nesting rather than collapsing onto the flat chat prefix', () => {
+    recordWorkspaceScope({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-1',
+      owningChatId: 'chat-1',
+    })
+    const base = worktreeVerbBaseForWorkspace('ws-1')
+    expect(base).not.toBe(chatBase('chat-1'))
+    expect(base).toContain('/repos/r1/')
+  })
+
+  // A missing owning chat is a scope-recording bug. Guessing would build
+  // `/chats//lock`, which 404s identically to every other cause.
+  it('throws when the workspace has no recorded owning chat', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-orphan' })
+    expect(() => worktreeVerbBaseForWorkspace('ws-orphan')).toThrow(/no owning chat/)
+  })
+
+  it('encodes the chat id so a stray slash cannot forge extra path segments', () => {
+    recordWorkspaceScope({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-2',
+      owningChatId: 'a/b',
+    })
+    expect(worktreeVerbBaseForWorkspace('ws-2')).toBe('/v0/projects/p1/repos/r1/chats/a%2Fb')
+  })
+})
+
+// The repo-scoped chats COLLECTION: where a chat is created and the repo's
+// chats are listed. Both keep the project/repo prefix for the same reason.
+describe('repoChatsBaseForWorkspace', () => {
+  it('nests under the workspace’s own project and repo', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' })
+    expect(repoChatsBaseForWorkspace('ws-1')).toBe('/v0/projects/p1/repos/r1/chats')
+  })
+
+  // The project HOME has no repo — and no worktree, so no chat owns it. It
+  // keeps its own /home mount, exactly as its files surface does.
+  it('falls back to the project-home mount for a repo-less workspace', () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
+    expect(repoChatsBaseForWorkspace('ws-home')).toBe('/v0/projects/p1/home/chats')
   })
 })

@@ -2,16 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
-vi.mock('@/lib/workspace-scope-url', () => ({ workspaceBase: (id: string) => `/v0/ws/${id}` }))
-// 'w1' carries a real repo, so chatBase builds the Task-17 repo-scoped shape;
-// 'ws-home' has repoId '' (a project-home workspace) and falls back to
-// workspaceBase's still-live /home mount; anything else is unrecorded scope.
+// Only the scope REGISTRY is faked; the URL builders themselves run for real,
+// so these assertions pin the actual paths this client dials rather than a
+// stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
+// repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
+// falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
   getWorkspaceScope: (id: string) => {
     if (id === 'w1') return { projectId: 'p1', repoId: 'r1', wsId: 'w1' }
     if (id === 'ws-home') return { projectId: 'p1', repoId: '', wsId: 'ws-home' }
     return null
   },
+  getOwningChatId: (id: string) => (id === 'w1' ? 'chat-w1' : null),
 }))
 
 import * as api from '@/features/agent/api/agent-api'
@@ -29,7 +31,7 @@ describe('agent-api: chatBase URL shape', () => {
   it('keeps the home mount unchanged for a home workspace', async () => {
     apiFetch.mockResolvedValue([])
     await api.listChats('ws-home')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws-home/chats')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/home/chats')
     expect(apiFetch.mock.calls[0][0]).not.toContain('/repos/')
   })
 })

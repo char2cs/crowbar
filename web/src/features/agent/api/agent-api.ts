@@ -1,6 +1,5 @@
 import { API_BASE, apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
 // Agentic-chat REST client. A chat is no longer addressed through its
@@ -15,15 +14,12 @@ import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-per
 // today — derive the same repo-scoped/home branch this file's own routes do,
 // rather than re-deriving it (and drifting from it, as that hook's direct
 // `workspaceBase(wsId)/chats` build had, post Task 17).
+//
+// The shape itself now lives beside the other scope-to-URL builders, because
+// the worktree LIFECYCLE verbs mount on this same repo-scoped chat prefix and
+// must not re-derive it here.
 export function chatBase(wsId: string): string {
-  const scope = getWorkspaceScope(wsId)
-  // Null scope and a home workspace (repoId '') both fall back to
-  // workspaceBase, which already resolves the /home shape and already throws
-  // on an unrecorded scope — no need to duplicate either behavior here.
-  if (!scope || !scope.repoId) return `${workspaceBase(wsId)}/chats`
-  const p = encodeURIComponent(scope.projectId)
-  const r = encodeURIComponent(scope.repoId)
-  return `/v0/projects/${p}/repos/${r}/chats`
+  return repoChatsBaseForWorkspace(wsId)
 }
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────

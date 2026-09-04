@@ -9,6 +9,7 @@ import type {
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
+import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -379,50 +380,11 @@ export function deleteProject(projectId: string, init?: RequestInit): Promise<vo
  * being locked exactly when it is protected. Automatic locking is unaffected
  * either way — this only decides whether the user is overruling it.
  */
-export function setWorkspaceLock(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-  locked: boolean | null,
-): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}/lock`, {
+export function setWorkspaceLock(wsId: string, locked: boolean | null): Promise<void> {
+  return apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/lock`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ locked }),
-  })
-}
-
-/**
- * Where a new workspace goes, in the two independent senses the sidebar has.
- *
- * `parentId` is the FORK parent — the workspace whose branch the new one is cut
- * from, and the edge a later rebase acts on. `folderId` is placement only: which
- * sidebar folder the row is filed under, moving nothing on disk. They are
- * separate fields so a folder can never be mistaken for a fork parent, and a
- * create carries one or the other: a row started on a folder forks from the
- * repo's default branch (no parentId), and a row started on a workspace inherits
- * its placement through that fork ancestor (no folderId).
- */
-export interface WorkspacePlacement {
-  parentId?: string
-  folderId?: string
-}
-
-// Both fields omitted = fork from the repo's default branch, at the repo root.
-export function postWorkspace(
-  projectId: string,
-  repoId: string,
-  branch: string,
-  placement: WorkspacePlacement = {},
-): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      branch,
-      ...(placement.parentId ? { parentId: placement.parentId } : {}),
-      ...(placement.folderId ? { folderId: placement.folderId } : {}),
-    }),
   })
 }
 
@@ -432,16 +394,22 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
   return apiFetch<PRLink[]>(`/v0/projects/${projectId}/repos/${repoId}/pull-requests`)
 }
 
-// Batch-import branches as managed workspaces. The daemon PR-parents each branch
-// under the workspace for its open PR's base and creates missing ancestors (the
-// whole tree). Resolves on 202-accept; created workspaces arrive on the
+// Batch-import branches as chats holding a worktree each. The daemon PR-parents
+// each branch under the row for its open PR's base and creates missing ancestors
+// (the whole tree). Resolves on 202-accept; the created rows arrive on the
 // workspaces WS stream.
+//
+// It is a route of its own rather than a loop over POST .../chats, which adopts
+// ONE named branch: only this one resolves the PR graph ACROSS a set, creates
+// the ancestors a branch is parented under, and falls back to a placeholder row
+// for a branch another worktree already holds. Driving it per-branch would drop
+// all three silently.
 export function importBranches(
   projectId: string,
   repoId: string,
   branches: string[],
 ): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/import`, {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ branches }),

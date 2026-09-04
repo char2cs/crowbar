@@ -178,7 +178,7 @@ beforeEach(() => {
   // about the PLACEMENT sequencing this unblocks, not the settle mechanism
   // itself. The dedicated "waits for real confirmation"/"refusal" tests
   // below override this per-call to prove the wait is real.
-  vi.mocked(reparentWorkspace).mockImplementation(async (_projectId, _repoId, wsId, parentId) => {
+  vi.mocked(reparentWorkspace).mockImplementation(async (wsId, parentId) => {
     confirmReparent(wsId, parentId)
   })
 })
@@ -203,7 +203,7 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
     )
 
     expect(placeWorkspace).toHaveBeenCalledTimes(1)
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-c', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
       folderId: '',
       order: 0,
     })
@@ -232,7 +232,7 @@ describe('performSidebarDrop — filing into a folder', () => {
       'into',
     )
 
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
       folderId: 'folder-1',
       order: 0,
     })
@@ -251,7 +251,7 @@ describe('performSidebarDrop — clearing a stale folder edge', () => {
     expect(reparentWorkspace).not.toHaveBeenCalled()
     // ws-a's own children are [ws-fork, folder-3] — landing "into" ws-a
     // appends after both.
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-d', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-d', {
       folderId: '',
       order: 2,
     })
@@ -263,8 +263,8 @@ describe('performSidebarDrop — crossing a fork parent', () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
     await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', 'ws-b')
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', { order: 0 })
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
     expect(vi.mocked(reparentWorkspace).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(placeWorkspace).mock.invocationCallOrder[0],
     )
@@ -280,8 +280,8 @@ describe('performSidebarDrop — crossing a fork parent', () => {
       'after',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', 'ws-a')
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', { order: 0 })
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', { order: 0 })
   })
 
   it('the same "after" drop on a COLLAPSED row is a plain sibling reorder instead', async () => {
@@ -295,7 +295,7 @@ describe('performSidebarDrop — crossing a fork parent', () => {
 
     expect(reparentWorkspace).not.toHaveBeenCalled()
     // ws-a sits at index 0 among the root siblings, so "after" it is index 1.
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
       folderId: '',
       order: 1,
     })
@@ -311,9 +311,9 @@ describe('performSidebarDrop — crossing a fork parent', () => {
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', 'home-1')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1')
     // Root-level siblings (5 of them) plus this one landing at the end.
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', { order: 5 })
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 5 })
   })
 })
 
@@ -328,14 +328,14 @@ describe('performSidebarDrop — waits for a real reparent confirmation, not jus
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
-    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', 'ws-b')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
     // The POST resolved, but nothing has confirmed the move landed yet.
     expect(placeWorkspace).not.toHaveBeenCalled()
 
     confirmReparent('ws-fork', 'ws-b')
     await done
 
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-fork', { order: 0 })
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
   })
 
   it('a server-side refusal (lastError set, e.g. guardReparent declining) surfaces as toast.error — the placement call never fires', async () => {
@@ -388,11 +388,11 @@ describe('performSidebarDrop — multi-row moves', () => {
     await done
 
     expect(placeWorkspace).toHaveBeenCalledTimes(2)
-    expect(placeWorkspace).toHaveBeenNthCalledWith(1, 'proj-1', 'repo-1', 'ws-b', {
+    expect(placeWorkspace).toHaveBeenNthCalledWith(1, 'ws-b', {
       folderId: '',
       order: 0,
     })
-    expect(placeWorkspace).toHaveBeenNthCalledWith(2, 'proj-1', 'repo-1', 'ws-c', {
+    expect(placeWorkspace).toHaveBeenNthCalledWith(2, 'ws-c', {
       folderId: '',
       order: 1,
     })
@@ -435,7 +435,7 @@ describe('performSidebarDrop — the repo home row', () => {
     expect(reparentWorkspace).not.toHaveBeenCalled()
     // Root siblings minus ws-b itself: ws-a, ws-c, folder-1, folder-2 — ws-b
     // lands after all four.
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
       folderId: '',
       order: 4,
     })
@@ -453,7 +453,7 @@ describe('performSidebarDrop — the repo home row', () => {
     )
 
     expect(reparentWorkspace).not.toHaveBeenCalled()
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-c', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
       folderId: '',
       order: 0,
     })
@@ -492,7 +492,7 @@ describe('performSidebarDrop — removal-tray hold', () => {
     expect(reparentWorkspace).not.toHaveBeenCalled()
     // Root siblings minus ws-b: ws-a, ws-c, folder-1, folder-2 — "after"
     // ws-a (index 0) is index 1.
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
       folderId: '',
       order: 1,
     })
@@ -912,7 +912,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
     )
 
     expect(placeWorkspace).toHaveBeenCalledOnce()
-    expect(placeWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-c', {
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
       folderId: '',
       order: expect.any(Number),
     })
@@ -925,7 +925,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-b', 'ws-a')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
   })
 
   it('a branch row as the SUBJECT is placed by its workspace id', async () => {
@@ -936,8 +936,6 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
     )
 
     expect(placeWorkspace).toHaveBeenCalledWith(
-      'proj-1',
-      'repo-1',
       'ws-a',
       expect.objectContaining({ folderId: 'folder-1' }),
     )
@@ -953,8 +951,6 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
     // ws-a sits at index 0 of the repo root, so `ws-c` takes that slot — the
     // index is only computable if the target resolved to `ws-a` at all.
     expect(placeWorkspace).toHaveBeenCalledWith(
-      'proj-1',
-      'repo-1',
       'ws-c',
       expect.objectContaining({ order: 0 }),
     )

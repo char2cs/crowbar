@@ -13,19 +13,24 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 )
 
-// importRequest is the POST …/workspaces/import body: the branches to import as
-// managed workspaces. Each is PR-parented up to a protected/default root, with
-// missing ancestors created (see workspace.CreateFromImport).
+// importRequest is the POST …/chats/import-batch body: the branches to import
+// as chats holding a worktree each. Each is PR-parented up to a
+// protected/default root, with missing ancestors created (see
+// workspace.CreateFromImport).
 type importRequest struct {
 	Branches []string `json:"branches"`
 }
 
-// Import handles POST /v0/projects/:projectId/repos/:repoId/workspaces/import.
-// It validates synchronously (repo present, branches non-empty), returns 202,
-// and resolves + creates the tree in the background. Each created workspace
-// arrives on the per-repo workspace WebSocket stream, exactly like a single
-// create; a batch that fails before producing any workspace is best-effort
-// logged (no entity to hang LastError on).
+// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch
+// (and its retired-in-place …/workspaces/import mount). It validates
+// synchronously (repo present, branches non-empty), returns 202, and resolves +
+// creates the tree in the background. Each created chat arrives on the per-repo
+// WebSocket stream, exactly like a single create; a batch that fails before
+// producing anything is best-effort logged (no entity to hang LastError on).
+//
+// It reads the repo from :repoId, the same param and the same store the
+// importing POST .../chats resolves through, which is the whole reason the
+// relocation is a mount change and not a rewrite.
 func (h *Handlers) Import(c *gin.Context) {
 	var body importRequest
 	if err := c.ShouldBindJSON(&body); err != nil {

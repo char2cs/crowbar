@@ -140,6 +140,50 @@ export function filesBaseForWorkspace(wsId: string): string {
   return `${chatBase(chatId)}/files`
 }
 
+/**
+ * The repo-scoped chats COLLECTION for `wsId`: `/v0/projects/:p/repos/:r/chats`.
+ *
+ * Chat lifecycle is the one part of the surface that kept its project/repo
+ * nesting (backend spec §7.1: "the only routes that keep the prefix are
+ * creation and repo-level listing"), so this is deliberately NOT `chatBase`'s
+ * flat `/v0/chats/:chatId` shape.
+ *
+ * The project HOME has no repo, so it falls back to workspaceBase's `/home`
+ * mount — which is also where an unrecorded scope throws, so neither case is
+ * re-implemented here.
+ */
+export function repoChatsBaseForWorkspace(wsId: string): string {
+  const scope = getWorkspaceScope(wsId)
+  if (!scope || !scope.repoId) return `${workspaceBase(wsId)}/chats`
+  const p = encodeURIComponent(scope.projectId)
+  const r = encodeURIComponent(scope.repoId)
+  return `/v0/projects/${p}/repos/${r}/chats`
+}
+
+/**
+ * The base for the seven worktree LIFECYCLE verbs — lock, sync,
+ * merge-into-parent, reparent, rebase-onto-parent, retry-provision,
+ * detach-holder — on the chat that owns `wsId`'s worktree:
+ * `/v0/projects/:p/repos/:r/chats/:chatId`.
+ *
+ * These are verbs on the thing actually being HELD (backend spec §4.3). They
+ * sit on the repo-scoped chat prefix rather than the flat `chatBase` one
+ * because that is where the chat's own verbs already live — promote, rename,
+ * placement — so lock and merge sit beside them instead of in a second,
+ * differently-shaped chat surface.
+ *
+ * Throws when no owning chat is recorded, for the same reason
+ * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
+ * and guessing a URL from it would produce a 404 far from the cause. The
+ * project home has no worktree and so has none of these verbs at all — callers
+ * never reach it for one.
+ */
+export function worktreeVerbBaseForWorkspace(wsId: string): string {
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  return `${repoChatsBaseForWorkspace(wsId)}/${encodeURIComponent(chatId)}`
+}
+
 // §3/§7: build the hierarchical base for a workspace-scoped API/WS URL. Every
 // files/git/lsp/terminal route nests under the owning project+repo now; callers
 // still pass only a wsId (the identifier they hold), and the project/repo are

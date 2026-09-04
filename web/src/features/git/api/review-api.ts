@@ -1,5 +1,9 @@
 import { apiFetch } from '@/lib/api'
-import { reviewBaseForWorkspace, workspaceBase } from '@/lib/workspace-scope-url'
+import {
+  reviewBaseForWorkspace,
+  workspaceBase,
+  worktreeVerbBaseForWorkspace,
+} from '@/lib/workspace-scope-url'
 import type { DiffScope } from './review-window-api'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type {
@@ -12,9 +16,14 @@ import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 // Branch-review REST client. Review routes hang off the chat that owns the
 // workspace's worktree (reviewBaseForWorkspace, /v0/chats/:chatId/review) and
 // return the standard {success,data} envelope, which apiFetch already unwraps
-// for us (see git-diff-api.ts for the pattern). The /threads routes below are
-// a separate endpoint group and stay workspace-scoped (workspaceBase) — this
-// step does not move them.
+// for us (see git-diff-api.ts for the pattern). Merging is a worktree LIFECYCLE
+// verb rather than a review read, so it goes to the repo-scoped chat prefix the
+// other six verbs share (worktreeVerbBaseForWorkspace), not to reviewBase.
+//
+// The /threads routes below are a DIFFERENT concept sharing the word: they are
+// the code-review comment system, which backend spec §4.4 leaves untouched on
+// purpose. They stay workspace-scoped (workspaceBase) and are not part of this
+// migration.
 //
 // Scope: this is the LOCAL branch-vs-parent review surface (description +
 // multi-file diff + inline threads + merge strategy). It does NOT create remote
@@ -170,7 +179,7 @@ export async function mergeIntoParent(
   strategy: MergeStrategy,
   deleteSource = false,
 ): Promise<void> {
-  await apiFetch<unknown>(`${workspaceBase(wsId)}/merge-into-parent`, {
+  await apiFetch<unknown>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ strategy, deleteSource }),

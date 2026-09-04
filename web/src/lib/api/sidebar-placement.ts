@@ -1,4 +1,5 @@
 import { apiFetch, folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api'
+import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 
 /**
@@ -29,16 +30,29 @@ export interface WorkspacePlacement {
   order?: number
 }
 
-export function placeWorkspace(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-  placement: WorkspacePlacement,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/workspaces/${wsId}`, {
+/**
+ * File a worktree-owning row into a folder, at an index.
+ *
+ * Addressed to the CHAT that owns the worktree, on the placement route the
+ * chats and folders beside it already use. That is not a re-implementation:
+ * the retired `PATCH .../workspaces/:wsId` did nothing here but resolve this
+ * same owning chat and call the same command (backend spec §7.5), so the two
+ * were one write reached two ways and this is the surviving way.
+ *
+ * `folderId` is sent as the route's `parentId` — one field, because a chat, a
+ * folder and a worktree-owning row all hang off the same sibling space. It
+ * stays named `folderId` on this side to keep the caller's guarantee that a
+ * folder can never be mistaken for a fork parent, which is a different edge
+ * written by `reparentWorkspace` next door.
+ */
+export function placeWorkspace(wsId: string, placement: WorkspacePlacement): Promise<void> {
+  return apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/placement`, {
     method: 'PATCH',
     headers: JSON_HEADERS,
-    body: JSON.stringify(placement),
+    body: JSON.stringify({
+      ...(placement.folderId !== undefined && { parentId: placement.folderId }),
+      ...(placement.order !== undefined && { order: placement.order }),
+    }),
   })
 }
 

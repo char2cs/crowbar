@@ -193,7 +193,7 @@ describe('row-actions', () => {
 
   it('locking a workspace calls setWorkspaceLock with locked: true', async () => {
     await performSetWorkspaceLock('ws-1', true)
-    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', true)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
   // A lock is the one mutation that CHANGES WHAT A ROW IS: the daemon mints the
@@ -252,7 +252,7 @@ describe('row-actions', () => {
         ],
       })
 
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-new', true)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
     })
 
     it('does not lock a branch that was imported but not chosen to be locked', async () => {
@@ -271,7 +271,7 @@ describe('row-actions', () => {
         ],
       })
       expect(api.setWorkspaceLock).toHaveBeenCalledTimes(1)
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-a', true)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
     })
 
     it('leaves every workspace unlocked when no branch was chosen to be locked (default import behavior is unchanged)', async () => {
@@ -317,7 +317,7 @@ describe('row-actions', () => {
           },
         ],
       })
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-new', true)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
     })
 
     // The import POST resolving is not the same moment as the workspace
@@ -341,7 +341,7 @@ describe('row-actions', () => {
         })
       })
       await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-race', true)
+      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-race', true)
     })
   })
 
@@ -528,12 +528,12 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
 
   it('unlocking a locked branch row calls setWorkspaceLock for the WORKSPACE it owns', async () => {
     await performSetWorkspaceLock('ws-1-row', false)
-    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', false)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', false)
   })
 
   it('clearing the override on a locked branch row still reaches the workspace', async () => {
     await performSetWorkspaceLock('ws-1-row', null)
-    expect(api.setWorkspaceLock).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', null)
+    expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', null)
   })
 
   it('creating a folder under a locked branch row parents it to that workspace', async () => {
