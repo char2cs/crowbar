@@ -187,10 +187,15 @@ jobs:
       - name: Install tauri-cli
         run: cargo binstall tauri-cli@^2 --no-confirm --locked
       - name: Restore per-arch builds from desktop-macos-arch-build
+        # Each arch-build leg uploads two paths (target/<triple> and
+        # binaries/crowbar-api-<triple>) that only share the desktop/src-tauri
+        # ancestor, so upload-artifact roots the archive there and strips that
+        # prefix (documented "least common ancestor" behavior) — restore into
+        # desktop/src-tauri, not the repo root, or the files land one level up.
         uses: actions/download-artifact@v8
         with:
           pattern: macos-target-*
-          path: .
+          path: desktop/src-tauri
           merge-multiple: true
       - name: Merge Go sidecar into a universal binary
         run: |
