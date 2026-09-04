@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -395,4 +396,34 @@ func TestRemoveUnderWorktree_RefusesAPathOutsideTheWorktree(t *testing.T) {
 	RemoveUnderWorktree(context.Background(), worktree, outside)
 
 	assert.DirExists(t, outside, "must never remove a path outside the worktree")
+}
+
+// TestRemoveUnderWorktree_HandlesRemovalError exercises RemoveUnderWorktree's
+// os.RemoveAll error path: the target directory has its own contents but has had
+// write permission revoked, so RemoveAll can enumerate it (needs only
+// read+execute) but cannot unlink the child file inside it (needs write on the
+// parent), and must log the error rather than failing the caller — a real
+// removal failure, unlike the already-covered success case.
+func TestRemoveUnderWorktree_HandlesRemovalError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permission")
+	}
+	base := t.TempDir()
+	worktree := filepath.Join(base, "worktree")
+	require.NoError(t, os.MkdirAll(worktree, 0o755))
+	target := filepath.Join(worktree, ".crowbar-attachments", "r1")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "child.txt"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(target, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(target, 0o700) })
+
+	// Call should not panic and should not remove the directory (error path taken).
+	RemoveUnderWorktree(context.Background(), worktree, target)
+
+	// Verify the directory still exists: os.RemoveAll failed and the caller was
+	// not failed (error path was logged, not propagated).
+	assert.DirExists(t, target, "locked directory must not be removed; error path should have been taken")
 }
