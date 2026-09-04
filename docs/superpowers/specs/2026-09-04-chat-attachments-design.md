@@ -35,7 +35,7 @@ Two kinds (text, Excalidraw) never require a stored file under normal size; two 
 - Clicking it opens a dropdown with two entries: **Excalidraw** (opens an embedded Excalidraw editor; on save, produces the JSON scene) and **Attach File** (opens a picker that supports both drag-and-drop and click-to-browse; a single entry point regardless of whether the picked file is an image, CSV, PDF, or other — kind is inferred from the file itself, not from which menu entry was clicked).
 - Drag-and-drop onto the composer works the same way regardless of entry point. This repo already has drag-and-drop plumbing wired into composer-adjacent components (`pane-container.tsx`, `terminal.tsx`), routed through `extractDroppedFilePaths()` — but that function is currently a dead stub (`file-system-dropped-paths.ts` returns `[]` unconditionally, left out of scope by a prior session). Reviving/repurposing this path is in scope here, not new plumbing from zero.
 - Every attachment inserts as a block-level void Plate node at the current cursor position (or drop position, when available).
-- "Movable without worries" = the existing block drag-handle affordance already used for block reordering elsewhere in the editor, extended to cover these new node types — not new drag logic.
+- "Movable without worries" = a block drag-handle affordance, same interaction shape as `BlockMenuKit` in the full markdown file editor — but that plugin is explicitly excluded from the chat composer today (`chat-composer-plugins.ts` calls it "page-editor furniture"), so this is **new work for the composer**, not a reuse. Scope it as either adopting a composer-appropriate subset of `BlockMenuKit`, or a lighter drag-handle built just for attachment blocks (not full block-menu chrome like `/`-insert or block-type conversion, which chat deliberately doesn't have).
 - Paste interception: a paste handler checks (1) is the caret inside an existing code-block node — if so, skip entirely, let it paste as normal code; (2) does the pasted content exceed the text-attachment threshold — if so, wrap it as a `text-attachment` block instead of inserting plain text. Image data in the clipboard always becomes an image attachment (subject to Shift bypass, see below).
 - Shift+Cmd/Ctrl+V always bypasses all of the above and inserts plain text, per the original request.
 
@@ -58,6 +58,7 @@ Two kinds (text, Excalidraw) never require a stored file under normal size; two 
 
 ## Open questions for the implementation plan
 
+- Composer drag-handle scope: adopt a `BlockMenuKit`-equivalent subset, or build a lighter drag affordance scoped just to attachment blocks (composer deliberately lacks the rest of `BlockMenuKit`'s chrome — `/`-insert, block-type conversion — so a full adoption isn't a clean drop-in).
 - Exact byte/char/line/row thresholds for: paste-to-pill, CSV table-vs-file, inline-vs-file size cap.
 - Exact upload endpoint request/response contract (multipart vs base64-JSON, matching which existing precedent most closely).
 - Excalidraw library choice and version; whether the embedded editor is a modal or an inline panel.
