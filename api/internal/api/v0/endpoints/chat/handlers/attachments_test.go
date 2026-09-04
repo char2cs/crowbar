@@ -182,6 +182,20 @@ func TestUploadAttachment_JSONPathVariantMissingFileIs400(t *testing.T) {
 	assert.Empty(t, uc.uploadAttachmentCalls)
 }
 
+func TestUploadAttachment_JSONPathVariantRefusesADirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	reqBody := []byte(`{"path":"` + dir + `","id":"ab12"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/attachments", reqBody)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+
+	uc := inWorkspace(&fakeAgentUsecase{})
+	newChatHandlers(uc).UploadAttachment(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Empty(t, uc.uploadAttachmentCalls)
+}
+
 func TestUploadAttachment_JSONPathVariantOversizedFileIs413(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/big.bin"

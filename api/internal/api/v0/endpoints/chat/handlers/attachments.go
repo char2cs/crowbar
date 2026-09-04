@@ -118,6 +118,10 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 		libs.WriteErr(ctx, http.StatusBadRequest, "could not read attachment file")
 		return nil, "", "", false
 	}
+	if info.IsDir() {
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is a directory, not a file")
+		return nil, "", "", false
+	}
 	if info.Size() > repoattachments.MaxBytes {
 		libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "attachment exceeds the size limit")
 		return nil, "", "", false
