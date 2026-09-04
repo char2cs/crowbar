@@ -90,11 +90,10 @@ func (rs *Runners) spawnRunner(
 	crowbarHome, projectID, repoID := paths.crowbarHome, paths.projectID, paths.repoID
 	worktree, tmpDir := paths.worktree, paths.tmpDir
 
-	// A COPY of promptMessage for dispatch — the durable ledger text is never
-	// mutated; see materializeAttachmentsForDispatch's own fast path for the
-	// zero-attachment case.
+	// A COPY of promptMessage for dispatch — the durable ledger text is never mutated.
 	dispatchMessage, err := materializeAttachmentsForDispatch(paths.chatsDir, worktree, chatID, runnerID, promptMessage)
 	if err != nil {
+		worktreepath.RemoveUnderWorktree(ctx, worktree, worktreepath.AttachmentScratchDir(worktree, runnerID))
 		return "", fmt.Errorf("agent: spawn runner: materialize attachments: %w", err)
 	}
 
@@ -226,6 +225,7 @@ func (rs *Runners) forkCLI(
 	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
 		rs.agents.ForgetRunner(req.runnerID)
 		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+		worktreepath.RemoveUnderWorktree(ctx, req.worktree, worktreepath.AttachmentScratchDir(req.worktree, req.runnerID))
 		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
 	}
 	termSessID, err := rs.term.CreateCommand(ctx, req.workspaceID, req.worktree, req.argv, req.env,
