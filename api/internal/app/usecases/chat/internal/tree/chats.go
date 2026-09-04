@@ -236,9 +236,9 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
-// DeleteChat erases chatID and every chat threaded below it, TOGETHER WITH THE
-// WORKTREE each of those chats owned. A FOLDER id is refused as not-found
-// rather than served: the folder verb PROMOTES what it held and this one
+// DeleteChat erases chatID and every chat threaded below it, TOGETHER WITH ANY
+// WORKTREE that subtree was the last thing holding. A FOLDER id is refused as
+// not-found rather than served: the folder verb PROMOTES what it held and this one
 // CASCADES into it, so accepting a folder here would erase every chat filed
 // inside one on a route that only ever meant to delete a conversation. See
 // loadChat's own doc for the other half of the same guard.
@@ -317,6 +317,16 @@ func (u *chatFolderUsecase) DeleteChat(
 // ancestor's ground and owns nothing to tear down. That is what keeps deleting
 // a thread from reaping the worktree its parent is still working in.
 //
+// A workspace some SURVIVING chat still holds is skipped for the same reason,
+// arrived at from the other side. Chat.WorkspaceID says which worktree a chat
+// is anchored to, not that it is anchored there alone, and a worktree is
+// many-chats-to-one by design — so before each teardown the doomed subtree is
+// subtracted from the workspace's full holder set (heldElsewhere), and only an
+// empty remainder authorises the cascade. Without that subtraction deleting one
+// conversation destroyed the worktree its unrelated siblings were working in
+// and left every one of them pointing at a workspace that no longer exists.
+// Those chats are still purged; they simply stop naming ground other rows need.
+//
 // Each workspace is reaped ONCE however many rows in the subtree name it. A
 // thread carries its parent's workspace id, so a chat and its threads routinely
 // name one worktree between them; asking for the same teardown twice would work
@@ -327,6 +337,7 @@ func (u *chatFolderUsecase) reapWorktrees(
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
+	doomed := doomedSet(ids)
 	reaped := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		row := snapshot.row(id)
@@ -334,7 +345,14 @@ func (u *chatFolderUsecase) reapWorktrees(
 			continue
 		}
 		reaped[row.WorkspaceID] = true
-		err := u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
+		shared, err := u.heldElsewhere(ctx, row.WorkspaceID, doomed)
+		if err != nil {
+			return fmt.Errorf("agent chat folder: delete chat %s: %w", id, err)
+		}
+		if shared {
+			continue
+		}
+		err = u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
 		if err == nil || errors.Is(err, apperr.ErrNotFound) {
 			continue
 		}

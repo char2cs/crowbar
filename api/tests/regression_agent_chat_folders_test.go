@@ -153,27 +153,16 @@ func chatOrderOf(
 // chat that is deleted takes every chat below it. Promoting them, the way a
 // deleted folder promotes its children, would leave conversations whose entire
 // premise has been erased and which no drag can restore.
+//
+// `bystander` is the second half, and the reason this test was quarantined for
+// a spell: it shares ONE worktree with the subtree being deleted, exactly as
+// ordinary sibling conversations do, and the cascade used to tear that worktree
+// down on its way past — destroying the bystander and leaving nothing behind
+// able to name the directory. The cascade now subtracts the doomed subtree from
+// the worktree's holder census and reaps only what nothing else is holding
+// (tree.reapWorktrees), so the assertion below is about both rules at once:
+// everything threaded below the deleted chat goes, and NOTHING else does.
 func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
-	// QUARANTINED — a PRODUCT bug with DATA-LOSS consequences, and the most
-	// serious thing this migration turned up. Reported, not fixed.
-	//
-	// reapWorktrees (usecases/chat/internal/tree/chats.go) treats EVERY chat in a
-	// deleted subtree that carries a non-empty WorkspaceID as OWNING that
-	// workspace, and calls DiscardChildWorkspace -> full DeleteCascade on it. But
-	// Chat.WorkspaceID only says which workspace a chat is anchored to: ordinary
-	// sibling conversations legitimately share one. So deleting a chat can delete
-	// the shared workspace out from under unrelated siblings — this test's own
-	// `bystander` was destroyed along with the worktree on every run inspected,
-	// including runs whose HTTP response was a "passing" 202.
-	//
-	// The visible symptom is only an intermittent 404: that async cascade races
-	// the request's own purgeAll walk, and whichever loses reports "aggregate not
-	// found". The deletion happens either way.
-	//
-	// Like the folder-lineage tests, this was not failing before — it was not
-	// RUNNING, because its fixture POSTed to the deleted /workspaces route.
-	t.Skip("product bug: deleting a chat cascade-deletes a workspace shared with sibling chats; see comment")
-
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)

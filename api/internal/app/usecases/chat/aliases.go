@@ -92,6 +92,10 @@ type (
 	// worktree in its subtree through, so a workspace never outlives the chat
 	// that owned it.
 	TreeWorkspaceReaper = tree.WorkspaceReaper
+	// TreeWorkspaceHolders is the census that decides whether that teardown may
+	// run: every chat currently resolving to a workspace, so a worktree
+	// surviving siblings still hold is never cascaded out from under them.
+	TreeWorkspaceHolders = tree.WorkspaceHolders
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -167,8 +171,9 @@ func NewTree(
 	workspaces TreeWorkspaceGitStatus,
 	roster TreeWorkspaceRoster,
 	reaper TreeWorkspaceReaper,
+	holders TreeWorkspaceHolders,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, roster, reaper)
+	return tree.New(chats, agent, work, workspaces, roster, reaper, holders)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components

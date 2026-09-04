@@ -231,11 +231,12 @@ func New(
 	owningChats := hierarchyOwningChats{tree: agentic.chatTree}
 	workspaceUsecase.SetOwningChats(owningChats)
 	projectImport.SetOwningChats(owningChats)
-	worktreeUsecase := worktreeResolver{
-		chats:      worktree.NewChatTreeAncestryReader(agentic.chat),
-		chatRows:   agentic.chat,
-		workspaces: workspaceUsecase,
-	}
+	// Built inside newAgentWiring, where the chat tree's own delete already
+	// needs it (see the holders argument to NewTree), and handed back rather
+	// than rebuilt here: one resolver means "which chats hold this worktree"
+	// has one answer in the daemon, whether it is asked to fan a push out or to
+	// decide whether a delete may cascade that worktree away.
+	worktreeUsecase := agentic.worktree
 	// Built HERE, not beside the other usecases above, because both take the
 	// chat→worktree resolver: a terminal session is owned by a CHAT and merely
 	// RUNS in a worktree (spec §4.2's owned bucket), so each needs to turn a
@@ -282,6 +283,7 @@ func New(
 type agentWiring struct {
 	chat     *agentusecase.Usecase
 	chatTree agentusecase.TreeUsecase
+	worktree worktreeResolver
 	wsReader agentusecase.WorkspaceReader
 	metrics  *agentusecase.ToolMetrics
 }
@@ -342,6 +344,16 @@ func newAgentWiring(
 		Minter: minter,
 		Tools:  toolDeps,
 	})
+	// The chat→worktree resolver, built here because it reads the chat forest
+	// off the usecase above and because the tree below needs its inverse. The
+	// container hands this same value to the chat-scoped routes (New's
+	// worktreeUsecase), so the fan-out set a shared write pushes to and the
+	// holder set a delete checks against are one function, not two.
+	worktreeUsecase := worktreeResolver{
+		chats:      worktree.NewChatTreeAncestryReader(chat),
+		chatRows:   chat,
+		workspaces: workspaceUsecase,
+	}
 	chatTree := agentusecase.NewTree(
 		repos.AgentChat,
 		chat,
@@ -353,10 +365,15 @@ func newAgentWiring(
 		// failed promotion's rollback must tear a workspace down through one call
 		// (hierarchy.DeleteCascade), not two implementations that could drift.
 		worktreeChildCreator{worktree: workspaceUsecase},
+		// And the census that gates it: Chat.WorkspaceID names the worktree a
+		// chat is anchored to, never that it is anchored there alone, so the
+		// delete asks who else is currently resolving to it before cascading.
+		worktreeUsecase,
 	)
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,
+		worktree: worktreeUsecase,
 		wsReader: wsReader,
 		metrics:  toolDeps.Metrics,
 	}, nil

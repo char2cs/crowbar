@@ -750,18 +750,30 @@ func TestPlaceChat_SurfacesAPlacementWriteFailure(t *testing.T) {
 // newUsecaseOverRoster builds the tree usecase over a workspace census the
 // reaper actually removes from, so a delete's effect on a WORKSPACE can be
 // asserted as absence from that census — not as "a method was called".
+//
+// The holder census it returns last resolves against the SAME chat rows the
+// usecase plans over, through the real worktree.ChatsForWorkspace: seeding a
+// sibling that shares a worktree is therefore enough to make the delete see it,
+// with nothing to keep in sync by hand.
 func newUsecaseOverRoster(
 	t *testing.T,
 	workspaces ...domain.Workspace,
-) (*mocks.AgentChatPlacements, tree.Usecase, *mocks.AgentWorkspaceRoster, *mocks.AgentWorkspaceReaper) {
+) (
+	*mocks.AgentChatPlacements,
+	tree.Usecase,
+	*mocks.AgentWorkspaceRoster,
+	*mocks.AgentWorkspaceReaper,
+	*mocks.AgentWorkspaceHolders,
+) {
 	t.Helper()
 	chats := mocks.NewAgentChatPlacements()
 	roster := mocks.NewAgentWorkspaceRoster()
 	roster.Rows = append(roster.Rows, workspaces...)
 	reaper := mocks.NewAgentWorkspaceReaperOver(roster)
+	holders := mocks.NewAgentWorkspaceHolders(chats)
 	uc := tree.New(chats, chats, inflight.NewWork(),
-		mocks.NewAgentWorkspaceGitStatus(), roster, reaper)
-	return chats, uc, roster, reaper
+		mocks.NewAgentWorkspaceGitStatus(), roster, reaper, holders)
+	return chats, uc, roster, reaper, holders
 }
 
 // seedWorktreeChat appends a chat that OWNS wsID — the row a branch or a fork
@@ -794,7 +806,7 @@ func seedWorktreeChat(
 // "the workspace is gone" is the invariant, and a test that only proved a
 // method ran would still pass if that method stopped tearing anything down.
 func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testing.T) {
-	chats, uc, roster, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
+	chats, uc, roster, _, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
 	seedWorktreeChat(chats, "owner", "ws-fork", "")
 
 	removed, err := uc.DeleteChat(context.Background(), "owner")
@@ -813,7 +825,7 @@ func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testi
 // therefore considered, but the teardown runs once per distinct workspace: the
 // worktree must go, and it must not be asked to go twice.
 func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.T) {
-	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "thread", "ws-root", "root")
 
@@ -837,7 +849,7 @@ func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.
 // is precisely the orphan this cascade was added to prevent. So a reap that
 // fails FAILS THE DELETE, and nothing is purged.
 func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *testing.T) {
-	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-locked"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-locked"})
 	seedWorktreeChat(chats, "owner", "ws-locked", "")
 	wedged := errors.New("worktree is locked")
 	reaper.ErrFor["ws-locked"] = wedged
@@ -855,7 +867,7 @@ func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *tes
 // worktree; reaping on its delete would destroy the directory its parent is
 // still working in.
 func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
-	chats, uc, roster, reaper := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-parent"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-parent"})
 	seedWorktreeChat(chats, "bubble", "", "")
 
 	_, err := uc.DeleteChat(context.Background(), "bubble")
@@ -863,4 +875,104 @@ func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, reaper.Reaped, "a bubble owns no worktree to tear down")
 	assert.Len(t, roster.Rows, 1, "its ancestor's worktree is untouched")
+}
+
+// TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt is the other
+// half of the reap contract, and the data-loss bug the first half introduced.
+//
+// The cascade above reads Chat.WorkspaceID to find what a doomed subtree owns.
+// But that field says which worktree a chat is ANCHORED to, never that it is
+// anchored there alone: a worktree is many-chats-to-one by design, which is the
+// entire premise of the shared reads (git, review, files, search, identity)
+// that fan out over exactly this set. Deleting one conversation therefore
+// cascade-deleted the worktree its unrelated SIBLINGS were working in and left
+// every one of them anchored to a workspace that no longer existed.
+//
+// The two rows here are siblings, neither inside the other's subtree, so
+// nothing about the delete reaches "kept" — and the worktree must survive
+// because "kept" is still holding it.
+func TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-shared"})
+	seedWorktreeChat(chats, "doomed", "ws-shared", "")
+	seedWorktreeChat(chats, "kept", "ws-shared", "")
+
+	removed, err := uc.DeleteChat(context.Background(), "doomed")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"doomed"}, removed.Chats, "only the named chat goes")
+	assert.Empty(t, reaper.Reaped,
+		"a worktree a surviving sibling still holds must never be cascaded away")
+	assert.Len(t, roster.Rows, 1, "so the workspace is still there")
+	assert.Equal(t, "ws-shared", chatRow(t, chats, "kept").WorkspaceID,
+		"and the sibling is still anchored to ground that exists")
+}
+
+// TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt is the gate
+// read in the opposite direction, and it is the test that keeps the fix above
+// from quietly undoing the orphan fix it was built on top of.
+//
+// Skipping the reap while a holder remains is only correct if the reap still
+// runs the moment the LAST one goes. Both deletes are made in sequence over one
+// census precisely so the gate is observed opening: the same workspace, the
+// same reaper, spared once and torn down once, decided entirely by whether
+// anything outside the doomed subtree was still pointing at it.
+func TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-shared"})
+	seedWorktreeChat(chats, "first", "ws-shared", "")
+	seedWorktreeChat(chats, "last", "ws-shared", "")
+	ctx := context.Background()
+
+	_, err := uc.DeleteChat(ctx, "first")
+	require.NoError(t, err)
+	require.Empty(t, reaper.Reaped, "one holder still remains")
+
+	_, err = uc.DeleteChat(ctx, "last")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ws-shared"}, reaper.Reaped,
+		"nothing is left holding it, so the worktree goes")
+	assert.Empty(t, roster.Rows, "a workspace no chat can name again must not survive")
+}
+
+// TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder pins the
+// SUBTRACTION the gate is built on.
+//
+// A thread carries its parent's workspace id, so the doomed subtree's own rows
+// appear in the workspace's holder census — and a gate that merely asked "does
+// anyone hold this?" would see them, decline every reap, and reintroduce the
+// orphan from the other direction. The rows about to be purged are subtracted
+// first; only what OUTLIVES the delete can spare a worktree.
+func TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
+	seedWorktreeChat(chats, "root", "ws-root", "")
+	seedWorktreeChat(chats, "thread", "ws-root", "root")
+
+	_, err := uc.DeleteChat(context.Background(), "root")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ws-root"}, reaper.Reaped,
+		"a chat's own threads are going with it, so they cannot be what keeps its worktree alive")
+	assert.Empty(t, roster.Rows)
+}
+
+// TestRegression_AFailedHolderCensusRefusesTheDelete pins the gate's failure
+// direction, which is the same one the reap itself already has.
+//
+// The whole reason the census is asked is that "is anything else holding this
+// worktree?" cannot be answered from the doomed rows alone. A delete that
+// swallowed the error and cascaded anyway would be back to assuming sole
+// ownership — the exact assumption that destroyed a shared worktree — so an
+// unanswerable question fails the delete, and nothing is purged or torn down.
+func TestRegression_AFailedHolderCensusRefusesTheDelete(t *testing.T) {
+	chats, uc, roster, reaper, holders := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
+	seedWorktreeChat(chats, "owner", "ws-fork", "")
+	unreadable := errors.New("chat forest unavailable")
+	holders.Err = unreadable
+
+	_, err := uc.DeleteChat(context.Background(), "owner")
+
+	require.ErrorIs(t, err, unreadable)
+	assert.Empty(t, reaper.Reaped, "a worktree is never torn down on a guess")
+	assert.Empty(t, chats.Purged, "and the row naming it stays, so the user can retry")
+	assert.Len(t, roster.Rows, 1)
 }

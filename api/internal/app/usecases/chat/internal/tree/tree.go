@@ -49,6 +49,7 @@ type chatFolderUsecase struct {
 	workspaces WorkspaceGitStatus
 	roster     WorkspaceRoster
 	reaper     WorkspaceReaper
+	holders    WorkspaceHolders
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -70,6 +71,12 @@ type chatFolderUsecase struct {
 // would erase a chat and silently strand the worktree it owned, which is the
 // bug this port exists to close. Making it a parameter puts that mis-wire in
 // front of the compiler instead of in front of a user.
+//
+// holders is required for the same reason and guards the same verb from the
+// opposite failure: the reaper alone will tear down whatever it is handed, so
+// without the holder census DeleteChat cascades a worktree that surviving
+// sibling chats are still working in. One port says how a workspace is torn
+// down; the other says whether it may be.
 func New(
 	chats Chats,
 	agent Agent,
@@ -77,6 +84,7 @@ func New(
 	workspaces WorkspaceGitStatus,
 	roster WorkspaceRoster,
 	reaper WorkspaceReaper,
+	holders WorkspaceHolders,
 ) Usecase {
 	return &chatFolderUsecase{
 		chats:      chats,
@@ -85,6 +93,7 @@ func New(
 		workspaces: workspaces,
 		roster:     roster,
 		reaper:     reaper,
+		holders:    holders,
 	}
 }
 
