@@ -64,8 +64,23 @@ export function fitShelf(
   }
 }
 
-/** m:ss, the way a stopwatch reads. Subagents routinely run past a minute. */
+/**
+ * m:ss like a stopwatch below an hour, then h:mm:ss and d hh:mm:ss beyond it —
+ * subagents and turns routinely run for hours, and minutes alone stop reading
+ * as a clock once they climb past 59 (`142:07` instead of `2:22:07`).
+ */
 export function formatElapsed(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))
-  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  const s = safe % 60
+  const totalMinutes = Math.floor(safe / 60)
+  const m = totalMinutes % 60
+  const totalHours = Math.floor(totalMinutes / 60)
+  const h = totalHours % 24
+  const d = Math.floor(totalHours / 24)
+
+  if (d > 0) return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`
+  if (totalHours > 0) return `${totalHours}:${pad(m)}:${pad(s)}`
+  return `${m}:${pad(s)}`
 }
