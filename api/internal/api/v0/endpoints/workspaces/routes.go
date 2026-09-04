@@ -16,8 +16,25 @@ import (
 // workspaces, the :wsId-scope subscriber receives exactly that workspace (W7-2).
 // reader and hierarchy back the reads and worktree operations; repos resolves a
 // repository for worktree-backed create; placer and chats resolve and move a
-// workspace-owning row's chat placement in the unified sidebar tree; dispatch
-// wraps the dual-served routes so the upgrade is honoured without a second path.
+// workspace-owning row's chat placement in the unified sidebar tree; worktrees
+// resolves a chat to the workspace behind its worktree for the chat-keyed verbs
+// below; dispatch wraps the dual-served routes so the upgrade is honoured
+// without a second path.
+//
+// The .../chats/:id/… block is spec §4.3's move of the seven worktree LIFECYCLE
+// verbs onto the thing actually being held. It mounts on the same repo-scoped
+// group chat's own verbs use (:id, not :chatId — the param a sibling
+// .../chats/:id/promote already binds at that position), so lock/sync/merge sit
+// beside promote/rename/placement rather than in a second, differently-shaped
+// chat surface.
+//
+// They are registered from HERE rather than from chat.Register because the
+// bodies they run are these handlers': every one of the seven is one
+// workspacehandlers.Handlers method reached through a different
+// workspaceTarget, so re-declaring the reader, the hierarchy, the work signal,
+// the error sink and runAsync in the chat package to serve them would be a
+// second copy of this file's entire dependency set. Spec §8 step 6b retires the
+// :wsId twins above; what is left here is exactly this block.
 func Register(
 	rg *gin.RouterGroup,
 	reader workspacehandlers.Reader,
@@ -28,13 +45,15 @@ func Register(
 	remote workspacehandlers.RemoteRefs,
 	placer workspacehandlers.Placer,
 	chats workspacehandlers.ChatResolver,
+	worktrees workspacehandlers.Worktrees,
 	broadcastFolder func(folderID string, workspaceID string, kind string),
 	wsHandle gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := workspacehandlers.New(reader, hierarchy, repos, lastErrors, working).
 		WithRemoteRefs(remote).
-		WithPlacer(placer, chats, broadcastFolder)
+		WithPlacer(placer, chats, broadcastFolder).
+		WithWorktrees(worktrees)
 	rg.GET("/workspaces", dispatch(h.List, wsHandle))
 	rg.GET("/workspaces/:wsId", dispatch(h.Detail, wsHandle))
 	rg.POST("/workspaces", h.Create)
@@ -48,4 +67,14 @@ func Register(
 	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
 	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
 	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
+	if worktrees == nil {
+		return
+	}
+	rg.POST("/chats/:id/lock", h.ChatLock)
+	rg.POST("/chats/:id/sync", h.ChatSync)
+	rg.POST("/chats/:id/merge-into-parent", h.ChatMergeIntoParent)
+	rg.POST("/chats/:id/reparent", h.ChatReparent)
+	rg.POST("/chats/:id/rebase-onto-parent", h.ChatRebaseOntoParent)
+	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
+	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
 }

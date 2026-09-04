@@ -73,6 +73,10 @@ import (
 // outside the entity hierarchy — mirroring /settings/terminal/profiles. It is the
 // counterpart of the repo-scoped enriched GET .../chats/providers above, and
 // is mounted exactly once (the home group re-mounts the GET but never this write).
+// repos resolves :repoId for the one route that needs the repository itself:
+// POST /chats with an `import` body, which adopts a branch that already exists
+// in that repo (spec §4.1 — Create and Import are ONE route with a
+// WorktreeSpec, not two). Every other route below is unaffected by it.
 func Register(
 	repoScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
@@ -82,10 +86,12 @@ func Register(
 	answers agenthandlers.AnswerUsecase,
 	providers agenthandlers.ProviderUsecase,
 	folders agenthandlers.ChatTreeUsecase,
+	repos agenthandlers.Repos,
 	broadcastFolder func(folderID, workspaceID, kind string),
 	wsHandle gin.HandlerFunc,
 ) {
-	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder)
+	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder).
+		WithRepos(repos)
 
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)

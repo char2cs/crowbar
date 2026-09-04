@@ -425,6 +425,21 @@ type ChatTreeUsecase interface {
 	) (chatCount, fileCount int, err error)
 }
 
+// Repos resolves the repository named by :repoId, so an IMPORTING create can
+// describe the branch it is adopting: a WorktreeImport names its repo outright
+// — the on-disk path git works in and the remote the branch is fetched from —
+// rather than inheriting them from a parent workspace an import rooted at the
+// repo does not have (see agentusecase.ImportSpec).
+//
+// It is the narrow slice this consumer needs and nothing more (law 4); the
+// container satisfies it with the real repository store (law 6).
+type Repos interface {
+	FindByKey(
+		ctx context.Context,
+		id string,
+	) (*domain.Repository, error)
+}
+
 // Handlers serves the .../repos/:repoId/chats routes from the agent usecase
 // and the Chats-panel tree usecase.
 type Handlers struct {
@@ -434,6 +449,7 @@ type Handlers struct {
 	answers         AnswerUsecase
 	providers       ProviderUsecase
 	folders         ChatTreeUsecase
+	repos           Repos
 	broadcastFolder func(folderID, workspaceID, kind string)
 }
 
@@ -471,4 +487,19 @@ func New(
 		folders:         folders,
 		broadcastFolder: broadcastFolder,
 	}
+}
+
+// WithRepos wires the repository store an IMPORTING create reads its repo facts
+// from. Left unwired, a create asking to import is refused outright rather than
+// guessing them — see Create. Every other route is unaffected, which is why
+// this is a builder and not a New parameter: the home mount (home.Register)
+// builds these handlers for a surface where import is refused anyway, since it
+// always names a workspace to attach to.
+func (h *Handlers) WithRepos(
+	repos Repos,
+) *Handlers {
+	if repos != nil {
+		h.repos = repos
+	}
+	return h
 }

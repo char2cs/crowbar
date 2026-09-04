@@ -44,6 +44,11 @@ type fakeChatTree struct {
 	gotPurge   string
 	renames    int
 	moves      int
+	// The WHOLE worktree spec the create carried, and how many creates ran —
+	// what an IMPORT is asserted through, since it flattens to the same
+	// OwnWorktree=false a plain chat does.
+	gotWorktree     agentusecase.WorktreeSpec
+	createChatCalls int
 }
 
 func (f *fakeChatTree) ListInRepo(
@@ -103,12 +108,10 @@ type createChatCall struct {
 	OwnWorktree bool
 }
 
-// CreateChat records the call, flattening the three-state WorktreeSpec back to
-// the bool this fake has always recorded. That is deliberate: this route still
-// only ever asks for a fork or a plain chat, so OwnWorktree stays exactly the
-// question every assertion here is written against, and a spec arriving as
-// WorktreeImport — which no handler can produce — would read as false and fail
-// the fork assertions loudly rather than pass by accident.
+// CreateChat records the call twice over: gotCreate2 keeps the flattened
+// "is this a fork" bool every pre-existing assertion here is written against,
+// and gotWorktree keeps the WHOLE three-state spec, which is the only way to
+// tell a WorktreeImport from a plain chat (both flatten to OwnWorktree=false).
 func (f *fakeChatTree) CreateChat(
 	_ context.Context,
 	workspaceID string,
@@ -122,6 +125,8 @@ func (f *fakeChatTree) CreateChat(
 		ParentID:    parentID,
 		OwnWorktree: worktree.Mode == agentusecase.WorktreeFork,
 	}
+	f.gotWorktree = worktree
+	f.createChatCalls++
 	return f.placed.ID, "runner-1", f.err
 }
 

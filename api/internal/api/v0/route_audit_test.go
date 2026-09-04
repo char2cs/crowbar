@@ -389,6 +389,18 @@ func extraRoutes() []string {
 		// adds a worktree and respawns the CLI in it — and it is one-way, since
 		// a worktree is never demoted.
 		"POST " + repo + "/chats/:id/promote",
+		// The worktree LIFECYCLE verbs, on the thing actually being held
+		// (chat-scoped API spec §4.3). Each resolves :id to the workspace behind
+		// that chat's worktree and runs the very same handler body its
+		// .../workspaces/:wsId twin below runs; the twins are retired in §8 step
+		// 6b, once the frontend has moved.
+		"POST " + repo + "/chats/:id/lock",
+		"POST " + repo + "/chats/:id/sync",
+		"POST " + repo + "/chats/:id/merge-into-parent",
+		"POST " + repo + "/chats/:id/reparent",
+		"POST " + repo + "/chats/:id/rebase-onto-parent",
+		"POST " + repo + "/chats/:id/retry-provision",
+		"POST " + repo + "/chats/:id/detach-holder",
 		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
 		// chat interleave at every level, which is why the placement route above and

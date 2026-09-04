@@ -17,10 +17,24 @@ import (
 func (h *Handlers) Sync(
 	c *gin.Context,
 ) {
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	h.sync(c, h.namedWorkspace)
+}
+
+// ChatSync handles POST .../repos/:repoId/chats/:id/sync — spec §4.3's
+// chat-keyed twin of Sync, and the same handler body reached the other way.
+func (h *Handlers) ChatSync(
+	c *gin.Context,
+) {
+	h.sync(c, h.chatWorkspace)
+}
+
+// sync is the body both keyings share.
+func (h *Handlers) sync(
+	c *gin.Context,
+	target workspaceTarget,
+) {
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)

@@ -123,6 +123,21 @@ type Hierarchy interface {
 	) (domain.Workspace, error)
 }
 
+// Worktrees resolves a CHAT to the workspace behind the worktree it reads and
+// writes through — itself if it owns one, else its nearest ancestor that does
+// (spec docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3).
+//
+// It is what the chat-keyed half of the lifecycle verbs (chat_scoped.go) uses
+// in place of a :wsId nobody may name any more, and it is declared HERE, as the
+// narrow slice this consumer actually needs (law 4); the container's own
+// resolver satisfies it (law 6).
+type Worktrees interface {
+	Resolve(
+		ctx context.Context,
+		chatID string,
+	) (domain.Workspace, error)
+}
+
 // Repos resolves a repository by id so the create handler can derive the repo's
 // on-disk path and owning project from the request's repoId.
 type Repos interface {
@@ -202,6 +217,7 @@ type Handlers struct {
 	remote     RemoteRefs
 	placer     Placer
 	chats      ChatResolver
+	worktrees  Worktrees
 	// broadcastFolder delivers the folder-typed chat rows a placement renumbered
 	// — folderID, the workspace scope, and the frame kind — mirroring the Chats
 	// panel's own AgentChatFolder broadcast, since a workspace-owning row's
@@ -251,6 +267,20 @@ func (h *Handlers) WithPlacer(
 	}
 	if broadcast != nil {
 		h.broadcastFolder = broadcast
+	}
+	return h
+}
+
+// WithWorktrees wires the chat→workspace resolver the chat-keyed lifecycle
+// verbs run on. Unlike the degrading wirings above a nil resolver does NOT
+// leave a half-working surface: Register simply does not mount those seven
+// routes without one, so the handler never has to answer a fiction about a
+// chat it cannot resolve.
+func (h *Handlers) WithWorktrees(
+	worktrees Worktrees,
+) *Handlers {
+	if worktrees != nil {
+		h.worktrees = worktrees
 	}
 	return h
 }

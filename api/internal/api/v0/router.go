@@ -157,6 +157,12 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Usecases.AgentChatFolder,
 		c.app.Usecases.AgentChat,
+		// The chat→worktree resolver (spec §3) behind the seven lifecycle verbs
+		// this group also mounts on the chat prefix (spec §4.3). It is the SAME
+		// value chatScoped's own middleware resolves through, so a verb reached
+		// through .../chats/:id and a read reached through /chats/:chatId agree on
+		// which worktree a chat is holding.
+		c.app.Usecases.Worktree,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.workspaces.Handle,
 		ws.DualServe,
@@ -219,6 +225,10 @@ func (c *Container) Register(
 		c.app.Usecases.AgentAnswer,
 		c.app.Usecases.AgentProvider,
 		c.app.Usecases.AgentChatFolder,
+		// Read by POST /chats alone, and only when its body asks to IMPORT a
+		// branch: the create needs the repo's on-disk path and remote to describe
+		// the branch it is adopting (spec §4.1).
+		c.app.GORM.Repositories,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 	)

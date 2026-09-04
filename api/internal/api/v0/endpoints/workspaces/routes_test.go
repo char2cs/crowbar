@@ -23,6 +23,17 @@ func TestMain(
 	m.Run()
 }
 
+// stubWorktrees resolves every chat to the same workspace, which is all the
+// route table has to know: whether the seven chat-keyed verbs are MOUNTED.
+type stubWorktrees struct{}
+
+func (stubWorktrees) Resolve(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: "abc"}, nil
+}
+
 type stubReader struct{}
 
 func (stubReader) List(
@@ -181,6 +192,7 @@ func TestRegisterMountsRoutes(
 		nil,
 		nil,
 		nil,
+		stubWorktrees{},
 		nil,
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
@@ -197,6 +209,16 @@ func TestRegisterMountsRoutes(
 		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
+		// Spec §4.3's chat-keyed twins, on the repo-scoped chat prefix beside
+		// chat's own verbs. Same seven verbs, addressed by the thing that HOLDS
+		// the worktree rather than by the worktree.
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/lock"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/sync"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/reparent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/rebase-onto-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/retry-provision"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/detach-holder"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

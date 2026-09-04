@@ -32,15 +32,31 @@ type lockRequest struct {
 func (h *Handlers) Lock(
 	c *gin.Context,
 ) {
+	h.lock(c, h.namedWorkspace)
+}
+
+// ChatLock handles POST .../repos/:repoId/chats/:id/lock — spec §4.3's
+// chat-keyed twin of Lock, and the same handler body reached the other way.
+func (h *Handlers) ChatLock(
+	c *gin.Context,
+) {
+	h.lock(c, h.chatWorkspace)
+}
+
+// lock is the body both keyings share. The BIND runs before the workspace is
+// resolved, so a malformed body is refused identically whichever way the
+// request named its target — and, as before, never reaches the store.
+func (h *Handlers) lock(
+	c *gin.Context,
+	target workspaceTarget,
+) {
 	var body lockRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	if _, err := h.reader.SetLock(c.Request.Context(), id, body.Locked); err != nil {

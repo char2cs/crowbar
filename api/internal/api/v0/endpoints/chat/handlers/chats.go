@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -15,6 +16,29 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
+
+// createRequest is the POST .../repos/:repoId/chats body. See Create.
+type createRequest struct {
+	Provider    string               `json:"provider"`
+	ParentID    string               `json:"parentId"`
+	WorkspaceID string               `json:"workspaceId"`
+	OwnWorktree bool                 `json:"ownWorktree"`
+	Import      *createImportRequest `json:"import"`
+}
+
+// createImportRequest is the import half of the create body. Its PRESENCE is
+// what selects WorktreeImport — the three modes are then mutually explicit on
+// the wire (nothing, ownWorktree, import) rather than inferred from which
+// string happens to be non-empty.
+//
+// remote is a pointer for the reason lockRequest.Locked is: omitting it and
+// sending "" are different answers. Omitted means "the repo's own remote", the
+// only sane default for a branch discovered in that repo; an explicit "" means
+// a purely local branch with nothing to fetch it from.
+type createImportRequest struct {
+	Branch string  `json:"branch"`
+	Remote *string `json:"remote"`
+}
 
 // Create handles POST .../repos/:repoId/chats: spawns a fresh AgentChat and
 // starts a RUNNER on it, launching the provider's vendor CLI in a PTY. It
@@ -45,17 +69,18 @@ import (
 // either the path (:wsId, the home mount) or the body's workspaceId means the
 // caller asked to attach to an EXISTING workspace, and that path is unchanged
 // regardless of what ownWorktree says.
+//
+// import is the THIRD way, and this route is where importing a branch becomes a
+// chat create rather than a workspace one (spec §4.1: "Create/Import die as
+// routes — both are POST /chats with a WorktreeSpec"). It runs the same atomic
+// mint→place→attach sequence fork does, differing only in where the worktree
+// comes from: an existing branch adopted instead of a fresh one cut.
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	var body struct {
-		Provider    string `json:"provider"`
-		ParentID    string `json:"parentId"`
-		WorkspaceID string `json:"workspaceId"`
-		OwnWorktree bool   `json:"ownWorktree"`
-	}
+	var body createRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
@@ -65,13 +90,9 @@ func (h *Handlers) Create(
 	if wsID == "" {
 		wsID = body.WorkspaceID
 	}
-	// The wire still carries a bool, and this route still means exactly what it
-	// meant: fork, or a plain chat. The three-state WorktreeSpec the usecase now
-	// takes is what lets IMPORT be a real sibling of fork rather than a
-	// workspace-first path in another usecase — no caller reaches it from here.
-	worktree := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
-	if body.OwnWorktree && wsID == "" {
-		worktree.Mode = agentusecase.WorktreeFork
+	worktree, ok := h.worktreeSpec(ctx, body, wsID)
+	if !ok {
+		return
 	}
 
 	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, worktree)
@@ -82,6 +103,95 @@ func (h *Handlers) Create(
 	}
 
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
+}
+
+// worktreeSpec reads the create body's three mutually exclusive answers to "and
+// what worktree does this chat get?", writing the error response and returning
+// ok=false when the caller must stop.
+//
+// A request that asks for TWO is refused rather than resolved by precedence: a
+// caller sending both ownWorktree and import has contradicted itself, and
+// silently honouring one would hand back a chat on a branch it never asked for
+// — cut fresh when it meant to adopt, or the reverse. Same for an import that
+// also names a workspace to attach to: naming one means the worktree already
+// exists and is not this create's to make.
+func (h *Handlers) worktreeSpec(
+	ctx *gin.Context,
+	body createRequest,
+	wsID string,
+) (agentusecase.WorktreeSpec, bool) {
+	none := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
+	if body.Import == nil {
+		if body.OwnWorktree && wsID == "" {
+			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork}, true
+		}
+		return none, true
+	}
+	if body.OwnWorktree {
+		libs.WriteErr(ctx, http.StatusBadRequest,
+			"a chat forks a new branch or imports an existing one, not both")
+		return none, false
+	}
+	if wsID != "" {
+		libs.WriteErr(ctx, http.StatusBadRequest,
+			"a chat attached to a workspace has its worktree already; it cannot also import one")
+		return none, false
+	}
+	spec, ok := h.importSpec(ctx, *body.Import)
+	if !ok {
+		return none, false
+	}
+	return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeImport, Import: spec}, true
+}
+
+// importSpec describes the branch an importing create adopts, from the body's
+// branch plus the repo :repoId names.
+//
+// The repo facts are read here rather than taken from the caller because they
+// are not the caller's to assert: which directory git works in, and which
+// project owns it, follow from the repo already in the URL. Only the branch —
+// and, optionally, the remote it is fetched from — is something the caller
+// knows and the daemon does not.
+//
+// ParentWorkspaceID and ParentBranch are deliberately left empty. They are the
+// GIT LINEAGE parent, which a BATCH import resolves by walking the open-PR
+// graph across every branch it was handed at once; a single create has no such
+// graph to walk and must not invent one. The chat's own placement still follows
+// parentId exactly as every other create's does — the two have always been
+// independently written fields (see agentusecase.ImportSpec).
+func (h *Handlers) importSpec(
+	ctx *gin.Context,
+	in createImportRequest,
+) (agentusecase.ImportSpec, bool) {
+	if strings.TrimSpace(in.Branch) == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "import.branch is required")
+		return agentusecase.ImportSpec{}, false
+	}
+	if h.repos == nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, "importing a branch is not available on this route")
+		return agentusecase.ImportSpec{}, false
+	}
+	repo, err := h.repos.FindByKey(ctx.Request.Context(), ctx.Param("repoId"))
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return agentusecase.ImportSpec{}, false
+	}
+	if repo == nil {
+		libs.WriteErr(ctx, http.StatusNotFound, "repo not found")
+		return agentusecase.ImportSpec{}, false
+	}
+	remote := repo.RemoteURL
+	if in.Remote != nil {
+		remote = *in.Remote
+	}
+	return agentusecase.ImportSpec{
+		RepoID:    repo.ID,
+		ProjectID: repo.ProjectID,
+		RepoPath:  repo.Path,
+		RemoteURL: remote,
+		Branch:    in.Branch,
+	}, true
 }
 
 // List handles GET .../repos/:repoId/chats, returning every conversation-typed

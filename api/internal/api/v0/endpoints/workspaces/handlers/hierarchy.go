@@ -170,6 +170,24 @@ func (h *Handlers) broadcastFolders(
 func (h *Handlers) MergeIntoParent(
 	c *gin.Context,
 ) {
+	h.mergeIntoParent(c, h.namedWorkspace)
+}
+
+// ChatMergeIntoParent handles POST .../repos/:repoId/chats/:id/merge-into-parent
+// — spec §4.3's chat-keyed twin of MergeIntoParent, and the same handler body
+// reached the other way.
+func (h *Handlers) ChatMergeIntoParent(
+	c *gin.Context,
+) {
+	h.mergeIntoParent(c, h.chatWorkspace)
+}
+
+// mergeIntoParent is the body both keyings share, deleteSource's leaf-only fold
+// included.
+func (h *Handlers) mergeIntoParent(
+	c *gin.Context,
+	target workspaceTarget,
+) {
 	var body mergeRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
@@ -179,10 +197,8 @@ func (h *Handlers) MergeIntoParent(
 		libs.WriteErr(c, http.StatusBadRequest, "strategy is required")
 		return
 	}
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)
@@ -254,10 +270,25 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 func (h *Handlers) RebaseOntoParent(
 	c *gin.Context,
 ) {
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	h.rebaseOntoParent(c, h.namedWorkspace)
+}
+
+// ChatRebaseOntoParent handles POST .../repos/:repoId/chats/:id/rebase-onto-parent
+// — spec §4.3's chat-keyed twin of RebaseOntoParent, and the same handler body
+// reached the other way.
+func (h *Handlers) ChatRebaseOntoParent(
+	c *gin.Context,
+) {
+	h.rebaseOntoParent(c, h.chatWorkspace)
+}
+
+// rebaseOntoParent is the body both keyings share.
+func (h *Handlers) rebaseOntoParent(
+	c *gin.Context,
+	target workspaceTarget,
+) {
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)
@@ -283,6 +314,27 @@ func (h *Handlers) RebaseOntoParent(
 func (h *Handlers) Reparent(
 	c *gin.Context,
 ) {
+	h.reparent(c, h.namedWorkspace)
+}
+
+// ChatReparent handles POST .../repos/:repoId/chats/:id/reparent — spec §4.3's
+// chat-keyed twin of Reparent, and the same handler body reached the other way.
+//
+// newParentId still names a WORKSPACE and not a chat: it is the git lineage
+// parent this leaf is rebased onto, resolved by the caller from the tree it is
+// already drawing. Re-keying it belongs to the sidebar's own move gesture, not
+// to this verb.
+func (h *Handlers) ChatReparent(
+	c *gin.Context,
+) {
+	h.reparent(c, h.chatWorkspace)
+}
+
+// reparent is the body both keyings share.
+func (h *Handlers) reparent(
+	c *gin.Context,
+	target workspaceTarget,
+) {
 	var body reparentRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
@@ -292,10 +344,8 @@ func (h *Handlers) Reparent(
 		libs.WriteErr(c, http.StatusBadRequest, "newParentId is required")
 		return
 	}
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)
@@ -320,10 +370,25 @@ func (h *Handlers) Reparent(
 func (h *Handlers) RetryProvision(
 	c *gin.Context,
 ) {
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	h.retryProvision(c, h.namedWorkspace)
+}
+
+// ChatRetryProvision handles POST .../repos/:repoId/chats/:id/retry-provision —
+// spec §4.3's chat-keyed twin of RetryProvision, and the same handler body
+// reached the other way.
+func (h *Handlers) ChatRetryProvision(
+	c *gin.Context,
+) {
+	h.retryProvision(c, h.chatWorkspace)
+}
+
+// retryProvision is the body both keyings share.
+func (h *Handlers) retryProvision(
+	c *gin.Context,
+	target workspaceTarget,
+) {
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)
@@ -349,10 +414,25 @@ func (h *Handlers) RetryProvision(
 func (h *Handlers) DetachHolder(
 	c *gin.Context,
 ) {
-	id := c.Param("wsId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	h.detachHolder(c, h.namedWorkspace)
+}
+
+// ChatDetachHolder handles POST .../repos/:repoId/chats/:id/detach-holder —
+// spec §4.3's chat-keyed twin of DetachHolder, and the same handler body
+// reached the other way.
+func (h *Handlers) ChatDetachHolder(
+	c *gin.Context,
+) {
+	h.detachHolder(c, h.chatWorkspace)
+}
+
+// detachHolder is the body both keyings share.
+func (h *Handlers) detachHolder(
+	c *gin.Context,
+	target workspaceTarget,
+) {
+	id, ok := target(c)
+	if !ok {
 		return
 	}
 	libs.WriteAccepted(c)

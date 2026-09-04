@@ -125,6 +125,13 @@ type fakeHierarchy struct {
 	importDone   chan struct{}
 	gotRebaseID  string
 	rebaseErr    error
+	rebaseDone   chan struct{}
+	gotRetryID   string
+	retryErr     error
+	retryDone    chan struct{}
+	gotDetachID  string
+	detachErr    error
+	detachDone   chan struct{}
 }
 
 func (f *fakeHierarchy) CreateFromImport(
@@ -192,6 +199,9 @@ func (f *fakeHierarchy) RebaseOntoParent(
 	childID string,
 ) (domain.Workspace, error) {
 	f.gotRebaseID = childID
+	if f.rebaseDone != nil {
+		close(f.rebaseDone)
+	}
 	return domain.Workspace{}, f.rebaseErr
 }
 
@@ -208,16 +218,24 @@ func (f *fakeHierarchy) DeleteCascade(
 
 func (f *fakeHierarchy) RetryProvision(
 	_ context.Context,
-	_ string,
+	wsID string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+	f.gotRetryID = wsID
+	if f.retryDone != nil {
+		close(f.retryDone)
+	}
+	return domain.Workspace{}, f.retryErr
 }
 
 func (f *fakeHierarchy) DetachHolder(
 	_ context.Context,
-	_ string,
+	wsID string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+	f.gotDetachID = wsID
+	if f.detachDone != nil {
+		close(f.detachDone)
+	}
+	return domain.Workspace{}, f.detachErr
 }
 
 type fakeRepos struct {
@@ -376,6 +394,58 @@ func newRouterWithPlacer(
 	rg.POST("/workspaces/:wsId/lock", h.Lock)
 	concrete, _ := placer.(*fakePlacer)
 	return r, concrete, frames
+}
+
+// fakeWorktrees stands in for the chat→workspace resolver spec §3 describes:
+// it records the chat id it was asked about and answers with ws, or with err.
+type fakeWorktrees struct {
+	ws      domain.Workspace
+	err     error
+	gotChat string
+	calls   int
+}
+
+func (f *fakeWorktrees) Resolve(
+	_ context.Context,
+	chatID string,
+) (domain.Workspace, error) {
+	f.calls++
+	f.gotChat = chatID
+	return f.ws, f.err
+}
+
+// newPairedRouter mounts BOTH keyings of the seven lifecycle verbs on ONE
+// handler value: the :wsId routes that exist today, and spec §4.3's chat-keyed
+// twins beside chat's own verbs.
+//
+// Both on one value is the point. A test can then fire the very same operation
+// two ways against the same fakes and compare what reached the usecase, which is
+// the only way to assert "these are the same verb reached differently" rather
+// than "these two implementations happen to agree today".
+func newPairedRouter(
+	reader workspacehandlers.Reader,
+	hierarchy workspacehandlers.Hierarchy,
+	worktrees workspacehandlers.Worktrees,
+) (*gin.Engine, *workspacehandlers.Handlers) {
+	r := gin.New()
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, &fakeLastErrors{}, fakeWork{}).
+		WithWorktrees(worktrees)
+	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
+	rg.POST("/workspaces/:wsId/lock", h.Lock)
+	rg.POST("/workspaces/:wsId/sync", h.Sync)
+	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
+	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
+	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
+	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
+	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
+	rg.POST("/chats/:id/lock", h.ChatLock)
+	rg.POST("/chats/:id/sync", h.ChatSync)
+	rg.POST("/chats/:id/merge-into-parent", h.ChatMergeIntoParent)
+	rg.POST("/chats/:id/reparent", h.ChatReparent)
+	rg.POST("/chats/:id/rebase-onto-parent", h.ChatRebaseOntoParent)
+	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
+	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
+	return r, h
 }
 
 // waitClosed blocks until done is closed. The close IS the "the background work
