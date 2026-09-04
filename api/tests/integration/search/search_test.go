@@ -37,12 +37,10 @@ func (s *SearchSuite) SetupTest() {
 	s.imported = s.Env.ImportRepo(s.T(), "search", repoPath)
 }
 
-// searchBase returns the workspace-scoped search route prefix for the adopted
+// searchBase returns the chat-scoped search route prefix for the adopted
 // main worktree.
 func (s *SearchSuite) searchBase() string {
-	return "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID +
-		"/workspaces/" + s.imported.WorkspaceID + "/search"
+	return "/v0/chats/" + s.imported.ChatID + "/search"
 }
 
 // TestSearchSuite is the testify suite entry point for search integration tests.
@@ -128,13 +126,12 @@ func (s *SearchSuite) TestSearch_EmptyQueryReturns400() {
 	s.Assert().Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
-// TestSearch_UnknownWorkspaceReturns404 ensures 404 on bad workspace.
-func (s *SearchSuite) TestSearch_UnknownWorkspaceReturns404() {
+// TestSearch_UnknownChatReturns404 ensures 404 on a chat resolveChatWorktree
+// cannot resolve a worktree for.
+func (s *SearchSuite) TestSearch_UnknownChatReturns404() {
 	t := s.T()
 
-	bad := "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID + "/workspaces/no-such-ws/search"
-	resp := s.Env.POST(t, bad, map[string]any{
+	resp := s.Env.POST(t, "/v0/chats/no-such-chat/search", map[string]any{
 		"query": "anything",
 	})
 	defer resp.Body.Close()

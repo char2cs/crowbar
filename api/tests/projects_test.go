@@ -67,12 +67,14 @@ func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 	repos := listRepos(t, h, imported.projectID)
 	assert.Empty(t, repos, "repo records must be gone")
 
-	// The repo was cascade-deleted, so its workspace list is no longer reachable:
-	// the repo scope guard 404s a :repoId that no longer belongs to the project.
-	// That the repo scope is gone (alongside the empty repos list above) proves the
-	// workspaces under it were removed by the cascade.
+	// The repo was cascade-deleted, so its chat list is no longer reachable: the
+	// repo scope guard 404s a :repoId that no longer belongs to the project. That
+	// the repo scope is gone (alongside the empty repos list above) proves the
+	// workspaces under it were removed by the cascade. (The dedicated .../workspaces
+	// list route is itself gone — spec §8 step 6 — so it would 404 unconditionally
+	// and prove nothing; .../chats is the live route the scope guard still runs on.)
 	h.raw(http.MethodGet,
-		"/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+"/workspaces",
+		"/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+"/chats",
 		nil, http.StatusNotFound)
 
 	assert.DirExists(t, imported.repoPath,
@@ -104,7 +106,7 @@ func TestRegression_HomeWorkspaceProvisionedOnCreate(t *testing.T) {
 	imported := importProject(t, h)
 
 	// The home workspace has no repo — it is not listed under
-	// /v0/projects/:p/repos/:r/workspaces. Task 5 will surface it at
+	// /v0/projects/:p/repos/:r/chats. Task 5 will surface it at
 	// GET /v0/projects/:id/home. For now we assert the project itself exists,
 	// which proves the import pipeline (including home-workspace provisioning)
 	// completed without error.

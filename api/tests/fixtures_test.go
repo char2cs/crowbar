@@ -3,22 +3,82 @@
 package tests
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 )
 
 // importedRepo bundles the ids a project import yields: the project, its
 // discovered repository, and the workspace adopted from the repo's main
 // worktree (the on-disk repo path).
+//
+// chatID is the chat that OWNS workspaceID — the id every chat-scoped route
+// addresses that worktree through, now that the whole `/workspaces/:wsId/...`
+// group is gone. It is bundled here rather than resolved per call site because
+// the import mints it: every worktree is born under a chat, so the id is
+// already on the chat list these fixtures read.
 type importedRepo struct {
 	projectID   string
 	repoID      string
 	workspaceID string
+	chatID      string
 	repoPath    string
+}
+
+// chatRow is one row of GET .../repos/:repoId/chats — the ONE read that answers
+// everything the deleted workspace list used to, since a worktree-owning chat
+// carries its git state inline (spec §5).
+type chatRow struct {
+	ID          string        `json:"id"`
+	WorkspaceID string        `json:"workspaceId"`
+	Type        string        `json:"type"`
+	Worktree    *worktreeWire `json:"worktree"`
+}
+
+// worktreeWire is dto.ChatWorktreeDTO: the git half a worktree-owning chat
+// carries, projected from the very same WorkspaceDTO the deleted workspace
+// stream used to send.
+type worktreeWire struct {
+	Branch          string `json:"branch"`
+	Status          string `json:"status"`
+	Working         bool   `json:"working"`
+	LastError       string `json:"lastError"`
+	IsDefault       bool   `json:"isDefault"`
+	Added           int    `json:"added"`
+	Deleted         int    `json:"deleted"`
+	MergeStrategy   string `json:"mergeStrategy"`
+	CanMergeLocally bool   `json:"canMergeLocally"`
+	MergeConflicts  bool   `json:"mergeConflicts"`
+	ParentBranch    string `json:"parentBranch"`
+	PRUrl           string `json:"prUrl"`
+	PRTitle         string `json:"prTitle"`
+	PRTargetBranch  string `json:"prTargetBranch"`
+	LocalPath       string `json:"localPath"`
+	HeldByPath      string `json:"heldByPath"`
+	ForkPointSha    string `json:"forkPointSha"`
+	ParentID        string `json:"parentId"`
+	OwningChatID    string `json:"owningChatId"`
+}
+
+// listChats reads the repo's chat rows over the real REST surface.
+func listChats(
+	t *testing.T,
+	h *harness,
+	projectID string,
+	repoID string,
+) []chatRow {
+	t.Helper()
+	var chats []chatRow
+	h.get("/v0/projects/"+projectID+"/repos/"+repoID+"/chats", &chats)
+	return chats
 }
 
 // importProject creates a real git repo and brings it into Crowbar via the
@@ -53,21 +113,36 @@ func importProject(
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// The locked managed worktree for the protected default branch ("main") is
-	// persisted during the background ImportRepo job; wait for its WorkspaceDTO on
-	// the repo-scoped stream rather than racing a GET against the async adoption.
-	// With the home detached, "main" is now unambiguously that single managed
-	// worktree (the home carries branch=="").
-	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "main"
-	})
-	wsID, _ := adopted["id"].(string)
-	require.NotEmpty(t, wsID, "import must provision and broadcast the main managed worktree")
+	// persisted during the background ImportRepo job. It is READ BACK rather than
+	// awaited on a stream, and that is forced: a chat frame is only reachable
+	// through a repo-scoped mount, and the repo whose id that mount needs is
+	// created BY this same job — so by the moment there is a repoId to dial, the
+	// adoption it would have carried has already happened. Quiesce drains the
+	// projections and the chat list is then read; both are real signals, neither
+	// is a poll or a sleep.
+	//
+	// With the home detached, "main" is unambiguously that single managed
+	// worktree (the home carries branch==""), and it has a real on-disk path —
+	// which is what tells it apart from the held PLACEHOLDER row the other
+	// fixture below is about.
+	h.Quiesce()
+	chats := listChats(t, h, projectID, repoID)
+	var wsID, chatID string
+	for _, c := range chats {
+		if c.Worktree == nil || c.Worktree.Branch != "main" || c.Worktree.HeldByPath != "" {
+			continue
+		}
+		wsID, chatID = c.WorkspaceID, c.ID
+		break
+	}
+	require.NotEmpty(t, wsID, "import must provision the main managed worktree")
+	require.NotEmpty(t, chatID, "the main managed worktree must be born under a chat")
 
 	return importedRepo{
 		projectID:   projectID,
 		repoID:      repoID,
 		workspaceID: wsID,
+		chatID:      chatID,
 		repoPath:    repoPath,
 	}
 }
@@ -89,36 +164,31 @@ func importProjectHomeHoldsDefault(
 
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
-	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	var homeID string
+	// Read back rather than awaited on a stream, for the reason importProject
+	// gives: the repo this fixture would have to dial is created by the very job
+	// whose output it wants. Quiesce is the barrier.
+	h.Quiesce()
+	var homeID, homeChatID string
 	sawPlaceholder := false
-	// Each frame's arrival is the signal; loop until BOTH the home and the main
-	// placeholder have been seen. No wall-clock bound: readUntil blocks, so a
-	// workspace that never materialises parks the read and `go test -timeout`
-	// names this fixture in the goroutine dump.
-	for homeID == "" || !sawPlaceholder {
-		readUntil(t, workspacesWS, func(m map[string]any) bool {
-			id, _ := m["id"].(string)
-			if id == "" {
-				return false
-			}
-			if m["isDefault"] == true {
-				homeID = id
-				return true
-			}
-			held, _ := m["heldByPath"].(string)
-			if m["branch"] == "main" && held != "" {
-				sawPlaceholder = true
-				return true
-			}
-			return false
-		})
+	for _, c := range listChats(t, h, projectID, repoID) {
+		if c.Worktree == nil {
+			continue
+		}
+		if c.Worktree.IsDefault {
+			homeID, homeChatID = c.WorkspaceID, c.ID
+		}
+		if c.Worktree.Branch == "main" && c.Worktree.HeldByPath != "" {
+			sawPlaceholder = true
+		}
 	}
+	require.NotEmpty(t, homeID, "import must adopt the home as the isDefault workspace")
+	require.True(t, sawPlaceholder, "the held default branch must surface as a placeholder row")
 
 	return importedRepo{
 		projectID:   projectID,
 		repoID:      repoID,
 		workspaceID: homeID,
+		chatID:      homeChatID,
 		repoPath:    repoPath,
 	}
 }
@@ -168,33 +238,146 @@ func importWritableWorkspace(
 ) importedRepo {
 	t.Helper()
 	imported := importProject(t, h)
+	imported.workspaceID, imported.chatID = createWorktree(t, h, imported, "feature/write", imported.workspaceID)
+	return imported
+}
 
-	wsBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-	workspacesWS := h.dial(wsBase + "/workspaces")
-	resp := h.raw(http.MethodPost, wsBase+"/workspaces",
-		map[string]string{"branch": "feature/write"}, http.StatusAccepted)
-	_ = resp.Body.Close()
+// createWorktree cuts a worktree on a CALLER-NAMED branch under parentID and
+// returns its workspace id together with the chat that owns it.
+//
+// It goes through the USECASE, not HTTP, because there is no longer an HTTP way
+// to ask: spec §8 step 6 deleted the whole `workspaces` endpoint group, and the
+// chat-scoped surface that replaced it only forks with an auto-derived branch
+// name or imports a branch that already exists. Naming the branch is a FIXTURE
+// need, not a product one — a test that asserts on "feature/write" has to be
+// able to say "feature/write" — so it is met at the layer that still offers it
+// rather than by adding a product capability nothing ships.
+//
+// CreateChild is the same call the live import path makes
+// (usecases.worktreeChildCreator.CreateImportedWorkspace), with the same
+// arguments, so a fixture worktree is born exactly as a real one is — owning
+// chat included. Only the caller differs.
+func createWorktree(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+	branch string,
+	parentID string,
+) (wsID string, chatID string) {
+	t.Helper()
+	ctx := context.Background()
 
-	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "feature/write" && m["status"] == "new"
+	repo, err := h.app.GORM.Repositories.FindByKey(ctx, imported.repoID)
+	require.NoError(t, err, "createWorktree: read repo")
+	require.NotNil(t, repo, "createWorktree: repo must exist")
+
+	// ParentBranch is the START POINT the worktree is cut from, and it must be
+	// supplied rather than left to resolveInherited: that defaulting only runs for
+	// a caller naming NEITHER RepoID nor RepoPath, and this one names both (as the
+	// live import path does). Left blank, `git worktree add` rev-parses "" and dies.
+	parentBranch := repo.DefaultBranch
+	if parentID != "" {
+		parent, perr := h.app.Repositories.Workspace.Get(ctx, parentID)
+		require.NoError(t, perr, "createWorktree: read parent workspace")
+		parentBranch = parent.Branch
+	}
+	ownWorktree := true
+	ws, err := h.app.Usecases.Workspace.CreateChild(ctx, wsusecase.CreateChildInput{
+		RepoID:       imported.repoID,
+		ProjectID:    imported.projectID,
+		RepoPath:     repo.Path,
+		RemoteURL:    repo.RemoteURL,
+		Branch:       branch,
+		ParentID:     parentID,
+		ParentBranch: parentBranch,
+		OwnWorktree:  &ownWorktree,
 	})
-	childID, _ := created["id"].(string)
-	require.NotEmpty(t, childID, "child workspace create must broadcast an id")
+	require.NoErrorf(t, err, "createWorktree: create %q under %q", branch, parentID)
 
-	// The frame above came off the HUB projection; the store/list read model is an
-	// INDEPENDENT projection that settles out of band (see
-	// repositories.Container.WaitQuiescent). Observing the frame therefore says
-	// nothing about whether the row is listable yet, so without this barrier the
-	// fixture hands back an id the list may not know — and the loser shows up as
-	// "imported workspace missing from list", or, when it is the DAEMON that reads
+	// The create's writes are asynx commands; the store/list read model is an
+	// INDEPENDENT projection that settles out of band. Without this barrier the
+	// fixture hands back an id the list may not know — which showed up as
+	// "imported workspace missing from list", or, when it is the DAEMON reading
 	// the list (DeleteCascade indexes it by id and returns ErrNotFound), as a
-	// broadcast that never carries status "deleted" at all. Quiesce is the
-	// deterministic read-your-writes barrier: every projection folded, no polling
-	// and no timeout. macOS wins this race; Linux loses it roughly 7 times in 10.
+	// broadcast that never carries status "deleted" at all. macOS wins this race;
+	// Linux loses it roughly 7 times in 10.
 	h.Quiesce()
 
-	imported.workspaceID = childID
-	return imported
+	return ws.ID, owningChatID(t, h, ws.ID)
+}
+
+// createChildWorkspace cuts a worktree on branch under parentID and returns its
+// workspace id. It is createWorktree for the callers that only want the id;
+// resolve the chat with owningChatID when a chat-scoped route is needed.
+func createChildWorkspace(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+	branch string,
+	parentID string,
+) string {
+	t.Helper()
+	wsID, _ := createWorktree(t, h, imported, branch, parentID)
+	return wsID
+}
+
+// worktreeOf returns one workspace's state in the shape the deleted
+// GET .../workspaces/:wsId used to answer, read off the chat list — the surface
+// that carries it now.
+func worktreeOf(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+	wsID string,
+) workspaceDTO {
+	t.Helper()
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		if w.ID == wsID {
+			return w
+		}
+	}
+	require.Failf(t, "workspace not found", "no chat row holds workspace %s", wsID)
+	return workspaceDTO{}
+}
+
+// repoChatsWS dials the repo-scoped chat feed — the replacement for the deleted
+// repo-scoped `workspaces` stream. Frames are dto.AgentChatEvent; read them with
+// readUntilWorktree so a predicate written in workspace vocabulary still works.
+func repoChatsWS(
+	h *harness,
+	imported importedRepo,
+) *websocket.Conn {
+	return h.dial("/v0/projects/" + imported.projectID + "/repos/" + imported.repoID + "/chats/ws")
+}
+
+// owningChatID resolves the chat that OWNS wsID, through the daemon's own
+// resolver rather than a second one derived here.
+//
+// EnsureOwningChat runs first — the live-path narrowing of the boot backfill,
+// taking the same decision by the same code — because a workspace created
+// mid-run is otherwise owed its chat row only by the NEXT boot's backfill, and a
+// test that just created one would find nothing to address it by.
+func owningChatID(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) string {
+	t.Helper()
+	ctx := context.Background()
+	ws, err := h.app.Repositories.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "owningChatID: read workspace %s", wsID)
+	require.NoError(
+		t,
+		h.app.Usecases.AgentChatFolder.EnsureOwningChat(ctx, ws),
+		"owningChatID: ensure the owning chat for %s",
+		wsID,
+	)
+	h.Quiesce()
+	rows, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
+	require.NoError(t, err, "owningChatID: list the chats holding %s", wsID)
+	owner, ok := agentusecase.ResolveOwningChat(rows)
+	require.Truef(t, ok, "workspace %s must be held by an owning chat", wsID)
+	return owner.ID
 }
 
 type repoDTO struct {
@@ -236,9 +419,21 @@ type workspaceDTO struct {
 	PRUrl           string `json:"prUrl"`
 	PRTitle         string `json:"prTitle"`
 	PRTargetBranch  string `json:"prTargetBranch"`
+	LocalPath       string `json:"localPath"`
+	HeldByPath      string `json:"heldByPath"`
 	OwningChatID    string `json:"owningChatId"`
 }
 
+// listWorkspaces returns the repo's worktree-owning rows in the shape the
+// deleted workspace list used to serve.
+//
+// It reads the CHAT list, which is where that answer lives now: a
+// worktree-owning chat carries the workspace's git state inline, projected by
+// dto.ChatWorktreeFrom from the very same WorkspaceDTO the old route built
+// (spec §5). Rows owning no worktree — bubbles, folders — are not workspaces
+// and are skipped. OwningChatID is taken from the chat row itself rather than
+// the nested copy, so the id a caller addresses a route with is the id the list
+// says the row is.
 func listWorkspaces(
 	t *testing.T,
 	h *harness,
@@ -247,18 +442,75 @@ func listWorkspaces(
 ) []workspaceDTO {
 	t.Helper()
 	var workspaces []workspaceDTO
-	h.get("/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces", &workspaces)
+	for _, c := range listChats(t, h, projectID, repoID) {
+		if c.Worktree == nil || c.WorkspaceID == "" {
+			continue
+		}
+		w := c.Worktree
+		workspaces = append(workspaces, workspaceDTO{
+			ID:              c.WorkspaceID,
+			RepoID:          repoID,
+			ProjectID:       projectID,
+			Branch:          w.Branch,
+			ParentID:        w.ParentID,
+			ForkPointSha:    w.ForkPointSha,
+			IsDefault:       w.IsDefault,
+			Status:          w.Status,
+			Working:         w.Working,
+			LastError:       w.LastError,
+			Added:           w.Added,
+			Deleted:         w.Deleted,
+			MergeStrategy:   w.MergeStrategy,
+			CanMergeLocally: w.CanMergeLocally,
+			ParentBranch:    w.ParentBranch,
+			PRUrl:           w.PRUrl,
+			PRTitle:         w.PRTitle,
+			PRTargetBranch:  w.PRTargetBranch,
+			LocalPath:       w.LocalPath,
+			HeldByPath:      w.HeldByPath,
+			OwningChatID:    c.ID,
+		})
+	}
 	return workspaces
 }
 
-// wsBase returns the hierarchical workspace route prefix
-// /v0/projects/:p/repos/:r/workspaces/:w for an imported repo's workspace.
+// wsBase returns the route prefix a worktree's SHARED leaves hang off —
+// git, files, review, search, identity, lsp, terminals — which is the flat
+// /v0/chats/:chatId now that spec §8 step 6 deleted the `/workspaces/:wsId`
+// group. The chat names the worktree, so this is the same worktree the old
+// prefix addressed, reached by the id it is addressable by.
 func wsBase(
+	imported importedRepo,
+) string {
+	return "/v0/chats/" + imported.chatID
+}
+
+// threadsBase returns the WORKSPACE-scoped prefix review threads still hang off.
+//
+// Threads is the ONE surviving "/workspaces/:wsId/..." path: it is repo-level
+// review commentary, not worktree-owned state, so spec §8 step 6 left it exactly
+// where it was while every other leaf moved to the chat prefix. It therefore
+// needs its own base — reaching it through wsBase (which is the CHAT prefix now)
+// produces a 404, which is precisely the trap this helper exists to remove.
+func threadsBase(
 	imported importedRepo,
 ) string {
 	return "/v0/projects/" + imported.projectID +
 		"/repos/" + imported.repoID +
 		"/workspaces/" + imported.workspaceID
+}
+
+// chatVerbBase returns the repo-scoped prefix the worktree LIFECYCLE VERBS hang
+// off (lock, sync, merge-into-parent, reparent, rebase-onto-parent,
+// retry-provision, detach-holder, PATCH branch) plus the chat row itself. Unlike
+// the shared leaves above these did NOT go flat: they stayed under the repo
+// group, keyed by chat id (endpoints/worktree/routes.go).
+func chatVerbBase(
+	imported importedRepo,
+) string {
+	return "/v0/projects/" + imported.projectID +
+		"/repos/" + imported.repoID +
+		"/chats/" + imported.chatID
 }
 
 func writeFile(

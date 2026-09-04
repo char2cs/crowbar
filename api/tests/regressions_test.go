@@ -64,8 +64,8 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 		"/v0/projects/" + imported.projectID,
 		"/v0/projects/" + imported.projectID + "/repos",
 		repoBase,
-		base,
-		repoBase + "/workspaces",
+		repoBase + "/chats",
+		repoBase + "/chats/" + imported.chatID,
 		base + "/files/tree",
 		base + "/files/content?path=README.md",
 		base + "/git/status",
@@ -90,15 +90,8 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 func TestRegression_RepoHomeServedWithIsDefault(t *testing.T) {
 	h := newHarness(t)
 	imported := importProjectHomeHoldsDefault(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	var workspaces []struct {
-		ID         string `json:"id"`
-		Branch     string `json:"branch"`
-		IsDefault  bool   `json:"isDefault"`
-		HeldByPath string `json:"heldByPath"`
-	}
-	h.get(repoBase+"/workspaces", &workspaces)
+	workspaces := listWorkspaces(t, h, imported.projectID, imported.repoID)
 
 	var defaults []string // branches of the isDefault workspaces
 	var placeholderHeld bool
@@ -332,96 +325,74 @@ func TestRegression_GitDiscardRecoversFromStaleIndexLock(t *testing.T) {
 	require.NoFileExists(t, lock, "the stale lock must have been cleared")
 }
 
-// §13: workspace create flips from synchronous 201+body-id to 202+empty-body
-// (spec §4). The created workspace must instead surface as a WorkspaceDTO on the
-// repo-scoped Workspaces WS stream, first as status:"new". The id is learned
-// from that frame — there is no id in a 202 body.
-func TestRegression_WorkspaceCreateReturns202ThenWS(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodPost, repoBase+"/workspaces",
-		map[string]string{"branch": "feature/created-202"}, http.StatusAccepted)
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.NotContains(t, string(body), `"id"`,
-		"a 202 create must not carry an id in the body")
-
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		return m["branch"] == "feature/created-202" && m["status"] == "new"
-	})
-	require.NotEmpty(t, got["id"], "the create must broadcast a WorkspaceDTO with an id")
-}
-
-// §13: deleting an unlocked workspace returns 202 and then broadcasts a
-// status:"deleted" WorkspaceDTO tombstone on the Workspaces WS stream, so the
-// client cache drops the entity (spec §4/§6).
+// §13: deleting an unlocked workspace's owning chat returns 202 and then
+// broadcasts a worktree_state frame carrying status:"deleted" on the chat feed,
+// so the client cache drops the entity (spec §4/§6).
+//
+// The deleted POST/DELETE .../workspaces group's own create/delete contract
+// (201+id vs 202+WS-learned-id) does not carry over 1:1: a chat's create is
+// SYNCHRONOUS now (CreateChat's ownWorktree branch calls CreateChildWorkspace
+// inline before answering 201 with the CHAT's id — chats.go/own_worktree.go —
+// so there is no "learn the new id from a later WS frame" step left to pin, and
+// no HTTP route names a caller-chosen branch at all any more, spec §8 step 6).
+// DELETE is what survives that shape unchanged: it is still fire-and-forget
+// (202) with the outcome delivered on the stream, now via the chat that owns
+// the worktree (worktree/handlers, DeleteCascade through DeleteChat's reap).
 func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
+	conn := repoChatsWS(h, imported)
+	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
 		http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	got := readUntil(t, conn, func(m map[string]any) bool {
+	got := readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["status"] == "deleted"
 	})
 	require.Equal(t, "deleted", got["status"])
 }
 
-// §13: the delete of a locked workspace is accepted (202) but the background
-// cascade skips the locked row and surfaces the rejection as lastError on the
-// Workspaces WS stream; the workspace remains. This replaces the old synchronous
-// 409 contract while keeping the "locked rows are not silently dropped"
-// behaviour coverage (BUG-009). The Locked bool was removed — the lock is now
-// the status enum (spec §5).
+// §13: deleting a locked workspace's owning chat is refused SYNCHRONOUSLY
+// (409), keeping the "locked rows are not silently dropped" coverage (BUG-009)
+// but through a different mechanism than before: DELETE .../chats/:id reaps its
+// worktree INLINE (worktree/hierarchy.DeleteCascade) before ever answering, and
+// DeleteCascade refuses a locked root synchronously (ErrWorkspaceLocked, mapped
+// to 409 — internal/api/libs/status.go's conflictSentinels) rather than
+// accepting a 202 and surfacing the refusal as lastError later. The Locked bool
+// was removed — the lock is now the status enum (spec §5).
 func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	// The adopted main worktree is locked: "main" is a default protected branch.
-	var ws workspaceDTO
-	h.get(wsBase(imported), &ws)
+	ws := worktreeOf(t, h, imported, imported.workspaceID)
 	require.Equal(t, "locked", ws.Status, "adopted main worktree must be locked")
 
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
-		http.StatusAccepted)
-	_ = resp.Body.Close()
-
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		if m["id"] != imported.workspaceID {
-			return false
-		}
-		le, _ := m["lastError"].(string)
-		return le != ""
-	})
-	require.NotEmpty(t, got["lastError"], "a locked delete must surface lastError")
+	msg := h.mutationError(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
+		http.StatusConflict)
+	require.NotEmpty(t, msg, "a locked delete must be refused with a reason")
 
 	// The workspace must still exist after the rejected delete.
-	h.get(wsBase(imported), &ws)
-	require.Equal(t, imported.workspaceID, ws.ID,
+	still := worktreeOf(t, h, imported, imported.workspaceID)
+	require.Equal(t, imported.workspaceID, still.ID,
 		"rejected delete must leave the workspace in place")
 
-	// And an unknown id must 404 synchronously, never report a successful cascade.
-	resp = h.raw(http.MethodDelete, repoBase+"/workspaces/no-such-workspace", nil,
+	// And an unknown chat id must 404, never report a successful cascade.
+	resp := h.raw(http.MethodDelete, repoBase+"/chats/no-such-chat", nil,
 		http.StatusNotFound)
 	_ = resp.Body.Close()
 }
 
-// §13 / spec §3.6+§3.8: deleting a workspace tombstones it under the
-// asynx-alignment delete lifecycle. Delete is now a PURE Send that folds
-// Status=deleted (persist-then-purge): the DELETE is accepted (202) and a
-// status:"deleted" frame is broadcast off the store/hub projections. The physical
-// worktree purge moved off the synchronous write path into the async, gated delete
-// reactor (Task 8; end-to-end lifecycle validated by the crash/lifecycle
-// integration suite). The old entity-scoped storages tree
+// §13 / spec §3.6+§3.8: deleting a workspace's owning chat tombstones it under
+// the asynx-alignment delete lifecycle. The DELETE is accepted (202) and a
+// worktree_state frame carrying status:"deleted" is broadcast off the
+// store/hub projections once the tombstone is folded — before the physical
+// worktree purge (the async, gated delete reactor; Task 8; end-to-end lifecycle
+// validated by the crash/lifecycle integration suite) has necessarily finished.
+// The old entity-scoped storages tree
 // (<home>/projects/<P>/<R>/workspaces/<W>/storages) no longer exists — central
 // per-type event/read stores replace it — so there is no per-workspace dir to
 // rm -rf here.
@@ -436,16 +407,20 @@ func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	// listable when it returns, and the background delete cascade below (which lists
 	// to build its tree) is guaranteed to see it. No polling, no window to miss.
 	h.Quiesce()
-	var rows []map[string]any
-	h.get(repoBase+"/workspaces", &rows)
-	require.Contains(t, workspaceIDs(rows), imported.workspaceID,
+	var found bool
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		if w.ID == imported.workspaceID {
+			found = true
+		}
+	}
+	require.True(t, found,
 		"the imported workspace must be listable before the delete cascade runs")
 
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+imported.workspaceID, nil,
+	conn := repoChatsWS(h, imported)
+	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
 		http.StatusAccepted)
 	_ = resp.Body.Close()
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["status"] == "deleted"
 	})
 }
@@ -656,12 +631,8 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	// Only the main worktree is auto-adopted. The linked worktree on a
 	// NON-protected branch (feature/linked) is intentionally left for the user to
 	// add explicitly — import must not flood the sidebar with every on-disk
-	// checkout. Wait for the main adoption, then prove feature/linked never lands.
-	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "main"
-	})
-
+	// checkout.
+	//
 	// feature/linked must NEVER be adopted. Watching for two seconds and concluding
 	// "it did not show up" proves only that it had not shown up YET — on a loaded
 	// machine a slow importer makes that pass for the wrong reason, and it would keep
@@ -670,7 +641,11 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	// The sound form of a NEVER is: run the producer to COMPLETION, then assert once.
 	// Quiesce drains the import's projections, so when it returns the importer has
 	// finished deciding what to adopt and nothing is left in flight that could still
-	// add the row. Its absence is then final.
+	// add the row. Its absence is then final. It is also the barrier that lets the
+	// settled projection be read straight back over REST below: the repo-scoped chat
+	// feed that replaced the workspaces WS carries no snapshot (agentChatDef), so a
+	// live-frame wait for "main" dialled after this point could hang having already
+	// missed it.
 	h.Quiesce()
 	require.Zero(t, countBranchRows(t, h, projectID, repoID, "feature/linked"),
 		"a non-protected linked worktree must not be auto-adopted at import")
@@ -681,12 +656,7 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	// the repo folder. The presence of a linked worktree must NOT duplicate either
 	// row, so the invariant is exactly one isDefault "main" home + exactly one "main"
 	// placeholder (not two homes, not a per-worktree fan-out).
-	var workspaces []struct {
-		Branch     string `json:"branch"`
-		IsDefault  bool   `json:"isDefault"`
-		HeldByPath string `json:"heldByPath"`
-	}
-	h.get("/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces", &workspaces)
+	workspaces := listWorkspaces(t, h, projectID, repoID)
 
 	var defaultMain, placeholderMain, linked int
 	for _, ws := range workspaces {
@@ -713,7 +683,10 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 func TestRegression_BogusWorkspaceReadsAre404(t *testing.T) {
 	h := newHarness(t)
 
-	base := "/v0/projects/no-such-project/repos/no-such-repo/workspaces/no-such-workspace"
+	// git and files moved onto the flat chat prefix (spec §8 step 4): a chat id
+	// that resolves to no worktree is indistinguishable from one that does not
+	// exist at all, and resolveChatWorktree 404s it before either handler runs.
+	base := "/v0/chats/no-such-chat"
 	for _, path := range []string{
 		base + "/git/status",
 		base + "/files/tree",
@@ -733,17 +706,19 @@ func TestRegression_BogusWorkspaceReadsAre404(t *testing.T) {
 }
 
 // Empty path params: gin's radix tree matches an empty path segment against a
-// :wsId param. The backend once answered such requests with 200 and data scoped
-// to a nonexistent workspace. Every v0 route must reject an empty
-// :projectId/:repoId/:wsId segment with a 400 error envelope (enforced by the
-// rejectEmptyPathParams middleware on the v0 group).
+// :chatId/:repoId/:projectId param. The backend once answered such requests
+// with 200 and data scoped to a nonexistent workspace. Every v0 route must
+// reject an empty :projectId/:repoId/:chatId segment with a 400 error envelope
+// (enforced by the rejectEmptyPathParams middleware on the v0 group) — the flat
+// chat prefix included, now that git/files/etc. mount there instead of under
+// :projectId/:repoId/:wsId (spec §8 step 4).
 func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 	h := newHarness(t)
 
 	paths := []string{
-		"/v0/projects/p/repos/r/workspaces//git/status",
-		"/v0/projects/p/repos//workspaces/w/git/status",
-		"/v0/projects//repos/r/workspaces/w/git/status",
+		"/v0/chats//git/status",
+		"/v0/projects/p/repos//chats/c",
+		"/v0/projects//repos/r/chats/c",
 	}
 	for _, path := range paths {
 		resp := h.raw(http.MethodGet, path, nil, http.StatusBadRequest)
@@ -780,7 +755,6 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 	h := newHarness(t)
 	imported := importProjectHomeHoldsDefault(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	// The repo home STAYS on `main`: Crowbar no longer moves the user's checkout
 	// without consent.
@@ -790,14 +764,7 @@ func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 	// The default branch is surfaced as a locked, non-default PLACEHOLDER: it has
 	// no managed worktree on disk (empty localPath) and records the repo folder as
 	// the holder (heldByPath).
-	var workspaces []struct {
-		Branch     string `json:"branch"`
-		IsDefault  bool   `json:"isDefault"`
-		Status     string `json:"status"`
-		LocalPath  string `json:"localPath"`
-		HeldByPath string `json:"heldByPath"`
-	}
-	h.get(repoBase+"/workspaces", &workspaces)
+	workspaces := listWorkspaces(t, h, imported.projectID, imported.repoID)
 
 	var found bool
 	for _, w := range workspaces {
@@ -835,17 +802,20 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 		"precondition: repo home holds the protected default branch")
 
 	type wsRow struct {
-		ID         string `json:"id"`
-		Branch     string `json:"branch"`
-		IsDefault  bool   `json:"isDefault"`
-		Status     string `json:"status"`
-		LocalPath  string `json:"localPath"`
-		HeldByPath string `json:"heldByPath"`
-		LastError  string `json:"lastError"`
+		ID         string
+		Branch     string
+		IsDefault  bool
+		Status     string
+		LocalPath  string
+		HeldByPath string
+		LastError  string
 	}
 	// Raw fetch: tolerates transport errors rather than asserting, so it stays usable
-	// as a plain read after the async op has been drained to completion.
-	listURL := h.url + repoBase + "/workspaces"
+	// as a plain read after the async op has been drained to completion. The
+	// dedicated .../workspaces list route is gone (spec §8 step 6); the chat list
+	// carries the same fields now, projected off each worktree-owning chat's
+	// nested worktree DTO.
+	listURL := h.url + repoBase + "/chats"
 	fetchRows := func() []wsRow {
 		r, err := h.server.Client().Get(listURL)
 		if err != nil {
@@ -853,12 +823,23 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 		}
 		defer func() { _ = r.Body.Close() }()
 		var env struct {
-			Data []wsRow `json:"data"`
+			Data []chatRow `json:"data"`
 		}
 		if json.NewDecoder(r.Body).Decode(&env) != nil {
 			return nil
 		}
-		return env.Data
+		var rows []wsRow
+		for _, c := range env.Data {
+			if c.Worktree == nil {
+				continue
+			}
+			rows = append(rows, wsRow{
+				ID: c.WorkspaceID, Branch: c.Worktree.Branch, IsDefault: c.Worktree.IsDefault,
+				Status: c.Worktree.Status, LocalPath: c.Worktree.LocalPath,
+				HeldByPath: c.Worktree.HeldByPath, LastError: c.Worktree.LastError,
+			})
+		}
+		return rows
 	}
 
 	var placeholderID string
@@ -871,10 +852,11 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
 
-	// Act: detach the holder (async → 202 Accepted). Dial BEFORE the POST so the
-	// working overlay's rising edge can never be missed.
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodPost, repoBase+"/workspaces/"+placeholderID+"/detach-holder", nil, http.StatusAccepted)
+	// Act: detach the holder (async → 202 Accepted; chat-keyed now, spec §4.3).
+	// Dial BEFORE the POST so the working overlay's rising edge can never be missed.
+	conn := repoChatsWS(h, imported)
+	placeholderChatID := owningChatID(t, h, placeholderID)
+	resp := h.raw(http.MethodPost, repoBase+"/chats/"+placeholderChatID+"/detach-holder", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 
 	// The 202 only means "accepted": the real work — freeing the branch from the repo
@@ -931,42 +913,17 @@ func dirExists(path string) bool {
 // invariant also covers child branches: once a workspace exists for a branch,
 // creating a second workspace on that same branch is rejected (409 sync) and
 // never persists a duplicate.
-func TestRegression_DuplicateNonDefaultBranchWorkspace(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-	base := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-
-	// Create a child workspace on a fresh branch (async 202). The row is not produced
-	// by the request at all — it is produced by the detached provisioner the 202 spawns,
-	// which no projection drain can see (a drain can only settle work that has already
-	// been dispatched; here the dispatch itself is what we are waiting for).
-	//
-	// The workspace's own broadcast IS the signal: the aggregate announces the new row
-	// on the repo-scoped stream the moment it exists. Dial BEFORE the POST so it cannot
-	// be missed, block on the branch appearing, then fold the list projection the
-	// assertion reads through.
-	conn := h.dial(base + "/workspaces")
-	_ = h.raw(http.MethodPost, base+"/workspaces",
-		map[string]string{"branch": "feature/dup"}, http.StatusAccepted).Body.Close()
-	readUntil(t, conn, func(m map[string]any) bool { return m["branch"] == "feature/dup" })
-	h.Quiesce()
-	require.Equal(t, 1, countBranchRows(t, h, imported.projectID, imported.repoID, "feature/dup"),
-		"the first feature/dup workspace must land")
-
-	// A second create on the same branch is rejected synchronously with 409.
-	resp := h.raw(http.MethodPost, base+"/workspaces",
-		map[string]string{"branch": "feature/dup"}, http.StatusConflict)
-	_ = resp.Body.Close()
-
-	// And never produces a duplicate. The 409 is SYNCHRONOUS — the request was refused
-	// on the write path and scheduled no work at all — so there is nothing in flight to
-	// wait out; the 2-second Never here was watching a producer that had already been
-	// told no. Drain anyway (cheap, and it forecloses the theory that something was
-	// still settling), then assert the count once.
-	h.QuiesceReactors()
-	require.Equal(t, 1, countBranchRows(t, h, imported.projectID, imported.repoID, "feature/dup"),
-		"a rejected duplicate must never persist a second feature/dup workspace")
-}
+//
+// DELETED (spec §8 step 6): this pinned POST .../workspaces refusing a second
+// caller-named "feature/dup" create with a synchronous 409. There is no HTTP
+// route left that lets a caller create a workspace on an arbitrary caller-named
+// branch at all — the chat-scoped create only auto-derives a branch name
+// (ownWorktree) or imports one that already exists on the remote (import-batch);
+// fixtures_test.go's createWorktree goes through the CreateChild usecase
+// directly for exactly this reason. The same one-workspace-per-branch invariant
+// remains covered on the surviving verb that can still collide two workspaces
+// onto one branch: workspace_rename_test.go's
+// TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld.
 
 // countBranchRows returns how many workspaces in the repo's read model sit on the
 // given branch. It is the shared oracle for the one-per-branch invariants, read
@@ -988,19 +945,6 @@ func countBranchRows(
 	return n
 }
 
-// workspaceIDs extracts the id of every row in a decoded workspace list.
-func workspaceIDs(
-	rows []map[string]any,
-) []string {
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		if id, ok := r["id"].(string); ok {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
 // BUG-STALE-BASE: the workspace sidebar diff summary (added/deleted) must be
 // measured against the base branch's CURRENT tip, not the frozen fork point
 // recorded when the branch was created. In the field, enhancement/performance —
@@ -1019,17 +963,11 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 
 	// Create a child off the managed "main" worktree, WITH an explicit parent, so
 	// its recorded fork point is main's tip at creation and its base branch is
-	// resolvable as "main" (the shape the real bug had: parentId set).
-	workspacesWS := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodPost, repoBase+"/workspaces",
-		map[string]string{"branch": "feature/perf", "parentId": imported.workspaceID},
-		http.StatusAccepted)
-	_ = resp.Body.Close()
-	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "feature/perf" && m["status"] == "new"
-	})
-	childID, _ := created["id"].(string)
-	require.NotEmpty(t, childID, "child create must broadcast an id")
+	// resolvable as "main" (the shape the real bug had: parentId set). There is
+	// no HTTP route left for a caller-named branch (spec §8 step 6), so this goes
+	// through the same usecase-backed fixture createWorktree does — synchronous
+	// and Quiesced already, so no WS wait is needed for the create itself.
+	childID, childChatID := createWorktree(t, h, imported, "feature/perf", imported.workspaceID)
 
 	// Locate the managed worktrees on disk — they are linked worktrees of the
 	// imported repo — so the test can drive real git against them.
@@ -1056,11 +994,13 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 	// counts only the child's one line.
 	runGit(t, childWorktree, "rebase", "main")
 
-	// Recompute the summary (async) and wait for the work-complete edge.
-	syncWS := h.dial(repoBase + "/workspaces")
-	acc := h.raw(http.MethodPost, repoBase+"/workspaces/"+childID+"/sync", nil, http.StatusAccepted)
+	// Recompute the summary (async) and wait for the work-complete edge. sync is
+	// a chat-keyed lifecycle verb now (spec §4.3); dial the chat feed BEFORE the
+	// POST since it carries no snapshot (agentChatDef).
+	syncConn := repoChatsWS(h, imported)
+	acc := h.raw(http.MethodPost, repoBase+"/chats/"+childChatID+"/sync", nil, http.StatusAccepted)
 	_ = acc.Body.Close()
-	waitForWorkComplete(t, syncWS, childID)
+	waitForWorkComplete(t, syncConn, childID)
 
 	var child workspaceDTO
 	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
@@ -1095,12 +1035,12 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T) {
 	h := newHarness(t)
 	imported := importProjectWithOrigin(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	// Parent "feature/base": an UNLOCKED managed branch forked off the locked "main".
 	// Push it to origin WITH upstream tracking so a bare `git pull` resolves a remote
-	// to merge.
-	baseID := createChildWorkspace(t, h, repoBase, "feature/base", imported.workspaceID)
+	// to merge. There is no HTTP route left for a caller-named branch (spec §8 step
+	// 6), so this goes through the same usecase-backed fixture createWorktree does.
+	baseID, baseChatID := createWorktree(t, h, imported, "feature/base", imported.workspaceID)
 	worktrees := worktreesByBranch(t, imported.repoPath)
 	baseWorktree := worktrees["feature/base"]
 	require.NotEmpty(t, baseWorktree, "managed base worktree must exist")
@@ -1108,7 +1048,7 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 
 	// Child forked off feature/base, WITH parentId set, so its diff base resolves to
 	// the parent branch "feature/base" (the shape the real bug had).
-	childID := createChildWorkspace(t, h, repoBase, "feature/child", baseID)
+	childID, childChatID := createWorktree(t, h, imported, "feature/child", baseID)
 	worktrees = worktreesByBranch(t, imported.repoPath)
 	childWorktree := worktrees["feature/child"]
 	require.NotEmpty(t, childWorktree, "managed child worktree must exist")
@@ -1118,10 +1058,12 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	runGit(t, childWorktree, "add", "child.txt")
 	runGit(t, childWorktree, "commit", "-m", "child change")
 
-	// Establish the STALE baseline: resync the child ONCE so the read model records
+	// Establish the STALE baseline: resync the CHILD ONCE so the read model records
 	// Added=1 BEFORE the pull. This is setup — not the behaviour under test — and the
 	// assertion below proves the PULL alone (no post-pull child sync) refreshes it.
-	syncBaseline(t, h, repoBase, childID)
+	// Syncing the base does not touch the child's own summary; the child's chat is
+	// the id this verb has to be addressed through.
+	syncBaseline(t, h, imported, childChatID, childID)
 	require.Equal(t, 1, childDiff(t, h, imported, childID).Added,
 		"baseline: the child shows its own +1 against feature/base before the pull")
 
@@ -1132,11 +1074,12 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// Pull the PARENT (feature/base) — the ONLY refresh action. Its ref fast-forwards
 	// to include the child's commit, so the child's live merge-base(feature/base, HEAD)
 	// now equals the child's own tip and its diff must collapse to +0/-0. Nothing syncs
-	// the child explicitly; only the pull's cascade can refresh it.
-	pullWS := h.dial(repoBase + "/workspaces")
-	pull := h.raw(http.MethodPost, repoBase+"/workspaces/"+baseID+"/git/pull", nil, http.StatusAccepted)
+	// the child explicitly; only the pull's cascade can refresh it. git moved onto the
+	// flat chat prefix (spec §8 step 4): pull through the base's OWN owning chat.
+	pullConn := repoChatsWS(h, imported)
+	pull := h.raw(http.MethodPost, "/v0/chats/"+baseChatID+"/git/pull", nil, http.StatusAccepted)
 	_ = pull.Body.Close()
-	waitForWorkComplete(t, pullWS, baseID)
+	waitForWorkComplete(t, pullConn, baseID)
 	// waitForWorkComplete only proves the PARENT's pull finished. The child's
 	// refresh is the CASCADE off that pull — a post-commit reactor in its own
 	// goroutine — so the parent going idle says nothing about whether the child
@@ -1152,43 +1095,23 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	require.Equal(t, 0, child.Deleted, "the child's change is now fully contained in the pulled base")
 }
 
-// createChildWorkspace POSTs a child workspace on branch off parentID and returns
-// its id, learned from the status:"new" WorkspaceDTO on the repo-scoped stream
-// (dial-before-POST), mirroring importWritableWorkspace.
-func createChildWorkspace(
-	t *testing.T,
-	h *harness,
-	repoBase string,
-	branch string,
-	parentID string,
-) string {
-	t.Helper()
-	workspacesWS := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodPost, repoBase+"/workspaces",
-		map[string]string{"branch": branch, "parentId": parentID}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == branch && m["status"] == "new"
-	})
-	id, _ := created["id"].(string)
-	require.NotEmpty(t, id, "child create must broadcast an id for %q", branch)
-	return id
-}
-
-// syncBaseline hits the manual /sync endpoint once and waits for work-complete, so
-// a workspace's read-model summary reflects its current worktree BEFORE the action
-// under test. Used only to set up a pre-condition, never as the propagation step.
+// syncBaseline hits the chat-keyed sync verb (spec §4.3) once and waits for
+// work-complete, so a workspace's read-model summary reflects its current
+// worktree BEFORE the action under test. Used only to set up a pre-condition,
+// never as the propagation step.
 func syncBaseline(
 	t *testing.T,
 	h *harness,
-	repoBase string,
+	imported importedRepo,
+	chatID string,
 	wsID string,
 ) {
 	t.Helper()
-	syncWS := h.dial(repoBase + "/workspaces")
-	acc := h.raw(http.MethodPost, repoBase+"/workspaces/"+wsID+"/sync", nil, http.StatusAccepted)
+	conn := repoChatsWS(h, imported)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+	acc := h.raw(http.MethodPost, repoBase+"/chats/"+chatID+"/sync", nil, http.StatusAccepted)
 	_ = acc.Body.Close()
-	waitForWorkComplete(t, syncWS, wsID)
+	waitForWorkComplete(t, conn, wsID)
 }
 
 // childDiff returns the workspace DTO for wsID from the repo's workspace list.
@@ -1233,17 +1156,24 @@ func importProjectWithOrigin(
 
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
-	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "main"
-	})
-	wsID, _ := adopted["id"].(string)
-	require.NotEmpty(t, wsID, "import must provision and broadcast the main managed worktree")
+	// Read back rather than awaited on a stream: the repo-scoped mount this
+	// fixture would dial is created by the very ImportRepo job whose output it
+	// wants (see importProject's own doc comment). Quiesce is the barrier.
+	h.Quiesce()
+	var wsID, chatID string
+	for _, c := range listChats(t, h, projectID, repoID) {
+		if c.Worktree != nil && c.Worktree.Branch == "main" && c.Worktree.HeldByPath == "" {
+			wsID, chatID = c.WorkspaceID, c.ID
+			break
+		}
+	}
+	require.NotEmpty(t, wsID, "import must provision the main managed worktree")
 
 	return importedRepo{
 		projectID:   projectID,
 		repoID:      repoID,
 		workspaceID: wsID,
+		chatID:      chatID,
 		repoPath:    repoPath,
 	}
 }
@@ -1328,11 +1258,17 @@ func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// Main provisioning as a managed worktree is the import's completion signal.
-	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	mainWS := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == "main"
-	})
-	require.NotEmpty(t, mainWS["id"], "import must provision the main managed worktree")
+	// Read back rather than awaited on a stream: the chat feed carries no
+	// snapshot (agentChatDef), so Quiesce is the barrier (importProject's own
+	// doc comment gives the full reasoning).
+	h.Quiesce()
+	var sawMain bool
+	for _, c := range listChats(t, h, projectID, repoID) {
+		if c.Worktree != nil && c.Worktree.Branch == "main" {
+			sawMain = true
+		}
+	}
+	require.True(t, sawMain, "import must provision the main managed worktree")
 
 	// Advance origin/main to c3 behind the imported repo's back: local main stays
 	// at c1 (checked out, un-fast-forwardable) and the repo's origin/main
@@ -1351,15 +1287,12 @@ func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
 		"precondition: local main must be stale relative to origin/main")
 
 	// Create a child off main (no parentId → parent is the repo default branch).
-	base := "/v0/projects/" + projectID + "/repos/" + repoID
-	conn := h.dial(base + "/workspaces")
-	_ = h.raw(http.MethodPost, base+"/workspaces",
-		map[string]string{"branch": "feature/from-origin-tip"}, http.StatusAccepted).Body.Close()
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["branch"] == "feature/from-origin-tip" && m["status"] == "new"
-	})
-	childID, _ := created["id"].(string)
-	require.NotEmpty(t, childID, "child workspace create must broadcast an id")
+	// There is no HTTP route left for a caller-named branch (spec §8 step 6), so
+	// this goes through the same usecase-backed fixture createWorktree does —
+	// the fork-point resolution under test lives in the usecase either way.
+	childID := createChildWorkspace(t, h, importedRepo{projectID: projectID, repoID: repoID},
+		"feature/from-origin-tip", "")
+	require.NotEmpty(t, childID, "child workspace create must return an id")
 
 	// Read the child worktree the provisioner recorded and check its fork point.
 	childWS, err := h.app.Repositories.Workspace.Get(t.Context(), childID)

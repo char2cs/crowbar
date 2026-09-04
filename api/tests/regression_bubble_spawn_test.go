@@ -111,11 +111,12 @@ func createChatWithProvider(
 // :sessionId/ws), but WS itself only checks the session id exists — it never
 // checks the session's OWN registered owner against :chatId (see
 // terminal/handlers/ws.go) — so :chatId names any chat the route's middleware
-// can resolve to a worktree. The workspace's own owning chat is that chat for
-// the ancestor's session and the bubble's alike, exactly as
-// imported.workspaceID was for both back when the route was workspace-scoped:
-// the bubble carries no worktree of its own, and its only ancestor here is a
-// FOLDER, which worktree.Resolve's chat-ancestry walk does not cross.
+// can resolve to a worktree. imported.chatID — the worktree-owning chat itself
+// — is one such chat for both the ancestor's session and the bubble's alike,
+// exactly as imported.workspaceID was for both back when the route was
+// workspace-scoped: the bubble carries no worktree of its own, and its only
+// ancestor here is a FOLDER, which worktree.Resolve's chat-ancestry walk does
+// not cross.
 func readSpawnCwd(
 	t *testing.T,
 	h *harness,
@@ -127,7 +128,7 @@ func readSpawnCwd(
 	require.NotEmpty(t, detail.LiveRunnerID, "a live chat must carry a live runner")
 	require.NotEmpty(t, detail.TerminalSessionID, "a live chat must carry a terminal session")
 
-	conn := h.dial(terminalChatBase(t, h, imported) + "/terminals/" + detail.TerminalSessionID + "/ws")
+	conn := h.dial(wsBase(imported) + "/terminals/" + detail.TerminalSessionID + "/ws")
 	return readMarkedValue(t, conn, "CROWBAR_CWD:")
 }
 

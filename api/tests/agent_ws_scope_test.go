@@ -131,7 +131,7 @@ func TestAgentWS_RepoScopedSpansEveryWorkspace(t *testing.T) {
 
 	imported := importProject(t, h)
 	mainWS := imported.workspaceID
-	otherWS := createChildWorkspace(t, h, repoBase(imported), "feature/other", mainWS)
+	otherWS := createChildWorkspace(t, h, imported, "feature/other", mainWS)
 	h.Quiesce()
 
 	frames := dialAgentWS(t, h, repoBase(imported)+"/chats/ws")

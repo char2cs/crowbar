@@ -126,7 +126,7 @@ func (s *TerminalSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
 	s.imported = s.Env.ImportRepo(s.T(), "terminal", "")
 	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/terminal")
-	s.chatID = s.Env.OwningChatID(s.T(), s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	s.chatID = s.Env.OwningChatID(s.T(), s.wsID)
 }
 
 // base returns the chat-scoped route prefix for the suite's owning chat.
@@ -921,7 +921,7 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 	// The chat that owns the workspace is what addresses its terminals, and it
 	// is durable: env2 boots over the same home and resolves the same chat, so
 	// the same base survives the simulated restart.
-	chatID := env1.OwningChatID(t, imported.ProjectID, imported.RepoID, wsID)
+	chatID := env1.OwningChatID(t, wsID)
 	base := "/v0/chats/" + chatID
 
 	// Dial the lifecycle WS before creating the session so we never miss the

@@ -63,19 +63,28 @@ func TestRegression_WorkspaceDTOCarriesItsRealOwningChatID(t *testing.T) {
 	childChat := owningChat(t, second, imported.workspaceID)
 	require.Equal(t, domain.ChatTypeChat, childChat.Type, "precondition: the unlocked fork owns an ordinary chat row")
 
-	workspaces := listWorkspaces(t, second, imported.projectID, imported.repoID)
-	byID := map[string]workspaceDTO{}
-	for _, w := range workspaces {
-		byID[w.ID] = w
+	// listWorkspaces (fixtures_test.go) is the wrong read here: its OwningChatID
+	// is deliberately the CHAT ROW'S OWN id, not the nested resolved copy — sound
+	// for one chat per workspace, but the locked workspace here is carried by TWO
+	// (the branch row and the legacy conversation planted above), and collapsing
+	// them into a byID map keeps whichever the loop saw last. The chat list's own
+	// worktree.owningChatId is the field this test is actually about, and it
+	// agrees across every row naming that workspace, so which one is read back
+	// does not matter.
+	var lockedOwner, childOwner string
+	for _, c := range listChats(t, second, imported.projectID, imported.repoID) {
+		switch c.WorkspaceID {
+		case lockedID:
+			require.NotNil(t, c.Worktree, "the locked repo-home's row must carry a worktree")
+			lockedOwner = c.Worktree.OwningChatID
+		case imported.workspaceID:
+			require.NotNil(t, c.Worktree, "the unlocked fork's row must carry a worktree")
+			childOwner = c.Worktree.OwningChatID
+		}
 	}
 
-	lockedDTO, ok := byID[lockedID]
-	require.True(t, ok, "the locked repo-home must be in the wire list")
-	assert.Equal(t, branchID, lockedDTO.OwningChatID,
+	assert.Equal(t, branchID, lockedOwner,
 		"the locked row's wire owningChatId must resolve to the branch row, not the legacy conversation rows[0] would pick")
-
-	childDTO, ok := byID[imported.workspaceID]
-	require.True(t, ok, "the unlocked fork must be in the wire list")
-	assert.Equal(t, childChat.ID, childDTO.OwningChatID,
+	assert.Equal(t, childChat.ID, childOwner,
 		"a regular fork's wire owningChatId must resolve to its own chat-typed row")
 }

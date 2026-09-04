@@ -27,6 +27,8 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -484,33 +486,36 @@ func (e *Env) DialRepos(
 	return w
 }
 
-// DialWorkspaces opens a WS watcher on the repo-scoped Workspaces stream
-// (WS /v0/projects/:projectId/repos/:repoId/workspaces) and blocks until
-// registration. A repo-scope subscriber receives all of the repo's workspaces
-// via hierarchical prefix matching (spec §5).
-func (e *Env) DialWorkspaces(
+// DialRepoChats opens a WS watcher on the repo-scoped agent-chat stream
+// (WS /v0/projects/:projectId/repos/:repoId/chats/ws) and blocks until
+// registration. It is the repo-wide replacement for the deleted `workspaces`
+// stream: every worktree in the repo still reports here, now as a
+// worktree_state frame keyed by the chat that holds it (spec §7.4).
+func (e *Env) DialRepoChats(
 	t *testing.T,
 	projectID string,
 	repoID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces"))
-	e.v0c.WaitNWorkspacesRegistered(1)
+	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/chats/ws"))
+	e.v0c.WaitNAgentChatsRegistered(1)
 	return w
 }
 
-// DialWorkspace opens a WS watcher on the exact-workspace Workspaces stream
-// (WS /v0/projects/:projectId/repos/:repoId/workspaces/:wsId) and blocks until
-// registration. An exact-scope subscriber receives only that workspace's DTOs.
-func (e *Env) DialWorkspace(
+// DialChat opens a WS watcher on the per-chat lifecycle stream
+// (WS /v0/chats/:chatId/ws) and blocks until registration.
+//
+// This is the chat-scoped replacement for watching ONE workspace's stream
+// (router.go says so at the mount): it resolves the chat's worktree through
+// resolveChatWorktree, which is what starts the daemon's provider poll — the
+// same side effect the old exact-workspace subscription carried.
+func (e *Env) DialChat(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces/"+wsID))
-	e.v0c.WaitNWorkspacesRegistered(1)
+	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/ws"))
+	e.v0c.WaitNAgentChatsRegistered(1)
 	return w
 }
 
@@ -557,53 +562,48 @@ func (e *Env) DialTerminalPTY(
 	return Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals/"+sessionID+"/ws"))
 }
 
-// DialGit opens a WS watcher on the workspace-scoped, co-located Git status
-// stream (.../workspaces/:wsId/git/status) and blocks until registration. The
-// git broadcaster uses a flat wsId namespace, so scoping is implicit in the
-// path (no query params).
+// DialGit opens a WS watcher on the CHAT-scoped, co-located Git status stream
+// (/v0/chats/:chatId/git/status) and blocks until registration. The chat names
+// the worktree whose status is served, so every chat holding that worktree sees
+// the same state — the old /workspaces/:wsId mount is gone (spec §8 step 6).
 func (e *Env) DialGit(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/git/status"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/git/status"))
 	e.v0c.WaitNGitRegistered(1)
 	return w
 }
 
-// DialFiles opens a WS watcher on the workspace-scoped, co-located Files stream
-// (.../workspaces/:wsId/files/ws, change-only, no snapshot) and blocks until
+// DialFiles opens a WS watcher on the CHAT-scoped, co-located Files stream
+// (/v0/chats/:chatId/files/ws, change-only, no snapshot) and blocks until
 // registration.
 func (e *Env) DialFiles(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/files/ws"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/files/ws"))
 	e.v0c.WaitNFilesRegistered(1)
 	return w
 }
 
-// DialLSP opens a WS watcher on the workspace-scoped, co-located LSP stream
-// (.../workspaces/:wsId/lsp/ws) and blocks until registration.
+// DialLSP opens a WS watcher on the CHAT-scoped, co-located LSP stream
+// (/v0/chats/:chatId/lsp/ws) and blocks until registration.
 func (e *Env) DialLSP(
 	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
+	chatID string,
 ) *WSWatcher {
 	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/lsp/ws"))
+	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/lsp/ws"))
 	e.v0c.WaitNLSPRegistered(1)
 	return w
 }
 
-// wsScope builds the hierarchical workspace path prefix shared by all
-// workspace-scoped routes.
+// wsScope builds the hierarchical workspace path prefix. Threads is the ONLY
+// surviving "/workspaces/:wsId/..." path off the repo-scoped group (router.go);
+// every other leaf that once hung here is addressed through chatScope now.
 func (e *Env) wsScope(
 	projectID string,
 	repoID string,
@@ -628,12 +628,16 @@ func (e *Env) chatScope(
 // (the live-path narrowing of the boot backfill, taking the same decision by
 // the same code): a workspace created mid-run is otherwise owed its row only by
 // the NEXT boot's backfill, and a test that just created one would find no chat
-// to address it by. Then it reads the id back off the workspace's own wire DTO,
-// so the answer is the production resolver's, never a second one derived here.
+// to address it by.
+//
+// The read-back is in-process, not over HTTP: a workspace is not addressable
+// any more (spec §8 step 6 deleted GET .../workspaces/:wsId), so there is no
+// route to ask. It takes the SAME two calls the wire DTO's own resolver takes
+// (repositories.Container.owningChatIDFor) — ListChatsByWorkspace then
+// agentusecase.ResolveOwningChat — so the answer is still the production
+// resolver's, never a second one derived here.
 func (e *Env) OwningChatID(
 	t *testing.T,
-	projectID string,
-	repoID string,
 	wsID string,
 ) string {
 	t.Helper()
@@ -650,19 +654,77 @@ func (e *Env) OwningChatID(
 	// the row rather than racing it (no polling, no sleep).
 	e.Quiesce()
 
-	resp := e.GET(t, e.wsScope(projectID, repoID, wsID))
-	RequireStatus(t, resp, http.StatusOK)
-	var wire struct {
-		OwningChatID string `json:"owningChatId"`
-	}
-	DecodeEnvData(t, resp, &wire)
-	require.NotEmptyf(
+	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
+	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
+	owner, ok := agentusecase.ResolveOwningChat(rows)
+	require.Truef(
 		t,
-		wire.OwningChatID,
-		"workspace %s must carry an owning chat id for the chat-scoped routes",
+		ok,
+		"workspace %s must be held by an owning chat for the chat-scoped routes",
 		wsID,
 	)
-	return wire.OwningChatID
+	return owner.ID
+}
+
+// WorktreeFrame projects one chat-feed frame down to the flat workspace map the
+// deleted `workspaces` stream used to send, so a predicate written against that
+// stream reads the same keys off this one.
+//
+// It is an UNWRAP, not a translation. A worktree_state frame is the workspace's
+// own WorkspaceDTO put through dto.ChatWorktreeFrom and hung under `worktree`
+// (container.pushChatWorktree), so every key here is the byte the workspace
+// stream would have sent — this only lifts them back out of the envelope and
+// restores the two identity fields the envelope, not the payload, carries: `id`
+// (the frame's workspaceId) and `repoId`.
+//
+// projectId, createdAt and kind are NOT recoverable: the chat feed never
+// carried them. Nothing asserts on them off this stream.
+//
+// A frame that is not a worktree_state one is returned UNCHANGED, which is what
+// keeps the shared WaitForState usable for the flat DTO streams (threads,
+// repos, projects) as well as this one.
+func WorktreeFrame(
+	m map[string]any,
+) map[string]any {
+	wt, ok := m["worktree"].(map[string]any)
+	if !ok {
+		return m
+	}
+	wsID, _ := m["workspaceId"].(string)
+	if wsID == "" {
+		return m
+	}
+	out := make(map[string]any, len(wt)+3)
+	for k, v := range wt {
+		out[k] = v
+	}
+	out["id"] = wsID
+	out["chatId"] = m["chatId"]
+	if repoID, ok := m["repoId"]; ok {
+		out["repoId"] = repoID
+	}
+	return out
+}
+
+// readUntilWorktree is ReadUntil over the chat feed with WorktreeFrame applied
+// to every frame before the predicate sees it, returning the PROJECTED map.
+func readUntilWorktree(
+	t *testing.T,
+	w *WSWatcher,
+	timeout time.Duration,
+	pred func(map[string]any) bool,
+) map[string]any {
+	t.Helper()
+	var hit map[string]any
+	w.ReadUntil(t, timeout, func(raw map[string]any) bool {
+		m := WorktreeFrame(raw)
+		if pred(m) {
+			hit = m
+			return true
+		}
+		return false
+	})
+	return hit
 }
 
 // WaitForWorkspace reads WS events from w until a workspace with the given ID
@@ -675,8 +737,9 @@ func WaitForWorkspace(
 	pred func(map[string]any) bool,
 ) map[string]any {
 	t.Helper()
-	return w.ReadUntil(
+	return readUntilWorktree(
 		t,
+		w,
 		timeout,
 		func(msg map[string]any) bool {
 			if msg["id"] != wsID {
@@ -700,8 +763,9 @@ func WaitForState(
 	timeout time.Duration,
 ) map[string]any {
 	t.Helper()
-	return w.ReadUntil(
+	return readUntilWorktree(
 		t,
+		w,
 		timeout,
 		func(msg map[string]any) bool {
 			if msg["id"] != id {
@@ -730,8 +794,9 @@ func WaitForListLen(
 	}
 	seen := make(map[string]map[string]any, n)
 	order := make([]string, 0, n)
-	w.ReadUntil(
+	readUntilWorktree(
 		t,
+		w,
 		timeout,
 		func(msg map[string]any) bool {
 			id, _ := msg["id"].(string)
@@ -800,8 +865,8 @@ func WaitForWorkComplete(
 		working, ok := m["working"].(bool)
 		return ok && working == want
 	}
-	w.ReadUntil(t, timeout, func(m map[string]any) bool { return isWorking(m, true) })
-	return w.ReadUntil(t, timeout, func(m map[string]any) bool { return isWorking(m, false) })
+	readUntilWorktree(t, w, timeout, func(m map[string]any) bool { return isWorking(m, true) })
+	return readUntilWorktree(t, w, timeout, func(m map[string]any) bool { return isWorking(m, false) })
 }
 
 // WaitForWorkspaceLastError reads WS events from w until a WorkspaceDTO with the
@@ -813,8 +878,9 @@ func WaitForWorkspaceLastError(
 	timeout time.Duration,
 ) string {
 	t.Helper()
-	msg := w.ReadUntil(
+	msg := readUntilWorktree(
 		t,
+		w,
 		timeout,
 		func(m map[string]any) bool {
 			if m["id"] != wsID {
@@ -1070,12 +1136,21 @@ func (e *Env) RegisterRepo(
 	return id
 }
 
-// CreateWorkspace creates a workspace via
-// POST /v0/projects/:projectId/repos/:repoId/workspaces and returns the
-// server-assigned UUID. Creation is async (202 + empty body, spec §4): the id is
-// learned from the WorkspaceDTO{status:"new"} delivered on the repo-scoped
-// Workspaces WS stream. The WS is dialled BEFORE the POST so the create
-// broadcast is never missed.
+// CreateWorkspace creates a worktree on a caller-named branch and returns the
+// server-assigned workspace UUID.
+//
+// It goes through the USECASE, not HTTP, because there is no longer an HTTP way
+// to ask: spec §8 step 6 deleted the whole `workspaces` endpoint group, and the
+// chat-scoped surface that replaced it only forks with an auto-derived branch
+// name or imports a branch that already exists. Naming the branch is a FIXTURE
+// need, not a product one — a test that asserts on "feature-x" has to be able
+// to say "feature-x" — so it is met at the layer that still offers it rather
+// than by adding a product capability nothing ships.
+//
+// Usecases.Workspace.CreateChild is the same call the live import path makes
+// (usecases.worktreeChildCreator.CreateImportedWorkspace), with the same
+// arguments, so a fixture worktree is born exactly as a real one is — including
+// the owning chat every worktree is created under. Only the caller differs.
 func (e *Env) CreateWorkspace(
 	t *testing.T,
 	projectID string,
@@ -1086,8 +1161,8 @@ func (e *Env) CreateWorkspace(
 	return e.createWorkspace(t, projectID, repoID, branch, "")
 }
 
-// CreateChildWorkspace creates a child workspace under parentID and returns the
-// UUID. See CreateWorkspace for the 202 + WS-learning semantics.
+// CreateChildWorkspace creates a child workspace under parentID (a WORKSPACE
+// id) and returns the UUID. See CreateWorkspace for why this is a usecase call.
 func (e *Env) CreateChildWorkspace(
 	t *testing.T,
 	projectID string,
@@ -1107,30 +1182,74 @@ func (e *Env) createWorkspace(
 	parentID string,
 ) string {
 	t.Helper()
-	w := e.DialWorkspaces(t, projectID, repoID)
-	body := map[string]any{"branch": branch}
+	ctx := context.Background()
+	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
+	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
+	require.NotNil(t, repo, "createWorkspace: repo %s must exist", repoID)
+	// ParentBranch is the START POINT the new worktree is cut from, and it must
+	// be supplied here rather than left to resolveInherited: that defaulting only
+	// runs for a caller that names NEITHER RepoID nor RepoPath, and this one
+	// names both (as the live import path does). Left blank, `git worktree add`
+	// rev-parses "" and dies.
+	parentBranch := repo.DefaultBranch
 	if parentID != "" {
-		body["parentId"] = parentID
+		parent, perr := e.app.Repositories.Workspace.Get(ctx, parentID)
+		require.NoError(t, perr, "createWorkspace: read parent workspace %s", parentID)
+		parentBranch = parent.Branch
 	}
-	resp := e.POST(t, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces", body)
-	RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
-		return m["branch"] == branch && m["status"] == string(domain.WorkspaceStatusNew)
+	// Forced true for the same reason the live import path forces it: the
+	// taxonomy default is "inherit whether the parent owns a worktree", and a
+	// fixture asking for a branch is asking for a real worktree on it.
+	ownWorktree := true
+	ws, err := e.app.Usecases.Workspace.CreateChild(ctx, wsusecase.CreateChildInput{
+		RepoID:       repoID,
+		ProjectID:    projectID,
+		RepoPath:     repo.Path,
+		RemoteURL:    repo.RemoteURL,
+		Branch:       branch,
+		ParentID:     parentID,
+		ParentBranch: parentBranch,
+		OwnWorktree:  &ownWorktree,
 	})
-	id, _ := msg["id"].(string)
-	require.NotEmpty(t, id, "createWorkspace: WorkspaceDTO must carry an id")
-	return id
+	require.NoErrorf(t, err, "createWorkspace: create %q under %q", branch, parentID)
+	// The create's own writes are asynx commands; drain them so a caller that
+	// reads the row (or dials its chat) next sees it rather than racing it.
+	e.Quiesce()
+	require.NotEmpty(t, ws.ID, "createWorkspace: the created workspace must carry an id")
+	return ws.ID
+}
+
+// CreateWorkspaceWithChat is CreateWorkspace plus the id of the chat the new
+// worktree is born under — the pair almost every chat-scoped test needs, in one
+// call instead of a create followed by a resolve.
+func (e *Env) CreateWorkspaceWithChat(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+) (string, string) {
+	t.Helper()
+	wsID := e.createWorkspace(t, projectID, repoID, branch, parentID)
+	return wsID, e.OwningChatID(t, wsID)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,
 // its discovered repository, and the workspace adopted from the repo's default
 // (main) worktree. It is the integration-suite analogue of the package-tests
 // importedRepo fixture.
+//
+// ChatID is the chat that OWNS WorkspaceID — the id every chat-scoped route
+// addresses that worktree through. It is bundled here rather than looked up per
+// call site because the import mints it: a repo import creates each adopted
+// worktree under a chat (usecases.hierarchyOwningChats), so the id is already
+// on the chat list this fixture reads and asking for it again would be a second
+// resolution of a fact the fixture already holds.
 type ImportedRepo struct {
 	ProjectID   string
 	RepoID      string
 	WorkspaceID string
+	ChatID      string
 	RepoPath    string
 }
 
@@ -1213,19 +1332,139 @@ func (e *Env) ImportRepo(
 	require.NotEmpty(t, repoID, "ImportRepo: import must broadcast a RepoDTO with an id")
 
 	// The adopted main worktree is persisted after the repo in the same async
-	// import job; wait for its WorkspaceDTO on the repo-scoped stream.
-	wsWatcher := e.DialWorkspaces(t, projectID, repoID)
-	adopted := wsWatcher.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
-		return m["repoId"] == repoID && m["branch"] != ""
-	})
-	wsID, _ := adopted["id"].(string)
-	require.NotEmpty(t, wsID, "ImportRepo: import must adopt and broadcast a workspace")
+	// import job. It is read back, not awaited on the wire, and that is forced:
+	// the adoption is the one worktree event NOTHING can subscribe to in time.
+	// A chat-feed frame is only reachable through a repo-scoped mount, and the
+	// repo whose id that mount needs is created BY this same job — so by the
+	// moment there is a repoId to dial, the adoption it would have carried has
+	// already happened. Quiesce drains the projections, then the chat list is
+	// read; both are real signals, neither is a poll or a sleep.
+	e.Quiesce()
+	chats := e.ListChats(t, projectID, repoID)
+	var wsID, chatID string
+	for _, c := range chats {
+		wt, ok := c["worktree"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if isDefault, _ := wt["isDefault"].(bool); !isDefault {
+			continue
+		}
+		wsID, _ = c["workspaceId"].(string)
+		chatID, _ = c["id"].(string)
+		break
+	}
+	require.NotEmptyf(
+		t,
+		wsID,
+		"ImportRepo: import must adopt the repo's default worktree; chats: %s",
+		MustJSON(chats),
+	)
+	require.NotEmpty(t, chatID, "ImportRepo: the adopted worktree must be born under a chat")
 	return ImportedRepo{
 		ProjectID:   projectID,
 		RepoID:      repoID,
 		WorkspaceID: wsID,
+		ChatID:      chatID,
 		RepoPath:    path,
 	}
+}
+
+// ListChats reads a repo's chat rows over the real REST surface
+// (GET .../repos/:repoId/chats) — the ONE read that answers everything the
+// deleted workspace list used to, since each worktree-owning row carries its
+// git state inline (spec §5).
+func (e *Env) ListChats(
+	t *testing.T,
+	projectID string,
+	repoID string,
+) []map[string]any {
+	t.Helper()
+	resp := e.GET(t, "/v0/projects/"+projectID+"/repos/"+repoID+"/chats")
+	RequireStatus(t, resp, http.StatusOK)
+	var chats []map[string]any
+	DecodeEnvData(t, resp, &chats)
+	return chats
+}
+
+// DeleteWorkspaceCascade tombstones a workspace and sets its purge cascade in
+// motion — the exact call the deleted DELETE .../workspaces/:wsId route made.
+//
+// It is a FIXTURE primitive, for a test that needs a tombstoned workspace as a
+// PRECONDITION rather than as its subject. The only HTTP way to reach a delete
+// now is DELETE .../chats/:chatId, which additionally hard-purges the owning
+// chat in the same request; a test about what happens to the WORKSPACE after a
+// crash would then be entangled with that second teardown. This is the narrow
+// call, so the precondition is the one the test actually means.
+func (e *Env) DeleteWorkspaceCascade(
+	t *testing.T,
+	wsID string,
+) {
+	t.Helper()
+	require.NoError(
+		t,
+		e.app.Usecases.Workspace.DeleteCascade(context.Background(), wsID),
+		"DeleteWorkspaceCascade: %s",
+		wsID,
+	)
+}
+
+// WorkspaceRow returns a workspace's status in the DURABLE read model, and
+// whether it still has a row there at all.
+//
+// It reads in-process, and that is not a shortcut — it is the only surface left.
+// A workspace is addressed through the chat that owns it now, so once that chat
+// is purged (which DELETE .../chats/:id does, in the same request that
+// tombstones the workspace) no wire read can reach the row: the chat list would
+// answer "absent" for a workspace whose row is very much still there. Asserting
+// the DELETE invariant over the wire would therefore be vacuously true.
+//
+// It reads exactly what the BOOT ORPHAN-SWEEP lists from — the central durable
+// read model, state/store/workspace.db, via ListInRepo — so a test asserting
+// "the sweep reaped the residual row" is asking the same store the sweep asked,
+// not a second view that could disagree.
+func (e *Env) WorkspaceRow(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+) (status string, present bool) {
+	t.Helper()
+	rows, err := e.app.Repositories.Workspace.ListInRepo(context.Background(), projectID, repoID)
+	require.NoError(t, err, "WorkspaceRow: list %s/%s", projectID, repoID)
+	for _, w := range rows {
+		if w.ID == wsID {
+			return string(w.Status), true
+		}
+	}
+	return "", false
+}
+
+// WorktreeChats returns the repo's chat rows that OWN a worktree, projected to
+// the flat workspace shape (WorktreeFrame's REST twin), keyed by workspace id.
+// It is the read-model replacement for the deleted workspace list.
+func (e *Env) WorktreeChats(
+	t *testing.T,
+	projectID string,
+	repoID string,
+) map[string]map[string]any {
+	t.Helper()
+	out := map[string]map[string]any{}
+	for _, c := range e.ListChats(t, projectID, repoID) {
+		wsID, _ := c["workspaceId"].(string)
+		wt, ok := c["worktree"].(map[string]any)
+		if wsID == "" || !ok {
+			continue
+		}
+		flat := make(map[string]any, len(wt)+2)
+		for k, v := range wt {
+			flat[k] = v
+		}
+		flat["id"] = wsID
+		flat["chatId"] = c["id"]
+		out[wsID] = flat
+	}
+	return out
 }
 
 // PushProviderState injects a scripted provider poll result for wsID directly

@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -14,42 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// terminalChatBase returns the CHAT-scoped terminal route prefix for an
-// imported repo's workspace. A terminal session is owned by a chat, so the path
-// names the chat that owns the workspace rather than the workspace itself; the
-// route's middleware resolves that chat back to this worktree for the PTY's
-// CWD.
-//
-// EnsureOwningChat is the daemon's own live-path mint (the boot backfill
-// narrowed to one workspace, same decision by the same code): a workspace
-// created mid-run is otherwise owed its owning row only by the NEXT boot.
-func terminalChatBase(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-) string {
-	t.Helper()
-	ctx := context.Background()
-	ws, err := h.app.Repositories.Workspace.Get(ctx, imported.workspaceID)
-	require.NoError(t, err)
-	require.NoError(t, h.app.Usecases.AgentChatFolder.EnsureOwningChat(ctx, ws))
-	h.Quiesce()
-
-	var dto workspaceDTO
-	h.get(wsBase(imported), &dto)
-	require.NotEmpty(t, dto.OwningChatID,
-		"workspace must carry an owning chat id for the chat-scoped terminal routes")
-	return "/v0/chats/" + dto.OwningChatID
-}
-
 // TestTerminal_CreateStreamKill proves the PTY lifecycle end to end: create a
 // session, attach over the co-located terminal WebSocket
 // (/v0/chats/:chatId/terminals/:sessionId/ws), write a command, read its echoed
-// output through the PTY, then kill the session (202).
+// output through the PTY, then kill the session (202). A terminal session is
+// owned by a chat (wsBase — /v0/chats/:chatId), not addressed by the workspace
+// it resolves to; the flat prefix's own resolveChatWorktree middleware finds
+// this worktree for the PTY's CWD.
 func TestTerminal_CreateStreamKill(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
-	base := terminalChatBase(t, h, imported)
+	base := wsBase(imported)
 
 	var session struct {
 		SessionID string `json:"sessionId"`

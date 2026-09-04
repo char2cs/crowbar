@@ -11,7 +11,6 @@ package lifecycle_test
 // deliberately share the package's existing TestMain (kit.Main).
 
 import (
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,17 +22,16 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// listWorkspaceIDs returns the set of workspace ids the repo-scoped read-model
-// list reports (served from the durable store/workspace.db read model).
+// listWorkspaceIDs returns the set of workspace ids the repo-scoped chat list
+// reports (served from the durable store/workspace.db read model via each
+// worktree-owning chat's own row) — the read-model replacement for the deleted
+// GET .../workspaces list (spec §8 step 6).
 func listWorkspaceIDs(t *testing.T, env *kit.Env, projectID, repoID string) map[string]bool {
 	t.Helper()
-	resp := env.GET(t, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces")
-	kit.RequireStatus(t, resp, http.StatusOK)
-	var list []map[string]any
-	kit.DecodeEnvData(t, resp, &list)
-	ids := make(map[string]bool, len(list))
-	for _, w := range list {
-		if id, _ := w["id"].(string); id != "" {
+	chats := env.ListChats(t, projectID, repoID)
+	ids := make(map[string]bool, len(chats))
+	for _, c := range chats {
+		if id, _ := c["workspaceId"].(string); id != "" {
 			ids[id] = true
 		}
 	}
@@ -93,20 +91,23 @@ func TestLifecycleMatrix_GracefulDrainIntegrity(t *testing.T) {
 		branches[i] = "feature/drain-" + string(rune('a'+i))
 	}
 	// Commit n workspaces, then fire concurrent status-syncs so post-commit
-	// projections are in flight when the drain begins.
+	// projections are in flight when the drain begins. Sync is now addressed by
+	// the OWNING CHAT (spec §8 step 6 deleted the :wsId-keyed route), so each
+	// workspace's chat id is minted alongside it.
 	ids := make([]string, n)
+	chatIDs := make([]string, n)
 	for i, b := range branches {
-		ids[i] = env1.CreateWorkspace(t, imported.ProjectID, imported.RepoID, b)
+		ids[i], chatIDs[i] = env1.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, b, "")
 	}
 	var wg sync.WaitGroup
-	for _, id := range ids {
+	for _, chatID := range chatIDs {
 		wg.Add(1)
-		go func(wsID string) {
+		go func(chatID string) {
 			defer wg.Done()
 			resp := env1.POST(t,
-				"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces/"+wsID+"/sync", nil)
+				"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+chatID+"/sync", nil)
 			resp.Body.Close()
-		}(id)
+		}(chatID)
 	}
 	wg.Wait()
 

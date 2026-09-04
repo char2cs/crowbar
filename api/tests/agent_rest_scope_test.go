@@ -99,14 +99,21 @@ type agentChatDTO struct {
 	Order    int    `json:"order"`
 	// Type is the row's kind in the sidebar forest. It matters to these tests
 	// because a chat list is not only conversations: every workspace owns a
-	// BRANCH row now (the repo home, each locked branch, the project home), and
-	// those are sidebar rows rather than anything a user opened. See
+	// row now (the repo home, each locked branch, the project home), and those
+	// are sidebar rows rather than anything a user opened. See
 	// conversationsOnly.
 	Type string `json:"type"`
+	// Worktree is the git state of the worktree this row OWNS, and is absent for
+	// a row that owns none. It is decoded here for one reason: it carries
+	// owningChatId, which is the ONLY reliable way to tell an owning row from a
+	// conversation — see conversationsOnly.
+	Worktree *struct {
+		OwningChatID string `json:"owningChatId"`
+	} `json:"worktree"`
 }
 
 // conversationsOnly keeps just the rows a person actually started, dropping the
-// BRANCH rows a workspace owns.
+// rows a workspace owns.
 //
 // Every one of these lists used to be conversations alone, but only by
 // accident of timing: a workspace imported during a daemon's life owned no row
@@ -115,14 +122,31 @@ type agentChatDTO struct {
 // that owns it in one call — the invariant this whole change exists to
 // establish — makes those rows appear immediately, exactly as a reboot always
 // would have. Filtering states what these assertions always meant.
+//
+// Type alone is NOT the discriminator, and believing it was is a trap worth
+// naming: an owning row is only typed `branch` when its workspace is LOCKED,
+// default, or a home (owningChatType, usecases/chat/internal/tree). The owning
+// row of an ordinary UNLOCKED worktree — exactly what importWritableWorkspace
+// hands these tests — is typed `chat`, identical to a conversation. Filtering on
+// type alone therefore counted that row as a conversation and every assertion
+// here saw one more chat than the test had started.
+//
+// What actually separates them is worktree OWNERSHIP: a row whose own id is the
+// owningChatId of the worktree it carries IS that worktree's row, whatever its
+// type. A conversation started against a workspace carries no worktree object at
+// all, so it is kept.
 func conversationsOnly(
 	rows []agentChatDTO,
 ) []agentChatDTO {
 	out := make([]agentChatDTO, 0, len(rows))
 	for _, row := range rows {
-		if row.Type == "chat" {
-			out = append(out, row)
+		if row.Type != "chat" {
+			continue
 		}
+		if row.Worktree != nil && row.Worktree.OwningChatID == row.ID {
+			continue
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -269,7 +293,7 @@ func TestAgentREST_Scope(t *testing.T) {
 	// --- repo-scoped mount: cross-workspace access is now legitimate ---
 	imported := importProject(t, h)
 	mainWS := imported.workspaceID
-	otherWS := createChildWorkspace(t, h, repoBase(imported), "feature/other", mainWS)
+	otherWS := createChildWorkspace(t, h, imported, "feature/other", mainWS)
 	h.Quiesce()
 
 	chatMain := createAgentChat(t, h, imported)

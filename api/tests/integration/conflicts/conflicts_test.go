@@ -31,9 +31,10 @@ func TestMain(
 // is 202+WS.
 type ConflictsSuite struct {
 	kit.IntegrationSuite
-	imported   kit.ImportedRepo
-	parentID   string
-	parentPath string
+	imported     kit.ImportedRepo
+	parentID     string
+	parentChatID string
+	parentPath   string
 }
 
 // SetupTest imports a repo and creates an UNLOCKED parent workspace (a child of
@@ -42,20 +43,45 @@ type ConflictsSuite struct {
 func (s *ConflictsSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
 	s.imported = s.Env.ImportRepo(s.T(), "conflicts", "")
-	s.parentID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflicts-base")
+	s.parentID, s.parentChatID = s.Env.CreateWorkspaceWithChat(
+		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflicts-base", "",
+	)
 	s.parentPath = s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.parentID)
 }
 
-// wsBase returns the workspace-scoped route prefix for the given workspace id.
-func (s *ConflictsSuite) wsBase(wsID string) string {
+// repoChatBase returns the route prefix for the worktree lifecycle verbs
+// (merge-into-parent/reparent/rebase-onto-parent/...), keyed by CHAT id under
+// the repo-scoped group (worktree/routes.go).
+func (s *ConflictsSuite) repoChatBase(chatID string) string {
 	return "/v0/projects/" + s.imported.ProjectID +
 		"/repos/" + s.imported.RepoID +
-		"/workspaces/" + wsID
+		"/chats/" + chatID
 }
 
-// repoBase returns the repo-scoped route prefix.
-func (s *ConflictsSuite) repoBase() string {
-	return "/v0/projects/" + s.imported.ProjectID + "/repos/" + s.imported.RepoID
+// chatBase returns the FLAT chat-scoped route prefix git/review mount on
+// (spec §8 step 6 deleted their :wsId-keyed twins).
+func (s *ConflictsSuite) chatBase(chatID string) string {
+	return "/v0/chats/" + chatID
+}
+
+// createChildWithChat creates a child workspace under parentID and returns its
+// id, its owning chat's id, and its on-disk worktree path.
+func (s *ConflictsSuite) createChildWithChat(parentID, branch string) (wsID, chatID, path string) {
+	s.T().Helper()
+	wsID, chatID = s.Env.CreateWorkspaceWithChat(s.T(), s.imported.ProjectID, s.imported.RepoID, branch, parentID)
+	return wsID, chatID, s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, wsID)
+}
+
+// getWorkspace fetches chatID's detail DTO and projects it down to the flat
+// workspace shape the tests assert on (kit.WorktreeFrame's REST twin) — the
+// only surviving single-worktree read now that the :wsId-keyed GET is gone.
+func (s *ConflictsSuite) getWorkspace(chatID string) map[string]any {
+	s.T().Helper()
+	resp := s.Env.GET(s.T(), s.repoChatBase(chatID))
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	var raw map[string]any
+	kit.DecodeEnvData(s.T(), resp, &raw)
+	return kit.WorktreeFrame(raw)
 }
 
 // TestConflictsSuite runs the conflict resolution integration suite.
@@ -68,8 +94,9 @@ func TestConflictsSuite(t *testing.T) {
 
 // conflictSetup commits a base file on the parent (adopted-main) worktree,
 // creates a child workspace, then commits diverging edits on both child and
-// parent to produce a merge conflict. Returns the child workspace ID.
-func (s *ConflictsSuite) conflictSetup() (childID string) {
+// parent to produce a merge conflict. Returns the child workspace id and its
+// owning chat's id.
+func (s *ConflictsSuite) conflictSetup() (childID, chatID string) {
 	s.T().Helper()
 
 	// Commit the base version of shared.txt on the (unlocked) parent worktree.
@@ -81,14 +108,7 @@ func (s *ConflictsSuite) conflictSetup() (childID string) {
 		"base",
 	)
 
-	childID = s.Env.CreateChildWorkspace(
-		s.T(),
-		s.imported.ProjectID,
-		s.imported.RepoID,
-		"feature/conflict",
-		s.parentID,
-	)
-	childWorktreePath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
+	childID, chatID, childWorktreePath := s.createChildWithChat(s.parentID, "feature/conflict")
 
 	// Commit a diverging edit on the child branch.
 	kit.CommitFile(
@@ -106,13 +126,13 @@ func (s *ConflictsSuite) conflictSetup() (childID string) {
 		"parent version\n",
 		"parent edit",
 	)
-	return childID
+	return childID, chatID
 }
 
 // mergeConflict triggers a conflicting child→parent merge (202) and blocks until
 // the async merge has run and settled into the try-then-warn end state: the
 // child reaches Status=pr-conflicts AND BOTH worktrees are clean (the merge was
-// aborted, never left stuck). It dials the child WS and waits for the
+// aborted, never left stuck). It dials the child's chat and waits for the
 // post-merge pr-conflicts frame, then asserts cleanliness directly.
 //
 // It cannot simply key on the child reaching Status=pr-conflicts via REST: that
@@ -120,12 +140,12 @@ func (s *ConflictsSuite) conflictSetup() (childID string) {
 // with diverging edits reads pr-conflicts before any merge is attempted). The
 // reliable post-condition is the worktrees having been aborted clean — so the
 // helper waits on the WS frame after the merge and then verifies both worktrees.
-func (s *ConflictsSuite) mergeConflict(childID string) {
+func (s *ConflictsSuite) mergeConflict(childID, chatID string) {
 	s.T().Helper()
 	childPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
 
-	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
-	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/merge-into-parent", map[string]string{
+	watcher := s.Env.DialChat(s.T(), chatID)
+	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]string{
 		"strategy": "merge",
 	})
 	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
@@ -177,28 +197,23 @@ func (s *ConflictsSuite) requireClean(worktreePath, label string) {
 // TestWorktree_rebaseOntoParentConflictKeepsForResolve. It moves a child that
 // conflicts with a second parent under that parent (reparent → moved-but-
 // conflicting, clean), then POSTs rebase-onto-parent which KEEPS the conflicting
-// rebase in progress. Returns the conflicted child's id. Unlike merge-into-
-// parent (which aborts), this is the supported source of a live conflicted tree
-// for the general /git/conflicts + /git/conflict-hunks endpoints.
-func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
+// rebase in progress. Returns the conflicted child's id and its owning chat's
+// id. Unlike merge-into-parent (which aborts), this is the supported source of
+// a live conflicted tree for the general /git/conflicts + /git/conflict-hunks
+// endpoints.
+func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID, chatID string) {
 	s.T().Helper()
 
-	parentBID := s.Env.CreateChildWorkspace(
-		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-parent-b", s.parentID,
-	)
-	parentBPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, parentBID)
+	parentBID, _, parentBPath := s.createChildWithChat(s.parentID, "feature/conflict-parent-b")
 	kit.CommitFile(s.T(), parentBPath, "shared.txt", "parent-b version\n", "parent-b edit")
 	parentBTip := kit.RevParse(s.T(), parentBPath, "HEAD")
 
-	childID = s.Env.CreateChildWorkspace(
-		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-rebase-child", s.parentID,
-	)
-	childPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
+	childID, chatID, childPath := s.createChildWithChat(s.parentID, "feature/conflict-rebase-child")
 	kit.CommitFile(s.T(), childPath, "shared.txt", "child version\n", "child edit")
 
-	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
+	watcher := s.Env.DialChat(s.T(), chatID)
 	// Move under parentB: conflict → moved-but-conflicting, clean worktree.
-	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/reparent", map[string]any{"newParentId": parentBID})
+	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/reparent", map[string]any{"newParentId": parentBID})
 	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
 	resp.Body.Close()
 	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
@@ -209,13 +224,13 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
 	// The row is already pr-conflicts from the reparent above and the working
 	// overlay re-broadcasts it when the async op begins, so wait on the op's
 	// real outcome (the persisted fork point), not the status alone.
-	resp2 := s.Env.POST(s.T(), s.wsBase(childID)+"/rebase-onto-parent", map[string]any{})
+	resp2 := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/rebase-onto-parent", map[string]any{})
 	kit.RequireStatus(s.T(), resp2, http.StatusAccepted)
 	resp2.Body.Close()
 	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["status"] == "pr-conflicts" && m["forkPointSha"] == parentBTip
 	})
-	return childID
+	return childID, chatID
 }
 
 // TestConflicts_mergeDetectsConflict verifies a conflicting merge transitions
@@ -223,14 +238,11 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
 // regression guard — leaves BOTH the parent and child worktrees clean (the
 // in-progress merge is aborted; neither is ever left stuck).
 func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
-	childID := s.conflictSetup()
+	childID, chatID := s.conflictSetup()
 	// mergeConflict already asserts both worktrees are clean after the conflict.
-	s.mergeConflict(childID)
+	s.mergeConflict(childID, chatID)
 
-	getResp := s.Env.GET(s.T(), s.wsBase(childID))
-	kit.RequireStatus(s.T(), getResp, http.StatusOK)
-	var reloaded map[string]any
-	kit.DecodeEnvData(s.T(), getResp, &reloaded)
+	reloaded := s.getWorkspace(chatID)
 	s.Assert().Equal("pr-conflicts", reloaded["status"],
 		"child workspace must be pr-conflicts after a conflicting merge")
 
@@ -250,12 +262,9 @@ func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
 // conflict — computed up front, before any merge is attempted, so the UI can
 // block the merge. canMergeLocally stays structurally true.
 func (s *ConflictsSuite) TestConflicts_mergeConflictsPredictedBeforeMerge() {
-	childID := s.conflictSetup() // diverging edits to shared.txt on child + parent; no merge
+	_, chatID := s.conflictSetup() // diverging edits to shared.txt on child + parent; no merge
 
-	getResp := s.Env.GET(s.T(), s.wsBase(childID))
-	kit.RequireStatus(s.T(), getResp, http.StatusOK)
-	var ws map[string]any
-	kit.DecodeEnvData(s.T(), getResp, &ws)
+	ws := s.getWorkspace(chatID)
 
 	s.Assert().Equal(true, ws["mergeConflicts"],
 		"a child that would conflict must report mergeConflicts:true before any merge")
@@ -269,10 +278,10 @@ func (s *ConflictsSuite) TestConflicts_mergeConflictsPredictedBeforeMerge() {
 // benign mutation (set merge strategy) triggers a broadcast; the predicate waits
 // for that post-mutation frame, so it exercises the broadcast path specifically.
 func (s *ConflictsSuite) TestConflicts_mergeConflictsDeliveredOnBroadcast() {
-	childID := s.conflictSetup() // conflict between child + parent, no merge
+	childID, chatID := s.conflictSetup() // conflict between child + parent, no merge
 
-	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
-	resp := s.Env.PATCH(s.T(), s.wsBase(childID)+"/review", map[string]any{"mergeStrategy": "squash"})
+	watcher := s.Env.DialChat(s.T(), chatID)
+	resp := s.Env.PATCH(s.T(), s.chatBase(chatID)+"/review", map[string]any{"mergeStrategy": "squash"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
@@ -288,10 +297,10 @@ func (s *ConflictsSuite) TestConflicts_mergeConflictsDeliveredOnBroadcast() {
 // must be resolved first, so deleting it would lose the user's work. The child
 // stays at pr-conflicts.
 func (s *ConflictsSuite) TestConflicts_mergeDeleteSourceKeepsConflictedChild() {
-	childID := s.conflictSetup()
+	childID, chatID := s.conflictSetup()
 
-	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
-	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/merge-into-parent", map[string]any{
+	watcher := s.Env.DialChat(s.T(), chatID)
+	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy":     "merge",
 		"deleteSource": true,
 	})
@@ -300,18 +309,18 @@ func (s *ConflictsSuite) TestConflicts_mergeDeleteSourceKeepsConflictedChild() {
 	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
 
 	// Despite deleteSource:true, the conflicted child must survive.
-	getResp := s.Env.GET(s.T(), s.wsBase(childID))
+	getResp := s.Env.GET(s.T(), s.repoChatBase(chatID))
 	kit.RequireStatus(s.T(), getResp, http.StatusOK)
 }
 
 // TestConflicts_conflictedFilesListsFile verifies the general /git/conflicts
 // endpoint lists the conflicted file. The conflict SOURCE is a kept-rebase in
 // the CHILD's own worktree (merge-into-parent no longer leaves markers anywhere
-// — it aborts), so the endpoint is queried on the conflicted child.
+// — it aborts), so the endpoint is queried on the conflicted child's chat.
 func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
-	childID := s.keptRebaseConflictOnChild()
+	_, chatID := s.keptRebaseConflictOnChild()
 
-	conflictsResp := s.Env.GET(s.T(), s.wsBase(childID)+"/git/conflicts")
+	conflictsResp := s.Env.GET(s.T(), s.chatBase(chatID)+"/git/conflicts")
 	kit.RequireStatus(s.T(), conflictsResp, http.StatusOK)
 
 	var files []string
@@ -324,9 +333,9 @@ func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
 // /git/conflict-hunks endpoint parses ours/theirs sections for the conflicted
 // file. Same kept-rebase-on-child source as TestConflicts_conflictedFilesListsFile.
 func (s *ConflictsSuite) TestConflicts_conflictHunksParsesThreeWayView() {
-	childID := s.keptRebaseConflictOnChild()
+	_, chatID := s.keptRebaseConflictOnChild()
 
-	hunksResp := s.Env.GET(s.T(), s.wsBase(childID)+"/git/conflict-hunks?path=shared.txt")
+	hunksResp := s.Env.GET(s.T(), s.chatBase(chatID)+"/git/conflict-hunks?path=shared.txt")
 	kit.RequireStatus(s.T(), hunksResp, http.StatusOK)
 
 	var hunks []map[string]any
@@ -346,12 +355,12 @@ func (s *ConflictsSuite) TestConflicts_conflictHunksParsesThreeWayView() {
 // TestConflicts_conflictedFilesListsFile and the worktree suite's
 // TestWorktree_rebaseOntoParentConflictKeepsForResolve.)
 func (s *ConflictsSuite) TestRegression_MergeConflictLeavesCleanParentResolvableViaRebase() {
-	childID := s.conflictSetup()
-	s.mergeConflict(childID) // also asserts both worktrees clean
+	childID, chatID := s.conflictSetup()
+	s.mergeConflict(childID, chatID) // also asserts both worktrees clean
 
 	// The parent is already clean via the API's git status: zero files (the
 	// conflicting merge was aborted internally; nothing left to abort manually).
-	statusResp := s.Env.GET(s.T(), s.wsBase(s.parentID)+"/git/status")
+	statusResp := s.Env.GET(s.T(), s.chatBase(s.parentChatID)+"/git/status")
 	kit.RequireStatus(s.T(), statusResp, http.StatusOK)
 	var status map[string]any
 	kit.DecodeEnvData(s.T(), statusResp, &status)
@@ -361,16 +370,13 @@ func (s *ConflictsSuite) TestRegression_MergeConflictLeavesCleanParentResolvable
 	// A manual abort on the now-clean parent finds nothing in progress — proving
 	// there is no lingering half-merge to recover from (H6: the squash-conflict
 	// brick would have left a non-abortable conflicted index here).
-	abortResp := s.Env.POST(s.T(), s.wsBase(s.parentID)+"/git/operation/abort", nil)
+	abortResp := s.Env.POST(s.T(), s.chatBase(s.parentChatID)+"/git/operation/abort", nil)
 	abortResp.Body.Close()
 	s.Assert().NotEqual(http.StatusOK, abortResp.StatusCode,
 		"no in-progress op should remain on the parent to abort")
 
 	// The child stays pr-conflicts.
-	childResp := s.Env.GET(s.T(), s.wsBase(childID))
-	kit.RequireStatus(s.T(), childResp, http.StatusOK)
-	var childWs map[string]any
-	kit.DecodeEnvData(s.T(), childResp, &childWs)
-	s.Assert().Equal("pr-conflicts", childWs["status"],
+	reloaded := s.getWorkspace(chatID)
+	s.Assert().Equal("pr-conflicts", reloaded["status"],
 		"the conflict surfaces as the child's pr-conflicts state")
 }

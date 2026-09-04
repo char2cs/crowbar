@@ -31,25 +31,17 @@ func runGitOut(
 	return string(out)
 }
 
-// renameDTO is workspaceDTO plus the worktree path, which the rename has to move
-// in lockstep with the branch.
-type renameDTO struct {
-	ID        string `json:"id"`
-	Branch    string `json:"branch"`
-	LocalPath string `json:"localPath"`
-}
-
+// renamedWorkspace reads one workspace's current state off the chat list. The
+// dedicated GET .../workspaces/:wsId detail route is gone (spec §8 step 6);
+// worktreeOf is where that answer lives now.
 func renamedWorkspace(
 	t *testing.T,
 	h *harness,
 	imported importedRepo,
 	wsID string,
-) renameDTO {
+) workspaceDTO {
 	t.Helper()
-	var out renameDTO
-	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+
-		"/workspaces/"+wsID, &out)
-	return out
+	return worktreeOf(t, h, imported, wsID)
 }
 
 // The agent chats tree lives beside the worktree inside the workspace root, so a
@@ -59,14 +51,14 @@ func TestRegression_RenameWorkspaceBranch_CarriesAgentChats(t *testing.T) {
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	childID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
+	childID, childChatID := createWorktree(t, h, imported, "testing", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, childID)
 	chats := filepath.Join(filepath.Dir(before.LocalPath), "chats")
 	require.NoError(t, os.MkdirAll(chats, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(chats, "c1.json"), []byte("history"), 0o600))
 
 	var out map[string]any
-	h.patch(repoBase+"/workspaces/"+childID, map[string]string{"branch": "feature/x"}, &out)
+	h.patch(repoBase+"/chats/"+childChatID+"/branch", map[string]string{"branch": "feature/x"}, &out)
 
 	after := renamedWorkspace(t, h, imported, childID)
 	moved := filepath.Join(filepath.Dir(after.LocalPath), "chats", "c1.json")
@@ -82,8 +74,9 @@ func TestRegression_RenameWorkspaceBranch_RefusesLockedWorkspace(t *testing.T) {
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	// imported.workspaceID is the locked managed worktree for "main".
-	resp := h.raw(http.MethodPatch, repoBase+"/workspaces/"+imported.workspaceID,
+	// imported.workspaceID is the locked managed worktree for "main", owned by
+	// imported.chatID.
+	resp := h.raw(http.MethodPatch, repoBase+"/chats/"+imported.chatID+"/branch",
 		map[string]string{"branch": "renamed-main"}, http.StatusConflict)
 	_ = resp.Body.Close()
 
@@ -98,10 +91,10 @@ func TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld(t *testing.T)
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	firstID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
-	createChildWorkspace(t, h, repoBase, "taken", imported.workspaceID)
+	firstID, firstChatID := createWorktree(t, h, imported, "testing", imported.workspaceID)
+	createChildWorkspace(t, h, imported, "taken", imported.workspaceID)
 
-	resp := h.raw(http.MethodPatch, repoBase+"/workspaces/"+firstID,
+	resp := h.raw(http.MethodPatch, repoBase+"/chats/"+firstChatID+"/branch",
 		map[string]string{"branch": "taken"}, http.StatusConflict)
 	_ = resp.Body.Close()
 
@@ -164,13 +157,13 @@ func TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing(t *
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	childID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
+	childID, childChatID := createWorktree(t, h, imported, "testing", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, childID)
 	require.Equal(t, "testing", before.Branch)
 	require.DirExists(t, before.LocalPath)
 
 	var out map[string]any
-	h.patch(repoBase+"/workspaces/"+childID, map[string]string{"branch": "feature/x"}, &out)
+	h.patch(repoBase+"/chats/"+childChatID+"/branch", map[string]string{"branch": "feature/x"}, &out)
 
 	// 1. The record carries the new branch and the SAME path.
 	after := renamedWorkspace(t, h, imported, childID)
@@ -205,12 +198,12 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	renamedID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
+	renamedID, renamedChatID := createWorktree(t, h, imported, "testing", imported.workspaceID)
 	before := renamedWorkspace(t, h, imported, renamedID)
 	frozenRoot := filepath.Dir(before.LocalPath)
 
 	var out map[string]any
-	h.patch(repoBase+"/workspaces/"+renamedID, map[string]string{"branch": "renamed"}, &out)
+	h.patch(repoBase+"/chats/"+renamedChatID+"/branch", map[string]string{"branch": "renamed"}, &out)
 	// The reuse below is legal only once "testing" is free, and the
 	// duplicate-branch guard answers from a projection that settles
 	// asynchronously — race it and the create is refused for a branch nothing
@@ -222,7 +215,7 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 
 	// The branch name is free again; the directory is not, so the new workspace
 	// lands beside it rather than on top of it.
-	reuseID := createChildWorkspace(t, h, repoBase, "testing", imported.workspaceID)
+	reuseID := createChildWorkspace(t, h, imported, "testing", imported.workspaceID)
 	reuse := renamedWorkspace(t, h, imported, reuseID)
 	require.Equal(t, "testing", reuse.Branch)
 	require.NotEqual(t, frozenRoot, filepath.Dir(reuse.LocalPath),
@@ -231,10 +224,16 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 	require.NoError(t, os.MkdirAll(chats, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(chats, "c1.json"), []byte("history"), 0o600))
 
-	conn := h.dial(repoBase + "/workspaces")
-	resp := h.raw(http.MethodDelete, repoBase+"/workspaces/"+renamedID, nil, http.StatusAccepted)
+	// Deleting a workspace is DELETE on its OWNING CHAT now (spec §8 step 6): the
+	// cascade reaps the worktree the chat holds (worktree/hierarchy.DeleteCascade,
+	// run inline from DeleteChat's reap) and broadcasts a worktree_state frame
+	// carrying status:"deleted" once the tombstone is folded — before the async
+	// physical purge. renamedChatID still names the same chat: renaming a branch
+	// never changes which chat owns the worktree.
+	conn := repoChatsWS(h, imported)
+	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+renamedChatID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == renamedID && m["status"] == "deleted"
 	})
 	h.QuiesceReactors()

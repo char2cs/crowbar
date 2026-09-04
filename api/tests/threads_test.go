@@ -26,7 +26,7 @@ type threadDTO struct {
 func TestThreads_RangeAnchor(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := wsBase(imported)
+	base := threadsBase(imported)
 
 	var got threadDTO
 	h.post(base+"/threads", map[string]any{
@@ -49,7 +49,7 @@ func TestThreads_RangeAnchor(t *testing.T) {
 func TestThreads_SingleLineDefaultsRange(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := wsBase(imported)
+	base := threadsBase(imported)
 
 	var got threadDTO
 	h.post(base+"/threads", map[string]any{
@@ -81,7 +81,7 @@ type threadWithReplies struct {
 func TestThreads_AuthorAndIsAgent(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := wsBase(imported)
+	base := threadsBase(imported)
 
 	var opened threadWithReplies
 	h.post(base+"/threads", map[string]any{

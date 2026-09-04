@@ -203,10 +203,21 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	assert.Contains(t, chatHandoff(t, h, base, chat), "THE-USERS-OWN-ANSWER",
 		"the user's conversation must carry on in the chat it was always in")
 
-	// No frame for any chat other than the user's was EVER emitted — the live-signal
-	// counterpart of the chat-list assertion, over the whole recorded stream rather
-	// than a point read.
+	// No CHAT-LIFECYCLE frame for any chat other than the user's was EVER emitted —
+	// the live-signal counterpart of the chat-list assertion, over the whole
+	// recorded stream rather than a point read.
+	//
+	// worktree_state frames are excluded, and the exclusion is the point rather
+	// than a loophole: that kind is not about a conversation at all. It is the
+	// git state of a WORKSPACE, fanned out under whichever chat happens to own
+	// that worktree (v0.Container.pushChatWorktree), so the fixture's own
+	// feature/write row broadcasts one whenever its diff counts or working flag
+	// move. Counting those as "another chat appeared" would fail this test for
+	// the workspace it runs on, not for anything an internal session did.
 	for _, frame := range frames.snapshot() {
+		if frame["kind"] == "worktree_state" {
+			continue
+		}
 		if id, ok := frame["chatId"].(string); ok && id != "" {
 			assert.Equal(t, chat, id,
 				"no chat other than the user's may appear on the wire at all; frame: %v", frame)

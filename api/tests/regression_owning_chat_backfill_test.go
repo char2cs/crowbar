@@ -335,8 +335,11 @@ func TestRegression_LockingAWorkspaceGivesItABranchRowWithoutARestart(t *testing
 	before := owningChat(t, h, imported.workspaceID)
 	require.Equal(t, domain.ChatTypeChat, before.Type, "precondition: an unlocked worktree owns a chat row")
 
+	// lock is a repo-scoped lifecycle verb keyed by chat id (spec §4.3), not one
+	// of the flat chat-prefix leaves wsBase addresses — chatVerbBase is the base
+	// this one hangs off.
 	locked := true
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/lock",
+	resp := h.raw(http.MethodPost, chatVerbBase(imported)+"/lock",
 		map[string]*bool{"locked": &locked}, http.StatusNoContent)
 	require.NoError(t, resp.Body.Close())
 

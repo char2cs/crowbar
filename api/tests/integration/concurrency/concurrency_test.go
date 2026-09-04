@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -30,60 +29,52 @@ func (s *ConcurrencySuite) SetupTest() {
 	s.imported = s.Env.ImportRepo(s.T(), "concurrency", "")
 }
 
-// workspacesBase returns the repo-scoped workspaces route prefix.
-func (s *ConcurrencySuite) workspacesBase() string {
-	return "/v0/projects/" + s.imported.ProjectID + "/repos/" + s.imported.RepoID + "/workspaces"
-}
-
 // TestConcurrencySuite runs the ConcurrencySuite integration tests.
 func TestConcurrencySuite(t *testing.T) {
 	suite.Run(t, new(ConcurrencySuite))
 }
 
 // TestConcurrency_ParallelWorkspaceCreatesAreConsistent verifies that many
-// concurrent workspace Create calls (each 202) all eventually project and appear
-// on the repo-scoped Workspaces WS as distinct status:"new" frames. The WS is
-// dialled BEFORE the POSTs so no create broadcast is missed.
+// concurrent workspace creates all eventually succeed and are consistently
+// observable afterward with distinct branches.
+//
+// spec §8 step 6 deleted POST .../workspaces entirely: the only live creation
+// path is CreateWorkspaceWithChat (mirroring the atomic fork+chat create the
+// product surface now uses), so that is what n goroutines drive concurrently.
+// The old assertion read completion off the repo-scoped Workspaces WS stream;
+// that stream is gone, and its chat-feed replacement carries NO snapshot and
+// silently drops any frame for a workspace with no owning chat yet
+// (container.go's pushChatWorktree: "a workspace with no resolved owning chat
+// pushes nothing") — so there is no reliable WS signal to drain here even with
+// a chat wired up per create. Consistency is instead checked against the real
+// read model, GET .../chats, which is what a client actually reads.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesAreConsistent() {
 	t := s.T()
 	const n = 20
 
-	watcher := s.Env.DialWorkspaces(t, s.imported.ProjectID, s.imported.RepoID)
-
 	var wg sync.WaitGroup
-	errs := make([]error, n)
+	wsIDs := make([]string, n)
 	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			resp := s.Env.POST(s.T(), s.workspacesBase(), map[string]any{
-				"branch": fmt.Sprintf("feature/concurrent-%d", idx),
-			})
-			if resp.StatusCode != http.StatusAccepted {
-				errs[idx] = fmt.Errorf("workspace create %d: unexpected status %d", idx, resp.StatusCode)
-			}
-			resp.Body.Close()
+			branch := fmt.Sprintf("feature/concurrent-%d", idx)
+			wsID, _ := s.Env.CreateWorkspaceWithChat(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
+			wsIDs[idx] = wsID
 		}(i)
 	}
 	wg.Wait()
-	for i, err := range errs {
-		s.Require().NoError(err, "workspace create %d failed", i)
-	}
 
-	// Drain WS frames until all n distinct created branches have been observed in
-	// a status:"new" frame (projection-complete, no fixed-delay wait).
-	seen := map[string]bool{}
-	watcher.ReadUntil(t, 15*time.Second, func(m map[string]any) bool {
-		if m["status"] != "new" {
-			return false
-		}
-		branch, _ := m["branch"].(string)
-		if branch != "" {
-			seen[branch] = true
-		}
-		return len(seen) >= n
-	})
-	s.Assert().GreaterOrEqual(len(seen), n, "all created workspaces must broadcast a new frame")
+	chats := s.Env.WorktreeChats(t, s.imported.ProjectID, s.imported.RepoID)
+	seenBranches := map[string]bool{}
+	for i, wsID := range wsIDs {
+		row, ok := chats[wsID]
+		s.Require().True(ok, "workspace %d (%s) must appear in the repo's chat list", i, wsID)
+		branch, _ := row["branch"].(string)
+		s.Assert().Equal(fmt.Sprintf("feature/concurrent-%d", i), branch)
+		seenBranches[branch] = true
+	}
+	s.Assert().Len(seenBranches, n, "all created workspaces must be independently observable with distinct branches")
 }
 
 // TestConcurrency_ParallelGitStatusCallsAreRaceClean verifies that concurrent
@@ -92,14 +83,16 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelGitStatusCallsAreRaceClean() 
 	t := s.T()
 	const n = 10
 
-	wsIDs := make([]string, n)
+	chatIDs := make([]string, n)
 	for i := range n {
-		wsIDs[i] = s.Env.CreateWorkspace(
+		_, chatID := s.Env.CreateWorkspaceWithChat(
 			t,
 			s.imported.ProjectID,
 			s.imported.RepoID,
 			fmt.Sprintf("feature/status-%d", i),
+			"",
 		)
+		chatIDs[i] = chatID
 	}
 
 	errs := make([]error, n)
@@ -108,7 +101,7 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelGitStatusCallsAreRaceClean() 
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			errs[idx] = s.httpGitStatusClean(wsIDs[idx])
+			errs[idx] = s.httpGitStatusClean(chatIDs[idx])
 		}(i)
 	}
 	wg.Wait()
@@ -118,18 +111,19 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelGitStatusCallsAreRaceClean() 
 	}
 }
 
-// httpGitStatusClean calls GET .../git/status via HTTP and returns an error if
-// the call fails or the working tree has unexpected dirty files.
+// httpGitStatusClean calls GET .../git/status via HTTP (chat-scoped, spec §8
+// step 6 — the workspace-scoped mount is gone) and returns an error if the
+// call fails or the working tree has unexpected dirty files.
 func (s *ConcurrencySuite) httpGitStatusClean(
-	wsID string,
+	chatID string,
 ) error {
-	resp := s.Env.GET(s.T(), s.workspacesBase()+"/"+wsID+"/git/status")
+	resp := s.Env.GET(s.T(), "/v0/chats/"+chatID+"/git/status")
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return fmt.Errorf(
-			"concurrency: httpGitStatusClean: unexpected status %d for workspace %s",
+			"concurrency: httpGitStatusClean: unexpected status %d for chat %s",
 			resp.StatusCode,
-			wsID,
+			chatID,
 		)
 	}
 	var status struct {
@@ -140,33 +134,36 @@ func (s *ConcurrencySuite) httpGitStatusClean(
 		return nil
 	}
 	return fmt.Errorf(
-		"concurrency: httpGitStatusClean: unexpected dirty files in workspace %s: %v",
-		wsID,
+		"concurrency: httpGitStatusClean: unexpected dirty files in chat %s: %v",
+		chatID,
 		status.Files,
 	)
 }
 
 // TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster verifies that
-// concurrent Create calls — which each trigger an internal hub broadcast — do not
-// race on the broadcaster's subscriber slice (race detector is the assertion).
+// concurrent creates — which each trigger an internal hub broadcast onto the
+// chat feed once their owning chat exists (container.go's pushChatWorktree) —
+// do not race on the broadcaster's subscriber slice (race detector is the
+// assertion). CreateWorkspaceWithChat, not the bare CreateWorkspace, is what's
+// needed here: a workspace with no owning chat never reaches the broadcaster's
+// Push at all, so a bare create would not exercise this path.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster() {
+	t := s.T()
 	const n = 30
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			resp := s.Env.POST(s.T(), s.workspacesBase(), map[string]any{
-				"branch": fmt.Sprintf("feature/fanout-%d", idx),
-			})
-			resp.Body.Close()
+			branch := fmt.Sprintf("feature/fanout-%d", idx)
+			s.Env.CreateWorkspaceWithChat(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
 		}(i)
 	}
 	wg.Wait()
 }
 
 // TestConcurrency_ParallelWsBroadcastsDoNotPanic ensures concurrent broadcasts
-// with registered WS clients on the repo-scoped prefix do not race the
+// with registered WS clients on the repo-scoped chat prefix do not race the
 // broadcaster's subscriber slice.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWsBroadcastsDoNotPanic() {
 	t := s.T()
@@ -175,7 +172,7 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWsBroadcastsDoNotPanic() {
 	// Dial N repo-scoped WS clients so the broadcaster's subscriber slice is
 	// non-empty under concurrent writes.
 	for range n {
-		s.Env.DialWorkspaces(t, s.imported.ProjectID, s.imported.RepoID)
+		s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
 	}
 
 	var wg sync.WaitGroup
@@ -183,12 +180,9 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWsBroadcastsDoNotPanic() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			resp := s.Env.POST(s.T(), s.workspacesBase(), map[string]any{
-				"branch": fmt.Sprintf("feature/broadcast-%d", idx),
-			})
-			resp.Body.Close()
+			branch := fmt.Sprintf("feature/broadcast-%d", idx)
+			s.Env.CreateWorkspaceWithChat(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
 		}(i)
 	}
 	wg.Wait()
-	_ = time.Millisecond // import guard; synchronisation is via wg.Wait above
 }

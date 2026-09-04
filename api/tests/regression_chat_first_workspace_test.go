@@ -95,7 +95,7 @@ func assertEveryWorkspaceIsOwned(
 	}
 }
 
-// Trigger 1 — the ad-hoc branch picker (POST .../workspaces/import), the exact
+// Trigger 1 — the ad-hoc branch picker (POST .../chats/import-batch), the exact
 // path the orphaned `feature/pricing-rounding` workspace came from.
 func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) {
 	h := newHarness(t)
@@ -104,13 +104,20 @@ func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) 
 	const branch = "feature/pricing-rounding"
 	f.pushBranchToOrigin(t, branch, "main", "rounding\n")
 
-	conn := h.dial(f.repoBase() + "/workspaces")
-	_ = h.raw(http.MethodPost, f.repoBase()+"/workspaces/import",
+	conn := h.dial(f.repoBase() + "/chats/ws")
+	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
-	imported := readUntil(t, conn, func(m map[string]any) bool {
-		return m["branch"] == branch
+	// No worktree_state frame ever reaches a freshly imported chat: pushChatWorktree
+	// drops it whenever the chat's SetWorkspace event has not yet reached the
+	// AgentChat projection (owningChatIDFor resolves "" and the push is skipped),
+	// which is exactly the moment a create races into. workspace_set is the
+	// reliable signal instead — SpawnChatWithImportedWorktree only fires it once
+	// CreateImportedWorkspace has already materialised the workspace, so its
+	// WorkspaceID is the real one.
+	created := readUntil(t, conn, func(m map[string]any) bool {
+		return m["kind"] == "workspace_set"
 	})
-	wsID, _ := imported["id"].(string)
+	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")
 
 	h.Quiesce()

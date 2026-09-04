@@ -29,6 +29,7 @@ type FilesSuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
 	wsID     string
+	chatID   string
 }
 
 func (s *FilesSuite) SetupTest() {
@@ -36,14 +37,14 @@ func (s *FilesSuite) SetupTest() {
 	repoPath := kit.InitRepoWithFile(s.T(), "hello.txt", "hello world\n")
 	s.imported = s.Env.ImportRepo(s.T(), "files", repoPath)
 	// A writable child forked from main inherits the committed hello.txt.
-	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/test-files")
+	s.wsID, s.chatID = s.Env.CreateWorkspaceWithChat(
+		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/test-files", "",
+	)
 }
 
-// base returns the workspace-scoped route prefix for the writable child.
+// base returns the chat-scoped route prefix for the writable child.
 func (s *FilesSuite) base() string {
-	return "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID +
-		"/workspaces/" + s.wsID
+	return "/v0/chats/" + s.chatID
 }
 
 // TestFilesSuite is the testify suite entry point for FilesSuite.
@@ -274,11 +275,11 @@ func (s *FilesSuite) TestRegression_Files_CopyBinaryByteFaithful() {
 
 // TestFiles_hubBroadcastReachesFilesWatcher verifies that a FileChangeEvent
 // pushed directly to the hub is received by a connected files WS subscriber on
-// the hierarchical .../files/ws route.
+// the chat-scoped, co-located .../files/ws route.
 func (s *FilesSuite) TestFiles_hubBroadcastReachesFilesWatcher() {
 	t := s.T()
 
-	watcher := s.Env.DialFiles(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.DialFiles(t, s.chatID)
 	s.Env.PushFile(kit.FileEvent{WsID: s.wsID})
 
 	msg := watcher.ReadUntil(t, wsTimeout, func(m map[string]any) bool {

@@ -67,6 +67,18 @@ import (
 //     than cascading is the correct, unchanged behavior for that verb, not
 //     something this test needs to complete.
 func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
+	// KNOWN INTERMITTENT (~1 run in 20), and the cause is a PRODUCT bug, not this
+	// test: reapWorktrees (usecases/chat/internal/tree/chats.go) treats every chat
+	// in a deleted subtree carrying a non-empty WorkspaceID as OWNING that
+	// workspace and cascade-deletes it, even though ordinary siblings legitimately
+	// share one. That async cascade races the request's own purgeAll walk, and the
+	// loser reports "aggregate not found" — surfacing here as a 404 from an
+	// otherwise valid DELETE .../chats/:id. Reported, not fixed; see the
+	// quarantined TestRegression_ChatDeleteCascadesToItsThreads, which pins the
+	// same mechanism head-on.
+	//
+	// Left RUNNING rather than skipped: it passes 19 times in 20 and the coverage
+	// is real. A failure here is that bug, not a new one.
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 

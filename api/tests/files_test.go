@@ -89,20 +89,16 @@ func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 
 // workspaceWorktree resolves the on-disk worktree of the imported child
 // workspace from the workspace list (WorkspaceDTO.localPath), so a test can
-// seed content the HTTP surface cannot express — e.g. real binary bytes.
+// seed content the HTTP surface cannot express — e.g. real binary bytes. The
+// dedicated GET .../workspaces list route is gone (spec §8 step 6); the chat
+// list is where localPath lives now (listWorkspaces).
 func workspaceWorktree(
 	t *testing.T,
 	h *harness,
 	imported importedRepo,
 ) string {
 	t.Helper()
-	type wsWithPath struct {
-		ID        string `json:"id"`
-		LocalPath string `json:"localPath"`
-	}
-	var workspaces []wsWithPath
-	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+"/workspaces", &workspaces)
-	for _, ws := range workspaces {
+	for _, ws := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
 		if ws.ID == imported.workspaceID {
 			require.NotEmpty(t, ws.LocalPath, "workspace list must expose localPath")
 			return ws.LocalPath
