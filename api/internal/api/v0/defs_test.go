@@ -12,20 +12,6 @@ import (
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-func TestWorkspacesDef_Lambdas(t *testing.T) {
-	def := workspacesDef(nil)
-	d := dto.WorkspaceDTO{ID: "w1", ProjectID: "p1", RepoID: "r1"}
-
-	assert.Equal(t, "p1/r1/w1", def.Namespace(d))
-
-	data, err := def.Serialize(d)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "w1")
-
-	// Prefix-based scoping replaces the projectId/repoId query Filters (spec §5).
-	assert.Empty(t, def.Filters)
-}
-
 func TestProjectsDef_NamespaceID(t *testing.T) {
 	def := projectsDef(nil)
 	d := dto.ProjectDTO{ID: "p1"}

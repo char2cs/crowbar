@@ -5,17 +5,17 @@ package v0_test
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	chatrepo "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // readUntil loop-reads from conn until match returns true for a decoded message,
@@ -43,31 +43,29 @@ func readUntil(
 	}
 }
 
-// TestWave3_WorkspaceCommand_ReachesWSClient proves the FULL Wave 3 chain:
-// a real Asynx command on the Workspace aggregate (repo Create / SyncWorkingTreeState,
-// both SendWait) -> the read-model projection registered in app.New fires ->
-// hub.BroadcastWorkspace -> the Workspaces broadcaster -> a connected WS client.
-func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+// TestWave3_WorkspaceCommand_ReachesChatWSClient proves the FULL Wave 3 chain:
+// a real Asynx command on the Workspace aggregate (repo Create /
+// SyncWorkingTreeState, both SendWait) -> the read-model projection registered in
+// app.New fires -> hub.BroadcastWorkspace -> PushWorkspace -> pushChatWorktree ->
+// the agent-chat broadcaster -> a connected WS client.
+//
+// The chat row is created BEFORE the v0 container exists, for two reasons: the
+// projection resolves the owning chat off the read model (enrichFrame), and its
+// own creation frame would otherwise land on the very stream under test.
+func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "r1")
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitWorkspacesRegistered()
-
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
+
+	_, err := tc.app.Repositories.AgentChat.Create(ctx, chatrepo.CreateInput{
+		ID: "chat-1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now,
+	})
+	require.NoError(t, err)
+
+	c, srv := serveAgentChats(t, tc)
+	conn := dialV0(t, srv, "/v0/chats/chat-1/ws")
+	c.WaitAgentChatsRegistered()
 
 	// Command 1: Create. SendWait blocks until the command + read-model projection
 	// cycle completes, so the broadcast has already fired when this returns.
@@ -79,13 +77,14 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	require.NoError(t, err)
 
 	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["id"] == "w1"
+		return m["kind"] == dto.AgentChatKindWorktreeState && m["workspaceId"] == "w1"
 	})
-	assert.Equal(t, "w1", created["id"])
-	assert.Equal(t, "feat/x", created["branch"])
-	assert.Equal(t, "p1", created["projectId"])
+	assert.Equal(t, "chat-1", created["chatId"])
+	assert.Equal(t, "r1", created["repoId"])
+	createdWorktree := chatWorktreeOf(t, created)
+	assert.Equal(t, "feat/x", createdWorktree["branch"])
 	// A freshly created workspace carries the "new" status badge.
-	assert.Equal(t, "new", created["status"])
+	assert.Equal(t, "new", createdWorktree["status"])
 
 	// Command 2: SyncWorkingTreeState — a git working-tree summary mutation. The
 	// added/deleted counts are recorded; this proves a git-summary mutation
@@ -101,11 +100,15 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 
 	updated := readUntil(t, conn, func(m map[string]any) bool {
 		// The updated row reflects the new added count.
-		return m["id"] == "w1" && m["added"] == float64(7)
+		if m["kind"] != dto.AgentChatKindWorktreeState {
+			return false
+		}
+		worktree, ok := m["worktree"].(map[string]any)
+		return ok && worktree["added"] == float64(7)
 	})
-	assert.Equal(t, "w1", updated["id"])
-	assert.Equal(t, float64(7), updated["added"])
-	assert.Equal(t, float64(2), updated["deleted"])
+	updatedWorktree := chatWorktreeOf(t, updated)
+	assert.Equal(t, float64(7), updatedWorktree["added"])
+	assert.Equal(t, float64(2), updatedWorktree["deleted"])
 	// Status badge stays "new" after HasCommits (D4): commits do not clear it.
-	assert.Equal(t, "new", updated["status"], "status must stay new after HasCommits (D4)")
+	assert.Equal(t, "new", updatedWorktree["status"], "status must stay new after HasCommits (D4)")
 }

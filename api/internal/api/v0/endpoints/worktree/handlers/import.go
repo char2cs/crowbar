@@ -21,16 +21,17 @@ type importRequest struct {
 	Branches []string `json:"branches"`
 }
 
-// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch
-// (and its retired-in-place …/workspaces/import mount). It validates
-// synchronously (repo present, branches non-empty), returns 202, and resolves +
-// creates the tree in the background. Each created chat arrives on the per-repo
-// WebSocket stream, exactly like a single create; a batch that fails before
-// producing anything is best-effort logged (no entity to hang LastError on).
+// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch,
+// the sole mount since spec §8 step 6 deleted its …/workspaces/import twin. It
+// validates synchronously (repo present, branches non-empty), returns 202, and
+// resolves + creates the tree in the background. Each created chat arrives on
+// the per-repo WebSocket stream, exactly like a single create; a batch that
+// fails before producing anything is best-effort logged (no entity to hang
+// LastError on).
 //
 // It reads the repo from :repoId, the same param and the same store the
 // importing POST .../chats resolves through, which is the whole reason the
-// relocation is a mount change and not a rewrite.
+// relocation off the workspace prefix was a mount change and not a rewrite.
 func (h *Handlers) Import(c *gin.Context) {
 	var body importRequest
 	if err := c.ShouldBindJSON(&body); err != nil {

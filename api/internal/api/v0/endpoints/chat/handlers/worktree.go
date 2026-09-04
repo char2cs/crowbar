@@ -72,10 +72,10 @@ type worktreeScope struct {
 // serialized through: one ListInRepo for the whole list, indexed by id, and
 // every row resolved out of that index.
 //
-// It is the direct counterpart of snapshots.go's workspacesSnapshot, which
-// composes its eligFn over one repo-wide read for exactly the same reason:
-// resolving eligibility needs the row's siblings, and reading them per row
-// would turn one list into one repo-wide read per chat.
+// It is the direct counterpart of the retired workspace list's own snapshot,
+// which composed its eligibility over one repo-wide read for exactly the same
+// reason: resolving eligibility needs the row's siblings, and reading them per
+// row would turn one list into one repo-wide read per chat.
 //
 // A read that fails yields a nil closure — every row's worktree absent — rather
 // than an error, and the same is true of a chat naming a workspace the index
@@ -174,10 +174,11 @@ func (s *worktreeScope) project(
 // workspace id.
 //
 // It reuses agentusecase.ResolveOwningChat over the workspace's own chat rows,
-// which is the same call snapshots.go's resolveOwningChatID makes for the
-// workspace list, so the two surfaces name the same owner for the same
-// worktree. Re-deriving it here with a local rule ("the branch-typed one", say)
-// would be a second authority, drifting the first time that rule changed.
+// which is the same call the repositories container's own owningChatIDFor makes
+// as it enriches a workspace's WS frame, so the two surfaces name the same
+// owner for the same worktree. Re-deriving it here with a local rule ("the
+// branch-typed one", say) would be a second authority, drifting the first time
+// that rule changed.
 //
 // An unresolvable read degrades to c's own id rather than to "": every row this
 // runs for carries a workspace, so SOME chat owns it, and naming this one is

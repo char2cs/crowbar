@@ -45,7 +45,7 @@ func (h *Handlers) runAsync(
 		// A panic in the detached op must not crash the daemon; release the
 		// working overlay, then surface it on the workspace entity (the same
 		// channel as an error) instead of letting it vanish.
-		defer safego.RecoverFn("workspaces.runAsync", func(r any) {
+		defer safego.RecoverFn("worktree.runAsync", func(r any) {
 			work.EndWork(ctx, wsID)
 			broadcastOnErr(ctx, wsID, fmt.Sprintf("internal error: %v", r))
 		})
@@ -68,3 +68,18 @@ func (h *Handlers) runAsync(
 // WaitAsync also returns immediately — and correctly — when a fail-fast
 // validation path scheduled no work at all.
 func (h *Handlers) WaitAsync() { h.async.Wait() }
+
+// broadcastLastError records a failed background mutation on the workspace
+// entity, which is the one channel a detached op has to report through. A blank
+// wsID (the batch import, which has no entity until it produces one) is a no-op
+// since there is nothing to attach the error to.
+func (h *Handlers) broadcastLastError(
+	ctx context.Context,
+	wsID string,
+	message string,
+) {
+	if wsID == "" {
+		return
+	}
+	_, _ = h.lastErrors.SetLastError(ctx, wsID, message)
+}

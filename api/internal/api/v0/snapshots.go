@@ -7,70 +7,16 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// workspacesSnapshot builds the Workspaces snapshot-on-subscribe source (03 §1a)
-// as wire DTOs, scoped to the repo parsed from the connecting client's
-// subscription prefix ("p/r/..."). Each row carries the merge-eligibility
-// overlay (CanMergeLocally/ParentBranch) computed from its repo siblings via the
-// §10 rule, and the derived working overlay (via ListWorkspaces) so a client
-// subscribing mid-mutation sees the in-flight state immediately.
-func workspacesSnapshot(
-	appContainer *app.Container,
-) func(scope string) []dto.WorkspaceDTO {
-	return func(scope string) []dto.WorkspaceDTO {
-		ctx := context.Background()
-		projectID, repoID := parseRepoScope(scope)
-		siblings, err := appContainer.Repositories.ListWorkspacesInRepo(ctx, projectID, repoID)
-		if err != nil {
-			return nil
-		}
-		// Snapshot-on-subscribe has no request to scope to (it's built lazily for
-		// a connecting client), so it owns a background context — the same one it
-		// already uses for the List above. The detached context is a visible,
-		// edge-level choice here, not hidden inside the usecase.
-		eligFn := func(w domain.Workspace) workspace.MergeEligibility {
-			return appContainer.Usecases.Workspace.MergeEligibilityFor(context.Background(), w, siblings)
-		}
-		owningChatIDFn := func(w domain.Workspace) string {
-			return resolveOwningChatID(context.Background(), appContainer, w.ID)
-		}
-		return dto.WorkspaceDTOList(siblings, eligFn, owningChatIDFn)
-	}
-}
-
-// resolveOwningChatID answers wsID's real owning chat id for the wire DTO,
-// reusing Task 3's own branch-preferring resolution
-// (agentusecase.ResolveOwningChat) over the chat usecase's own read of the
-// workspace's chat rows — never a second, independently derived answer. An
-// unresolvable read (or a workspace this backfill has not reached yet)
-// degrades to "".
-func resolveOwningChatID(
-	ctx context.Context,
-	appContainer *app.Container,
-	wsID string,
-) string {
-	rows, err := appContainer.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
-	if err != nil {
-		return ""
-	}
-	owner, ok := agentusecase.ResolveOwningChat(rows)
-	if !ok {
-		return ""
-	}
-	return owner.ID
-}
-
 // parseRepoScope splits a hierarchical subscription prefix ("p", "p/r", or
 // "p/r/w") into its projectID and repoID. A scope with fewer segments yields
-// empty components, which scopeWorkspacesToRepo treats as "match all" so a
-// project-level or global subscription still snapshots its subtree.
+// empty components, which its callers treat as "match all" so a project-level
+// or global subscription still snapshots its subtree.
 func parseRepoScope(
 	scope string,
 ) (string, string) {

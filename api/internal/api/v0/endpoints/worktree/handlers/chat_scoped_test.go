@@ -15,18 +15,10 @@ import (
 )
 
 // The seven worktree lifecycle verbs, addressed by the CHAT that holds the
-// worktree instead of by the worktree (spec §4.3).
-//
-// Every test here asks one question: does the chat-keyed route reach the same
-// usecase call, with the same argument, that the :wsId route reaches? Not "does
-// it work" — the :wsId routes are already covered — but "is it the same verb".
-// That is why most of these fire BOTH routes against ONE handler value and
-// compare, rather than asserting a hard-coded expectation twice.
+// worktree instead of by the worktree (spec §4.3). Their :wsId twins are gone
+// (spec §8 step 6), so these are the whole surface.
 
-const (
-	chatBase = "/v0/projects/p1/repos/r1/chats/c1"
-	wsBase   = "/v0/projects/p1/repos/r1/workspaces/w1"
-)
+const chatBase = "/v0/projects/p1/repos/r1/chats/c1"
 
 // heldWorkspace is what the resolver answers for chat c1 throughout: the
 // workspace behind the worktree that chat reads and writes through.
@@ -37,9 +29,9 @@ func heldWorkspace() *fakeWorktrees {
 func TestChatLock_LocksTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
+	reader := &fakeReader{}
 	worktrees := heldWorkspace()
-	r, _ := newPairedRouter(reader, &fakeHierarchy{}, worktrees)
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, worktrees)
 
 	rec := do(r, http.MethodPost, chatBase+"/lock", `{"locked":true}`)
 
@@ -55,8 +47,8 @@ func TestChatLock_LocksTheWorkspaceTheChatHolds(
 func TestChatLock_OmittedLockedStillHandsTheQuestionBackToTheProvider(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
-	r, _ := newPairedRouter(reader, &fakeHierarchy{}, heldWorkspace())
+	reader := &fakeReader{}
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/lock", `{}`)
 
@@ -65,15 +57,14 @@ func TestChatLock_OmittedLockedStillHandsTheQuestionBackToTheProvider(
 	assert.Nil(t, reader.gotLocked)
 }
 
-// A malformed body is refused BEFORE the chat is resolved, exactly as the
-// :wsId route refuses it before the workspace is read: a body that cannot be
+// A malformed body is refused BEFORE the chat is resolved: a body that cannot be
 // parsed is not a request about any particular chat yet.
 func TestChatLock_RejectsAMalformedBodyBeforeResolvingAnything(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
+	reader := &fakeReader{}
 	worktrees := heldWorkspace()
-	r, _ := newPairedRouter(reader, &fakeHierarchy{}, worktrees)
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, worktrees)
 
 	rec := do(r, http.MethodPost, chatBase+"/lock", `{"locked":`)
 
@@ -85,8 +76,8 @@ func TestChatLock_RejectsAMalformedBodyBeforeResolvingAnything(
 func TestChatSync_SyncsTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}, syncDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, &fakeHierarchy{}, heldWorkspace())
+	reader := &fakeReader{syncDone: make(chan struct{})}
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/sync", "")
 
@@ -98,12 +89,11 @@ func TestChatSync_SyncsTheWorkspaceTheChatHolds(
 func TestChatMergeIntoParent_MergesTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	hierarchy := &fakeHierarchy{
 		mergeResult: workspace.MergeResult{ParentTipSha: "abc123"},
 		mergeDone:   make(chan struct{}),
 	}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"squash"}`)
 
@@ -119,7 +109,7 @@ func TestChatMergeIntoParent_StillRefusesAMissingStrategy(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{}`)
 
@@ -133,9 +123,9 @@ func TestChatMergeIntoParent_StillFoldsAMergedLeafAway(
 	t *testing.T,
 ) {
 	// One workspace in the list and nothing parented under w1 — a leaf.
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}, list: []domain.Workspace{{ID: "w1"}}}
+	reader := &fakeReader{list: []domain.Workspace{{ID: "w1"}}}
 	hierarchy := &fakeHierarchy{deleteDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(reader, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent",
 		`{"strategy":"squash","deleteSource":true}`)
@@ -148,9 +138,8 @@ func TestChatMergeIntoParent_StillFoldsAMergedLeafAway(
 func TestChatReparent_ReparentsTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	hierarchy := &fakeHierarchy{reparentDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/reparent", `{"newParentId":"w9"}`)
 
@@ -164,7 +153,7 @@ func TestChatReparent_StillRefusesAMissingNewParent(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/reparent", `{}`)
 
@@ -175,9 +164,8 @@ func TestChatReparent_StillRefusesAMissingNewParent(
 func TestChatRebaseOntoParent_RebasesTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	hierarchy := &fakeHierarchy{rebaseDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/rebase-onto-parent", "")
 
@@ -189,9 +177,8 @@ func TestChatRebaseOntoParent_RebasesTheWorkspaceTheChatHolds(
 func TestChatRetryProvision_ReprovisionsTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	hierarchy := &fakeHierarchy{retryDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 
@@ -203,9 +190,8 @@ func TestChatRetryProvision_ReprovisionsTheWorkspaceTheChatHolds(
 func TestChatDetachHolder_DetachesTheWorkspaceTheChatHolds(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	hierarchy := &fakeHierarchy{detachDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPost, chatBase+"/detach-holder", "")
 
@@ -220,11 +206,10 @@ func TestChatDetachHolder_DetachesTheWorkspaceTheChatHolds(
 func TestChatVerbs_ActOnTheAncestorsWorktreeAChatShares(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "ancestor-ws"}}
 	// The resolver's whole job: c1 owns nothing, its ancestor owns ancestor-ws.
 	worktrees := &fakeWorktrees{ws: domain.Workspace{ID: "ancestor-ws"}}
 	hierarchy := &fakeHierarchy{retryDone: make(chan struct{})}
-	r, _ := newPairedRouter(reader, hierarchy, worktrees)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, worktrees)
 
 	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 
@@ -244,10 +229,10 @@ func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 		"rebase-onto-parent", "retry-provision", "detach-holder",
 	} {
 		t.Run(verb, func(t *testing.T) {
-			reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
+			reader := &fakeReader{}
 			hierarchy := &fakeHierarchy{}
 			worktrees := &fakeWorktrees{err: worktree.ErrNoWorktreeInAncestry}
-			r, h := newPairedRouter(reader, hierarchy, worktrees)
+			r, h := newChatRouter(reader, hierarchy, worktrees)
 
 			// Bodies that would otherwise pass their own validation, so the 404 is
 			// provably the resolve and not a body guard firing first.
@@ -274,81 +259,24 @@ func TestChatVerbs_404WhenTheResolveFailsForAnyOtherReason(
 	t *testing.T,
 ) {
 	worktrees := &fakeWorktrees{err: errors.New("the read model is down")}
-	r, _ := newPairedRouter(&fakeReader{}, &fakeHierarchy{}, worktrees)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, worktrees)
 
 	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// The equivalence, asserted directly: the same operation reached both ways
-// lands the same call on the same usecase, and the ONLY difference between the
-// two requests is how they named the target.
-func TestChatVerbs_ReachTheSameUsecaseCallAsTheirWorkspaceKeyedTwin(
-	t *testing.T,
-) {
-	t.Run("lock", func(t *testing.T) {
-		viaChat := &fakeReader{get: domain.Workspace{ID: "w1"}}
-		rc, _ := newPairedRouter(viaChat, &fakeHierarchy{}, heldWorkspace())
-		chatRec := do(rc, http.MethodPost, chatBase+"/lock", `{"locked":false}`)
-
-		viaWS := &fakeReader{get: domain.Workspace{ID: "w1"}}
-		rw, _ := newPairedRouter(viaWS, &fakeHierarchy{}, heldWorkspace())
-		wsRec := do(rw, http.MethodPost, wsBase+"/lock", `{"locked":false}`)
-
-		assert.Equal(t, wsRec.Code, chatRec.Code)
-		assert.Equal(t, viaWS.lockCalls, viaChat.lockCalls)
-		require.NotNil(t, viaChat.gotLocked)
-		require.NotNil(t, viaWS.gotLocked)
-		assert.Equal(t, *viaWS.gotLocked, *viaChat.gotLocked)
-	})
-
-	t.Run("merge-into-parent", func(t *testing.T) {
-		viaChat := &fakeHierarchy{mergeDone: make(chan struct{})}
-		rc, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, viaChat, heldWorkspace())
-		chatRec := do(rc, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"rebase"}`)
-		waitClosed(t, viaChat.mergeDone)
-
-		viaWS := &fakeHierarchy{mergeDone: make(chan struct{})}
-		rw, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, viaWS, heldWorkspace())
-		wsRec := do(rw, http.MethodPost, wsBase+"/merge-into-parent", `{"strategy":"rebase"}`)
-		waitClosed(t, viaWS.mergeDone)
-
-		assert.Equal(t, wsRec.Code, chatRec.Code)
-		assert.Equal(t, viaWS.gotMergeID, viaChat.gotMergeID)
-		assert.Equal(t, viaWS.gotStrategy, viaChat.gotStrategy)
-	})
-
-	t.Run("reparent", func(t *testing.T) {
-		viaChat := &fakeHierarchy{reparentDone: make(chan struct{})}
-		rc, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, viaChat, heldWorkspace())
-		chatRec := do(rc, http.MethodPost, chatBase+"/reparent", `{"newParentId":"w9"}`)
-		waitClosed(t, viaChat.reparentDone)
-
-		viaWS := &fakeHierarchy{reparentDone: make(chan struct{})}
-		rw, _ := newPairedRouter(&fakeReader{get: domain.Workspace{ID: "w1"}}, viaWS, heldWorkspace())
-		wsRec := do(rw, http.MethodPost, wsBase+"/reparent", `{"newParentId":"w9"}`)
-		waitClosed(t, viaWS.reparentDone)
-
-		assert.Equal(t, wsRec.Code, chatRec.Code)
-		assert.Equal(t, viaWS.gotReparent, viaChat.gotReparent)
-		assert.Equal(t, viaWS.gotNewParent, viaChat.gotNewParent)
-	})
-}
-
-// The chat-keyed BRANCH rename (spec §5's missing half). Every test below asks
-// the same question the rest of this file does — is it the SAME verb? — because
-// the whole reason this route exists rather than pointing a client at the raw
-// PATCH /v0/chats/:chatId/git/branches is that the raw one enforces none of
-// these guards and leaves domain.Workspace.Branch stale behind a bare
-// `git branch -m`.
+// The chat-keyed BRANCH rename (spec §5's missing half). The whole reason this
+// route exists rather than pointing a client at the raw PATCH
+// /v0/chats/:chatId/git/branches is that the raw one enforces none of these
+// guards and leaves domain.Workspace.Branch stale behind a bare `git branch -m`.
 
 func TestChatRenameBranch_RenamesTheBranchOfTheWorktreeTheChatHolds(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{renamed: domain.Workspace{ID: "w1", Branch: "feature/x"}}
 	worktrees := heldWorkspace()
-	r, _ := newPairedRouter(&fakeReader{}, hierarchy, worktrees)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, worktrees)
 
 	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)
 
@@ -361,33 +289,11 @@ func TestChatRenameBranch_RenamesTheBranchOfTheWorktreeTheChatHolds(
 		"the answer names the CHAT — past law 1 a workspace has no id a client may hold")
 }
 
-// The same call the :wsId PATCH's rename half makes, proven by making both and
-// comparing — not by asserting a hard-coded expectation twice.
-func TestChatRenameBranch_ReachesTheSameUsecaseCallAsTheWorkspaceRoute(
-	t *testing.T,
-) {
-	hierarchy := &fakeHierarchy{renamed: domain.Workspace{ID: "w1", Branch: "feature/x"}}
-	r, _ := newPairedRouter(&fakeReader{}, hierarchy, heldWorkspace())
-
-	require.Equal(t, http.StatusOK,
-		do(r, http.MethodPatch, wsBase, `{"branch":"feature/x"}`).Code)
-	viaWorkspace := hierarchy.gotRenameID + "/" + hierarchy.gotRenameTo
-	hierarchy.gotRenameID, hierarchy.gotRenameTo = "", ""
-
-	require.Equal(t, http.StatusOK,
-		do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`).Code)
-	viaChat := hierarchy.gotRenameID + "/" + hierarchy.gotRenameTo
-
-	assert.Equal(t, viaWorkspace, viaChat, "one verb, two keyings, no second implementation")
-}
-
 // Every refusal guardRenameBranch makes — a locked branch, a repo-wide name
 // collision, an unprovisioned placeholder, an adopted checkout the user owns —
-// must arrive through the chat door exactly as it does through the workspace
-// one. This is the assertion that the guards were CARRIED OVER rather than
-// re-implemented: they all live below the handler, so all this has to prove is
-// that the handler still routes through them.
-func TestChatRenameBranch_CarriesEveryGuardTheWorkspaceRouteEnforces(
+// must arrive through the chat door. The guards all live below the handler, so
+// all this has to prove is that the handler still routes through them.
+func TestChatRenameBranch_CarriesEveryGuardTheUsecaseEnforces(
 	t *testing.T,
 ) {
 	for name, refusal := range map[string]error{
@@ -397,7 +303,7 @@ func TestChatRenameBranch_CarriesEveryGuardTheWorkspaceRouteEnforces(
 		"adopted checkout":          workspace.ErrRenameUnmanagedWorkspace,
 	} {
 		t.Run(name, func(t *testing.T) {
-			r, _ := newPairedRouter(
+			r, _ := newChatRouter(
 				&fakeReader{}, &fakeHierarchy{renameErr: refusal}, heldWorkspace())
 
 			rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)
@@ -408,14 +314,13 @@ func TestChatRenameBranch_CarriesEveryGuardTheWorkspaceRouteEnforces(
 	}
 }
 
-// A blank name never reaches the usecase, the same refusal the :wsId route
-// makes — and it is refused for what is wrong with it rather than for a chat
-// lookup the request never got to.
+// A blank name never reaches the usecase, and it is refused for what is wrong
+// with it rather than for a chat lookup the request never got to.
 func TestChatRenameBranch_BlankBranchIsRefusedBeforeTheUsecase(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newPairedRouter(&fakeReader{}, hierarchy, heldWorkspace())
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, heldWorkspace())
 
 	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"   "}`)
 
@@ -424,13 +329,13 @@ func TestChatRenameBranch_BlankBranchIsRefusedBeforeTheUsecase(
 }
 
 // A malformed body is refused BEFORE the chat is resolved, matching lock's own
-// order and the :wsId route's: a body that cannot be parsed is not yet a
-// request about any particular chat.
+// order: a body that cannot be parsed is not yet a request about any particular
+// chat.
 func TestChatRenameBranch_BadJSONIsRefusedBeforeTheChatIsResolved(
 	t *testing.T,
 ) {
 	worktrees := heldWorkspace()
-	r, _ := newPairedRouter(&fakeReader{}, &fakeHierarchy{}, worktrees)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, worktrees)
 
 	rec := do(r, http.MethodPatch, chatBase+"/branch", `{`)
 
@@ -444,7 +349,7 @@ func TestChatRenameBranch_UnresolvableChatIs404(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newPairedRouter(
+	r, _ := newChatRouter(
 		&fakeReader{}, hierarchy, &fakeWorktrees{err: worktree.ErrNoWorktreeInAncestry})
 
 	rec := do(r, http.MethodPatch, chatBase+"/branch", `{"branch":"feature/x"}`)

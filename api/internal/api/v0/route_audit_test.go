@@ -52,14 +52,13 @@ func specRoutes() []string {
 		"GET /v0/projects/:projectId/repos",
 		"POST /v0/projects/:projectId/repos",
 		"GET " + repo,
-		// §2.2 Workspaces (+hierarchy)
-		"GET /v0/projects/:projectId/repos/:repoId/workspaces",
-		"GET " + ws,
-		"POST /v0/projects/:projectId/repos/:repoId/workspaces",
-		"DELETE " + ws,
-		"POST " + ws + "/sync",
-		"POST " + ws + "/merge-into-parent",
-		"POST " + ws + "/reparent",
+		// §2.2 Workspaces (+hierarchy) — GONE. The chat-scoped API spec's §8 step
+		// 6 deleted the whole `workspaces` endpoint group: list and detail became
+		// the chat DTO's own worktree field, create and import became POST
+		// .../chats and .../chats/import-batch, delete became DELETE
+		// .../chats/:id, and the seven lifecycle verbs moved onto .../chats/:id
+		// (listed in extraRoutes below). Their absence is asserted directly by
+		// TestRouteAudit_NoWorkspaceGroupRoutes.
 		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
 		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
 		// §2.4 Files
@@ -279,9 +278,6 @@ func extraRoutes() []string {
 		"PATCH " + repo,
 		// The repo's open-PR head->base graph, the import dialog's parent hint.
 		"GET " + repo + "/pull-requests",
-		// Batch branch import: adopts a set of remote branches as managed
-		// workspaces in one call, PR-parented up to a protected root.
-		"POST " + repo + "/workspaces/import",
 		"GET " + repo + "/icon",
 		"PUT " + repo + "/icon",
 		"DELETE " + repo + "/icon",
@@ -295,26 +291,13 @@ func extraRoutes() []string {
 		"PUT /v0/projects/:projectId/icon",
 		"DELETE /v0/projects/:projectId/icon",
 		"PUT /v0/projects/:projectId/icon/emoji",
-		// The user's own lock decision for a workspace, which outranks the
-		// provider's protected flag and survives the next poll. A verb route
-		// rather than a PATCH field: it is one aggregate write with no git in it,
-		// and it answers synchronously so a refusal (the project home, a
-		// placeholder with no worktree) reaches the menu that fired it.
-		"POST " + ws + "/lock",
 		"GET " + repo + "/branches",
-		// Two routes that shipped without ever being declared here — the exact
-		// drift this audit exists to catch, caught late because the audit is
-		// behind the `integration` build tag and so does not run in the default
-		// `go test ./...` sweep.
-		//
-		//   pull-requests: the repo's open PR list, read by the sidebar beside
-		//   the branch list above.
-		//   workspaces/import: adopting an EXISTING branch as a workspace, the
-		//   sibling of POST .../workspaces (which creates a new branch). It is
-		//   repo-scoped, not workspace-scoped: there is no :wsId until it
-		//   returns.
+		// A route that shipped without ever being declared here — the exact drift
+		// this audit exists to catch, caught late because the audit is behind the
+		// `integration` build tag and so does not run in the default
+		// `go test ./...` sweep: the repo's open PR list, read by the sidebar
+		// beside the branch list above.
 		"GET " + repo + "/pull-requests",
-		"POST " + repo + "/workspaces/import",
 		// File copy: the duplicate op the file tree's context menu drives,
 		// sibling of the create/rename/delete file routes the §2.4 list carries.
 		"POST " + ws + "/files/copy",
@@ -350,19 +333,11 @@ func extraRoutes() []string {
 		"POST " + chat + "/lsp/didOpen",
 		"POST " + chat + "/lsp/didChange",
 		"POST " + chat + "/lsp/didClose",
-		// Registered hierarchy/feature routes the §2 spec list did not yet
-		// enumerate: the rebase-onto-parent hierarchy op (sibling of
-		// merge-into-parent/reparent), the detach-holder/retry-provision
-		// placeholder ops (spec §3.3/§3.5 — free a held protected branch and
-		// re-provision it in place), the git-identity read, and the review-thread
-		// message CRUD.
-		// Branch rename: renames the workspace's branch AND relocates its
-		// workspace root to the directory the new name derives, so git, the
-		// filesystem and the record never disagree.
-		"PATCH " + ws,
-		"POST " + ws + "/rebase-onto-parent",
-		"POST " + ws + "/detach-holder",
-		"POST " + ws + "/retry-provision",
+		// Registered feature routes the §2 spec list did not yet enumerate: the
+		// git-identity read and the review-thread message CRUD. (The hierarchy
+		// ops that used to sit here — rebase-onto-parent, detach-holder,
+		// retry-provision and the branch-renaming PATCH — are chat-keyed now and
+		// are listed with the rest of the lifecycle verbs below.)
 		"GET " + ws + "/identity",
 		// The same identity read, chat-scoped (spec §4.2's SHARED bucket, §8
 		// step 4c) — see the specRoutes review chat-scoped comment for why
@@ -401,9 +376,8 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/promote",
 		// The worktree LIFECYCLE verbs, on the thing actually being held
 		// (chat-scoped API spec §4.3). Each resolves :id to the workspace behind
-		// that chat's worktree and runs the very same handler body its
-		// .../workspaces/:wsId twin below runs; the twins are retired in §8 step
-		// 6b, once the frontend has moved.
+		// that chat's worktree. Their .../workspaces/:wsId twins are gone as of
+		// §8 step 6, so these are now the only way to reach these bodies.
 		"POST " + repo + "/chats/:id/lock",
 		"POST " + repo + "/chats/:id/sync",
 		"POST " + repo + "/chats/:id/merge-into-parent",
@@ -411,22 +385,21 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rebase-onto-parent",
 		"POST " + repo + "/chats/:id/retry-provision",
 		"POST " + repo + "/chats/:id/detach-holder",
-		// The chat-keyed BRANCH rename: the half of PATCH .../workspaces/:wsId
-		// that had no chat-scoped equivalent at all until now. It runs the very
-		// same guards its :wsId twin does (locked branch, unprovisioned
-		// placeholder, repo-wide name collision, adopted checkout) because it
-		// routes through the same applyRename/hierarchy.RenameBranch body.
+		// The chat-keyed BRANCH rename: what became of the rename half of the
+		// deleted PATCH .../workspaces/:wsId. It enforces the same guards (locked
+		// branch, unprovisioned placeholder, repo-wide name collision, adopted
+		// checkout) because it routes through the same
+		// applyRename/hierarchy.RenameBranch body.
 		//
 		// Deliberately NOT folded into POST .../chats/:id/rename, which stays
 		// title-only — see ChatRenameBranch for why that half of spec §7.5 was
 		// declined.
 		"PATCH " + repo + "/chats/:id/branch",
-		// Batch branch import, relocated onto the surface that survives (spec §8
-		// step 6b). It is a route of its own beside POST .../chats — that one
-		// adopts ONE named branch, this one takes a set and resolves the repo's
-		// open-PR graph across it, creating missing ancestors and falling back to
-		// a placeholder for a branch held elsewhere. Its …/workspaces/import
-		// mount above is still served by this very same handler.
+		// Batch branch import, on the surface that survives (spec §8 step 6). It
+		// is a route of its own beside POST .../chats — that one adopts ONE named
+		// branch, this one takes a set and resolves the repo's open-PR graph
+		// across it, creating missing ancestors and falling back to a placeholder
+		// for a branch held elsewhere. Its …/workspaces/import mount is gone.
 		"POST " + repo + "/chats/import-batch",
 		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
 		// and sharing ONE dense sibling space with the chats above — a folder and a
@@ -667,11 +640,89 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 	}
 }
 
+// TestRouteAudit_NoWorkspaceGroupRoutes is the proof the chat-scoped API spec's
+// §8 step 6 deletion is real: not one of the thirteen routes the `workspaces`
+// endpoint group mounted is registered any more. Every one had a chat-keyed
+// replacement live and in use before it went (the .../chats/:id verbs and the
+// chat DTO's own worktree field), so a re-mount here is a regression, not a
+// fallback.
+//
+// It also pins what deliberately SURVIVES a deletion the original spec text
+// expected to take with it. GET /home serves a genuinely distinct concept — a
+// bare PROJECT-level home workspace with no repo, so no chat can ever address
+// it — and the /home/* group is untouched. The threads group's own
+// /workspaces/:wsId prefix stays too: review comments are §4.4's
+// untouched-on-purpose surface and are not worktree-keyed at all.
+func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	got := registeredRoutes(t)
+
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	const ws = repo + "/workspaces/:wsId"
+	deleted := []string{
+		"GET " + repo + "/workspaces",
+		"GET " + ws,
+		"POST " + repo + "/workspaces",
+		"POST " + repo + "/workspaces/import",
+		"PATCH " + ws,
+		"DELETE " + ws,
+		"POST " + ws + "/sync",
+		"POST " + ws + "/lock",
+		"POST " + ws + "/merge-into-parent",
+		"POST " + ws + "/reparent",
+		"POST " + ws + "/rebase-onto-parent",
+		"POST " + ws + "/retry-provision",
+		"POST " + ws + "/detach-holder",
+	}
+	require.Len(t, deleted, 13, "the group mounted thirteen routes; all thirteen must be checked")
+	for _, r := range deleted {
+		_, ok := got[r]
+		assert.Falsef(t, ok, "deleted workspaces-group route is still registered: %s", r)
+	}
+
+	// The chat-keyed replacements every one of those was retired in favour of.
+	for _, r := range []string{
+		"POST " + repo + "/chats",
+		"GET " + repo + "/chats",
+		"GET " + repo + "/chats/:id",
+		"DELETE " + repo + "/chats/:id",
+		"PATCH " + repo + "/chats/:id/placement",
+		"PATCH " + repo + "/chats/:id/branch",
+		"POST " + repo + "/chats/import-batch",
+		"POST " + repo + "/chats/:id/sync",
+		"POST " + repo + "/chats/:id/lock",
+		"POST " + repo + "/chats/:id/merge-into-parent",
+		"POST " + repo + "/chats/:id/reparent",
+		"POST " + repo + "/chats/:id/rebase-onto-parent",
+		"POST " + repo + "/chats/:id/retry-provision",
+		"POST " + repo + "/chats/:id/detach-holder",
+	} {
+		_, ok := got[r]
+		assert.Truef(t, ok, "chat-keyed replacement missing: %s", r)
+	}
+
+	// The home group is NOT part of this deletion.
+	const home = "/v0/projects/:projectId/home"
+	for _, r := range []string{
+		"GET " + home,
+		"GET " + home + "/files/tree",
+		"GET " + home + "/chats",
+		"GET " + home + "/threads",
+	} {
+		_, ok := got[r]
+		assert.Truef(t, ok, "home route must be untouched by this step: %s", r)
+	}
+
+	// Review comments keep their own /workspaces/:wsId prefix (spec §4.4).
+	_, ok := got["GET "+ws+"/threads"]
+	assert.True(t, ok, "the threads group's workspace-scoped mount must survive")
+}
+
 // TestRouteAudit_DualServe_RestMode proves the dual-served live-read routes
 // answer a plain (non-Upgrade) GET on REST — the complement of the WS-upgrade
 // proofs below, so both modes of every route are covered. It exercises the
-// entity list+detail routes (projects, projects/:id, repos, repos/:id,
-// workspaces, workspaces/:id) plus git/status.
+// entity list+detail routes (projects, projects/:id, repos, repos/:id) plus
+// git/status.
 func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -689,8 +740,6 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 		"/v0/projects/p1",
 		"/v0/projects/p1/repos",
 		"/v0/projects/p1/repos/r1",
-		"/v0/projects/p1/repos/r1/workspaces",
-		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		resp, err := http.Get(srv.URL + path)
@@ -726,8 +775,6 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 		"/v0/projects/p1",
 		"/v0/projects/p1/repos",
 		"/v0/projects/p1/repos/r1",
-		"/v0/projects/p1/repos/r1/workspaces",
-		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		url := "ws" + srv.URL[len("http"):] + path

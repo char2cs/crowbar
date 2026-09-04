@@ -4,7 +4,6 @@ import {
   postRepo,
   renameRepo,
   importBranches,
-  deleteWorkspace,
   renameWorkspaceBranch,
   apiFetch,
 } from '@/lib/api'
@@ -81,14 +80,6 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = lastCall()
     expect(JSON.parse(init.body as string).branches).toEqual(['a', 'b', 'c'])
-  })
-
-  test('DELETE .../workspaces/:w → 202, resolves undefined', async () => {
-    const res = await deleteWorkspace('p1', 'r1', 'w1')
-    const [url, init] = lastCall()
-    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/w1')
-    expect(init.method).toBe('DELETE')
-    expect(res).toBeUndefined()
   })
 
   // A branch rename is a WORKTREE verb, so it is addressed by the chat holding

@@ -1,6 +1,6 @@
-// Package handlers holds the gin handlers backing the workspaces endpoint: the
-// flat list and detail reads, worktree-backed create and cascade delete, and
-// the hierarchy operations (local merge-into-parent and reparent).
+// Package handlers holds the gin handlers backing the chat-keyed worktree
+// endpoint: the batch branch import, the seven worktree lifecycle verbs, and
+// the branch rename.
 package handlers
 
 import (
@@ -8,52 +8,18 @@ import (
 	"sync"
 	"time"
 
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Placer is the unified sidebar-tree surface the handlers need: a
-// workspace-owning row's folder placement is just that row's Chat.ParentID,
-// moved through the same command Task 4's chat/folder rows already use — see
-// ChatResolver for how the handlers find the chat row a workspace id owns.
-type Placer interface {
-	PlaceChat(
-		ctx context.Context,
-		workspaceID string,
-		chatID string,
-		in agentusecase.PlaceInput,
-	) (domain.Chat, []domain.Chat, error)
-}
-
-// ChatResolver resolves the chat row a workspace id owns, so a workspace's own
-// folder-placement request can be addressed to that row: every workspace-owning
-// row is a chat row (Stage 1's taxonomy), and Placer.PlaceChat is addressed by
-// chat id, never by workspace id.
-type ChatResolver interface {
-	ListChatsByWorkspace(
-		ctx context.Context,
-		workspaceID string,
-	) ([]domain.Chat, error)
-}
-
 // Reader is the workspace read surface the handlers need: list every workspace
-// row from the read model, fetch one by id, sync the working-tree state on
-// demand, and resolve a row's merge eligibility against its sibling set.
+// row (the post-merge leaf check reads the whole set), sync the working-tree
+// state on demand, and record the user's own lock decision.
 type Reader interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
-	ListInRepo(
-		ctx context.Context,
-		projectID string,
-		repoID string,
-	) ([]domain.Workspace, error)
-	Get(
-		ctx context.Context,
-		id string,
-	) (domain.Workspace, error)
 	SyncWorkingTreeState(
 		ctx context.Context,
 		id string,
@@ -66,21 +32,12 @@ type Reader interface {
 		id string,
 		locked *bool,
 	) (domain.Workspace, error)
-	MergeEligibilityFor(
-		ctx context.Context,
-		ws domain.Workspace,
-		siblings []domain.Workspace,
-	) workspace.MergeEligibility
 }
 
-// Hierarchy is the worktree-orchestration surface the handlers need: create a
-// worktree-backed child, cascade-delete a subtree, run a local child→parent
+// Hierarchy is the worktree-orchestration surface the handlers need: adopt a
+// batch of existing branches, cascade-delete a subtree, run a local child→parent
 // merge, and reparent a leaf child onto a new parent (07).
 type Hierarchy interface {
-	CreateChild(
-		ctx context.Context,
-		in workspace.CreateChildInput,
-	) (domain.Workspace, error)
 	CreateFromImport(
 		ctx context.Context,
 		in workspace.ImportInput,
@@ -127,10 +84,10 @@ type Hierarchy interface {
 // writes through — itself if it owns one, else its nearest ancestor that does
 // (spec docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3).
 //
-// It is what the chat-keyed half of the lifecycle verbs (chat_scoped.go) uses
-// in place of a :wsId nobody may name any more, and it is declared HERE, as the
-// narrow slice this consumer actually needs (law 4); the container's own
-// resolver satisfies it (law 6).
+// It is how every verb here finds its target, past law 1's refusal to let a
+// request name a :wsId, and it is declared HERE, as the narrow slice this
+// consumer actually needs (law 4); the container's own resolver satisfies it
+// (law 6).
 type Worktrees interface {
 	Resolve(
 		ctx context.Context,
@@ -138,7 +95,7 @@ type Worktrees interface {
 	) (domain.Workspace, error)
 }
 
-// Repos resolves a repository by id so the create handler can derive the repo's
+// Repos resolves a repository by id so the batch import can derive the repo's
 // on-disk path and owning project from the request's repoId.
 type Repos interface {
 	FindByKey(
@@ -161,12 +118,11 @@ type LastErrorSetter interface {
 // WorkSignal brackets a workspace's background mutation window so the daemon
 // serves a real Working overlay: BeginWork re-broadcasts the row with
 // Working=true the moment an async op is accepted, EndWork resolves it, and
-// WorkingFor overlays the REST reads so a list/detail fetched mid-work agrees
-// with the live stream. WorkingFor combines BOTH derived overlays — the
-// inflight background-mutation signal (IsWorking) AND the agent-turn signal —
-// so a REST read reflects an in-progress agent turn exactly like the WS frames
-// and snapshot readers do; IsWorking is retained for callers that need only the
-// inflight half. Blank ids (a create with no entity yet) are no-ops.
+// WorkingFor overlays the REST reads so a read fetched mid-work agrees with the
+// live stream. WorkingFor combines BOTH derived overlays — the inflight
+// background-mutation signal (IsWorking) AND the agent-turn signal; IsWorking is
+// retained for callers that need only the inflight half. Blank ids (an import
+// with no entity yet) are no-ops.
 type WorkSignal interface {
 	BeginWork(
 		ctx context.Context,
@@ -180,17 +136,12 @@ type WorkSignal interface {
 		wsID string,
 	) bool
 	// WorkingFor reports whether the workspace is working via EITHER overlay
-	// (inflight mutation OR agent chat mid-turn); it is what the REST handlers
-	// stamp domain.Workspace.Working from.
+	// (inflight mutation OR agent chat mid-turn).
 	WorkingFor(
 		wsID string,
 	) bool
 }
 
-// Handlers serves the /v0/workspaces routes from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store, the workspace error sink
-// that surfaces async-mutation failures on the entity, and the work signal
-// that drives the entity's Working overlay around async mutations.
 // RemoteRefs is the narrow git surface Import uses to refuse a branch that is
 // not on the remote synchronously, on the request path, instead of letting the
 // batch fail in the background where it has no entity to report through.
@@ -208,6 +159,10 @@ type RemoteRefs interface {
 	) (bool, error)
 }
 
+// Handlers serves the chat-keyed worktree routes from the workspace read
+// usecase, the worktree hierarchy usecase, the repository store, the workspace
+// error sink that surfaces async-mutation failures on the entity, and the work
+// signal that drives the entity's Working overlay around async mutations.
 type Handlers struct {
 	reader     Reader
 	hierarchy  Hierarchy
@@ -215,21 +170,13 @@ type Handlers struct {
 	lastErrors LastErrorSetter
 	working    WorkSignal
 	remote     RemoteRefs
-	placer     Placer
-	chats      ChatResolver
 	worktrees  Worktrees
-	// broadcastFolder delivers the folder-typed chat rows a placement renumbered
-	// — folderID, the workspace scope, and the frame kind — mirroring the Chats
-	// panel's own AgentChatFolder broadcast, since a workspace-owning row's
-	// placement now writes the very same chat row those folders share a sibling
-	// space with.
-	broadcastFolder func(folderID string, workspaceID string, kind string)
 	// async tracks the detached runAsync ops so callers can block on their real
 	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
 	async sync.WaitGroup
 }
 
-// New builds the workspaces Handlers from the workspace read usecase, the
+// New builds the worktree Handlers from the workspace read usecase, the
 // worktree hierarchy usecase, the repository store, the workspace error sink,
 // and the working-overlay signal.
 func New(
@@ -240,41 +187,17 @@ func New(
 	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
-		reader:          reader,
-		hierarchy:       hierarchy,
-		repos:           repos,
-		lastErrors:      lastErrors,
-		working:         working,
-		broadcastFolder: func(string, string, string) {},
+		reader:     reader,
+		hierarchy:  hierarchy,
+		repos:      repos,
+		lastErrors: lastErrors,
+		working:    working,
 	}
 }
 
-// WithPlacer wires the sidebar-placement usecase, the chat-row resolver, and
-// the folder broadcast the PATCH and Create handlers need. A nil placer or
-// resolver leaves placement unavailable (the handler answers 500), matching
-// WithRemoteRefs' degrade-rather-than-panic wiring; a nil broadcast degrades to
-// a no-op.
-func (h *Handlers) WithPlacer(
-	placer Placer,
-	chats ChatResolver,
-	broadcast func(folderID string, workspaceID string, kind string),
-) *Handlers {
-	if placer != nil {
-		h.placer = placer
-	}
-	if chats != nil {
-		h.chats = chats
-	}
-	if broadcast != nil {
-		h.broadcastFolder = broadcast
-	}
-	return h
-}
-
-// WithWorktrees wires the chat→workspace resolver the chat-keyed lifecycle
-// verbs run on. Unlike the degrading wirings above a nil resolver does NOT
-// leave a half-working surface: Register simply does not mount those seven
-// routes without one, so the handler never has to answer a fiction about a
+// WithWorktrees wires the chat→workspace resolver every verb runs on. A nil
+// resolver does NOT leave a half-working surface: Register simply does not mount
+// those routes without one, so the handler never has to answer a fiction about a
 // chat it cannot resolve.
 func (h *Handlers) WithWorktrees(
 	worktrees Worktrees,

@@ -22,16 +22,14 @@ import (
 // routes. It implements hub.Subscriber so app-layer broadcasts reach connected
 // clients.
 //
-// The push-only Broadcaster[T] instances held here are workspaces, git, files,
-// and lsp. The Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams
-// are bidirectional, so the Terminal topic is served by the engine.Attach
-// WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
-// replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
-// router.go.
+// The push-only Broadcaster[T] instances held here are git, files, and lsp. The
+// Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams are
+// bidirectional, so the Terminal topic is served by the engine.Attach WebSocket
+// handler (endpoints/terminal/handlers/ws.go), whose ring-buffer replay is its
+// snapshot-on-subscribe (03 §1a). It is wired separately in router.go.
 type Container struct {
 	projects   *ws.Broadcaster[dto.ProjectDTO]
 	repos      *ws.Broadcaster[dto.RepoDTO]
-	workspaces *ws.Broadcaster[dto.WorkspaceDTO]
 	threads    *ws.Broadcaster[dto.ThreadDTO]
 	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
@@ -66,7 +64,6 @@ func New(
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
-		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
@@ -219,22 +216,6 @@ func withOriginSyncLifecycle[T any](
 	return def
 }
 
-// withProviderPollLifecycle attaches the per-active-WS-connection provider-poll
-// subscription triggers to a StreamDef, scoping the refcount by wsId resolved
-// from the path or query and delegating to the app-layer realtime service
-// (D10/§11). Only the single-workspace (:wsId) subscription carries a wsId; the
-// workspace list scope (.../workspaces, no :wsId) resolves to "" and the
-// manager no-ops, so the poll starts only when a client watches one workspace.
-func withProviderPollLifecycle[T any](
-	def ws.StreamDef[T],
-	appContainer *app.Container,
-) ws.StreamDef[T] {
-	def.ScopeKey = scopeWsID
-	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
-	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
-	return def
-}
-
 // scopeWsID resolves the workspace id the per-scope WS resources (the file
 // watcher, the LSP host, the protected-branch origin sync) are refcounted by:
 // the path param, then the chat group's already-resolved workspace, then the
@@ -265,14 +246,14 @@ func scopeWsID(
 // triggers to the agent-chat stream, scoped by the worktree the CHAT mount
 // resolved and by nothing else.
 //
-// It exists rather than reusing withProviderPollLifecycle because that one
-// keys on scopeWsID, which also answers the :wsId PATH param — and the home
-// mount (.../home/chats/ws) binds one. Reusing it would silently start a
-// PR-status poll on the project-home row, which has no repo, no remote and no
-// git surface at all: work that cannot succeed, on a stream that never asked
-// for it. scopeChatWorktreeID reads ONLY the chat group's resolved worktree, so
-// the repo mount and the home mount both resolve "" and no-op exactly as they
-// did before this stream carried a lifecycle at all.
+// It keys on scopeChatWorktreeID rather than on scopeWsID, which the other
+// lifecycle wrappers use, because scopeWsID also answers the :wsId PATH param —
+// and the home mount (.../home/chats/ws) binds one. Keying on it would silently
+// start a PR-status poll on the project-home row, which has no repo, no remote
+// and no git surface at all: work that cannot succeed, on a stream that never
+// asked for it. scopeChatWorktreeID reads ONLY the chat group's resolved
+// worktree, so the repo mount and the home mount both resolve "" and no-op
+// exactly as they did before this stream carried a lifecycle at all.
 func withChatProviderPollLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
@@ -329,16 +310,13 @@ func (c *Container) PushRepo(
 	c.repos.Push(r)
 }
 
-// PushWorkspace implements hub.Subscriber. It serves BOTH scoping answers from
-// one push — the workspace topic a workspace-scoped client watches, and the
-// chat topic a chat-scoped one does (spec §5) — which is the same shape PushGit
-// already takes for the same reason: the two are answers to one question, and a
-// client that got them from independently-built frames would watch its sidebar
-// disagree with itself.
+// PushWorkspace implements hub.Subscriber. It fans a workspace's state onto the
+// CHAT topic alone: the workspace-keyed topic it also served is gone with the
+// routes that mounted it (spec §7.4), so the chat that owns the worktree is the
+// only scoping answer left.
 func (c *Container) PushWorkspace(
 	w dto.WorkspaceDTO,
 ) {
-	c.workspaces.Push(w)
 	c.pushChatWorktree(w)
 }
 
@@ -627,22 +605,6 @@ func reposDef(
 	}
 }
 
-// workspacesDef serves the Workspaces topic. Its hierarchical namespace is
-// projectID/repoID/ID, so a repo-scoped subscription ("p/r") receives every
-// child workspace (spec §5). The snapshot is repo-scoped from the client's
-// subscription prefix and carries the merge-eligibility overlay (spec §9/§10).
-func workspacesDef(
-	appContainer *app.Container,
-) ws.StreamDef[dto.WorkspaceDTO] {
-	return ws.StreamDef[dto.WorkspaceDTO]{
-		Namespace: func(d dto.WorkspaceDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
-		},
-		Serialize: func(d dto.WorkspaceDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  workspacesSnapshot(appContainer),
-	}
-}
-
 // threadsDef serves the Threads topic. Its hierarchical namespace is
 // projectID/repoID/workspaceID/ID, so a workspace-scoped subscription ("p/r/w")
 // receives every thread in that workspace (spec §5); the per-client
@@ -811,7 +773,7 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 // agentChatDef serves the agent-chat lifecycle event stream (GET
 // .../repos/:repoId/chats/ws, and still GET .../home/chats/ws). It carries no
 // snapshot: unlike the full-state resource streams above (projects, repos,
-// workspaces, ...) a freshly-connected client simply waits for the next
+// threads, ...) a freshly-connected client simply waits for the next
 // lifecycle event — there is no "current state" to replay.
 //
 // It has TWO scoping filters and stays FlatNamespace, which is the shape the

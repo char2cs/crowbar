@@ -15,10 +15,10 @@ import (
 // It is an adapter rather than a direct injection because the three reads come
 // from two different places: the row and the merge overlay from the workspace
 // USECASE, the repo-scoped sibling list from the REPOSITORY container (which is
-// where the derived Working overlay is applied). That is the same pair
-// workspacesSnapshot already composes for the workspace list, reached the same
-// way, so a chat's git fields and a workspace's own are resolved from one
-// source of truth rather than two.
+// where the derived Working overlay is applied). That is the same pair the
+// retired workspace list composed its own DTOs from, reached the same way, so a
+// chat's git fields and a workspace's own are resolved from one source of truth
+// rather than two.
 type chatWorktrees struct {
 	app *app.Container
 }

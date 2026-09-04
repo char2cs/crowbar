@@ -9,32 +9,32 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
+// childChat is the chat these tests address, resolving to the workspace named
+// "child" throughout.
+func childChat() *fakeWorktrees {
+	return &fakeWorktrees{ws: domain.Workspace{ID: "child"}}
+}
+
 // TestMergeIntoParent_Returns202 asserts the fail-fast/good-path-async contract:
-// a valid merge-into-parent passes synchronous validation (body shape, workspace
-// exists), returns 202 with an empty body, and runs MergeIntoParent in the
+// a valid merge-into-parent passes synchronous validation (body shape, the chat
+// resolves), returns 202 with an empty body, and runs MergeIntoParent in the
 // background. The merge outcome is delivered on the WebSocket stream (blackbox in
 // W13), not in the HTTP response.
 func TestMergeIntoParent_Returns202(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{
 		mergeResult: workspace.MergeResult{ParentTipSha: "abc123"},
 		mergeDone:   make(chan struct{}),
 	}
-	rec := do(
-		newRouter(reader, hierarchy, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
-		`{"strategy":"squash"}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"squash"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
@@ -46,41 +46,29 @@ func TestMergeIntoParent_Returns202(
 func TestMergeIntoParentBadJSON(
 	t *testing.T,
 ) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
-		`{not-json`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{not-json`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestMergeIntoParentMissingStrategy(
 	t *testing.T,
 ) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
-		`{}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestMergeIntoParentMissingWorkspace_4xx asserts the synchronous existence
-// check: a merge for an unknown workspace is rejected on the request path with a
-// 4xx before any 202 or background merge.
+// check: a merge for a chat holding no worktree is rejected on the request path
+// with a 4xx before any 202 or background merge.
 func TestMergeIntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
 	hierarchy := &fakeHierarchy{}
-	rec := do(
-		newRouter(reader, hierarchy, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
-		`{"strategy":"merge"}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"merge"}`)
+
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, hierarchy.gotMergeID, "merge must not run when the workspace is missing")
 }
@@ -91,14 +79,10 @@ func TestMergeIntoParentMissingWorkspace_4xx(
 func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{mergeErr: workspace.ErrParentLocked}
-	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
-	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
-	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
-	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent", `{"strategy":"merge"}`)
+	r, _ := newChatRouterWithErrors(&fakeReader{}, hierarchy, childChat(), lastErrors)
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"merge"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	// The SetLastError call IS the signal that the failed merge surfaced on the
@@ -108,24 +92,19 @@ func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 }
 
 // TestReparent_Returns202 asserts the fail-fast/good-path-async contract: a valid
-// reparent passes synchronous validation (body shape, workspace exists), returns
+// reparent passes synchronous validation (body shape, the chat resolves), returns
 // 202 with an empty body, and runs Reparent in the background. The reparented
 // workspace is delivered on the WebSocket stream (blackbox in W13), not in the
 // HTTP response.
 func TestReparent_Returns202(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{
 		reparented:   domain.Workspace{ID: "child", ParentID: "np"},
 		reparentDone: make(chan struct{}),
 	}
-	rec := do(
-		newRouter(reader, hierarchy, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
-		`{"newParentId":"np"}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/reparent", `{"newParentId":"np"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
@@ -137,41 +116,29 @@ func TestReparent_Returns202(
 func TestReparentBadJSON(
 	t *testing.T,
 ) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
-		`{not-json`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/reparent", `{not-json`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestReparentMissingNewParent(
 	t *testing.T,
 ) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
-		`{}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/reparent", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestReparentMissingWorkspace_4xx asserts the synchronous existence check: a
-// reparent for an unknown workspace is rejected on the request path with a 4xx
-// before any 202 or background reparent.
+// reparent for a chat holding no worktree is rejected on the request path with a
+// 4xx before any 202 or background reparent.
 func TestReparentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
 	hierarchy := &fakeHierarchy{}
-	rec := do(
-		newRouter(reader, hierarchy, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
-		`{"newParentId":"np"}`,
-	)
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
+	rec := do(r, http.MethodPost, chatBase+"/reparent", `{"newParentId":"np"}`)
+
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, hierarchy.gotReparent, "reparent must not run when the workspace is missing")
 }
@@ -181,14 +148,10 @@ func TestReparentMissingWorkspace_4xx(
 func TestReparentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{reparentErr: workspace.ErrChildHasChildren}
-	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
-	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
-	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
-	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/reparent", `{"newParentId":"np"}`)
+	r, _ := newChatRouterWithErrors(&fakeReader{}, hierarchy, childChat(), lastErrors)
+	rec := do(r, http.MethodPost, chatBase+"/reparent", `{"newParentId":"np"}`)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	// The SetLastError call IS the signal that the failed reparent surfaced on
@@ -198,61 +161,28 @@ func TestReparentAsyncErrorBroadcastsLastError(
 }
 
 func TestRetryProvision_Returns202(t *testing.T) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	rec := do(
-		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/retry-provision",
-		"",
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
 
 func TestDetachHolder_Returns202(t *testing.T) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
-	rec := do(
-		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/detach-holder",
-		"",
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/detach-holder", "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
 
 func TestRetryProvisionMissingWorkspace_4xx(t *testing.T) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
-	rec := do(
-		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/nope/retry-provision",
-		"",
-	)
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, &fakeWorktrees{err: apperr.ErrNotFound})
+	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// newFoldRouter builds the handler directly (rather than via newRouter) so tests
-// can reach WaitAsync: the post-merge fold runs in the detached runAsync
-// goroutine, and WaitAsync is the only sound way to assert a NEGATIVE ("the
-// non-leaf child was NOT deleted") — a sleep would pass on a fast machine for the
-// wrong reason.
-func newFoldRouter(
-	reader workspacehandlers.Reader,
-	hierarchy workspacehandlers.Hierarchy,
-	lastErrors workspacehandlers.LastErrorSetter,
-) (*gin.Engine, *workspacehandlers.Handlers) {
-	r := gin.New()
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
-	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
-	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
-	rg.POST("/workspaces/:wsId/rebase-onto-parent", h.RebaseOntoParent)
-	return r, h
 }
 
 func mergeInto(
 	r *gin.Engine,
 	body string,
 ) *httptest.ResponseRecorder {
-	return do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent", body)
+	return do(r, http.MethodPost, chatBase+"/merge-into-parent", body)
 }
 
 // TestMergeIntoParent_DeleteSourceFoldsMergedLeaf asserts the fold: a clean merge
@@ -262,7 +192,6 @@ func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		get: domain.Workspace{ID: "child"},
 		// Siblings under the same parent do not make "child" a non-leaf: only a
 		// workspace whose ParentID IS "child" would.
 		list: []domain.Workspace{
@@ -271,7 +200,7 @@ func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
 		},
 	}
 	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
-	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+	r, h := newChatRouter(reader, hierarchy, childChat())
 
 	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
 
@@ -287,7 +216,6 @@ func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		get: domain.Workspace{ID: "child"},
 		list: []domain.Workspace{
 			{ID: "child", ParentID: "parent"},
 			{ID: "grandchild", ParentID: "child"},
@@ -295,7 +223,7 @@ func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 	}
 	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	lastErrors := &fakeLastErrors{}
-	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+	r, h := newChatRouterWithErrors(reader, hierarchy, childChat(), lastErrors)
 
 	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
 
@@ -310,9 +238,8 @@ func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ConflictsPending: true}}
-	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+	r, h := newChatRouter(&fakeReader{}, hierarchy, childChat())
 
 	rec := mergeInto(r, `{"strategy":"merge","deleteSource":true}`)
 
@@ -326,9 +253,8 @@ func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
 func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
-	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+	r, h := newChatRouter(&fakeReader{}, hierarchy, childChat())
 
 	rec := mergeInto(r, `{"strategy":"squash"}`)
 
@@ -343,13 +269,10 @@ func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
 func TestMergeIntoParent_FoldLeafLookupFailureSurfacesLastError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{
-		get:     domain.Workspace{ID: "child"},
-		listErr: errors.New("the workspace index is unreadable"),
-	}
+	reader := &fakeReader{listErr: errors.New("the workspace index is unreadable")}
 	hierarchy := &fakeHierarchy{mergeResult: workspace.MergeResult{ParentTipSha: "abc123"}}
 	lastErrors := &fakeLastErrors{}
-	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+	r, h := newChatRouterWithErrors(reader, hierarchy, childChat(), lastErrors)
 
 	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
 
@@ -365,16 +288,13 @@ func TestMergeIntoParent_FoldLeafLookupFailureSurfacesLastError(
 func TestMergeIntoParent_FoldDeleteFailureSurfacesLastError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{
-		get:  domain.Workspace{ID: "child"},
-		list: []domain.Workspace{{ID: "child", ParentID: "parent"}},
-	}
+	reader := &fakeReader{list: []domain.Workspace{{ID: "child", ParentID: "parent"}}}
 	hierarchy := &fakeHierarchy{
 		mergeResult: workspace.MergeResult{ParentTipSha: "abc123"},
 		deleteErr:   errors.New("the worktree is locked"),
 	}
 	lastErrors := &fakeLastErrors{}
-	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+	r, h := newChatRouterWithErrors(reader, hierarchy, childChat(), lastErrors)
 
 	rec := mergeInto(r, `{"strategy":"squash","deleteSource":true}`)
 
@@ -385,21 +305,15 @@ func TestMergeIntoParent_FoldDeleteFailureSurfacesLastError(
 }
 
 // TestRebaseOntoParent_Returns202 asserts the fail-fast/good-path-async contract
-// for the user-initiated "finish the move": validation (the workspace exists) runs
+// for the user-initiated "finish the move": validation (the chat resolves) runs
 // synchronously, then 202 and the rebase runs in the background.
 func TestRebaseOntoParent_Returns202(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{}
-	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+	r, h := newChatRouter(&fakeReader{}, hierarchy, childChat())
 
-	rec := do(
-		r,
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/rebase-onto-parent",
-		"",
-	)
+	rec := do(r, http.MethodPost, chatBase+"/rebase-onto-parent", "")
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
@@ -408,20 +322,14 @@ func TestRebaseOntoParent_Returns202(
 }
 
 // TestRebaseOntoParentMissingWorkspace_4xx asserts the synchronous existence check
-// rejects an unknown workspace before any 202 or background rebase.
+// rejects a chat holding no worktree before any 202 or background rebase.
 func TestRebaseOntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
 	hierarchy := &fakeHierarchy{}
-	r, h := newFoldRouter(reader, hierarchy, &fakeLastErrors{})
+	r, h := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
 
-	rec := do(
-		r,
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/nope/rebase-onto-parent",
-		"",
-	)
+	rec := do(r, http.MethodPost, chatBase+"/rebase-onto-parent", "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	h.WaitAsync()
@@ -433,17 +341,11 @@ func TestRebaseOntoParentMissingWorkspace_4xx(
 func TestRebaseOntoParentAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {
-	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
 	hierarchy := &fakeHierarchy{rebaseErr: errors.New("rebase refused: the parent moved")}
 	lastErrors := &fakeLastErrors{}
-	r, h := newFoldRouter(reader, hierarchy, lastErrors)
+	r, h := newChatRouterWithErrors(&fakeReader{}, hierarchy, childChat(), lastErrors)
 
-	rec := do(
-		r,
-		http.MethodPost,
-		"/v0/projects/p1/repos/r1/workspaces/child/rebase-onto-parent",
-		"",
-	)
+	rec := do(r, http.MethodPost, chatBase+"/rebase-onto-parent", "")
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	h.WaitAsync()

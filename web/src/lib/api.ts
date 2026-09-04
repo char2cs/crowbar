@@ -543,18 +543,6 @@ export function importBranches(
   })
 }
 
-export function deleteWorkspace(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-  init?: RequestInit,
-): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
-    method: 'DELETE',
-    ...init,
-  })
-}
-
 // Remove a repository from the project, worktrees and all. The removed RepoDTO
 // and its workspaces' tombstones arrive on the entity streams; nothing here
 // writes the sidebar tree. This is the one removal the sidebar asks the user to

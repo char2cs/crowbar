@@ -1,4 +1,4 @@
-package workspaces_test
+package worktree_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -24,7 +24,7 @@ func TestMain(
 }
 
 // stubWorktrees resolves every chat to the same workspace, which is all the
-// route table has to know: whether the seven chat-keyed verbs are MOUNTED.
+// route table has to know: whether the chat-keyed verbs are MOUNTED.
 type stubWorktrees struct{}
 
 func (stubWorktrees) Resolve(
@@ -42,21 +42,6 @@ func (stubReader) List(
 	return nil, nil
 }
 
-func (stubReader) ListInRepo(
-	_ context.Context,
-	_ string,
-	_ string,
-) ([]domain.Workspace, error) {
-	return nil, nil
-}
-
-func (stubReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
 func (stubReader) SyncWorkingTreeState(
 	_ context.Context,
 	_ string,
@@ -65,22 +50,15 @@ func (stubReader) SyncWorkingTreeState(
 	return domain.Workspace{}, nil
 }
 
-func (stubReader) MergeEligibilityFor(
+func (stubReader) SetLock(
 	_ context.Context,
-	_ domain.Workspace,
-	_ []domain.Workspace,
-) workspace.MergeEligibility {
-	return workspace.MergeEligibility{}
+	id string,
+	locked *bool,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LockOverride: locked}, nil
 }
 
 type stubHierarchy struct{}
-
-func (stubHierarchy) CreateChild(
-	_ context.Context,
-	_ workspace.CreateChildInput,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
 
 func (stubHierarchy) CreateFromImport(
 	_ context.Context,
@@ -167,22 +145,99 @@ func (stubWork) EndWork(_ context.Context, _ string)   {}
 func (stubWork) IsWorking(_ string) bool               { return false }
 func (stubWork) WorkingFor(_ string) bool              { return false }
 
-func passthrough(
-	rest gin.HandlerFunc,
-	_ gin.HandlerFunc,
-) gin.HandlerFunc {
-	return rest
+func registerOn(
+	r *gin.Engine,
+) {
+	// Register mounts on the repo-scoped group, so build the hierarchical prefix
+	// to mirror the production router chain.
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
+	worktree.Register(
+		repoScoped,
+		stubReader{},
+		stubHierarchy{},
+		stubRepos{},
+		stubLastErrors{},
+		stubWork{},
+		nil,
+		stubWorktrees{},
+	)
 }
 
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	var wsHit bool
-	// workspaces.Register mounts on the repo-scoped group, so build the
-	// hierarchical prefix to mirror the production router chain.
+	registerOn(r)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		// The worktree lifecycle verbs, on the repo-scoped chat prefix beside
+		// chat's own verbs. Addressed by the thing that HOLDS the worktree.
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/lock"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/sync"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/reparent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/rebase-onto-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/retry-provision"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/detach-holder"},
+		{http.MethodPatch, "/v0/projects/p1/repos/r1/chats/c1/branch"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/import-batch"},
+	}
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+	}
+}
+
+// Spec §8 step 6: the thirteen :wsId routes this group used to mount are GONE,
+// every one of them replaced by a chat-keyed twin above. Asserting their absence
+// is what makes the deletion real rather than a package that merely stopped
+// being named after them — a re-mount for any reason fails here.
+func TestRegisterMountsNoWorkspaceKeyedRoutes(
+	t *testing.T,
+) {
+	r := gin.New()
+	registerOn(r)
+
+	gone := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/import"},
+		{http.MethodPatch, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/sync"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/lock"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/rebase-onto-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/retry-provision"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/detach-holder"},
+	}
+	assert.Len(t, gone, 13, "the group mounted thirteen :wsId routes; all thirteen must be checked")
+	for _, tc := range gone {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code, tc.path)
+	}
+}
+
+// Without a resolver the verbs cannot answer which worktree a chat holds, so
+// they are not mounted at all. The batch import does not need one and stays.
+func TestRegisterWithoutAResolverMountsOnlyTheImport(
+	t *testing.T,
+) {
+	r := gin.New()
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
-	workspaces.Register(
+	worktree.Register(
 		repoScoped,
 		stubReader{},
 		stubHierarchy{},
@@ -191,48 +246,15 @@ func TestRegisterMountsRoutes(
 		stubWork{},
 		nil,
 		nil,
-		nil,
-		stubWorktrees{},
-		nil,
-		func(_ *gin.Context) { wsHit = true },
-		passthrough,
 	)
 
-	cases := []struct {
-		method string
-		path   string
-	}{
-		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces"},
-		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/abc"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces"},
-		{http.MethodPatch, "/v0/projects/p1/repos/r1/workspaces/abc"},
-		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
-		// Spec §4.3's chat-keyed twins, on the repo-scoped chat prefix beside
-		// chat's own verbs. Same seven verbs, addressed by the thing that HOLDS
-		// the worktree rather than by the worktree.
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/lock"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/sync"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/merge-into-parent"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/reparent"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/rebase-onto-parent"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/retry-provision"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/detach-holder"},
-	}
-	for _, tc := range cases {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
-		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
-	}
-	assert.False(t, wsHit)
-}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/lock", http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-func (stubReader) SetLock(
-	_ context.Context,
-	id string,
-	locked *bool,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, LockOverride: locked}, nil
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost, "/v0/projects/p1/repos/r1/chats/import-batch", http.NoBody))
+	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }

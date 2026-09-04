@@ -44,8 +44,24 @@ func (c *Container) WaitNReposRegistered(
 	c.repos.WaitNRegistered(n)
 }
 
-// WaitWorkspacesRegistered blocks until a workspaces WS client registers.
-func (c *Container) WaitWorkspacesRegistered() { c.workspaces.WaitRegistered() }
+// AgentChatsHandle exposes the agent-chat broadcaster's WS upgrade handler so
+// tests can mount it on an ad-hoc route, without the chat group's own
+// resolveChatWorktree guard.
+func (c *Container) AgentChatsHandle(
+	ctx *gin.Context,
+) {
+	c.agentChats.Handle(ctx)
+}
+
+// WaitAgentChatsRegistered blocks until an agent-chat WS client registers.
+func (c *Container) WaitAgentChatsRegistered() { c.agentChats.WaitRegistered() }
+
+// WaitNAgentChatsRegistered blocks until exactly n agent-chat WS clients register.
+func (c *Container) WaitNAgentChatsRegistered(
+	n int,
+) {
+	c.agentChats.WaitNRegistered(n)
+}
 
 // WaitThreadsRegistered blocks until a threads WS client registers.
 func (c *Container) WaitThreadsRegistered() { c.threads.WaitRegistered() }
@@ -65,13 +81,6 @@ func (c *Container) WaitNTerminalsRegistered(
 	n int,
 ) {
 	c.terminals.WaitNRegistered(n)
-}
-
-// WaitNWorkspacesRegistered blocks until exactly n workspaces WS clients register.
-func (c *Container) WaitNWorkspacesRegistered(
-	n int,
-) {
-	c.workspaces.WaitNRegistered(n)
 }
 
 // WaitFilesRegistered blocks until a files WS client registers.

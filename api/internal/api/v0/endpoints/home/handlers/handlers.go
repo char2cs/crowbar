@@ -183,9 +183,8 @@ func New(
 }
 
 // WithChats wires the chat-row resolver Get needs to answer
-// WorkspaceDTO.OwningChatID for the home workspace, mirroring the workspaces
-// handlers' WithPlacer. A nil chats leaves it unwired, and Get degrades to an
-// empty owningChatId rather than panicking.
+// WorkspaceDTO.OwningChatID for the home workspace. A nil chats leaves it
+// unwired, and Get degrades to an empty owningChatId rather than panicking.
 func (h *Handlers) WithChats(
 	chats ChatResolver,
 ) *Handlers {

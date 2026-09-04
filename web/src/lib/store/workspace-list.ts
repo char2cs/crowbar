@@ -8,9 +8,11 @@ import { readVisibleRepoTree } from '@/lib/store/project-visibility'
 // (crowbar_repos + crowbar_workspaces) and groups them into the nested Repo[]
 // the sidebar renders. The per-repo GET seed + live WS subscription that keep
 // the cache fresh live in app-sync-provider's §7 startup (subscribeEntityStream
-// over `/v0/projects/:p/repos/:r/workspaces`), so this store no longer owns a
-// `/v0/ws/workspaces` subscription — `startSync` is a no-op and the live tree
-// is refreshed by calling `fetch()` whenever the cache changes.
+// over `/v0/projects/:p/repos/:r/chats/ws` — there is no workspace resource left
+// to subscribe, so the worktrees arrive nested in the chat feed's frames), so
+// this store no longer owns a workspace subscription of its own — `startSync` is
+// a no-op and the live tree is refreshed by calling `fetch()` whenever the cache
+// changes.
 //
 // The entity cache is intentionally CROSS-PROJECT and long-lived: each project's
 // repo stream prunes only its own scope, so a project the user is not currently

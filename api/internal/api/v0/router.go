@@ -18,7 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
+	worktreePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
 
@@ -31,7 +31,7 @@ import (
 //
 //	rg            → /v0                                    (health, system, profiles, projects)
 //	projectScoped → /v0/projects/:projectId               (repos)
-//	repoScoped    → /v0/projects/:projectId/repos/:repoId (workspaces + everything below)
+//	repoScoped    → /v0/projects/:projectId/repos/:repoId (chats + everything below)
 //
 // gin requires the wildcard at each tree position to carry a single, consistent
 // name: :projectId and :repoId are each defined exactly once by their group, so
@@ -40,8 +40,11 @@ import (
 //
 // There is no dedicated /workspaces/:wsId sub-group any more: terminal was its
 // only member and has moved to the flat /v0/chats/:chatId prefix below (spec
-// §8 step 3). The remaining groups build their own "/workspaces/:wsId/..."
-// paths off repoScoped, and follow terminal in later steps.
+// §8 step 3). The `workspaces` endpoint group itself is gone as of §8 step 6 —
+// every one of its thirteen routes had a chat-keyed replacement live and in use
+// before it went. What still builds a "/workspaces/:wsId/..." path off
+// repoScoped is the legacy mount each re-keyed group keeps beside its chat one,
+// plus threads, which is repo-level review commentary and never moved (§4.4).
 //
 //nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
@@ -130,11 +133,11 @@ func (c *Container) Register(
 		c.app.GORM.Projects,
 		c.app.Usecases.File,
 		c.eng.Terminal,
-		// The working-overlay read seam, the SAME one workspaces.Register stamps its
-		// list/detail reads from (the repositories Container's WorkingFor, which ORs
-		// the inflight-mutation and agent-turn overlays). GET /home is the home
-		// workspace's only REST read, so it stamps Working from here to agree with the
-		// frames the container broadcasts for that same workspace.
+		// The working-overlay read seam (the repositories Container's WorkingFor,
+		// which ORs the inflight-mutation and agent-turn overlays) — the same one
+		// the chat list's worktree fields stamp from. GET /home is the home
+		// workspace's only REST read, so it stamps Working from here to agree with
+		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
 		// Reused from the workspace-scoped surface: the file-change WS handler and
 		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
@@ -161,7 +164,12 @@ func (c *Container) Register(
 		c.agentChats.Handle,
 		ws.DualServe,
 	)
-	workspaces.Register(
+	// The worktree surface a CHAT addresses (spec §4.3): the seven lifecycle
+	// verbs, the branch rename, and the batch branch import. It is what remains
+	// of the old `workspaces` group, whose thirteen :wsId routes spec §8 step 6
+	// deleted once every one of them had a chat-keyed replacement live and in
+	// use.
+	worktreePkg.Register(
 		repoScoped,
 		c.app.Usecases.Workspace,
 		c.app.Usecases.Workspace,
@@ -169,17 +177,11 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Repositories,
 		c.eng.Git,
-		c.app.Usecases.AgentChatFolder,
-		c.app.Usecases.AgentChat,
-		// The chat→worktree resolver (spec §3) behind the seven lifecycle verbs
-		// this group also mounts on the chat prefix (spec §4.3). It is the SAME
-		// value chatScoped's own middleware resolves through, so a verb reached
-		// through .../chats/:id and a read reached through /chats/:chatId agree on
-		// which worktree a chat is holding.
+		// The chat→worktree resolver (spec §3). It is the SAME value chatScoped's
+		// own middleware resolves through, so a verb reached through
+		// .../chats/:id and a read reached through /chats/:chatId agree on which
+		// worktree a chat is holding.
 		c.app.Usecases.Worktree,
-		c.app.Hub.BroadcastAgentChatFolder,
-		c.workspaces.Handle,
-		ws.DualServe,
 	)
 	// Files completes spec §4.2's SHARED bucket (§8 step 4): one worktree, one
 	// tree, and every chat holding it reads and writes the same files. It mounts

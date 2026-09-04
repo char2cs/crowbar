@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
+	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -44,10 +44,9 @@ func (f *fakeRemote) RemoteTrackingBranchExists(_ context.Context, _, branch str
 }
 
 func importRouterWith(
-	remote workspacehandlers.RemoteRefs,
+	remote worktreehandlers.RemoteRefs,
 	hierarchy *fakeHierarchy,
 ) *gin.Engine {
-	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	repos := &fakeRepos{repo: &domain.Repository{
 		ID:            "r1",
 		ProjectID:     "p1",
@@ -55,50 +54,34 @@ func importRouterWith(
 		RemoteURL:     "git@example.com:acme/app.git",
 		DefaultBranch: "main",
 	}}
-	h := workspacehandlers.
-		New(reader, hierarchy, repos, &fakeLastErrors{}, fakeWork{}).
+	h := worktreehandlers.
+		New(&fakeReader{}, hierarchy, repos, &fakeLastErrors{}, fakeWork{}).
 		WithRemoteRefs(remote)
 	r := gin.New()
-	// Both mounts of the one body. The relocated route is the surface that
-	// survives spec §8 step 6b; the :wsId-era one is still served, unchanged,
-	// by the very same handler.
-	r.POST("/v0/projects/:projectId/repos/:repoId/workspaces/import", h.Import)
 	r.POST("/v0/projects/:projectId/repos/:repoId/chats/import-batch", h.Import)
 	return r
 }
 
-func importRouter(remote workspacehandlers.RemoteRefs) *gin.Engine {
+func importRouter(remote worktreehandlers.RemoteRefs) *gin.Engine {
 	return importRouterWith(remote, &fakeHierarchy{})
 }
 
-const (
-	importTarget      = "/v0/projects/p1/repos/r1/workspaces/import"
-	importBatchTarget = "/v0/projects/p1/repos/r1/chats/import-batch"
-)
+const importBatchTarget = "/v0/projects/p1/repos/r1/chats/import-batch"
 
-// The relocation (spec §8 step 6b) is a MOUNT change, so the proof it has to
-// carry is that the new path resolves the very same repo facts off :repoId and
-// hands CreateFromImport the identical input — not that it merely answers 202.
-// A loop over POST .../chats would answer 202 too, and drop the PR-graph
-// parenting, the missing-ancestor creation and the held-branch placeholder that
-// only CreateFromImport performs.
-func TestImport_TheRelocatedBatchRouteRunsTheSameImport(t *testing.T) {
-	byRoute := map[string]workspace.ImportInput{}
-	for name, target := range map[string]string{
-		"relocated": importBatchTarget,
-		"retired":   importTarget,
-	} {
-		hierarchy := &fakeHierarchy{importDone: make(chan struct{})}
-		remote := &fakeRemote{exists: map[string]bool{"feature/x": true}}
+// The proof the batch route has to carry is that it resolves the repo facts off
+// :repoId and hands CreateFromImport the identical input — not that it merely
+// answers 202. A loop over POST .../chats would answer 202 too, and drop the
+// PR-graph parenting, the missing-ancestor creation and the held-branch
+// placeholder that only CreateFromImport performs.
+func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
+	hierarchy := &fakeHierarchy{importDone: make(chan struct{})}
+	remote := &fakeRemote{exists: map[string]bool{"feature/x": true}}
 
-		rec := do(importRouterWith(remote, hierarchy), http.MethodPost, target,
-			`{"branches":["feature/x"]}`)
+	rec := do(importRouterWith(remote, hierarchy), http.MethodPost, importBatchTarget,
+		`{"branches":["feature/x"]}`)
 
-		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-		<-hierarchy.importDone
-		byRoute[name] = hierarchy.gotImport
-	}
-
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	<-hierarchy.importDone
 	assert.Equal(t, workspace.ImportInput{
 		RepoID:        "r1",
 		ProjectID:     "p1",
@@ -106,9 +89,7 @@ func TestImport_TheRelocatedBatchRouteRunsTheSameImport(t *testing.T) {
 		RemoteURL:     "git@example.com:acme/app.git",
 		DefaultBranch: "main",
 		Branches:      []string{"feature/x"},
-	}, byRoute["relocated"])
-	assert.Equal(t, byRoute["retired"], byRoute["relocated"],
-		"the two mounts are one body; a difference between them is drift")
+	}, hierarchy.gotImport)
 }
 
 // The default branch is refused on the relocated route for the same reason it
@@ -125,7 +106,7 @@ func TestImport_TheRelocatedRouteStillRefusesTheDefaultBranch(t *testing.T) {
 func TestImport_RefusesABranchTheRemoteDoesNotHave(t *testing.T) {
 	remote := &fakeRemote{exists: map[string]bool{"feature/real": true}}
 
-	rec := do(importRouter(remote), http.MethodPost, importTarget,
+	rec := do(importRouter(remote), http.MethodPost, importBatchTarget,
 		`{"branches":["feature/real","feature/ghost"]}`)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
@@ -139,7 +120,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheFetchFails(t *testing.T) {
 	// An unreachable remote is not evidence that a branch is absent.
 	remote := &fakeRemote{fetchErr: errors.New("network down")}
 
-	rec := do(importRouter(remote), http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, `{"branches":["feature/x"]}`)
 
 	assert.Less(t, rec.Code, 400, "a failed refresh must not become a refusal")
 }
@@ -147,7 +128,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheFetchFails(t *testing.T) {
 func TestImport_ImportsWithoutTheCheckWhenTheRefLookupErrors(t *testing.T) {
 	remote := &fakeRemote{existsErr: errors.New("bad object")}
 
-	rec := do(importRouter(remote), http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, `{"branches":["feature/x"]}`)
 
 	assert.Less(t, rec.Code, 400, "a failed ref check must not become a refusal")
 }
@@ -155,7 +136,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheRefLookupErrors(t *testing.T) {
 func TestImport_SkipsTheCheckWithNoRemoteWired(t *testing.T) {
 	// A nil remote degrades rather than panicking — the same wiring contract
 	// WithRemoteRefs documents.
-	rec := do(importRouter(nil), http.MethodPost, importTarget, `{"branches":["feature/x"]}`)
+	rec := do(importRouter(nil), http.MethodPost, importBatchTarget, `{"branches":["feature/x"]}`)
 
 	assert.Less(t, rec.Code, 400)
 }

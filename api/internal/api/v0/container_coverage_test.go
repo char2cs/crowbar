@@ -92,22 +92,32 @@ func TestContainer_PushRepo_ReachesClient(t *testing.T) {
 	assert.Equal(t, "p1", got["projectId"])
 }
 
-func TestContainer_PushWorkspace_ReachesClient(t *testing.T) {
+// TestContainer_PushWorkspace_ReachesChatClient proves PushWorkspace fans a
+// workspace's state onto the CHAT topic — the only topic it serves now — keyed
+// on the chat that owns the worktree.
+//
+// The orphan pushed FIRST is the other half of the assertion: a workspace with
+// no owning chat has no chat for a client to draw it on and pushes nothing at
+// all, so it must not be this client's first frame.
+func TestContainer_PushWorkspace_ReachesChatClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
 	r := gin.New()
-	r.GET("/v0/projects/:projectId/repos/:repoId/workspaces", func(ctx *gin.Context) { c.workspaces.Handle(ctx) })
+	r.GET("/v0/chats/:chatId/ws", func(ctx *gin.Context) { c.agentChats.Handle(ctx) })
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces")
-	c.workspaces.WaitRegistered()
+	conn := dialWSAt(t, srv, "/v0/chats/chat-1/ws")
+	c.agentChats.WaitRegistered()
 
-	c.PushWorkspace(dto.WorkspaceDTO{ID: "w1", ProjectID: "p1", RepoID: "r1"})
+	c.PushWorkspace(dto.WorkspaceDTO{ID: "orphan", ProjectID: "p1", RepoID: "r1"})
+	c.PushWorkspace(dto.WorkspaceDTO{ID: "w1", ProjectID: "p1", RepoID: "r1", OwningChatID: "chat-1"})
 
 	got := readJSON(t, conn)
-	assert.Equal(t, "w1", got["id"])
+	assert.Equal(t, dto.AgentChatKindWorktreeState, got["kind"])
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "w1", got["workspaceId"])
 }
 
 func TestContainer_PushThread_ReachesClient(t *testing.T) {

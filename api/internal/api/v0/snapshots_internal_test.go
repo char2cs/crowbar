@@ -68,48 +68,6 @@ func newAppForSnapshot(
 	return a
 }
 
-// TestWorkspacesSnapshot_ScopedToRepo proves the snapshot is filtered to the
-// repo parsed from the client's subscription prefix ("p/r"): only that repo's
-// workspaces are returned, as wire DTOs (spec §9).
-func TestWorkspacesSnapshot_ScopedToRepo(t *testing.T) {
-	a := newAppForSnapshot(t)
-	ctx := context.Background()
-	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
-	seedWorkspace(t, a, "w2", "p1", "r2", "", "")
-	seedWorkspace(t, a, "w3", "p2", "r1", "", "")
-	require.NoError(t, ctx.Err())
-
-	got := workspacesSnapshot(a)("p1/r1")
-	require.Len(t, got, 1)
-	assert.Equal(t, "w1", got[0].ID)
-	assert.Equal(t, "p1", got[0].ProjectID)
-	assert.Equal(t, "r1", got[0].RepoID)
-}
-
-// TestWorkspacesSnapshot_ComputesCanMergeLocally proves the snapshot DTOs carry
-// the merge-eligibility overlay resolved from repo siblings: a child whose
-// parent is a same-repo non-locked sibling is eligible with the parent's branch
-// (spec §10).
-func TestWorkspacesSnapshot_ComputesCanMergeLocally(t *testing.T) {
-	a := newAppForSnapshot(t)
-	seedWorkspace(t, a, "parent", "p1", "r1", "main", "")
-	seedWorkspace(t, a, "child", "p1", "r1", "feat", "parent")
-
-	got := workspacesSnapshot(a)("p1/r1")
-	require.Len(t, got, 2)
-
-	byID := map[string]bool{}
-	branch := map[string]string{}
-	for _, d := range got {
-		byID[d.ID] = d.CanMergeLocally
-		branch[d.ID] = d.ParentBranch
-	}
-	assert.True(t, byID["child"])
-	assert.Equal(t, "main", branch["child"])
-	assert.False(t, byID["parent"])
-	assert.Equal(t, "", branch["parent"])
-}
-
 func seedWorkspace(
 	t *testing.T,
 	a *app.Container,
