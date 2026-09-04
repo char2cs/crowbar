@@ -56,102 +56,8 @@ jobs:
           name: nightly-daemon
           path: dist/
 
-  # Builds the two Darwin architectures IN PARALLEL (each on its own runner),
-  # instead of `cargo tauri build --target universal-apple-darwin` compiling
-  # both sequentially inside one job — confirmed via job logs that this
-  # sequential compile is the dominant cost of the old single desktop-macos
-  # job (~17min of a ~20min job on a cache miss).
-  #
-  # Each leg runs the SAME `cargo tauri build` wrapper (not a bare `cargo
-  # build`) so Tauri sets its usual TAURI_ENV_* build-time vars itself,
-  # keeping the compiled target/<triple> directory bit-for-bit what the old
-  # single-job universal build would have produced for that triple. The merge
-  # job below restores both target/<triple> directories from these artifacts
-  # before invoking the universal build, so cargo's own fingerprint cache
-  # sees already-fresh output and skips recompiling — it only has to lipo the
-  # two binaries together and bundle the DMG. If that fingerprint match ever
-  # fails to line up (e.g. a Cargo.lock change between the two jobs), cargo
-  # just rebuilds what's stale: this degrades to "no faster than before", not
-  # a broken build.
-  desktop-macos-arch-build:
-    needs: derive-version
-    strategy:
-      matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
-    # Pinned to macos-26 for the same actool/Icon-Composer reason as the
-    # merge job below (see its comment) — both must use the same image so a
-    # `cargo metadata`/toolchain mismatch can't defeat the cache handoff.
-    runs-on: macos-26
-    env:
-      VERSION: ${{ needs.derive-version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: develop
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.88'
-          targets: ${{ matrix.target }}
-      - name: Remove stray Rust toolchains (keeps rust-cache's env hash stable)
-        # rustup toolchain list enumerates EVERY installed toolchain, and
-        # Swatinem/rust-cache hashes `rustc -vV` for each one into its cache
-        # key. The macOS runner image ships its own preinstalled default
-        # toolchain alongside the pinned 1.88 above, so whenever GitHub bumps
-        # that image-default version (unrelated to this repo) the cache key
-        # silently changes and forces a full rebuild. Confirmed via job logs:
-        # 1.88.0 (ours) + 1.98.0 (image default) were both hashed in.
-        run: |
-          for tc in $(rustup toolchain list | awk '{print $1}' | grep -v '^1\.88'); do
-            rustup toolchain uninstall "$tc"
-          done
-          rustup toolchain list
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: desktop/src-tauri
-          key: ${{ matrix.target }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.2'
-          cache-dependency-path: api/go.sum
-      - uses: oven-sh/setup-bun@v2
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install tauri-cli
-        run: cargo binstall tauri-cli@^2 --no-confirm --locked
-      - name: Build Go sidecar (${{ matrix.target }})
-        run: |
-          mkdir -p desktop/src-tauri/binaries
-          cd api
-          case "${{ matrix.target }}" in
-            aarch64-apple-darwin) GOARCH=arm64 ;;
-            x86_64-apple-darwin) GOARCH=amd64 ;;
-          esac
-          GOOS=darwin GOARCH=$GOARCH CGO_ENABLED=0 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-${{ matrix.target }} ./cmd/crowbar
-      - name: Build frontend
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: cd web && bun install --frozen-lockfile && bun run build
-      - name: Sync version into tauri.conf.json
-        run: jq ".version = \"${VERSION}-nightly\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
-      - name: Build (${{ matrix.target }} app, no DMG yet)
-        # The Liquid Glass icon isn't compiled in this leg (it's arch-independent
-        # and only needed once, in the merge job before the final DMG bundle),
-        # so Assets.car never exists here — always drop the file mapping like
-        # build-macos-dmg.sh does for that same case.
-        run: |
-          cd desktop/src-tauri
-          cargo tauri build --target ${{ matrix.target }} --bundles app \
-            --config '{"bundle":{"macOS":{"files":{}}}}'
-      - uses: actions/upload-artifact@v7
-        with:
-          name: macos-target-${{ matrix.target }}
-          path: |
-            desktop/src-tauri/target/${{ matrix.target }}
-            desktop/src-tauri/binaries/crowbar-api-${{ matrix.target }}
-          retention-days: 1
-
   desktop-macos:
-    needs: [derive-version, desktop-macos-arch-build]
+    needs: derive-version
     # Pinned to macos-26 (NOT macos-latest): the Liquid Glass icon step needs an
     # Xcode whose actool can compile Icon Composer .icon assets. macOS 26 ships
     # Xcode 26.5 which does; macOS 15's newest is Xcode 26.3.0 whose actool
@@ -170,6 +76,13 @@ jobs:
           toolchain: '1.88'
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Remove stray Rust toolchains (keeps rust-cache's env hash stable)
+        # rustup toolchain list enumerates EVERY installed toolchain, and
+        # Swatinem/rust-cache hashes `rustc -vV` for each one into its cache
+        # key. The macOS runner image ships its own preinstalled default
+        # toolchain alongside the pinned 1.88 above, so whenever GitHub bumps
+        # that image-default version (unrelated to this repo) the cache key
+        # silently changes and forces a full rebuild. Confirmed via job logs:
+        # 1.88.0 (ours) + 1.98.0 (image default) were both hashed in.
         run: |
           for tc in $(rustup toolchain list | awk '{print $1}' | grep -v '^1\.88'); do
             rustup toolchain uninstall "$tc"
@@ -186,26 +99,21 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install tauri-cli
         run: cargo binstall tauri-cli@^2 --no-confirm --locked
-      - name: Restore per-arch builds from desktop-macos-arch-build
-        # Each arch-build leg uploads two paths (target/<triple> and
-        # binaries/crowbar-api-<triple>) that only share the desktop/src-tauri
-        # ancestor, so upload-artifact roots the archive there and strips that
-        # prefix (documented "least common ancestor" behavior) — restore into
-        # desktop/src-tauri, not the repo root, or the files land one level up.
-        uses: actions/download-artifact@v8
-        with:
-          pattern: macos-target-*
-          path: desktop/src-tauri
-          merge-multiple: true
-      - name: Merge Go sidecar into a universal binary
+      - name: Build Go sidecar (arm64 + amd64)
         run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
           # cargo tauri build --target universal-apple-darwin bundles a single
           # sidecar named for the "universal-apple-darwin" triple — it does not
           # lipo the two arch-specific sidecars above on its own.
           lipo -create \
-            desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin \
-            desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin \
-            -output desktop/src-tauri/binaries/crowbar-api-universal-apple-darwin
+            ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin \
+            ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin \
+            -output ../desktop/src-tauri/binaries/crowbar-api-universal-apple-darwin
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
