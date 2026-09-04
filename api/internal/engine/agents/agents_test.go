@@ -1011,6 +1011,53 @@ config_injection:
 	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
 }
 
+// TestAgent_APIAttachArgvCarriesSpawnArgs pins a live-confirmed gap: codex's
+// switch-to-terminal forks `codex resume {id}` via APIAttachArgv, which never
+// applied spawn.args — unlike a normal interactive spawn (spawn.Plan), which
+// always puts them right after the executable. Codex's spawn.args carries
+// --dangerously-bypass-hook-trust, the only thing that makes codex skip its
+// interactive per-hash hook-trust confirmation screen; config_injection (see
+// the sibling test above) gives every attached resume a fresh per-segment
+// hash, so without this the attached TUI parks on that confirmation screen
+// forever instead of reaching the composer. spawn.args are a fact about any
+// interactive invocation of the provider's own executable, not about which
+// entry point is building the argv — the attach path must carry them exactly
+// as the primary spawn path does.
+func TestAgent_APIAttachArgvCarriesSpawnArgs(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-attach-spawn-args", `
+id: api-attach-spawn-args
+spawn:
+  cmd: acme
+  interactive_required: true
+  args:
+    - "--trust-workaround"
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    attach: [acme, resume, "{session_id}"]
+    handshake: { call: initialize }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-attach-spawn-args")
+	require.NoError(t, err)
+
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock", Session: "sess-1"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "--trust-workaround", "resume", "sess-1"}, attachArgv,
+		"spawn.args must land right after the executable, before the attach subcommand's own args")
+
+	// serve is a genuinely different subcommand (app-server, not an
+	// interactive TUI) — spawn.args are interactive-only flags and must NOT
+	// leak onto it.
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv,
+		"spawn.args are interactive-TUI-only and must not appear on the serve argv")
+}
+
 // TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed
 // gap: codex's api-transport serve process was never told Crowbar's MCP
 // server exists, because forkServeProcess's argv skipped MCPInject/

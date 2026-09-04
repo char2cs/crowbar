@@ -27,9 +27,7 @@ func Plan(
 		Env:        env.Clear(baseEnv, d.Spawn.Env.Clear),
 		Cleanup:    func() { _ = os.RemoveAll(ctx.Tmp) },
 	}
-	for _, a := range d.Spawn.Args {
-		plan.Argv = append(plan.Argv, template.Expand(a, ctx))
-	}
+	PrependArgs(d, ctx, plan)
 
 	if err := Inject(d, ctx, plan, extra); err != nil {
 		plan.Cleanup()
@@ -40,6 +38,23 @@ func Plan(
 		return nil, err
 	}
 	return plan, nil
+}
+
+// PrependArgs puts d.Spawn.Args at the front of plan.Argv — the flags any
+// interactive invocation of the provider's own executable needs (e.g.
+// codex's --dangerously-bypass-hook-trust), regardless of which entry point
+// is building the plan. Plan uses this for the primary spawn; the api
+// package's attach path (an interactive TUI in every way that matters here)
+// must use it too, or an attached CLI never gets flags the primary spawn
+// always carries. The api package's serve path deliberately does NOT call
+// this — it invokes a genuinely different, non-interactive subcommand that
+// these flags don't apply to.
+func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnPlan) {
+	args := make([]string, len(d.Spawn.Args))
+	for i, a := range d.Spawn.Args {
+		args[i] = template.Expand(a, ctx)
+	}
+	plan.Argv = append(args, plan.Argv...)
 }
 
 // Inject applies a descriptor's MCPInject and ConfigInjection steps, plus any

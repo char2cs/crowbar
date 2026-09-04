@@ -402,12 +402,21 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 // wired to {crowbar_hook}), so without this the one process a non-hotswap
 // provider hands a live turn over to would report NOTHING back to Crowbar's
 // ledger — indistinguishable from the chat going silently out of sync.
+//
+// It also carries spawn.Args (see spawn.PrependArgs), the same as a primary
+// interactive spawn does — the attached process IS an interactive TUI in
+// every way that matters here. Without this, codex's attached `resume`
+// carries config_injection's per-segment hook wiring but never
+// --dangerously-bypass-hook-trust, so it parks on its interactive hook-trust
+// confirmation screen instead of reaching the composer: confirmed live, this
+// is what "switch to terminal" looked like for codex before this fix.
 func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Attach) == 0 {
 		return nil, false
 	}
 	argv := expandArgv(a.spec.Runtime.API.Attach, ctx)
 	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
+	spawn.PrependArgs(a.spec, ctx, plan)
 	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
 		return nil, false
 	}
