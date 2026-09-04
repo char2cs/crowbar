@@ -93,6 +93,21 @@ type TurnUsecase interface {
 		providerID string,
 		screen string,
 	) (engineagents.TerminalNotice, bool)
+
+	// UploadAttachment stores one attachment into chatID's durable attachment
+	// store, returning the logical reference written back into the message.
+	UploadAttachment(
+		ctx context.Context,
+		chatID string,
+		in UploadAttachmentInput,
+	) (StoredAttachment, error)
+
+	// ReadAttachment resolves chatID's stored attachment fileName to bytes and
+	// a sniffed content type, for the asset-serving GET endpoint.
+	ReadAttachment(
+		ctx context.Context,
+		chatID, fileName string,
+	) ([]byte, string, error)
 }
 
 var _ TurnUsecase = (*Usecase)(nil)
