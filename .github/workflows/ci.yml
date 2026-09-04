@@ -71,8 +71,6 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: Go vet
         run: cd api && go vet -tags noEmbed ./...
-      - name: Race-detected unit tests
-        run: cd api && go test -tags noEmbed -race ./...
       - name: Integration-tagged tests (black-box suite + route audit)
         run: |
           cd api
@@ -101,7 +99,11 @@ jobs:
           # that added this step). A hang should burn 4 minutes and name itself,
           # not 10 minutes and a cancelled runner.
           go test -tags "integration noEmbed" -count=1 -timeout 4m ./tests ./internal/api/...
-      - name: Test coverage (≥92%)
+      - name: Race-detected unit tests + coverage (≥92%)
+        # This is the only full-suite -race run — a separate race-only pass over
+        # ./... was removed because this step is already a strict superset of it
+        # (same -race flag, same package set), so the two were paying for an
+        # identical ~5min test run twice per job.
         run: |
           cd api
           COVERPKG=$(go list -tags noEmbed ./... | grep -v '/cmd/' | paste -sd,)

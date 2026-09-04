@@ -75,6 +75,19 @@ jobs:
         with:
           toolchain: '1.88'
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Remove stray Rust toolchains (keeps rust-cache's env hash stable)
+        # rustup toolchain list enumerates EVERY installed toolchain, and
+        # Swatinem/rust-cache hashes `rustc -vV` for each one into its cache
+        # key. The macOS runner image ships its own preinstalled default
+        # toolchain alongside the pinned 1.88 above, so whenever GitHub bumps
+        # that image-default version (unrelated to this repo) the cache key
+        # silently changes and forces a full rebuild. Confirmed via job logs:
+        # 1.88.0 (ours) + 1.98.0 (image default) were both hashed in.
+        run: |
+          for tc in $(rustup toolchain list | awk '{print $1}' | grep -v '^1\.88'); do
+            rustup toolchain uninstall "$tc"
+          done
+          rustup toolchain list
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
@@ -143,6 +156,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.88'
+      - name: Remove stray Rust toolchains (keeps rust-cache's env hash stable)
+        run: |
+          for tc in $(rustup toolchain list | awk '{print $1}' | grep -v '^1\.88'); do
+            rustup toolchain uninstall "$tc"
+          done
+          rustup toolchain list
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
