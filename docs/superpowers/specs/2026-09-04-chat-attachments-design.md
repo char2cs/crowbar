@@ -8,7 +8,7 @@ The native chat surface (Plate-based composer + transcript) has rich Markdown bu
 
 - No backend wire-format change. The chat message stays a flat markdown string end to end (`{text, clientRequestId}` in, `LedgerTurn.Text string` stored) — attachments are encoded entirely within that string.
 - No provider-specific handling. Attachment delivery to the agent is a plain absolute file path in markdown text; how a given provider CLI's own permission mode handles reading it is out of scope here (see "Agent delivery").
-- No re-implementation of Plate's block drag/reorder mechanism — attachments reuse whatever the editor already has for block movement.
+- No full `BlockMenuKit` feature parity in the composer — attachment blocks get a drag-to-reorder handle, not the rest of its chrome (`/`-insert menu, block-type conversion), which chat deliberately doesn't have (see "Editor UX").
 - No editing of Excalidraw scenes rendered in a *read-only* transcript message (only in the composer, before send) — out of scope for v1.
 
 ## Attachment kinds
@@ -43,9 +43,10 @@ Two kinds (text, Excalidraw) never require a stored file under normal size; two 
 
 - **Location**: `{workspaceRoot}/chats/{chatId}/attachments/` — a new leaf under the existing `chats/` sibling directory (`RunnerDir` already nests state under `chats/` today per `worktreepath.go`), not a new top-level pattern. This keeps attachments off `git status` the same way all other chat/agent state already is, and ties their lifecycle to the chat's own lifecycle (deleting a chat already removes `chats/{chatId}`, so no separate cleanup path is needed).
 - **Upload endpoint**: new endpoint, shaped like the existing icon-upload pattern (`api/internal/api/v0/endpoints/icons/icons.go` — multipart or base64-JSON body in, bytes written to a fixed path), not the content-addressed `state/content` store (that store is internal to tool-call payloads and isn't meant to produce a workspace-visible path).
-- **Filenames**: `{shortid}-{originalName}` — the folder is per-*chat*, not per-message, so multiple turns can attach into the same directory; a generated-ID prefix avoids collisions while keeping the original name for display.
+- **Filenames**: `{shortid}-{originalName}` — the folder is per-*chat*, not per-message, so multiple turns can attach into the same directory; a generated-ID prefix avoids collisions while keeping the original name for display. A clipboard image paste has no original filename (raw bytes + mimetype only) — falls back to a synthesized name (e.g. `pasted-image-{timestamp}.png`, extension from mimetype).
 - **Size cap**: needed, exact number TBD in implementation (existing precedents: icons 2MiB, tool-call content store 8MiB; chat attachments likely want a larger ceiling than either given images/PDFs).
 - **Delivery to the agent**: the resolver writes the file's absolute path directly into the markdown (`![alt](/abs/path/...)` / `[name](/abs/path/...)`). No copy-into-worktree step. Since `chats/{chatId}/attachments/` is a sibling of `worktree/`, not inside it, the provider CLI subprocess reading that path is relying on its own native permission mode (per the existing native-mode permission redesign) to approve a read outside its cwd — Crowbar does not special-case this per provider.
+- **⚠ Unverified assumption this whole approach rests on**: that a provider CLI, given an absolute path outside its own project root, will actually attempt the read (subject to *its own* permission prompt) rather than refusing outright by policy with no prompt at all. Not yet checked against real Claude Code / Codex CLI behavior. If it turns out to be a hard block rather than a promptable read, direct-path delivery doesn't work and this section needs to fall back to materialize-into-worktree-then-delete (the alternative already discussed and set aside). **Recommend spiking this specifically before writing the implementation plan** — it's cheap to check and everything else in this design is comparatively low-risk by contrast.
 
 ## Thresholds & fallback rules
 
@@ -55,6 +56,7 @@ Two kinds (text, Excalidraw) never require a stored file under normal size; two 
 - **Oversized file/image drop** (exceeds the size cap): rejected at the picker/drop handler with an inline error; nothing partial gets inserted.
 - **Unsupported/unknown file type**: no special-casing — falls through to a generic file card (icon by extension, filename, size).
 - **Missing attachment on reload** (file deleted from disk out-of-band): the image/file node renders a broken/missing placeholder rather than failing the whole message. `MarkdownImageKit` likely already needs to handle a broken relative image path today, so this is an existing concern being extended, not a new one.
+- **Orphaned files from discarded drafts**: image/file attachments upload eagerly on attach (paste/drop/pick), before send. If the user removes the attachment from the draft, or discards the draft entirely, the uploaded file is already on disk with nothing referencing it. Accepting this as a known gap for v1 (no GC) rather than solving it now — worth a line in the implementation plan, not a blocker for the design.
 
 ## Open questions for the implementation plan
 
