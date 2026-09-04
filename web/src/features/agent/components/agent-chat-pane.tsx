@@ -12,7 +12,7 @@ import {
 } from '@/features/agent/api/agent-api'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
-import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
+import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
@@ -882,6 +882,34 @@ export function AgentChatPane({
     }
     setPresentation(next)
   }
+
+  // ⌘/ used to cycle the provider (see the effect above); it now toggles this
+  // chat between its Chat and Terminal surfaces instead, the same pair
+  // ViewSwitcher's own tabs flip between — this is just the keyboard route onto
+  // the same chooseSurface call.
+  //
+  // Same guards as the cycle-provider effect above, for the same reasons: a
+  // focused xterm stopPropagations a bubble-phase listener, so this must be a
+  // CAPTURE-phase window listener; and a retained (hidden) workspace stays
+  // mounted under display:none, so the wsId check keeps a background chat from
+  // swallowing the key and flipping a surface nobody can see.
+  const toggleViewChord = useEffectiveChordMap()[AGENT_TOGGLE_VIEW_MODE]
+  const onToggleViewMode = useEffectEvent(() => {
+    chooseSurface(presentation === 'terminal' ? 'chat' : 'terminal')
+  })
+
+  useEffect(() => {
+    if (!isActivePane || !isVisible || !toggleViewChord) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!eventMatchesChord(e, toggleViewChord)) return
+      if (getActiveWorkspaceId() !== wsId) return
+      e.preventDefault()
+      e.stopPropagation()
+      onToggleViewMode()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [isActivePane, isVisible, toggleViewChord, wsId])
 
   // The banner's own button. They are going because Crowbar asked them to, so it
   // owes them the way back — but it did not move them, so it must not move them

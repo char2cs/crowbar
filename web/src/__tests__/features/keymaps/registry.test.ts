@@ -7,6 +7,7 @@ import {
   TAB_NEW_FILE,
   AGENT_NEW_CHAT,
   AGENT_CYCLE_PROVIDER,
+  AGENT_TOGGLE_VIEW_MODE,
   CATEGORY_ORDER,
 } from '@/features/keymaps/registry'
 
@@ -27,24 +28,32 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(TAB_NEW_FILE)?.defaultChord).toBe('mod+shift+n')
   })
 
-  // Cycles the open chat to the next enabled provider, the way ⌘-tab cycles apps.
-  // Registered like every other chord so it is rebindable rather than a hardcoded
-  // literal buried in the chat pane.
+  // Toggles the open chat between its Chat and Terminal surfaces. Registered
+  // like every other chord so it is rebindable rather than a hardcoded literal
+  // buried in the chat pane.
   //
   // NOT mod+` — macOS reserves that for "move focus to next window in
   // application" and consumes it in AppKit before WKWebView ever sees it, so the
   // chord was invisible to the handler AND to the rebind capture. Pinned here so
   // nobody restores it.
-  it('binds Cycle chat provider to mod+/, a chord macOS actually delivers', () => {
-    expect(getCommand(AGENT_CYCLE_PROVIDER)?.defaultChord).toBe('mod+/')
+  it('binds Toggle chat/terminal view to mod+/, a chord macOS actually delivers', () => {
+    expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.defaultChord).toBe('mod+/')
   })
 
   it('binds no command to mod+` — macOS swallows it', () => {
     expect(COMMANDS.filter((c) => c.defaultChord === 'mod+`')).toEqual([])
   })
 
-  it('files Cycle chat provider under its own Chats category', () => {
-    expect(getCommand(AGENT_CYCLE_PROVIDER)?.category).toBe('Chats')
+  it('files Toggle chat/terminal view under its own Chats category', () => {
+    expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.category).toBe('Chats')
+  })
+
+  // mod+/ used to belong to Cycle chat provider — it now ships unbound (rather
+  // than reassigned to a different default) so a user who wants it back can
+  // assign their own chord in Settings → Keybindings, instead of two commands
+  // silently fighting over one default.
+  it('leaves Cycle chat provider unbound by default now that mod+/ toggles the view instead', () => {
+    expect(getCommand(AGENT_CYCLE_PROVIDER)?.defaultChord).toBe('')
   })
 
   // The Keybindings tab renders ONLY the categories listed in CATEGORY_ORDER, so
@@ -58,13 +67,14 @@ describe('keymap registry — New Tab commands', () => {
 
   // Every chord the New Tab surface draws must be rebindable, or the badge
   // it renders can never go out of sync with reality by design.
-  it('makes all five live-editable', () => {
+  it('makes all six live-editable', () => {
     for (const id of [
       TAB_NEW,
       TAB_NEW_TERMINAL,
       TAB_NEW_FILE,
       AGENT_NEW_CHAT,
       AGENT_CYCLE_PROVIDER,
+      AGENT_TOGGLE_VIEW_MODE,
     ]) {
       expect(getCommand(id)?.liveEditable).toBe(true)
     }
