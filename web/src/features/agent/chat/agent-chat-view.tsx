@@ -515,6 +515,15 @@ export function AgentChatView({
       slash.close()
       return
     }
+    // Same condition as the composer's own stop button (`stopping = working &&
+    // canStop` in composer-handle.tsx, canStop === live here) — Esc is just
+    // another way to reach the same action, so it must agree on when that
+    // action is available.
+    if (event.key === 'Escape' && working && live) {
+      event.preventDefault()
+      handleStop()
+      return
+    }
     if (
       slash.open &&
       slash.items.length > 0 &&

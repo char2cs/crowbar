@@ -1676,6 +1676,50 @@ describe('AgentChatView first-turn stop', () => {
   })
 })
 
+// REGRESSION: the composer's own stop button always advertised "Stop this
+// turn — Esc" (composer-handle.tsx), but nothing ever wired Escape to the
+// same action — handleKeyDown had no branch for it outside the slash-picker
+// case, so it fell through and did nothing.
+describe('AgentChatView Escape stops the turn', () => {
+  it('stops the turn on Escape, exactly like the stop button, while a turn is working', async () => {
+    setup({ working: true })
+    const input = await composer()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(stopChatFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  it('does nothing on Escape while idle — there is no turn to stop', async () => {
+    setup({ working: false })
+    const input = await composer()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(stopChatFn).not.toHaveBeenCalled()
+  })
+
+  it('closes the slash picker on Escape in preference to stopping, when both are open', async () => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+    vi.useFakeTimers()
+    slashCatalogFn.mockResolvedValue({
+      providerId: 'claude',
+      completeness: 'plugin_only',
+      warnings: [],
+      items: [],
+    })
+    setup({ working: true })
+    const input = await composer()
+    fireEvent.change(input, { target: { value: '/compact' } })
+    await act(async () => vi.advanceTimersByTimeAsync(150))
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(stopChatFn).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})
+
 // REGRESSION: the marker used to be LOCAL session state
 // (firstTurnInterrupted), scoped to the first turn and pinned to "the end of
 // the transcript" — so it drew nothing for a later turn's stop, and it kept
