@@ -293,6 +293,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/deb/*.deb
 
   publish:
+    if: false # TEMP: disabled during CI testing, remove before merge
     needs: [derive-version, daemon, desktop-macos, desktop-linux]
     runs-on: ubuntu-latest
     steps:
