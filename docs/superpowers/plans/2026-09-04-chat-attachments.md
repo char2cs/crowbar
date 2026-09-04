@@ -5928,9 +5928,7 @@ git commit -m "feat(composer): add the embedded Excalidraw drawing editor"
 ### Task 35: Wire the Drag Handle into Every Attachment Node Component
 
 **Files:**
-- Modify: `web/src/features/agent/composer/plate/attachments/text-attachment-pill.tsx` (Task 15)
-- Modify: `web/src/features/agent/composer/plate/attachments/excalidraw-preview.tsx` (Task 16)
-- Modify: `web/src/features/agent/composer/plate/attachments/chat-code-block-node.tsx` (Task 17, wraps both of the above)
+- Modify: `web/src/features/agent/composer/plate/attachments/chat-code-block-node.tsx` (Task 17 — wraps `TextAttachmentPill`/`ExcalidrawPreview` from the outside; those two components themselves need no changes)
 - Modify: `web/src/features/agent/composer/plate/attachments/chat-attachment-file-card.tsx` (Task 18)
 - Test: `web/src/__tests__/features/agent/composer/plate/attachments/chat-code-block-node.test.tsx` (extend), `web/src/__tests__/features/agent/composer/plate/attachments/chat-attachment-file-card.test.tsx` (extend)
 
