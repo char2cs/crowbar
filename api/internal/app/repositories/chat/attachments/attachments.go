@@ -179,10 +179,8 @@ func Read(
 		return nil, "", ErrNotFound
 	}
 	defer func() { _ = f.Close() }()
-	size := info.Size()
-	data = make([]byte, size)
-	_, err = io.ReadFull(f, data)
-	if err != nil {
+	data, err = io.ReadAll(io.LimitReader(f, MaxBytes+1))
+	if err != nil || int64(len(data)) > MaxBytes {
 		return nil, "", ErrNotFound
 	}
 	return data, ContentType(data), nil

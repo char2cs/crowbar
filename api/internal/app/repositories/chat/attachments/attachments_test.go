@@ -341,3 +341,4 @@ func TestStore_OpenFileFailureReturnsError(t *testing.T) {
 	// Should NOT be a conflict error - it's a create/permission failure
 	assert.NotErrorIs(t, err, apperr.ErrConflict)
 }
+

@@ -1,6 +1,8 @@
 # Go
 api/bin/
 api/coverage/
+api/coverage.out
+api/coverage.html
 api/logs/
 
 # React / Node
