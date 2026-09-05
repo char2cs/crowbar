@@ -37,6 +37,12 @@ export interface AgentEmptyDocumentHandle {
 }
 
 export interface AgentEmptyDocumentProps {
+  /** Threaded straight through to `ChatMarkdownEditor`, which needs both to
+   *  register paste interception (uploading a pasted image calls
+   *  `uploadChatAttachment(wsId, chatId, ...)`). Optional to match
+   *  `ChatMarkdownEditorProps` — see its own note. */
+  wsId?: string
+  chatId?: string
   /** The draft to OPEN with. The box owns its text after that. */
   draft: string
   /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
@@ -82,6 +88,8 @@ export interface AgentEmptyDocumentProps {
  * back at position zero on every keystroke.
  */
 export function AgentEmptyDocument({
+  wsId,
+  chatId,
   draft,
   draftSeed,
   hasText,
@@ -146,6 +154,8 @@ export function AgentEmptyDocument({
       <div ref={docRef} className="doc">
         <ChatMarkdownEditor
           key={draftSeed}
+          wsId={wsId}
+          chatId={chatId}
           initialValue={draft}
           placeholder="Describe the change…"
           ariaLabel="Describe the change"

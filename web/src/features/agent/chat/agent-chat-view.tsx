@@ -724,6 +724,8 @@ export function AgentChatView({
         <section className="agent-chat chat" aria-label="Agent chat">
           <AgentEmptyDocument
             ref={emptyDocRef}
+            wsId={wsId}
+            chatId={chatId}
             draft={seed.text}
             draftSeed={seed.n}
             hasText={draft.trim().length > 0}

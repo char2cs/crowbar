@@ -8,6 +8,7 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
@@ -36,11 +37,12 @@ export interface ChatMarkdownEditorHandle {
 }
 
 export interface ChatMarkdownEditorProps {
-  /** Threaded through starting with the paste-interception plugin (a later
-   *  task in this phase), which needs it to call `uploadChatAttachment`.
-   *  Unused here — accepted now so every call site added across the phase
-   *  compiles against one stable prop shape. Optional: `agent-empty-
-   *  document.tsx`'s own use of this editor doesn't pass them yet either. */
+  /** Feeds `createChatPastePlugin`'s `uploadChatAttachment` call for a pasted
+   *  image. Both production call sites (`composer-field.tsx`,
+   *  `agent-empty-document.tsx`) pass them; kept optional here rather than
+   *  required so a caller that genuinely can't supply them yet still gets a
+   *  working editor — paste interception simply does not register, and a
+   *  paste falls through to Slate's own default handling. */
   wsId?: string
   chatId?: string
   /** Markdown to open with. Read ONCE, at mount — see the note on remounting. */
@@ -104,8 +106,8 @@ export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: stri
  * what was just loaded.
  */
 export function ChatMarkdownEditor({
-  wsId: _wsId,
-  chatId: _chatId,
+  wsId,
+  chatId,
   initialValue,
   placeholder,
   ariaLabel,
@@ -191,8 +193,19 @@ export function ChatMarkdownEditor({
     [],
   )
 
+  // Undefined without both ids — see the note on `wsId`/`chatId` above. Built
+  // once, same as `keyPlugin` and `initial` below: the editor's plugin list
+  // is fixed at mount, not re-derived as props change underneath it.
+  const pastePlugin = useMemo(
+    () => (wsId && chatId ? createChatPastePlugin({ wsId, chatId }) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount value only, deliberately not re-derived
+    [],
+  )
+
   const editor = usePlateEditor({
-    plugins: [...chatComposerPlugins, keyPlugin],
+    plugins: pastePlugin
+      ? [...chatComposerPlugins, keyPlugin, pastePlugin]
+      : [...chatComposerPlugins, keyPlugin],
     value: initial,
     autoSelect: 'end',
   })
