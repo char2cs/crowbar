@@ -1,11 +1,14 @@
-import type { CSSProperties, KeyboardEvent } from 'react'
+import type { CSSProperties, KeyboardEvent, Ref } from 'react'
 import {
   ChatMarkdownEditor,
   type CaretEdges,
+  type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { COMPOSER_LINE_HEIGHT } from '@/features/agent/composer/lib/handle-geometry'
 
 interface ComposerFieldProps {
+  wsId: string
+  chatId: string
   /** The draft to OPEN with. The box owns its text after that — see the editor. */
   initialValue: string
   placeholder: string
@@ -19,6 +22,10 @@ interface ComposerFieldProps {
   ) => void
   /** Reported on every change, so the handle can ride the last line. */
   onHeightChange: (height: number) => void
+  /** Forwarded straight through to `ChatMarkdownEditor` — see
+   *  `ChatMarkdownEditorHandle` for what a caller outside the field can do
+   *  with it. */
+  ref?: Ref<ChatMarkdownEditorHandle>
 }
 
 /**
@@ -30,6 +37,8 @@ interface ComposerFieldProps {
  * place in the conversation where the same text meant two different things.
  */
 export function ComposerField({
+  wsId,
+  chatId,
   initialValue,
   placeholder,
   expanded,
@@ -37,9 +46,13 @@ export function ComposerField({
   onChange,
   onKeyDown,
   onHeightChange,
+  ref,
 }: ComposerFieldProps) {
   return (
     <ChatMarkdownEditor
+      ref={ref}
+      wsId={wsId}
+      chatId={chatId}
       initialValue={initialValue}
       placeholder={placeholder}
       ariaLabel="Message the agent"

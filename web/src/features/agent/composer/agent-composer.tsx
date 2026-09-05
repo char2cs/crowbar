@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type {
   AgentActivity,
   AgentTerminalWait,
@@ -10,7 +10,10 @@ import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
-import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
+import type {
+  CaretEdges,
+  ChatMarkdownEditorHandle,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import {
   resolveComposerState,
   type ComposerRevival,
@@ -71,6 +74,10 @@ interface AgentComposerProps {
  */
 export function AgentComposer(props: AgentComposerProps) {
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
+  // Owned here, not by ComposerField — Tasks 29/34's modals sit as SIBLINGS
+  // of the field below, outside `<Plate>`'s tree, and this is their only way
+  // to reach the box's `insertAttachmentMarkdown`.
+  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const state = resolveComposerState({
     live: props.live,
     revival: props.revival,
@@ -123,6 +130,9 @@ export function AgentComposer(props: AgentComposerProps) {
           <div className={cn('pill', isMultiline(props.fieldHeight) && 'multi')}>
             <ComposerField
               key={props.draftSeed}
+              ref={editorRef}
+              wsId={props.wsId}
+              chatId={props.chatId}
               initialValue={props.seedText}
               placeholder={placeholder}
               expanded={props.slashOpen}

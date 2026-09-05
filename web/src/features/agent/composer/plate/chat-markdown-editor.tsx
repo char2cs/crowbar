@@ -1,6 +1,7 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
-import type { CSSProperties, KeyboardEvent } from 'react'
+import { useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
+import type { CSSProperties, KeyboardEvent, Ref } from 'react'
 import { PointApi, RangeApi, type Value } from 'platejs'
+import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
@@ -17,7 +18,31 @@ export interface CaretEdges {
   atEnd: boolean
 }
 
+/** What a caller OUTSIDE the editable can do to it — the same imperative-
+ *  handle shape `AgentEmptyDocumentHandle` already uses for `getHandleRect`
+ *  (`agent-empty-document.tsx`), for the same reason: the plus button, the
+ *  Attach File modal, and the Excalidraw modal all live outside `<Plate>`'s
+ *  own tree, so `useEditorRef` is not reachable from any of them. */
+export interface ChatMarkdownEditorHandle {
+  /**
+   * Inserts a block-level node at the current selection (end of document if
+   * there is none), built by deserializing `markdown` through this editor's
+   * own `chatComposerPlugins`-bound codec — the same path a paste of that
+   * text would take, so a fenced `text-attachment`/`excalidraw` block or an
+   * `![alt](ref)` image lands as the exact node shape the rendering-side
+   * plugins expect.
+   */
+  insertAttachmentMarkdown(markdown: string): void
+}
+
 export interface ChatMarkdownEditorProps {
+  /** Threaded through starting with the paste-interception plugin (a later
+   *  task in this phase), which needs it to call `uploadChatAttachment`.
+   *  Unused here — accepted now so every call site added across the phase
+   *  compiles against one stable prop shape. Optional: `agent-empty-
+   *  document.tsx`'s own use of this editor doesn't pass them yet either. */
+  wsId?: string
+  chatId?: string
   /** Markdown to open with. Read ONCE, at mount — see the note on remounting. */
   initialValue: string
   placeholder: string
@@ -45,6 +70,21 @@ export interface ChatMarkdownEditorProps {
   controls?: string
   className?: string
   style?: CSSProperties
+  ref?: Ref<ChatMarkdownEditorHandle>
+}
+
+/**
+ * Where an attachment inserted from OUTSIDE the editable lands, and the
+ * insert itself. Split out from focusing the box and reporting the change
+ * (the imperative handle below still does both, right after calling this)
+ * so the one real branch here — was there already a selection to insert at,
+ * or not — can be proven against a bare `createPlateEditor`, with no
+ * mounted DOM: `editor.tf.focus()` throws without one.
+ */
+export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
+  const nodes = chatMarkdownToValue(markdown)
+  const at = editor.selection ?? editor.api.end([])
+  editor.tf.insertNodes(nodes, { at, select: true })
 }
 
 /**
@@ -64,6 +104,8 @@ export interface ChatMarkdownEditorProps {
  * what was just loaded.
  */
 export function ChatMarkdownEditor({
+  wsId: _wsId,
+  chatId: _chatId,
   initialValue,
   placeholder,
   ariaLabel,
@@ -75,6 +117,7 @@ export function ChatMarkdownEditor({
   controls,
   className,
   style,
+  ref,
 }: ChatMarkdownEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null)
 
@@ -163,6 +206,25 @@ export function ChatMarkdownEditor({
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
     onChange(chatValueToMarkdown(editor.children as Value))
   }, [editor, onChange])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertAttachmentMarkdown: (markdown: string) => {
+        insertAttachmentMarkdownInto(editor, markdown)
+        // Back to the box: the insert was dispatched from outside it (a
+        // modal, a drop handler), and the whole point is to keep writing.
+        editor.tf.focus()
+        // `Plate`'s own `onChange` prop fires off the editor's async change
+        // notification, which nothing here waits on — a caller reading
+        // `onChange`'s last call right after this returns (Task 29/34 close
+        // their modal on it) would see the PREVIOUS markdown. Reported
+        // synchronously instead, same as `handleChange` computes it.
+        onChange(chatValueToMarkdown(editor.children as Value))
+      },
+    }),
+    [editor, onChange],
+  )
 
   // The editable's height, for whatever rides its last line. Observed rather
   // than derived from the text: a wrapped line and a typed newline are the same
