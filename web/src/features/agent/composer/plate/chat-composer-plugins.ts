@@ -1,6 +1,7 @@
 import { MarkdownPlugin } from '@platejs/markdown'
 import { CodeBlockRules } from '@platejs/code-block'
 import { CodeBlockPlugin, CodeLinePlugin } from '@platejs/code-block/react'
+import { DndPlugin } from '@platejs/dnd'
 import remarkGfm from 'remark-gfm'
 
 import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
@@ -34,7 +35,10 @@ import {
   CommentTableElement,
   CommentTableRowElement,
 } from '@/features/editor/markdown/plate/comment/comment-nodes'
-import { ChatCodeBlockElement } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
+import {
+  ChatCodeBlockElement,
+  ChatCodeBlockElementStatic,
+} from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 
 /**
  * The chat's markdown, both directions.
@@ -74,6 +78,30 @@ import { ChatCodeBlockElement } from '@/features/agent/composer/plate/attachment
  * than the file editor's, which pull `createLowlight(all)`, cmdk and a Radix
  * popover for affordances a chat has no use for.
  */
+// Shared shape for both variants below — everything but the node component,
+// which each `.configure()` call sets directly. `CodeBlockPlugin.configure(...)
+// .withComponent(...)` was tried first, chaining onto one shared instance, but
+// `withComponent`'s `.extend()`-based merge and `configure`'s own node-config
+// handling resolve differently at render time (confirmed by mounting each
+// through a real editor, not just inspecting the returned plugin object) — two
+// independent `.configure()` calls, the same pattern already proven correct
+// for the interactive plugin before this task, is what actually works for
+// both.
+const CHAT_CODE_BLOCK_CONFIG = {
+  inputRules: [CodeBlockRules.markdown({ on: 'match' })],
+  shortcuts: { toggle: { keys: 'mod+alt+8' } },
+}
+
+const ChatCodeBlockPlugin = CodeBlockPlugin.configure({
+  ...CHAT_CODE_BLOCK_CONFIG,
+  node: { component: ChatCodeBlockElement },
+})
+
+const ChatCodeBlockPluginStatic = CodeBlockPlugin.configure({
+  ...CHAT_CODE_BLOCK_CONFIG,
+  node: { component: ChatCodeBlockElementStatic },
+})
+
 export const chatComposerPlugins = [
   ...BasicNodesKit,
   ...ListKit,
@@ -90,12 +118,17 @@ export const chatComposerPlugins = [
   TableRowPlugin.withComponent(CommentTableRowElement),
   TableCellPlugin.withComponent(CommentTableCellElement),
   TableCellHeaderPlugin.withComponent(CommentTableCellHeaderElement),
-  CodeBlockPlugin.configure({
-    inputRules: [CodeBlockRules.markdown({ on: 'match' })],
-    node: { component: ChatCodeBlockElement },
-    shortcuts: { toggle: { keys: 'mod+alt+8' } },
-  }),
+  ChatCodeBlockPlugin,
   CodeLinePlugin.withComponent(CommentCodeLineElement),
+  // `@platejs/dnd`'s bridge plugin — needed for `useAttachmentDraggable`
+  // (attachment-drag-handle.tsx) to do anything at all: `useDraggable`'s own
+  // implementation short-circuits to `{}` (no drag, no drop line, no
+  // `<DndProvider>` requirement) whenever `editor.plugins.dnd` is unset. This
+  // is the plugin the upstream Plate registry calls `dnd-kit.tsx` — never
+  // added to this app before (see attachment-drag-handle.tsx's own note);
+  // registered bare (no `enableScroller`) since chat has no long vertical
+  // document to auto-scroll while dragging, the way a full page editor does.
+  DndPlugin,
   ...ChatFloatingToolbarKit,
   // Renders the streaming transcript's fade-in. Inert everywhere else: the
   // mark it looks for is set only by streaming-value-patch.ts, so it never
@@ -117,6 +150,11 @@ export const chatComposerPlugins = [
 const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]> = {
   [LinkPlugin.key]: ChatLinkKitStatic[0],
   [CalloutPlugin.key]: CalloutKitStatic[0],
+  // Same plugin, only its node component swapped: `ChatCodeBlockElementStatic`
+  // never renders the drag handle (or calls `@platejs/dnd`'s `useDraggable`)
+  // that `ChatCodeBlockElement` does — a settled message is read, not
+  // reordered, and has no `<DndProvider>` ancestor to call it against.
+  [CodeBlockPlugin.key]: ChatCodeBlockPluginStatic,
 }
 
 // `PlateStatic` still renders `render.afterEditable` (see @platejs/core's
@@ -125,7 +163,16 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
 // requires an interactive `Plate`/`PlateController` that static rendering
 // never provides. Dropped here, not swapped, because there's no static
 // equivalent of a selection toolbar.
-const STATIC_EXCLUDED_KEYS = new Set(ChatFloatingToolbarKit.map((plugin) => plugin.key))
+//
+// `DndPlugin` itself is dropped too — a settled message is read, not
+// reordered, and neither static node component
+// (`ChatCodeBlockElementStatic`/`ChatLinkElementStatic`'s file card) ever
+// calls `useAttachmentDraggable`, so there is nothing here that would read
+// `editor.plugins.dnd` in the first place.
+const STATIC_EXCLUDED_KEYS = new Set([
+  ...ChatFloatingToolbarKit.map((plugin) => plugin.key),
+  DndPlugin.key,
+])
 
 /**
  * `chatComposerPluginsStatic`, derived — not hand-duplicated. A plugin added above

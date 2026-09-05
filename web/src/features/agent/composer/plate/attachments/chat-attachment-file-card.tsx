@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import type { TLinkElement } from 'platejs'
-import { PlateElement, type PlateElementProps } from 'platejs/react'
+import { PlateElement, type PlateElementProps, useComposedRef } from 'platejs/react'
 import { LinkElement } from '@/components/ui/link-node'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
+import { cn } from '@/lib/utils'
+import {
+  AttachmentDragHandle,
+  AttachmentDropLine,
+  useAttachmentDraggable,
+} from '@/features/agent/composer/plate/attachment-drag-handle'
 import {
   chatAttachmentUrl,
   fetchChatAttachmentMetadata,
@@ -40,6 +46,10 @@ export function formatAttachmentSize(bytes: number | null): string | null {
  * `findFollowingImageRef`) — everything this component needs comes off the
  * link's own `element.url`, so there's no analogous staleness risk to guard
  * against.
+ *
+ * INTERACTIVE variant — registered on `chatComposerPlugins`. Renders through
+ * `ChatAttachmentFileCard`, which is reorderable via `AttachmentDragHandle`.
+ * See `ChatLinkElementStatic` below for the settled/read-only counterpart.
  */
 export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
   const asset = useMarkdownAsset()
@@ -58,16 +68,35 @@ export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
   )
 }
 
-function ChatAttachmentFileCard({
-  wsId,
-  attachmentRef,
-  filename,
-  ...props
-}: PlateElementProps<TLinkElement> & {
-  wsId: string
-  attachmentRef: string
-  filename: string
-}) {
+/** The read-only/settled counterpart of `ChatLinkElement`, registered on
+ *  `chatComposerPluginsStatic` (see chat-composer-plugins.ts). Renders
+ *  through `ChatAttachmentFileCardStatic` instead, which never touches
+ *  `@platejs/dnd`'s `useDraggable` — a settled message is read, not
+ *  reordered, so it has no reason to require a `<DndProvider>` ancestor. */
+export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
+  const asset = useMarkdownAsset()
+  const url = props.element.url
+  const parsed = parseChatAttachmentRef(url)
+
+  if (!parsed || !asset) return <LinkElement {...props} />
+
+  return (
+    <ChatAttachmentFileCardStatic
+      {...props}
+      wsId={asset.wsId}
+      attachmentRef={url}
+      filename={parsed.filename}
+    />
+  )
+}
+
+/** The metadata both the interactive and static cards render — the fetched
+ *  size label, and the href a click should follow — kept as one hook so
+ *  neither variant can drift from the other's idea of what a card shows. */
+function useChatAttachmentCardMeta(
+  wsId: string,
+  attachmentRef: string,
+): { href: string | null; sizeLabel: string | null } {
   const [size, setSize] = useState<number | null>(null)
 
   useEffect(() => {
@@ -80,8 +109,48 @@ function ChatAttachmentFileCard({
     }
   }, [wsId, attachmentRef])
 
-  const href = chatAttachmentUrl(wsId, attachmentRef)
-  const sizeLabel = formatAttachmentSize(size)
+  return { href: chatAttachmentUrl(wsId, attachmentRef), sizeLabel: formatAttachmentSize(size) }
+}
+
+type FileCardProps = PlateElementProps<TLinkElement> & {
+  wsId: string
+  attachmentRef: string
+  filename: string
+}
+
+function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
+  const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
+  const { isDragging, nodeRef, handleRef } = useAttachmentDraggable(props.element)
+
+  return (
+    <PlateElement
+      {...props}
+      as="a"
+      ref={useComposedRef(props.ref, nodeRef)}
+      className={cn(
+        'chat-attachment-file-card group/attachment relative inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 align-middle text-sm no-underline',
+        isDragging && 'opacity-50',
+      )}
+      attributes={{
+        ...props.attributes,
+        href: href ?? undefined,
+        onClick: (e) => handleMarkdownAnchorClick(e, href),
+        onMouseOver: (e) => {
+          e.stopPropagation()
+        },
+      }}
+    >
+      <AttachmentDragHandle dragRef={handleRef} />
+      <AttachmentDropLine />
+      <FileExplorerIcon fileName={filename} size={14} className="shrink-0" />
+      <span className="truncate">{props.children}</span>
+      {sizeLabel && <span className="shrink-0 text-muted-foreground text-xs">{sizeLabel}</span>}
+    </PlateElement>
+  )
+}
+
+function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
+  const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
 
   return (
     <PlateElement

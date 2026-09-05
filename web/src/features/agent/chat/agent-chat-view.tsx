@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { KeyboardEvent, Ref } from 'react'
+import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
 import {
   stopChat,
   type AgentChatMessage,
@@ -167,6 +169,34 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
     default:
       return null
   }
+}
+
+/**
+ * The one `<DndProvider>` this feature needs, scoped to a single chat view
+ * rather than the app root.
+ *
+ * `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx,
+ * wired into `ChatCodeBlockElement`/`ChatAttachmentFileCard`) are built on
+ * `react-dnd`'s `useDrag`/`useDrop`, which THROW without an ancestor
+ * `DndProvider` — and nothing else in this app renders one (the file
+ * editor's own `table-node.tsx` `RowDragHandle` has the identical latent
+ * gap, left alone; fixing it is out of this feature's scope). `AgentChatView`
+ * is the real common ancestor of every Plate tree that can render an
+ * attachment node live: the transcript's streaming `MarkdownMessage` (via
+ * `transcript` below) and the composer's `ChatMarkdownEditor` (via
+ * `AgentComposer` and `AgentEmptyDocument`, both rendered further down) —
+ * confirmed by reading this file rather than assumed. One provider here
+ * covers both, instead of two separate ones duplicated at each leaf.
+ *
+ * Deliberately NOT wrapping the settled transcript: `MarkdownMessageStatic`
+ * renders through `chatComposerPluginsStatic`, whose code-block/link node
+ * components never call `useAttachmentDraggable` at all (see
+ * chat-composer-plugins.ts's `STATIC_NODE_OVERRIDES`), so a settled message
+ * never needs this context — this wrapper costs nothing extra by covering it
+ * anyway, but the real gate is in the plugin set, not here.
+ */
+function DndScope({ children }: { children: ReactNode }) {
+  return <DndProvider backend={HTML5Backend}>{children}</DndProvider>
 }
 
 /**
@@ -710,129 +740,135 @@ export function AgentChatView({
 
   if (settling) {
     return (
-      <ChatMarkdownAssetProvider wsId={wsId}>
-        <section className="agent-chat chat" aria-label="Agent chat">
-          {transcript}
-        </section>
-      </ChatMarkdownAssetProvider>
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId={wsId}>
+          <section className="agent-chat chat" aria-label="Agent chat">
+            {transcript}
+          </section>
+        </ChatMarkdownAssetProvider>
+      </DndScope>
     )
   }
 
   if (blank) {
     return (
-      <ChatMarkdownAssetProvider wsId={wsId}>
-        <section className="agent-chat chat" aria-label="Agent chat">
-          <AgentEmptyDocument
-            ref={emptyDocRef}
-            wsId={wsId}
-            chatId={chatId}
-            draft={seed.text}
-            draftSeed={seed.n}
-            hasText={draft.trim().length > 0}
-            onDraftChange={updateDraft}
-            onSubmit={() => enqueueDraft()}
-            onKeyDown={handleKeyDown}
-            controls={selectionCluster}
-            working={working}
-            canStop={live}
-            sending={prompts.deliveryPending}
-            onStop={handleStop}
-          />
-          {composerError && (
-            <p className="meta" role="alert">
-              {composerError}
-            </p>
-          )}
-        </section>
-      </ChatMarkdownAssetProvider>
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId={wsId}>
+          <section className="agent-chat chat" aria-label="Agent chat">
+            <AgentEmptyDocument
+              ref={emptyDocRef}
+              wsId={wsId}
+              chatId={chatId}
+              draft={seed.text}
+              draftSeed={seed.n}
+              hasText={draft.trim().length > 0}
+              onDraftChange={updateDraft}
+              onSubmit={() => enqueueDraft()}
+              onKeyDown={handleKeyDown}
+              controls={selectionCluster}
+              working={working}
+              canStop={live}
+              sending={prompts.deliveryPending}
+              onStop={handleStop}
+            />
+            {composerError && (
+              <p className="meta" role="alert">
+                {composerError}
+              </p>
+            )}
+          </section>
+        </ChatMarkdownAssetProvider>
+      </DndScope>
     )
   }
 
   return (
-    <ChatMarkdownAssetProvider wsId={wsId}>
-      <section
-        className="agent-chat chat"
-        aria-label="Agent chat"
-        style={
-          {
-            '--agent-dock-h': `${Math.round(dockHeight)}px`,
-            '--agent-scrollbar-w': `${scrollbarWidth}px`,
-          } as React.CSSProperties
-        }
-      >
-        {transcript}
+    <DndScope>
+      <ChatMarkdownAssetProvider wsId={wsId}>
+        <section
+          className="agent-chat chat"
+          aria-label="Agent chat"
+          style={
+            {
+              '--agent-dock-h': `${Math.round(dockHeight)}px`,
+              '--agent-scrollbar-w': `${scrollbarWidth}px`,
+            } as React.CSSProperties
+          }
+        >
+          {transcript}
 
-        <div className="dissolve" aria-hidden="true">
-          {DISSOLVE_LAYERS.map((_, i) => (
-            <div key={i} className="dissolve-layer" />
-          ))}
-        </div>
+          <div className="dissolve" aria-hidden="true">
+            {DISSOLVE_LAYERS.map((_, i) => (
+              <div key={i} className="dissolve-layer" />
+            ))}
+          </div>
 
-        <div ref={dockRef} className="dock">
-          <SubagentShelf activity={activity} />
-          {slash.open && (
-            <ComposerSlashPicker
-              state={slash.state}
-              items={slash.items}
-              selected={slash.selected}
-              onSelect={selectSlashItem}
+          <div ref={dockRef} className="dock">
+            <SubagentShelf activity={activity} />
+            {slash.open && (
+              <ComposerSlashPicker
+                state={slash.state}
+                items={slash.items}
+                selected={slash.selected}
+                onSelect={selectSlashItem}
+              />
+            )}
+            <AgentComposer
+              wsId={wsId}
+              chatId={chatId}
+              activity={activity}
+              providerLabel={providerLabel}
+              permissionLevels={provider?.permissionLevels}
+              live={live}
+              revival={revival}
+              working={working}
+              compacting={compacting}
+              sending={prompts.deliveryPending}
+              submitUnavailable={submitUnavailable}
+              terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
+              haltedMessage={halted?.text}
+              haltedResetsAt={limitResetsAt(telemetry)}
+              canStop={live}
+              draft={draft}
+              fieldHeight={fieldHeight}
+              slashOpen={slash.open}
+              onDraftChange={updateDraft}
+              onHeightChange={setFieldHeight}
+              onKeyDown={handleKeyDown}
+              onSend={() => enqueueDraft()}
+              onStop={handleStop}
+              onOpenTerminal={onOpenTerminal}
+              onRevive={onRevive}
+              draftSeed={seed.n}
+              seedText={seed.text}
             />
-          )}
-          <AgentComposer
-            wsId={wsId}
-            chatId={chatId}
-            activity={activity}
-            providerLabel={providerLabel}
-            permissionLevels={provider?.permissionLevels}
-            live={live}
-            revival={revival}
-            working={working}
-            compacting={compacting}
-            sending={prompts.deliveryPending}
-            submitUnavailable={submitUnavailable}
-            terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
-            haltedMessage={halted?.text}
-            haltedResetsAt={limitResetsAt(telemetry)}
-            canStop={live}
-            draft={draft}
-            fieldHeight={fieldHeight}
-            slashOpen={slash.open}
-            onDraftChange={updateDraft}
-            onHeightChange={setFieldHeight}
-            onKeyDown={handleKeyDown}
-            onSend={() => enqueueDraft()}
-            onStop={handleStop}
-            onOpenTerminal={onOpenTerminal}
-            onRevive={onRevive}
-            draftSeed={seed.n}
-            seedText={seed.text}
-          />
-          <ProviderBar
-            wsId={wsId}
-            chatId={chatId}
-            provider={provider}
-            providers={providers}
-            onSwitchProvider={onSwitchProvider}
-            switchDisabled={switchDisabled}
-            model={model}
-            effort={effort}
-            telemetry={telemetry}
-            presentation={presentation}
-            splitEnabled={splitEnabled && provider?.hotswap === true}
-            queued={queue.length}
-            onSelectionChange={onSelectionChange}
-            onSelectPresentation={onSelectPresentation}
-            showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
-            handoverBlocked={!provider?.hotswap && working}
-          />
-          {(composerError || prompts.persistenceLost) && (
-            <p className="meta" role="alert">
-              {composerError ||
-                'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
-            </p>
-          )}
-        </div>
-      </section>
-    </ChatMarkdownAssetProvider>
+            <ProviderBar
+              wsId={wsId}
+              chatId={chatId}
+              provider={provider}
+              providers={providers}
+              onSwitchProvider={onSwitchProvider}
+              switchDisabled={switchDisabled}
+              model={model}
+              effort={effort}
+              telemetry={telemetry}
+              presentation={presentation}
+              splitEnabled={splitEnabled && provider?.hotswap === true}
+              queued={queue.length}
+              onSelectionChange={onSelectionChange}
+              onSelectPresentation={onSelectPresentation}
+              showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
+              handoverBlocked={!provider?.hotswap && working}
+            />
+            {(composerError || prompts.persistenceLost) && (
+              <p className="meta" role="alert">
+                {composerError ||
+                  'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
+              </p>
+            )}
+          </div>
+        </section>
+      </ChatMarkdownAssetProvider>
+    </DndScope>
   )
 }

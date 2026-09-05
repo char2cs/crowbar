@@ -1,10 +1,28 @@
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlateEditor } from 'platejs/react'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { findFollowingImageRef } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 import * as ExcalidrawPreviewModule from '@/features/agent/composer/plate/attachments/excalidraw-preview'
+
+/**
+ * The real (unmocked) `<DndProvider>` this app's production code puts above
+ * every Plate tree that can render an attachment node (`AgentChatView`'s own
+ * `DndScope`, see agent-chat-view.tsx) — `@platejs/dnd`'s `useDraggable`
+ * throws "Expected drag drop context" without one, once `DndPlugin` is
+ * registered (chat-composer-plugins.ts). Standalone tests that mount
+ * `MarkdownMessage` directly, bypassing `AgentChatView` entirely, have to
+ * supply this same ancestor themselves — deliberately NOT mocking
+ * `@platejs/dnd` here (unlike attachment-drag-handle.test.tsx's own unit
+ * tests) is what proves the gap is genuinely closed, not just papered over.
+ */
+function renderWithDnd(ui: ReactNode) {
+  return render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>)
+}
 
 // Wraps the REAL component (not a stand-in) so every existing behavioural
 // assertion below still exercises actual rendering — this only adds the
@@ -69,6 +87,18 @@ describe('chat attachment code blocks', () => {
     expect(screen.getByText(scene).closest('.hidden')).not.toBeNull()
   })
 
+  it('renders a drag handle for a text-attachment pill', () => {
+    renderWithDnd(
+      <MarkdownMessage>{'```text-attachment:AbC123xy\nsome long pasted text\n```'}</MarkdownMessage>,
+    )
+    expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
+  })
+
+  it('renders no drag handle for a plain, non-attachment code block — even under a real DndProvider', () => {
+    renderWithDnd(<MarkdownMessage>{'```go\nfunc main() {}\n```'}</MarkdownMessage>)
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
+  })
+
   it("threads a following img node's url through to ExcalidrawPreview as pngRef", () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
@@ -113,7 +143,11 @@ describe('chat attachment code blocks', () => {
   it('threads pngRef correctly through the INTERACTIVE renderer too, not just its static derivative', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
-    render(<MarkdownMessage>{md}</MarkdownMessage>)
+    // An excalidraw fence resolves to a preview, which — under the
+    // interactive renderer — is wrapped in the draggable primitive (see
+    // ChatCodeBlockElement), so this needs the same real `<DndProvider>`
+    // ancestor production wires up at AgentChatView.
+    renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
 
     const spy = vi.mocked(ExcalidrawPreviewModule.ExcalidrawPreview)
     const lastCallProps = spy.mock.calls.at(-1)?.[0]

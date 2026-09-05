@@ -70,6 +70,24 @@ describe('MarkdownMessageStatic', () => {
     expect(screen.getByText('Raw block')).toBeInTheDocument()
   })
 
+  // A drag handle only makes sense where a block is actually editable — the
+  // composer and the interactive/streaming transcript (`MarkdownMessage`) —
+  // never on settled read-only history. `chatComposerPluginsStatic` never
+  // registers `DndPlugin` and swaps in node components
+  // (`ChatCodeBlockElementStatic`/the file card's static variant) that never
+  // call `useAttachmentDraggable` at all (see chat-composer-plugins.ts), so
+  // this asserts the observable result: no drag handle button, for either
+  // attachment kind, ever renders on a settled message — no `<DndProvider>`
+  // needed to prove it, because there is nothing here that would need one.
+  it('renders no drag handle for a settled attachment — text-attachment fence or file-card link', () => {
+    render(
+      <MarkdownMessageStatic>
+        {'```text-attachment:AbC123xy\nsome long pasted text\n```'}
+      </MarkdownMessageStatic>,
+    )
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
+  })
+
   it('is not editable — a settled message is read, never typed into', () => {
     render(<MarkdownMessageStatic>plain</MarkdownMessageStatic>)
     // PlateStatic's root also carries [data-slate-editor] (same class names,

@@ -1,5 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
+import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
@@ -77,6 +80,10 @@ describe('chat attachment file card', () => {
     expect(screen.getByText('report.pdf')).toBeInTheDocument()
     expect(container.querySelector('svg')).not.toBeNull()
     await waitFor(() => expect(screen.getByText('2.00 KB')).toBeInTheDocument())
+    // Settled/read-only — no drag handle, unlike the interactive renderer's
+    // card (see the 'renders a drag handle alongside the file card' test
+    // below).
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
 
     // The card itself is the link — clicking it must not throw (same
     // handleMarkdownAnchorClick path the ordinary LinkElement uses), and a
@@ -150,6 +157,58 @@ describe('chat attachment file card', () => {
     expect(() => fireEvent.click(anchor!)).not.toThrow()
 
     vi.unstubAllGlobals()
+  })
+
+  // Interactive-only: a drag handle only makes sense where the block is
+  // actually editable (the composer, and the interactive/streaming
+  // transcript — `MarkdownMessage`, registered on `chatComposerPlugins`),
+  // never on settled read-only history (`MarkdownMessageStatic`, above —
+  // none of which grew a handle). `@platejs/dnd`'s `useDraggable` throws
+  // "Expected drag drop context" without a real `<DndProvider>` ancestor
+  // once `DndPlugin` is registered (chat-composer-plugins.ts) — deliberately
+  // NOT mocked here, so this is the proof that gap is genuinely closed for
+  // the file card too, not just for the code-block attachment kinds.
+  it('renders a drag handle alongside the file card, and still behaves as a plain link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
+    )
+    expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
+
+    // Same click/hover behaviour as the static card's own assertions above —
+    // the drag handle is additive, it doesn't change what the card itself does.
+    await waitFor(() => expect(screen.getByText('10 bytes')).toBeInTheDocument())
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(() => fireEvent.click(anchor!)).not.toThrow()
+    expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to an ordinary link for a non-attachment href, through the INTERACTIVE renderer too', () => {
+    render(
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1">
+          <MarkdownMessage>{'[docs](https://example.com)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
+    )
+    const anchor = screen.getByText('docs').closest('a')
+    expect(anchor?.getAttribute('href')).toContain('example.com')
+    expect(anchor?.className).not.toContain('chat-attachment-file-card')
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
   })
 
   it('ignores a metadata fetch that resolves after the component has already unmounted', async () => {
