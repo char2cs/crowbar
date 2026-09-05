@@ -1,15 +1,20 @@
-import type { KeyboardEvent } from 'react'
-import { useRef, useState } from 'react'
+import type { DragEvent, KeyboardEvent } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type {
   AgentActivity,
   AgentTerminalWait,
   PermissionLevel,
 } from '@/features/agent/api/agent-api'
+import {
+  uploadChatAttachment,
+  type UploadChatAttachmentInput,
+} from '@/features/agent/api/upload-chat-attachment'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
+import { fileMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
 import type {
   CaretEdges,
   ChatMarkdownEditorHandle,
@@ -19,6 +24,7 @@ import {
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
@@ -78,6 +84,56 @@ export function AgentComposer(props: AgentComposerProps) {
   // of the field below, outside `<Plate>`'s tree, and this is their only way
   // to reach the box's `insertAttachmentMarkdown`.
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const pillRef = useRef<HTMLDivElement>(null)
+  const [dropTarget, setDropTarget] = useState(false)
+
+  const insertUploaded = useCallback(
+    (result: { ref: string; filename: string; contentType: string }) => {
+      const md = result.contentType.startsWith('image/')
+        ? imageMarkdown(result.filename, result.ref)
+        : fileMarkdown(result.filename, result.ref)
+      editorRef.current?.insertAttachmentMarkdown(md)
+    },
+    [],
+  )
+
+  const uploadAndInsert = useCallback(
+    async (input: UploadChatAttachmentInput) => {
+      const result = await uploadChatAttachment(props.wsId, props.chatId, input)
+      insertUploaded(result)
+    },
+    [props.wsId, props.chatId, insertUploaded],
+  )
+
+  useTauriFileDrop(pillRef, (paths) => {
+    setDropTarget(false)
+    for (const path of paths) void uploadAndInsert({ path })
+  })
+
+  const handlePillDragOver = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    setDropTarget(true)
+  }, [])
+
+  const handlePillDragLeave = useCallback((e: DragEvent) => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (!related || !e.currentTarget.contains(related)) setDropTarget(false)
+  }, [])
+
+  // Plain-browser (non-Tauri dev) fallback: a real DataTransfer.files DOES
+  // carry usable File bytes here — this is a completely different problem
+  // from extractDroppedFilePaths's (which is about a host PATH, not bytes).
+  const handlePillDrop = useCallback(
+    (e: DragEvent) => {
+      setDropTarget(false)
+      if (!e.dataTransfer.types.includes('Files')) return
+      e.preventDefault()
+      for (const file of Array.from(e.dataTransfer.files)) void uploadAndInsert({ file })
+    },
+    [uploadAndInsert],
+  )
+
   const state = resolveComposerState({
     live: props.live,
     revival: props.revival,
@@ -127,7 +183,17 @@ export function AgentComposer(props: AgentComposerProps) {
             : 'Message the agent…'
       return (
         <>
-          <div className={cn('pill', isMultiline(props.fieldHeight) && 'multi')}>
+          <div
+            ref={pillRef}
+            className={cn(
+              'pill',
+              isMultiline(props.fieldHeight) && 'multi',
+              dropTarget && 'drop-target',
+            )}
+            onDragOver={handlePillDragOver}
+            onDragLeave={handlePillDragLeave}
+            onDrop={handlePillDrop}
+          >
             <ComposerField
               key={props.draftSeed}
               ref={editorRef}
