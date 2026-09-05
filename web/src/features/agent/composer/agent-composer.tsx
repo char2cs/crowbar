@@ -25,6 +25,7 @@ import {
 } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { toast } from '@/features/window/stores/toast-store'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
@@ -97,18 +98,40 @@ export function AgentComposer(props: AgentComposerProps) {
     [],
   )
 
+  // Caught here, not left to the caller: `void uploadAndInsert(...)` at every
+  // call site means nobody is in a position to `.catch` this promise, and an
+  // upload can fail for entirely ordinary reasons (offline, a daemon 413/500,
+  // a revoked host-path read) — a dropped file that silently does nothing is
+  // indistinguishable from a hang.
   const uploadAndInsert = useCallback(
     async (input: UploadChatAttachmentInput) => {
-      const result = await uploadChatAttachment(props.wsId, props.chatId, input)
-      insertUploaded(result)
+      try {
+        const result = await uploadChatAttachment(props.wsId, props.chatId, input)
+        insertUploaded(result)
+      } catch (err) {
+        toast.error(
+          'Could not attach that file',
+          err instanceof Error ? err.message : 'Crowbar could not reach the daemon — try again.',
+        )
+      }
     },
     [props.wsId, props.chatId, insertUploaded],
   )
 
-  useTauriFileDrop(pillRef, (paths) => {
-    setDropTarget(false)
-    for (const path of paths) void uploadAndInsert({ path })
-  })
+  // Memoized: `useTauriFileDrop`'s own effect re-subscribes to Tauri's
+  // `onDragDropEvent` (a dynamic import + async webview IPC registration)
+  // whenever `onDrop`'s identity changes, and an inline arrow here would get
+  // a fresh identity on every render — including every keystroke, since
+  // `props.draft`/`onDraftChange` drive this component's re-renders.
+  const handleTauriDrop = useCallback(
+    (paths: string[]) => {
+      setDropTarget(false)
+      for (const path of paths) void uploadAndInsert({ path })
+    },
+    [uploadAndInsert],
+  )
+
+  useTauriFileDrop(pillRef, handleTauriDrop)
 
   const handlePillDragOver = useCallback((e: DragEvent) => {
     if (!e.dataTransfer.types.includes('Files')) return

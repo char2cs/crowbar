@@ -4,7 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
-import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
+import {
+  uploadChatAttachment,
+  type UploadedChatAttachment,
+} from '@/features/agent/api/upload-chat-attachment'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 
@@ -21,33 +24,46 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
 
-function draw(overrides: Partial<Parameters<typeof AgentComposer>[0]> = {}) {
-  return render(
-    <AgentComposer
-      wsId="w1"
-      chatId="c1"
-      activity={NO_ACTIVITY}
-      providerLabel="Claude"
-      live
-      working={false}
-      compacting={false}
-      sending={false}
-      submitUnavailable={false}
-      canStop={false}
-      draft=""
-      fieldHeight={20}
-      slashOpen={false}
-      onDraftChange={vi.fn()}
-      onHeightChange={vi.fn()}
-      onKeyDown={vi.fn()}
-      onSend={vi.fn()}
-      onStop={vi.fn()}
-      onOpenTerminal={vi.fn()}
-      draftSeed={0}
-      seedText=""
-      {...overrides}
-    />,
-  )
+const toastError = vi.hoisted(() => vi.fn())
+vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+
+type AgentComposerProps = Parameters<typeof AgentComposer>[0]
+
+const baseProps: AgentComposerProps = {
+  wsId: 'w1',
+  chatId: 'c1',
+  activity: NO_ACTIVITY,
+  providerLabel: 'Claude',
+  live: true,
+  working: false,
+  compacting: false,
+  sending: false,
+  submitUnavailable: false,
+  canStop: false,
+  draft: '',
+  fieldHeight: 20,
+  slashOpen: false,
+  onDraftChange: vi.fn(),
+  onHeightChange: vi.fn(),
+  onKeyDown: vi.fn(),
+  onSend: vi.fn(),
+  onStop: vi.fn(),
+  onOpenTerminal: vi.fn(),
+  draftSeed: 0,
+  seedText: '',
+}
+
+function draw(overrides: Partial<AgentComposerProps> = {}) {
+  const props = { ...baseProps, ...overrides }
+  const result = render(<AgentComposer {...props} />)
+  return {
+    ...result,
+    // For asserting identity STABILITY (e.g. a memoized callback) across a
+    // re-render with the SAME element type — `result.rerender` alone forces
+    // callers to reconstruct the full props object themselves.
+    rerenderWith: (moreOverrides: Partial<AgentComposerProps> = {}) =>
+      result.rerender(<AgentComposer {...props} {...moreOverrides} />),
+  }
 }
 
 // The bar delegates its own dispatched-but-unproven visual to the handle — this
@@ -146,6 +162,8 @@ describe('AgentComposer', () => {
 describe('AgentComposer drag-and-drop', () => {
   beforeEach(() => {
     vi.mocked(uploadChatAttachment).mockReset()
+    vi.mocked(useTauriFileDrop).mockClear()
+    toastError.mockClear()
   })
 
   it('shows a drag-over state while a file is dragged over the pill', () => {
@@ -274,5 +292,93 @@ describe('AgentComposer drag-and-drop', () => {
       const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
       expect(lastCall).toContain('[c.txt](chats/c1/attachments/z-c.txt)')
     })
+  })
+
+  // Review finding 1: an inline arrow passed to `useTauriFileDrop` would get a
+  // fresh identity every render, tearing down and re-establishing Tauri's
+  // `onDragDropEvent` subscription on every keystroke (this component
+  // re-renders on `props.draft`/`onDraftChange`). Proven directly against the
+  // stubbed hook rather than inferred from the fix.
+  it('passes the same onDrop identity to useTauriFileDrop across an unrelated re-render', () => {
+    const { rerenderWith } = draw({ draft: 'a' })
+    const callsBefore = vi.mocked(useTauriFileDrop).mock.calls.length
+    const firstOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
+    expect(firstOnDrop).toBeTypeOf('function')
+
+    rerenderWith({ draft: 'ab' })
+
+    expect(vi.mocked(useTauriFileDrop).mock.calls.length).toBeGreaterThan(callsBefore)
+    const secondOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
+    expect(secondOnDrop).toBe(firstOnDrop)
+  })
+
+  // Review finding 2: a failed upload used to be a silent no-op (an unhandled
+  // rejection, nothing inserted, nothing said). `uploadAndInsert` now catches
+  // and toasts instead.
+  it('surfaces a failed upload as a toast instead of silently doing nothing', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    const onDraftChange = vi.fn()
+    const { container } = draw({ onDraftChange })
+    const pill = container.querySelector('.pill')!
+    const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
+
+    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that file',
+        '413 Payload Too Large',
+      ),
+    )
+    expect(onDraftChange).not.toHaveBeenCalled()
+  })
+
+  // A failure that isn't an `Error` instance (e.g. a plain thrown string, or a
+  // non-Error rejection from a fetch polyfill) still gets a description, not
+  // a crash.
+  it('falls back to a generic description for a non-Error rejection', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce('boom')
+    const { container } = draw()
+    const pill = container.querySelector('.pill')!
+    const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
+
+    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that file',
+        'Crowbar could not reach the daemon — try again.',
+      ),
+    )
+  })
+
+  // Also (review, minor): the `editorRef.current?.` null-path was previously
+  // unexercised. A drop that outlives the component (the pane closes, the
+  // chat is switched, mid-upload) must not throw when it tries to insert.
+  it('does not throw when the composer unmounts before an in-flight upload resolves', async () => {
+    let resolveUpload: ((value: UploadedChatAttachment) => void) | undefined
+    vi.mocked(uploadChatAttachment).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve
+        }),
+    )
+    const { container, unmount } = draw()
+    const pill = container.querySelector('.pill')!
+    const file = new File(['bytes'], 'a.png', { type: 'image/png' })
+
+    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    unmount()
+
+    await act(async () => {
+      resolveUpload?.({
+        ref: 'chats/c1/attachments/x-a.png',
+        filename: 'a.png',
+        size: 10,
+        contentType: 'image/png',
+      })
+    })
+    // Reaching here without throwing IS the assertion — editorRef.current is
+    // null post-unmount, and insertUploaded's `?.` must swallow that cleanly.
   })
 })
