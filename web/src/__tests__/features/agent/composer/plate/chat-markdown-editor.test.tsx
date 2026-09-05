@@ -152,6 +152,44 @@ describe('insertAttachmentMarkdownInto', () => {
       '```text-attachment:aaa\nfirst\n```\n\n```text-attachment:bbb\nsecond\n```',
     )
   })
+
+  // TestRegression: the FIRST fix for the two-fences bug above (a blanket
+  // `mode: 'highest'`) broke this — it walks a caret inside ANY nested
+  // container up to the top-level block before inserting, which splits a
+  // `table` in two malformed siblings (header row separated from body) for
+  // a caret that was simply sitting in a cell, an ordinary single insert
+  // that never touched a fence at all. The fix only special-cases the
+  // code_block ancestor; a table cell falls through to the original
+  // behaviour and must land the new node INSIDE the cell, not split the
+  // table.
+  it('TestRegression_singleInsertWithCaretInATableCellDoesNotSplitTheTable', () => {
+    const editor = editorWith('', 'end')
+    insertAttachmentMarkdownInto(editor, '| a | b |\n| --- | --- |\n| 1 | 2 |')
+    const table = (editor.children as { type?: string }[]).find((n) => n.type === 'table') as {
+      children: { type: string; children: { type: string; children: unknown[] }[] }[]
+    }
+    const firstCellParagraphPath = [
+      (editor.children as unknown[]).indexOf(table),
+      0, // header row
+      0, // first th
+      0, // its paragraph
+    ]
+    editor.tf.select({
+      anchor: { path: [...firstCellParagraphPath, 0], offset: 1 },
+      focus: { path: [...firstCellParagraphPath, 0], offset: 1 },
+    })
+
+    insertAttachmentMarkdownInto(editor, '![diagram](chats/c1/attachments/x-diagram.png)')
+
+    const tablesAfter = (editor.children as { type?: string; children?: unknown[] }[]).filter(
+      (n) => n.type === 'table',
+    )
+    expect(tablesAfter).toHaveLength(1) // still ONE table, not split in two
+    expect(tablesAfter[0]?.children).toHaveLength(2) // header row + body row, both intact
+    expect(chatValueToMarkdown(editor.children as Value)).toContain(
+      '![diagram](chats/c1/attachments/x-diagram.png)',
+    )
+  })
 })
 
 describe('ChatMarkdownEditor imperative handle', () => {

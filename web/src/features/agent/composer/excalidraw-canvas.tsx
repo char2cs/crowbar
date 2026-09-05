@@ -11,7 +11,9 @@ export interface ExcalidrawSaveResult {
 
 interface ExcalidrawCanvasProps {
   onCancel: () => void
-  onSave: (result: ExcalidrawSaveResult) => void
+  /** Awaited before Save re-enables (`ExcalidrawModal`'s real `onSave`
+   *  uploads) — otherwise a fast double-click fires it twice. */
+  onSave: (result: ExcalidrawSaveResult) => void | Promise<void>
 }
 
 /** The actual heavy mount — see excalidraw-modal.tsx for why this lives in
@@ -30,7 +32,7 @@ export function ExcalidrawCanvas({ onCancel, onSave }: ExcalidrawCanvasProps) {
       const sceneJson = JSON.stringify({ type: 'excalidraw', version: 2, elements, files })
       const blob = await exportToBlob({ elements, appState, files, mimeType: 'image/png' })
       const pngFile = new File([blob], 'diagram.png', { type: 'image/png' })
-      onSave({ sceneJson, pngFile })
+      await onSave({ sceneJson, pngFile })
     } finally {
       setSaving(false)
     }

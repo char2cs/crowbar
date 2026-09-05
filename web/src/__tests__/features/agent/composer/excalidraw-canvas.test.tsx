@@ -81,4 +81,35 @@ describe('ExcalidrawCanvas', () => {
     resolveBlob(new Blob(['x'], { type: 'image/png' }))
     await waitFor(() => expect(screen.getByText('Save')).toBeInTheDocument())
   })
+
+  // TestRegression: `handleSave` used to call `onSave(...)` without an
+  // `await` — `finally { setSaving(false) }` ran (re-enabling Save) the
+  // instant the PNG was exported, WHILE the real `onSave` (an async upload,
+  // in `ExcalidrawModal`) was still in flight. A fast double-click fired it
+  // twice before the first resolved: two `nanoid()`s, two uploads, a
+  // duplicate fence+image pair inserted.
+  it('TestRegression_staysDisabledUntilAnAsyncOnSaveResolves_soADoubleClickOnlyFiresOnce', async () => {
+    let resolveSave!: () => void
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    render(<ExcalidrawCanvas onCancel={vi.fn()} onSave={onSave} />)
+
+    const saveButton = screen.getByText('Save').closest('button')!
+    fireEvent.click(saveButton)
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+
+    // The upload is still pending — Save must still be disabled, so a second,
+    // fast click cannot fire a second onSave (and thus a second nanoid/upload).
+    await waitFor(() => expect(screen.getByText('Saving…').closest('button')).toBeDisabled())
+    fireEvent.click(screen.getByText('Saving…').closest('button')!)
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    resolveSave()
+    await waitFor(() => expect(screen.getByText('Save')).toBeInTheDocument())
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
 })

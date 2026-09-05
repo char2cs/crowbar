@@ -1,8 +1,9 @@
 import { useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import { PointApi, RangeApi, type Value } from 'platejs'
+import { PathApi, PointApi, RangeApi, type Value } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
   chatMarkdownToValue,
@@ -83,18 +84,27 @@ export interface ChatMarkdownEditorProps {
  * or not — can be proven against a bare `createPlateEditor`, with no
  * mounted DOM: `editor.tf.focus()` throws without one.
  *
- * `mode: 'highest'`: after a fence insert, the selection Slate leaves
- * sits inside the block's own `code_line`, not after the `code_block`. With
- * the default `'lowest'` mode, a second back-to-back insert matches that
- * `code_line` instead and splits the fence's OWN internals — silently
- * dropping the new node's content instead of appending it as a sibling.
- * `'highest'` walks up to the top-level block first, so two attachments
- * inserted in a row (e.g. the excalidraw modal's fence-then-image) both land.
+ * Fenced blocks get their own branch: after inserting one with `select:
+ * true`, the selection Slate leaves sits inside its `code_line`, not after
+ * the `code_block`. A second back-to-back insert landing there needs to
+ * target the `code_block` itself, or it splits the fence's OWN internals and
+ * silently drops the new node's content instead of appending it as a
+ * sibling (this is what the excalidraw modal's fence-then-image save hits).
+ * Detected specifically via `CodeBlockPlugin` and inserted right after that
+ * block's own path — NOT a blanket `mode: 'highest'`, which "fixes" this by
+ * always walking to the top-level block, and in doing so splits a `table`
+ * in two (header row separated from body) for the unrelated, previously-fine
+ * case of a caret sitting inside a table cell.
  */
 export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
   const nodes = chatMarkdownToValue(markdown)
   const at = editor.selection ?? editor.api.end([])
-  editor.tf.insertNodes(nodes, { at, select: true, mode: 'highest' })
+  const codeBlock = editor.api.above({ at, match: { type: CodeBlockPlugin.key } })
+  if (codeBlock) {
+    editor.tf.insertNodes(nodes, { at: PathApi.next(codeBlock[1]), select: true })
+    return
+  }
+  editor.tf.insertNodes(nodes, { at, select: true })
 }
 
 /**
