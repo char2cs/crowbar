@@ -32,6 +32,7 @@ vi.mock('@/features/terminal/components/resolve-terminal-connection', () => ({
 }))
 
 vi.mock('@/lib/crowbar-bridge', () => ({
+  isTauri: () => false,
   terminalCreate: (...a: unknown[]) => terminalCreateFn(...a),
   terminalDetach: (...a: unknown[]) => terminalDetachFn(...a),
   terminalListLive: vi.fn(async () => [] as string[]),
