@@ -25,13 +25,13 @@ import { htmlMarkdownRules } from '@/features/editor/markdown/plate/markdown-htm
 import { underlineMarkdownRules } from '@/features/editor/markdown/plate/markdown-underline-rules'
 import { ChatFreshTextPlugin } from '@/features/agent/transcript/plate/chat-fresh-text-plugin'
 import {
-  CommentCodeBlockElement,
   CommentCodeLineElement,
   CommentTableCellElement,
   CommentTableCellHeaderElement,
   CommentTableElement,
   CommentTableRowElement,
 } from '@/features/editor/markdown/plate/comment/comment-nodes'
+import { ChatCodeBlockElement } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 
 /**
  * The chat's markdown, both directions.
@@ -89,7 +89,7 @@ export const chatComposerPlugins = [
   TableCellHeaderPlugin.withComponent(CommentTableCellHeaderElement),
   CodeBlockPlugin.configure({
     inputRules: [CodeBlockRules.markdown({ on: 'match' })],
-    node: { component: CommentCodeBlockElement },
+    node: { component: ChatCodeBlockElement },
     shortcuts: { toggle: { keys: 'mod+alt+8' } },
   }),
   CodeLinePlugin.withComponent(CommentCodeLineElement),
