@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react'
+import { useState } from 'react'
 import type {
   AgentActivity,
   AgentTerminalWait,
@@ -69,6 +70,7 @@ interface AgentComposerProps {
  * something else.
  */
 export function AgentComposer(props: AgentComposerProps) {
+  const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
   const state = resolveComposerState({
     live: props.live,
     revival: props.revival,
@@ -117,27 +119,36 @@ export function AgentComposer(props: AgentComposerProps) {
             ? 'Queue a message…'
             : 'Message the agent…'
       return (
-        <div className={cn('pill', isMultiline(props.fieldHeight) && 'multi')}>
-          <ComposerField
-            key={props.draftSeed}
-            initialValue={props.seedText}
-            placeholder={placeholder}
-            expanded={props.slashOpen}
-            controls={props.slashOpen ? 'agent-skill-picker' : undefined}
-            onChange={props.onDraftChange}
-            onKeyDown={props.onKeyDown}
-            onHeightChange={props.onHeightChange}
-          />
-          <ComposerHandle
-            fieldHeight={props.fieldHeight}
-            hasText={props.draft.trim().length > 0}
-            working={props.working}
-            canStop={props.canStop}
-            sending={props.sending}
-            onSend={props.onSend}
-            onStop={props.onStop}
-          />
-        </div>
+        <>
+          <div className={cn('pill', isMultiline(props.fieldHeight) && 'multi')}>
+            <ComposerField
+              key={props.draftSeed}
+              initialValue={props.seedText}
+              placeholder={placeholder}
+              expanded={props.slashOpen}
+              controls={props.slashOpen ? 'agent-skill-picker' : undefined}
+              onChange={props.onDraftChange}
+              onKeyDown={props.onKeyDown}
+              onHeightChange={props.onHeightChange}
+            />
+            <ComposerHandle
+              fieldHeight={props.fieldHeight}
+              hasText={props.draft.trim().length > 0}
+              working={props.working}
+              canStop={props.canStop}
+              sending={props.sending}
+              onSend={props.onSend}
+              onStop={props.onStop}
+              onOpenExcalidraw={() => setModal('excalidraw')}
+              onOpenAttachFile={() => setModal('attach-file')}
+            />
+          </div>
+          {/* Task 29 (AttachFileModal) and Task 34 (ExcalidrawModal) each replace
+              their `null` branch below with the real modal, wired to close via
+              `setModal(null)` and insert via the imperative handle from Task 25. */}
+          {modal === 'attach-file' && null}
+          {modal === 'excalidraw' && null}
+        </>
       )
     }
   }

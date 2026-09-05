@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
@@ -6,6 +7,8 @@ import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 function draw(overrides: Partial<Parameters<typeof ComposerHandle>[0]> = {}) {
   const onSend = vi.fn()
   const onStop = vi.fn()
+  const onOpenExcalidraw = vi.fn()
+  const onOpenAttachFile = vi.fn()
   const view = render(
     <ComposerHandle
       fieldHeight={20}
@@ -15,10 +18,12 @@ function draw(overrides: Partial<Parameters<typeof ComposerHandle>[0]> = {}) {
       sending={false}
       onSend={onSend}
       onStop={onStop}
+      onOpenExcalidraw={onOpenExcalidraw}
+      onOpenAttachFile={onOpenAttachFile}
       {...overrides}
     />,
   )
-  return { ...view, onSend, onStop }
+  return { ...view, onSend, onStop, onOpenExcalidraw, onOpenAttachFile }
 }
 
 describe('ComposerHandle', () => {
@@ -104,5 +109,37 @@ describe('ComposerHandle', () => {
 
     expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  // Task 24: the plus button rides alongside send, never in place of it —
+  // DOM order matters because the design spec puts it "to the right of send".
+  it('renders send and plus as siblings, send first in DOM order', () => {
+    draw()
+
+    const send = screen.getByRole('button', { name: 'Send prompt' })
+    const plus = screen.getByRole('button', { name: /add to this message/i })
+    expect(send.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('opens Excalidraw from the plus dropdown without touching send', async () => {
+    const user = userEvent.setup()
+    const { onOpenExcalidraw, onSend } = draw()
+
+    await user.click(screen.getByRole('button', { name: /add to this message/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+
+    expect(onOpenExcalidraw).toHaveBeenCalledTimes(1)
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('opens the attach-file picker from the plus dropdown without touching send', async () => {
+    const user = userEvent.setup()
+    const { onOpenAttachFile, onSend } = draw()
+
+    await user.click(screen.getByRole('button', { name: /add to this message/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /attach file/i }))
+
+    expect(onOpenAttachFile).toHaveBeenCalledTimes(1)
+    expect(onSend).not.toHaveBeenCalled()
   })
 })
