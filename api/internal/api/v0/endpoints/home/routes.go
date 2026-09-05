@@ -125,6 +125,8 @@ func registerAgent(
 	home.POST("/chats/:id/prompts", h.RequireHomeWorkspace, ah.SubmitPrompt)
 	home.GET("/chats/:id/activity", h.RequireHomeWorkspace, ah.Activity)
 	home.GET("/chats/:id/activity/:toolId/payload", h.RequireHomeWorkspace, ah.ToolPayload)
+	home.POST("/chats/:id/attachments", h.RequireHomeWorkspace, ah.UploadAttachment)
+	home.GET("/chats/:id/attachments/:file", h.RequireHomeWorkspace, ah.Attachment)
 	home.GET("/chats/:id/choices", h.RequireHomeWorkspace, ah.Choices)
 	home.POST("/chats/:id/choices/:choiceId/answer", h.RequireHomeWorkspace, ah.AnswerChoice)
 	home.PUT("/chats/:id/permission-level", h.RequireHomeWorkspace, ah.SetChatPermissionLevel)
