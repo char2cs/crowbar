@@ -217,5 +217,3 @@ export const VERB_ROTATION_MS = 3_400
 export function verbAt(tick: number): string {
   return VERBS[Math.abs(Math.floor(tick)) % VERBS.length] ?? VERBS[0]
 }
-
-export const VERB_COUNT = VERBS.length

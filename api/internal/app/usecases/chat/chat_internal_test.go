@@ -71,6 +71,9 @@ var constructorUnsetFields = map[string]string{
 	"turns.messageDelta": "wired by StartTerminalWaitSweep beside promptSettled, " +
 		"for the same reason: a daemon with nobody to publish to records the " +
 		"message when it finishes instead (internal/turn/turns.go).",
+	"turns.compactionStatus": "wired by StartTerminalWaitSweep beside messageDelta, " +
+		"for the same reason: a daemon with nobody to publish to just skips the " +
+		"call (internal/turn/turns.go).",
 }
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance

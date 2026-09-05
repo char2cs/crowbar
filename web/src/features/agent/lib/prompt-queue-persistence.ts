@@ -5,11 +5,7 @@
  */
 
 export type PromptQueueState =
-  | 'queued'
-  | 'submitting'
-  | 'awaiting_turn'
-  | 'failed'
-  | 'outcome_uncertain'
+  'queued' | 'submitting' | 'awaiting_turn' | 'failed' | 'outcome_uncertain'
 
 export interface PromptQueueItem {
   clientRequestId: string

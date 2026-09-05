@@ -140,13 +140,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) domain.AgentTerminalWait
 
-	// StartTerminalWaitSweep starts the screen sweep and binds the three publish
+	// StartTerminalWaitSweep starts the screen sweep and binds the four publish
 	// callbacks the hub owns. It runs until ctx is cancelled.
 	StartTerminalWaitSweep(
 		ctx context.Context,
 		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 		promptSettled func(chatID, workspaceID, requestID string),
 		messageDelta func(chatID, workspaceID, messageID, text string),
+		compactionStatus func(chatID, workspaceID string, active bool),
 	)
 }
 
@@ -383,6 +384,7 @@ func (u *Usecase) StartTerminalWaitSweep(
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 	promptSettled func(chatID, workspaceID, requestID string),
 	messageDelta func(chatID, workspaceID, messageID, text string),
+	compactionStatus func(chatID, workspaceID string, active bool),
 ) {
-	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta)
+	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus)
 }

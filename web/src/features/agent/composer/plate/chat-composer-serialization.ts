@@ -61,7 +61,21 @@ function trimLineEdges(node: Node): Node {
  * only ever reached the document's two outer ends; the edges are per line, so
  * they are cleared on the nodes, before anything can encode them. Clones on the
  * way: this runs over the live editor's own children.
+ *
+ * REGRESSION: a genuinely empty document — a fresh box, or one typed into and
+ * cleared back out — normalizes (Slate cannot hold zero children) to a single
+ * empty paragraph, which the codec serializes as a lone U+200B: its own
+ * placeholder for telling an intentionally-blank paragraph apart from no
+ * paragraph at all on a round trip. `.trim()` does not touch it — U+200B is a
+ * formatting character, not whitespace — so a box that read as completely
+ * empty could be sent as a real prompt. Stripped before the trim, since it is
+ * never something a person meant to send.
  */
+const ZERO_WIDTH_SPACE = /\u200B/g
+
 export function chatValueToMarkdown(value: Value): string {
-  return codec.toMarkdown(value.map((node) => trimLineEdges(node as Node)) as Value).trim()
+  return codec
+    .toMarkdown(value.map((node) => trimLineEdges(node as Node)) as Value)
+    .replace(ZERO_WIDTH_SPACE, '')
+    .trim()
 }

@@ -41,17 +41,20 @@ func (c AppendTurn) Validate(*domain.ChatActivity) error {
 func (c AppendTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next := advance(current, c.ChatID)
 	turn := domain.ActivityTurn{
-		ID:         c.TurnID,
-		ChatID:     c.ChatID,
-		Seq:        next.Seq,
-		Role:       c.Role,
-		ProviderID: c.ProviderID,
-		RunnerID:   c.RunnerID,
-		SessionID:  c.SessionID,
-		Text:       c.Text,
-		Effort:     c.Effort,
-		StartedAt:  c.Now,
-		EndedAt:    at(c.Now),
+		ID:     c.TurnID,
+		ChatID: c.ChatID,
+		Seq:    next.Seq,
+		// One synchronous record, no open/close cycle — next.Seq is already
+		// reserved at genuine dispatch time, unlike CloseTurn's.
+		DisplayOrder: next.Seq,
+		Role:         c.Role,
+		ProviderID:   c.ProviderID,
+		RunnerID:     c.RunnerID,
+		SessionID:    c.SessionID,
+		Text:         c.Text,
+		Effort:       c.Effort,
+		StartedAt:    c.Now,
+		EndedAt:      at(c.Now),
 	}
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,

@@ -133,6 +133,37 @@ func TestWriteAtomic_ChmodNonExistentFile(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestWriteAtomic_RenameOverExistingDirectoryFails calls the REAL writeAtomic
+// directly (not the writeAtomicWithFile duplicate above, and not through
+// ApplyToFile — dst here is never Stat/sniffed/read first, since a directory
+// dst would fail ApplyToFile's earlier binary-sniff open before ever reaching
+// writeAtomic). A regular file cannot be renamed over an existing directory
+// (POSIX rename(2) refuses EISDIR/ENOTDIR-style mismatches), so this exercises
+// writeAtomic's actual os.Rename error branch — unlike WriteError/RenameError
+// above, no pre-closed *os.File stand-in is needed.
+func TestWriteAtomic_RenameOverExistingDirectoryFails(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "occupied")
+	require.NoError(t, os.MkdirAll(dst, 0o755))
+
+	err := writeAtomic(dst, "replacement", 0o600)
+	require.Error(t, err, "renaming a temp file over an existing directory must fail")
+	assert.Contains(t, err.Error(), "rename")
+
+	// The directory itself must survive untouched, and no temp cruft left beside it.
+	info, statErr := os.Stat(dst)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if e.Name() == "occupied" {
+			continue
+		}
+		assert.NotContains(t, e.Name(), ".crowbar-replace-", "the failed rename's temp file must be cleaned up")
+	}
+}
+
 // TestApplyToFile_RegexWithoutChange verifies ApplyToFile is a no-op when the
 // pattern matches zero occurrences (pure coverage of the no-match path).
 func TestApplyToFile_RegexNoMatch_Internal(t *testing.T) {

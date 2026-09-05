@@ -87,3 +87,33 @@ func RecordID(ctx context.Context) string {
 	}
 	return uuid.NewString()
 }
+
+// apiTransportKey marks ctx as ingesting an event that arrived over a live
+// api-transport connection (pumpAPIConn), as opposed to an HTTP hook POST.
+//
+// Every api-transport spawn also forks a redundant, hooks-wired companion PTY
+// on the same session (a known gap — see apiconn.go), so an event a
+// descriptor declares api-owned can reach IngestHook through EITHER path: the
+// api connection's own driver, or that companion PTY's hooks copy. Telling
+// them apart by transport-kind-and-liveness alone (descriptor.TransportFor ==
+// "api" && a live connection exists) is not enough — both facts hold for
+// BOTH deliveries, since the live connection the hooks copy is redundant WITH
+// is the very thing that makes it redundant. Only the ORIGIN of this specific
+// call — this key — tells them apart, which is why FromAPITransport exists:
+// without it, ingestResolvedHook's "drop the redundant hooks copy" guard drops
+// the api-transport delivery too, and every event a mixed-transport provider
+// reports over its connection is silently swallowed. Confirmed live.
+type apiTransportKey struct{}
+
+// WithAPITransport marks ctx as carrying an event pumpAPIConn resolved from
+// its own driver's Events() channel.
+func WithAPITransport(ctx context.Context) context.Context {
+	return context.WithValue(ctx, apiTransportKey{}, true)
+}
+
+// FromAPITransport reports whether ctx is ingesting an event via a live
+// api-transport connection rather than an HTTP hook delivery.
+func FromAPITransport(ctx context.Context) bool {
+	v, _ := ctx.Value(apiTransportKey{}).(bool)
+	return v
+}

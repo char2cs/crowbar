@@ -21,7 +21,19 @@ func advance(current *domain.ChatActivity, chatID string) domain.ChatActivity {
 	next.Subagents = cloneSubagents(current.Subagents)
 	next.Interruptions = cloneInterruptions(current.Interruptions)
 	next.Choices = cloneChoices(current.Choices)
+	next.OpenTurnOrders = cloneOpenTurnOrders(current.OpenTurnOrders)
 	return next
+}
+
+func cloneOpenTurnOrders(in map[string]int64) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func cloneTools(in map[string]domain.ActivityToolCall) map[string]domain.ActivityToolCall {

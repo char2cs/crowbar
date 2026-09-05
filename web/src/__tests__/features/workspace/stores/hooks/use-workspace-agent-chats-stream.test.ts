@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
 // Hoisted fakes — must be declared before any vi.mock calls.
@@ -16,6 +16,8 @@ const {
   removeAgentChat,
   setAgentChatWorking,
   setAgentChatTerminalWait,
+  setAgentChatCompacting,
+  setAgentChatStreamingMessage,
   setAgentProviders,
   hydrateAgentChatOrder,
   setPaneChat,
@@ -37,6 +39,8 @@ const {
   removeAgentChat: vi.fn(),
   setAgentChatWorking: vi.fn(),
   setAgentChatTerminalWait: vi.fn(),
+  setAgentChatCompacting: vi.fn(),
+  setAgentChatStreamingMessage: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   setPaneChat: vi.fn(),
@@ -66,6 +70,11 @@ type Chat = {
 }
 let storeChats: Chat[] = []
 let storeProviders: Array<{ id: string; displayName: string; icon: string }> = []
+// Mutated by the setAgentChatCompacting mock below, the same way storeChats is
+// mutated by seedAgentChats/upsertAgentChat — the hook's own self-heal check
+// READS this back (any other frame arriving while a chat is marked compacting
+// clears it), so a write-only spy would not exercise that path at all.
+let storeCompacting: Record<string, boolean> = {}
 let panes: Record<string, FakePane> = {}
 
 const openPane = (id: string, chatId: string, runnerId: string): FakePane => ({
@@ -105,7 +114,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
-      agentChats: { chats: storeChats, providers: storeProviders },
+      agentChats: { chats: storeChats, providers: storeProviders, compacting: storeCompacting },
       seedAgentChats,
       notifyAgentChatMessages,
       seedAgentChatFolders,
@@ -113,6 +122,8 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       removeAgentChat,
       setAgentChatWorking,
       setAgentChatTerminalWait,
+      setAgentChatCompacting,
+      setAgentChatStreamingMessage,
       setAgentProviders,
       hydrateAgentChatOrder,
     }),
@@ -164,6 +175,8 @@ type Frame = {
   /** What the chat's CLI is blocked on that Crowbar cannot answer. Present on the
    *  `terminal_wait` kind only, and its ABSENCE there is the clearing edge. */
   terminalWait?: { kind: string }
+  /** An assistant message still being produced. Present on `message_delta` only. */
+  message?: { id: string; text: string }
 }
 
 const chat = (id: string) => ({
@@ -206,6 +219,11 @@ beforeEach(() => {
   panes = {}
   storeChats = []
   storeProviders = []
+  storeCompacting = {}
+  setAgentChatCompacting.mockImplementation((chatId: string, active: boolean) => {
+    if (active) storeCompacting[chatId] = true
+    else delete storeCompacting[chatId]
+  })
   // The real slices mutate; model that, so the hook's own reads (the vanished-chat
   // diff, the runner→chat lookup, the idempotence of a repeated frame) see a
   // faithful before/after rather than a frozen fixture.
@@ -493,6 +511,26 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(getChatFn).not.toHaveBeenCalled()
   })
 
+  // Regression (shipped and reverted in the same session): a turn_started
+  // handler was briefly added that cleared streamingMessages[chatId] wholesale,
+  // on the theory that a fresh turn owns none of the previous one's in-flight
+  // items. That's false — "interrupted" is a graceful stop request, not a
+  // kill, so the stopped CLI can keep producing and complete its OWN turn
+  // under its own message id well after a NEW turn (a provider switch
+  // mid-interrupt) has already started. Clearing on turn_started threw that
+  // still-alive entry away — the reader watched genuinely-live text vanish
+  // mid-sentence the instant the new turn began.
+  it('neither turn_started nor turn_stopped touch streamingMessages — only the ledger dedup does', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    const onFrame = captureCb()
+
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started', working: true })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: false })
+
+    expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+  })
+
   // THE BUG, at the FE seam. The backend fold alone did not fix the spinner: this hook
   // used to hardcode `turn_stopped -> false`, so the chat row went dark the moment claude
   // ended its turn to wait on a background subagent, no matter what the server said.
@@ -522,6 +560,89 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped' })
 
     expect(setAgentChatWorking).toHaveBeenCalledWith('c1', false)
+  })
+
+  // ── message_delta: batched to the next animation frame ─────────────────
+  // Each WS `message` event is its own top-level callback, outside anything
+  // React 18 batches automatically. A fast provider emitting several deltas
+  // inside one frame used to cost one store write per delta; see
+  // streaming-message-batcher.ts.
+  describe('message_delta batching', () => {
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+
+    it('does not write to the store synchronously — it waits for the next frame', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+      await nextFrame()
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'B' },
+      })
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bu' },
+      })
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledTimes(1)
+      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    it('ignores a frame missing the message payload', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'message_delta' })
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    it('drops a still-pending delta on unmount rather than writing it late', async () => {
+      const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'm1', text: 'Bui' },
+      })
+      unmount()
+      await nextFrame()
+
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
   })
 
   it('created reseeds the whole list rather than refetching a single chat', async () => {
@@ -1617,4 +1738,104 @@ it('does not refetch the chat for a terminal_wait frame', () => {
   })
 
   expect(getChatFn).not.toHaveBeenCalled()
+})
+
+// ── compaction_started / compaction_stopped: the live "Compacting…" edge ──
+//
+// The ledger's own interruption record for a compaction is born already
+// resolved (a bare /compact prompt never opens a tracked turn), so these two
+// frames are the ONLY place "in progress" is ever observable — see
+// AgentChatsState.compacting's doc comment. compact_post is not reliable, so
+// this is self-healed two ways: any OTHER chat frame arriving while marked
+// compacting clears it (primary), and a bounded client timeout clears it if
+// the chat goes silent altogether (backstop).
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+it('marks the chat compacting on compaction_started', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+
+  expect(setAgentChatCompacting).toHaveBeenCalledWith('c1', true)
+})
+
+it('clears compacting on compaction_stopped', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_stopped' })
+
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// This is the PRIMARY self-heal path, and the one that matters most in
+// practice: compact_post rarely arrives, but the next real thing that
+// happens to the chat (a turn starting, in this test) always does.
+it('self-heals off ANY other chat frame when compact_post never arrives', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // No compaction_stopped ever arrives — instead, ordinary chat life resumes.
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_started', working: true })
+
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// A frame for a DIFFERENT chat must never clear c1's own compacting state —
+// self-heal is scoped per chat, same as every other map in this store.
+it('does not self-heal off a frame for a different chat', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c2', workspaceId: 'w1', kind: 'turn_started', working: true })
+
+  expect(setAgentChatCompacting).not.toHaveBeenCalledWith('c1', false)
+})
+
+// The non-negotiable backstop: a chat that goes completely silent after
+// compaction_started — no compaction_stopped, no other frame, nothing —
+// must not show "Compacting…" forever. Without this, the exact bug that
+// produced the live report (nothing ever showing) is replaced by a WORSE
+// one: something shows, and then never stops.
+it('self-heals on a bounded timeout when the chat goes silent altogether', () => {
+  vi.useFakeTimers()
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // Comfortably short of the timeout: still compacting as far as this client knows.
+  vi.advanceTimersByTime(30_000)
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
+
+  // Past it: the backstop fires on its own, with no frame ever telling it to.
+  vi.advanceTimersByTime(31_000)
+  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
+})
+
+// A compaction that legitimately finishes in time must not ALSO fire the
+// backstop later — that would be a spurious extra write, and on a chat that
+// started a new compaction in the meantime it would incorrectly clear that
+// new one.
+it('cancels the timeout once compaction_stopped arrives in time', () => {
+  vi.useFakeTimers()
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  const onFrame = captureCb()
+
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
+  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_stopped' })
+  setAgentChatCompacting.mockClear()
+
+  vi.advanceTimersByTime(120_000)
+
+  expect(setAgentChatCompacting).not.toHaveBeenCalled()
 })

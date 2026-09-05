@@ -85,11 +85,14 @@ const (
 )
 
 const (
-	InterruptPermission   = models.InterruptPermission
-	InterruptNotification = models.InterruptNotification
-	InterruptElicitation  = models.InterruptElicitation
-	InterruptCompaction   = models.InterruptCompaction
-	InterruptStopped      = models.InterruptStopped
+	InterruptPermission       = models.InterruptPermission
+	InterruptNotification     = models.InterruptNotification
+	InterruptElicitation      = models.InterruptElicitation
+	InterruptCompaction       = models.InterruptCompaction
+	InterruptStopped          = models.InterruptStopped
+	InterruptProviderSwitched = models.InterruptProviderSwitched
+	InterruptModelChanged     = models.InterruptModelChanged
+	InterruptEffortChanged    = models.InterruptEffortChanged
 )
 
 const (

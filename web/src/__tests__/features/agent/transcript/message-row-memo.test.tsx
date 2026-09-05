@@ -5,8 +5,20 @@ import { MessageRow } from '@/features/agent/transcript/message-row'
 
 const markdownRenderCount = vi.hoisted(() => ({ count: 0 }))
 
+// Both mocked, sharing one counter: these tests assert on MessageRow's own
+// memoization, not on which of the two markdown renderers a given row picks
+// (message-row.test.tsx covers that split) — every message here is settled
+// (streaming defaults to false), so MarkdownMessageStatic is the one that
+// actually renders.
 vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
   MarkdownMessage: ({ children }: { children: string }) => {
+    markdownRenderCount.count++
+    return <span>{children}</span>
+  },
+}))
+
+vi.mock('@/features/agent/transcript/plate/markdown-message-static', () => ({
+  MarkdownMessageStatic: ({ children }: { children: string }) => {
     markdownRenderCount.count++
     return <span>{children}</span>
   },
@@ -24,10 +36,10 @@ describe('MessageRow memo (render-count proof)', () => {
       text: 'hi',
       at: '2026-08-24T00:00:00Z',
     }
-    const { rerender } = render(<MessageRow message={message} showProvider={false} providers={providers} />)
+    const { rerender } = render(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1)
 
-    rerender(<MessageRow message={message} showProvider={false} providers={providers} />)
+    rerender(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1) // still 1 — memo skipped the second render entirely
   })
 
@@ -42,11 +54,11 @@ describe('MessageRow memo (render-count proof)', () => {
       text: 'hi',
       at: '2026-08-24T00:00:00Z',
     }
-    const { rerender } = render(<MessageRow message={message} showProvider={false} providers={providers} />)
+    const { rerender } = render(<MessageRow message={message} providers={providers} />)
     expect(markdownRenderCount.count).toBe(1)
 
     const changedMessage = { ...message, text: 'changed' }
-    rerender(<MessageRow message={changedMessage} showProvider={false} providers={providers} />)
+    rerender(<MessageRow message={changedMessage} providers={providers} />)
     expect(markdownRenderCount.count).toBe(2)
   })
 })

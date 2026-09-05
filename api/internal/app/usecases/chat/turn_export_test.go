@@ -83,3 +83,11 @@ func PlantPendingHookDelivery(
 func CloseStalledTurn(u TurnUsecase, ctx context.Context, stall seam.Stall) {
 	u.(*Usecase).turns.CloseStalledTurn(ctx, stall)
 }
+
+// SetMessageAwaitTimeout overrides how long closeAssistantTurn waits for a
+// still-streaming message before concluding nothing streamed (see
+// stream.Streams.AwaitOpen). Test-only surface: production always uses
+// turn.defaultMessageAwaitTimeout.
+func SetMessageAwaitTimeout(u TurnUsecase, d time.Duration) {
+	u.(*Usecase).turns.SetMessageAwaitTimeout(d)
+}

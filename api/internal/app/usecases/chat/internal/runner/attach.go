@@ -134,13 +134,18 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	if working {
 		return "", ErrTurnInProgress
 	}
-	// conn.tctx.Session is the SAME id APIAttachArgv just templated `resume`
-	// against, a few lines up — codex writes nothing for a thread until a turn
-	// against it completes, so a session that has never closed one has no
-	// rollout for `codex resume` to load. Checked here, after `working`: a
-	// turn currently in flight (the first one, not yet completed) must still
-	// report ErrTurnInProgress, the more actionable of the two refusals.
-	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, conn.tctx.Session)
+	// live.CurrentSession, NOT conn.tctx.Session: OpenTurn/CloseTurn (internal/turn)
+	// always stamp agent_turns.session_id from the runner row's durable
+	// CurrentSession, never from conn.tctx.Session — a copy apiconn.go sets once,
+	// at establish, and never reassigns again. The two usually agree, but nothing
+	// resyncs them after that, and checking the connection's stale copy here
+	// refused a session that HAD completed a turn (confirmed live), because the
+	// row it needed was written under CurrentSession, not this copy. codex writes
+	// nothing for a thread until a turn against it completes, so a session that
+	// has never closed one has no rollout for `codex resume` to load. Checked
+	// here, after `working`: a turn currently in flight (the first one, not yet
+	// completed) must still report ErrTurnInProgress, the more actionable refusal.
+	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, live.CurrentSession)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch to terminal: check session history: %w", err)
 	}

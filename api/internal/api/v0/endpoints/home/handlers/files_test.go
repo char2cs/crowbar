@@ -111,6 +111,27 @@ func doReq(r *gin.Engine, method, path string, body any) *httptest.ResponseRecor
 
 // ── FileTree ────────────────────────────────────────────────────────────
 
+// TestFileTree_WorkspaceResolutionFails_NoUsecaseCall proves FileTree aborts
+// on a failed resolveHome exactly like every other home file handler: the
+// Files usecase must never be called with a workspace id that resolution
+// never actually confirmed.
+func TestFileTree_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
+
+	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/files/tree", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "Tree", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestFileTree_ErrorFromUsecase_Returns500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -269,6 +290,28 @@ func TestSaveFileContent_MissingPath_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestSaveFileContent_WorkspaceResolutionFails_NoUsecaseCall proves
+// SaveFileContent aborts on a failed resolveHome before ever binding the body
+// or calling WriteContent.
+func TestSaveFileContent_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
+
+	rec := doReq(r, http.MethodPut, "/projects/proj-x/home/files/content", map[string]any{
+		"path": "a.txt", "content": "x",
+	})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "WriteContent", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestSaveFileContent_UsecaseError_Returns500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -369,6 +412,46 @@ func TestCreateFile_MissingPath_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall proves CreateFile
+// aborts on a failed resolveHome before ever binding the body or calling
+// CreateFile/CreateDir.
+func TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files", h.CreateFile)
+
+	rec := doReq(r, http.MethodPost, "/projects/proj-x/home/files", map[string]any{"path": "new.txt"})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "CreateFile", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	files.AssertNotCalled(t, "CreateDir", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestCreateFile_BadJSON_Returns400 proves a malformed body 400s rather than
+// reaching the file-type switch — the resolveHome/body-binding order matters
+// here: resolveHome must have already succeeded (this project's home
+// resolves) for the binding failure to be what the test actually exercises.
+func TestCreateFile_BadJSON_Returns400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
+	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files", h.CreateFile)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/projects/proj-1/home/files", bytes.NewReader([]byte("{bad")))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestCreateFile_AlreadyExists_ReturnsConflictMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -431,6 +514,27 @@ func TestCopyFile_BadJSON_Returns400(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCopyFile_WorkspaceResolutionFails_NoUsecaseCall proves CopyFile aborts
+// on a failed resolveHome before ever binding the body or calling Copy.
+func TestCopyFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
+
+	rec := doReq(r, http.MethodPost, "/projects/proj-x/home/files/copy", map[string]any{
+		"sourcePath": "a.txt", "destPath": "a copy.txt",
+	})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "Copy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestCopyFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
@@ -501,6 +605,28 @@ func TestRegression_RenameFile_AcceptsPathNewPathContract(t *testing.T) {
 		"oldPath": "a.txt", "newPath": "b.txt",
 	})
 	require.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestRenameFile_WorkspaceResolutionFails_NoUsecaseCall proves RenameFile
+// aborts on a failed resolveHome before ever binding the body or calling
+// Rename.
+func TestRenameFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
+
+	rec := doReq(r, http.MethodPatch, "/projects/proj-x/home/files", map[string]any{
+		"path": "old.txt", "newPath": "new.txt",
+	})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "Rename", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestRenameFile_MissingFields_Returns400(t *testing.T) {
@@ -584,6 +710,26 @@ func TestDeleteFile_QueryParamFallback_Returns200(t *testing.T) {
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/files?path=b.txt", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	files.AssertExpectations(t)
+}
+
+// TestDeleteFile_WorkspaceResolutionFails_NoUsecaseCall proves DeleteFile
+// aborts on a failed resolveHome before ever falling back to the query
+// param or calling Delete.
+func TestDeleteFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-x").
+		Return(domain.Workspace{}, errors.New("storage down"))
+	files := &mockFiles{}
+
+	h := handlers.New(reader, nil, files, nil, stubWork{})
+	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
+
+	rec := doReq(r, http.MethodDelete, "/projects/proj-x/home/files", map[string]any{"path": "a.txt"})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	files.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDeleteFile_MissingPath_Returns400(t *testing.T) {

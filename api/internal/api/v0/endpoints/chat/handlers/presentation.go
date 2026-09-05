@@ -38,13 +38,15 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 	items := make([]dto.AgentMessageDTO, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, dto.AgentMessageDTO{
-			Sequence:   item.Sequence,
-			TurnID:     item.ID,
-			Role:       item.Role,
-			ProviderID: item.Provider,
-			Text:       item.Text,
-			Effort:     item.Effort,
-			At:         item.At,
+			Sequence:     item.Sequence,
+			DisplayOrder: item.DisplayOrder,
+			ItemIndex:    item.ItemIndex,
+			TurnID:       item.ID,
+			Role:         item.Role,
+			ProviderID:   item.Provider,
+			Text:         item.Text,
+			Effort:       item.Effort,
+			At:           item.At,
 		})
 	}
 	libs.WriteQueryOK(ctx, dto.AgentMessagePageDTO{

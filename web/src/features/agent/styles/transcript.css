@@ -20,13 +20,9 @@
   min-height: 0;
 }
 /* Bottom-anchored: a chat is read from its newest end, so a short conversation
-   sits ON the composer rather than floating at the top of an empty pane.
-   The anchoring is `margin-top: auto` on the stream, NOT `justify-content:
-   flex-end` here. They look identical until the conversation outgrows the pane,
-   at which point flex-end overflows past the START edge, which is not
-   scrollable: scrollTop stays pinned at 0 and every message above the fold
-   becomes unreachable. The auto margin collapses to nothing once the content is
-   taller, so it anchors a short chat and gets out of the way of a long one. */
+   sits ON the composer rather than floating at the top of an empty pane. See
+   `.scroll-spacer` below for the mechanism and why it is NOT `margin-top:
+   auto` on `.stream` (which is what this used to be). */
 .agent-chat .scroll {
   flex: 1;
   min-height: 0;
@@ -34,27 +30,67 @@
   display: flex;
   flex-direction: column;
   padding-top: 20px;
-  /* THE CONVERSATION RUNS UNDER THE COMPOSER. Reserving exactly the dock's own
-     height plus a gap means the newest message can be scrolled clear of the box
-     — it stops a line above it rather than touching its edge — while everything
-     older passes behind it and fades out instead of being cut off by a hard
-     border. The height is measured and published by the view, because the dock
-     grows with the box. */
-  padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
-  /* The scroller owns the bottom gutter now, so the stream must not add its own
-     on top of it. */
+  /* Fades in on its own first paint — every mount of this element IS a chat
+     becoming visible, whether that's opening one or (the case this exists
+     for) the empty document handing off to it on a first send. Without this,
+     that handoff was the one moment nothing here was animated: the dock
+     already eases in via playArrival (arrival-animation.ts), and a
+     transcript that just POPS IN beside a bar that's sliding reads as two
+     uncoordinated things happening at once, not one arrival. Same duration
+     and curve as that slide, on purpose — matched here as a literal because
+     CSS cannot import a JS constant (ARRIVAL_SLIDE_MS/ARRIVAL_EASE there).
+     A side effect worth having: useTranscriptAnchor's own instant
+     scroll-to-bottom on this same mount now happens while this is still
+     fully transparent, so that snap is never visible either. */
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(0, 0, 0.2, 1);
+  /* THE CONVERSATION RUNS UNDER THE COMPOSER — reserved by `.dock-spacer`
+     (below `.stream`, transcript.css), NOT a `padding-bottom` here. This
+     used to BE that padding, and it is exactly what a live report traced
+     the "no scrollbar, no wheel response" bug to for a chat whose raw
+     content happens to land just under `.scroll`'s own clientHeight: a
+     `padding-bottom` on `.scroll` reserves the SAME visual gap, but it is
+     `.scroll`'s own box, one layer removed from what `.stream`'s natural
+     content height actually measures — and in that borderline case the
+     browser settled on a `scrollHeight` that never counted it, so CSS
+     itself concluded there was nothing to scroll to. `.dock-spacer` is a
+     real, flex-shrink:0 child of `.stream` instead: the reservation is
+     `.stream`'s own measured content now, not a property of its container,
+     so there is no longer a second place for the two numbers to disagree.
+     See `.dock-spacer`'s own comment below `.stream` for the reservation
+     value. */
   scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
   /* Text passing under the dock fades by OPACITY, not a colour overlay — see
      composer.css. The gradient spans the same --agent-dock-h + 88px band as
      the dissolve's blur layers there, so the two read as one effect instead
      of opacity finishing before the blur does; it is clear right up to that
-     band and fully gone by the switches line below it, on any background. */
-  mask-image: linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px));
-  -webkit-mask-image: linear-gradient(
-    to top,
-    transparent 0,
-    black calc(var(--agent-dock-h, 92px) + 88px)
-  );
+     band and fully gone by the switches line below it, on any background.
+
+     A SECOND mask layer keeps the scrollbar out of the first one's reach.
+     This mask paints the whole element — its own native scrollbar included,
+     unlike `.dissolve` (composer.css), which is a separate sibling the
+     scrollbar simply isn't part of — so the fade was dimming the bar itself
+     as it neared the dock, the one thing on screen that must stay legible.
+     The second gradient is solid across exactly --agent-scrollbar-w at the
+     right edge; `mask-composite`'s default (`add`, i.e. union) between mask
+     layers means that strip stays fully opaque no matter what the first
+     gradient says at that height. */
+  mask-image:
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
+  -webkit-mask-image:
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
 }
 /* One measure for the whole surface — the transcript, the composer and the
    controls all sit on it, which is what makes the empty state read as a page. */
@@ -64,24 +100,115 @@
   margin: 0 auto;
   padding: 0 24px;
 }
+/* Regression, reported live: a chat whose content genuinely outgrew the pane
+   had NO scrollbar and no wheel response at all — not "short of the true
+   bottom" (that class of bug is use-transcript-anchor.ts's), but the browser
+   itself reporting no scrollable overflow to reach. `margin-top: auto` on a
+   flex item — this used to be exactly that — is a real, currently-live
+   WebKit bug in this app's own Tauri webview: the auto margin's contribution
+   to `.scroll`'s SCROLLABLE overflow is computed from before it collapses,
+   not from the collapsed (0) value actually used to paint the layout, so a
+   conversation taller than the pane still reports `scrollHeight ≈
+   clientHeight` and nothing is reachable no matter how far you scroll. This
+   was ruled out here once already for the same reason on `justify-content:
+   flex-end` (both are auto-alignment on the scroll axis) — the two behave
+   identically once content overflows, which the comment that used to sit
+   here did not anticipate. A `flex: 1 1 auto` SPACER sibling (see
+   `.scroll-spacer` above `.stream` in the JSX) has no such ambiguity: its
+   resolved size — 0 once there is no free space to give it — is the ONE
+   value used for both painting and scrollable-overflow, so the browser's
+   own scroll metrics can never disagree with what is on screen. */
+.agent-chat .scroll-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 /* PADDING-BOTTOM ONLY. `.stream` shares an element with `.center`, at the same
    specificity and later in the file, so the `padding` SHORTHAND here silently
    reset `.center`'s `0 24px` and the conversation rendered 48px wider than the
    composer under it — the two stopped sharing a measure. The top space is the
-   scroller's, so it cannot reach this element at all. */
+   scroller's, so it cannot reach this element at all.
+
+   `flex-shrink: 0`, for the SAME reason `.virtual-rows` below already has it
+   (see that comment) — but one level up, and the one that actually matters
+   for `.scroll`'s own overflow math. `.stream` is ITSELF a flex item of
+   `.scroll`, sitting beside `.scroll-spacer` above, and without this it was
+   the ONE flex item left holding all the real weight once the spacer's own
+   empty (zero) basis contributed nothing to the shrink distribution — so a
+   long conversation compressed `.stream`'s own box down to fit `.scroll`,
+   not the other way around. Compressing it doesn't clip anything (this box
+   is `overflow: visible`, `.virtual-rows` inside it still paints in full via
+   its own `flex-shrink: 0`) — it silently UNDERSTATES what `.scroll` thinks
+   its scrollable content is, since that math reads `.stream`'s own
+   (now-too-small) laid-out size, not the true rendered extent of what
+   overflowed past it. That is a browser reporting `scrollHeight ≈
+   clientHeight` for a pane that is visibly, unmistakably taller than it —
+   no scrollbar, no wheel response, nothing to scroll TO, which is exactly
+   what a screenshot and a live trackpad both reported the same afternoon
+   this was found. */
 .agent-chat .stream {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 18px;
-  margin-top: auto;
+}
+
+/* THE CONVERSATION RUNS UNDER THE COMPOSER — this is the reservation for
+   that, a real LAST CHILD of `.stream` (agent-transcript.tsx) rather than
+   `.scroll`'s own `padding-bottom` (which is what this used to be; see that
+   rule's own comment in this file for the live bug that came from it).
+   Being actual content means there is exactly one place this measurement
+   lives: `.stream`'s natural height already includes it, so `.scroll`'s
+   `scrollHeight` does too, unconditionally — no flex distribution, no
+   container-vs-content indirection, nothing left for the two to disagree
+   about. Same value as the mask below reads off `--agent-dock-h` for the
+   fade, so the reserved gap and the visible fade band always agree. */
+.agent-chat .dock-spacer {
+  flex-shrink: 0;
+  height: calc(var(--agent-dock-h, 92px) + 120px);
+}
+
+/* The windowed historical record — one flex child of `.stream` holding every
+   settled message and divider, absolutely positioned by the virtualizer.
+   `position: relative` is what those `top: 0; transform: translateY(...)` rows
+   are positioned against; the element's own height is set inline, from the
+   virtualizer's total size.
+
+   `flex-shrink: 0` because this box is the one child of `.stream` whose height
+   is EXPLICIT rather than content-derived: absolutely-positioned children
+   contribute nothing to an automatic minimum size, so without this a column
+   flex container under pressure could compress the whole transcript instead of
+   letting it scroll.
+
+   `overflow-anchor: none` for the same reason git-history-list.tsx sets it: the
+   browser's own scroll anchoring picks a node, then fights the virtualizer as
+   rows re-measure and shift under it. The transcript's anchoring is measured
+   and explicit (use-transcript-anchor.ts), and it must be the only thing moving
+   scrollTop. The 18px between rows is NOT here — it rides on each row's own
+   padding-bottom, so measureElement counts it (see agent-transcript.tsx). */
+.agent-chat .stream .virtual-rows {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  overflow-anchor: none;
 }
 
 .agent-chat .row {
   display: flex;
   width: 100%;
 }
+/* A user row's timestamp reads as a SECOND LINE, not a second column — the
+   message and the <time> after it become two stacked siblings instead of the
+   message alone. Every non-user role stays row-direction, one child, exactly
+   as before; only `user` ever renders that sibling in the first place. */
+.agent-chat .row.stacked {
+  flex-direction: column;
+}
+/* End-aligned for an ordinary bubble. The frozen first turn stays PLAIN
+   `.row.stacked` (no `.me`) — full width, default `align-items: stretch`
+   leaves it alone since it already sets its own width, and its `.turn-time`
+   falls back to sitting at the left, under where the text itself starts. */
 .agent-chat .row.me {
-  justify-content: flex-end;
+  align-items: flex-end;
 }
 
 /* A sent message keeps the shape of the box it was typed in: the composer's own
@@ -158,6 +285,19 @@
   display: none;
 }
 .agent-chat .queued .acts {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+/* The first turn's own pending state: no pill, no hatch, so the error text
+   this variant otherwise hides has to actually say something on its own. */
+.agent-chat .firstq .err {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--ui-text-xs);
+  color: var(--warning);
+}
+.agent-chat .firstq .acts {
   display: flex;
   gap: 2px;
   margin-top: 6px;
@@ -367,6 +507,44 @@
   color: var(--muted-foreground);
 }
 
+/* Whose turn this was, and a way to take it elsewhere — replaces the reported
+   effort under an assistant reply. The provider icon has no padding of its
+   own, so the row needs no correction when it leads — only the copy button
+   does, and only when IT leads (no provider icon known for this message). */
+.agent-chat .turnbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+}
+/* Measured: the button's own icon sits 8px in from the button's edge (28px
+   box, 12px icon, minus the design system's -mx-0.5 icon pull). Pulling the
+   BUTTON by that same 8px when it leads brings ITS icon flush with the prose
+   above, matching the provider-icon case exactly instead of double-counting
+   a correction that only applies to whichever element is actually first. */
+.agent-chat .turnbar > button:first-child {
+  margin-left: -8px;
+}
+
+/* When it flags an assistant turn it lives INSIDE `.turnbar`, inheriting
+   that row's own layout and muted colour for free. As a user row's own
+   sibling (outside any bubble) it needs both set itself — and the `>` below
+   matters: without it these would ALSO match the turnbar's own nested
+   `.turn-time`, where `align-self` is a no-op (not `.row`'s direct flex
+   item) but the margin is not, nudging it out of line with its siblings. */
+.agent-chat .turn-time {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .row.stacked > .turn-time {
+  margin-top: 2px;
+  align-self: flex-start;
+}
+.agent-chat .row.me > .turn-time {
+  align-self: flex-end;
+}
+
 .agent-chat .tools {
   display: flex;
   flex-direction: column;
@@ -425,4 +603,67 @@
   border: 1px solid var(--border);
   padding: 2px 9px;
   background: var(--background);
+}
+
+/* The streaming bubble's fade-in — see chat-fresh-text-plugin.tsx. Opacity
+   only: this text is already fully markdown-parsed and styled (bold, code,
+   ...) by the time this class ever wraps it, so the animation never runs
+   ahead of, or masks, its real formatting.
+
+   `animation-delay` staggers each word (set inline, per leaf) so one large
+   chunk from the transport — a whole sentence, some deltas — cascades in
+   like several small ones would have, instead of appearing all at once.
+   `fill-mode: both`, not `forwards`: a delayed word must stay at the
+   animation's OWN start state (dim) through its wait, not this rule's plain
+   `opacity: 1` — otherwise every delayed word would flash at full
+   brightness and then visibly dim before actually fading in. */
+.agent-chat .agent-prose .chat-fresh-text {
+  opacity: 1;
+  animation: chat-token-fade 260ms ease-out;
+  animation-fill-mode: both;
+}
+@keyframes chat-token-fade {
+  /* Fully invisible, not merely dim: a chunk lands with its final layout
+     already in place (line-wrapping is instant regardless — opacity is the
+     only lever here), so a merely-dim word still reads as "the whole
+     response appeared, then got restyled" rather than genuinely streaming
+     in. Layout space is still reserved (this is opacity, not display:none),
+     so nothing reflows as words reveal. */
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Only affects a genuinely NEW `.scroll` connecting to the DOM (a mount, or
+   `display` changing from `none`) — a plain re-render never re-triggers this,
+   so it cannot fire on every streamed token the way the transition above
+   could suggest. Support is close to universal in 2026, and the fallback for
+   anything older is simply no fade-in — `opacity: 1` from the first paint —
+   never a stuck-invisible transcript. */
+@starting-style {
+  .agent-chat .scroll {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat .scroll {
+    transition: none;
+  }
+  .agent-chat .agent-prose .chat-fresh-text {
+    /* The `animation` SHORTHAND, not just `animation-name`, here: the build's
+       CSS minifier was observed (live, in the packaged dev build) silently
+       rewriting a shorthand `animation: none` into `animation: auto` —
+       `auto` is a valid `animation-duration`/`animation-timeline` keyword,
+       and appears to be how this minifier round-trips a fully-reset
+       shorthand, but it reads as "still has a duration" to anyone auditing
+       computed styles. Setting the longhand directly leaves nothing for the
+       shorthand serializer to reinterpret. */
+    animation-name: none;
+    animation-duration: 0s;
+    animation-delay: 0s;
+    opacity: 1;
+  }
 }

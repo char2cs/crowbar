@@ -77,6 +77,22 @@ func TestRegression_RepoScopeGuard_404OnMissingRepo(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+// TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
+// repository-lookup error (a storage read failure, not a missing repo) is
+// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// falling through to the generic 404 a nil repo gets or reaching the handler.
+func TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {
+	reader := &fakeRepoReader{err: errors.New("read model unavailable")}
+	r := mountRepoGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/pA/repos/R/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code,
+		"a reader failure must abort with a mapped status, not reach the handler")
+}
+
 // TestRegression_RepoScopeGuard_SkipsWhenNoRepoId proves the repo collection
 // route (no :repoId) passes through without a lookup.
 func TestRegression_RepoScopeGuard_SkipsWhenNoRepoId(t *testing.T) {
@@ -150,6 +166,23 @@ func TestRegression_ScopeGuard_AllowsMatchingScope(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
+// workspace-lookup error (a storage read failure, not a missing workspace) is
+// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// falling through to the generic 404 a project/repo mismatch gets or reaching
+// the handler.
+func TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {
+	reader := &fakeScopeReader{err: errors.New("read model unavailable")}
+	r := mountScopeGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/pA/repos/rA/workspaces/W/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code,
+		"a reader failure must abort with a mapped status, not reach the handler")
 }
 
 // TestRegression_ScopeGuard_SkipsWhenNoWsId proves collection/repo-level routes
@@ -248,4 +281,41 @@ func TestRegression_ChatWorktreeGuard_ResolverErrorIsSurfacedNotSwallowed(t *tes
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.NotEqual(t, http.StatusInternalServerError, w.Code,
 		"the handler must never run on a resolve error — a run would 500 from the missing context value")
+}
+
+func mountRejectEmptyPathParams() *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(rejectEmptyPathParams())
+	r.GET("/v0/chats/:chatId/activity", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	return r
+}
+
+// TestRejectEmptyPathParams_RejectsAnEmptySegment pins the fix this
+// middleware exists for: gin's radix tree happily matches
+// GET /v0/chats//activity against /v0/chats/:chatId/activity with chatId
+// bound to "". Without this guard, an empty id would reach the handler and be
+// treated as a real (if nonsensical) chat id.
+func TestRejectEmptyPathParams_RejectsAnEmptySegment(t *testing.T) {
+	r := mountRejectEmptyPathParams()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats//activity", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "chatId", "the 400 must name which param was empty")
+}
+
+// TestRejectEmptyPathParams_AllowsANonEmptySegment proves the guard is not
+// simply refusing every request through it: a normal, populated :chatId still
+// reaches the handler.
+func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
+	r := mountRejectEmptyPathParams()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/c1/activity", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }

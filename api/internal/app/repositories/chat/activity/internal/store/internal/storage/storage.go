@@ -35,6 +35,7 @@ func upsert[T any](ctx context.Context, db *gormdb.DB, row T) error {
 func (s *Store) SaveTurn(ctx context.Context, t domain.ActivityTurn) error {
 	return upsert(ctx, s.db, TurnRow{
 		Key: rowKey(t.ChatID, t.ID), ID: t.ID, ChatID: t.ChatID, Seq: t.Seq,
+		DisplayOrder: t.DisplayOrder, ItemIndex: t.ItemIndex,
 		Role: t.Role, ProviderID: t.ProviderID, RunnerID: t.RunnerID,
 		SessionID: t.SessionID, Text: t.Text, Effort: t.Effort,
 		StartedAt: t.StartedAt, EndedAt: t.EndedAt,
@@ -61,7 +62,8 @@ func (s *Store) SaveSubagent(ctx context.Context, a domain.ActivitySubagent) err
 func (s *Store) SaveInterruption(ctx context.Context, i domain.ActivityInterruption) error {
 	return upsert(ctx, s.db, InterruptionRow{
 		Key: rowKey(i.ChatID, i.ID), ID: i.ID, TurnID: i.TurnID, ChatID: i.ChatID,
-		Seq: i.Seq, Kind: i.Kind, Detail: i.Detail, At: i.At, ResolvedAt: i.ResolvedAt,
+		Seq: i.Seq, DisplayOrder: i.DisplayOrder,
+		Kind: i.Kind, Detail: i.Detail, At: i.At, ResolvedAt: i.ResolvedAt,
 	})
 }
 

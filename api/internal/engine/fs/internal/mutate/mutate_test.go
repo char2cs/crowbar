@@ -564,6 +564,130 @@ func TestCopy_SourceMissing(
 	assert.True(t, os.IsNotExist(err) || errors.Is(err, fs.ErrNotExist))
 }
 
+// TestCopy_DestMkdirError exercises Copy's own os.MkdirAll error path (the
+// destination's PARENT directory, not the destination itself): a regular file
+// blocks the parent path that Copy tries to create before it ever reaches
+// copyNode.
+func TestCopy_DestMkdirError(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod restrictions differ on windows")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o600))
+
+	err := mutate.Copy(dir, "a.txt", "blocker/sub/copy.txt")
+	require.Error(t, err)
+}
+
+// TestCopy_Directory_ReadDirError exercises copyDir's os.ReadDir error path: the
+// source directory itself is unreadable (mode 0o000), so Lstat/IsDir succeed
+// (they only need execute permission on the PARENT) but listing its entries
+// fails.
+func TestCopy_Directory_ReadDirError(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory read permission")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	require.NoError(t, os.MkdirAll(src, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "f.txt"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(src, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(src, 0o700) })
+
+	err := mutate.Copy(dir, "src", "dst")
+	require.Error(t, err, "an unreadable source directory must fail the copy, not silently produce an empty one")
+}
+
+// TestCopy_File_DestOpenError exercises copyFileBytes's os.OpenFile error path:
+// the destination's parent directory already exists (so Copy's own MkdirAll
+// no-ops) but lacks write permission, so creating the new file inside it fails.
+func TestCopy_File_DestOpenError(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permission")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
+	destDir := filepath.Join(dir, "readonly")
+	require.NoError(t, os.MkdirAll(destDir, 0o700))
+	require.NoError(t, os.Chmod(destDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(destDir, 0o700) })
+
+	err := mutate.Copy(dir, "a.txt", "readonly/copy.txt")
+	require.Error(t, err)
+
+	_, statErr := os.Stat(filepath.Join(destDir, "copy.txt"))
+	assert.True(t, os.IsNotExist(statErr), "no partial file may be left in the unwritable destination")
+}
+
+// TestCopy_Directory_DestParentNotWritable exercises copyDir's own os.Mkdir
+// error path (distinct from TestCopy_File_DestOpenError, which exercises the
+// analogous failure for a plain FILE copy through copyFileBytes): the
+// destination's parent directory already exists, so Copy's own MkdirAll
+// no-ops, but it lacks write permission, so copyDir's Mkdir of the new
+// top-level directory entry fails before any recursion happens.
+func TestCopy_Directory_DestParentNotWritable(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permission")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/f.txt"), []byte("x"), 0o600))
+	destDir := filepath.Join(dir, "readonly")
+	require.NoError(t, os.MkdirAll(destDir, 0o700))
+	require.NoError(t, os.Chmod(destDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(destDir, 0o700) })
+
+	err := mutate.Copy(dir, "src", "readonly/dst")
+	require.Error(t, err, "Mkdir inside a non-writable directory must fail, not silently skip the copy")
+
+	_, statErr := os.Stat(filepath.Join(destDir, "dst"))
+	assert.True(t, os.IsNotExist(statErr), "no partial directory may be left in the unwritable destination")
+}
+
+// TestDelete_PermissionError exercises Delete's os.RemoveAll error path: the
+// target directory has its own contents but has had write permission revoked,
+// so RemoveAll can enumerate it (needs only read+execute) but cannot unlink the
+// child file inside it (needs write on the parent), and must surface the error
+// rather than silently reporting success on a locked target — unlike the
+// already-covered "nonexistent path" case, this is a REAL removal failure.
+func TestDelete_PermissionError(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permission")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "locked")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "child.txt"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(target, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(target, 0o700) })
+
+	err := mutate.Delete(dir, "locked")
+	require.Error(t, err, "a locked directory's contents cannot be removed and must surface an error")
+}
+
 // TestCopy_TraversalRejected keeps both operands inside the workspace.
 func TestCopy_TraversalRejected(
 	t *testing.T,

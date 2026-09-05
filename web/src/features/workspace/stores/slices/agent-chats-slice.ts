@@ -8,6 +8,7 @@ import type {
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { chatReadMark } from '@/features/agent/lib/chat-read-order'
+import type { TranscriptScrollPosition } from '@/features/agent/hooks/use-transcript-anchor'
 
 // The queue that reads these is itself capped, so an id older than this window is
 // already unreachable by anything that could act on it.
@@ -97,6 +98,26 @@ export interface AgentChatsState {
    */
   terminalWaits: Record<string, AgentTerminalWait>
   /**
+   * Which chats are LIVE mid-compaction right now, keyed by chat id. PRESENCE
+   * is the verdict, same convention as terminalWaits.
+   *
+   * Driven ENTIRELY by the `compaction_started`/`compaction_stopped` WS
+   * frames (use-workspace-agent-chats-stream.ts) — never by the ledger's own
+   * interruption record. That record is born already resolved (a bare
+   * /compact prompt never opens a tracked turn), so it can never answer "is
+   * one happening right now"; only the live push can. The stream also
+   * self-heals this on any other lifecycle frame and a bounded timeout,
+   * because compact_post is not reliable — see the stream's own comments.
+   *
+   * A THIRD backstop lives in seedAgentChats: both of the above require the
+   * app to still be running to fire, so a compaction_stopped lost for good
+   * (the app closed for the whole compaction window) leaves this stuck true
+   * forever without it. seedAgentChats clears — never sets — an entry once
+   * its own fresh `working` comes back false, since a chat cannot genuinely
+   * be mid-compaction and idle at once.
+   */
+  compacting: Record<string, boolean>
+  /**
    * Client request ids the daemon has reported as SETTLED: delivered to a CLI,
    * and over, without ever having produced a turn.
    *
@@ -112,19 +133,40 @@ export interface AgentChatsState {
    */
   settledPrompts: Record<string, string[]>
   /**
-   * The assistant message each chat is CURRENTLY producing, if any.
+   * The assistant message(s) each chat is CURRENTLY producing, if any.
    *
-   * Transient by design and never persisted: it is replaced wholesale by every
-   * frame and dropped when the message lands in the ledger. Keeping it out of the
-   * ledger is what stops roughly 1.4 durable writes a second per streaming chat
-   * to store text that is superseded a moment later.
+   * An ARRAY, not a single slot: a turn can have more than one message item
+   * open (Codex splits a reply across several `agentMessage` items with
+   * distinct ids; Claude's turns only ever have one, so this is always
+   * length-0-or-1 for it). Upserted by id, never overwritten wholesale — a
+   * new item starting must not silently drop an earlier one still streaming.
+   *
+   * Transient by design and never persisted: entries are dropped ONLY once
+   * the message lands in the ledger (compared by text — see useChatMessages),
+   * never on a new turn starting — "interrupted" is a graceful request, not
+   * a kill, so the stopped turn's CLI can keep producing and complete on its
+   * own schedule after a different turn has already begun. Keeping it out
+   * of the ledger is what stops roughly 1.4 durable writes a second per
+   * streaming chat to store text that is superseded a moment later.
    */
-  streamingMessages: Record<string, { id: string; text: string }>
+  streamingMessages: Record<string, { id: string; text: string }[]>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
    *  may have occurred while the socket was down. */
   turnRevision: Record<string, number>
+  /**
+   * Where the reader last left each chat's transcript, keyed by chat id —
+   * read once when a chat's AgentTranscript (re)mounts (a chat remounts
+   * wholesale on every switch, `key={wsId:chatId}` in AgentChatPane, so
+   * nothing else survives a switch-away/switch-back to carry this).
+   *
+   * In-memory only, deliberately never persisted to disk (unlike
+   * agent-chat-order's localStorage above): "still hot" means this running
+   * session, not "restore across an app restart" — a cold app open has
+   * nothing more useful to land on than the newest message anyway.
+   */
+  scrollPositions: Record<string, TranscriptScrollPosition>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -161,13 +203,31 @@ export interface AgentChatsSlice {
    * when somebody answers the dialog at the terminal or the CLI dies behind it.
    */
   setAgentChatTerminalWait: (chatId: string, wait: AgentTerminalWait | null) => void
+  /** Write — or clear, with false — whether a chat is LIVE mid-compaction
+   *  right now. See AgentChatsState.compacting for why this must never be
+   *  derived from the ledger. */
+  setAgentChatCompacting: (chatId: string, active: boolean) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
-  /** Write the message a chat is mid-way through saying, or clear it with null. */
+  /** Upsert (by id) one message a chat is mid-way through saying, or clear
+   *  ALL of a chat's in-flight messages with null (a new turn starting). */
   setAgentChatStreamingMessage: (
     chatId: string,
     message: { id: string; text: string } | null,
   ) => void
+  /** Drop the given ids' entries once the ledger has recorded them for real —
+   *  see useChatMessages' streamingBubbles for the matching id computation
+   *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
+   *  that was tried and reverted (use-workspace-agent-chats-stream.ts),
+   *  because an interrupted runner's stream can legitimately keep growing
+   *  after a new turn starts, and wiping the array on turn_stopped/started
+   *  deleted a reply that was still arriving. Pruning by CONFIRMED id instead
+   *  is what keeps the array bounded without that regression: an entry is
+   *  only ever removed once its own content is durably persisted elsewhere. */
+  pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
+  /** Record wherever the reader left a chat's transcript, for its next
+   *  mount this session to restore — see AgentChatsState.scrollPositions. */
+  setAgentChatScrollPosition: (chatId: string, position: TranscriptScrollPosition) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -208,9 +268,11 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
   working: {},
   terminalWaits: {},
+  compacting: {},
   settledPrompts: {},
   streamingMessages: {},
   turnRevision: {},
+  scrollPositions: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -246,7 +308,10 @@ export const createAgentChatsSlice: StateCreator<
   seedAgentChats: (chats, opts) => {
     const prev = get().agentChats
     const present = new Set(chats.map((c) => c.id))
-    const vanished = prev.chats.filter((chat) => !present.has(chat.id)).map((chat) => chat.id)
+    const vanished = prev.chats.reduce<string[]>((ids, chat) => {
+      if (!present.has(chat.id)) ids.push(chat.id)
+      return ids
+    }, [])
     const pruned = prev.order.filter((id) => present.has(id))
 
     // Chats that appeared since the last seed. A `created` frame reseeds the whole
@@ -311,6 +376,21 @@ export const createAgentChatsSlice: StateCreator<
         s.agentChats.terminalWaits = {}
         for (const chat of chats) {
           if (chat.terminalWait) s.agentChats.terminalWaits[chat.id] = chat.terminalWait
+        }
+      }
+      // `compacting` has no ledger record to fall back on (see
+      // AgentChatsState.compacting) and, unlike `working`/`terminalWaits` above,
+      // cannot be REBUILT from this response — there is no `chat.compacting`
+      // field, only the live push knows "in progress". What this GET's own
+      // `working` CAN do is prove one stale: compaction keeps a chat busy the
+      // same as any other turn, so a fresh read showing it idle is the same
+      // proof the live self-heal already trusts for any other frame — clear
+      // only, never set. This is what repairs a `compaction_stopped` lost for
+      // good (the app closed for the whole compaction window, missing both the
+      // frame and the local backstop timer that died with it).
+      for (const chat of chats) {
+        if (s.agentChats.compacting[chat.id] && chat.working !== true) {
+          delete s.agentChats.compacting[chat.id]
         }
       }
       for (const id of Object.keys(s.agentChats.turnRevision)) {
@@ -423,9 +503,11 @@ export const createAgentChatsSlice: StateCreator<
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
       delete s.agentChats.terminalWaits[chatId]
+      delete s.agentChats.compacting[chatId]
       delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.turnRevision[chatId]
+      delete s.agentChats.scrollPositions[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
     })
@@ -444,6 +526,12 @@ export const createAgentChatsSlice: StateCreator<
       else delete s.agentChats.terminalWaits[chatId]
     }),
 
+  setAgentChatCompacting: (chatId, active) =>
+    set((s) => {
+      if (active) s.agentChats.compacting[chatId] = true
+      else delete s.agentChats.compacting[chatId]
+    }),
+
   setAgentChatPromptSettled: (chatId, clientRequestId) =>
     set((s) => {
       const seen = s.agentChats.settledPrompts[chatId] ?? []
@@ -455,8 +543,35 @@ export const createAgentChatsSlice: StateCreator<
 
   setAgentChatStreamingMessage: (chatId, message) =>
     set((s) => {
-      if (message) s.agentChats.streamingMessages[chatId] = message
-      else delete s.agentChats.streamingMessages[chatId]
+      if (!message) {
+        delete s.agentChats.streamingMessages[chatId]
+        return
+      }
+      // In-place upsert on the Immer draft, not a rebuild — the array is
+      // expected to hold at most a handful of concurrently-open items, so
+      // this find is O(open items), and mutating avoids reallocating the
+      // array on every token the way `.map()`/spread would.
+      const list = (s.agentChats.streamingMessages[chatId] ??= [])
+      const existing = list.find((m) => m.id === message.id)
+      if (existing) existing.text = message.text
+      else list.push(message)
+    }),
+
+  pruneAgentChatStreamingMessages: (chatId, ids) =>
+    set((s) => {
+      if (ids.length === 0) return
+      const list = s.agentChats.streamingMessages[chatId]
+      if (!list) return
+      const drop = new Set(ids)
+      const kept = list.filter((m) => !drop.has(m.id))
+      if (kept.length === list.length) return
+      if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
+      else s.agentChats.streamingMessages[chatId] = kept
+    }),
+
+  setAgentChatScrollPosition: (chatId, position) =>
+    set((s) => {
+      s.agentChats.scrollPositions[chatId] = position
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

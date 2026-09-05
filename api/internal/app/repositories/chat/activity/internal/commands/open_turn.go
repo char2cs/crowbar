@@ -33,15 +33,21 @@ func (c OpenTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next.Subagents = nil
 	next.Interruptions = nil
 	next.Choices = nil
+	if next.OpenTurnOrders == nil {
+		next.OpenTurnOrders = map[string]int64{}
+	}
+	next.OpenTurnOrders[c.RunnerID] = next.Seq
 	next.Turn = &domain.ActivityTurn{
-		ID:         c.TurnID,
-		ChatID:     c.ChatID,
-		Seq:        next.Seq,
-		Role:       domain.TurnRoleAssistant,
-		ProviderID: c.ProviderID,
-		RunnerID:   c.RunnerID,
-		SessionID:  c.SessionID,
-		StartedAt:  c.Now,
+		ID:     c.TurnID,
+		ChatID: c.ChatID,
+		Seq:    next.Seq,
+		// Reserved HERE, at true dispatch time — see ActivityTurn.DisplayOrder.
+		DisplayOrder: next.Seq,
+		Role:         domain.TurnRoleAssistant,
+		ProviderID:   c.ProviderID,
+		RunnerID:     c.RunnerID,
+		SessionID:    c.SessionID,
+		StartedAt:    c.Now,
 	}
 	turn := *next.Turn
 	next.Last = &domain.ActivityDelta{

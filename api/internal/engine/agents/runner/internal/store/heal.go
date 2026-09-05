@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -79,8 +80,19 @@ func healConversations(
 	if built {
 		return nil
 	}
-	if err := replayHistory(ctx, db, es, ax); err != nil {
+	skipped, err := replayHistory(ctx, db, es, ax)
+	if err != nil {
 		return err
+	}
+	if skipped {
+		// At least one aggregate could not Replay (logged in replayHistory) — the
+		// marker stays UNSET so the next boot retries it (appendConversation is
+		// idempotent, so re-healing the aggregates that DID succeed is free). New
+		// still returns nil: the runners that healed are real, usable history NOW,
+		// and one unreadable aggregate must not keep the daemon from starting —
+		// that is the same whole-history-for-one-bad-id loss this heal exists to
+		// prevent, just moved to a different chokepoint.
+		return nil
 	}
 	return markBuilt(ctx, db)
 }
@@ -93,19 +105,26 @@ func healConversations(
 // asynx's fold signature cannot return an error, so the projector collects the
 // first write failure and replayHistory surfaces it here — the heal is strict
 // where the live projection cannot be.
+//
+// An aggregate whose Replay itself fails — a pre-cutover payload the current
+// reducer cannot fold, or any other corrupt entry in the shared event log — is
+// logged and SKIPPED, not propagated: skipped reports this so the caller can
+// withhold the built marker without failing construction over it. Every OTHER
+// aggregate must still heal; one bad id must not cost the whole history, which
+// is the same failure this heal exists to prevent in the first place.
 func replayHistory(
 	ctx context.Context,
 	db *gormdb.DB,
 	es asynxModels.Store,
 	ax asynx.Asynx[agents.Runner],
-) error {
+) (skipped bool, err error) {
 	lister, ok := es.(aggregateLister)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	keys, err := lister.AggregateIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
+		return false, fmt.Errorf("agentrunner store: enumerate aggregate ids: %w", err)
 	}
 	p := &historyProjector{db: db}
 	for _, key := range keys {
@@ -114,10 +133,13 @@ func replayHistory(
 			continue
 		}
 		if err := ax.Replay(ctx, id, 1, 0, p.onEvent); err != nil {
-			return fmt.Errorf("agentrunner store: replay %s: %w", id, err)
+			slog.ErrorContext(ctx, "agentrunner store: replay skipped unreplayable aggregate",
+				"id", id, "err", err)
+			skipped = true
+			continue
 		}
 	}
-	return p.failure
+	return skipped, p.failure
 }
 
 func readModelWasBuilt(

@@ -69,7 +69,9 @@ type streamRacer struct {
 func (r *streamRacer) stream() {
 	defer close(r.done)
 	for i := range raceIncrements {
-		r.messages.Observe("c", "t", "m", i, true, false, "increment", time.Now())
+		// runner-1 matches raceRunners.LiveRunnerForChat's returned ID — the
+		// runner AbandonMessage will look this stream up under.
+		r.messages.Observe("c", "runner-1", "t", "m", i, true, false, "increment", time.Now())
 	}
 }
 

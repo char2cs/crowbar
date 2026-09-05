@@ -1,5 +1,8 @@
 import type { CSSProperties, KeyboardEvent } from 'react'
-import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
+import {
+  ChatMarkdownEditor,
+  type CaretEdges,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { COMPOSER_LINE_HEIGHT } from '@/features/agent/composer/lib/handle-geometry'
 
 interface ComposerFieldProps {
@@ -9,7 +12,11 @@ interface ComposerFieldProps {
   expanded: boolean
   controls?: string
   onChange: (value: string) => void
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => void
+  onKeyDown: (
+    event: KeyboardEvent<HTMLDivElement>,
+    readMarkdown: () => string,
+    caret: CaretEdges,
+  ) => void
   /** Reported on every change, so the handle can ride the last line. */
   onHeightChange: (height: number) => void
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -43,7 +44,7 @@ func TestApiOwnsThisEvent_APIOwnedEventOnALiveConnectionIsRedundant(t *testing.T
 	turns := &Turns{runners: fakeLiveConn{live: true}}
 	codex := descriptorFor(t, "codex")
 
-	require.True(t, turns.apiOwnsThisEvent("runner-1", codex, "turn_stop"),
+	require.True(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "turn_stop"),
 		"codex declares no per-event transport for turn_stop, so it inherits runtime.transport: api")
 }
 
@@ -52,7 +53,7 @@ func TestApiOwnsThisEvent_APIOwnedEventWithNoLiveConnectionIsNotRedundant(t *tes
 	turns := &Turns{runners: fakeLiveConn{live: false}}
 	codex := descriptorFor(t, "codex")
 
-	require.False(t, turns.apiOwnsThisEvent("runner-1", codex, "turn_stop"),
+	require.False(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "turn_stop"),
 		"with no live api connection there is no OTHER copy for a hooks delivery to be redundant with")
 }
 
@@ -61,7 +62,7 @@ func TestApiOwnsThisEvent_AnEventExplicitlyDeclaredHooksOwnedIsNeverRedundant(t 
 	turns := &Turns{runners: fakeLiveConn{live: true}}
 	codex := descriptorFor(t, "codex")
 
-	require.False(t, turns.apiOwnsThisEvent("runner-1", codex, "subagent_pre"),
+	require.False(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "subagent_pre"),
 		"codex.yaml overrides subagent_pre to transport: hooks precisely because the api transport never carries it")
 }
 
@@ -70,6 +71,32 @@ func TestApiOwnsThisEvent_AHooksOnlyProviderNeverConsidersAnythingRedundant(t *t
 	turns := &Turns{runners: fakeLiveConn{live: true}}
 	claude := descriptorFor(t, "claude")
 
-	require.False(t, turns.apiOwnsThisEvent("runner-1", claude, "turn_stop"),
+	require.False(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", claude, "turn_stop"),
 		"claude declares no api transport at all (runtime.transport: hooks) — HasLiveAPIConnection is a lie this test forces, and TransportFor is what must still say no")
+}
+
+// TestRegression_TheAPITransportDeliveryItselfIsNeverTreatedAsARedundantEcho is
+// the bug reported live 2026-08-29: "Codex still not worky" — a fresh codex
+// chat's very first prompt got a real reply over the wire (confirmed via the
+// daemon's own trace: session_start through turn_stop all resolved and were
+// pushed onto the api driver's Events() channel), yet the chat never went
+// Working and the ledger never gained a single message.
+//
+// Root cause: descriptor.TransportFor(canonical) == "api" && a live connection
+// exists are BOTH true for the api-transport delivery ITSELF, not just for the
+// companion PTY's redundant hooks echo of it — the two facts this function
+// used to gate on cannot tell the deliveries apart, only their ORIGIN can
+// (inflight.FromAPITransport, set by pumpAPIConn on every event it forwards).
+// Before that marker existed, this call — pumpAPIConn's own — satisfied the
+// exact same "redundant, drop it" condition the tests above correctly want
+// for the OTHER copy, and dropped session_start through turn_stop right along
+// with it.
+func TestRegression_TheAPITransportDeliveryItselfIsNeverTreatedAsARedundantEcho(t *testing.T) {
+	t.Parallel()
+	turns := &Turns{runners: fakeLiveConn{live: true}}
+	codex := descriptorFor(t, "codex")
+
+	ctx := inflight.WithAPITransport(t.Context())
+	require.False(t, turns.apiOwnsThisEvent(ctx, "runner-1", codex, "turn_stop"),
+		"THE FIX: this call IS the api-transport delivery — never the redundant hooks copy it would otherwise look identical to")
 }

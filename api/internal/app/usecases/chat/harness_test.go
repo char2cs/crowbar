@@ -1256,6 +1256,12 @@ func newFixtureUsing(
 			ThreadBroadcast: noopThreadBroadcast,
 		},
 	})
+	// closeAssistantTurn's real 3s AwaitOpen wait only matters against a
+	// concurrent delta, which resolves over its wake channel instantly, not by
+	// waiting out the clock — so shrinking it here doesn't weaken any race
+	// this package tests, it just stops every turn_stop-with-nothing-streamed
+	// call from sitting idle for the full 3s.
+	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
 	f := testFixture{
 		ctx: context.Background(),
 		usecase: &harnessUsecase{

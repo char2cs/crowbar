@@ -24,6 +24,28 @@ type fakeSubscriber struct {
 
 	agentChatFolders []agentChatFolderPush
 	agentChatWaits   []agentChatWaitPush
+	agentCompactions []agentCompactionPush
+	promptSettled    []promptSettledPush
+	messageDeltas    []messageDeltaPush
+}
+
+type promptSettledPush struct {
+	chatID      string
+	workspaceID string
+	requestID   string
+}
+
+type messageDeltaPush struct {
+	chatID      string
+	workspaceID string
+	messageID   string
+	text        string
+}
+
+type agentCompactionPush struct {
+	chatID      string
+	workspaceID string
+	active      bool
 }
 
 type agentChatWaitPush struct {
@@ -121,8 +143,36 @@ func (f *fakeSubscriber) PushAgentChatTerminalWait(
 	})
 }
 
-func (f *fakeSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
-func (f *fakeSubscriber) PushAgentChatMessageDelta(_, _, _, _ string) {}
+func (f *fakeSubscriber) PushAgentChatPromptSettled(
+	chatID string,
+	workspaceID string,
+	requestID string,
+) {
+	f.promptSettled = append(f.promptSettled, promptSettledPush{
+		chatID: chatID, workspaceID: workspaceID, requestID: requestID,
+	})
+}
+
+func (f *fakeSubscriber) PushAgentChatMessageDelta(
+	chatID string,
+	workspaceID string,
+	messageID string,
+	text string,
+) {
+	f.messageDeltas = append(f.messageDeltas, messageDeltaPush{
+		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
+	})
+}
+
+func (f *fakeSubscriber) PushAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	f.agentCompactions = append(f.agentCompactions, agentCompactionPush{
+		chatID: chatID, workspaceID: workspaceID, active: active,
+	})
+}
 
 func (f *fakeSubscriber) PushAgentChatFolder(
 	folderID string,
@@ -299,6 +349,29 @@ func TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers(t *te
 		a.agentChatWaits[0])
 }
 
+// TestHub_BroadcastAgentChatCompaction_FansOut proves the live compaction edge
+// reaches every registered subscriber intact, both ways round — this is the
+// frame the "Compacting…" indicator has to key off, since the ledger's own
+// interruption record for a compaction is born already resolved and can never
+// drive it (see the doc comment on BroadcastAgentChatCompaction).
+func TestHub_BroadcastAgentChatCompaction_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatCompaction("c1", "w1", true)
+	h.BroadcastAgentChatCompaction("c1", "w1", false)
+
+	want := []agentCompactionPush{
+		{chatID: "c1", workspaceID: "w1", active: true},
+		{chatID: "c1", workspaceID: "w1", active: false},
+	}
+	assert.Equal(t, want, a.agentCompactions)
+	assert.Equal(t, want, b.agentCompactions)
+}
+
 // TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries
 // the CHAT the runner is pointed at as of the event, so a `moved` frame names the
 // chat the CLI moved INTO and a client can re-point the tab following that runner.
@@ -316,6 +389,66 @@ func TestHub_BroadcastAgentRunner_FansOut(t *testing.T) {
 	assert.Equal(t,
 		agentRunnerPush{runnerID: "r1", workspaceID: "w1", chatID: "chat-b", kind: "moved"},
 		a.agentRunner[0])
+}
+
+// TestHub_BroadcastAgentChatPromptSettled_FansOut proves the "prompt retired
+// without ever opening a turn" edge reaches every registered subscriber with
+// the chat/workspace/request ids intact — this is the frame that clears a
+// pending "waiting on you" affordance when a runner picks a prompt up without
+// ever producing a turn for it.
+func TestHub_BroadcastAgentChatPromptSettled_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1")
+
+	want := []promptSettledPush{{chatID: "c1", workspaceID: "w1", requestID: "req-1"}}
+	assert.Equal(t, want, a.promptSettled)
+	assert.Equal(t, want, b.promptSettled)
+}
+
+// TestHub_BroadcastAgentChatMessageDelta_FansOut proves the growing-message
+// edge reaches every registered subscriber with the chat/workspace/message ids
+// and the delta text intact. This broadcast is the highest-frequency one on the
+// hub (roughly 1.4/s per streaming chat) and deliberately never touches durable
+// storage, so a dropped fan-out here is invisible anywhere but the live client.
+func TestHub_BroadcastAgentChatMessageDelta_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text")
+
+	want := []messageDeltaPush{
+		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial tex"},
+		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial text"},
+	}
+	assert.Equal(t, want, a.messageDeltas)
+	assert.Equal(t, want, b.messageDeltas)
+}
+
+// TestHub_BroadcastAgentChatFolder_FansOut proves a chat-folder lifecycle
+// event reaches every registered subscriber on the same workspace-scoped feed
+// as BroadcastAgentChat — a chat folder is a plain GORM row with no aggregate
+// projection to ride, so nothing else pushes this fact to subscribers.
+func TestHub_BroadcastAgentChatFolder_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatFolder("f1", "w1", "folder_created")
+
+	want := []agentChatFolderPush{{folderID: "f1", workspaceID: "w1", kind: "folder_created"}}
+	assert.Equal(t, want, a.agentChatFolders)
+	assert.Equal(t, want, b.agentChatFolders)
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

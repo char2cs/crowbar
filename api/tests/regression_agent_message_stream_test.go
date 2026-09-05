@@ -351,6 +351,36 @@ func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
 		"the provider's own complete copy must replace what the stream lost")
 }
 
+// TestRegression_ALossyTerminatingHookNeverTruncatesTheStream is
+// TestRegression_TheTerminatingHookSupersedesALossyStream's missing
+// counterpart — the two together are the whole reconciliation contract, and
+// only one direction had a test. Reported live 2026-09-01: a full,
+// multi-paragraph reply was visible while the turn was still streaming, but
+// a real provider's own terminating hook reported only the reply's LAST
+// paragraph, and closeAssistantTurn's reconciliation silently deleted the
+// rest from the persisted transcript on the strength of that shorter report.
+func TestRegression_ALossyTerminatingHookNeverTruncatesTheStream(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h)
+	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
+
+	post := func(event, payload string) {
+		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+	}
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
+
+	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE "))
+	post("message_delta", delta("msg-one", 1, true, "AND THE END"))
+	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"AND THE END"}`)
+	h.Quiesce()
+
+	assert.Equal(t, []string{"THE BEGINNING AND THE MIDDLE AND THE END"},
+		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
+		"a shorter terminating-hook report must never overwrite text the stream already delivered in full")
+}
+
 func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)

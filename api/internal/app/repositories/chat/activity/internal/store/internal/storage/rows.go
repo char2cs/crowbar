@@ -7,18 +7,22 @@ func rowKey(chatID, id string) string {
 }
 
 type TurnRow struct {
-	Key        string     `gorm:"primaryKey;column:key"`
-	ID         string     `gorm:"column:id"`
-	ChatID     string     `gorm:"column:chat_id;index:idx_turn_chat_seq,priority:1"`
-	Seq        int64      `gorm:"column:seq;index:idx_turn_chat_seq,priority:2"`
-	Role       string     `gorm:"column:role"`
-	ProviderID string     `gorm:"column:provider_id;index"`
-	RunnerID   string     `gorm:"column:runner_id"`
-	SessionID  string     `gorm:"column:session_id;index"`
-	Text       string     `gorm:"column:text"`
-	Effort     string     `gorm:"column:effort"`
-	StartedAt  time.Time  `gorm:"column:started_at;index"`
-	EndedAt    *time.Time `gorm:"column:ended_at"`
+	Key    string `gorm:"primaryKey;column:key"`
+	ID     string `gorm:"column:id"`
+	ChatID string `gorm:"column:chat_id;index:idx_turn_chat_seq,priority:1"`
+	Seq    int64  `gorm:"column:seq;index:idx_turn_chat_seq,priority:2"`
+	// DisplayOrder/ItemIndex — see domain.ActivityTurn. Sorted client-side
+	// over an already-fetched page, not queried by SQL, so no index.
+	DisplayOrder int64      `gorm:"column:display_order"`
+	ItemIndex    int        `gorm:"column:item_index"`
+	Role         string     `gorm:"column:role"`
+	ProviderID   string     `gorm:"column:provider_id;index"`
+	RunnerID     string     `gorm:"column:runner_id"`
+	SessionID    string     `gorm:"column:session_id;index"`
+	Text         string     `gorm:"column:text"`
+	Effort       string     `gorm:"column:effort"`
+	StartedAt    time.Time  `gorm:"column:started_at;index"`
+	EndedAt      *time.Time `gorm:"column:ended_at"`
 }
 
 func (TurnRow) TableName() string { return "agent_turns" }
@@ -56,15 +60,19 @@ type SubagentRow struct {
 func (SubagentRow) TableName() string { return "agent_subagents" }
 
 type InterruptionRow struct {
-	Key        string     `gorm:"primaryKey;column:key"`
-	ID         string     `gorm:"column:id"`
-	TurnID     string     `gorm:"column:turn_id;index"`
-	ChatID     string     `gorm:"column:chat_id;index:idx_interruption_chat_seq,priority:1"`
-	Seq        int64      `gorm:"column:seq;index:idx_interruption_chat_seq,priority:2"`
-	Kind       string     `gorm:"column:kind;index"`
-	Detail     string     `gorm:"column:detail"`
-	At         time.Time  `gorm:"column:at"`
-	ResolvedAt *time.Time `gorm:"column:resolved_at"`
+	Key    string `gorm:"primaryKey;column:key"`
+	ID     string `gorm:"column:id"`
+	TurnID string `gorm:"column:turn_id;index"`
+	ChatID string `gorm:"column:chat_id;index:idx_interruption_chat_seq,priority:1"`
+	Seq    int64  `gorm:"column:seq;index:idx_interruption_chat_seq,priority:2"`
+	// DisplayOrder — see domain.ActivityInterruption. Sorted client-side over
+	// an already-fetched page, not queried by SQL, so no index — same as
+	// TurnRow's own DisplayOrder.
+	DisplayOrder int64      `gorm:"column:display_order"`
+	Kind         string     `gorm:"column:kind;index"`
+	Detail       string     `gorm:"column:detail"`
+	At           time.Time  `gorm:"column:at"`
+	ResolvedAt   *time.Time `gorm:"column:resolved_at"`
 }
 
 func (InterruptionRow) TableName() string { return "agent_interruptions" }

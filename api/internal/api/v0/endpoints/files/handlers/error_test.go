@@ -60,3 +60,17 @@ func TestFileHandlers_NotFoundError(
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=missing.go", nil).Code)
 }
+
+// TestFileHandlers_Create_DirectoryError proves a CreateDir failure is mapped
+// through fileError exactly like every other verb's failure, on the "dir"
+// type branch specifically (distinct from the default CreateFile branch
+// TestFileHandlers_ErrorPaths already covers).
+func TestFileHandlers_Create_DirectoryError(
+	t *testing.T,
+) {
+	r := newRouter(errFiles{err: errors.New("boom")})
+
+	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/files",
+		map[string]any{"path": "newdir", "type": "dir"})
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}

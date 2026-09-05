@@ -45,6 +45,150 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
+  // ── streamingMessages: upsert by id, not one slot ─────────────────────────
+  // Regression: this used to be `Record<string, {id,text}>` — a single slot
+  // per chat, unconditionally overwritten. Codex can have more than one
+  // message item open in a turn; the second item's first delta silently
+  // dropped the first item's still-growing text from the live view (it was
+  // always safe server-side, so the ledger "reconciled" it back a moment
+  // later — but the transcript visibly lost a paragraph until then).
+
+  it('setAgentChatStreamingMessage upserts by id — a second id does not drop the first', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second item' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'first paragraph' },
+      { id: 'm2', text: 'second item' },
+    ])
+  })
+
+  it('setAgentChatStreamingMessage replaces the SAME id in place, preserving order', () => {
+    const s = createWorkspaceStore('w1')
+
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph, growing' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'first paragraph, growing' },
+      { id: 'm2', text: 'second' },
+    ])
+  })
+
+  it('setAgentChatStreamingMessage(chatId, null) clears every entry for that chat', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'a' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'b' })
+
+    s.getState().setAgentChatStreamingMessage('c1', null)
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+  })
+
+  it('does not touch another chat entirely — no cross-chat clobbering', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
+
+    s.getState().setAgentChatStreamingMessage('c2', { id: 'm2', text: 'chat two' })
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
+      { id: 'm1', text: 'chat one' },
+    ])
+  })
+
+  // ── pruneAgentChatStreamingMessages: the bounded-growth fix ───────────────
+  // streamingMessages[chatId] only ever grew: entries land via
+  // setAgentChatStreamingMessage, and nothing removed one once its content
+  // was durably confirmed in the ledger — a real unbounded-memory-growth
+  // issue over a very long chat session. This is the targeted prune the
+  // store side needed instead of a blanket clear on a turn boundary (that
+  // was tried and reverted: an interrupted runner's stream can legitimately
+  // keep growing after a new turn starts, so wiping the whole array there
+  // deleted a reply still arriving).
+
+  it('pruneAgentChatStreamingMessages drops only the given ids, keeping the rest', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm3', text: 'third' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1', 'm3'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm2', text: 'second' }])
+  })
+
+  it('pruneAgentChatStreamingMessages deletes the chat entry entirely once it empties out', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+  })
+
+  it('pruneAgentChatStreamingMessages is a no-op for an id that is not present', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['not-there'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm1', text: 'first' }])
+  })
+
+  it('pruneAgentChatStreamingMessages does not touch another chat', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
+    s.getState().setAgentChatStreamingMessage('c2', { id: 'm1', text: 'chat two' })
+
+    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
+
+    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
+    expect(s.getState().agentChats.streamingMessages['c2']).toEqual([
+      { id: 'm1', text: 'chat two' },
+    ])
+  })
+
+  // ── scrollPositions: per-chat, in-memory, read once on the chat's next
+  //    mount this session — see AgentChatsState.scrollPositions' own doc.
+
+  it('setAgentChatScrollPosition writes the position for that chat only', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    s.getState().setAgentChatScrollPosition('c2', { stuck: true, distanceFromBottom: 0 })
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: false,
+      distanceFromBottom: 240,
+    })
+    expect(s.getState().agentChats.scrollPositions['c2']).toEqual({
+      stuck: true,
+      distanceFromBottom: 0,
+    })
+  })
+
+  it('setAgentChatScrollPosition replaces a chat’s previous entry, not merges it', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    s.getState().setAgentChatScrollPosition('c1', { stuck: true, distanceFromBottom: 400 })
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
+      stuck: true,
+      distanceFromBottom: 400,
+    })
+  })
+
+  it('removeAgentChat forgets the saved scroll position', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+
+    s.getState().removeAgentChat('c1')
+
+    expect(s.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+  })
+
   // ── The sticky model / effort selection ───────────────────────────────────
   // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
   // is the only thing that brings an accepted pair back into the store.
@@ -217,6 +361,53 @@ describe('agent-chats-slice', () => {
 
     expect(s.getState().agentChats.working).toEqual({ busy: true })
     expect(s.getState().agentChats.working.stale).toBeUndefined()
+  })
+
+  // ── seedAgentChats: reconciling a stuck `compacting` flag ──────────────────
+  // Regression: `compacting` is driven ENTIRELY by the live compaction_started/
+  // compaction_stopped WS frames (there is no ledger record to fall back on —
+  // see AgentChatsState.compacting's own doc comment), and unlike `working` and
+  // `terminalWaits` it was never reconciled by this reseed at all. If the
+  // compaction_stopped edge — and the local 60s backstop timer racing it — are
+  // BOTH lost (the app is closed for the whole compaction window, then reopened),
+  // nothing ever clears it: reported live as "/compact finished, closed the chat
+  // mid-compaction, reopened it, and Crowbar still thinks it's compacting."
+  // A chat the fresh GET reports as NOT working cannot possibly still be
+  // compacting (compaction keeps the chat busy the same as any other turn), so
+  // that is the same proof the live self-heal already trusts for any other
+  // frame, applied here to the GET this reseed IS reading.
+
+  it("seedAgentChats clears a stuck `compacting` flag once the authoritative reseed shows the chat isn't busy — the missed compact_post/closed-app case", () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: false }])
+
+    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
+  })
+
+  it('seedAgentChats leaves `compacting` alone while the fresh reseed still shows the chat busy', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: true }])
+
+    expect(s.getState().agentChats.compacting.c1).toBe(true)
+  })
+
+  it('a live `created` reseed (keepWorking) also clears a stuck `compacting` flag for a chat the fresh read shows idle', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatCompacting('c1', true)
+
+    s.getState().seedAgentChats(
+      [
+        { ...chat('c1', '2026-01-01T00:00:00Z'), working: false },
+        chat('new', '2026-01-02T00:00:00Z'),
+      ],
+      { keepWorking: true },
+    )
+
+    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
   })
 
   it('notifyAgentChatMessages advances every current chat revision independently of reconnect GETs', () => {

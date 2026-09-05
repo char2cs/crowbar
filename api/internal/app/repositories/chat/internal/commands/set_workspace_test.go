@@ -10,9 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-var (
-	_ asynxModels.Command[domain.Chat] = commands.SetWorkspace{}
-)
+var _ asynxModels.Command[domain.Chat] = commands.SetWorkspace{}
 
 func TestSetWorkspace_EmitEvent_SetsWorkspaceID(t *testing.T) {
 	chat := &domain.Chat{ID: "chat-1"}

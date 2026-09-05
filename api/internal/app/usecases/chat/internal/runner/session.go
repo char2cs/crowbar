@@ -124,7 +124,7 @@ func (rs *Runners) moveToNewChat(
 	// over a workspace where nothing is happening. Same reasoning as the displace path, and
 	// the same guards decide it (see closeAbandonedTurn): the runner has gone, and if a
 	// successor has already taken the chat then the turn is not ours to close.
-	rs.closeAbandonedTurn(ctx, runner.CurrentChatID)
+	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	return nil
 }
 
@@ -142,7 +142,7 @@ func (rs *Runners) moveToKnownChat(
 	// cannot go on advertising a turn whose turn_stop is landing elsewhere.
 	rs.inflightTurns.Complete(runner.ID)
 	if runner.CurrentChatID != toChatID {
-		rs.closeAbandonedTurn(ctx, runner.CurrentChatID)
+		rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	}
 
 	// Whoever else is live on the CONVERSATION must go (invariant I3).

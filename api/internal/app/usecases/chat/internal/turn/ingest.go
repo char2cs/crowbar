@@ -127,7 +127,7 @@ func (t *Turns) ingestResolvedHook(
 		return nil
 	}
 
-	if t.apiOwnsThisEvent(runnerID, descriptor, ev.Kind) {
+	if t.apiOwnsThisEvent(ctx, runnerID, descriptor, ev.Kind) {
 		// A hooks delivery of an event this descriptor declares api-owned, for a
 		// runner with a live api connection right now: pumpAPIConn (apiconn.go)
 		// is already forwarding exactly this event kind from that connection's
@@ -141,6 +141,16 @@ func (t *Turns) ingestResolvedHook(
 		// duplicate whatever the api connection already reported, under a
 		// delivery id hookDeliveries' retry journal has never seen (it is a
 		// genuinely separate delivery, not a retry of one).
+		//
+		// inflight.FromAPITransport(ctx) is what tells the two deliveries apart.
+		// Without it this guard cannot distinguish "a hooks POST echoing an
+		// api-owned event" from "the api-transport delivery of that SAME event,
+		// arriving through this exact call" — pumpAPIConn's own IngestHook calls
+		// satisfy TransportFor==api and HasLiveAPIConnection==true just as
+		// thoroughly as the companion PTY's hooks copy does, so an unmarked call
+		// used to drop BOTH: session_start through turn_stop reported successful
+		// ingestion while the ledger never gained a single turn — confirmed live,
+		// the "Codex still not worky" bug.
 		slog.DebugContext(ctx, "agent: ingest hook: dropping a hooks-delivered copy of an api-owned event",
 			"event", ev.Kind, "runner_id", runnerID, "provider", runner.ProviderID)
 		return nil
@@ -200,12 +210,17 @@ func (t *Turns) ReplayStartupHook(
 	}
 }
 
-// apiOwnsThisEvent reports whether canonical is declared api-owned for this
-// descriptor AND runnerID has a live api connection right now — the two facts
-// that together mean a HOOKS delivery of it is a redundant echo of what the
-// api connection already reports, not new information. See the call site's
-// own comment for the full mechanism.
-func (t *Turns) apiOwnsThisEvent(runnerID string, descriptor engineagents.Agent, canonical string) bool {
+// apiOwnsThisEvent reports whether THIS CALL is a redundant hooks-delivered
+// echo of an event the api connection already reports — never true for the
+// api-transport delivery itself (inflight.FromAPITransport), since canonical
+// being api-owned and a live connection existing are both true for that call
+// as well; only the ORIGIN of this specific delivery tells the two apart. See
+// the call site's own comment for the full mechanism and the bug an unmarked
+// check caused.
+func (t *Turns) apiOwnsThisEvent(ctx context.Context, runnerID string, descriptor engineagents.Agent, canonical string) bool {
+	if inflight.FromAPITransport(ctx) {
+		return false
+	}
 	return descriptor.TransportFor(canonical) == "api" && t.runners.HasLiveAPIConnection(runnerID)
 }
 

@@ -498,7 +498,7 @@ func (e *engine) RenameBranch(
 	oldName string,
 	newName string,
 ) error {
-	return branches.Rename(ctx, repoPath, oldName, newName)
+	return reclassifyError(branches.Rename(ctx, repoPath, oldName, newName))
 }
 
 func (e *engine) DeleteBranch(

@@ -120,8 +120,30 @@ type Turns interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
+	// provider, model or effort. kind is one of
+	// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged
+	// (engine/agents); detail is the new value. The caller is the one that
+	// knows whether the value actually changed — this always records.
+	RecordChatSwitch(
+		ctx context.Context,
+		chatID, kind, detail string,
+	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
 	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
+	// SetCompactionStatus wires the live compact_pre/compact_post fan-out at
+	// sweep start — see turn.Turns.SetCompactionStatus's own doc comment for
+	// why this cannot ride the ledger's interruption record.
+	SetCompactionStatus(fn func(chatID, workspaceID string, active bool))
+	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
+	// yet-final message before closeAbandonedTurn tears its turn down — see
+	// its own doc comment for why the runner must be named explicitly rather
+	// than re-resolved.
+	AbandonMessageForRunner(
+		ctx context.Context,
+		chatID string,
+		runner engineagents.Runner,
+	) (bool, error)
 
 	// The four seams the terminal-wait detector reads through. They are here
 	// rather than passed separately because they all belong to the hook side, and

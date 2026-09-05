@@ -36,6 +36,19 @@
      and swapping in --pane-background just made it a fainter version of the
      same mistake). The dock stays genuinely colourless; only the pill and
      the chips paint anything, each with its own opaque surface. */
+  /* Regression, reported live: a scroll gesture anywhere in this box's own
+     (invisible) padding did NOTHING — not "short of the true bottom", the
+     wheel itself had no effect, because `.scroll` sits UNDER this the whole
+     height of the pane (`.agent-chat.chat`'s own containing block; see its
+     own comment) and this box, absolutely positioned with no fill, was still
+     the hit-test target across its entire empty area. `pointer-events: none`
+     here lets a gesture over that empty space fall through to `.scroll`
+     underneath; `auto` on each real child below restores it exactly where
+     something is actually painted and clickable. */
+  pointer-events: none;
+}
+.agent-chat .dock > * {
+  pointer-events: auto;
 }
 /* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
    chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —
@@ -74,90 +87,200 @@
    A SIBLING of .dock, not a child of it: the dock is a centred 768px column
    (it only needs to be as wide as the controls it holds), but the transcript
    underneath runs the full pane, so the glass has to too — sized off
-   --agent-dock-h directly instead of borrowing the dock's own narrow box. */
+   --agent-dock-h directly instead of borrowing the dock's own narrow box.
+
+   STOPS SHORT OF THE SCROLLBAR, on the right. `.scroll` sits right under this
+   (see agent-transcript.tsx) and its native scrollbar is part of ITS OWN
+   painting — this is a sibling drawn on TOP, so without the inset its blur
+   sampled (and visually sat over) the scrollbar track too, smudging the one
+   thing on screen that must stay sharp to read as a control. --agent-scrollbar-w
+   is measured once (agent-chat-view.tsx, scrollbar-width.ts) rather than
+   hand-picked, because the real width is a platform fact, not a design value.
+
+   That measurement is LAYOUT SPACE — 0 wherever the platform draws an
+   overlay scrollbar (macOS with a trackpad, by default), not "no scrollbar
+   exists". An overlay thumb still paints on top of content during a scroll
+   gesture even though it reserves nothing, so a bare `var()` leaves this
+   glass with zero protection on exactly the systems whose scrollbar is
+   easiest to smudge. `max()` keeps a small floor under it regardless of what
+   got measured — real reserved space still wins once it's wider than the
+   floor, same as before. */
 .agent-chat .dissolve {
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 88px);
+  /* An overlay thumb's own painted width, platform-observed rather than
+     derived from anything else here — the floor `right` below never goes
+     under it. */
+  --overlay-scrollbar-floor: 10px;
   position: absolute;
-  inset-inline: 0;
+  left: 0;
+  right: max(var(--agent-scrollbar-w, 0px), var(--overlay-scrollbar-floor));
   bottom: 0;
-  height: calc(var(--agent-dock-h, 92px) + 88px);
+  height: var(--dissolve-h);
   z-index: 1;
   pointer-events: none;
+  /* Every child here is `position: absolute; inset` within this box (none of
+     them paint outside it, none of them are affected by anything outside
+     it) — `contain: paint` is a fact about this layout, not a guess, and it
+     bounds the invalidation region the browser has to consider whenever any
+     one of the 7 backdrop-filter children below repaints. Without it, an
+     un-isolated backdrop-filter stack this size is exactly the kind of thing
+     that can starve OTHER GPU-composited layers sharing the same window —
+     the native sidebar's own vibrancy view among them — of frames under
+     load, not just cost this element its own. */
+  contain: paint;
 }
 .agent-chat .dissolve-layer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  /* top/bottom set per layer below — each layer only spans the band its own
+     mask actually reveals, plus a margin equal to its own blur radius (blur
+     sampling reads backdrop pixels from outside its box even though the
+     OUTPUT stays clipped to the box, so shrinking the box doesn't change
+     what's visible — it changes how much area the browser recomputes every
+     frame). Mask stops are absolute `calc()` offsets from each layer's own
+     (now-smaller) top, not percentages of the full dissolve height — that
+     keeps them landing at the same pixel regardless of the box's new size,
+     which itself varies with the dynamic --agent-dock-h. */
 }
 .agent-chat .dissolve-layer:nth-child(1) {
+  --top: 0px;
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.6 - 1px));
   backdrop-filter: blur(1px);
   -webkit-backdrop-filter: blur(1px);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 30%, transparent 40%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 0%,
-    black 10%,
-    black 30%,
-    transparent 40%
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(2) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 2px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 2px));
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
-  mask-image: linear-gradient(to bottom, transparent 10%, black 20%, black 40%, transparent 50%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 10%,
-    black 20%,
-    black 40%,
-    transparent 50%
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(3) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 4px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 4px));
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 50%, transparent 60%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 15%,
-    black 30%,
-    black 50%,
-    transparent 60%
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(4) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 8px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 8px));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  mask-image: linear-gradient(to bottom, transparent 20%, black 40%, black 60%, transparent 70%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 20%,
-    black 40%,
-    black 60%,
-    transparent 70%
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(5) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 16px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 16px));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  mask-image: linear-gradient(to bottom, transparent 40%, black 60%, black 80%, transparent 90%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 40%,
-    black 60%,
-    black 80%,
-    transparent 90%
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
   );
 }
 .agent-chat .dissolve-layer:nth-child(6) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 32px));
+  top: var(--top);
+  bottom: 0px;
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
-  mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 60%, black 80%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
 }
 .agent-chat .dissolve-layer:nth-child(7) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 64px));
+  top: var(--top);
+  bottom: 0px;
   backdrop-filter: blur(64px);
   -webkit-backdrop-filter: blur(64px);
-  mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 70%, black 100%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
 }
 
 .agent-chat .pill {
@@ -170,12 +293,13 @@
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
   padding: 8px 14px;
-  transition:
-    border-radius 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
-/* Stadium on one line, 18px once it wraps. The EASE between them is the design;
-   a snap reads as the box being replaced rather than growing. */
+/* Stadium on one line, 18px once it wraps — INSTANT, not eased. This used to
+   ease over 180ms on the theory that a snap reads as the box being replaced
+   rather than growing; live, while actually typing, that read as the box's
+   own outline lagging a beat behind text that had already wrapped. The one
+   thing typed into this box that must never feel delayed is the box itself. */
 .agent-chat .pill.multi {
   border-radius: 18px;
 }
@@ -296,6 +420,9 @@
   text-underline-offset: 2px;
 }
 
+/* Rides the field's own growth. INSTANT, not eased — it used to ease its
+   Y-offset over 160ms as `fieldHeight` grew, which while actively typing read
+   as the button lagging a beat behind text that had already wrapped. */
 .agent-chat .handle {
   position: absolute;
   right: 4px;
@@ -304,7 +431,6 @@
   align-items: center;
   gap: 2px;
   height: 20px;
-  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
 }
 .agent-chat .handle .sep {
   width: 1px;
@@ -336,7 +462,16 @@
     background-color 0.12s ease,
     border-color 0.12s ease;
 }
-.agent-chat .send svg {
+/* :not([class*='size-']) — the same opt-out Button/Tabs/Select/Badge/Toolbar
+   already use (see flicker-strip.ts's own comment) — because this rule isn't
+   only sizing StopIcon/UpIcon (which already set width/height={16} inline;
+   only the stroke-width below does real work for them). It is also a
+   descendant of FlickerSpinner's sprite strip, whose own single <svg> carries
+   `class="size-full"` and needs to size itself as a PERCENTAGE of its
+   (frames-wide) strip container. A flat 16px override collapsed that whole
+   multi-frame-wide viewBox into a 16px box — squashing the spinner into a
+   thin, "skinny" sliver instead of the icon it should read as. */
+.agent-chat .send svg:not([class*='size-']) {
   width: 16px;
   height: 16px;
   stroke-width: 1.9;
@@ -363,12 +498,18 @@
    stadium — the bar has not gone anywhere, it has stopped being an input. The
    footer selectors stay live underneath: switching model is the one thing that
    can actually clear a usage limit. */
+/* Right padding is deliberately tighter than left: `.msg`'s own text wants the
+   full 14px inset `.left` gets everywhere else in the composer, but whatever
+   trails it (a Terminal/Resume button, or ComposerHalted's `.when` timestamp)
+   is pinned flush against THIS edge via its own `margin-left: auto` below —
+   14px there read as a big right-side gap the normal composer's send circle
+   (always pinned close to its own edge) never has. */
 .agent-chat .pill.halted {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 5px 0 14px;
   border-color: color-mix(in oklch, var(--warning) 45%, transparent);
   background: color-mix(in oklch, var(--warning) 10%, var(--background));
   box-shadow:
@@ -383,6 +524,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.agent-chat .pill.halted > button:last-child {
+  margin-left: auto;
 }
 .agent-chat .pill.halted .when {
   margin-left: auto;
@@ -489,14 +633,15 @@
   outline: none;
 }
 /* Rides one line below the caret. `pointer-events` is off on everything but the
-   bar itself, so the document under it stays clickable for its whole width. */
+   bar itself, so the document under it stays clickable for its whole width.
+   INSTANT, not eased — same reasoning as `.handle` above: a control that
+   follows text you are actively typing must never read as catching up to it. */
 .agent-chat .dochandle {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
   pointer-events: none;
-  transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
 }
 .agent-chat .dochandle .inner {
   --pad: max(40px, calc((100% - 720px) / 2));
@@ -547,7 +692,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 12px;
-  padding: 8px 0 0;
+  /* Both sides match `.pill`'s own `padding: 8px 14px` exactly, the same edge
+     the pill's own text and send circle sit inside. `.left` used to carry a
+     -7px margin instead of real padding here, on the theory that it was
+     "optical alignment" — with `overflow: hidden` below, that margin pulled
+     the leading chip PAST this row's own left edge and clipped it. A real
+     padding here has no overflow to clip into. */
+  padding: 8px 14px 0;
   overflow: hidden;
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
@@ -561,11 +712,6 @@
   /* Never break "N queued" or "NN% context" mid-word — a group that doesn't
      fit moves to the next line whole, it doesn't fold in place. */
   white-space: nowrap;
-}
-/* Optical alignment: the leading chip's glyph, not its box, lines up with the
-   pill's text. */
-.agent-chat .underbar .left {
-  margin-left: -7px;
 }
 /* On its own wrapped line, `.right` has no sibling for `space-between` to push
    against — the auto margin is what still pins it to the row's right edge. */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
 import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
 import { ProviderIcon } from '@/components/ui/provider-icon'
@@ -46,9 +46,11 @@ export function ProviderSwitchDropdown({
   const current = providers.find((p) => p.id === currentProviderId)
   const others = providers.filter((p) => p.id !== currentProviderId && p.enabled)
 
-  useEffect(() => {
-    if (disabled) setIsOpen(false)
-  }, [disabled])
+  // Derived, not stored: a disabled provider closes its menu the instant it goes
+  // disabled, with no render where a disabled trigger still shows an open menu.
+  // isOpen itself stays true underneath (untouched by disabled going false again)
+  // so re-enabling never surprises the user with a menu that silently reappeared.
+  const open = isOpen && !disabled
 
   // Both menu shapes below (switch targets, or the nothing-to-switch-to hint)
   // share these, so the menu can never drift from its trigger. Dropdown's content
@@ -56,7 +58,7 @@ export function ProviderSwitchDropdown({
   // exclusive — which is why this is a spread plus one explicit content prop
   // rather than a single element with a conditional child.
   const menuProps = {
-    isOpen,
+    isOpen: open,
     onClose: () => setIsOpen(false),
     anchorRef,
     anchorSide: 'top' as const,

@@ -188,6 +188,42 @@ func TestSwitchProvider_Broadcasts_NoChatEvent(t *testing.T) {
 	assert.Equal(t, []string{"displaced", "started", "exited"}, f.runnerKinds(t))
 }
 
+// TestSwitchProvider_RecordsAProviderSwitchedInterruption guards the new
+// InterruptProviderSwitched marker: recorded once the switch actually
+// commits, and only when the target differs from the chat's provider
+// beforehand — Crowbar's own doing, not something a provider hook reports.
+func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, "codex", ints[0].Detail)
+	assert.NotNil(t, ints[0].ResolvedAt, "Crowbar's own doing: opened and resolved together")
+}
+
+// TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing guards the
+// no-op case ResumeChat exercises every day: resuming into the provider the
+// chat is ALREADY on is not a switch worth marking.
+func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
+}
+
 // TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens drives
 // forward+back: spawn claude, bind its conversation, switch to codex, switch back. The
 // switch-back resumes claude's OWN conversation by expanding+tokenizing
@@ -622,6 +658,93 @@ func TestResumeChat_ConversationWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom
 	}
 }
 
+// TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh
+// is the fix for the bug a real user hit reopening tonight's Nightly build on their
+// production data: EVERY existing chat, on reopen, spawned a brand-new provider session
+// instead of resuming the old one — losing the CLI's own native conversation memory for
+// every chat they had.
+//
+// PR #151 introduced the agent_turns activity table (queried via
+// activity.LastTurnForSession) to record turns from hooks. That table did not exist
+// before the migration, so it has ZERO rows for every conversation that predates it —
+// which looks identical to the guard's original, legitimate target: a provider that
+// announced a session and then crashed before completing its first turn. The chat's
+// history (ConversationsForChat) is untouched and still names the real, resumable
+// session id; only the brand-new table is empty. The old code refused to resume on that
+// empty table alone and threw the real session away.
+//
+// This seeds exactly that shape directly on the runner store (bypassing the
+// session_start hook, which always stamps "now" — there is no other seam to backdate
+// FirstSeenAt): one real session, first seen weeks ago, with no turn ever recorded under
+// it. Reopening the chat must resume that exact session, not mint a fresh one.
+func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	// Bind the runner's ONE AND ONLY conversation directly on the store, exactly as
+	// ConversationsForChat would report it for a real chat untouched since before the
+	// activity table existed: a real session id, first seen long ago, with no turn ever
+	// recorded under it in agent_turns (nothing here ever calls turn()).
+	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
+	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo)
+	require.NoError(t, err)
+	f.wait()
+
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	newRunnerID, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+	assert.Equal(t, newRunnerID, live.ID)
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, "sid-legacy-session", argAfter(t, argv, "--resume"),
+		"a conversation that predates the activity table must still be resumed by its "+
+			"real session id, not thrown away for a freshly minted one; argv was %v", argv)
+}
+
+// TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh is the
+// regression-of-the-regression-guard for the fix above: it must not also swallow the
+// genuine race resumableConversation was originally written to catch. A provider that
+// announces a session and crashes before its first turn looks — in the activity table —
+// identical to an old, pre-migration conversation: zero rows either way. Only how
+// recently the session was first seen tells them apart, and this pins that a session
+// announced moments ago is still read as the crash, not as history, and is still
+// refused so a fresh one is spawned.
+func TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	// The CLI reported its conversation id moments ago and never took a turn under
+	// it — the genuine startup-crash race, not an old conversation.
+	f.announce(t, runnerID, "sid-crashed-session")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, -1, indexOf(argv, "--resume"),
+		"a session announced moments ago with no recorded turn is still the crash race "+
+			"and must NOT be resumed; argv was %v", argv)
+	for _, a := range argv {
+		assert.NotContains(t, a, "sid-crashed-session")
+	}
+}
+
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
 // switch-back path. A provider that ran in this chat but never said anything has no
 // conversation to return to, so it is spawned fresh — and, having no history of its
@@ -902,6 +1025,176 @@ func TestSwitchProvider_MidTurn_OutgoingCLIDies_ReleasesTheSwitch(t *testing.T) 
 	assert.Equal(t, got.runnerID, live.ID)
 	assert.Equal(t, "codex", live.ProviderID, "the switch completes onto the dead CLI's chat")
 	assert.NotEqual(t, runnerID, live.ID)
+}
+
+// TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod is the
+// bug the user hit live: they started a chat with one provider and switched to
+// another while the first was still mid-turn, and the switch (and the frontend's
+// "Starting <provider>…" spinner) hung forever. WaitsForTheTurnBefore... and
+// OutgoingCLIDies... above prove the wait releases on the turn's own two real
+// endings (it finishes, or the CLI dies) — this proves it also releases when
+// NEITHER ever happens: no turn_stop, no exit, nothing, ever. That gap is real
+// precisely because AwaitTurnComplete's own reasoning ("a live CLI finishes or
+// dies") never accounted for a CLI that is alive but simply stuck.
+func TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	oldTerm := f.runner(t, runnerID).TerminalSession
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+
+	// The outgoing CLI never sends turn_stop and never dies. Before the fix this
+	// blocked here forever; the grace period above is real, but short, so this
+	// still proves the release with no sleep or poll of its own.
+	sess := <-killed
+	assert.Equal(t, oldTerm, sess, "the stuck outgoing turn is forced the same way an explicit Stop would be")
+
+	got := <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, got.runnerID, live.ID)
+	assert.Equal(t, "codex", live.ProviderID, "the switch completes once the stuck turn is forced")
+	assert.NotEqual(t, runnerID, live.ID)
+}
+
+// TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly
+// guards the two new failure paths against colliding: a caller whose OWN context is
+// cancelled while the grace period is also armed must still abort with nothing
+// changed, exactly as TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged
+// already requires with no grace period configured at all.
+func TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, time.Hour)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+
+	select {
+	case <-parked:
+	case sess := <-killed:
+		cancel()
+		t.Fatalf("the outgoing CLI (%s) was terminated mid-turn", sess)
+	case r := <-done:
+		cancel()
+		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+
+	cancel()
+
+	got := <-done
+	require.Error(t, got.err)
+	assert.ErrorIs(t, got.err, context.Canceled)
+	assert.Empty(t, got.runnerID)
+
+	f.wait()
+	assert.Empty(t, f.term.terminatedIDs(), "the caller's own cancellation aborts the switch untouched, not the grace period")
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, runnerID, live.ID, "the outgoing CLI is still on its chat")
+	assert.True(t, f.chat(t, chatID).Working, "and still mid-turn")
+}
+
+// TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly stresses the
+// exact shape the user asked for: a single chat hopping between providers, more than
+// once, where EACH outgoing CLI in turn is stuck (never completes, never dies). It
+// proves forceOutgoingTurn leaves the chat in a state a SECOND switch can force again
+// cleanly — not just once — and that each force targets the CORRECT runner's terminal
+// session, never a stale one left over from the previous round.
+func TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly(t *testing.T) {
+	f := newFixture(t)
+	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	claudeTerm := f.runner(t, claudeRunner).TerminalSession
+	prompt(t, f, claudeRunner, "claude", "round one: think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on claude")
+
+	killed := terminateSignal(f)
+	parked := parkedOnTurn(t)
+	done := make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("round one: switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+	sess := <-killed
+	assert.Equal(t, claudeTerm, sess, "round one forces claude's own terminal, not a stale one")
+	got := <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.Equal(t, "codex", live.ProviderID, "round one lands on codex")
+	codexRunner := live.ID
+	codexTerm := f.runner(t, codexRunner).TerminalSession
+	require.NotEqual(t, claudeTerm, codexTerm)
+
+	// Round two: codex, the chat's NEW outgoing provider, gets stuck exactly the same
+	// way claude did. Nothing about having already forced one switch may leave the
+	// chat unable to force a second.
+	prompt(t, f, codexRunner, "codex", "round two: think hard about this")
+	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on codex")
+
+	killed = terminateSignal(f)
+	parked = parkedOnTurn(t)
+	done = make(chan switchResult, 1)
+	go func() {
+		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "claude")
+		done <- switchResult{runnerID: id, err: err}
+	}()
+	select {
+	case <-parked:
+	case r := <-done:
+		t.Fatalf("round two: switch returned without ever reaching the outgoing CLI: %+v", r)
+	}
+	sess = <-killed
+	assert.Equal(t, codexTerm, sess, "round two forces codex's own terminal, not claude's stale one")
+	got = <-done
+	require.NoError(t, got.err)
+	f.wait()
+
+	live, err = f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, got.runnerID, live.ID)
+	assert.Equal(t, "claude", live.ProviderID, "round two lands back on a fresh claude")
+	assert.NotEqual(t, claudeRunner, live.ID, "a fresh runner, not the one already forced out in round one")
 }
 
 // TestResumeChat_DormantChat_DoesNotWait: ResumeChat shares switchProviderLocked, and a
@@ -2104,6 +2397,118 @@ func TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 		"must still refuse for the provider's OWN missing gesture, exactly as an ordinary chat would")
 	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
 		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
+}
+
+// The same provider as compactingDescriptorBody, with compact_pre/compact_post
+// also mapped — mirroring claude.yaml, which maps them to
+// PreCompact/PostCompact with the same {session_id, trigger} fields.
+const compactingWithHooksDescriptorBody = `
+id: claude
+display_name: Compacting
+spawn:
+  cmd: claude
+  interactive_required: true
+session:
+  resume: { arg: "--resume {id}" }
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "{message}" }
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last_assistant_message
+  compact_start:
+    out: prompt
+    send:
+      text: "/compact"
+  compact_pre:
+    in: PreCompact
+    map:
+      session_id: session_id
+      trigger: trigger
+  compact_post:
+    in: PostCompact
+    map:
+      session_id: session_id
+      trigger: trigger
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
+// TestRegression_CompactPreSettlesThePendingDeliveryImmediately is the fix for
+// the bug reported live 2026-08-29: "Crowbar just keeps waiting for something
+// that never happens" after /compact, even though the provider had already
+// finished compacting. Root cause, confirmed live: /compact is delivered as
+// an ordinary prompt (compact.go) that never confirms via a user_prompt hook
+// and produces no ledger turn, so before this fix the ONLY thing that ever
+// released the composer's "sending" state was termwait's generic 30s quiet
+// timeout — even though compact_pre itself, arriving on an idle chat (no open
+// turn, exactly compact's own shape), already marks the compaction
+// interruption resolved INSTANTLY (commands/interrupt.go's idle-chat
+// handling). compact_post is not a reliable second signal to wait for: live
+// testing showed it often never arrives at all for a small chat. compact_pre
+// must settle the still-pending delivery itself, immediately.
+func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", compactingWithHooksDescriptorBody)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "native-session")
+
+	require.NoError(t, f.usecase.Compact(f.ctx, chatID))
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"precondition: compact is delivered as an ordinary prompt, with nothing yet confirming it")
+
+	// SubmitPrompt's restart_tui strategy REPLACES the runner to deliver
+	// "/compact" — the delivery's own RunnerID (and the compact hooks that
+	// follow) belong to that replacement, not the one f.spawn returned.
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_pre",
+		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
+
+	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"compact_pre alone (the chat is idle — no turn was ever open for /compact) must settle the "+
+			"delivery immediately, not leave it for compact_post (which does not reliably arrive) or "+
+			"the 30s quiet timeout")
+}
+
+// TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot is the
+// defensive twin: if compaction ever happens with a turn genuinely open (so
+// compact_pre's Interrupt call does NOT resolve instantly), compact_post must
+// still settle the delivery when it does arrive.
+func TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", compactingWithHooksDescriptorBody)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "native-session")
+
+	require.NoError(t, f.usecase.Compact(f.ctx, chatID))
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+
+	// No compact_pre delivered at all here — standing in for the "not idle"
+	// case (a turn open when compaction starts), which this test does not
+	// need to construct in full: it only needs SOMETHING left pending when
+	// compact_post arrives.
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID))
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_post",
+		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
+
+	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"compact_post must settle a delivery compact_pre left pending")
 }
 
 // ─── from boot_test.go ────────────────────────────────────────────────
@@ -3643,7 +4048,7 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record)
+	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil)
 
 	post := func(index int, final bool, text string) {
 		t.Helper()

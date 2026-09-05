@@ -15,8 +15,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-const workspaceID = "ws-1"
-const repoID = "repo-1"
+const (
+	workspaceID = "ws-1"
+	repoID      = "repo-1"
+)
 
 // errNoLog stands in for the event log being unreachable.
 var errNoLog = errors.New("log unavailable")

@@ -85,6 +85,20 @@ describe('blockedOn', () => {
 
     expect(blockedOn(activity({ interruptions: [older, newer, done] }))?.id).toBe('i2')
   })
+
+  // Crowbar's own doing (see RecordChatSwitch, backend), recorded already
+  // resolved the same instant it's opened — same as 'stopped'. A regression
+  // here would make the working spinner incorrectly disappear on every
+  // provider/model/effort switch.
+  it('never blocks on a provider/model/effort switch — they are recorded already resolved', () => {
+    const switches = [
+      interruption({ id: 'p', kind: 'provider_switched', resolvedAt: '2026-08-17T12:00:01Z' }),
+      interruption({ id: 'm', kind: 'model_changed', resolvedAt: '2026-08-17T12:00:01Z' }),
+      interruption({ id: 'e', kind: 'effort_changed', resolvedAt: '2026-08-17T12:00:01Z' }),
+    ]
+
+    expect(blockedOn(activity({ interruptions: switches }))).toBeNull()
+  })
 })
 
 describe('runningTools', () => {

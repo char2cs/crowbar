@@ -22,6 +22,8 @@ const {
   slashCatalogFn,
   saveReconnectFn,
   toastErrorFn,
+  switchToTerminalFn,
+  switchToNativeFn,
 } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
   switchProviderFn: vi.fn(),
@@ -31,12 +33,16 @@ const {
   slashCatalogFn: vi.fn(),
   saveReconnectFn: vi.fn(),
   toastErrorFn: vi.fn(),
+  switchToTerminalFn: vi.fn(),
+  switchToNativeFn: vi.fn(),
 }))
 
-// The pane resolves its cycle chord through the keymap (so it stays rebindable);
-// pin it here rather than standing up the settings store.
+// The pane resolves its toggle-view chord through the keymap (so it stays
+// rebindable); pin it here rather than standing up the settings store.
+// 'agent.cycleProvider' is deliberately absent — it now ships unbound by
+// default, and an absent key resolves the same way (falsy) as its real ''.
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({ 'agent.cycleProvider': 'mod+/' }),
+  useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
@@ -46,6 +52,8 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
+  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -114,7 +122,11 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
     placeholder: string
     ariaLabel: string
     onChange: (value: string) => void
-    onKeyDown: (event: unknown, readMarkdown: () => string) => void
+    onKeyDown: (
+      event: unknown,
+      readMarkdown: () => string,
+      caret: { atStart: boolean; atEnd: boolean },
+    ) => void
     expanded?: boolean
     controls?: string
   }) =>
@@ -127,9 +139,11 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
       onChange: (event: { target: { value: string } }) => onChange(event.target.value),
       // Second argument included deliberately: the real editor hands the key
       // handler the BOX's text, and a mock that omitted it would let a submit
-      // path that reads stale state keep passing.
+      // path that reads stale state keep passing. Third argument is a stand-in
+      // for the real editor's own caret-edge probe — see the identical note in
+      // agent-chat-view.test.tsx's own mock of this module.
       onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown(event, () => event.currentTarget.value),
+        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
     }),
 }))
 
@@ -383,6 +397,8 @@ beforeEach(() => {
   slashCatalogFn.mockReset()
   saveReconnectFn.mockReset()
   toastErrorFn.mockReset()
+  switchToTerminalFn.mockReset()
+  switchToNativeFn.mockReset()
   switchProviderFn.mockResolvedValue('r-new')
   resumeChatFn.mockResolvedValue('r-revived')
   // A chat that has been SPOKEN IN. A chat with no messages is the blank
@@ -825,6 +841,72 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).toBeNull()
       expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
+    })
+
+    // TestRegression_SwitchToTerminal coverage gap: every other test in this file
+    // clicks the Terminal tab on a HOTSWAP provider (the fixture default), which
+    // takes chooseSurface's `hotswap` branch and never calls the endpoint at all.
+    // Codex is the one shipped provider that is NOT hotswap, and nothing exercised
+    // its actual click-to-switch path — see runner/attach_internal_test.go for the
+    // backend half of this same gap.
+    it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
+        Promise.resolve(
+          detail(
+            liveChat({ id: String(id), runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }),
+          ),
+        ),
+      )
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      // Not a synchronous flip like the hotswap case — the tab does not read
+      // selected until the switch actually resolves.
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      )
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      await vi.waitFor(() =>
+        expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        ),
+      )
+    })
+
+    // Regression: a refused switch (a turn still in flight, or codex before its
+    // first completed turn ever wrote a rollout to resume — both real 409s the
+    // backend already returns, see attach.go's ErrTurnInProgress /
+    // ErrNativeViewNotYetAvailable) used to be swallowed with no feedback at
+    // all: the tab click did nothing visible, which reads as broken rather than
+    // refused.
+    it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
+      const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockRejectedValue(
+        new ApiError(
+          'agent: provider has no completed turn yet to show its native view of: conflict',
+          409,
+        ),
+      )
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      await vi.waitFor(() => expect(toastErrorFn).toHaveBeenCalledTimes(1))
+      const [title] = toastErrorFn.mock.calls[0] as [string, string]
+      expect(title).toContain('Codex')
+      expect(screen.queryByTestId('xterm')).toBeNull()
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      )
     })
   })
 
@@ -1336,6 +1418,38 @@ describe('AgentChatPane', () => {
       expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
+
+    // Regression: a switch never toggles `presentation` itself (see the test
+    // above — it stays on whatever surface the user was already looking at),
+    // and switchProvider/adopt alone never re-request an attach. A chat already
+    // ON the terminal surface that switches from a hotswap provider (claude) to
+    // a non-hotswap one (codex) used to strand the view on the OLD provider's
+    // live PTY label with the new runner's empty attachment underneath it —
+    // "This agent has no terminal view attached right now" — because nothing
+    // ever asked codex for one.
+    it('re-requests an attach when switching TO a non-hotswap provider while already on the terminal surface', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      getChatFn
+        .mockResolvedValueOnce(
+          detail(liveChatNoTerminal({ id: 'c1', runnerId: 'r1', title: 'Chat c1' })),
+        )
+        .mockResolvedValueOnce(
+          detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' })),
+        )
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('provider-switch'))
+      })
+
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-attached')
+      expect(screen.queryByText(/no terminal view attached/i)).not.toBeInTheDocument()
+    })
   })
 
   // ── Tab title ──────────────────────────────────────────────────────
@@ -1345,42 +1459,42 @@ describe('AgentChatPane', () => {
   // ChatHead subscribes to the chat's own `title` directly, so there is nothing
   // left to mirror — chat-head.tsx's own tests cover what the head shows.
 
-  // ── ⌘/ cycles the provider, like ⌘-tab ───────────────────────────────
-  describe('cycle-provider chord', () => {
-    const pressCycle = async () => {
+  // ── ⌘/ toggles the chat/terminal view, like the ViewSwitcher tabs ─────
+  describe('toggle chat/terminal view chord', () => {
+    const pressToggle = async () => {
       await act(async () => {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
       })
     }
 
-    it('switches the chat to the next ENABLED provider', async () => {
+    it('flips a hotswap provider straight from Chat to Terminal', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
-      await pressCycle()
+      expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
 
-      // The fixture chat is on codex, the LAST enabled provider, so the cycle
-      // wraps back to the first — the ⌘-tab behaviour, not a dead end.
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'claude')
+      await pressToggle()
+
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
     })
 
-    it('advances to the next provider, not always the first', async () => {
-      const store = seedWorkspace([
-        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
-      ])
+    it('flips back from Terminal to Chat on a second press', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
-      await pressCycle()
+      await pressToggle()
+      await pressToggle()
 
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+      expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
     })
 
     it('still fires when the focused child swallows the key (xterm stopPropagation)', async () => {
-      const store = seedWorkspace([
-        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
-      ])
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
@@ -1405,37 +1519,10 @@ describe('AgentChatPane', () => {
         document.body.removeEventListener('keydown', swallow)
       }
 
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
-    })
-
-    it('never offers a DISABLED provider as the next one', async () => {
-      const store = createWorkspaceStore('w1')
-      store.getState().setAgentProviders([
-        {
-          id: 'claude',
-          displayName: 'Claude',
-          icon: '<svg/>',
-          connected: true,
-          enabled: true,
-          mcpEnabled: true,
-        },
-        {
-          id: 'codex',
-          displayName: 'Codex',
-          icon: '<svg/>',
-          connected: true,
-          enabled: false,
-          mcpEnabled: true,
-        },
-      ])
-      store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const paneId = openChatPane(store, 'c1', 'r1')
-      await renderPane(store, paneId)
-
-      await pressCycle()
-
-      // Only claude is enabled and the chat is already on it — nothing to cycle to.
-      expect(switchProviderFn).not.toHaveBeenCalled()
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
     })
 
     // The isVisible/isActivePane gates are read from the pane's OWN workspace
@@ -1444,18 +1531,26 @@ describe('AgentChatPane', () => {
     // does not unregister a window-level keydown listener. So N retained
     // workspaces could each satisfy the guard at once — ⌘/ pressed in workspace
     // B was swallowed by A's hidden listener, which killed B's Monaco comment
-    // toggle AND switched the provider on an invisible chat (killing that CLI
-    // and spawning another).
+    // toggle AND flipped the view on an invisible chat.
+    //
+    // A non-hotswap provider (codex) here, not the fixture default — the hotswap
+    // branch is a synchronous local setState with nothing to assert but the DOM,
+    // which two panes sharing one document can't cleanly scope apart. switchToTerminal
+    // is a real call carrying the ids of exactly which chat asked for it, so it
+    // survives a second pane sharing the page.
     it('a HIDDEN WORKSPACE ignores the chord — only the ACTIVE workspace may switch', async () => {
+      switchToTerminalFn.mockResolvedValue('pty-attached')
       const hidden = seedWorkspace(
-        [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' })],
+        [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' })],
         'w-hidden',
       )
+      hidden.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
       const hiddenPaneId = openChatPane(hidden, 'c1', 'r1', 'Chat', 'w-hidden')
       const shown = seedWorkspace(
-        [liveChat({ id: 'c2', runnerId: 'r2', pty: 'pty2', provider: 'claude' })],
+        [liveChat({ id: 'c2', runnerId: 'r2', pty: 'pty2', provider: 'codex' })],
         'w-shown',
       )
+      shown.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
       const shownPaneId = openChatPane(shown, 'c2', 'r2', 'Chat', 'w-shown')
 
       // Both panes are the active, visible tab of their own workspace — exactly
@@ -1464,17 +1559,21 @@ describe('AgentChatPane', () => {
       await renderPane(shown, shownPaneId)
       setActiveWorkspaceId('w-shown')
 
-      await pressCycle()
+      await pressToggle()
 
-      expect(switchProviderFn).toHaveBeenCalledTimes(1)
-      expect(switchProviderFn).toHaveBeenCalledWith('w-shown', 'c2', 'codex')
+      await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledTimes(1))
+      expect(switchToTerminalFn).toHaveBeenCalledWith('w-shown', 'c2')
     })
 
     it('a HIDDEN chat ignores the chord — a background split must not switch', async () => {
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      switchToTerminalFn.mockResolvedValue('pty-attached')
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
+      ])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
       const paneId = openChatPane(store, 'c1', 'r1')
       // Every chat stays mounted for keep-alive, so without the isVisible gate a
-      // hidden tab would swallow the chord and switch a chat nobody can see.
+      // hidden tab would swallow the chord and flip the view on a chat nobody can see.
       await act(async () => {
         render(
           createElement(
@@ -1485,9 +1584,9 @@ describe('AgentChatPane', () => {
         )
       })
 
-      await pressCycle()
+      await pressToggle()
 
-      expect(switchProviderFn).not.toHaveBeenCalled()
+      expect(switchToTerminalFn).not.toHaveBeenCalled()
     })
   })
 
@@ -1527,11 +1626,10 @@ describe('AgentChatPane', () => {
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
     })
 
-    // The two switch routes now live on DIFFERENT surfaces: the chord is global,
-    // the dropdown belongs to the terminal's status strip. Both read the same
-    // in-flight booleans, so the guard is only proven by crossing between them —
-    // submit from Chat, then walk to the Terminal and find the control refusing.
-    it('blocks chord and dropdown provider switches through submission and hook confirmation', async () => {
+    // The dropdown lives on the terminal's status strip, and it must keep
+    // refusing a switch across both the submission window and the hook
+    // confirmation that follows it — the window a handover would lose the turn in.
+    it('blocks dropdown provider switches through submission and hook confirmation', async () => {
       const submitted = deferred<{ runnerId: string; terminalSessionId: string }>()
       submitPromptFn.mockReturnValue(submitted.promise)
       const store = seedWorkspace([
@@ -1544,16 +1642,9 @@ describe('AgentChatPane', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
-      // Chat has no dropdown to press — the chord is the only route off this
-      // surface, and it must not fire.
+      // Chat has no dropdown to press yet — cross to the provider's own view,
+      // where the dropdown is, and find it refusing.
       expect(screen.queryByTestId('provider-switch')).toBeNull()
-      await act(async () => {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
-      })
-      expect(switchProviderFn).not.toHaveBeenCalled()
-
-      // Cross to the provider's own view, where the dropdown is, and find it
-      // refusing for the same reason.
       await act(async () => {
         fireEvent.click(screen.getByLabelText('Terminal'))
       })
@@ -1585,6 +1676,41 @@ describe('AgentChatPane', () => {
       expect(await screen.findByText(/could not restart this agent/i)).toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
       expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
+    })
+  })
+
+  // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the
+  // composer's own `signpost` (reason: 'terminal_wait', via `resolveComposerState`)
+  // both render off the SAME `waiting` signal — but only the banner is meant to
+  // survive once the composer can actually show it. Before this test existed, both
+  // rendered at once for any chat with messages, which is exactly the duplication
+  // "one box, one occupant, never two stacked" (composer-state.ts) already forbids
+  // for every OTHER reason. The banner earns its keep only for a blank, first-turn
+  // chat, where AgentChatView renders AgentEmptyDocument instead of AgentComposer
+  // and there is no composer slot to mutate — see agent-chat-pane-terminal-wait.test.tsx
+  // for that half.
+  describe('terminal_wait on a chat that already has messages', () => {
+    it('mutates the composer into a signpost instead of duplicating a pane-level banner', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
+      ])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      // The default beforeEach's listMessagesFn returns one message, so this chat
+      // is NOT blank — AgentComposer, not AgentEmptyDocument, is mounted.
+      expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+
+      await act(async () => {
+        store.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+      })
+
+      // The composer itself became the signpost...
+      expect(screen.getByText(/waiting for you to trust the workspace/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+      // ...and the separate pane-level banner did NOT also render.
+      expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
+      // The input itself is gone — one occupant, not an input rendered dead
+      // beneath the question.
+      expect(screen.queryByRole('textbox', { name: /message the agent/i })).not.toBeInTheDocument()
     })
   })
 })

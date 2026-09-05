@@ -85,7 +85,7 @@ func (c *Client) PatchJSON(ctx context.Context, path string, body any) (int, []b
 	return c.doJSON(ctx, http.MethodPatch, path, body)
 }
 
-func (c *Client) doJSON(ctx context.Context, method string, path string, body any) (int, []byte, error) {
+func (c *Client) doJSON(ctx context.Context, method, path string, body any) (int, []byte, error) {
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: marshal: %w", err)

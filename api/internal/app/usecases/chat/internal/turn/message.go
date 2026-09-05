@@ -9,6 +9,7 @@ import (
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -25,7 +26,7 @@ func (t *Turns) recordMessageDelta(
 		return
 	}
 	message, ok := t.messages.Observe(
-		chat.ID, ev.Delta.TurnID, ev.Delta.MessageID,
+		chat.ID, runner.ID, ev.Delta.TurnID, ev.Delta.MessageID,
 		ev.Delta.Index, ev.Delta.Sequenced, ev.Delta.Final, ev.Delta.Text, time.Now(),
 	)
 	if !ok {
@@ -65,6 +66,7 @@ func (t *Turns) recordAssistantMessage(
 		SessionID:  runner.CurrentSession,
 		Text:       text,
 		Effort:     effort,
+		ItemIndex:  t.messages.IndexOf(chat.ID, runner.ID, messageID),
 		Now:        time.Now(),
 	}); err != nil {
 		return fmt.Errorf("agent: record assistant message: %w", err)
@@ -77,14 +79,36 @@ func (t *Turns) recordAssistantMessage(
 
 func assistantTurnID(messageID string) string { return "msg-" + messageID }
 
+// awaitStreamed is Open, except that "nothing open YET" is not the same fact
+// as "nothing ever streamed" when the closing hook actually carries text:
+// the increments that assemble this exact message are their own,
+// independently delivered hook (message_delta), with no ordering guarantee
+// against the turn-closing hook that just arrived — a race confirmed live
+// 2026-08-29 (a fresh Claude reply, persisted twice: once under
+// closeAssistantTurn's fallback synthesized id, once under the streamed
+// message's own id that landed moments later). Waiting here — briefly,
+// bounded, on a channel nothing else holds — is what tells "the increment is
+// still in flight" apart from "there truly was none." A no-op, with no wait,
+// whenever something is already open or the hook reports no text at all.
+func (t *Turns) awaitStreamed(chatID, runnerID, hookText string) []stream.Message {
+	streamed := t.messages.Open(chatID, runnerID)
+	if len(streamed) > 0 || hookText == "" {
+		return streamed
+	}
+	return t.messages.AwaitOpen(chatID, runnerID, t.messageAwaitTimeout)
+}
+
 func (t *Turns) closeAssistantTurn(
 	ctx context.Context,
 	chat domain.Chat,
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
-	streamed := t.messages.Open(chat.ID)
-	defer t.messages.Forget(chat.ID)
+	// Runner-scoped: a DIFFERENT runner's still-open message (an interrupted
+	// turn, still gracefully finishing after a provider switch) must never
+	// be swept up and recorded under THIS runner's provider.
+	streamed := t.awaitStreamed(chat.ID, runner.ID, ev.Message)
+	defer t.messages.Forget(chat.ID, runner.ID)
 
 	var lastRecorded string
 	for i, message := range streamed {
@@ -96,7 +120,20 @@ func (t *Turns) closeAssistantTurn(
 					"chat_id", chat.ID, "message_id", message.ID,
 					"streamed_bytes", len(text), "hook_bytes", len(ev.Message))
 			}
-			text = ev.Message
+			// The hook's own report can legitimately be the fuller answer — a
+			// delta race can drop increments (see awaitStreamed's own doc
+			// comment) — but it can also be a truncated SUBSET of what was
+			// actually streamed and already shown to the user: confirmed live
+			// 2026-09-01, a full multi-paragraph reply closed under a Stop
+			// hook that reported only its last paragraph, silently deleting
+			// the rest from the persisted transcript. Never let a SHORTER
+			// hook report overwrite text the user already saw — prefer
+			// whichever is longer, the same "don't discard visible content"
+			// rule AbandonMessageForRunner already applies to a torn-down
+			// turn.
+			if len(ev.Message) > len(text) {
+				text = ev.Message
+			}
 		}
 		if text == "" || text == message.RecordedText && !last {
 			continue
@@ -111,7 +148,14 @@ func (t *Turns) closeAssistantTurn(
 		lastRecorded = text
 	}
 
-	if ev.Message != "" && ev.Message != lastRecorded {
+	// lastRecorded != ev.Message is NOT the right test any more: keeping the
+	// longer streamed text over a shorter hook report (above) means the two
+	// can legitimately differ even though the stream's own content was
+	// already recorded in full — that used to be impossible, because a
+	// mismatch always meant text got overwritten to ev.Message before being
+	// recorded. This fallback exists for the one case that still means
+	// "nothing of the hook's content made it in": nothing streamed at all.
+	if ev.Message != "" && lastRecorded == "" {
 		return t.recordAssistantMessage(
 			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false,
 		)
@@ -165,7 +209,7 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 // unfinished message, not the oldest: one message still advancing means the CLI is
 // alive, so the quiet period the sweep measures must restart on any of them.
 func (t *Turns) UnfinishedSince(chatID string) (time.Time, bool) {
-	unfinished := t.messages.Unfinished(chatID)
+	unfinished := t.messages.UnfinishedAcrossRunners(chatID)
 	if len(unfinished) == 0 {
 		return time.Time{}, false
 	}
@@ -187,19 +231,10 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	if err != nil {
 		return false, nil //nolint:nilerr // absence is an answer, not a failure
 	}
-	recorded := false
-	for _, message := range t.messages.Unfinished(chatID) {
-		text := message.Text
-		if text == "" || text == message.RecordedText {
-			continue
-		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false); err != nil {
-			return false, err
-		}
-		t.messages.MarkRecorded(chatID, message.ID, text)
-		recorded = true
+	recorded, err := t.salvageUnfinished(ctx, chat, runner)
+	if err != nil {
+		return false, err
 	}
-	t.messages.Forget(chatID)
 
 	abandoned, err := t.chats.AbandonTurn(ctx, chatID, time.Now())
 	if err != nil {
@@ -213,4 +248,61 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	slog.InfoContext(ctx, "agent: closed a turn whose message was cut off",
 		"chat_id", chatID, "recorded_partial", recorded)
 	return true, nil
+}
+
+// AbandonMessageForRunner salvages runner's own already-streamed-but-not-yet-
+// final message before its turn is torn down by something other than the
+// quiet-screen sweep AbandonMessage serves — a user Stop or a provider Switch
+// retiring the CLI mid-answer. It exists because AbandonMessage's own
+// LiveRunnerForChat lookup cannot be reused here: by the time a runner is
+// being retired, displace() has already run, so that lookup answers "nobody"
+// (or, worse, a DIFFERENT runner already spawned in its place) and would
+// salvage nothing, or the wrong runner's buffer. The caller must therefore
+// name the exact runner being retired.
+//
+// Checks Unfinished BEFORE fetching the chat: closeAbandonedTurn calls this on
+// every ordinary runner exit, the overwhelming majority of which streamed
+// nothing and have every reason to have already been purged (a deleted chat,
+// a test double with no chat row at all) — that must stay a silent, free
+// no-op rather than a GetChat call whose failure gets logged on every one of
+// them.
+func (t *Turns) AbandonMessageForRunner(
+	ctx context.Context,
+	chatID string,
+	runner engineagents.Runner,
+) (bool, error) {
+	if len(t.messages.Unfinished(chatID, runner.ID)) == 0 {
+		return false, nil
+	}
+	chat, err := t.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: abandon message for runner: chat: %w", err)
+	}
+	return t.salvageUnfinished(ctx, chat, runner)
+}
+
+// salvageUnfinished records runner's own still-open streamed message, if it
+// has grown past what was already durable, so a turn torn down mid-stream
+// does not lose text Crowbar already received and broadcast. Scoped to THIS
+// runner — never sweeps up a different runner's still-open message, the same
+// cross-attribution bug closeAssistantTurn guards against.
+func (t *Turns) salvageUnfinished(
+	ctx context.Context,
+	chat domain.Chat,
+	runner engineagents.Runner,
+) (bool, error) {
+	recorded := false
+	for _, message := range t.messages.Unfinished(chat.ID, runner.ID) {
+		text := message.Text
+		if text == "" || text == message.RecordedText {
+			continue
+		}
+		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false); err != nil {
+			return recorded, err
+		}
+		t.messages.MarkRecorded(chat.ID, message.ID, text)
+		recorded = true
+	}
+	t.messages.Forget(chat.ID, runner.ID)
+	return recorded, nil
 }

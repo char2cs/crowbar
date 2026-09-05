@@ -68,6 +68,18 @@ func newRouterWith(eng handlers.SearchEngine) *gin.Engine {
 	return router
 }
 
+// newUnscopedRouterWith mounts the same routes WITHOUT the workspace-stashing
+// middleware, so resolveWorkspace's "nothing in reqscope" branch can be
+// exercised.
+func newUnscopedRouterWith(eng handlers.SearchEngine) *gin.Engine {
+	router := gin.New()
+	h := handlers.New(eng)
+	rg := router.Group("/v0/chats/:chatId")
+	rg.POST("/search", h.Search)
+	rg.POST("/search/replace", h.Replace)
+	return router
+}
+
 func do(
 	r *gin.Engine,
 	method, path string,
@@ -103,5 +115,35 @@ func TestSearchHandlers_MissingQuery(
 ) {
 	r := newRouter()
 	rec := do(r, http.MethodPost, "/v0/chats/chat1/search", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// doRaw posts a raw, possibly-malformed body — unlike do (which json.Marshals
+// a Go value, so it can never produce actually-invalid JSON), this is how the
+// ShouldBindJSON decode-failure branch gets exercised.
+func doRaw(
+	r *gin.Engine,
+	method, path, rawBody string,
+) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewReader([]byte(rawBody)))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestSearchHandlers_Search_BadJSON(
+	t *testing.T,
+) {
+	r := newRouter()
+	rec := doRaw(r, http.MethodPost, "/v0/chats/chat1/search", `{"query":`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSearchHandlers_Replace_BadJSON(
+	t *testing.T,
+) {
+	r := newRouter()
+	rec := doRaw(r, http.MethodPost, "/v0/chats/chat1/search/replace", `{"query":`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

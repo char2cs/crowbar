@@ -488,6 +488,11 @@ func extraRoutes() []string {
 		// resume too — same reason as the ws block above. A chat in the home is still a
 		// chat: its CLI can die and be resumed.
 		"POST " + home + "/chats/:id/resume",
+		// Same native-TUI/React-terminal split and permission-level write, mounted
+		// on the home group for the same reason as the rest of this block.
+		"POST " + home + "/chats/:id/switch-to-terminal",
+		"POST " + home + "/chats/:id/switch-to-native",
+		"PUT " + home + "/chats/:id/permission-level",
 		// An agent in a home chat has the same tools as one anywhere else, so the
 		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
 		// runner-keyed rename route beside it.

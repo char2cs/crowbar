@@ -259,7 +259,36 @@ func TestAnswer_AQuestionIsAnsweredByEchoingTheToolInputWithThePick(t *testing.T
 	assert.Equal(t, "Option B", updated.Answers["Which option do you prefer?"])
 }
 
+// TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay used to spawn codex
+// as its example of an unanswerable provider — true before a9ebb6f1 ("merge
+// codex into one mixed-transport descriptor"), which gave codex.yaml real
+// allow/deny reply templates for permission specifically so it could stop
+// being observed-only. Codex's hooks-only tool_pre is untouched by that merge
+// (codex.yaml declares no answer channel for it, same as every provider) and
+// is still the right example of the invariant this test names.
 func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
+	f := newFixture(t)
+	_, runnerID := f.spawn(t, "codex")
+
+	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+	deliveryID := deliver(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
+		"session_id": "s1", "tool_use_id": "tool-1", "tool_name": "shell",
+		"tool_input": map[string]any{"command": "touch PROOF"},
+	})
+
+	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	assert.False(t, waiting, "a provider with no answer channel for this event must never block its relay")
+}
+
+// TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI is the
+// positive half of a9ebb6f1's promise ("permission and elicitation are now
+// answerable" — see the commit's own message): codex's hooks-delivered
+// PermissionRequest and its api-transport item/permissions/requestApproval
+// share one canonical "permission" event and one reply: block, so a human's
+// Allow must reach a hooks-delivered relay exactly as it already does for
+// claude (TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI) — just
+// rendered through codex's own reply templates, not claude's.
+func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 
@@ -270,14 +299,17 @@ func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 	})
 
 	pending := pendingChoices(t, f, chatID)
-	require.Len(t, pending, 1, "the prompt is still OBSERVED, exactly as before")
+	require.Len(t, pending, 1)
 	_, waiting := f.usecase.PendingAnswer(deliveryID)
-	assert.False(t, waiting, "a provider with no answer channel must never block its relay")
-	assert.Empty(t, f.usecase.AnswerableChoiceIDs(chatID, pending),
-		"and its prompt must not advertise a button that would reach nobody")
+	assert.True(t, waiting, "a codex permission must hold its relay open")
+	assert.Contains(t, f.usecase.AnswerableChoiceIDs(chatID, pending), pending[0].ID)
 
-	err := f.usecase.AnswerChoice(f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	printed := await(f, deliveryID)
+	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
+	f.wait()
+
+	assert.JSONEq(t, `{"decision":"approved"}`, <-printed)
+	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
 func TestRegression_AnOrdinaryHookNeverHoldsItsRelay(t *testing.T) {

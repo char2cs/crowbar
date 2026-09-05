@@ -42,19 +42,40 @@ func (rs *Runners) displace(
 	// Nothing will ever close that turn where it stood, so anybody waiting on it is
 	// released here or waits for their context to die (inflight.Turns.Complete).
 	rs.inflightTurns.Complete(runner.ID)
-	rs.closeAbandonedTurn(ctx, vacated)
+	rs.closeAbandonedTurn(ctx, vacated, runner)
 	return nil
 }
 
 func (rs *Runners) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
+	runner agents.Runner,
 ) {
 	if chatID == "" {
 		return
 	}
+	// Salvage whatever THIS runner had already streamed — UNCONDITIONALLY, before
+	// the "is its turn still mine to close" guard below. Runner-scoped (see
+	// AbandonMessageForRunner/salvageUnfinished's own runner filter), so this
+	// can never sweep up a successor's turn; it is best-effort, and about
+	// recording text Crowbar already broadcast live via message_delta, not
+	// about the CHAT's current turn state at all. Gating it behind the same
+	// guard as the turn-state abandon below used to mean: whenever a successor
+	// had ALREADY taken the chat by the time this runner's belated exit landed
+	// (a provider switch racing its own outgoing CLI's death — SIGTERM is not
+	// synchronous), the salvage never ran, so that already-streamed text was
+	// recorded nowhere — and with no real message id ever landing in the
+	// ledger for it, the frontend's streaming bubble (matched by the streamed
+	// message's own id, see use-chat-messages.ts) could never be dismissed: a
+	// real, reported duplicate, live 2026-08-31.
+	if rs.turns != nil {
+		if _, err := rs.turns.AbandonMessageForRunner(ctx, chatID, runner); err != nil {
+			slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", runner.ID, "err", err)
+		}
+	}
 	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); err == nil {
-		return // someone else is on this chat now: its turn is not ours to close
+		return // someone else is on this chat now: its TURN STATE is not ours to close
 	}
 	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
 	// async work it last reported outstanding, and a plain StopTurn would leave that
@@ -135,7 +156,7 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		//
 		// The Exit above is SendWait, so the "is anyone still on this chat" read inside can
 		// no longer see the runner we have just reaped.
-		rs.closeAbandonedTurn(ctx, abandoned)
+		rs.closeAbandonedTurn(ctx, abandoned, r)
 	}
 	if err := rs.reconcilePromptJournalsOnBoot(ctx); err != nil {
 		return err
@@ -175,7 +196,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// Close a turn it left open — unless it had already been DISPLACED, in which case its
 	// chat (if it still had a turn to close) was dealt with at displacement time and
 	// CurrentChatID is now empty, meaning nowhere.
-	rs.closeAbandonedTurn(ctx, runner.CurrentChatID)
+	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 }
 
 func (rs *Runners) RetireChatRunners(

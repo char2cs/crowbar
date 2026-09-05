@@ -15,6 +15,7 @@ package runner
 
 import (
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -93,6 +94,10 @@ type Runners struct {
 	// having produced a turn. Wired at sweep start rather than at construction,
 	// because what it publishes through is the hub — a layer above this one.
 	promptSettled func(chatID, workspaceID, requestID string)
+
+	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
+	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
+	switchAwaitTimeout time.Duration
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an

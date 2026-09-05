@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -331,6 +332,22 @@ func TestAgentChat_OccSendErrorDisposition(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "c1", evt.Aggregate.ID)
 	})
+
+	// An error that is none of the three classified sentinels — a context
+	// cancellation, a driver-level failure, anything occSend was not written to
+	// retry — must fall through the switch's default and be surfaced AS-IS on the
+	// very first attempt, never mistaken for the retryable ErrPipelineFailed case.
+	t.Run("unclassified error surfaced as-is, not retried", func(t *testing.T) {
+		calls := 0
+		sentinel := errors.New("driver: connection reset")
+		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
+			calls++
+			return asynxModels.Event[domain.Chat]{}, sentinel
+		}
+		_, err := chat.OccSend(ctx, send, cmd)
+		require.ErrorIs(t, err, sentinel)
+		assert.Equal(t, 1, calls, "an unclassified error must not be retried")
+	})
 }
 
 func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
@@ -497,4 +514,78 @@ func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, chat.ErrNotFound,
 		"a chat that cannot be READ is not a chat that is gone")
+}
+
+// TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError pins the
+// "agentchat: <verb>: %w" wrap every ordinary async-Send mutation applies around
+// sendWithOCC's result: each command's own Validate refuses a chat that does not
+// exist with asynxModels.ErrValidation (never retried, per the OCC disposition
+// contract), and the repository method must let that error surface rather than
+// swallowing it — the caller needs the 422, not a silent zero-value Chat.
+func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1, 0).UTC()
+
+	t.Run("StartTurn", func(t *testing.T) {
+		_, err := repo.StartTurn(ctx, "no-such-chat", now)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	})
+
+	t.Run("StopTurn", func(t *testing.T) {
+		_, err := repo.StopTurn(ctx, "no-such-chat", now, 0)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	})
+
+	t.Run("SetSelection", func(t *testing.T) {
+		_, err := repo.SetSelection(ctx, "no-such-chat", "claude", "high")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	})
+
+	t.Run("SetPermissionLevel", func(t *testing.T) {
+		_, err := repo.SetPermissionLevel(ctx, "no-such-chat", "guarded")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	})
+
+	t.Run("SetPlacement", func(t *testing.T) {
+		_, err := repo.SetPlacement(ctx, "no-such-chat", "", 0)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	})
+}
+
+// TestAgentChat_Forget_RefusesAChatThatDoesNotExist pins Forget's own error wrap:
+// ax.Forget refuses an unknown aggregate with ErrValidation (asynx's own contract —
+// see asynx's TestForget_AggregateDoesNotExist_ReturnsErrValidation), and the
+// repository must surface that rather than reporting a silent no-op success for a
+// chat that was never there to delete.
+func TestAgentChat_Forget_RefusesAChatThatDoesNotExist(t *testing.T) {
+	ctx, repo := newRepo(t)
+	err := repo.Forget(ctx, "no-such-chat")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, asynxModels.ErrValidation)
+}
+
+// TestAgentChat_ListReads_PropagateStorageFailure proves ListChats and
+// ListByWorkspace behave like GetChat (TestGetChat_AReadFailureIsNotAMiss): a
+// read-model that cannot be READ must surface as an error, never as a silently
+// empty list — an empty result reads to a caller as "no chats", which is a very
+// different (and wrong) fact from "the database is unavailable right now".
+func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
+	ctx, repo, db, _ := newRepoWithDeps(t)
+	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
+	chat.WaitQuiescentForTest(repo)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.ListChats(ctx)
+	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
+
+	_, err = repo.ListByWorkspace(ctx, "w1")
+	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
 }

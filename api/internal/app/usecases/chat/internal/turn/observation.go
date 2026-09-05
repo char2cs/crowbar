@@ -43,14 +43,19 @@ func (t *Turns) handleObservation(
 			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
+		// Closing the last open tool call after the turn itself already closed is the
+		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
+		// zero too.
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPre:
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 	case engineagents.HookSubagentPost:
 		note(ctx, "subagent stopped",
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
-		engineagents.HookElicitation, engineagents.HookCompactPre:
+		engineagents.HookElicitation:
 		// Minted ONCE, threaded to both calls below — two independent
 		// choiceID/interruptionID draws each mint their own fallbackID()
 		// when PromptID is empty (Codex's own mapping never sets one),
@@ -69,10 +74,40 @@ func (t *Turns) handleObservation(
 		))
 
 		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
+	case engineagents.HookCompactPre:
+		note(ctx, "interrupted", t.activity.Interrupt(
+			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+		))
+		// /compact is delivered as an ordinary prompt (compact.go) that never
+		// confirms via a user_prompt hook, so no turn is ever open when this
+		// fires — which means Interrupt's own idle-chat handling
+		// (commands/interrupt.go) has ALREADY marked it resolved, instantly,
+		// regardless of whether compact_post goes on to arrive at all (it does
+		// not reliably: confirmed live, most compactions on a small chat never
+		// produce one). Settle the pending delivery on this same signal rather
+		// than waiting on compact_post or termwait's unrelated 30s timeout.
+		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		// The ledger record above is already resolved by the time any reader
+		// sees it (same idle-chat shortcut), so it can never drive a LIVE
+		// "Compacting…" indicator. This direct push is the only signal that
+		// can. compact_post is not reliable, so the receiving client is
+		// responsible for a bounded self-heal rather than waiting forever —
+		// see use-workspace-agent-chats-stream.ts.
+		if t.compactionStatus != nil {
+			t.compactionStatus(chat.ID, chat.WorkspaceID, true)
+		}
 	case engineagents.HookCompactPost:
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
 			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
+		// Settled already by compact_pre in the ordinary (idle-chat) case —
+		// this is the defensive twin for the day compaction happens mid-turn
+		// and compact_pre's Interrupt call found the chat genuinely busy.
+		// SettleDeliveryFor is a no-op if there is nothing left pending.
+		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		if t.compactionStatus != nil {
+			t.compactionStatus(chat.ID, chat.WorkspaceID, false)
+		}
 	}
 	return nil
 }

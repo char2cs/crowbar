@@ -249,6 +249,34 @@ func TestDiscard_TrackedFile(
 	assert.Equal(t, "original\n", string(data))
 }
 
+// TestDiscard_SkipsNonMatchingStatusEntriesBeforeMatch covers Discard's status
+// scan when the target file is not the first entry git status reports: the
+// loop must skip over every non-matching file rather than stopping (or acting)
+// on the first one, and still correctly classify the target once reached.
+func TestDiscard_SkipsNonMatchingStatusEntriesBeforeMatch(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	makeCommit(t, dir, "base.txt", "base\n", "init")
+
+	// "aaa-first.txt" sorts and is reported before "target.txt" in git status,
+	// so Discard's range over st.Files must pass over it via `continue` before
+	// reaching the actual target.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaa-first.txt"), []byte("first\n"), 0o600))
+	newPath := filepath.Join(dir, "target.txt")
+	require.NoError(t, os.WriteFile(newPath, []byte("untracked\n"), 0o600))
+
+	e := git.New()
+	err := e.Discard(ctx, dir, "target.txt")
+	require.NoError(t, err)
+
+	_, err = os.Stat(newPath)
+	assert.True(t, os.IsNotExist(err), "the actually-targeted file must be discarded")
+	_, err = os.Stat(filepath.Join(dir, "aaa-first.txt"))
+	assert.NoError(t, err, "a file that only precedes the target in the status list must be untouched")
+}
+
 func TestWorktreeList(
 	t *testing.T,
 ) {

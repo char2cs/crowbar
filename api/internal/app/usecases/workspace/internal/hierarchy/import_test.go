@@ -1,6 +1,60 @@
 package hierarchy
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
+)
+
+// prLinkProvider answers OpenPullRequests and nothing else; the embedded
+// interface satisfies the rest of engineprovider.Engine unimplemented, which is
+// safe because prBaseGraph calls only this one method.
+type prLinkProvider struct {
+	engineprovider.Engine
+	links []engineprovider.PRLink
+	err   error
+}
+
+func (p *prLinkProvider) OpenPullRequests(
+	_ context.Context,
+	_ string,
+) ([]engineprovider.PRLink, error) {
+	return p.links, p.err
+}
+
+// TestPrBaseGraph_FiltersLinksWithoutHeadOrBase pins the per-edge validation
+// directly on prBaseGraph, because it is invisible from CreateFromImport: an
+// empty base value is indistinguishable from an absent key at every read site
+// (chainFor stops on "", resolveImportParent falls back to the default branch
+// on ""), and an empty head is a key no branch name can ever look up.
+func TestPrBaseGraph_FiltersLinksWithoutHeadOrBase(t *testing.T) {
+	u := &hierarchyUsecase{provider: &prLinkProvider{links: []engineprovider.PRLink{
+		{Head: "feature/x", Base: "develop"},
+		{Head: "", Base: "y"},
+		{Head: "z", Base: ""},
+	}}}
+
+	base := u.prBaseGraph(context.Background(), "/repo")
+
+	if len(base) != 1 || base["feature/x"] != "develop" {
+		t.Fatalf("only the edge with BOTH a head and a base survives: %v", base)
+	}
+}
+
+// TestPrBaseGraph_ProviderError_YieldsAnEmptyGraph pins the degrade the whole
+// import rests on: an unreachable provider must not abort the batch, so the
+// graph comes back empty rather than as an error.
+func TestPrBaseGraph_ProviderError_YieldsAnEmptyGraph(t *testing.T) {
+	u := &hierarchyUsecase{provider: &prLinkProvider{err: errors.New("boom")}}
+
+	base := u.prBaseGraph(context.Background(), "/repo")
+
+	if len(base) != 0 {
+		t.Fatalf("a provider failure must yield an empty graph: %v", base)
+	}
+}
 
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {

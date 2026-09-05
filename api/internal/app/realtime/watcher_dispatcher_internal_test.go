@@ -47,6 +47,7 @@ func (s *capturingSubscriber) PushAgentChatTerminalWait(_, _ string, _ *dto.Agen
 
 func (s *capturingSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
 func (s *capturingSubscriber) PushAgentChatMessageDelta(_, _, _, _ string) {}
+func (s *capturingSubscriber) PushAgentChatCompaction(_, _ string, _ bool) {}
 func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string)           {}
 
 func (s *capturingSubscriber) PushGit(

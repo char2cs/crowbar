@@ -199,8 +199,13 @@ func (t *Turns) closeTurnFromStop(
 	// ends its turn right here and goes quiet until that work reports back; clearing
 	// Working on the strength of this hook alone is what darkened the spinner under a
 	// live subagent. A provider that reports no such level sends 0 and gets exactly
-	// the turn-only behaviour it had before.
-	stopped, err := t.chats.StopTurn(ctx, chat.ID, time.Now(), ev.AsyncWork)
+	// the turn-only behaviour it had before — UNLESS Crowbar's own tracking (the same
+	// tool/subagent open-close pairing OpenWork already answers termwait's idle check
+	// from) can already see the work that CLI never restates. This is only ever
+	// consulted at zero, so a provider that DOES restate a level is never second-guessed
+	// by it.
+	asyncWork := t.fallbackAsyncWork(ctx, chat.ID, ev.AsyncWork)
+	stopped, err := t.chats.StopTurn(ctx, chat.ID, time.Now(), asyncWork)
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 	}
@@ -210,6 +215,60 @@ func (t *Turns) closeTurnFromStop(
 			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
 	}
 	return appendErr
+}
+
+// fallbackAsyncWork returns reported unchanged unless it is zero, in which case OpenWork
+// (a tool call or subagent this chat already opened and has not yet closed) stands in for
+// a self-reported level the provider never sent.
+func (t *Turns) fallbackAsyncWork(ctx context.Context, chatID string, reported int) int {
+	if reported != 0 {
+		return reported
+	}
+	open, err := t.OpenWork(ctx, chatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: ingest hook: check open work", "chat_id", chatID, "err", err)
+		return reported
+	}
+	if open {
+		return 1
+	}
+	return reported
+}
+
+// restateAsyncWork re-asks StopTurn to fold Working from the CURRENT open-work level —
+// the other half of closeTurnFromStop's OpenWork fallback. A CLI that never restates its
+// own outstanding count leaves nothing to tell Crowbar when the LAST tracked tool call or
+// subagent finally closes, so without this the chat would stay lit until the next turn
+// happened to start and stop. It is a no-op while a turn is genuinely open (that turn's
+// own eventual turn_stop is what restates it) and a no-op when the level hasn't actually
+// changed, so this never appends a redundant event on the hot path (every tool_pre/post).
+func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
+	chat, err := t.chats.GetChat(ctx, chatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: restate async work: get chat", "chat_id", chatID, "err", err)
+		return
+	}
+	if chat.CurrentTurnStarted != nil {
+		return
+	}
+	open, err := t.OpenWork(ctx, chatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: restate async work: open work", "chat_id", chatID, "err", err)
+		return
+	}
+	level := 0
+	if open {
+		level = 1
+	}
+	if level == chat.AsyncWork {
+		return
+	}
+	stopped, err := t.chats.StopTurn(ctx, chatID, time.Now(), level)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: restate async work: stop turn", "chat_id", chatID, "err", err)
+		return
+	}
+	t.work.Set(chatID, stopped.Working)
 }
 
 func (t *Turns) AwaitTurnComplete(
@@ -285,6 +344,27 @@ func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
 		ctx, chatID, id, engineagents.InterruptStopped, "", now,
 	); err != nil {
 		return fmt.Errorf("agent: record stop: resolve interruption: %w", err)
+	}
+	return nil
+}
+
+// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
+// provider, model or effort — Crowbar's own doing, the same as RecordStop,
+// never something a provider hook reports. kind is one of
+// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged;
+// detail is the new value. Opened and resolved in the same call, back to
+// back, exactly like RecordStop: Crowbar already knows the full story the
+// instant it decides to make the change, so there is no later event to
+// close it on. The caller decides whether the value actually changed —
+// this method has no "old" to compare against, so it always records.
+func (t *Turns) RecordChatSwitch(ctx context.Context, chatID, kind, detail string) error {
+	now := time.Now()
+	id := "interrupt-" + fallbackID()
+	if err := t.activity.Interrupt(ctx, chatID, id, kind, detail, now); err != nil {
+		return fmt.Errorf("agent: record chat switch: interrupt: %w", err)
+	}
+	if err := t.activity.ResolveInterruption(ctx, chatID, id, kind, detail, now); err != nil {
+		return fmt.Errorf("agent: record chat switch: resolve interruption: %w", err)
 	}
 	return nil
 }

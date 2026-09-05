@@ -925,6 +925,39 @@ func TestNew_DoesNotHealWhenTheMarkerIsPresent(t *testing.T) {
 	require.NoError(t, err, "the event log was never enumerated: the history was already there")
 }
 
+// TestNew_SkipsOneUnreplayableAggregateButHealsTheRest proves the heal is
+// resilient to a single bad aggregate in the shared event log — a pre-cutover
+// payload the current reducer cannot fold, or any other corrupt entry: r1's
+// real history must still heal and construction must still succeed, but the
+// marker must stay UNSET (strict, per TestNew_DoesNotMarkBuiltWhenTheHealCannotWrite)
+// so the skipped aggregate is retried, not silently written off, on the next boot.
+func TestNew_SkipsOneUnreplayableAggregateButHealsTheRest(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("r1", "s1", clock(11))
+	h.drain()
+
+	// A second aggregate whose stored bytes were never written by an
+	// agents.Runner command — stands in for a pre-cutover AgentRunner payload
+	// the new reducer cannot fold, or any other unreadable event.
+	require.NoError(t, h.es.Append(h.ctx, "events:poison", 1, []byte("{not valid json")))
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.NoError(t, err, "one unreplayable aggregate must not fail construction")
+
+	chatID, err := st.ChatForSession(h.ctx, "w1", "s1")
+	require.NoError(t, err, "r1's real history must still heal")
+	assert.Equal(t, "c1", chatID)
+
+	assert.Zero(t, markerCount(t, db),
+		"a partial heal must not be recorded as built, or the skipped aggregate is never retried")
+}
+
 // An idle machine is the steady state, not a symptom: an empty live table is a
 // real answer, and reading it must not drag the whole event log through a replay.
 func TestAllLive_EmptyTableIsTheAnswer(t *testing.T) {
@@ -1058,3 +1091,61 @@ func TestNew_RejectsNilWatch(t *testing.T) {
 }
 
 func noopBroadcast(_ store.RunnerEvent) {}
+
+// subscribeFailsOnCall wraps a real Asynx and refuses its Nth Subscribe call,
+// so a test can force EITHER of New's two Subscribe-registering steps to fail
+// without needing a real asynx failure mode. New calls registerStoreProjection
+// before registerHubProjection, so failOn:1 targets the first and failOn:2 the
+// second — proving each one's OWN error is what New surfaces, not just "some
+// error happened".
+type subscribeFailsOnCall struct {
+	asynx.Asynx[agents.Runner]
+	failOn int
+	calls  int
+}
+
+func (f *subscribeFailsOnCall) Subscribe(
+	pattern string,
+	handler asynxModels.ProjectionHandler[agents.Runner],
+	opts ...asynxModels.SubscriptionOpt[agents.Runner],
+) (string, error) {
+	f.calls++
+	if f.calls == f.failOn {
+		return "", errors.New("bus refused the subscription")
+	}
+	return f.Asynx.Subscribe(pattern, handler, opts...)
+}
+
+// TestNew_StoreProjectionSubscribeFailurePropagates pins that a failure
+// registering the READ-MODEL projection aborts construction with ITS OWN
+// error, not a generic one — registerStoreProjection is the first of New's two
+// Subscribe calls.
+func TestNew_StoreProjectionSubscribeFailurePropagates(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	_, err = store.New(db, es, &subscribeFailsOnCall{Asynx: newAx(t, es), failOn: 1}, noopBroadcast)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner store projection: subscribe:",
+		"the failure must be attributed to the read-model projection specifically")
+}
+
+// TestNew_HubProjectionSubscribeFailurePropagates is the sibling for the SECOND
+// Subscribe call: the read-model projection registers fine, and only the hub
+// (WS fan-out) projection fails — pinning that New still surfaces it, rather
+// than treating registerStoreProjection's success as construction being done.
+func TestNew_HubProjectionSubscribeFailurePropagates(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	_, err = store.New(db, es, &subscribeFailsOnCall{Asynx: newAx(t, es), failOn: 2}, noopBroadcast)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner hub projection: subscribe:",
+		"the failure must be attributed to the hub projection, reached only after the read-model one succeeded")
+}

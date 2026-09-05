@@ -323,6 +323,74 @@ func TestGHProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestPullRequestForBranch_MalformedJSON covers parsePRList's error branch as
+// reached from PullRequestForBranch: gh returning something that is not a JSON
+// array must surface as a wrapped "list-prs: parse" error, not panic or
+// silently report no PR.
+func TestPullRequestForBranch_MalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "not json at all", code: 0},
+	}))
+	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github: list-prs: parse")
+}
+
+// TestOpenPullRequests_GHError covers OpenPullRequests' runGH error branch: a
+// failing `gh pr list` must surface as a wrapped "open-prs" error.
+func TestOpenPullRequests_GHError(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "not authenticated", code: 1},
+	}))
+	_, err := g.OpenPullRequests(context.Background(), dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github: open-prs")
+}
+
+// TestOpenPullRequests_MalformedJSON covers OpenPullRequests' parsePRList
+// error branch, distinct from PullRequestForBranch's — the two callers wrap the
+// same parse failure with different messages ("open-prs: parse" vs
+// "list-prs: parse"), so each needs its own proof.
+func TestOpenPullRequests_MalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "not json at all", code: 0},
+	}))
+	_, err := g.OpenPullRequests(context.Background(), dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github: open-prs: parse")
+}
+
+// TestBetterPR_OpenBeatsClosedRegardlessOfNumber covers betterPR's
+// aOpen-and-not-bOpen branch specifically: an open PR must win even when the
+// closed one has a higher number, which TestBetterPR_AGreaterOrEqualNumber
+// (both closed) and TestBetterPR_BothOpen_BHigher (both open) do not exercise.
+func TestBetterPR_OpenBeatsClosedRegardlessOfNumber(t *testing.T) {
+	a := &prJSON{Number: 1, State: "OPEN"}
+	b := &prJSON{Number: 99, State: "CLOSED"}
+	assert.Equal(t, a, betterPR(a, b), "the open PR must win even with a lower number")
+}
+
+// TestWithWaitDelay_SetsWaitDelayOnConstructedCmd covers the wrapper New()
+// actually uses in production (NewWithExec's fakes bypass it entirely): every
+// *exec.Cmd it builds must carry WaitDelay, so a killed subprocess whose pipes
+// are held open by a grandchild still releases instead of leaking.
+func TestWithWaitDelay_SetsWaitDelayOnConstructedCmd(t *testing.T) {
+	var gotName string
+	inner := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		gotName = name
+		return exec.CommandContext(ctx, name, args...)
+	}
+
+	wrapped := withWaitDelay(inner)
+	cmd := wrapped(context.Background(), "echo", "hi")
+
+	assert.Equal(t, "echo", gotName, "the inner execFn must still be invoked with the same args")
+	assert.Equal(t, waitDelay, cmd.WaitDelay, "every constructed Cmd must carry the wait delay")
+}
+
 func TestGHProvider_OwnerAvatarURL_SlugError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(fakeCmd("", 1)) // git remote fails

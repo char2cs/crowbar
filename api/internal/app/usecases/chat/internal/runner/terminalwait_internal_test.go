@@ -25,7 +25,7 @@ func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	rs.turns = noTurns{}
 	rs.termWait = sweepRecorder{swept: swept}
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil)
 
 	<-swept
 }
@@ -78,5 +78,7 @@ func (seeingTerminal) Screen(string, uint64) (string, uint64, bool) { return "",
 type noTurns struct{ Turns }
 
 func (noTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+
+func (noTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 
 func (noTurns) CloseStalledTurn(context.Context, seam.Stall) {}

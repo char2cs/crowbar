@@ -56,7 +56,8 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 	}
 	for _, i := range activity.Interruptions {
 		out.Interruptions = append(out.Interruptions, dto.AgentInterruptionDTO{
-			ID: i.ID, TurnID: i.TurnID, Seq: i.Seq, Kind: i.Kind, Detail: i.Detail,
+			ID: i.ID, TurnID: i.TurnID, Seq: i.Seq, DisplayOrder: i.DisplayOrder,
+			Kind: i.Kind, Detail: i.Detail,
 			At: i.At, ResolvedAt: i.ResolvedAt,
 		})
 	}

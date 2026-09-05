@@ -39,6 +39,77 @@ func TestGet_UnknownAgentIsReported(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrUnknownAgent)
 }
 
+const minimalOverride = `
+id: probe
+spawn:
+  cmd: probe-cli
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
+// TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges is
+// the fix for a live-reported bug: Codex's streaming view visibly stalled
+// mid-reply, self-correcting only once the turn ended, while Claude streamed
+// smoothly. Get sits on the ingest hot path (once per hook, including once
+// per streamed delta), and protocol.Resolve is deliberately uncached — a full
+// disk read, YAML parse and rule-validate on every call, over a millisecond
+// for codex's own descriptor, measured. Codex's much higher per-second event
+// rate over its api-transport connection paid that cost often enough to fall
+// behind the incoming stream; Claude's hooks-paced rate never did. This
+// proves the cache holds an override's resolved descriptor stable across
+// repeated Get calls — corrupting the override on disk WITHOUT changing its
+// mtime must not be noticed, because noticing would mean Resolve ran again.
+func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "descriptors")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "probe.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(minimalOverride), 0o600))
+
+	svc := agents.New()
+	ctx := context.Background()
+	first, err := svc.Get(ctx, home, "probe")
+	require.NoError(t, err)
+	assert.Equal(t, "probe", first.ID())
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	stableModTime := info.ModTime()
+
+	// Corrupted, but pinned back to the EXACT mtime Get already saw — no
+	// sleep, no timing dependency: the cache is asked to distinguish "this
+	// file's content is different" (which it cannot, and must not try to)
+	// from "this file's mtime is different" (which it can, cheaply).
+	require.NoError(t, os.WriteFile(path, []byte("id: [unclosed"), 0o600))
+	require.NoError(t, os.Chtimes(path, stableModTime, stableModTime))
+
+	_, err = svc.Get(ctx, home, "probe")
+	require.NoError(t, err, "THE FIX: an unchanged mtime serves the cached descriptor, "+
+		"never re-reading a file that Get has no reason to believe changed")
+
+	// Now genuinely invalidate it: a real mtime change must still be caught,
+	// or this would not be a cache with correct invalidation — it would just
+	// be permanently stale, and a developer's edited override would never
+	// take effect without a daemon restart.
+	changedModTime := stableModTime.Add(time.Second)
+	require.NoError(t, os.Chtimes(path, changedModTime, changedModTime))
+
+	_, err = svc.Get(ctx, home, "probe")
+	assert.Error(t, err, "a real mtime change must invalidate the cache and surface the now-broken override")
+}
+
 func TestAgent_ReportsItsIdentityAndDisplay(t *testing.T) {
 	a := get(t, "claude")
 
@@ -938,6 +1009,53 @@ config_injection:
 		"acme", "resume", "sess-1",
 		"-c", `hooks.Stop=[{hooks=[{type="command",command="/bin/crowbar hook turn_stop --segment seg-1"}]}]`,
 	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
+}
+
+// TestAgent_APIAttachArgvCarriesSpawnArgs pins a live-confirmed gap: codex's
+// switch-to-terminal forks `codex resume {id}` via APIAttachArgv, which never
+// applied spawn.args — unlike a normal interactive spawn (spawn.Plan), which
+// always puts them right after the executable. Codex's spawn.args carries
+// --dangerously-bypass-hook-trust, the only thing that makes codex skip its
+// interactive per-hash hook-trust confirmation screen; config_injection (see
+// the sibling test above) gives every attached resume a fresh per-segment
+// hash, so without this the attached TUI parks on that confirmation screen
+// forever instead of reaching the composer. spawn.args are a fact about any
+// interactive invocation of the provider's own executable, not about which
+// entry point is building the argv — the attach path must carry them exactly
+// as the primary spawn path does.
+func TestAgent_APIAttachArgvCarriesSpawnArgs(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-attach-spawn-args", `
+id: api-attach-spawn-args
+spawn:
+  cmd: acme
+  interactive_required: true
+  args:
+    - "--trust-workaround"
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    attach: [acme, resume, "{session_id}"]
+    handshake: { call: initialize }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-attach-spawn-args")
+	require.NoError(t, err)
+
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock", Session: "sess-1"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "--trust-workaround", "resume", "sess-1"}, attachArgv,
+		"spawn.args must land right after the executable, before the attach subcommand's own args")
+
+	// serve is a genuinely different subcommand (app-server, not an
+	// interactive TUI) — spawn.args are interactive-only flags and must NOT
+	// leak onto it.
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv,
+		"spawn.args are interactive-TUI-only and must not appear on the serve argv")
 }
 
 // TestAgent_APIServeArgvCarriesMCPInjection pins the fix for a live-confirmed

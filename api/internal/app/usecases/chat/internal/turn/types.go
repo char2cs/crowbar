@@ -75,4 +75,10 @@ type Runners interface {
 	// delivery of an event the descriptor declares api-owned — see its own
 	// comment for why that combination means the delivery is a redundant echo.
 	HasLiveAPIConnection(runnerID string) bool
+	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
+	// right now, if it has one. handleObservation calls this on compact_post:
+	// compaction never confirms via a user_prompt hook or a ledger turn, so
+	// without this the composer would sit on termwait's generic 30s quiet
+	// timeout even though the compaction itself already finished.
+	SettleDeliveryFor(ctx context.Context, chatID, runnerID string) error
 }

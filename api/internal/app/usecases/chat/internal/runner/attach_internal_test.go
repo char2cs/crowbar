@@ -57,6 +57,21 @@ func (s stubActivityForAttach) LastTurnForSession(
 	return time.Time{}, s.found, nil
 }
 
+// stubActivityBySession answers LastTurnForSession by exact sessionID match
+// against wantSession — unlike stubActivityForAttach's session-agnostic
+// canned bool, this lets a test tell apart a call made with the runner row's
+// durable CurrentSession from one made with an apiconn's own tctx.Session.
+type stubActivityBySession struct {
+	agentactivity.EventStore
+	wantSession string
+}
+
+func (s stubActivityBySession) LastTurnForSession(
+	_ context.Context, _, _, sessionID string,
+) (time.Time, bool, error) {
+	return time.Time{}, sessionID == s.wantSession, nil
+}
+
 // fakeTermForAttach is a minimal seam.TerminalCommander: it records every
 // CreateCommand call's argv and lets a test trigger onExit synchronously,
 // mirroring a real PTY dying on its own.
@@ -306,6 +321,56 @@ func TestSwitchToTerminal_ReturnsErrNativeViewNotYetAvailable_WhenSessionNeverCo
 	_, stillConnected := rs.apiConns.get("runner-1")
 	require.True(t, stillConnected, "a refused switch must not tear anything down")
 	require.Equal(t, 0, term.callCount(), "nothing must be forked when the refusal fires first")
+}
+
+// TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession
+// pins a real bug reported live: a codex chat with a genuinely completed turn
+// (visible in the transcript) still got ErrNativeViewNotYetAvailable back from
+// SwitchToTerminal. Root cause: the guard checked conn.tctx.Session — an
+// apiconn field set once, at establish, and never reassigned — while every
+// turn is actually recorded (OpenTurn/CloseTurn, internal/turn) under the
+// runner row's durable CurrentSession. The two can diverge after establish
+// (session_start binds CurrentSession asynchronously, off the hook/event
+// path; tctx.Session never follows it), so a session that HAS completed a
+// turn under CurrentSession was refused because tctx.Session named a
+// different, turn-less id. This test pins CurrentSession and tctx.Session to
+// two DIFFERENT values, with a turn recorded only under CurrentSession, and
+// asserts the switch succeeds.
+func TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession(t *testing.T) {
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage()
+	})
+	agent := attachTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	require.NoError(t, err)
+	defer apiConn.Close()
+
+	term := &fakeTermForAttach{}
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		runnerStore: stubRunnerStoreForAttach{
+			runner: engineagents.Runner{
+				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test",
+				CurrentSession: "durable-sess", // the id turns are actually recorded under
+			},
+		},
+		turns:    stubTurnsForAttach{working: false},
+		activity: stubActivityBySession{wantSession: "durable-sess"},
+		term:     term,
+	}
+	rs.apiConns.set("runner-1", &apiconn{
+		driver: apiConn, ctx: ctx, agent: agent,
+		// tctx.Session deliberately differs from CurrentSession — the stale,
+		// establish-time copy the pre-fix guard checked instead.
+		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+	})
+
+	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
+	require.NoError(t, err)
+	require.NotEmpty(t, termSessID)
+	require.Equal(t, 1, term.callCount(), "the guard's stale-session check must not block a session that has turned")
 }
 
 func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {

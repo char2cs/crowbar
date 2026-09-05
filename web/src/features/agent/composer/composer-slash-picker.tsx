@@ -1,4 +1,4 @@
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { useEffect, useRef } from 'react'
 import type { SlashCatalogItem } from '@/features/agent/api/agent-api'
 import type { SlashCatalogState } from '@/features/agent/hooks/use-slash-catalog'
 import { cn } from '@/lib/utils'
@@ -29,13 +29,16 @@ export function ComposerSlashPicker({
   selected,
   onSelect,
 }: ComposerSlashPickerProps) {
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // Keep the highlighted row in view as the arrow keys move it — the list
+  // scrolls, the pointer never has to hunt for where it landed.
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('.opt.on')?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+
   return (
-    <div className="slash" id="agent-skill-picker" role="listbox" aria-label="Skills">
-      {state.state === 'loading' && (
-        <div className="state">
-          <FlickerSpinner className="size-3" />
-        </div>
-      )}
+    <div ref={listRef} className="slash" id="agent-skill-picker" role="listbox" aria-label="Skills">
       {state.state === 'error' && (
         <div className="state" role="alert">
           {state.unavailable ? 'No skill list from this provider.' : state.error.message}

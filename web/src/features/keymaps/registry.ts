@@ -24,6 +24,7 @@ export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_NEW_FILE = 'tabs.newFile'
 export const AGENT_NEW_CHAT = 'agent.newChat'
 export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
+export const AGENT_TOGGLE_VIEW_MODE = 'agent.toggleViewMode'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
 export const TAB_CLOSE = 'tabs.closeActive'
 
@@ -124,9 +125,10 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Cycles the OPEN chat to the next enabled provider, the way ⌘-tab cycles
-    // apps. It only does anything while a chat pane is the focused, visible one
-    // (agent-chat-pane gates it) — elsewhere the chord is free for other uses.
+    // Toggles the OPEN chat between its Chat and Terminal surfaces — the same
+    // pair ViewSwitcher's own tabs flip between. It only does anything while a
+    // chat pane is the focused, visible one (agent-chat-pane gates it) —
+    // elsewhere the chord is free for other uses.
     //
     // Deliberately NOT mod+`, the obvious chord for this. macOS reserves it for
     // "move focus to next window in application" and consumes it in AppKit before
@@ -136,10 +138,22 @@ export const COMMANDS: Command[] = [
     //
     // mod+/ collides with "toggle comment" in editors, which is fine: this fires
     // only while a CHAT pane is focused, never over the editor.
+    id: AGENT_TOGGLE_VIEW_MODE,
+    label: 'Toggle chat / terminal view',
+    category: 'Chats',
+    defaultChord: 'mod+/',
+    liveEditable: true,
+  },
+  {
+    // Used to own mod+/ (cycles the open chat to the next enabled provider, the
+    // way ⌘-tab cycles apps) — that chord now toggles the chat/terminal view
+    // instead (AGENT_TOGGLE_VIEW_MODE above). The action itself is untouched and
+    // still fully wired in agent-chat-pane; it just ships with no default chord
+    // until a user assigns one in Settings → Keybindings.
     id: AGENT_CYCLE_PROVIDER,
     label: 'Cycle chat provider',
     category: 'Chats',
-    defaultChord: 'mod+/',
+    defaultChord: '',
     liveEditable: true,
   },
   {

@@ -32,13 +32,18 @@ func (c Interrupt) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next := advance(current, c.ChatID)
 
 	idle := next.Turn == nil
+	displayOrder := next.Seq
+	if !idle {
+		displayOrder = next.Turn.DisplayOrder
+	}
 	item := domain.ActivityInterruption{
-		ID:     c.ID,
-		ChatID: c.ChatID,
-		Seq:    next.Seq,
-		Kind:   c.Kind,
-		Detail: c.Detail,
-		At:     c.Now,
+		ID:           c.ID,
+		ChatID:       c.ChatID,
+		Seq:          next.Seq,
+		DisplayOrder: displayOrder,
+		Kind:         c.Kind,
+		Detail:       c.Detail,
+		At:           c.Now,
 	}
 	if idle {
 		item.ResolvedAt = at(c.Now)
@@ -87,14 +92,19 @@ func (c ResolveInterruption) EmitEvent(current *domain.ChatActivity) domain.Chat
 	next := advance(current, c.ChatID)
 	item, known := next.Interruptions[c.ID]
 	if !known {
+		displayOrder := next.Seq
+		if next.Turn != nil {
+			displayOrder = next.Turn.DisplayOrder
+		}
 		item = domain.ActivityInterruption{
-			ID:     c.ID,
-			TurnID: currentTurn(&next),
-			ChatID: c.ChatID,
-			Seq:    next.Seq,
-			Kind:   c.Kind,
-			Detail: c.Detail,
-			At:     c.Now,
+			ID:           c.ID,
+			TurnID:       currentTurn(&next),
+			ChatID:       c.ChatID,
+			Seq:          next.Seq,
+			DisplayOrder: displayOrder,
+			Kind:         c.Kind,
+			Detail:       c.Detail,
+			At:           c.Now,
 		}
 	}
 	delete(next.Interruptions, c.ID)

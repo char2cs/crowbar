@@ -11,7 +11,7 @@ import {
   switchToTerminal,
 } from '@/features/agent/api/agent-api'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
-import { AGENT_CYCLE_PROVIDER } from '@/features/keymaps/registry'
+import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
@@ -203,6 +203,9 @@ export function AgentChatPane({
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
   const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
+  // Live mid-compaction, from the direct WS push — never derived from
+  // `activity`. See AgentChatsState.compacting's own doc comment for why.
+  const compacting = useStore(store, (s) => s.agentChats.compacting[shownChatId] ?? false)
   const turnRevision = useStore(store, (s) => s.agentChats.turnRevision[shownChatId] ?? 0)
   const title = useStore(
     store,
@@ -243,12 +246,14 @@ export function AgentChatPane({
   // a provider built-in it never does — see AgentChatsState.settledPrompts.
   const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
 
-  // The message the agent is mid-way through saying. Selected as two PRIMITIVES
-  // rather than as the object: the object is replaced on every frame — roughly
-  // 1.4 a second — so a selector returning it would re-run every consumer on
-  // identity alone even when the text had not moved.
-  const streamingId = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.id)
-  const streamingText = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId]?.text)
+  // The message(s) the agent is mid-way through saying — an array because a
+  // turn can have more than one open item (Codex; Claude is always 0-or-1).
+  // One selector, not per-field primitives: this is an Immer store, so the
+  // array reference itself only changes when an entry's content actually
+  // does (structural sharing — including Immer's own no-op detection when an
+  // upsert writes byte-identical text, e.g. a resent frame), and narrowed to
+  // this ONE chat's slot so another chat's streaming update never reaches it.
+  const streamingMessages = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId])
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
@@ -457,6 +462,17 @@ export function AgentChatPane({
     [store, shownChatId],
   )
 
+  // Bounds streamingMessages[shownChatId]: once useChatMessages reports an id
+  // the ledger now confirms for real, its store-side entry is dead weight —
+  // see pruneAgentChatStreamingMessages' own doc comment for why this is safe
+  // where clearing the whole array on a turn boundary was not.
+  const handleStreamingSettled = useCallback(
+    (ids: string[]) => {
+      store.getState().pruneAgentChatStreamingMessages(shownChatId, ids)
+    },
+    [store, shownChatId],
+  )
+
   const handlePromptSpawned = useCallback(async () => {
     await adopt()
   }, [adopt])
@@ -627,6 +643,13 @@ export function AgentChatPane({
         fail()
         return false
       }
+      // A switch never toggles `presentation` itself, so a chat already ON the
+      // terminal surface stays there — but the runner underneath just changed,
+      // and only enterTerminal knows whether THIS provider needs a real
+      // switchToTerminal (non-hotswap) or is already showing a live PTY
+      // (hotswap). Skipped entirely on the far more common case of switching
+      // while on the chat surface, where there is nothing to re-attach yet.
+      if (presentation === 'terminal') enterTerminal(providerId)
       return true
     } catch (err: unknown) {
       fail()
@@ -729,6 +752,53 @@ export function AgentChatPane({
     () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
   )
 
+  // Flips presentation to 'terminal' — but a HOTSWAP provider's terminal is
+  // already live (a pure rendering choice), where a provider that hands its
+  // turn over instead (codex: attach declared, hotswap false) has no terminal
+  // session to render until Crowbar asks for one over switchToTerminal. Every
+  // path onto the terminal surface shares this check — the escort below, the
+  // wait banner's own button (openTerminalFromBanner), and the composer's
+  // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
+  // view with nothing behind it, the way calling setPresentation alone would.
+  // A PLAIN function, not an effect event: it is called from effect events
+  // (onWaitEdge below) as well as from plain click handlers (the banner
+  // button, the composer's terminal link), and useEffectEvent's own rule
+  // restricts it to being called only from effects/effect events in this
+  // component. Redefined every render, so it still always closes over the
+  // current provider list — nothing lists it in a dependency array, so there
+  // is no stale-closure risk to trade away by not memoizing it.
+  // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
+  // when the chat is already on the terminal surface and the switch itself
+  // never re-runs this gate — chatProviderId is this render's value from
+  // BEFORE the switch, so the caller passes the provider it just switched TO
+  // instead of relying on a re-render to catch up first.
+  const enterTerminal = (providerIdOverride?: string) => {
+    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
+    const hotswap = chatProvider ? chatProvider.hotswap === true : true
+    if (hotswap) {
+      setPresentation('terminal')
+      return
+    }
+    void (async () => {
+      try {
+        await switchToTerminal(wsId, shownChatId)
+        await adopt()
+        setPresentation('terminal')
+      } catch (err: unknown) {
+        // Left where they were — moving them to a view that never actually came
+        // up would be worse than staying put. But nothing else reports this
+        // failure (there was no "whatever surfaces the request's own error
+        // today" this comment used to assume): a refused switch — a turn still
+        // in flight, or codex before its first completed turn ever wrote a
+        // rollout to resume — used to be a click that silently did nothing,
+        // exactly the failure mode toastSpawnFailure exists to prevent
+        // elsewhere in this file. Same fix, here too.
+        const name = chatProvider?.displayName ?? providerIdOverride ?? chatProviderId
+        toastSpawnFailure(err, name, 'open the terminal view for')
+      }
+    })()
+  }
+
   // What happens on each edge of "your agent is blocked in the terminal".
   //
   // An EFFECT EVENT, so it reads the current presentation and visibility without
@@ -750,7 +820,7 @@ export function AgentChatPane({
       // user is deliberately watching, to show them something already in view.
       if (presentation !== 'chat' || !userIsWatching()) return
       // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: this is a NAVIGATION on an edge, not a derivation. The surface must outlive the value that moved it: when `waiting` clears we may deliberately NOT switch back, so `presentation` cannot be computed from it.
-      setPresentation('terminal')
+      enterTerminal()
       escortRef.current = 'sent'
       return
     }
@@ -812,17 +882,7 @@ export function AgentChatPane({
       return
     }
     if (next === 'terminal') {
-      void (async () => {
-        try {
-          await switchToTerminal(wsId, shownChatId)
-          await adopt()
-          setPresentation('terminal')
-        } catch {
-          // Left where they were — a blocked/unavailable switch is reported by
-          // whatever surfaces the request's own error today, not by moving them
-          // to a view that never actually came up.
-        }
-      })()
+      enterTerminal()
       return
     }
     if (presentation === 'terminal') {
@@ -839,6 +899,34 @@ export function AgentChatPane({
     setPresentation(next)
   }
 
+  // ⌘/ used to cycle the provider (see the effect above); it now toggles this
+  // chat between its Chat and Terminal surfaces instead, the same pair
+  // ViewSwitcher's own tabs flip between — this is just the keyboard route onto
+  // the same chooseSurface call.
+  //
+  // Same guards as the cycle-provider effect above, for the same reasons: a
+  // focused xterm stopPropagations a bubble-phase listener, so this must be a
+  // CAPTURE-phase window listener; and a retained (hidden) workspace stays
+  // mounted under display:none, so the wsId check keeps a background chat from
+  // swallowing the key and flipping a surface nobody can see.
+  const toggleViewChord = useEffectiveChordMap()[AGENT_TOGGLE_VIEW_MODE]
+  const onToggleViewMode = useEffectEvent(() => {
+    chooseSurface(presentation === 'terminal' ? 'chat' : 'terminal')
+  })
+
+  useEffect(() => {
+    if (!isActivePane || !isVisible || !toggleViewChord) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!eventMatchesChord(e, toggleViewChord)) return
+      if (getActiveWorkspaceId() !== wsId) return
+      e.preventDefault()
+      e.stopPropagation()
+      onToggleViewMode()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [isActivePane, isVisible, toggleViewChord, wsId])
+
   // The banner's own button. They are going because Crowbar asked them to, so it
   // owes them the way back — but it did not move them, so it must not move them
   // back unasked either. 'released' is exactly that: offer, never take.
@@ -853,7 +941,7 @@ export function AgentChatPane({
       return
     }
     escortRef.current = 'released'
-    setPresentation('terminal')
+    enterTerminal()
   }
 
   // Clicking the gutters or the column's padding focuses the terminal.
@@ -922,18 +1010,32 @@ export function AgentChatPane({
       onMouseDown={focusTerminalFromEmptySpace}
       className="flex h-full w-full flex-col"
     >
-      {/* THE COLUMN. Both the terminal and the switcher live inside it, and the
-          padding is on the column rather than on either of them. That is the whole
-          trick: the switcher cannot drift out of line with the agent's first
-          character, because they are inset by the SAME box. Alignment is structural
-          here, not a hand-tuned pixel — which is exactly what it was before, and it
-          broke every time anything moved.
+      {/* THE COLUMN. The terminal and the switcher live inside it, and the padding
+          is on the column rather than on either of them — the switcher cannot
+          drift out of line with the agent's first character, because they are
+          inset by the SAME box. Alignment is structural here, not a hand-tuned
+          pixel — which is exactly what it was before, and it broke every time
+          anything moved.
 
-          The cap is what makes the padding appear only when there is room to spare:
-          wide pane → real gutters; narrow pane → the column just fills it. And it
-          resizes the PTY, so the agent genuinely re-wraps to ~106 columns instead of
-          running lines to 164. Because the whole pane is one bg-background, the
-          padding and the gutters are invisible — you see breathing room, not a box. */}
+          The cap (and its padding) is what makes gutters appear only when
+          there is room to spare: wide pane → real gutters; narrow pane → the
+          column just fills it. It resizes the PTY, so the agent genuinely
+          re-wraps to ~106 columns instead of running lines to 164 — which is a
+          TERMINAL concern, not a chat one: the chat's own reading column
+          (`.center`, 768px) is already narrower than this cap and centers
+          itself regardless of how wide its scroller is, and `.scroll`'s own
+          padding-top (transcript.css) already gives the first message its
+          breathing room. Capping the column here too, and padding it, used to
+          nest the chat's scroll box a SECOND time inside both, which pushed
+          its native scrollbar and its top edge in from the pane's real corner
+          to this box's edge, then in again by the padding — so pure chat drops
+          the cap, the top gutter and the RIGHT gutter (the scrollbar's own
+          edge), same as split already does. The LEFT gutter stays: it is the
+          one edge with something else beyond it — the app's own sidebar — and
+          the composer's glass (`.dissolve`, composer.css) reaching flush to a
+          real neighbour read as smudging it, where reaching flush to the
+          pane's own scrollbar or top edge reads as intended. Only a lone
+          terminal keeps the full wrapped width and all four gutters. */}
       <div
         ref={columnRef}
         className={cn(
@@ -942,10 +1044,12 @@ export function AgentChatPane({
           // so the surface switcher sitting in its strip came out with no styling
           // at all. Anything both surfaces draw hangs off this instead.
           'agent-chat-pane',
-          'mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pt-4',
-          // The reading column exists so one surface does not run to 164 characters.
-          // Two surfaces have the opposite problem, so the split takes the pane.
-          splitting ? 'max-w-none' : 'max-w-4xl',
+          'mx-auto flex min-h-0 w-full flex-1 flex-col',
+          splitting || presentation === 'chat' ? 'max-w-none' : 'max-w-4xl',
+          // Pure chat keeps only its LEFT gutter — see above — dropping the
+          // top and right ones this presentation would otherwise share with
+          // terminal/split.
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
         )}
       >
         <div
@@ -999,20 +1103,22 @@ export function AgentChatPane({
             )}
             style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
           >
-            {/* The trust-banner's own doc comment: it STAYS a pane-level
-                overlay rather than moving into the composer, because the
-                composer is unreachable for a chat with no messages yet. That
-                is still true here — this renders regardless of whether
-                AgentChatView shows a real dock or AgentEmptyDocument's
-                composer handle — but it can no longer be an `absolute`
-                overlay: Task 1 measured it overlapping that handle by 7px at
-                1280px wide, because the banner's text wraps to more lines as
-                the pane narrows while an absolutely-positioned box reserves
-                no space for its own height, so whatever sat under it never
-                moved. Rendered BEFORE AgentChatView, in normal flow, so the
-                chat surface is pushed down by however tall the banner
-                actually is instead of sitting under it unchanged. */}
-            {waiting && (
+            {/* The trust banner is pane-level ONLY while the chat is blank,
+                which is the one case the composer cannot carry it: with no
+                messages there is no composer to mutate, just
+                AgentEmptyDocument's handle. Once the chat has messages the
+                composer becomes the signpost itself (AgentChatView's
+                `terminalWait`), so rendering here too would put the same
+                question on screen twice.
+
+                It is NOT an `absolute` overlay: measured overlapping the
+                composer handle by 7px at 1280px wide, because the banner's
+                text wraps to more lines as the pane narrows while an
+                absolutely-positioned box reserves no space for its own
+                height, so whatever sat under it never moved. Rendered BEFORE
+                AgentChatView, in normal flow, so the chat surface is pushed
+                down by however tall the banner actually is. */}
+            {waiting && chatBlank && (
               <div className="mx-4 mt-2 mb-2 shrink-0 rounded-lg bg-popover shadow-sm">
                 <AgentTerminalWaitBanner
                   kind={waitKind ?? ''}
@@ -1033,6 +1139,7 @@ export function AgentChatPane({
               onSwitchProvider={handleSwitch}
               switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
               working={working}
+              compacting={compacting}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
               revival={revival}
@@ -1060,7 +1167,7 @@ export function AgentChatPane({
                   terminalApiRef.current?.focus()
                   return
                 }
-                setPresentation('terminal')
+                enterTerminal()
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
@@ -1068,8 +1175,8 @@ export function AgentChatPane({
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
-              streamingMessageId={streamingId}
-              streamingMessageText={streamingText}
+              streamingMessages={streamingMessages}
+              onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
                 setPromptReplacing(true)

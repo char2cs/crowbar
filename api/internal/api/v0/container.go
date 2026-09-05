@@ -522,6 +522,26 @@ func (c *Container) PushAgentChatMessageDelta(
 	})
 }
 
+// PushAgentChatCompaction implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket as every other conversation fact.
+// active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
+// own doc comment for why two kinds and no extra field.
+func (c *Container) PushAgentChatCompaction(
+	chatID string,
+	workspaceID string,
+	active bool,
+) {
+	kind := dto.AgentChatKindCompactionStopped
+	if active {
+		kind = dto.AgentChatKindCompactionStarted
+	}
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        kind,
+	})
+}
+
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle
 // event (folder_created/folder_updated/folder_deleted) out on the SAME
 // workspace-scoped agent-chat WebSocket as PushAgentChat — one feed for "what
@@ -779,6 +799,23 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
 			{Param: "repoId", Extract: func(e dto.AgentChatEvent) string { return e.RepoID }, Match: matchRepoOrUnscoped},
 			{Param: "chatId", Extract: func(e dto.AgentChatEvent) string { return e.ChatID }, Match: ws.ExactMatch},
+		},
+		// message_delta is the one kind on this feed that is already "the
+		// full state so far" by construction (see
+		// hub.BroadcastAgentChatMessageDelta's own doc comment) — a client
+		// that misses several is exactly as correct as one that saw every
+		// one, as long as it eventually sees the latest. A fast-streaming
+		// provider can emit these far more often than this feed's other,
+		// genuinely stateful kinds (turn_started, folder events, ...), and
+		// those must keep the ordinary bounded-queue-then-disconnect
+		// contract untouched — CoalesceKey is what lets the two coexist on
+		// one broadcaster. Keyed by (chat, message id) so two chats, or two
+		// co-open items in one chat's turn, never coalesce into each other.
+		CoalesceKey: func(e dto.AgentChatEvent) (string, bool) {
+			if e.Kind != dto.AgentChatKindMessageDelta || e.Message == nil {
+				return "", false
+			}
+			return e.ChatID + "\x00" + e.Message.ID, true
 		},
 	}
 }

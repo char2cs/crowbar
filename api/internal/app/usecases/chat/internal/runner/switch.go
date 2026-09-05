@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -39,6 +40,12 @@ func (rs *Runners) switchProviderLocked(
 	if err := rs.providers.RequireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
+	// Read BEFORE anything is torn down, purely to know whether this switch is
+	// actually a CHANGE — a resolve failure (a chat no provider has ever run on)
+	// means "unknown", not "none", so it is treated the same as "no change" and
+	// simply skips the marker rather than risk a false-positive divider on a
+	// chat's very first spawn.
+	previousProviderID, _ := rs.conversations.ChatProviderID(ctx, chatID)
 	for {
 		chat, err := rs.chats.GetChat(ctx, chatID)
 		if err != nil {
@@ -81,7 +88,9 @@ func (rs *Runners) switchProviderLocked(
 		// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
 		// handoff to go stale while it waits. And it runs before the terminate, so the handoff
 		// assembled below contains the turn we waited for.
-		if err := rs.turns.AwaitTurnComplete(ctx, chatID); err != nil {
+		//
+		// Bounded, not open-ended: see awaitTurnOrForce.
+		if err := rs.awaitTurnOrForce(ctx, chatID); err != nil {
 			return "", err
 		}
 
@@ -139,10 +148,26 @@ func (rs *Runners) switchProviderLocked(
 		// Resume args go first so a positional resume_context_inject — codex's `resume
 		// <id>` subcommand, or claude's own --resume value — precedes rather than
 		// follows the positional context pointer built from it.
-		return rs.spawnRunner(
+		runnerID, err := rs.spawnRunner(
 			ctx, chatID, chat.WorkspaceID, targetProviderID,
 			"", resumeSteps, nil, conversation, gapTurns, resuming, priorSessionID, false, "",
 		)
+		if err != nil {
+			return "", err
+		}
+		// Best-effort, after the switch has actually committed: a failed switch
+		// changed nothing, and this is Crowbar's own doing, never something to fail
+		// the switch itself over. Only recorded when the provider actually changed
+		// — resuming into the same provider it was already on is not a switch.
+		if previousProviderID != "" && previousProviderID != targetProviderID {
+			if err := rs.turns.RecordChatSwitch(
+				ctx, chatID, engineagents.InterruptProviderSwitched, targetProviderID,
+			); err != nil {
+				slog.WarnContext(ctx, "agent: switch provider: record chat switch (best-effort, continuing)",
+					"chat_id", chatID, "err", err)
+			}
+		}
+		return runnerID, nil
 	}
 }
 
@@ -219,6 +244,22 @@ func (rs *Runners) quitOutgoingCLI(
 	return nil
 }
 
+// sessionAnnounceCrashWindow bounds how recently a conversation must have been
+// FIRST SEEN for a turnless session to still be read as the announce-then-crash
+// race resumableConversation exists to catch, rather than as a conversation
+// that simply predates the activity table (see below). A provider that crashes
+// before completing its first turn does so within moments of announcing the
+// session — it is a startup crash, not a stall — so tens of seconds comfortably
+// covers the race without also swallowing conversations that are merely old.
+//
+// termwait's constants (DefaultStallQuiet and friends) are NOT reused here:
+// every one of them bounds how long a LIVE, currently-running CLI may go quiet
+// before Crowbar treats it as stuck. This is a different question — how old a
+// conversation's FIRST ANNOUNCEMENT is — asked long after any such CLI is gone,
+// so borrowing one would just be reaching for a number that happens to exist
+// rather than one that means the right thing.
+const sessionAnnounceCrashWindow = 30 * time.Second
+
 func (rs *Runners) resumableConversation(
 	ctx context.Context,
 	chat domain.Chat,
@@ -230,9 +271,11 @@ func (rs *Runners) resumableConversation(
 	}
 	// Oldest first, so the LAST match is the most recent conversation this provider
 	// held in this chat.
+	var firstSeenAt time.Time
 	for _, c := range convs {
 		if c.ProviderID == targetProviderID {
 			sessionID = c.SessionID
+			firstSeenAt = c.FirstSeenAt
 		}
 	}
 	if sessionID == "" {
@@ -243,12 +286,97 @@ func (rs *Runners) resumableConversation(
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("last turn for session: %w", err)
 	}
-	if !found {
-		// The CLI reported this conversation id but never recorded a turn under it, so
-		// there is no conversation on disk to resume. Spawn fresh.
+	if found {
+		return sessionID, leftAt, nil
+	}
+	// No turn is recorded for this session in the activity table. That alone is
+	// ambiguous: it is exactly what a provider that announced a session and then
+	// crashed before its first turn also looks like — but it is ALSO exactly what
+	// every conversation from before the activity table existed looks like,
+	// forever, no matter how much real history it has on the provider's own side
+	// (see this function's package-level doc references for the migration this
+	// guards against). Age is what tells the two apart.
+	if time.Since(firstSeenAt) < sessionAnnounceCrashWindow {
+		// Recent enough to be the genuine crash race: the CLI reported this
+		// conversation id but never recorded a turn under it, so there is no
+		// conversation on disk to resume. Spawn fresh.
 		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns; spawning fresh instead of resuming",
 			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
 		return "", time.Time{}, nil
 	}
-	return sessionID, leftAt, nil
+	// Old enough that the missing row means "predates this table", not "crashed
+	// before its first turn". The session id is still real and still resumable —
+	// refusing it here would be strictly more destructive than the race this
+	// guard exists to catch. There is no per-turn record to draw the gap cutoff
+	// from, so chat.LastActivityAt (folded from the chat's own turn events, which
+	// survive this migration untouched) stands in for it.
+	slog.InfoContext(ctx, "agent: prior conversation predates recorded turns; resuming anyway using the chat's last activity as the gap cutoff",
+		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
+	return sessionID, chat.LastActivityAt, nil
+}
+
+// forceSwitchAfter bounds how long a switch waits for the outgoing turn before
+// forcing it. AwaitTurnComplete itself is documented as needing no timeout,
+// because a live CLI either finishes its turn or eventually dies, and death is
+// what reconcileRunnerExit turns into the same release signal. That reasoning
+// has a gap: a CLI that is alive but stuck — no turn_stop, no exit, no delivery
+// of any kind ever again — satisfies neither condition, and left the switch (and
+// the "Starting <provider>…" spinner it drives) waiting forever. DefaultStallQuiet
+// is reused rather than a second invented number: it is already this codebase's
+// definition of "quiet long enough to call it stuck" (see termwait).
+func (rs *Runners) forceSwitchAfter() time.Duration {
+	if rs.switchAwaitTimeout > 0 {
+		return rs.switchAwaitTimeout
+	}
+	return termwait.DefaultStallQuiet
+}
+
+// SetSwitchAwaitTimeout overrides forceSwitchAfter's bound. Test-only surface —
+// production never calls it — so a deterministic test can force the timeout
+// path without actually waiting DefaultStallQuiet in real time.
+func (rs *Runners) SetSwitchAwaitTimeout(d time.Duration) { rs.switchAwaitTimeout = d }
+
+// awaitTurnOrForce is AwaitTurnComplete bounded by forceSwitchAfter. Distinguishing
+// "my own added deadline fired" from "the CALLER's context died" matters:
+// TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged requires the
+// latter to abort the switch with nothing touched, exactly as before this existed.
+// ctx here is the CALLER's, unwrapped — only when it is still alive can the failure
+// belong to the timeout this function added.
+func (rs *Runners) awaitTurnOrForce(ctx context.Context, chatID string) error {
+	bounded, cancel := context.WithTimeout(ctx, rs.forceSwitchAfter())
+	defer cancel()
+	err := rs.turns.AwaitTurnComplete(bounded, chatID)
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return rs.forceOutgoingTurn(ctx, chatID)
+}
+
+// forceOutgoingTurn ends the outgoing turn the same way an explicit Stop click
+// would (see StopChat): record the interruption, then tear the runner down.
+// Always a full retire, never interruptTurn's gentler in-place cancel — by the
+// time this runs, the CLI has already been given forceSwitchAfter to wrap up
+// gracefully and has not, so a second, equally-graceful signal is not owed
+// another wait for it to be silently ignored a second time. Accepting the small
+// risk StopChat already accepts every day (a CLI terminated mid-turn may not
+// flush its native transcript) beats a switch that never completes at all.
+func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
+	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return nil // it finished or died between the deadline firing and this read
+	}
+	if err != nil {
+		return fmt.Errorf("agent: switch provider: force outgoing turn: live runner: %w", err)
+	}
+	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
+		slog.WarnContext(ctx, "agent: switch provider: force outgoing turn: record interruption",
+			"chat_id", chatID, "err", err)
+	}
+	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
+		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
+	rs.retire(ctx, live)
+	return nil
 }

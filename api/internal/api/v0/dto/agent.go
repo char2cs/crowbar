@@ -223,6 +223,11 @@ func TerminalWaitDTOFrom(
 // and paths never cross this boundary.
 type AgentMessageDTO struct {
 	Sequence int `json:"sequence"`
+	// DisplayOrder/ItemIndex are what a client actually sorts by — reserved
+	// at dispatch time, unlike Sequence, which is the row's persist-order
+	// identity and paging cursor. See domain.ActivityTurn.
+	DisplayOrder int64 `json:"displayOrder"`
+	ItemIndex    int   `json:"itemIndex"`
 	// TurnID is what the activity record attaches tool calls to, so a client can
 	// show which tools produced which reply.
 	TurnID     string `json:"turnId"`
@@ -293,13 +298,15 @@ type AgentSubagentDTO struct {
 // something outside the turn. These are what turn an apparently frozen agent into
 // a legible one: a permission wait, a notification, a compaction.
 type AgentInterruptionDTO struct {
-	ID         string     `json:"id"`
-	TurnID     string     `json:"turnId"`
-	Seq        int64      `json:"seq"`
-	Kind       string     `json:"kind"`
-	Detail     string     `json:"detail,omitempty"`
-	At         time.Time  `json:"at"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
+	Seq    int64  `json:"seq"`
+	// DisplayOrder — see domain.ActivityInterruption.
+	DisplayOrder int64      `json:"displayOrder"`
+	Kind         string     `json:"kind"`
+	Detail       string     `json:"detail,omitempty"`
+	At           time.Time  `json:"at"`
+	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
 }
 
 // AgentChoiceDTO is the agent waiting on a HUMAN DECISION — a tool permission, a
@@ -761,3 +768,14 @@ const AgentChatKindWorktreeState = "worktree_state"
 // emitted only when the verdict MOVES, so a chat parked for an hour produces
 // exactly one frame.
 const AgentChatKindTerminalWait = "terminal_wait"
+
+// AgentChatKindCompactionStarted and AgentChatKindCompactionStopped announce
+// the live compact_pre/compact_post edge — the one fact on this feed that
+// cannot ride the ledger's own event log, because the ledger's interruption
+// record for a compaction is born already resolved (see
+// hub.BroadcastAgentChatCompaction's doc comment). Two kinds, no extra
+// payload, same shape as turn_started/turn_stopped: the kind IS the answer.
+const (
+	AgentChatKindCompactionStarted = "compaction_started"
+	AgentChatKindCompactionStopped = "compaction_stopped"
+)

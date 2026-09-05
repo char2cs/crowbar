@@ -1,7 +1,43 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
-import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
+import {
+  AgentTranscript,
+  ESTIMATED_ROW_HEIGHT,
+  estimateRowHeight,
+} from '@/features/agent/transcript/agent-transcript'
+import type { TranscriptRow } from '@/features/agent/transcript/lib/flatten-transcript-rows'
+
+// The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
+// layout engine: every element measures 0×0, and a virtualiser told its viewport
+// is zero pixels tall windows down to NOTHING — `calculateRange` bails on
+// `outerSize === 0` before overscan is ever applied, so not one row mounts.
+// Give elements a pane-sized rect before render so the window under test is the
+// realistic one the app produces. Purely geometric — no timers, no polling.
+// Same stub, same reason as changed-files-tree.scale.test.tsx.
+const VIEWPORT_WIDTH = 768
+const VIEWPORT_HEIGHT = 800
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
+beforeEach(() => {
+  const rect = {
+    top: 0,
+    left: 0,
+    right: VIEWPORT_WIDTH,
+    bottom: VIEWPORT_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: VIEWPORT_HEIGHT,
+    x: 0,
+    y: 0,
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { ...rect, toJSON: () => rect } as DOMRect
+  }
+})
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
 
 function draw(
   messages: AgentChatMessage[],
@@ -28,38 +64,214 @@ function draw(
   )
 }
 
-describe('AgentTranscript provider labels', () => {
-  it('shows the provider label on the first assistant message and on a provider change, not on consecutive same-provider replies', () => {
-    const messages: AgentChatMessage[] = [
+// Whose agent answered now lives in the turnbar's own provider icon (see
+// message-row.test.tsx), not a text label above the reply — the standalone
+// "Claude" line this transcript used to draw is gone.
+describe('AgentTranscript turnbar wiring', () => {
+  it('gives every assistant reply its own turnbar, never a user message', () => {
+    draw([
       { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'hi', at: '' },
       { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
-      { turnId: 't3', sequence: 3, role: 'assistant', providerId: 'claude', text: 'b', at: '' },
-      { turnId: 't4', sequence: 4, role: 'assistant', providerId: 'codex', text: 'c', at: '' },
-    ]
-    render(
-      <AgentTranscript
-        messages={messages}
-        queue={[]}
-        providers={[]}
-        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
-        working={false}
-        loading={false}
-        error={null}
-        hasOlder={false}
-        onLoadOlder={() => {}}
-        onRetryLoad={() => {}}
-        onOpenTerminal={() => {}}
-        onEditPrompt={() => {}}
-        onCancelPrompt={() => {}}
-        onRetryPrompt={() => {}}
-      />,
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
+  it('gives only the LAST self-continued step of an auto-mode run a turnbar, not each intermediate one', () => {
+    draw([
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      {
+        turnId: 't2',
+        sequence: 2,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'step one',
+        at: '',
+      },
+      {
+        turnId: 't3',
+        sequence: 3,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'step two',
+        at: '',
+      },
+      {
+        turnId: 't4',
+        sequence: 4,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'step three',
+        at: '',
+      },
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-3').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-4').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
+  it('gives the assistant reply a fresh turnbar again once a new user turn starts a new run', () => {
+    draw([
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      {
+        turnId: 't2',
+        sequence: 2,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'step one',
+        at: '',
+      },
+      {
+        turnId: 't3',
+        sequence: 3,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'step two',
+        at: '',
+      },
+      { turnId: 't4', sequence: 4, role: 'user', providerId: '', text: 'thanks', at: '' },
+      { turnId: 't5', sequence: 5, role: 'assistant', providerId: 'claude', text: 'reply', at: '' },
+    ])
+
+    expect(
+      screen.getByTestId('agent-message-3').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-5').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+  })
+
+  it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
+    draw(
+      [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],
+      {
+        activity: {
+          toolCalls: [
+            {
+              id: 'c1',
+              turnId: 't2',
+              seq: 0,
+              name: 'read_file',
+              status: 'ok',
+              hasRequest: true,
+              hasResult: true,
+              startedAt: '',
+            },
+          ],
+          subagents: [],
+          interruptions: [],
+          choices: [],
+        },
+      },
     )
-    // Sequence 2: first assistant message -> label shown. Sequence 3: same
-    // provider as 2 -> no label. Sequence 4: provider changed -> label shown.
-    const rows = screen.getAllByTestId(/^agent-message-\d+$/)
-    expect(rows[1].querySelector('.meta')).not.toBeNull()
-    expect(rows[2].querySelector('.meta')).toBeNull()
-    expect(rows[3].querySelector('.meta')).not.toBeNull()
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
+    ).not.toBeNull()
+  })
+
+  it('never gives a streaming bubble a turnbar or tool calls — the turn has not finished', () => {
+    draw([], {
+      streamingBubbles: [
+        {
+          turnId: 't1',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'claude',
+          text: 'typing…',
+          at: '',
+        },
+      ],
+      activity: {
+        toolCalls: [
+          {
+            id: 'c1',
+            turnId: 't1',
+            seq: 0,
+            name: 'read_file',
+            status: 'ok',
+            hasRequest: true,
+            hasResult: true,
+            startedAt: '',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByText('typing…')).toBeInTheDocument()
+    expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+  })
+
+  it("times a reply's turnbar against the user turn it answers, not against now", () => {
+    draw([
+      {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'hi',
+        at: '2026-08-24T00:00:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 2,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a',
+        at: '2026-08-24T00:04:00Z',
+      },
+    ])
+
+    const turnbar = screen.getByTestId('agent-message-2').querySelector('.turnbar time')
+    expect(turnbar).toHaveTextContent('4m')
+  })
+
+  it("skips a harness message between a user turn and the reply it answers — the harness's own words are not the user's", () => {
+    draw([
+      {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'hi',
+        at: '2026-08-24T00:00:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 2,
+        role: 'harness',
+        providerId: 'claude',
+        text: 'note',
+        at: '2026-08-24T00:01:00Z',
+      },
+      {
+        turnId: 't1',
+        sequence: 3,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'a',
+        at: '2026-08-24T00:04:00Z',
+      },
+    ])
+
+    const turnbar = screen.getByTestId('agent-message-3').querySelector('.turnbar time')
+    expect(turnbar).toHaveTextContent('4m')
   })
 })
 
@@ -167,6 +379,161 @@ describe('AgentTranscript first-turn framing', () => {
   })
 })
 
+describe('AgentTranscript windowed history', () => {
+  function conversation(turns: number): AgentChatMessage[] {
+    return Array.from({ length: turns }, (_, i) => ({
+      turnId: `t${i}`,
+      sequence: i,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      providerId: i % 2 === 0 ? '' : 'claude',
+      text: `turn ${i}`,
+      at: '',
+    }))
+  }
+
+  // The whole point of the virtualiser: DOM cost bounded by the viewport, not
+  // by the conversation. Node count rather than wall time deliberately — it is
+  // deterministic, so this is a real gate instead of a flaky timing assertion.
+  it('mounts a bounded window of rows, not one per message', () => {
+    const { container } = draw(conversation(200))
+
+    const mounted = container.querySelectorAll('.virtual-rows > [data-index]')
+    expect(mounted.length).toBeGreaterThan(0)
+    expect(mounted.length).toBeLessThan(40)
+    expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-message-199')).toBeNull()
+  })
+
+  // `.stream`'s `gap: 18px` fell between the per-message wrappers the old
+  // render emitted — never inside one, so a divider always sat flush against
+  // the message it belongs to. Absolutely-positioned virtual rows inherit no
+  // gap at all, so it is baked into each row's own padding-bottom; this pins
+  // that it still lands on group boundaries only.
+  it('keeps the 18px between message groups, and nowhere inside one', () => {
+    const { container } = draw(
+      [
+        { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+        { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+      ],
+      { eventsBefore: { 1: [{ kind: 'compaction', trigger: 'manual' }] } },
+    )
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    // message 0, its first-turn hairline, the compaction boundary, message 1.
+    expect(rows).toHaveLength(4)
+    expect(rows[0].querySelector('[data-testid="agent-message-0"]')).not.toBeNull()
+    expect(rows[1].querySelector('[data-testid="agent-first-turn-divider"]')).not.toBeNull()
+    expect(rows[2].querySelector('[data-testid="agent-compaction-divider"]')).not.toBeNull()
+    expect(rows[3].querySelector('[data-testid="agent-message-1"]')).not.toBeNull()
+
+    // Flush under the message it trails; the gap goes after the group instead.
+    expect(rows[0].style.paddingBottom).toBe('0px')
+    expect(rows[1].style.paddingBottom).toBe('18px')
+    // Flush above the message it leads, and nothing after the last row.
+    expect(rows[2].style.paddingBottom).toBe('0px')
+    expect(rows[3].style.paddingBottom).toBe('0px')
+  })
+
+  // REGRESSION coverage: the test above only ever exercises a message next to
+  // a DIVIDER, never two ordinary messages back to back — which is the
+  // spacing between essentially every pair of turns in a real conversation.
+  // A bug where `endsMessageGroup` always returned `false` for a `message`
+  // row would flatten every inter-message gap to zero and still pass that
+  // test. `hasOlder: true` keeps a first-turn divider from interfering.
+  it('puts the 18px gap between two ordinary messages with no divider between them', () => {
+    const { container } = draw(conversation(3), { hasOlder: true })
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    expect(rows).toHaveLength(3)
+    expect(rows[0].querySelector('[data-testid="agent-message-0"]')).not.toBeNull()
+    expect(rows[1].querySelector('[data-testid="agent-message-1"]')).not.toBeNull()
+    expect(rows[2].querySelector('[data-testid="agent-message-2"]')).not.toBeNull()
+
+    expect(rows[0].style.paddingBottom).toBe('18px')
+    expect(rows[1].style.paddingBottom).toBe('18px')
+    // Nothing after the last row.
+    expect(rows[2].style.paddingBottom).toBe('0px')
+  })
+
+  // The composer is already showing this sentence; the transcript must not say
+  // it twice. Survives the flattening — the whole group goes, dividers included.
+  it('drops the row the composer is already showing', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
+        { turnId: 't2', sequence: 1, role: 'user', providerId: '', text: 'being edited', at: '' },
+      ],
+      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted' }] } },
+    )
+
+    expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-message-1')).toBeNull()
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+  })
+})
+
+describe('AgentTranscript queued first turn', () => {
+  let nextId = 0
+  function queueItem(text: string) {
+    nextId += 1
+    return {
+      clientRequestId: `r${nextId}`,
+      text,
+      state: 'queued' as const,
+      createdAt: '2026-08-24T00:00:00Z',
+      baselineSequence: 0,
+    }
+  }
+
+  // A blank chat's first send is a QueuedRow, not yet a MessageRow — it has
+  // to freeze on sight, before the provider ever confirms it, or sending
+  // flashes through the dashed pending pill first.
+  it('freezes the first queued item of a brand-new chat', () => {
+    draw([], { queue: [queueItem('describe the change')] })
+
+    const row = screen.getByTestId('queued-prompt')
+    expect(row).toHaveAttribute('data-first-turn', 'true')
+    expect(screen.getByTestId('agent-first-turn-divider')).toBeInTheDocument()
+  })
+
+  it('does not freeze a queued item once the chat already has history', () => {
+    draw([{ turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' }], {
+      queue: [queueItem('a follow-up')],
+    })
+
+    expect(screen.getByTestId('queued-prompt')).not.toHaveAttribute('data-first-turn')
+  })
+
+  it('does not freeze a queued item when older history has not been paged in yet', () => {
+    draw([], { queue: [queueItem('not actually first')], hasOlder: true })
+
+    expect(screen.getByTestId('queued-prompt')).not.toHaveAttribute('data-first-turn')
+  })
+
+  it('freezes only the head of the queue, never a second prompt queued behind it', () => {
+    draw([], { queue: [queueItem('first'), queueItem('second')] })
+
+    const rows = screen.getAllByTestId('queued-prompt')
+    expect(rows[0]).toHaveAttribute('data-first-turn', 'true')
+    expect(rows[1]).not.toHaveAttribute('data-first-turn')
+  })
+
+  // REGRESSION: `.queued` right-aligns via `align-self: flex-end`, which only
+  // has any effect on a DIRECT flex child of `.stream`. A wrapping element
+  // added around it (even one rendering nothing of its own) turns it into an
+  // ordinary block instead — losing shrink-to-fit sizing and stretching it to
+  // `max-width: 88%`, left-aligned inside that, which read as a large phantom
+  // gap on the right. jsdom cannot see that layout consequence, but it CAN
+  // see the DOM shape that causes it — so pin the shape, not the layout.
+  it('keeps a queued row a direct child of .stream, not wrapped in an intermediate element', () => {
+    const { container } = draw([], { queue: [queueItem('describe the change')] })
+
+    const stream = container.querySelector('.stream')
+    const row = screen.getByTestId('queued-prompt')
+    expect(row.parentElement).toBe(stream)
+  })
+})
+
 describe('AgentTranscript interrupted marker', () => {
   const oneFrozenTurn = [
     { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
@@ -200,10 +567,17 @@ describe('AgentTranscript interrupted marker', () => {
   it('draws anchored above the first message that follows the stop, not trailing, once one exists', () => {
     const messages = [
       { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
-      { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'after the stop', at: '' },
+      {
+        turnId: 't2',
+        sequence: 1,
+        role: 'user' as const,
+        providerId: '',
+        text: 'after the stop',
+        at: '',
+      },
     ]
     draw(messages, {
-      interruptedBefore: { 1: true },
+      eventsBefore: { 1: [{ kind: 'interrupted' }] },
       trailingInterruption: false,
       working: false,
     })
@@ -211,5 +585,160 @@ describe('AgentTranscript interrupted marker', () => {
     const divider = screen.getByTestId('agent-interrupted-divider')
     const later = screen.getByText('after the stop')
     expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  // REGRESSION (live-reported 2026-08-30): interrupt a turn, switch provider, and
+  // send a follow-up — the marker rendered AFTER the still-queued prompt (nothing
+  // in `messages` outranks the interruption yet, so it fell through to the
+  // trailing slot, which used to sit BELOW the queue) and only snapped above it
+  // once the hook confirmed the prompt and moved it into `messages`. The marker
+  // is part of "the record" the queue sits below, same as any confirmed message.
+  it('draws the trailing marker above a prompt still waiting on hook confirmation', () => {
+    draw(oneFrozenTurn, {
+      trailingInterruption: true,
+      working: false,
+      queue: [
+        {
+          clientRequestId: 'r1',
+          text: 'continue that essay',
+          state: 'queued',
+          createdAt: '2026-08-30T00:00:00Z',
+          baselineSequence: 0,
+        },
+      ],
+    })
+
+    const divider = screen.getByTestId('agent-interrupted-divider')
+    const queued = screen.getByTestId('queued-prompt')
+    expect(divider.compareDocumentPosition(queued) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('AgentTranscript switch marker', () => {
+  const twoMessages = [
+    { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
+    { turnId: 't2', sequence: 1, role: 'user' as const, providerId: '', text: 'second', at: '' },
+  ]
+
+  it('draws a provider-switch pill, resolving the display name from the providers list', () => {
+    draw(twoMessages, {
+      eventsBefore: { 1: [{ kind: 'provider', detail: 'codex' }] },
+      providers: [{ id: 'codex', displayName: 'Codex' } as never],
+    })
+
+    expect(screen.getByTestId('agent-provider-switch-divider')).toHaveTextContent(
+      'Switched to Codex',
+    )
+  })
+
+  it('draws a model-changed pill with the raw model id', () => {
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', detail: 'opus' }] } })
+
+    expect(screen.getByTestId('agent-model-switch-divider')).toHaveTextContent('Model: opus')
+  })
+
+  it('draws an effort-changed pill with the raw effort level', () => {
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', detail: 'high' }] } })
+
+    expect(screen.getByTestId('agent-effort-switch-divider')).toHaveTextContent('Effort: high')
+  })
+
+  it('draws both pills, in order, when model and effort change together', () => {
+    draw(twoMessages, {
+      eventsBefore: {
+        1: [
+          { kind: 'model', detail: 'opus' },
+          { kind: 'effort', detail: 'high' },
+        ],
+      },
+    })
+
+    const model = screen.getByTestId('agent-model-switch-divider')
+    const effort = screen.getByTestId('agent-effort-switch-divider')
+    expect(model.compareDocumentPosition(effort) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('draws nothing when nothing switched', () => {
+    draw(twoMessages, {})
+
+    expect(screen.queryByTestId('agent-provider-switch-divider')).toBeNull()
+    expect(screen.queryByTestId('agent-model-switch-divider')).toBeNull()
+    expect(screen.queryByTestId('agent-effort-switch-divider')).toBeNull()
+  })
+
+  // The whole point of the merge: a stop, a provider switch and a model
+  // change landing on the SAME next message used to stack three identical
+  // full-width wavy lines. They must now share one — a single
+  // agent-event-divider row carrying all three pills, in the order they
+  // actually happened, not three rows.
+  it('merges every tag that shares an anchor into ONE divider row, not one per event', () => {
+    const { container } = draw(twoMessages, {
+      eventsBefore: {
+        1: [
+          { kind: 'interrupted' },
+          { kind: 'provider', detail: 'codex' },
+          { kind: 'model', detail: 'opus' },
+        ],
+      },
+      providers: [{ id: 'codex', displayName: 'Codex' } as never],
+    })
+
+    const dividers = container.querySelectorAll('[data-testid="agent-event-divider"]')
+    expect(dividers).toHaveLength(1)
+    const pills = dividers[0]?.querySelectorAll('[class~="tag"]')
+    expect(pills).toHaveLength(3)
+    expect(pills?.[0]).toHaveTextContent('Interrupted')
+    expect(pills?.[1]).toHaveTextContent('Switched to Codex')
+    expect(pills?.[2]).toHaveTextContent('Model: opus')
+  })
+})
+
+// Regression: a message settling from the streaming bubble (a real,
+// unestimated DOM element) into this virtualized list used to start over at
+// the SAME flat guess regardless of how long its own text was — a real,
+// physical drop in total height for the one tick before measureElement
+// corrected it, since the flat floor was sized for the shortest realistic
+// reply. Visible live as the transcript glide up, then glide back down, on
+// nearly every turn. Scaling the estimate off the row's own text shrinks
+// that gap for the common case (prose of some length).
+describe('estimateRowHeight', () => {
+  function messageRow(text: string): TranscriptRow {
+    return {
+      kind: 'message',
+      key: 'k',
+      message: {
+        turnId: 't',
+        sequence: 0,
+        role: 'assistant',
+        providerId: 'claude',
+        text,
+        at: '',
+      },
+    }
+  }
+
+  it('never estimates below the flat floor, even for an empty message', () => {
+    expect(estimateRowHeight(messageRow(''))).toBe(ESTIMATED_ROW_HEIGHT)
+  })
+
+  it('scales up for a message long enough to wrap several lines', () => {
+    const short = estimateRowHeight(messageRow('a short reply'))
+    const long = estimateRowHeight(messageRow('word '.repeat(400)))
+    expect(short).toBe(ESTIMATED_ROW_HEIGHT)
+    expect(long).toBeGreaterThan(short)
+    // Genuinely taller, not a rounding nudge off the floor.
+    expect(long).toBeGreaterThan(ESTIMATED_ROW_HEIGHT * 3)
+  })
+
+  it('a divider row always gets the flat floor — it has no text to scale from', () => {
+    expect(estimateRowHeight({ kind: 'first-turn-divider', key: 'k' })).toBe(ESTIMATED_ROW_HEIGHT)
+    expect(
+      estimateRowHeight({
+        kind: 'event-divider',
+        key: 'k',
+        sequence: 0,
+        tags: [{ kind: 'interrupted' }, { kind: 'compaction', trigger: 'manual' }],
+      }),
+    ).toBe(ESTIMATED_ROW_HEIGHT)
   })
 })

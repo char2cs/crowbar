@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -50,6 +51,19 @@ type errRepoStore struct {
 func (errRepoStore) FindAll(
 	_ context.Context,
 ) ([]domain.Repository, error) {
+	return nil, errSnapshotFake
+}
+
+// errReviewThreadRepo is a ReviewThread repo whose ListByWorkspace always
+// fails, exercising threadsSnapshot's degrade-to-nil path.
+type errReviewThreadRepo struct {
+	reviewthread.ReviewThread
+}
+
+func (errReviewThreadRepo) ListByWorkspace(
+	_ context.Context,
+	_ string,
+) ([]domain.ReviewThread, error) {
 	return nil, errSnapshotFake
 }
 
@@ -178,6 +192,31 @@ func TestRepoSnapshot_ListErrorReturnsNil(t *testing.T) {
 	assert.Nil(t, repoSnapshot(a)("p1"))
 }
 
+// TestThreadsSnapshot_NoWorkspaceSegmentReturnsNil covers the guard at the top
+// of threadsSnapshot: threads are always workspace-scoped, so a repo- or
+// project-level subscription (fewer than 3 scope segments, or an empty
+// workspace segment) must yield nil rather than attempting a global
+// enumeration of the ReviewThread aggregate.
+func TestThreadsSnapshot_NoWorkspaceSegmentReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	snap := threadsSnapshot(a)
+	require.NotNil(t, snap)
+
+	assert.Nil(t, snap(""))
+	assert.Nil(t, snap("p1"))
+	assert.Nil(t, snap("p1/r1"))
+	assert.Nil(t, snap("p1/r1/"))
+}
+
+// TestThreadsSnapshot_ListErrorReturnsNil proves a failed ListByWorkspace
+// degrades to a nil snapshot rather than failing the subscribe.
+func TestThreadsSnapshot_ListErrorReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	a.Repositories.ReviewThread = errReviewThreadRepo{}
+
+	assert.Nil(t, threadsSnapshot(a)("p1/r1/w1"))
+}
+
 func TestGitSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
@@ -207,6 +246,18 @@ func TestLSPSnapshot_ListErrorReturnsNil(t *testing.T) {
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, lspSnapshot(a, eng)(""))
+}
+
+// TestLSPSnapshot_UnknownWorkspaceScope_ReturnsNil covers the guard that
+// preserves scopedWorkspaceRows' literal nil (an unresolvable workspace id)
+// rather than upgrading it to a non-nil empty slice — mirroring
+// TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil for the LSP source.
+func TestLSPSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Nil(t, lspSnapshot(a, eng)("does-not-exist"))
 }
 
 func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {

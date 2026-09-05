@@ -2,6 +2,7 @@ import { RotateCcw } from 'lucide-react'
 import { CloseIcon, PencilIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { cn } from '@/lib/utils'
 
 /**
@@ -20,6 +21,7 @@ import { cn } from '@/lib/utils'
  */
 export function QueuedRow({
   item,
+  firstTurn = false,
   showTerminalHint,
   onEdit,
   onCancel,
@@ -27,6 +29,13 @@ export function QueuedRow({
   onOpenTerminal,
 }: {
   item: PromptQueueItem
+  /** This queued prompt IS the chat's first-ever turn. Kept in the frozen,
+   *  full-width hand the empty document opened with the whole time it is
+   *  pending — never the dashed pending pill every later prompt gets — so
+   *  sending it never flashes through a shape the reply won't match. See
+   *  `message-row.tsx`'s own `firstTurn`, which takes over once the ledger
+   *  confirms it. */
+  firstTurn?: boolean
   /** The delivery is old enough that the provider may be blocked on a prompt
    *  only its terminal can answer. A GUESS, and only offered where the daemon
    *  has no authoritative answer of its own. */
@@ -42,17 +51,23 @@ export function QueuedRow({
 
   return (
     <article
-      className={cn('queued', multi && 'multi', failed && 'bad')}
+      className={firstTurn ? 'frozen firstq' : cn('queued', multi && 'multi', failed && 'bad')}
       data-client-request-id={item.clientRequestId}
       data-state={item.state}
+      data-first-turn={firstTurn ? 'true' : undefined}
       data-testid="queued-prompt"
     >
-      {/* THE PROMPT TEXT ALWAYS. An error is a second fact about this row, never
-          a replacement for the thing the person actually wrote — losing their
-          words to a failure message is how a retry becomes a retype. */}
-      <span className="txt" title={item.text}>
+      {/* THE PROMPT TEXT ALWAYS, through the same markdown pipeline every
+          confirmed message renders through (see message-row.tsx) — a queued
+          prompt is what it was sent as, and un-rendering it back to source
+          for the gap before the ledger confirms it would be the one row in
+          the transcript that looks like a different message. An error is a
+          second fact about this row, never a replacement for the thing the
+          person actually wrote — losing their words to a failure message is
+          how a retry becomes a retype. */}
+      <MarkdownMessageStatic className={firstTurn ? undefined : 'txt'}>
         {item.text}
-      </span>
+      </MarkdownMessageStatic>
       {item.error && <span className="err">{item.error}</span>}
       {showTerminalHint && (
         <Button

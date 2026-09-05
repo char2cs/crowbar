@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
+  lastLineTop,
 } from '@/features/agent/chat/agent-empty-document'
 
 // Same stand-in agent-chat-view.test.tsx uses: jsdom never delivers a keydown
@@ -54,6 +55,69 @@ describe('AgentEmptyDocument handle', () => {
     unmount()
 
     expect(ref.current).toBeNull()
+  })
+})
+
+// REGRESSION: `place()` used to position the handle at the CARET's line when
+// one existed in the document, and only fell back to the last line once the
+// document lost focus entirely — so clicking back into an earlier sentence
+// to fix a word dragged the send button up the page with the caret. It must
+// always sit under the last written line, full stop.
+describe('lastLineTop', () => {
+  function docWithParagraphs(bottoms: number[], docTop = 0): HTMLDivElement {
+    const doc = document.createElement('div')
+    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: docTop } as DOMRect)
+    const editable = document.createElement('div')
+    editable.setAttribute('data-slate-editor', 'true')
+    for (const bottom of bottoms) {
+      const p = document.createElement('p')
+      p.textContent = 'text'
+      vi.spyOn(p, 'getBoundingClientRect').mockReturnValue({ bottom } as DOMRect)
+      editable.appendChild(p)
+    }
+    doc.appendChild(editable)
+    return doc
+  }
+
+  it('sits under the LAST paragraph, not the first, when there is more than one', () => {
+    expect(lastLineTop(docWithParagraphs([100, 250]))).toBe(250)
+  })
+
+  it('is measured relative to the doc, not the viewport', () => {
+    expect(lastLineTop(docWithParagraphs([250], 40))).toBe(210)
+  })
+
+  it('falls back to the first-line position on a genuinely empty document', () => {
+    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 27.2)
+  })
+
+  it('falls back to the first-line position when the editor holds no text at all', () => {
+    const doc = document.createElement('div')
+    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+    const editable = document.createElement('div')
+    editable.setAttribute('data-slate-editor', 'true')
+    editable.appendChild(document.createElement('p')) // present, but empty
+    doc.appendChild(editable)
+
+    expect(lastLineTop(doc)).toBeCloseTo(48 + 27.2)
+  })
+
+  it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
+    const doc = docWithParagraphs([100, 250])
+    document.body.appendChild(doc)
+    try {
+      const editable = doc.querySelector('[data-slate-editor]') as HTMLElement
+      const firstParagraph = editable.firstElementChild as HTMLElement
+      const range = document.createRange()
+      range.selectNodeContents(firstParagraph)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+
+      expect(lastLineTop(doc)).toBe(250)
+    } finally {
+      document.body.removeChild(doc)
+    }
   })
 })
 

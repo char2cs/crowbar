@@ -351,13 +351,17 @@ func (rs *Runners) pumpAPIConn(
 				// carries it, or will; a driver-resolved copy here would double it.
 				continue
 			}
-			evCtx := ctx
+			// Marked on EVERY event, not just asks: ingestResolvedHook's
+			// "redundant hooks-delivered copy" guard cannot otherwise tell this
+			// call apart from the companion PTY's hooks echo of the SAME
+			// api-owned event — see inflight.FromAPITransport's own doc comment.
+			evCtx := inflight.WithAPITransport(ctx)
 			if ev.AskID != nil {
 				// A synthetic delivery id scopes this ask's slot exactly the way an
 				// HTTP hook delivery's id would — holdForAnswer (internal/turn's
 				// observation.go) reads this straight out of the context and needs
 				// no other change to hold the prompt open.
-				evCtx = inflight.WithDeliveryID(ctx, runnerID+":"+hex.EncodeToString(ev.AskID))
+				evCtx = inflight.WithDeliveryID(evCtx, runnerID+":"+hex.EncodeToString(ev.AskID))
 			}
 			if err := rs.turns.IngestHook(evCtx, runnerID, providerID, ev.Canonical, ev.Raw); err != nil {
 				slog.WarnContext(ctx, "agent: api transport: ingest", "err", err,

@@ -49,6 +49,27 @@ func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string)
 	return true, nil
 }
 
+// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID right
+// now, if it has one — used when some OTHER signal already proves the CLI
+// acted and is done, so nothing should keep waiting out the full
+// deliveryQuiet timeout before releasing the composer's "sending" state.
+//
+// compact_post is the case this exists for: `/compact` is delivered as an
+// ordinary prompt (compact.go), but a compaction never confirms via a
+// user_prompt hook or produces a ledger turn — the ONLY thing that would
+// otherwise ever settle it is termwait's generic 30s quiet timeout, even
+// though the compaction itself (its own compact_pre/compact_post pair) is
+// typically done within seconds. A no-op if nothing is pending, or if what
+// is pending belongs to a different runner.
+func (rs *Runners) SettleDeliveryFor(ctx context.Context, chatID, runnerID string) error {
+	delivery, ok := rs.PendingDelivery(ctx, chatID)
+	if !ok || delivery.RunnerID != runnerID {
+		return nil
+	}
+	_, err := rs.SettleDelivery(ctx, chatID, delivery.RequestID)
+	return err
+}
+
 // promptJournalDirFor returns the on-disk directory backing chatID's
 // at-most-once prompt-delivery journal.
 //

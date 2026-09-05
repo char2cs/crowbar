@@ -15,6 +15,7 @@ import {
   forgetChatRead,
   noteChatListRead,
 } from '@/features/agent/lib/chat-read-order'
+import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
@@ -119,8 +120,8 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // THREE vocabularies ride it:
 //
 //   CHAT frames    — created / turn_started / turn_stopped / title_set / session_bound /
-//                    placement_set / order_set / deleted. About the conversation. They name
-//                    no process.
+//                    placement_set / order_set / deleted / compaction_started /
+//                    compaction_stopped. About the conversation. They name no process.
 //   RUNNER frames  — started / session_bound / moved / displaced / exited. About the
 //                    vendor-CLI PROCESS, which is a thing that moves between chats.
 //   FOLDER frames  — folder_created / folder_updated / folder_deleted. About the tree the
@@ -148,6 +149,8 @@ interface AgentStreamEvent {
     | 'terminal_wait'
     | 'prompt_settled'
     | 'message_delta'
+    | 'compaction_started'
+    | 'compaction_stopped'
     | 'title_set'
     // A row MOVED in the tree — dragged into a folder, threaded under another
     // chat, or renumbered by the dense renumber a sibling's move triggered.
@@ -234,6 +237,12 @@ interface AgentStreamEvent {
  *   - terminal_wait: the chat's CLI has become — or stopped being — blocked behind a
  *     prompt Crowbar cannot answer. The frame carries the whole answer; its absence
  *     on the payload is the clearing edge.
+ *   - compaction_started / compaction_stopped: the chat is LIVE mid-compaction right
+ *     now, or it just finished. The ledger's own interruption record for this is born
+ *     already resolved (a bare /compact prompt never opens a tracked turn), so this
+ *     push is the only place "in progress" is ever observable — see
+ *     AgentChatsState.compacting. Self-healed on any OTHER chat frame and a bounded
+ *     timeout, since compact_post is not reliable.
  *   - created: a new chat (and its ordering) may have appeared — reseed the whole list.
  *   - title_set / session_bound: refetch just that chat and upsert it.
  *   - deleted: drop the chat from the store, clear the layout of any pane holding
@@ -284,6 +293,32 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // just placed, then the `started` frame's refetch (issued FIRST, and answered from
     // before that placement) lands and blanks liveRunnerId, and the pane, its one revive
     // already spent, latches on "This agent has exited" over a CLI that is alive.
+
+    // `message_delta` fires once per streamed token, each its own top-level WS
+    // callback — outside anything React 18 batches. A fast provider can emit
+    // several inside one animation frame; this collapses them into one store
+    // write per chat per frame instead of one per token. See the batcher for why.
+    const streamingMessages = createStreamingMessageBatcher((chatId, message) =>
+      stateOf().setAgentChatStreamingMessage(chatId, message),
+    )
+
+    // Bounded self-heal for `compaction_started` with no matching
+    // `compaction_stopped`. compact_post is NOT reliable (confirmed live:
+    // most compactions on a small chat never produce one), so a design that
+    // only clears `compacting` on that frame would leave the indicator stuck
+    // showing forever whenever it doesn't arrive. COMPACTION_TIMEOUT_MS is
+    // generous against the one real timing this session measured (~18s) —
+    // this is a backstop, not the primary clearing path (that is any OTHER
+    // lifecycle frame for the chat, below, since a new turn starting is
+    // itself proof compaction is over).
+    const COMPACTION_TIMEOUT_MS = 60_000
+    const compactionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const clearCompactionTimer = (chatId: string) => {
+      const timer = compactionTimers.get(chatId)
+      if (timer === undefined) return
+      clearTimeout(timer)
+      compactionTimers.delete(chatId)
+    }
 
     // ONLY THE MOST-RECENTLY ISSUED SEED MAY WRITE — the same guard `latestFetch`
     // carries in lib/store/loadable-slice.ts, and needed here for the same reason.
@@ -668,6 +703,20 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // is a different question with a different answer per kind.
       if (!NON_STRUCTURAL_CHAT_KINDS.has(ev.kind)) bumpTreeSignal()
       const st = stateOf()
+      // Self-heal: ANY other chat frame arriving while this chat is marked
+      // compacting is itself proof the compaction is no longer the live
+      // state — a new turn, a message delta, a terminal-wait edge, none of
+      // those can happen mid-compaction. This is the PRIMARY way a missing
+      // compact_post gets noticed quickly; the timeout below is only the
+      // absolute backstop for a chat that goes silent altogether.
+      if (
+        ev.kind !== 'compaction_started' &&
+        ev.kind !== 'compaction_stopped' &&
+        st.agentChats.compacting[ev.chatId]
+      ) {
+        clearCompactionTimer(ev.chatId)
+        st.setAgentChatCompacting(ev.chatId, false)
+      }
       switch (ev.kind) {
         case 'turn_started':
         case 'turn_stopped':
@@ -679,12 +728,43 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          //
+          // Deliberately NOT clearing streamingMessages[chatId] here (tried,
+          // reverted): "interrupted" does not mean dead. Stopping a turn is a
+          // graceful request, not a kill — the CLI it was asked to stop can
+          // keep producing output and complete its OWN turn on its own
+          // schedule, arriving under its own message id well after a
+          // DIFFERENT turn (a provider switch mid-interrupt) has already
+          // started. A blanket clear on the next turn_started throws that
+          // still-alive entry away — the reader watches it vanish mid-
+          // sentence. Entries are removed only by useChatMessages's own
+          // dedup-against-the-ledger check, same as any other item.
           return
         case 'message_delta':
           // The agent is mid-sentence. This is the only frame in the feed that is
           // not a record of anything — it is replaced by the ledger's own copy the
-          // moment the message completes.
-          if (ev.message) st.setAgentChatStreamingMessage(ev.chatId, ev.message)
+          // moment the message completes. Batched to the next frame rather than
+          // written straight through — see streamingMessages above.
+          if (ev.message) streamingMessages.schedule(ev.chatId, ev.message)
+          return
+        case 'compaction_started':
+          // The ledger's own interruption record for this is born already
+          // resolved (see AgentChatsState.compacting's doc comment) — this
+          // live push is the only place "in progress" is ever observable.
+          clearCompactionTimer(ev.chatId)
+          st.setAgentChatCompacting(ev.chatId, true)
+          compactionTimers.set(
+            ev.chatId,
+            setTimeout(() => {
+              compactionTimers.delete(ev.chatId)
+              if (cancelled) return
+              stateOf().setAgentChatCompacting(ev.chatId, false)
+            }, COMPACTION_TIMEOUT_MS),
+          )
+          return
+        case 'compaction_stopped':
+          clearCompactionTimer(ev.chatId)
+          st.setAgentChatCompacting(ev.chatId, false)
           return
         case 'prompt_settled':
           // A prompt Crowbar delivered turned out not to produce a turn — a
@@ -724,6 +804,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     return () => {
       cancelled = true
       unsubscribe()
+      streamingMessages.dispose()
+      for (const timer of compactionTimers.values()) clearTimeout(timer)
+      compactionTimers.clear()
     }
   }, [wsId])
 }

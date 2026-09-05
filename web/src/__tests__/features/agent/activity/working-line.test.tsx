@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   AgentActivity,
@@ -55,6 +55,27 @@ function interruption(overrides: Partial<AgentInterruption> = {}): AgentInterrup
 }
 
 describe('WorkingLine', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Matches formatElapsed's own "m:ss, the way a stopwatch reads" — a turn
+  // running past a minute used to read as a bare, ever-growing second count
+  // ("65s") instead of rolling over.
+  it('reads the live elapsed clock as m:ss, not a bare second count', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:01:05Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 1:05')).toBeInTheDocument()
+  })
+
+  it('pads a single-digit second under a minute the same stopwatch way', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T12:00:08Z'))
+    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByText('· 0:08')).toBeInTheDocument()
+  })
+
   it('renders nothing at all when the chat is idle', () => {
     const { container } = render(<WorkingLine activity={NO_ACTIVITY} working={false} />)
     expect(container).toBeEmptyDOMElement()
@@ -145,30 +166,47 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
   })
 
-  // Compaction rides the same interruption channel as a permission wait, but
-  // it isn't blocked on a PERSON — unlike every other interruption kind above,
-  // it keeps the working line instead of going quiet.
+  // Compaction is not a wait on a PERSON, unlike every other interruption kind
+  // above — it keeps the working line instead of going quiet. Driven by
+  // `compactingLive`, NEVER by `activity`: a compaction's ledger interruption
+  // record is born already resolved (a bare /compact prompt never opens a
+  // tracked turn), so `blockedOn(activity)` can never observe one open — this
+  // prop is the only thing that can turn this branch on in production.
   it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
-      />,
-    )
+    render(<WorkingLine working activity={NO_ACTIVITY} compactingLive />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  })
+
+  // An explicit /compact never opens a tracked turn (it is delivered as a
+  // bare prompt the CLI never confirms via user_prompt), so `working` stays
+  // FALSE for the entire compaction — live-confirmed on dev-desktop. Gating
+  // on `working` alone would hide this branch for exactly the case it exists
+  // to cover.
+  it('shows Compacting even when working is false — a /compact never opens a tracked turn', () => {
+    render(<WorkingLine working={false} activity={NO_ACTIVITY} compactingLive />)
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
 
   it('names no tools while compacting — there is nothing to enumerate', () => {
-    render(
+    render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  // The ledger's own compaction interruption is dead weight for this branch —
+  // it is ALWAYS already resolved by the time anything reads it, so it must
+  // never be able to turn the compacting branch on by itself.
+  it('does not compact off a ledger interruption alone — the ledger record is always already resolved', () => {
+    const { container } = render(
       <WorkingLine
         working
-        activity={activity({
-          interruptions: [interruption({ kind: 'compaction' })],
-          toolCalls: [tool()],
-        })}
+        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
       />,
     )
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    // An unresolved ledger interruption of any kind (this one included) blocks
+    // the working line, same as the permission case above — proving nothing
+    // here silently "worked" by accident.
+    expect(container).toBeEmptyDOMElement()
   })
 })

@@ -53,7 +53,10 @@ function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean
   )
 }
 
-export type EnqueueResult = { ok: true } | { ok: false; error: string }
+/** `error` is absent for an empty box — Enter reaches this even though the
+ *  send button is disabled for empty, and there is nothing to warn about:
+ *  nothing was typed, nothing happened. */
+export type EnqueueResult = { ok: true } | { ok: false; error?: string }
 
 export interface PromptQueueOptions {
   wsId: string
@@ -278,7 +281,11 @@ export function usePromptQueue(options: PromptQueueOptions) {
   /** Evidence still outstanding, for the ledger's recovery walk. */
   const pendingEvidence = useCallback(() => queueRef.current.some(awaitingEvidence), [])
   const pendingBaselines = useCallback(
-    () => queueRef.current.filter(awaitingEvidence).map((item) => item.baselineSequence),
+    () =>
+      queueRef.current.reduce<number[]>((sequences, item) => {
+        if (awaitingEvidence(item)) sequences.push(item.baselineSequence)
+        return sequences
+      }, []),
     [],
   )
   const onRecoveryExhausted = useCallback(() => {
@@ -432,12 +439,10 @@ export function usePromptQueue(options: PromptQueueOptions) {
     (raw: string): EnqueueResult => {
       const text = raw.trim()
       if (!isPromptTextWithinLimit(text)) {
-        return {
-          ok: false,
-          error: text
-            ? 'This prompt is too large to submit.'
-            : 'Write a message before submitting.',
-        }
+        // Empty gets no error: Enter reaches here even with nothing typed
+        // (the send button is disabled for that case, but Enter bypasses
+        // it), and nothing was typed is not something to warn about.
+        return text ? { ok: false, error: 'This prompt is too large to submit.' } : { ok: false }
       }
       if (queueRef.current.length >= MAX_PROMPT_QUEUE_ITEMS) {
         return {
