@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { createPlateEditor } from 'platejs/react'
 import type { PlateEditor } from 'platejs/react'
+import type { Value } from 'platejs'
 import {
   ChatMarkdownEditor,
   insertAttachmentMarkdownInto,
@@ -12,7 +13,10 @@ import {
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import {
+  chatMarkdownToValue,
+  chatValueToMarkdown,
+} from '@/features/agent/composer/plate/chat-composer-serialization'
 
 // Captures the config `ChatMarkdownEditor` hands `createPlatePlugin` for its
 // OWN key-handling plugin, unchanged by this task, so that real (unmodified)
@@ -105,6 +109,48 @@ describe('insertAttachmentMarkdownInto', () => {
     insertAttachmentMarkdownInto(editor, '```text-attachment:def456\nmore\n```')
 
     expect(codeBlockNode(editor)?.lang).toBe('text-attachment:def456')
+  })
+
+  // TestRegression: two back-to-back inserts previously landed the second
+  // INSIDE the first fence's own code_line (Slate's default `mode: 'lowest'`
+  // matches the nested code_line, not the top-level code_block, at the
+  // selection a fence insert leaves behind) — silently dropping the second
+  // attachment's content. This is exactly the excalidraw modal's fence-then-
+  // image save sequence, and any other two-attachment-in-a-row case (e.g.
+  // two dropped files).
+  it('TestRegression_insertsSecondAttachmentAsASiblingNotInsideTheFirstFence', () => {
+    const editor = editorWith('', 'end')
+
+    insertAttachmentMarkdownInto(editor, '```excalidraw:abc\n{"elements":[]}\n```')
+    insertAttachmentMarkdownInto(editor, '![diagram](chats/c1/attachments/x-diagram.png)')
+
+    const [, fence, image] = editor.children as {
+      type?: string
+      url?: string
+      children?: { type?: string; children?: { text?: string }[] }[]
+    }[]
+    expect(fence.type).toBe('code_block')
+    expect(fence.children?.every((line) => line.type === 'code_line')).toBe(true)
+    expect(image.type).toBe('img')
+    expect(image.url).toBe('chats/c1/attachments/x-diagram.png')
+    expect(chatValueToMarkdown(editor.children as Value)).toBe(
+      '```excalidraw:abc\n{"elements":[]}\n```\n\n![diagram](chats/c1/attachments/x-diagram.png)',
+    )
+  })
+
+  it('TestRegression_insertsTwoFencedAttachmentsAsSeparateSiblingBlocks', () => {
+    const editor = editorWith('', 'end')
+
+    insertAttachmentMarkdownInto(editor, '```text-attachment:aaa\nfirst\n```')
+    insertAttachmentMarkdownInto(editor, '```text-attachment:bbb\nsecond\n```')
+
+    const fences = (editor.children as { type?: string; lang?: string }[]).filter(
+      (node) => node.type === 'code_block',
+    )
+    expect(fences.map((f) => f.lang)).toEqual(['text-attachment:aaa', 'text-attachment:bbb'])
+    expect(chatValueToMarkdown(editor.children as Value)).toBe(
+      '```text-attachment:aaa\nfirst\n```\n\n```text-attachment:bbb\nsecond\n```',
+    )
   })
 })
 

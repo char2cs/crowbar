@@ -24,6 +24,25 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
 
+// The real canvas mounts `@excalidraw/excalidraw` (a canvas-rendering tree
+// jsdom can't host, and whose dependency graph hits a raw JSON import this
+// test transform doesn't touch) — mocked out here since this suite only
+// proves the composer's plus button wires through to the modal, not the
+// canvas's own behaviour (that's excalidraw-canvas.test.tsx's job). `onSave`
+// is captured so one test below can trigger it directly, the same way a real
+// Save click on the (unmocked) canvas would.
+let latestExcalidrawOnSave: ((result: { sceneJson: string; pngFile: File }) => void) | null = null
+vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
+  ExcalidrawCanvas: ({
+    onSave,
+  }: {
+    onSave: (result: { sceneJson: string; pngFile: File }) => void
+  }) => {
+    latestExcalidrawOnSave = onSave
+    return <div data-testid="excalidraw-canvas-mock" />
+  },
+}))
+
 const toastError = vi.hoisted(() => vi.fn())
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
 
@@ -83,11 +102,12 @@ describe('AgentComposer', () => {
     expect(screen.getByRole('button', { name: 'Send prompt' })).toBeInTheDocument()
   })
 
-  // Task 24 gives the composer its own modal state, opened via the handle's
-  // plus button. Task 34 still replaces its placeholder `null` branch with a
-  // real modal — until then, opening it must be a true no-op: no dialog
-  // appears and the rest of the bar keeps working exactly as before.
-  it('opens the excalidraw modal slot from the plus button without a visible modal yet', async () => {
+  // Task 34 (ExcalidrawModal) replaces its own placeholder — opening it now
+  // shows a real, modal dialog, same as Task 30's AttachFileModal below. Its
+  // own behaviour (id-correlation, upload, toast-on-failure) is covered in
+  // excalidraw-modal.test.tsx; this only proves the composer wires the plus
+  // button through to it, and that the bar is itself again once closed.
+  it('opens the real excalidraw modal from the plus button and restores the bar on close', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
     draw({ draft: 'hi', onSend })
@@ -95,7 +115,12 @@ describe('AgentComposer', () => {
     await user.click(screen.getByRole('button', { name: /add to this message/i }))
     await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
 
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Excalidraw' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
     expect(onSend).toHaveBeenCalledTimes(1)
   })
@@ -152,6 +177,37 @@ describe('AgentComposer', () => {
       const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
       expect(lastCall).toContain('[notes.txt](chats/c1/attachments/x-notes.txt)')
     })
+  })
+
+  // The modal's own id-correlation/upload/toast behaviour is
+  // excalidraw-modal.test.tsx's job; this proves the composer's own
+  // `onInsertMarkdown` wiring reaches the field's imperative handle for
+  // EACH of the two markdown blocks a save produces (the fence, then the
+  // sibling image), not just that the dialog opens.
+  it('uploads via the excalidraw modal and inserts both markdown blocks into the field', async () => {
+    const user = userEvent.setup()
+    vi.mocked(uploadChatAttachment).mockResolvedValueOnce({
+      ref: 'chats/c1/attachments/x-diagram.png',
+      filename: 'x-diagram.png',
+      size: 10,
+      contentType: 'image/png',
+    })
+    const onDraftChange = vi.fn()
+    draw({ onDraftChange })
+
+    await user.click(screen.getByRole('button', { name: /add to this message/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await screen.findByTestId('excalidraw-canvas-mock')
+
+    const pngFile = new File(['x'], 'diagram.png', { type: 'image/png' })
+    await act(async () => {
+      await latestExcalidrawOnSave?.({ sceneJson: '{"elements":[]}', pngFile })
+    })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const calls = onDraftChange.mock.calls.map((c) => c[0] as string)
+    expect(calls.some((md) => md.includes('excalidraw:'))).toBe(true)
+    expect(calls.at(-1)).toContain('![diagram](chats/c1/attachments/x-diagram.png)')
   })
 
   // Pre-existing branch, unrelated to the plus button: proves the switch still

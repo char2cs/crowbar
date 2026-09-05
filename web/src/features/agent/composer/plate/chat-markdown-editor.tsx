@@ -82,11 +82,19 @@ export interface ChatMarkdownEditorProps {
  * so the one real branch here — was there already a selection to insert at,
  * or not — can be proven against a bare `createPlateEditor`, with no
  * mounted DOM: `editor.tf.focus()` throws without one.
+ *
+ * `mode: 'highest'`: after a fence insert, the selection Slate leaves
+ * sits inside the block's own `code_line`, not after the `code_block`. With
+ * the default `'lowest'` mode, a second back-to-back insert matches that
+ * `code_line` instead and splits the fence's OWN internals — silently
+ * dropping the new node's content instead of appending it as a sibling.
+ * `'highest'` walks up to the top-level block first, so two attachments
+ * inserted in a row (e.g. the excalidraw modal's fence-then-image) both land.
  */
 export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
   const nodes = chatMarkdownToValue(markdown)
   const at = editor.selection ?? editor.api.end([])
-  editor.tf.insertNodes(nodes, { at, select: true })
+  editor.tf.insertNodes(nodes, { at, select: true, mode: 'highest' })
 }
 
 /**

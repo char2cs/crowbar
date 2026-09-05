@@ -15,6 +15,7 @@ import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
+import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
 import { fileMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
 import type {
   CaretEdges,
@@ -243,10 +244,6 @@ export function AgentComposer(props: AgentComposerProps) {
               onOpenAttachFile={() => setModal('attach-file')}
             />
           </div>
-          {/* Task 34 (ExcalidrawModal) still replaces the `null` branch below
-              with the real modal, wired to close via `setModal(null)` and
-              insert via the imperative handle from Task 25 — same pattern
-              AttachFileModal follows here. */}
           {modal === 'attach-file' && (
             <AttachFileModal
               wsId={props.wsId}
@@ -256,7 +253,15 @@ export function AgentComposer(props: AgentComposerProps) {
               onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
             />
           )}
-          {modal === 'excalidraw' && null}
+          {modal === 'excalidraw' && (
+            <ExcalidrawModal
+              wsId={props.wsId}
+              chatId={props.chatId}
+              open
+              onClose={() => setModal(null)}
+              onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
+            />
+          )}
         </>
       )
     }
