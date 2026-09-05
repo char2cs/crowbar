@@ -20,10 +20,10 @@ const scene: ParsedExcalidrawScene = {
 const oneElementScene: ParsedExcalidrawScene = { elements: [{ type: 'rectangle' }], appState: {} }
 
 /** Lets a test control exactly when `resolve()` settles for a given `src`,
- *  to exercise the effect's cancel-on-change / cancel-on-unmount guard —
- *  the real `ChatMarkdownAssetProvider` + fetch stub (used below for the
- *  end-to-end resolution test) settles a microtask too fast to interleave a
- *  rerender or unmount in between. */
+ *  to exercise the effect's cancel-on-dependency-change guard — the real
+ *  `ChatMarkdownAssetProvider` + fetch stub (used below for the end-to-end
+ *  resolution test) settles a microtask too fast to interleave a rerender
+ *  in between. */
 function deferredAssetResolver() {
   const pending = new Map<string, (data: string | null) => void>()
   const asset = {
@@ -133,23 +133,16 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  it('does not update state after unmount when a pending resolution settles late', async () => {
-    const { asset, settle } = deferredAssetResolver()
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const { unmount } = render(
-      <MarkdownAssetContext.Provider value={asset}>
-        <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/a.png" />
-      </MarkdownAssetContext.Provider>,
-    )
-
-    unmount()
-
-    await act(async () => {
-      settle('chats/c1/attachments/a.png', 'data:image/png;base64,QQ==')
-    })
-
-    expect(consoleError).not.toHaveBeenCalled()
-    consoleError.mockRestore()
-  })
+  // Unmount safety is deliberately NOT covered by a separate test. React
+  // invokes the exact same effect-cleanup closure (`cancelled = true`) on
+  // unmount as it does before re-running the effect for a dependency change
+  // — there is no distinct "unmount branch" in the implementation, so the
+  // test above already exercises the guard that protects both triggers.
+  // A black-box unmount test can't independently discriminate guarded from
+  // unguarded behaviour here either way: React 19 removed the "state update
+  // on an unmounted component" warning, and a setState call on an already-
+  // unmounted fiber is a silent no-op with no rerender, no throw, and no
+  // console output regardless of whether `cancelled` was set — so a test
+  // that unmounts, settles the stale promise, and asserts "nothing observable
+  // happened" would pass identically with the guard deleted.
 })
