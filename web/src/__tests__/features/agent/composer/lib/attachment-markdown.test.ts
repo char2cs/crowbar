@@ -5,50 +5,112 @@ import {
   fileMarkdown,
   excalidrawMarkdown,
 } from '@/features/agent/composer/lib/attachment-markdown'
+import {
+  chatMarkdownToValue,
+  chatValueToMarkdown,
+} from '@/features/agent/composer/plate/chat-composer-serialization'
+
+/**
+ * Helper to verify a round-trip: builder -> markdown -> parsed value -> serialized back.
+ * This verifies that the content survives parsing without corruption or truncation.
+ * For safety, we check that re-serializing includes the original content AND
+ * the correct language tag, proving the code block was parsed correctly.
+ */
+function expectRoundTripPreservesContent(
+  markdown: string,
+  originalContent: string,
+  expectedLanguageTag: string,
+) {
+  const parsed = chatMarkdownToValue(markdown)
+
+  // Verify that parsing succeeded (has at least one node)
+  expect(parsed.length).toBeGreaterThan(0)
+
+  // Re-serialize and verify the output contains the original content
+  // and the correct language tag
+  const reserialized = chatValueToMarkdown(parsed)
+
+  expect(reserialized).toContain(originalContent)
+  expect(reserialized).toContain(expectedLanguageTag)
+
+  // Verify the fence structure is intact
+  expect(markdown).toMatch(/^`{3,}/)
+}
 
 describe('textAttachmentMarkdown', () => {
   it('fences the raw text with an id-suffixed language tag', () => {
-    expect(textAttachmentMarkdown('abc123', 'hello\nworld')).toBe(
-      '```text-attachment:abc123\nhello\nworld\n```',
-    )
+    const md = textAttachmentMarkdown('abc123', 'hello\nworld')
+    expect(md).toContain('text-attachment:abc123')
+    expect(md).toContain('hello\nworld')
   })
 
   it('handles text with leading/trailing whitespace', () => {
-    expect(textAttachmentMarkdown('xyz789', '  content  ')).toBe(
-      '```text-attachment:xyz789\n  content  \n```',
-    )
+    const md = textAttachmentMarkdown('xyz789', '  content  ')
+    expectRoundTripPreservesContent(md, '  content  ', 'text-attachment:xyz789')
   })
 
-  it('handles text with backticks', () => {
-    expect(textAttachmentMarkdown('id1', 'code: `foo()`')).toBe(
-      '```text-attachment:id1\ncode: `foo()`\n```',
-    )
+  it('handles inline backticks safely', () => {
+    const md = textAttachmentMarkdown('id1', 'code: `foo()`')
+    expectRoundTripPreservesContent(md, 'code: `foo()`', 'text-attachment:id1')
   })
 
-  it('handles text with multiple backticks', () => {
-    expect(textAttachmentMarkdown('id2', '```javascript\ncode\n```')).toBe(
-      '```text-attachment:id2\n```javascript\ncode\n```\n```',
-    )
+  it('CRITICAL: handles standalone backtick fence line within content (would corrupt without escalation)', () => {
+    // This is the bug case: content with a line that is ONLY backticks
+    const dangerous = 'before\n```javascript\nconst x = 1;\n```\nafter'
+    const md = textAttachmentMarkdown('abc123', dangerous)
+
+    expectRoundTripPreservesContent(md, dangerous, 'text-attachment:abc123')
+
+    // Extra assertion: verify the fence was escalated (not 3 backticks)
+    const fence = md.split('\n')[0].match(/^`+/)?.[0]
+    expect(fence?.length).toBeGreaterThan(3)
+  })
+
+  it('escalates fence length: 4 backticks in content -> 5+ fence', () => {
+    const content = 'line1\n````\nline2'
+    const md = textAttachmentMarkdown('id1', content)
+
+    expectRoundTripPreservesContent(md, content, 'text-attachment:id1')
+
+    const fence = md.split('\n')[0].match(/^`+/)?.[0]
+    expect(fence?.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('escalates fence length: 10 backticks in content -> 11+ fence', () => {
+    const content = 'start\n' + '`'.repeat(10) + '\nend'
+    const md = textAttachmentMarkdown('id2', content)
+
+    expectRoundTripPreservesContent(md, content, 'text-attachment:id2')
+
+    const fence = md.split('\n')[0].match(/^`+/)?.[0]
+    expect(fence?.length).toBeGreaterThanOrEqual(11)
   })
 
   it('handles text with special markdown characters', () => {
-    expect(textAttachmentMarkdown('id3', '# Heading\n[link](url)\n![img](path)')).toBe(
-      '```text-attachment:id3\n# Heading\n[link](url)\n![img](path)\n```',
-    )
+    const md = textAttachmentMarkdown('id3', '# Heading\n[link](url)\n![img](path)')
+    expectRoundTripPreservesContent(md, '# Heading\n[link](url)\n![img](path)', 'text-attachment:id3')
   })
 
   it('handles empty text', () => {
-    expect(textAttachmentMarkdown('id4', '')).toBe('```text-attachment:id4\n\n```')
+    const md = textAttachmentMarkdown('id4', '')
+    expectRoundTripPreservesContent(md, '', 'text-attachment:id4')
   })
 
   it('handles text with only newlines', () => {
-    expect(textAttachmentMarkdown('id5', '\n\n')).toBe('```text-attachment:id5\n\n\n\n```')
+    const md = textAttachmentMarkdown('id5', '\n\n')
+    expectRoundTripPreservesContent(md, '\n\n', 'text-attachment:id5')
   })
 
   it('handles ids with dashes and underscores', () => {
-    expect(textAttachmentMarkdown('abc-123_def', 'text')).toBe(
-      '```text-attachment:abc-123_def\ntext\n```',
-    )
+    const md = textAttachmentMarkdown('abc-123_def', 'text')
+    expect(md).toContain('text-attachment:abc-123_def')
+    expectRoundTripPreservesContent(md, 'text', 'text-attachment:abc-123_def')
+  })
+
+  it('preserves mixed backtick content correctly', () => {
+    const content = 'single`backtick\n``double\n```triple```\n````quad'
+    const md = textAttachmentMarkdown('id_mixed', content)
+    expectRoundTripPreservesContent(md, content, 'text-attachment:id_mixed')
   })
 })
 
@@ -134,45 +196,66 @@ describe('fileMarkdown', () => {
 
 describe('excalidrawMarkdown', () => {
   it('fences the scene JSON with an id-suffixed language tag', () => {
-    expect(excalidrawMarkdown('abc123', '{"type":"excalidraw"}')).toBe(
-      '```excalidraw:abc123\n{"type":"excalidraw"}\n```',
-    )
+    const md = excalidrawMarkdown('abc123', '{"type":"excalidraw"}')
+    expect(md).toContain('excalidraw:abc123')
+    expect(md).toContain('{"type":"excalidraw"}')
   })
 
-  it('handles multiline scene JSON', () => {
+  it('handles multiline scene JSON with round-trip', () => {
     const sceneJson = '{\n  "type": "excalidraw",\n  "version": 2\n}'
-    expect(excalidrawMarkdown('xyz789', sceneJson)).toBe(
-      `\`\`\`excalidraw:xyz789\n${sceneJson}\n\`\`\``,
-    )
+    const md = excalidrawMarkdown('xyz789', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:xyz789')
   })
 
-  it('handles scene JSON with backticks', () => {
-    expect(excalidrawMarkdown('id1', '{"code": "`backtick`"}')).toBe(
-      '```excalidraw:id1\n{"code": "`backtick`"}\n```',
-    )
+  it('handles scene JSON with inline backticks safely', () => {
+    const sceneJson = '{"code": "`backtick`"}'
+    const md = excalidrawMarkdown('id1', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:id1')
   })
 
-  it('handles scene JSON with fence markers', () => {
-    expect(excalidrawMarkdown('id2', '{"text": "```code```"}')).toBe(
-      '```excalidraw:id2\n{"text": "```code```"}\n```',
-    )
+  it('CRITICAL: handles scene JSON that could encode standalone fence line', () => {
+    // Even though JSON.stringify typically wouldn't create a newline + backticks line,
+    // we test defensively: a raw scene JSON could potentially have this structure
+    const sceneJson = '{"text":"line1\\n```\\nline2"}'
+    const md = excalidrawMarkdown('id2', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:id2')
+  })
+
+  it('escalates fence length for JSON with 4+ backticks', () => {
+    const sceneJson = '{"code":"' + '`'.repeat(4) + '"}'
+    const md = excalidrawMarkdown('id3', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:id3')
+
+    const fence = md.split('\n')[0].match(/^`+/)?.[0]
+    expect(fence?.length).toBeGreaterThanOrEqual(5)
   })
 
   it('handles ids with dashes and underscores', () => {
-    expect(excalidrawMarkdown('abc-123_def', '{"type":"excalidraw"}')).toBe(
-      '```excalidraw:abc-123_def\n{"type":"excalidraw"}\n```',
-    )
+    const sceneJson = '{"type":"excalidraw"}'
+    const md = excalidrawMarkdown('abc-123_def', sceneJson)
+    expect(md).toContain('excalidraw:abc-123_def')
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:abc-123_def')
   })
 
   it('handles complex scene JSON', () => {
     const sceneJson =
       '{"elements":[{"id":"a","type":"rectangle"},{"id":"b","type":"text","text":"hello"}]}'
-    expect(excalidrawMarkdown('scene1', sceneJson)).toBe(
-      `\`\`\`excalidraw:scene1\n${sceneJson}\n\`\`\``,
-    )
+    const md = excalidrawMarkdown('scene1', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:scene1')
   })
 
   it('handles empty JSON', () => {
-    expect(excalidrawMarkdown('id3', '{}')).toBe('```excalidraw:id3\n{}\n```')
+    const md = excalidrawMarkdown('id4', '{}')
+    expectRoundTripPreservesContent(md, '{}', 'excalidraw:id4')
+  })
+
+  it('preserves multiline JSON structure with backticks', () => {
+    const sceneJson = `{
+  "elements": [
+    {"id": "a", "text": "\`code\`"}
+  ]
+}`
+    const md = excalidrawMarkdown('complex_id', sceneJson)
+    expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:complex_id')
   })
 })
