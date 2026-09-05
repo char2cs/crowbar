@@ -185,14 +185,27 @@ describe('chat attachment file card', () => {
         </ChatMarkdownAssetProvider>
       </DndProvider>,
     )
-    expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
+    const handle = screen.getByRole('button', { name: /reorder this attachment/i })
+    expect(handle).toBeInTheDocument()
+
+    // Review finding 2: nesting the handle <button> inside the card's <a>
+    // is invalid HTML5 (interactive content inside interactive content) and
+    // an accessibility smell — the button must be a SIBLING of the anchor,
+    // never a descendant of it.
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(anchor).not.toBeNull()
+    expect(anchor?.contains(handle)).toBe(false)
+    expect(handle.closest('a')).toBeNull()
 
     // Same click/hover behaviour as the static card's own assertions above —
     // the drag handle is additive, it doesn't change what the card itself does.
     await waitFor(() => expect(screen.getByText('10 bytes')).toBeInTheDocument())
-    const anchor = screen.getByText('report.pdf').closest('a')
     expect(() => fireEvent.click(anchor!)).not.toThrow()
     expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
+    // The two controls work independently: clicking the handle must not
+    // navigate the anchor (no onClick wired to it beyond onSelect, which
+    // this render doesn't pass), and must not throw either.
+    expect(() => fireEvent.click(handle)).not.toThrow()
 
     vi.unstubAllGlobals()
   })

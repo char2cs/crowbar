@@ -118,34 +118,53 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
   filename: string
 }
 
+/**
+ * The drag handle sits OUTSIDE the `<a>` on purpose — nesting a `<button>`
+ * (`AttachmentDragHandle`) inside a `<a>` (interactive content inside
+ * interactive content) is invalid HTML5 and an accessibility/focus-order
+ * smell (a screen reader has to guess which control a click landed on). The
+ * code-block variant (`DraggableAttachmentBlock`) never has this problem —
+ * its own `PlateElement` root is a plain block, not an anchor — but this one
+ * IS an anchor, so the handle and drop line are rendered as SIBLINGS of it,
+ * both children of an outer, non-interactive `<span>` that carries the
+ * `group/attachment` hover scope and the `position: relative` the handle's
+ * own absolute positioning is measured against. `nodeRef` (the draggable
+ * node `@platejs/dnd` measures and previews) still composes onto the anchor
+ * itself — the actual visible card — not the wrapper, same as before this
+ * split; Slate's own `props.attributes`/`ref` stay on the anchor too, so its
+ * DOM identity, click/href behaviour and `LinkFloatingToolbar` compatibility
+ * are all unchanged from before this task.
+ */
 function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
   const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
   const { isDragging, nodeRef, handleRef } = useAttachmentDraggable(props.element)
 
   return (
-    <PlateElement
-      {...props}
-      as="a"
-      ref={useComposedRef(props.ref, nodeRef)}
-      className={cn(
-        'chat-attachment-file-card group/attachment relative inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 align-middle text-sm no-underline',
-        isDragging && 'opacity-50',
-      )}
-      attributes={{
-        ...props.attributes,
-        href: href ?? undefined,
-        onClick: (e) => handleMarkdownAnchorClick(e, href),
-        onMouseOver: (e) => {
-          e.stopPropagation()
-        },
-      }}
-    >
+    <span className="group/attachment relative inline-flex align-middle">
       <AttachmentDragHandle dragRef={handleRef} />
       <AttachmentDropLine />
-      <FileExplorerIcon fileName={filename} size={14} className="shrink-0" />
-      <span className="truncate">{props.children}</span>
-      {sizeLabel && <span className="shrink-0 text-muted-foreground text-xs">{sizeLabel}</span>}
-    </PlateElement>
+      <PlateElement
+        {...props}
+        as="a"
+        ref={useComposedRef(props.ref, nodeRef)}
+        className={cn(
+          'chat-attachment-file-card inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 align-middle text-sm no-underline',
+          isDragging && 'opacity-50',
+        )}
+        attributes={{
+          ...props.attributes,
+          href: href ?? undefined,
+          onClick: (e) => handleMarkdownAnchorClick(e, href),
+          onMouseOver: (e) => {
+            e.stopPropagation()
+          },
+        }}
+      >
+        <FileExplorerIcon fileName={filename} size={14} className="shrink-0" />
+        <span className="truncate">{props.children}</span>
+        {sizeLabel && <span className="shrink-0 text-muted-foreground text-xs">{sizeLabel}</span>}
+      </PlateElement>
+    </span>
   )
 }
 

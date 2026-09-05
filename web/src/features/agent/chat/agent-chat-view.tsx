@@ -195,6 +195,11 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
  * never needs this context — this wrapper costs nothing extra by covering it
  * anyway, but the real gate is in the plugin set, not here.
  */
+// Safe with several chat tabs kept mounted at once (see AgentChatPane's
+// keep-alive `hidden` tabs): `DndProvider` without an explicit `context`/
+// `manager` prop shares ONE global-singleton `DragDropManager`/`HTML5Backend`
+// across every mount, ref-counted (react-dnd's `DndProvider.js`) — many
+// `DndScope`s never means many competing HTML5 backends.
 function DndScope({ children }: { children: ReactNode }) {
   return <DndProvider backend={HTML5Backend}>{children}</DndProvider>
 }
