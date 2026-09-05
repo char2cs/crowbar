@@ -9,6 +9,7 @@ import {
   uploadChatAttachment,
   type UploadChatAttachmentInput,
 } from '@/features/agent/api/upload-chat-attachment'
+import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
@@ -242,10 +243,19 @@ export function AgentComposer(props: AgentComposerProps) {
               onOpenAttachFile={() => setModal('attach-file')}
             />
           </div>
-          {/* Task 29 (AttachFileModal) and Task 34 (ExcalidrawModal) each replace
-              their `null` branch below with the real modal, wired to close via
-              `setModal(null)` and insert via the imperative handle from Task 25. */}
-          {modal === 'attach-file' && null}
+          {/* Task 34 (ExcalidrawModal) still replaces the `null` branch below
+              with the real modal, wired to close via `setModal(null)` and
+              insert via the imperative handle from Task 25 — same pattern
+              AttachFileModal follows here. */}
+          {modal === 'attach-file' && (
+            <AttachFileModal
+              wsId={props.wsId}
+              chatId={props.chatId}
+              open
+              onClose={() => setModal(null)}
+              onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
+            />
+          )}
           {modal === 'excalidraw' && null}
         </>
       )

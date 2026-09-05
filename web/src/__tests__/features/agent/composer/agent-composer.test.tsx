@@ -84,8 +84,8 @@ describe('AgentComposer', () => {
   })
 
   // Task 24 gives the composer its own modal state, opened via the handle's
-  // plus button. Tasks 29/34 replace the placeholder `null` branches with the
-  // real modals — until then, opening either must be a true no-op: no dialog
+  // plus button. Task 34 still replaces its placeholder `null` branch with a
+  // real modal — until then, opening it must be a true no-op: no dialog
   // appears and the rest of the bar keeps working exactly as before.
   it('opens the excalidraw modal slot from the plus button without a visible modal yet', async () => {
     const user = userEvent.setup()
@@ -100,7 +100,13 @@ describe('AgentComposer', () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
-  it('opens the attach-file modal slot from the plus button without a visible modal yet', async () => {
+  // Task 30 (AttachFileModal) replaces its own placeholder — opening it now
+  // shows a real, modal dialog, which correctly makes the rest of the bar
+  // inert (Base UI marks background content aria-hidden) until it closes.
+  // Its own behaviour (upload paths, drag-drop, the error toast) is covered
+  // in attach-file-modal.test.tsx; this only proves the composer wires the
+  // plus button through to it, and that the bar is itself again once closed.
+  it('opens the real attach-file modal from the plus button and restores the bar on close', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()
     draw({ draft: 'hi', onSend })
@@ -108,9 +114,44 @@ describe('AgentComposer', () => {
     await user.click(screen.getByRole('button', { name: /add to this message/i }))
     await user.click(await screen.findByRole('menuitem', { name: /attach file/i }))
 
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/attach a file/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  // The modal's own upload/markdown behaviour is attach-file-modal.test.tsx's
+  // job; this proves the composer's own `onInsertMarkdown` wiring actually
+  // reaches the field's imperative handle (and the modal closes itself once
+  // it does), not just that the dialog opens.
+  it('uploads via the attach-file modal and inserts the markdown into the field', async () => {
+    const user = userEvent.setup()
+    vi.mocked(uploadChatAttachment).mockResolvedValueOnce({
+      ref: 'chats/c1/attachments/x-notes.txt',
+      filename: 'notes.txt',
+      size: 5,
+      contentType: 'text/plain',
+    })
+    const onDraftChange = vi.fn()
+    draw({ onDraftChange })
+
+    await user.click(screen.getByRole('button', { name: /add to this message/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /attach file/i }))
+
+    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
+    fireEvent.change(input, {
+      target: { files: [new File(['hi'], 'notes.txt', { type: 'text/plain' })] },
+    })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => {
+      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
+      expect(lastCall).toContain('[notes.txt](chats/c1/attachments/x-notes.txt)')
+    })
   })
 
   // Pre-existing branch, unrelated to the plus button: proves the switch still
