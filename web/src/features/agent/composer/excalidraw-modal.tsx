@@ -7,6 +7,8 @@ import {
   excalidrawMarkdown,
   imageMarkdown,
 } from '@/features/agent/composer/lib/attachment-markdown'
+import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
+import { exceedsInlineSizeCap } from '@/features/agent/composer/lib/inline-attachment-cap'
 import { toast } from '@/features/window/stores/toast-store'
 
 const ExcalidrawCanvas = lazy(() =>
@@ -34,6 +36,14 @@ interface ExcalidrawModalProps {
  * folds into the PNG's filename. Both `excalidrawMarkdown(id, ...)` and
  * `uploadChatAttachment(..., id)` below receive the SAME `id` — never let
  * the upload mint its own.
+ *
+ * The scene JSON only gets the inline `excalidraw:{id}` fence treatment
+ * under `INLINE_ATTACHMENT_MAX_BYTES` (inline-attachment-cap.ts, shared with
+ * the paste plugin's text-attachment threshold) — a scene big enough to trip
+ * `MAX_PROMPT_TEXT_BYTES` on its own uploads as a `.excalidraw.json` file
+ * link instead. The PNG preview always uploads and inserts regardless: it is
+ * the human-visible artifact, and losing it just because the SCENE data was
+ * too big to inline would throw away the one thing a reader can actually see.
  */
 export function ExcalidrawModal({
   wsId,
@@ -47,7 +57,14 @@ export function ExcalidrawModal({
       const id = nanoid()
       try {
         const result = await uploadChatAttachment(wsId, chatId, { file: pngFile }, id)
-        onInsertMarkdown(excalidrawMarkdown(id, sceneJson))
+        if (exceedsInlineSizeCap(sceneJson)) {
+          const sceneFile = new File([sceneJson], 'diagram.excalidraw.json', {
+            type: 'application/json',
+          })
+          onInsertMarkdown(await uploadAttachmentMarkdown(wsId, chatId, { file: sceneFile }))
+        } else {
+          onInsertMarkdown(excalidrawMarkdown(id, sceneJson))
+        }
         onInsertMarkdown(imageMarkdown('diagram', result.ref))
         onClose()
       } catch (err) {

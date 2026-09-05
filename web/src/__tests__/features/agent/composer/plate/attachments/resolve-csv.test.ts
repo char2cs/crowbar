@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CSV_MAX_COLUMNS,
   CSV_MAX_ROWS,
+  isCsvFile,
   resolveCsv,
   rowsToMarkdownTable,
 } from '@/features/agent/composer/plate/attachments/resolve-csv'
@@ -184,5 +185,29 @@ describe('rowsToMarkdownTable', () => {
 
   it('returns an empty string for no rows', () => {
     expect(rowsToMarkdownTable([])).toBe('')
+  })
+})
+
+describe('isCsvFile', () => {
+  it('recognizes a .csv extension with a proper text/csv contentType', () => {
+    expect(isCsvFile(new File(['a,b'], 'report.csv', { type: 'text/csv' }))).toBe(true)
+  })
+
+  // Some browsers/OSes have no association for `.csv` and report an empty
+  // `type` — the extension alone must still be enough.
+  it('recognizes a .csv extension with an empty contentType', () => {
+    expect(isCsvFile(new File(['a,b'], 'report.csv', { type: '' }))).toBe(true)
+  })
+
+  it('is case-insensitive on the extension', () => {
+    expect(isCsvFile(new File(['a,b'], 'REPORT.CSV', { type: '' }))).toBe(true)
+  })
+
+  it('recognizes a text/csv contentType even without a .csv extension', () => {
+    expect(isCsvFile(new File(['a,b'], 'report', { type: 'text/csv' }))).toBe(true)
+  })
+
+  it('is false for an unrelated file', () => {
+    expect(isCsvFile(new File(['hi'], 'notes.txt', { type: 'text/plain' }))).toBe(false)
   })
 })

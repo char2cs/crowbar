@@ -665,6 +665,19 @@
   min-height: 0;
   overflow: hidden;
 }
+/* Same affordance as `.pill.drop-target`, drawn as an inset overlay rather
+   than a border: the pill's own border IS its edge, but the document has no
+   edge of its own to recolor — an inset ring reads as "drop here" without
+   implying the writing area itself just gained a border. */
+.agent-chat .docwrap.drop-target::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in oklch, var(--ring) 60%, transparent);
+  background: color-mix(in oklch, var(--ring) 4%, transparent);
+  pointer-events: none;
+}
 .agent-chat .doc {
   --pad: max(40px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;

@@ -72,6 +72,41 @@ describe('AttachFileModal', () => {
     )
   })
 
+  // Finding C3: a browsed CSV that resolves cleanly as a small table is
+  // inlined directly as a markdown table — never uploaded at all.
+  it('resolves a small, well-formed browsed CSV inline as a markdown table, without uploading', async () => {
+    const onInsertMarkdown = vi.fn()
+    draw({ onInsertMarkdown })
+    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
+    const file = new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' })
+
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() =>
+      expect(onInsertMarkdown).toHaveBeenCalledWith('| name | age |\n| --- | --- |\n| Ada | 36 |'),
+    )
+    expect(uploadChatAttachment).not.toHaveBeenCalled()
+  })
+
+  // The fallback half of the same finding: a CSV too malformed to inline
+  // still uploads exactly like any other file.
+  it('falls through to uploading a dropped CSV that is too malformed to inline', async () => {
+    const onInsertMarkdown = vi.fn()
+    draw({ onInsertMarkdown })
+    const zone = screen.getByTestId('attach-file-dropzone')
+    // Ragged rows -> resolveCsv rejects it as { kind: 'file' }.
+    const file = new File(['a,b\n1\n'], 'ragged.csv', { type: 'text/csv' })
+
+    fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
+
+    await waitFor(() =>
+      expect(onInsertMarkdown).toHaveBeenCalledWith(
+        '[ragged.csv](chats/c1/attachments/x-ragged.csv)',
+      ),
+    )
+    expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file })
+  })
+
   it('inserts an image node for an image file', async () => {
     const onInsertMarkdown = vi.fn()
     draw({ onInsertMarkdown })
@@ -279,7 +314,7 @@ describe('AttachFileModal', () => {
 
       await waitFor(() =>
         expect(toastError).toHaveBeenCalledWith(
-          "Couldn't attach that file",
+          'Could not attach that file',
           '413 Payload Too Large',
         ),
       )
@@ -288,7 +323,8 @@ describe('AttachFileModal', () => {
     })
 
     // A failure that isn't an `Error` instance (e.g. a plain thrown string)
-    // still gets a description, not a crash.
+    // still gets a description, not a crash — the shared hook's own fallback
+    // description, same as agent-composer.tsx's.
     it('falls back to a generic description for a non-Error rejection', async () => {
       vi.mocked(uploadChatAttachment).mockRejectedValueOnce('boom')
       draw()
@@ -296,7 +332,10 @@ describe('AttachFileModal', () => {
       fireEvent.change(input, { target: { files: [new File(['x'], 'huge.png')] } })
 
       await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'boom'),
+        expect(toastError).toHaveBeenCalledWith(
+          'Could not attach that file',
+          'Crowbar could not reach the daemon — try again.',
+        ),
       )
     })
 
@@ -323,7 +362,7 @@ describe('AttachFileModal', () => {
       fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
 
       await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'disk full'),
+        expect(toastError).toHaveBeenCalledWith('Could not attach that file', 'disk full'),
       )
     })
   })

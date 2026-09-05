@@ -5,10 +5,6 @@ import type {
   AgentTerminalWait,
   PermissionLevel,
 } from '@/features/agent/api/agent-api'
-import {
-  uploadChatAttachment,
-  type UploadChatAttachmentInput,
-} from '@/features/agent/api/upload-chat-attachment'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
@@ -16,7 +12,6 @@ import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
-import { fileMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
 import type {
   CaretEdges,
   ChatMarkdownEditorHandle,
@@ -26,8 +21,8 @@ import {
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
+import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import { toast } from '@/features/window/stores/toast-store'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
@@ -90,34 +85,19 @@ export function AgentComposer(props: AgentComposerProps) {
   const pillRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState(false)
 
-  const insertUploaded = useCallback(
-    (result: { ref: string; filename: string; contentType: string }) => {
-      const md = result.contentType.startsWith('image/')
-        ? imageMarkdown(result.filename, result.ref)
-        : fileMarkdown(result.filename, result.ref)
-      editorRef.current?.insertAttachmentMarkdown(md)
-    },
-    [],
-  )
+  const insertAttachmentMarkdown = useCallback((md: string) => {
+    editorRef.current?.insertAttachmentMarkdown(md)
+  }, [])
 
-  // Caught here, not left to the caller: `void uploadAndInsert(...)` at every
-  // call site means nobody is in a position to `.catch` this promise, and an
-  // upload can fail for entirely ordinary reasons (offline, a daemon 413/500,
-  // a revoked host-path read) — a dropped file that silently does nothing is
-  // indistinguishable from a hang.
-  const uploadAndInsert = useCallback(
-    async (input: UploadChatAttachmentInput) => {
-      try {
-        const result = await uploadChatAttachment(props.wsId, props.chatId, input)
-        insertUploaded(result)
-      } catch (err) {
-        toast.error(
-          'Could not attach that file',
-          err instanceof Error ? err.message : 'Crowbar could not reach the daemon — try again.',
-        )
-      }
-    },
-    [props.wsId, props.chatId, insertUploaded],
+  // Upload, CSV-inline resolution, and the failure toast all live in this one
+  // shared hook now (also used by attach-file-modal.tsx and
+  // agent-empty-document.tsx) — `void uploadAndInsert(...)` at every call
+  // site below means nobody else is in a position to `.catch` this promise,
+  // and the hook is what makes that safe.
+  const { uploadAndInsert } = useAttachmentUpload(
+    props.wsId,
+    props.chatId,
+    insertAttachmentMarkdown,
   )
 
   // Memoized: `useTauriFileDrop`'s own effect re-subscribes to Tauri's

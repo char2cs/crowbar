@@ -5,6 +5,14 @@ export const CSV_MAX_COLUMNS = 20
 
 export type CsvResolution = { kind: 'table'; rows: string[][] } | { kind: 'file' }
 
+/** A `.csv` file by either signal a browser gives one: the extension (always
+ *  present) or `contentType` — which in practice is `text/csv` in some
+ *  browsers/OSes and an empty string in others (no OS association for the
+ *  extension), never something to rely on alone. */
+export function isCsvFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.csv') || file.type === 'text/csv'
+}
+
 /** Two independent gates, both must pass for inline-as-table (design spec's
  *  "CSV table-vs-file" rule):
  *  1. Size — at most CSV_MAX_ROWS rows / CSV_MAX_COLUMNS columns. 200x20 is a

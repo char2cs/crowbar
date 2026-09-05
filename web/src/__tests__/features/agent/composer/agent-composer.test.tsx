@@ -349,6 +349,48 @@ describe('AgentComposer drag-and-drop', () => {
     })
   })
 
+  // Finding C3: a dropped CSV that resolves cleanly as a small table is
+  // inlined directly as a markdown table — never uploaded at all.
+  it('resolves a small, well-formed dropped CSV inline as a markdown table, without uploading', async () => {
+    const onDraftChange = vi.fn()
+    const { container } = draw({ onDraftChange })
+    const pill = container.querySelector('.pill')!
+    const file = new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' })
+
+    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+
+    await waitFor(() => {
+      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
+      expect(lastCall).toContain('| name | age |')
+    })
+    expect(uploadChatAttachment).not.toHaveBeenCalled()
+  })
+
+  // The fallback half of the same finding: a CSV too large/malformed to
+  // inline (resolveCsv returns `{ kind: 'file' }`) still uploads exactly
+  // like any other file.
+  it('falls through to uploading a CSV that is too malformed to inline', async () => {
+    vi.mocked(uploadChatAttachment).mockResolvedValue({
+      ref: 'chats/c1/attachments/x-ragged.csv',
+      filename: 'ragged.csv',
+      size: 20,
+      contentType: 'text/csv',
+    })
+    const onDraftChange = vi.fn()
+    const { container } = draw({ onDraftChange })
+    const pill = container.querySelector('.pill')!
+    // Ragged rows -> resolveCsv rejects it as { kind: 'file' }.
+    const file = new File(['a,b\n1\n'], 'ragged.csv', { type: 'text/csv' })
+
+    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+
+    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file }))
+    await waitFor(() => {
+      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
+      expect(lastCall).toContain('[ragged.csv](chats/c1/attachments/x-ragged.csv)')
+    })
+  })
+
   // The other branch of insertUploaded's contentType switch: a non-image
   // result gets the plain-link encoding, not the image one.
   it('uploads a dropped non-image file and inserts link markdown', async () => {

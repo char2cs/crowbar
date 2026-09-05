@@ -4,6 +4,7 @@ import {
   imageMarkdown,
   fileMarkdown,
   excalidrawMarkdown,
+  markdownForUpload,
 } from '@/features/agent/composer/lib/attachment-markdown'
 import {
   chatMarkdownToValue,
@@ -257,5 +258,27 @@ describe('excalidrawMarkdown', () => {
 }`
     const md = excalidrawMarkdown('complex_id', sceneJson)
     expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:complex_id')
+  })
+})
+
+describe('markdownForUpload', () => {
+  it('produces image markdown for an image contentType', () => {
+    expect(
+      markdownForUpload({
+        filename: 'shot.png',
+        ref: 'chats/c1/attachments/x-shot.png',
+        contentType: 'image/png',
+      }),
+    ).toBe('![shot.png](chats/c1/attachments/x-shot.png)')
+  })
+
+  it('produces file-link markdown for a non-image contentType', () => {
+    expect(
+      markdownForUpload({
+        filename: 'notes.txt',
+        ref: 'chats/c1/attachments/x-notes.txt',
+        contentType: 'text/plain',
+      }),
+    ).toBe('[notes.txt](chats/c1/attachments/x-notes.txt)')
   })
 })

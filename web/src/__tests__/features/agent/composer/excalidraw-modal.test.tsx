@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
 import type { ExcalidrawSaveResult } from '@/features/agent/composer/excalidraw-canvas'
 import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
+import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 
 // The mocked canvas hands its `onCancel`/`onSave` props straight to the
 // test via this closure, rather than mounting the real (heavy, canvas-
@@ -84,6 +85,68 @@ describe('ExcalidrawModal', () => {
     const [imageMarkdownCall] = onInsertMarkdown.mock.calls[1]
     expect(fenceMarkdown).toContain(`excalidraw:${uploadedId}`)
     expect(imageMarkdownCall).toContain('x-diagram.png')
+  })
+
+  // Finding I4: a scene big enough to trip the shared inline size cap
+  // (inline-attachment-cap.ts) must not become an unsendable inline fence —
+  // it uploads as a `.excalidraw.json` file link instead. The PNG preview
+  // still uploads and inserts either way — it's the human-visible artifact.
+  it('uploads the scene as a file once it exceeds the shared inline size cap, but still inserts the PNG preview', async () => {
+    vi.mocked(uploadChatAttachment)
+      .mockResolvedValueOnce({
+        ref: 'chats/c1/attachments/x-diagram.png',
+        filename: 'x-diagram.png',
+        size: 10,
+        contentType: 'image/png',
+      })
+      .mockResolvedValueOnce({
+        ref: 'chats/c1/attachments/y-diagram.excalidraw.json',
+        filename: 'diagram.excalidraw.json',
+        size: 99999,
+        contentType: 'application/json',
+      })
+    const { onInsertMarkdown } = await renderOpenModal()
+
+    const pngFile = new File(['x'], 'diagram.png', { type: 'image/png' })
+    const hugeSceneJson = JSON.stringify({
+      elements: [],
+      appState: {},
+      pad: 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES),
+    })
+    await latestOnSave?.({ sceneJson: hugeSceneJson, pngFile })
+
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(2)
+    const [, , secondInput] = vi.mocked(uploadChatAttachment).mock.calls[1]
+    expect((secondInput as { file: File }).file.name).toBe('diagram.excalidraw.json')
+
+    expect(onInsertMarkdown).toHaveBeenCalledTimes(2)
+    const [sceneMarkdownCall] = onInsertMarkdown.mock.calls[0]
+    const [imageMarkdownCall] = onInsertMarkdown.mock.calls[1]
+    expect(sceneMarkdownCall).toBe(
+      '[diagram.excalidraw.json](chats/c1/attachments/y-diagram.excalidraw.json)',
+    )
+    expect(sceneMarkdownCall).not.toContain('excalidraw:')
+    expect(imageMarkdownCall).toContain('x-diagram.png')
+  })
+
+  it('keeps the inline excalidraw fence for a scene exactly at the size cap', async () => {
+    const { onInsertMarkdown } = await renderOpenModal()
+
+    const pngFile = new File(['x'], 'diagram.png', { type: 'image/png' })
+    // Pad so the whole JSON string lands exactly at the cap.
+    const overhead = JSON.stringify({ elements: [], appState: {}, pad: '' }).length
+    const sceneJson = JSON.stringify({
+      elements: [],
+      appState: {},
+      pad: 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES - overhead),
+    })
+    expect(new TextEncoder().encode(sceneJson).byteLength).toBe(INLINE_ATTACHMENT_MAX_BYTES)
+
+    await latestOnSave?.({ sceneJson, pngFile })
+
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(1)
+    const [fenceMarkdown] = onInsertMarkdown.mock.calls[0]
+    expect(fenceMarkdown).toContain('excalidraw:')
   })
 
   it('shows a toast and inserts nothing when the upload fails', async () => {

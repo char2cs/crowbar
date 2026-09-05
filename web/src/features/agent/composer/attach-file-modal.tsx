@@ -8,13 +8,9 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  uploadChatAttachment,
-  type UploadChatAttachmentInput,
-} from '@/features/agent/api/upload-chat-attachment'
-import { fileMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
+import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
+import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import { toast } from '@/features/window/stores/toast-store'
 import { cn } from '@/lib/utils'
 
 interface AttachFileModalProps {
@@ -45,23 +41,31 @@ export function AttachFileModal({
   const dropzoneRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const handleInserted = useCallback(
+    (markdown: string) => {
+      onInsertMarkdown(markdown)
+      onClose()
+    },
+    [onInsertMarkdown, onClose],
+  )
+
+  // Upload, CSV-inline resolution, and the failure toast all live in the
+  // shared hook now (also used by agent-composer.tsx and
+  // agent-empty-document.tsx) — this wrapper only adds the `uploading` state
+  // local to this modal, in a `finally` around it. `handleInserted` only
+  // fires on success, so `onClose` still never runs on a failed upload.
+  const { uploadAndInsert: coreUploadAndInsert } = useAttachmentUpload(wsId, chatId, handleInserted)
+
   const uploadAndInsert = useCallback(
     async (input: UploadChatAttachmentInput) => {
       setUploading(true)
       try {
-        const result = await uploadChatAttachment(wsId, chatId, input)
-        const md = result.contentType.startsWith('image/')
-          ? imageMarkdown(result.filename, result.ref)
-          : fileMarkdown(result.filename, result.ref)
-        onInsertMarkdown(md)
-        onClose()
-      } catch (err) {
-        toast.error("Couldn't attach that file", err instanceof Error ? err.message : String(err))
+        await coreUploadAndInsert(input)
       } finally {
         setUploading(false)
       }
     },
-    [wsId, chatId, onInsertMarkdown, onClose],
+    [coreUploadAndInsert],
   )
 
   // Memoized for the same reason agent-composer.tsx's own pill drop handler

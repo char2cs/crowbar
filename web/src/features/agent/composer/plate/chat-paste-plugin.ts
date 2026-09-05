@@ -2,10 +2,12 @@ import { createPlatePlugin } from 'platejs/react'
 import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { nanoid } from 'nanoid'
 import { shouldWrapAsTextAttachment } from '@/features/agent/composer/lib/paste-threshold'
+import { exceedsInlineSizeCap } from '@/features/agent/composer/lib/inline-attachment-cap'
 import {
   imageMarkdown,
   textAttachmentMarkdown,
 } from '@/features/agent/composer/lib/attachment-markdown'
+import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
 import { insertAttachmentMarkdownInto } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { toast } from '@/features/window/stores/toast-store'
@@ -31,7 +33,13 @@ interface ChatPastePluginOptions {
  *  2. Caret inside a code block -> do nothing, let default paste happen.
  *  3. Clipboard has image data -> always intercepted, uploads + inserts an
  *     image node.
- *  4. Plain text over threshold -> wrapped as a `text-attachment` fence.
+ *  4. Plain text over threshold, under the shared inline size cap -> wrapped
+ *     as a `text-attachment` fence.
+ *  4b. Plain text over the inline size cap (`inline-attachment-cap.ts`,
+ *     shared with the Excalidraw save path) -> uploaded as a `.txt` file
+ *     instead, same reasoning as `MAX_PROMPT_TEXT_BYTES`'s own note: an
+ *     inline fence that big can push a whole draft past the 64KB ceiling
+ *     with no way to fix it once typed.
  *  5. Otherwise -> default paste happens (short plain text).
  */
 export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) {
@@ -93,6 +101,28 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
         if (!shouldWrapAsTextAttachment(text)) return
 
         event.preventDefault()
+
+        if (exceedsInlineSizeCap(text)) {
+          // Same "read selection fresh at insertion time" reasoning as the
+          // image-paste branch above — an async upload separates the paste
+          // from the insert by a network round trip, and the caret may have
+          // moved by the time it resolves.
+          const file = new File([text], 'pasted.txt', { type: 'text/plain' })
+          void uploadAttachmentMarkdown(wsId, chatId, { file })
+            .then((markdown) => {
+              insertAttachmentMarkdownInto(editor, markdown)
+            })
+            .catch((err) => {
+              toast.error(
+                'Could not attach that text',
+                err instanceof Error
+                  ? err.message
+                  : 'Crowbar could not reach the daemon — try again.',
+              )
+            })
+          return
+        }
+
         insertAttachmentMarkdownInto(editor, textAttachmentMarkdown(nanoid(), text))
       },
     },

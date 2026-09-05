@@ -43,3 +43,16 @@ export function imageMarkdown(alt: string, ref: string): string {
 export function fileMarkdown(filename: string, ref: string): string {
   return `[${filename}](${ref})`
 }
+
+/** The image-vs-file choice every upload call site makes off the response's
+ *  own `contentType` — the kind the daemon actually stored, not whatever the
+ *  caller guessed from the picker or drop event. */
+export function markdownForUpload(result: {
+  filename: string
+  ref: string
+  contentType: string
+}): string {
+  return result.contentType.startsWith('image/')
+    ? imageMarkdown(result.filename, result.ref)
+    : fileMarkdown(result.filename, result.ref)
+}

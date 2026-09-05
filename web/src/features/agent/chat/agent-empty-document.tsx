@@ -1,11 +1,24 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
+import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
+import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
+import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import {
   ChatMarkdownEditor,
   type CaretEdges,
+  type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
@@ -105,6 +118,13 @@ export function AgentEmptyDocument({
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  // Task 34's modals reach the box the same way the composer's own do
+  // (`agent-composer.tsx`'s `editorRef`) — they sit as SIBLINGS of the
+  // editor, outside `<Plate>`'s tree.
+  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
+  const [dropTarget, setDropTarget] = useState(false)
 
   useImperativeHandle(
     ref,
@@ -112,6 +132,59 @@ export function AgentEmptyDocument({
       getHandleRect: () => handleRef.current?.getBoundingClientRect() ?? null,
     }),
     [],
+  )
+
+  const insertAttachmentMarkdown = useCallback((md: string) => {
+    editorRef.current?.insertAttachmentMarkdown(md)
+  }, [])
+
+  // Attaching needs both ids — undefined here only for parity with
+  // `ChatMarkdownEditorProps` (see its own note); the real call site
+  // (`agent-chat-view.tsx`) always supplies both.
+  const attachmentsReady = Boolean(wsId && chatId)
+  const { uploadAndInsert } = useAttachmentUpload(
+    wsId ?? '',
+    chatId ?? '',
+    insertAttachmentMarkdown,
+  )
+
+  // Same reasoning as agent-composer.tsx's own memoized drop handlers: an
+  // inline arrow here would get a fresh identity on every render (this
+  // component re-renders on every keystroke via `onDraftChange`), tearing
+  // down and re-establishing Tauri's `onDragDropEvent` IPC subscription.
+  const handleTauriDrop = useCallback(
+    (paths: string[]) => {
+      setDropTarget(false)
+      if (!attachmentsReady) return
+      for (const path of paths) void uploadAndInsert({ path })
+    },
+    [attachmentsReady, uploadAndInsert],
+  )
+
+  useTauriFileDrop(wrapRef, handleTauriDrop)
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    setDropTarget(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (!related || !e.currentTarget.contains(related)) setDropTarget(false)
+  }, [])
+
+  // Plain-browser (non-Tauri dev) fallback — same as agent-composer.tsx's
+  // own pill drop handler.
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      setDropTarget(false)
+      if (!e.dataTransfer.types.includes('Files')) return
+      e.preventDefault()
+      if (!attachmentsReady) return
+      for (const file of Array.from(e.dataTransfer.files)) void uploadAndInsert({ file })
+    },
+    [attachmentsReady, uploadAndInsert],
   )
 
   const place = useCallback(() => {
@@ -150,10 +223,18 @@ export function AgentEmptyDocument({
   const idle = !stopping && !sendingVisual && empty
 
   return (
-    <div className="docwrap" data-testid="agent-empty-document">
+    <div
+      ref={wrapRef}
+      className={cn('docwrap', dropTarget && 'drop-target')}
+      data-testid="agent-empty-document"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div ref={docRef} className="doc">
         <ChatMarkdownEditor
           key={draftSeed}
+          ref={editorRef}
           wsId={wsId}
           chatId={chatId}
           initialValue={draft}
@@ -188,10 +269,34 @@ export function AgentEmptyDocument({
                   <UpIcon size={16} />
                 )}
               </button>
+              {attachmentsReady && (
+                <ComposerPlusButton
+                  onOpenExcalidraw={() => setModal('excalidraw')}
+                  onOpenAttachFile={() => setModal('attach-file')}
+                />
+              )}
             </span>
           </div>
         </div>
       </div>
+      {wsId && chatId && modal === 'attach-file' && (
+        <AttachFileModal
+          wsId={wsId}
+          chatId={chatId}
+          open
+          onClose={() => setModal(null)}
+          onInsertMarkdown={insertAttachmentMarkdown}
+        />
+      )}
+      {wsId && chatId && modal === 'excalidraw' && (
+        <ExcalidrawModal
+          wsId={wsId}
+          chatId={chatId}
+          open
+          onClose={() => setModal(null)}
+          onInsertMarkdown={insertAttachmentMarkdown}
+        />
+      )}
     </div>
   )
 }

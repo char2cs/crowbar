@@ -9,10 +9,16 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 
 const uploadChatAttachmentMock = vi.hoisted(() => vi.fn())
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   uploadChatAttachment: uploadChatAttachmentMock,
+}))
+
+const uploadAttachmentMarkdownMock = vi.hoisted(() => vi.fn())
+vi.mock('@/features/agent/composer/lib/attachment-upload', () => ({
+  uploadAttachmentMarkdown: uploadAttachmentMarkdownMock,
 }))
 
 const toastError = vi.hoisted(() => vi.fn())
@@ -43,6 +49,7 @@ vi.mock('platejs/react', async (importOriginal) => {
 beforeEach(() => {
   createPlatePluginSpy.mockClear()
   uploadChatAttachmentMock.mockReset()
+  uploadAttachmentMarkdownMock.mockReset()
   toastError.mockClear()
 })
 
@@ -99,6 +106,72 @@ describe('createChatPastePlugin', () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(chatValueToMarkdown(editor.children as never)).toContain('```text-attachment:')
+  })
+
+  // Finding I4: an over-threshold paste that ALSO exceeds the shared inline
+  // size cap must not become an unsendable inline fence — it uploads as a
+  // `.txt` file instead.
+  it('uploads an over-cap pasted text as a file instead of wrapping it inline', async () => {
+    uploadAttachmentMarkdownMock.mockResolvedValue(
+      '[pasted.txt](chats/c1/attachments/x-pasted.txt)',
+    )
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
+    const { event, preventDefault } = pasteEvent(hugeText)
+
+    onPaste({ editor, event })
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(uploadAttachmentMarkdownMock).toHaveBeenCalledTimes(1)
+    const [, , input] = uploadAttachmentMarkdownMock.mock.calls[0] as [
+      string,
+      string,
+      { file: File },
+    ]
+    expect(input.file.name).toBe('pasted.txt')
+    expect(input.file.type).toBe('text/plain')
+    await waitFor(() => {
+      expect(chatValueToMarkdown(editor.children as never)).toContain(
+        '[pasted.txt](chats/c1/attachments/x-pasted.txt)',
+      )
+    })
+    // The oversized raw text never lands as an inline fence.
+    expect(chatValueToMarkdown(editor.children as never)).not.toContain('text-attachment:')
+  })
+
+  it('surfaces a failed over-cap text upload as a toast instead of silently doing nothing', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
+    const { event } = pasteEvent(hugeText)
+
+    onPaste({ editor, event })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that text',
+        '413 Payload Too Large',
+      ),
+    )
+  })
+
+  it('falls back to a generic description for a non-Error over-cap upload rejection', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce('boom')
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
+    const { event } = pasteEvent(hugeText)
+
+    onPaste({ editor, event })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that text',
+        'Crowbar could not reach the daemon — try again.',
+      ),
+    )
   })
 
   // Defensive-only fallback (`clipboard?.items ?? []`, `clipboard?.getData
