@@ -78,7 +78,9 @@ describe('useTauriFileDrop', () => {
     renderHook(() => useTauriFileDrop(containerRef, onDrop))
 
     await waitFor(() => expect(capturedCallback).toBeDefined())
-    capturedCallback!({ payload: { type: 'drop', position: { x: 50, y: 50 }, paths: ['/a/b.png'] } })
+    capturedCallback!({
+      payload: { type: 'drop', position: { x: 50, y: 50 }, paths: ['/a/b.png'] },
+    })
 
     expect(onDrop).toHaveBeenCalledWith(['/a/b.png'])
   })
@@ -132,7 +134,9 @@ describe('useTauriFileDrop', () => {
     renderHook(() => useTauriFileDrop(containerRef, onDrop))
 
     await waitFor(() => expect(capturedCallback).toBeDefined())
-    capturedCallback!({ payload: { type: 'drop', position: { x: 50, y: 50 }, paths: ['/a/b.png'] } })
+    capturedCallback!({
+      payload: { type: 'drop', position: { x: 50, y: 50 }, paths: ['/a/b.png'] },
+    })
 
     expect(onDrop).not.toHaveBeenCalled()
   })
