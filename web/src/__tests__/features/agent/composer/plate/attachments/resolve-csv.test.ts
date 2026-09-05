@@ -110,10 +110,49 @@ describe('resolveCsv', () => {
       expect(resolveCsv(encode(`${header}\n`))).toEqual({ kind: 'file' })
     })
 
-    it('measures the column count as the widest row, not just the first', () => {
-      // Header has 2 columns; a later ragged row has CSV_MAX_COLUMNS + 1.
+    it('rejects a ragged row over the column cutoff even when the header is short', () => {
+      // Header has 2 columns; a later row has CSV_MAX_COLUMNS + 1 — caught by
+      // the ragged-row check below, not by measuring the header's own width.
       const wideRow = Array.from({ length: CSV_MAX_COLUMNS + 1 }, (_, i) => `v${i}`).join(',')
       expect(resolveCsv(encode(`a,b\n${wideRow}\n`))).toEqual({ kind: 'file' })
+    })
+  })
+
+  describe('ragged rows (ambient width mismatch)', () => {
+    it('rejects a body row narrower than the header', () => {
+      expect(resolveCsv(encode('a,b,c\n1,2\n'))).toEqual({ kind: 'file' })
+    })
+
+    it('rejects a body row wider than the header, never silently dropping cells', () => {
+      // Regression: an unquoted field that itself contains a literal comma
+      // (a common real-world CSV malformation) produces a row wider than the
+      // header. resolveCsv must reject this outright rather than resolving
+      // to a table whose rendering would truncate the row's trailing cells.
+      const result = resolveCsv(encode('name,notes\nAda,started project, on time\nGrace,ok\n'))
+      expect(result).toEqual({ kind: 'file' })
+    })
+  })
+
+  describe('large-input safety', () => {
+    it('rejects an oversized CSV without crashing, before any column-width computation runs', () => {
+      // 150,000 rows is well past the row-count gate's cutoff (200) and past
+      // the size at which spreading one array element per row into
+      // `Math.max(...)` overflows the call stack under V8 (confirmed
+      // crashing under 131,000) — the exact bug this test guards against.
+      // Parsing this many rows is still fast (tens of milliseconds), so this
+      // stays a fast unit test while proving the row-count gate returns
+      // `{kind:'file'}` well before any per-row column-width logic runs.
+      const rowCount = 150_000
+      const text = Array.from({ length: rowCount }, (_, i) => `r${i},v${i}`).join('\n') + '\n'
+      expect(() => resolveCsv(encode(text))).not.toThrow()
+      expect(resolveCsv(encode(text))).toEqual({ kind: 'file' })
+    })
+
+    it('rejects a single row far over the column cutoff without crashing', () => {
+      const columnCount = 150_000
+      const header = Array.from({ length: columnCount }, (_, i) => `c${i}`).join(',')
+      expect(() => resolveCsv(encode(`${header}\n`))).not.toThrow()
+      expect(resolveCsv(encode(`${header}\n`))).toEqual({ kind: 'file' })
     })
   })
 })
