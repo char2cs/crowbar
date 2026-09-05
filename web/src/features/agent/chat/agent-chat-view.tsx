@@ -26,6 +26,7 @@ import {
 } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
@@ -709,121 +710,127 @@ export function AgentChatView({
 
   if (settling) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat">
-        {transcript}
-      </section>
+      <ChatMarkdownAssetProvider wsId={wsId}>
+        <section className="agent-chat chat" aria-label="Agent chat">
+          {transcript}
+        </section>
+      </ChatMarkdownAssetProvider>
     )
   }
 
   if (blank) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat">
-        <AgentEmptyDocument
-          ref={emptyDocRef}
-          draft={seed.text}
-          draftSeed={seed.n}
-          hasText={draft.trim().length > 0}
-          onDraftChange={updateDraft}
-          onSubmit={() => enqueueDraft()}
-          onKeyDown={handleKeyDown}
-          controls={selectionCluster}
-          working={working}
-          canStop={live}
-          sending={prompts.deliveryPending}
-          onStop={handleStop}
-        />
-        {composerError && (
-          <p className="meta" role="alert">
-            {composerError}
-          </p>
-        )}
-      </section>
+      <ChatMarkdownAssetProvider wsId={wsId}>
+        <section className="agent-chat chat" aria-label="Agent chat">
+          <AgentEmptyDocument
+            ref={emptyDocRef}
+            draft={seed.text}
+            draftSeed={seed.n}
+            hasText={draft.trim().length > 0}
+            onDraftChange={updateDraft}
+            onSubmit={() => enqueueDraft()}
+            onKeyDown={handleKeyDown}
+            controls={selectionCluster}
+            working={working}
+            canStop={live}
+            sending={prompts.deliveryPending}
+            onStop={handleStop}
+          />
+          {composerError && (
+            <p className="meta" role="alert">
+              {composerError}
+            </p>
+          )}
+        </section>
+      </ChatMarkdownAssetProvider>
     )
   }
 
   return (
-    <section
-      className="agent-chat chat"
-      aria-label="Agent chat"
-      style={
-        {
-          '--agent-dock-h': `${Math.round(dockHeight)}px`,
-          '--agent-scrollbar-w': `${scrollbarWidth}px`,
-        } as React.CSSProperties
-      }
-    >
-      {transcript}
+    <ChatMarkdownAssetProvider wsId={wsId}>
+      <section
+        className="agent-chat chat"
+        aria-label="Agent chat"
+        style={
+          {
+            '--agent-dock-h': `${Math.round(dockHeight)}px`,
+            '--agent-scrollbar-w': `${scrollbarWidth}px`,
+          } as React.CSSProperties
+        }
+      >
+        {transcript}
 
-      <div className="dissolve" aria-hidden="true">
-        {DISSOLVE_LAYERS.map((_, i) => (
-          <div key={i} className="dissolve-layer" />
-        ))}
-      </div>
+        <div className="dissolve" aria-hidden="true">
+          {DISSOLVE_LAYERS.map((_, i) => (
+            <div key={i} className="dissolve-layer" />
+          ))}
+        </div>
 
-      <div ref={dockRef} className="dock">
-        <SubagentShelf activity={activity} />
-        {slash.open && (
-          <ComposerSlashPicker
-            state={slash.state}
-            items={slash.items}
-            selected={slash.selected}
-            onSelect={selectSlashItem}
+        <div ref={dockRef} className="dock">
+          <SubagentShelf activity={activity} />
+          {slash.open && (
+            <ComposerSlashPicker
+              state={slash.state}
+              items={slash.items}
+              selected={slash.selected}
+              onSelect={selectSlashItem}
+            />
+          )}
+          <AgentComposer
+            wsId={wsId}
+            chatId={chatId}
+            activity={activity}
+            providerLabel={providerLabel}
+            permissionLevels={provider?.permissionLevels}
+            live={live}
+            revival={revival}
+            working={working}
+            compacting={compacting}
+            sending={prompts.deliveryPending}
+            submitUnavailable={submitUnavailable}
+            terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
+            haltedMessage={halted?.text}
+            haltedResetsAt={limitResetsAt(telemetry)}
+            canStop={live}
+            draft={draft}
+            fieldHeight={fieldHeight}
+            slashOpen={slash.open}
+            onDraftChange={updateDraft}
+            onHeightChange={setFieldHeight}
+            onKeyDown={handleKeyDown}
+            onSend={() => enqueueDraft()}
+            onStop={handleStop}
+            onOpenTerminal={onOpenTerminal}
+            onRevive={onRevive}
+            draftSeed={seed.n}
+            seedText={seed.text}
           />
-        )}
-        <AgentComposer
-          wsId={wsId}
-          chatId={chatId}
-          activity={activity}
-          providerLabel={providerLabel}
-          permissionLevels={provider?.permissionLevels}
-          live={live}
-          revival={revival}
-          working={working}
-          compacting={compacting}
-          sending={prompts.deliveryPending}
-          submitUnavailable={submitUnavailable}
-          terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
-          haltedMessage={halted?.text}
-          haltedResetsAt={limitResetsAt(telemetry)}
-          canStop={live}
-          draft={draft}
-          fieldHeight={fieldHeight}
-          slashOpen={slash.open}
-          onDraftChange={updateDraft}
-          onHeightChange={setFieldHeight}
-          onKeyDown={handleKeyDown}
-          onSend={() => enqueueDraft()}
-          onStop={handleStop}
-          onOpenTerminal={onOpenTerminal}
-          onRevive={onRevive}
-          draftSeed={seed.n}
-          seedText={seed.text}
-        />
-        <ProviderBar
-          wsId={wsId}
-          chatId={chatId}
-          provider={provider}
-          providers={providers}
-          onSwitchProvider={onSwitchProvider}
-          switchDisabled={switchDisabled}
-          model={model}
-          effort={effort}
-          telemetry={telemetry}
-          presentation={presentation}
-          splitEnabled={splitEnabled && provider?.hotswap === true}
-          queued={queue.length}
-          onSelectionChange={onSelectionChange}
-          onSelectPresentation={onSelectPresentation}
-          showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
-          handoverBlocked={!provider?.hotswap && working}
-        />
-        {(composerError || prompts.persistenceLost) && (
-          <p className="meta" role="alert">
-            {composerError ||
-              'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
-          </p>
-        )}
-      </div>
-    </section>
+          <ProviderBar
+            wsId={wsId}
+            chatId={chatId}
+            provider={provider}
+            providers={providers}
+            onSwitchProvider={onSwitchProvider}
+            switchDisabled={switchDisabled}
+            model={model}
+            effort={effort}
+            telemetry={telemetry}
+            presentation={presentation}
+            splitEnabled={splitEnabled && provider?.hotswap === true}
+            queued={queue.length}
+            onSelectionChange={onSelectionChange}
+            onSelectPresentation={onSelectPresentation}
+            showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
+            handoverBlocked={!provider?.hotswap && working}
+          />
+          {(composerError || prompts.persistenceLost) && (
+            <p className="meta" role="alert">
+              {composerError ||
+                'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
+            </p>
+          )}
+        </div>
+      </section>
+    </ChatMarkdownAssetProvider>
   )
 }
