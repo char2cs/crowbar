@@ -10,6 +10,31 @@ function jsonResponse(body: unknown, status = 201) {
   return new Response(JSON.stringify(body), { status })
 }
 
+/** Decodes the hand-rolled multipart body `uploadChatAttachment` now sends
+ *  (see upload-chat-attachment.ts's own note on why it isn't `FormData`) back
+ *  into a `Map<name, {value, filename?}>`, using the boundary off the
+ *  matching request header — the same thing a real multipart parser reads. */
+function parseMultipart(
+  body: unknown,
+  headers: unknown,
+): Map<string, { value: string; filename?: string }> {
+  const contentType = (headers as Record<string, string>)['Content-Type']
+  const boundary = contentType.split('boundary=')[1]
+  const text = new TextDecoder().decode(body as Uint8Array)
+  const fields = new Map<string, { value: string; filename?: string }>()
+  for (const part of text.split(`--${boundary}`)) {
+    const trimmed = part.replace(/^\r\n/, '').replace(/\r\n$/, '')
+    if (!trimmed || trimmed === '--') continue
+    const [headerBlock, ...rest] = trimmed.split('\r\n\r\n')
+    const value = rest.join('\r\n\r\n')
+    const nameMatch = /name="([^"]*)"/.exec(headerBlock)
+    const filenameMatch = /filename="([^"]*)"/.exec(headerBlock)
+    if (!nameMatch) continue
+    fields.set(nameMatch[1], { value, filename: filenameMatch?.[1] })
+  }
+  return fields
+}
+
 describe('uploadChatAttachment', () => {
   it('uploads a File as multipart and maps the response envelope', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -36,12 +61,52 @@ describe('uploadChatAttachment', () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments')
     expect(init.method).toBe('POST')
-    expect(init.body).toBeInstanceOf(FormData)
-    const form = init.body as FormData
-    expect(form.get('id')).toBe('x')
-    const uploaded = form.get('file') as File
-    expect(uploaded.name).toBe('photo.png')
-    expect(await uploaded.text()).toBe('hello')
+    // Not a FormData: a WKWebView/Tauri custom-protocol body-loss bug drops any
+    // Blob-backed fetch body (a FormData holding a File, or a bare Blob) before
+    // it reaches the daemon — see upload-chat-attachment.ts's own note. The
+    // body must be a plain Uint8Array so it always survives that proxy.
+    expect(init.body).toBeInstanceOf(Uint8Array)
+    const fields = parseMultipart(init.body, init.headers)
+    expect(fields.get('id')?.value).toBe('x')
+    expect(fields.get('file')).toEqual({ value: 'hello', filename: 'photo.png' })
+    vi.unstubAllGlobals()
+  })
+
+  it('escapes a quote/backslash in the filename the same way Go multipart.Writer does', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { ref: 'r', fileName: 'f', size: 1, contentType: 'text/plain' } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = new File(['x'], 'weird "name"\\file.txt', { type: 'text/plain' })
+    await uploadChatAttachment('ws1', 'c1', { file }, 'x')
+
+    const [, init] = fetchMock.mock.calls[0]
+    const contentType = (init.headers as Record<string, string>)['Content-Type']
+    const boundary = contentType.split('boundary=')[1]
+    const text = new TextDecoder().decode(init.body as Uint8Array)
+    expect(text).toContain(`filename="weird \\"name\\"\\\\file.txt"`)
+    expect(text.startsWith(`--${boundary}\r\n`)).toBe(true)
+    expect(text.endsWith(`--${boundary}--\r\n`)).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to application/octet-stream when the File carries no type', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { ref: 'r', fileName: 'f', size: 1, contentType: 'text/plain' } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = new File(['x'], 'untyped.bin')
+    await uploadChatAttachment('ws1', 'c1', { file }, 'x')
+
+    const [, init] = fetchMock.mock.calls[0]
+    const text = new TextDecoder().decode(init.body as Uint8Array)
+    expect(text).toContain('Content-Type: application/octet-stream')
     vi.unstubAllGlobals()
   })
 
