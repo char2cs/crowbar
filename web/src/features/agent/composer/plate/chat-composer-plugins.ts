@@ -7,7 +7,10 @@ import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { IndentPlugin } from '@platejs/indent/react'
 import { ListKit } from '@/components/editor/plugins/list-kit'
-import { LinkKit, LinkKitStatic } from '@/components/editor/plugins/link-kit'
+import {
+  ChatLinkKit,
+  ChatLinkKitStatic,
+} from '@/features/agent/composer/plate/attachments/chat-link-kit'
 import { LinkPlugin } from '@platejs/link/react'
 import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static'
 import { CalloutPlugin } from '@platejs/callout/react'
@@ -79,7 +82,7 @@ export const chatComposerPlugins = [
   // set where it is computed. Re-configuring here rather than in `IndentKit`
   // keeps the file editor's own rhythm out of it.
   IndentPlugin.configure({ options: { offset: 16 } }),
-  ...LinkKit,
+  ...ChatLinkKit,
   ...HtmlKit,
   ...CalloutKit,
   ...MarkdownImageKit,
@@ -112,7 +115,7 @@ export const chatComposerPlugins = [
 ]
 
 const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]> = {
-  [LinkPlugin.key]: LinkKitStatic[0],
+  [LinkPlugin.key]: ChatLinkKitStatic[0],
   [CalloutPlugin.key]: CalloutKitStatic[0],
 }
 
