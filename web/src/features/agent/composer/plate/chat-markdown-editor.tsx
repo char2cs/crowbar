@@ -203,6 +203,45 @@ export function ChatMarkdownEditor({
     [],
   )
 
+  // Guards against slate-react's OWN default drop handling, which runs
+  // independently of (and BEFORE, in the same synchronous dispatch — see
+  // slate-react's `Editable` `onDrop`, which calls `isEventHandled(event,
+  // attributes.onDrop)`, i.e. THIS plugin chain, before deciding whether to
+  // run its own logic) whatever the app's file-drop handler
+  // (`agent-composer.tsx`'s `handlePillDrop`, `agent-empty-document.tsx`'s
+  // `handleDrop`) does with the SAME event once it bubbles up to their
+  // wrapping `.pill`/`.docwrap` element.
+  //
+  // Confirmed live (a real `drop` DOM event dispatched at the actual
+  // `[data-slate-editor]` node, not a shortcut that calls the insertion
+  // function directly): with no guard, slate-react's default `insertData`
+  // reads the SAME dropped file's `text/plain` payload and inserts it as a
+  // paragraph of raw text — independently of, and in addition to, whatever
+  // the app-level handler goes on to upload/insert from the same drop. A
+  // dropped CSV that resolves to a table is the visible case (duplicate raw
+  // CSV text alongside the real table), but the bug is general to any
+  // file-carrying drop that also happens to expose text data.
+  //
+  // `event.preventDefault()` alone is enough for slate-react to treat the
+  // drop as handled (`isEventHandled` checks `event.isDefaultPrevented()`)
+  // and skip its own insertion — it does NOT stop propagation, so the app's
+  // own `.pill`/`.docwrap` handler still receives and processes the same
+  // event exactly as before.
+  const dropGuardPlugin = useMemo(
+    () =>
+      createPlatePlugin({
+        key: 'agent-chat-drop-guard',
+        handlers: {
+          onDrop: ({ event }) => {
+            if (!event.dataTransfer?.types.includes('Files')) return
+            event.preventDefault()
+            return true
+          },
+        },
+      }),
+    [],
+  )
+
   // Deserialize ONCE. Re-parsing per render would rebuild the document under
   // the caret on every keystroke.
   const initial = useMemo(
@@ -222,8 +261,8 @@ export function ChatMarkdownEditor({
 
   const editor = usePlateEditor({
     plugins: pastePlugin
-      ? [...chatComposerPlugins, keyPlugin, pastePlugin]
-      : [...chatComposerPlugins, keyPlugin],
+      ? [...chatComposerPlugins, keyPlugin, dropGuardPlugin, pastePlugin]
+      : [...chatComposerPlugins, keyPlugin, dropGuardPlugin],
     value: initial,
     autoSelect: 'end',
   })

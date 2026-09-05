@@ -322,6 +322,47 @@ describe('createChatPastePlugin', () => {
     )
   })
 
+  // Wave 6, Bug 2 (live-reproduced): two over-threshold pastes back to back,
+  // with no intervening keystroke, merged into a SINGLE text-attachment
+  // fence instead of producing two. Root cause: `insertAttachmentMarkdownInto`
+  // leaves the selection sitting inside the fence's own `code_line` right
+  // after inserting it, so this plugin's OWN "caret inside a code block"
+  // bypass (previously a bare `{ type: CodeBlockPlugin.key }` match) treated
+  // the second paste as "the user is editing real code, leave it alone" and
+  // let it fall through to Slate's default handling, which appended the
+  // second paste's text into the SAME fence. Fixed by `isRealCodeBlock`
+  // narrowing that match to exclude the plugin's own attachment fences
+  // (identified by their `lang` prefix) — a caret left inside one of THOSE
+  // now falls through to this plugin's normal threshold logic instead, whose
+  // existing `insertAttachmentMarkdownInto` redirect (proven by
+  // `TestRegression_insertsTwoFencedAttachmentsAsSeparateSiblingBlocks` in
+  // chat-markdown-editor.test.tsx) correctly appends the new fence as a
+  // sibling of the first rather than corrupting it.
+  it('TestRegression_twoConsecutivePastesWithNoInterveningKeystrokeProduceTwoSeparateFences', () => {
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+
+    const first = pasteEvent('x'.repeat(500))
+    onPaste({ editor, event: first.event })
+    const second = pasteEvent('y'.repeat(500))
+    onPaste({ editor, event: second.event })
+
+    expect(first.preventDefault).toHaveBeenCalledTimes(1)
+    expect(second.preventDefault).toHaveBeenCalledTimes(1)
+
+    const fences = (editor.children as { type?: string; lang?: string }[]).filter(
+      (node) => node.type === 'code_block',
+    )
+    expect(fences).toHaveLength(2)
+    const markdown = chatValueToMarkdown(editor.children as never)
+    expect((markdown.match(/```text-attachment:/g) ?? []).length).toBe(2)
+    // Each fence holds ONLY its own paste — no merged/duplicated content.
+    expect(markdown).toContain('x'.repeat(500))
+    expect(markdown).toContain('y'.repeat(500))
+    expect(markdown).not.toContain('x'.repeat(500) + 'y')
+    expect(markdown).not.toContain('y'.repeat(500) + 'x')
+  })
+
   describe('caret inside an existing code block', () => {
     /** A headless editor whose selection sits inside a real `code_block`
      *  node, built from a genuine fenced-code paste rather than a hand-built
@@ -360,6 +401,32 @@ describe('createChatPastePlugin', () => {
 
       expect(preventDefault).not.toHaveBeenCalled()
       expect(uploadChatAttachmentMock).not.toHaveBeenCalled()
+    })
+
+    // `isRealCodeBlock`'s `lang` read has to fall back for a fence with NO
+    // language marker at all (a bare ``` ``` ```, `lang: undefined`) — a
+    // genuine, unremarkable real code block, and one Plate's own markdown
+    // deserializer produces routinely. Must bypass exactly like a `js` fence
+    // does, not be mistaken for one of THIS plugin's own (always-`lang`-
+    // prefixed) attachment fences.
+    it('still treats a language-less fenced code block as real code, not an attachment fence', () => {
+      const { onPaste } = pastePluginHandlers()
+      const editor = editorWith('```\nplain\n```')
+      const idx = editor.children.findIndex(
+        (node) => (node as { type?: string }).type === CodeBlockPlugin.key,
+      )
+      expect(idx).toBeGreaterThanOrEqual(0)
+      // The deserializer leaves a language-less fence's `lang` unset —
+      // `isRealCodeBlock` must not choke on that, only on an ACTUAL
+      // attachment-fence prefix.
+      expect((editor.children[idx] as { lang?: unknown }).lang).toBeUndefined()
+      const point = editor.api.end([idx])
+      editor.selection = { anchor: point!, focus: point! }
+      const { event, preventDefault } = pasteEvent('x'.repeat(500))
+
+      onPaste({ editor, event })
+
+      expect(preventDefault).not.toHaveBeenCalled()
     })
   })
 })

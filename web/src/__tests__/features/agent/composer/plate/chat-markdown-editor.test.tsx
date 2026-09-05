@@ -50,6 +50,20 @@ function capturedKeyDownHandler(): KeyDownHandler {
   return (call[0] as { handlers: { onKeyDown: KeyDownHandler } }).handlers.onKeyDown
 }
 
+type DropEventStub = {
+  dataTransfer: { types: string[] } | null
+  preventDefault: () => void
+}
+type DropGuardHandler = (ctx: { event: DropEventStub }) => boolean | undefined
+
+function capturedDropGuardHandler(): DropGuardHandler {
+  const call = createPlatePluginSpy.mock.calls.find(
+    ([config]) => (config as { key?: string }).key === 'agent-chat-drop-guard',
+  )
+  if (!call) throw new Error('agent-chat-drop-guard plugin was never created')
+  return (call[0] as { handlers: { onDrop: DropGuardHandler } }).handlers.onDrop
+}
+
 /** A headless editor built from the SAME plugin set the real component uses —
  *  the `applyStreamedValue` tests' own pattern for exercising Plate transforms
  *  without a mounted DOM. */
@@ -259,6 +273,63 @@ describe('ChatMarkdownEditor imperative handle', () => {
     ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nmore\n```')
 
     expect(container.querySelector('[data-slate-editor]')).toBe(editableBefore)
+  })
+})
+
+// Wave 6, Bug 1's actual fix, exercised directly (the DOM-level end-to-end
+// proof — a real `drop` event dispatched at the real editable node,
+// including the case where nothing here fires at all — lives in
+// agent-composer.test.tsx, which is what caught the live bug in the first
+// place). This only proves the guard's own two branches in isolation: it
+// only ever prevents default (and so only ever tells slate-react's own
+// `isEventHandled` the drop was handled) for a drop that actually carries
+// Files — never for one that doesn't, which must fall through to whatever
+// Slate would otherwise do with it (e.g. a plain text drag-select-and-drop
+// within the box itself, which this guard has no business touching).
+describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
+  function renderAndCapture(): DropGuardHandler {
+    render(
+      <ChatMarkdownEditor
+        wsId="w1"
+        chatId="c1"
+        initialValue=""
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+      />,
+    )
+    return capturedDropGuardHandler()
+  }
+
+  it('prevents default and reports itself handled for a drop carrying Files', () => {
+    const onDrop = renderAndCapture()
+    const preventDefault = vi.fn()
+
+    const handled = onDrop({ event: { dataTransfer: { types: ['Files'] }, preventDefault } })
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(handled).toBe(true)
+  })
+
+  it('does nothing for a drop that carries no Files', () => {
+    const onDrop = renderAndCapture()
+    const preventDefault = vi.fn()
+
+    const handled = onDrop({ event: { dataTransfer: { types: ['text/plain'] }, preventDefault } })
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(handled).toBeUndefined()
+  })
+
+  it('does nothing when the drop event carries no dataTransfer at all', () => {
+    const onDrop = renderAndCapture()
+    const preventDefault = vi.fn()
+
+    const handled = onDrop({ event: { dataTransfer: null, preventDefault } })
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(handled).toBeUndefined()
   })
 })
 

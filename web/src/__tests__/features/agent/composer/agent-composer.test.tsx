@@ -366,6 +366,82 @@ describe('AgentComposer drag-and-drop', () => {
     expect(uploadChatAttachment).not.toHaveBeenCalled()
   })
 
+  // Wave 6, Bug 1 (critical, live-reproduced): a CSV drop landed correctly as
+  // a table AND, from the exact same `drop` event, a second time as raw text
+  // duplicated into the document. Root cause: `handlePillDrop` above lives
+  // OUTSIDE Plate's plugin system, on the `.pill` DOM ancestor — invisible to
+  // slate-react's own `isEventHandled` check. The `resolves a small,
+  // well-formed dropped CSV...` test above dispatches its `drop` directly on
+  // `.pill`, whose `event.target` therefore never satisfies slate-react's
+  // `ReactEditor.hasTarget` (the editable does not contain its own ancestor)
+  // — so it never actually exercised slate-react's own default drop handling
+  // and missed this entirely, same as the whole-branch review did. This test
+  // dispatches on the REAL `[data-slate-editor]` node instead — where a
+  // physical drop over the composer's visible text actually targets — with a
+  // real (non-RTL-shimmed) `DataTransfer`-shaped object supporting `getData`,
+  // so slate-react's `Editable` onDrop actually runs its own `insertData`
+  // path if nothing stops it.
+  it('drops a CSV onto the real editable node without duplicating its raw text anywhere in the document', async () => {
+    const onDraftChange = vi.fn()
+    const { container } = draw({ onDraftChange })
+    const editable = container.querySelector('[data-slate-editor]')!
+    const csvText = 'name,age\nAda,36\n'
+    const file = new File([csvText], 'people.csv', { type: 'text/csv' })
+    const dataTransfer = {
+      types: ['Files', 'text/plain'],
+      files: [file],
+      items: [],
+      getData: (type: string) => (type === 'text/plain' ? csvText : ''),
+    }
+
+    // jsdom implements neither `caretRangeFromPoint` nor
+    // `caretPositionFromPoint` (real WebKit/Chromium — the Tauri webview
+    // included — implement one of the two), which is why slate-react's own
+    // drop handling has never been reachable through this suite's existing
+    // `fireEvent.drop(pill, ...)` calls: `ReactEditor.findEventRange` throws
+    // before ever reaching `insertData`. Stubbed here so this test exercises
+    // the exact same code path a real drop takes.
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
+    const firstText = walker.nextNode() as Text | null
+    document.caretRangeFromPoint = () => {
+      const range = document.createRange()
+      if (firstText) range.setStart(firstText, 0)
+      else range.setStart(editable, 0)
+      range.collapse(true)
+      return range
+    }
+
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer, configurable: true })
+    Object.defineProperty(dropEvent, 'clientX', { value: 1, configurable: true })
+    Object.defineProperty(dropEvent, 'clientY', { value: 1, configurable: true })
+    fireEvent(editable, dropEvent)
+
+    await waitFor(() => {
+      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
+      expect(lastCall).toContain('| name | age |')
+    })
+    expect(uploadChatAttachment).not.toHaveBeenCalled()
+
+    // Structural proof, not just "the table itself looks right": exactly one
+    // table in the whole document, and the raw CSV values appear ONLY inside
+    // that table's own cells — nowhere else (no stray paragraph, and no
+    // extra node nested inside any cell beyond its own single value).
+    const tables = container.querySelectorAll('[data-slate-node="element"].slate-table')
+    expect(tables).toHaveLength(1)
+
+    const cells = container.querySelectorAll('td, th')
+    expect(Array.from(cells).map((cell) => cell.textContent)).toEqual(['name', 'age', 'Ada', '36'])
+    for (const cell of Array.from(cells)) {
+      expect(cell.querySelectorAll('.slate-p')).toHaveLength(1)
+    }
+
+    const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string
+    expect(lastCall).not.toContain('name,age')
+    expect(lastCall.match(/\bAda\b/g)).toHaveLength(1)
+    expect(lastCall.match(/\b36\b/g)).toHaveLength(1)
+  })
+
   // The fallback half of the same finding: a CSV too large/malformed to
   // inline (resolveCsv returns `{ kind: 'file' }`) still uploads exactly
   // like any other file.

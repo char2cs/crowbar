@@ -17,6 +17,34 @@ interface ChatPastePluginOptions {
   chatId: string
 }
 
+/** `lang` prefixes `attachment-markdown.ts` fences its two kinds with — the
+ *  same strings the render-side plugin keys off of to tell a real fenced
+ *  code block apart from a collapsed attachment pill (see that file's own
+ *  note on why the id suffix is load-bearing). */
+const ATTACHMENT_FENCE_LANG_PREFIXES = ['text-attachment:', 'excalidraw:']
+
+/** Is `node` a `code_block` a person is actually editing as code — as
+ *  opposed to one of THIS plugin's own attachment fences. Both are the same
+ *  Plate node type, so the caret sitting inside either looks identical to a
+ *  bare `{ type: CodeBlockPlugin.key }` match.
+ *
+ *  The distinction matters because a `text-attachment`/`excalidraw` fence is
+ *  never meant to be typed into — `insertAttachmentMarkdownInto` (chat-
+ *  markdown-editor.tsx) leaves the selection sitting inside the fence's own
+ *  `code_line` right after inserting it (documented on that function), which
+ *  is indistinguishable, to a blanket `{type: CodeBlockPlugin.key}` match,
+ *  from a caret a person deliberately parked inside a REAL typed code block.
+ *  A bare match here previously meant a second paste with no intervening
+ *  keystroke — the caret still sitting exactly there — silently bypassed
+ *  this plugin entirely and fell through to Slate's own default paste
+ *  handling, which appended the new text into the SAME fence instead of
+ *  starting its own (Wave 6, Bug 2: two pastes merged into one pill). */
+function isRealCodeBlock(node: { type?: string; lang?: unknown }): boolean {
+  if (node.type !== CodeBlockPlugin.key) return false
+  const lang = typeof node.lang === 'string' ? node.lang : ''
+  return !ATTACHMENT_FENCE_LANG_PREFIXES.some((prefix) => lang.startsWith(prefix))
+}
+
 /**
  * Paste interception, as a plugin's `handlers` — NOT the `PlateContent` DOM
  * prop. Same reasoning as `agent-chat-keys`'s onKeyDown (chat-markdown-
@@ -30,7 +58,8 @@ interface ChatPastePluginOptions {
  *     Shift is tracked separately via this SAME plugin's onKeyDown/onKeyUp
  *     — deliberately independent of `agent-chat-keys`, which owns Enter/
  *     Cmd+A and has nothing to do with paste.
- *  2. Caret inside a code block -> do nothing, let default paste happen.
+ *  2. Caret inside a REAL (not attachment-fence) code block -> do nothing,
+ *     let default paste happen — see `isRealCodeBlock` above.
  *  3. Clipboard has image data -> always intercepted, uploads + inserts an
  *     image node.
  *  4. Plain text over threshold, under the shared inline size cap -> wrapped
@@ -57,7 +86,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
       onPaste: ({ editor, event }) => {
         if (shiftHeld) return
 
-        const inCodeBlock = editor.api.above({ match: { type: CodeBlockPlugin.key } })
+        const inCodeBlock = editor.api.above({ match: isRealCodeBlock })
         if (inCodeBlock) return
 
         const clipboard = event.clipboardData
