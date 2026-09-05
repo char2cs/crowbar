@@ -2097,3 +2097,125 @@ func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T)
 	chat = f.chat(t, chatID)
 	require.False(t, chat.Working, "once the subagent finishes the spinner MUST stop — no stuck-on")
 }
+
+// TestRegression_RestatingAsyncWorkDecidesOnTheLogNotTheProjection is the CHAT half of
+// the same stuck-on spinner, and it is a property rather than a race: whatever the read
+// model happens to be serving, the decision to restate must not come from it.
+//
+// turn_stop's StopTurn is on the async Send path, so the level it records is durable in
+// the log before the projection folds it. A restate landing in that window — a subagent
+// reporting back the instant its parent turn ended, which is the ordinary codex shape —
+// reads AsyncWork as 0, finds the open-work level it just computed is 0 too, and returns
+// as a no-op. Nothing else ever restates the level, so the aggregate stays lit forever.
+// Live the window is microseconds wide; forcing it open is what turns "usually passes"
+// into a property a test can hold. Same law as AbandonTurn's: callers must not pre-check
+// turn state on the read model.
+func TestRegression_RestatingAsyncWorkDecidesOnTheLogNotTheProjection(t *testing.T) {
+	f, chats, _ := newFaultFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+	prompt(t, f, runnerID, "codex", "investigate and delegate to a subagent")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		stopPayload(t, "I'll delegate this to a subagent.", 0)))
+	f.wait()
+	require.True(t, f.chat(t, chatID).Working,
+		"precondition: the turn ended with the subagent still running")
+
+	// From here the read model serves the turn state from BEFORE that turn_stop —
+	// the window the async Send path genuinely leaves open.
+	chats.staleAsyncWorkProjection = true
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+
+	chat := f.chat(t, chatID)
+	assert.False(t, chat.Working,
+		"the last close must clear the spinner however far behind the projection is")
+	assert.Equal(t, 0, chat.AsyncWork)
+}
+
+// TestRegression_TwoPiecesOfWorkClosingAtOnce_StopsTheSpinner is the same stuck-on
+// spinner as its sibling above, reached the way a real CLI reaches it: a tool call and a
+// subagent finishing at the SAME MOMENT, on two hook deliveries, on two goroutines. Every
+// hook is its own net/http request, so nothing between the wire and the ingest orders two
+// of them — a tool returning as a subagent reports back is an ordinary Tuesday, not a
+// contrived interleaving.
+//
+// Both closes ask the same question ("is anything still open?") and the LAST answer wins
+// the aggregate. The property is that whichever order they land in, the answer standing at
+// the end is the true one: no work is open, so the spinner is off. A restate that decided
+// on a level it read BEFORE its sibling's close — or on a projection that had not folded
+// it — writes "still working" last and strands the chat lit forever.
+func TestRegression_TwoPiecesOfWorkClosingAtOnce_StopsTheSpinner(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+	prompt(t, f, runnerID, "codex", "run a command and delegate to a subagent")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "tool_pre",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
+			"tool_input": map[string]any{"command": "sleep 600"},
+		})))
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		stopPayload(t, "Working on it.", 0)))
+	f.wait()
+	require.True(t, f.chat(t, chatID).Working,
+		"precondition: the turn ended with both the tool and the subagent still open")
+
+	// Payloads are marshalled HERE, on the test's own goroutine: mustJSON reports
+	// through require, and a require failure off the test goroutine is undefined.
+	closes := []struct {
+		kind    string
+		payload []byte
+	}{
+		{"tool_post", mustJSON(t, map[string]any{
+			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
+			"tool_input": map[string]any{"command": "sleep 600"}, "tool_response": "done",
+		})},
+		{"subagent_post", mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})},
+	}
+	// Released together, joined together: the two deliveries genuinely overlap rather
+	// than being one-then-the-other with extra steps.
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, len(closes))
+	for i, c := range closes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = f.usecase.IngestHook(f.ctx, runnerID, "codex", c.kind, c.payload)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		require.NoError(t, err, "ingesting %s", closes[i].kind)
+	}
+	f.wait()
+
+	chat := f.chat(t, chatID)
+	assert.False(t, chat.Working,
+		"both pieces of work closed: whichever restate wrote last must have said so")
+	assert.Equal(t, 0, chat.AsyncWork)
+}

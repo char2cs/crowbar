@@ -242,10 +242,20 @@ func (t *Turns) fallbackAsyncWork(ctx context.Context, chatID string, reported i
 // happened to start and stop. It is a no-op while a turn is genuinely open (that turn's
 // own eventual turn_stop is what restates it) and a no-op when the level hasn't actually
 // changed, so this never appends a redundant event on the hot path (every tool_pre/post).
+//
+// BOTH no-ops decide on state folded from a LOG, never on a projection. LoadChat, not
+// GetChat: this is a decision, and the read model lags the event log StopTurn validates
+// against — the same reason AbandonTurn forbids its callers to pre-check Working. Read
+// projected, a turn_stop that has not yet folded reads AsyncWork as 0, matches a level of
+// 0, and takes an early return that leaves the aggregate lit with nobody left to restate
+// it. The open-work half owes the same guarantee and gets it at the other end: the closes
+// this runs behind (CompleteTool, StopSubagent) settle their projection before returning,
+// because CloseTurn nils the aggregate's Tools and Subagents and work outliving its turn
+// is visible nowhere else.
 func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
-	chat, err := t.chats.GetChat(ctx, chatID)
+	chat, err := t.chats.LoadChat(ctx, chatID)
 	if err != nil {
-		slog.WarnContext(ctx, "agent: restate async work: get chat", "chat_id", chatID, "err", err)
+		slog.WarnContext(ctx, "agent: restate async work: load chat", "chat_id", chatID, "err", err)
 		return
 	}
 	if chat.CurrentTurnStarted != nil {

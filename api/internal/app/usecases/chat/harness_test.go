@@ -492,6 +492,18 @@ type fakeChatStore struct {
 	// a decision about placement must not come from it.
 	staleProjection bool
 
+	// staleAsyncWorkProjection is staleProjection's twin for TURN STATE: GetChat
+	// answers with the async-work level the chat had before its last turn_stop
+	// folded, while LoadChat keeps answering from the log.
+	//
+	// It models the same ordinary state for the same reason. StopTurn is
+	// deliberately on the async Send path (see the EventStore doc), so between a
+	// turn_stop returning and its projection folding, the read model genuinely
+	// still reports the level from before it. A restate that compares the open-work
+	// level it just computed against THAT reads 0 == 0, calls itself a no-op, and
+	// leaves the aggregate lit with nothing left to restate it.
+	staleAsyncWorkProjection bool
+
 	// onStopTurn runs INSIDE StopTurn, before the aggregate is written. It is the
 	// only seam that can observe what a client would see the instant the turn-state
 	// change is published, which is what the assistant-message ordering turns on.
@@ -564,10 +576,16 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.Chat, er
 		return domain.Chat{}, s.failGetChat
 	}
 	chat, err := s.EventStore.GetChat(ctx, id)
-	if err != nil || !s.staleProjection {
-		return chat, err
+	if err != nil {
+		return domain.Chat{}, err
 	}
-	chat.ParentID = ""
+	if s.staleProjection {
+		chat.ParentID = ""
+	}
+	if s.staleAsyncWorkProjection {
+		chat.AsyncWork = 0
+		chat.Working = false
+	}
 	return chat, nil
 }
 

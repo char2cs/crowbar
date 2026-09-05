@@ -1137,6 +1137,10 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 // InterruptModelChanged/InterruptEffortChanged markers this fix adds:
 // recorded independently, only when the corresponding value actually
 // changes, and never on a no-op re-application of the same selection.
+//
+// Every read here waits first: Interrupt is on the async Send path, so the
+// interruption is durable in the log before its projection folds, and a read
+// taken without the drain is a read of the row set one event ago.
 func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1144,6 +1148,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	t.Run("model and effort both change from empty", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		require.Len(t, ints, 2)
@@ -1164,6 +1169,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	t.Run("reapplying the same selection records nothing new", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		assert.Len(t, ints, 2, "no new interruption for a value that did not change")
@@ -1172,6 +1178,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	t.Run("effort-only change records only InterruptEffortChanged", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "low"))
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		require.Len(t, ints, 3)
