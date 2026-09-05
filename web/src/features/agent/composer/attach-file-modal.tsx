@@ -1,7 +1,13 @@
 import type { ChangeEvent, DragEvent } from 'react'
 import { useCallback, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogDescription, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   uploadChatAttachment,
   type UploadChatAttachmentInput,
@@ -27,7 +33,13 @@ interface AttachFileModalProps {
  * Modal, not inline: the composer pill has no room to grow a picker without
  * shoving the transcript around mid-drag.
  */
-export function AttachFileModal({ wsId, chatId, open, onClose, onInsertMarkdown }: AttachFileModalProps) {
+export function AttachFileModal({
+  wsId,
+  chatId,
+  open,
+  onClose,
+  onInsertMarkdown,
+}: AttachFileModalProps) {
   const [dropTarget, setDropTarget] = useState(false)
   const [uploading, setUploading] = useState(false)
   const dropzoneRef = useRef<HTMLDivElement>(null)

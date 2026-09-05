@@ -50,7 +50,13 @@ afterEach(() => {
 
 async function renderOpenModal(onInsertMarkdown = vi.fn(), onClose = vi.fn()) {
   render(
-    <ExcalidrawModal wsId="w1" chatId="c1" open onClose={onClose} onInsertMarkdown={onInsertMarkdown} />,
+    <ExcalidrawModal
+      wsId="w1"
+      chatId="c1"
+      open
+      onClose={onClose}
+      onInsertMarkdown={onInsertMarkdown}
+    />,
   )
   await waitFor(() => expect(screen.getByTestId('excalidraw-canvas')).toBeInTheDocument())
   return { onInsertMarkdown, onClose }

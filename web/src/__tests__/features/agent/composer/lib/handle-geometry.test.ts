@@ -60,7 +60,7 @@ describe('handleClusterWidth', () => {
   })
 
   it('adds one diameter and one gap for the second occupant', () => {
-    expect(handleClusterWidth(2)).toBe(58)
+    expect(handleClusterWidth(2)).toBe(2 * SEND_DIAMETER + HANDLE_GAP)
   })
 
   it('the plus button matches the send button diameter', () => {

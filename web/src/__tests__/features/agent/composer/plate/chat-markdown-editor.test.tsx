@@ -83,8 +83,7 @@ function keyEvent(
 
 function codeBlockNode(editor: PlateEditor) {
   return editor.children.find((node) => (node as { type?: string }).type === 'code_block') as
-    | { type: string; lang?: string; children: { children: { text: string }[] }[] }
-    | undefined
+    { type: string; lang?: string; children: { children: { text: string }[] }[] } | undefined
 }
 
 describe('insertAttachmentMarkdownInto', () => {
@@ -95,9 +94,9 @@ describe('insertAttachmentMarkdownInto', () => {
 
     const inserted = codeBlockNode(editor)
     expect(inserted?.lang).toBe('text-attachment:abc123')
-    expect(inserted?.children.map((line) => line.children.map((leaf) => leaf.text).join(''))).toEqual([
-      'hello world',
-    ])
+    expect(
+      inserted?.children.map((line) => line.children.map((leaf) => leaf.text).join('')),
+    ).toEqual(['hello world'])
   })
 
   // The fallback branch: a caller (a modal, a drop handler) can invoke the

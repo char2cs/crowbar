@@ -17,6 +17,7 @@ export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
   const obj = parsed as Record<string, unknown>
   if (!Array.isArray(obj.elements)) return null
-  if (typeof obj.appState !== 'object' || obj.appState === null || Array.isArray(obj.appState)) return null
+  if (typeof obj.appState !== 'object' || obj.appState === null || Array.isArray(obj.appState))
+    return null
   return { elements: obj.elements, appState: obj.appState as Record<string, unknown> }
 }

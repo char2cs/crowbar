@@ -73,16 +73,30 @@ func readAttachmentFromMultipart(ctx *gin.Context) ([]byte, string, string, bool
 		return nil, "", "", false
 	}
 	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, repoattachments.MaxBytes+1))
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, "read error")
-		return nil, "", "", false
-	}
-	if int64(len(data)) > repoattachments.MaxBytes {
-		libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "attachment exceeds the size limit")
+	data, ok := readAttachmentBytes(ctx, file)
+	if !ok {
 		return nil, "", "", false
 	}
 	return data, id, resolveOriginalName(header.Filename, data), true
+}
+
+// readAttachmentBytes reads r up to the size cap (+1, to detect an over-cap
+// stream without buffering it unbounded) and enforces MaxBytes — the one
+// read-and-check both ingestion shapes share, so a stream that turns out
+// bigger than an earlier size check (multipart's Content-Length, the path
+// variant's os.Stat) promised is still caught here regardless of which shape
+// produced it.
+func readAttachmentBytes(ctx *gin.Context, r io.Reader) ([]byte, bool) {
+	data, err := io.ReadAll(io.LimitReader(r, repoattachments.MaxBytes+1))
+	if err != nil {
+		libs.WriteErr(ctx, http.StatusInternalServerError, "read error")
+		return nil, false
+	}
+	if int64(len(data)) > repoattachments.MaxBytes {
+		libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "attachment exceeds the size limit")
+		return nil, false
+	}
+	return data, true
 }
 
 // resolveOriginalName returns filename verbatim when the client supplied one,
@@ -133,13 +147,8 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 		return nil, "", "", false
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, repoattachments.MaxBytes+1))
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, "read error")
-		return nil, "", "", false
-	}
-	if int64(len(data)) > repoattachments.MaxBytes {
-		libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "attachment exceeds the size limit")
+	data, ok := readAttachmentBytes(ctx, f)
+	if !ok {
 		return nil, "", "", false
 	}
 	return data, body.ID, filepath.Base(body.Path), true

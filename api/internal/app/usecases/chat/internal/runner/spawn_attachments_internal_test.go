@@ -141,6 +141,47 @@ func TestSpawnRunner_SpawnPlanFailure_CleansUpMaterializedAttachments(t *testing
 		"the scratch attachment dir materialized before the failed SpawnPlan must be reaped")
 }
 
+// TestSpawnRunner_DescriptorResolveFailure_CleansUpMaterializedAttachments
+// pins the fix for spawnRunner's descriptor-resolution branch, which — unlike
+// every other post-materialization abort path in this function (materialize
+// failure above, SpawnPlan failure above, forkCLI's own branches, onExit) —
+// omitted the scratch-dir cleanup: rs.agents.Get failing for an id with no
+// matching descriptor file must not leak the scratch copy materialized
+// moments earlier for dispatch. recordRunner never runs on this path, so
+// nothing else — not even the boot-time orphan reaper, which only inspects
+// runner rows that exist — will ever reap this directory otherwise.
+func TestSpawnRunner_DescriptorResolveFailure_CleansUpMaterializedAttachments(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	// Deliberately no descriptor file for "missing-test" — rs.agents.Get must
+	// fail to resolve it.
+
+	worktree := filepath.Join(home, "worktree")
+	chatsDir := filepath.Join(home, "chats")
+	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
+	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
+	require.NoError(t, err)
+
+	rs := &Runners{
+		agents:        engineagents.New(),
+		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
+		providers:     stubProvidersForSpawn{},
+		conversations: stubConversationsForSpawn{},
+	}
+
+	text := "![photo](chats/chat-1/attachments/" + fileName + ")"
+	_, err = rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test", "runner-1",
+		nil, nil, "", 0, false, "", true, text)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "resolve descriptor")
+
+	scratchDir := worktreepath.AttachmentScratchDir(worktree, "runner-1")
+	_, statErr := os.Stat(scratchDir)
+	assert.True(t, os.IsNotExist(statErr),
+		"the scratch attachment dir materialized before the failed descriptor resolution must be reaped")
+}
+
 // okHooksDescriptor is a minimal, entirely valid hooks-transport descriptor —
 // unlike boomSpawnPlanDescriptor, its SpawnPlan succeeds — used by the two
 // tests below that need to reach forkCLI with a real, working descriptor.

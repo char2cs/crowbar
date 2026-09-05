@@ -89,7 +89,9 @@ describe('chat attachment code blocks', () => {
 
   it('renders a drag handle for a text-attachment pill', () => {
     renderWithDnd(
-      <MarkdownMessage>{'```text-attachment:AbC123xy\nsome long pasted text\n```'}</MarkdownMessage>,
+      <MarkdownMessage>
+        {'```text-attachment:AbC123xy\nsome long pasted text\n```'}
+      </MarkdownMessage>,
     )
     expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
   })

@@ -10,7 +10,10 @@ describe('parseAttachmentLang', () => {
   })
 
   it('parses a valid excalidraw tag', () => {
-    expect(parseAttachmentLang('excalidraw:AbC123xy')).toEqual({ kind: 'excalidraw', id: 'AbC123xy' })
+    expect(parseAttachmentLang('excalidraw:AbC123xy')).toEqual({
+      kind: 'excalidraw',
+      id: 'AbC123xy',
+    })
   })
 
   it('rejects a bare tag with no id — ordinary discussion of the feature must not be hijacked', () => {

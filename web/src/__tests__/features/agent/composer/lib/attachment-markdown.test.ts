@@ -88,7 +88,11 @@ describe('textAttachmentMarkdown', () => {
 
   it('handles text with special markdown characters', () => {
     const md = textAttachmentMarkdown('id3', '# Heading\n[link](url)\n![img](path)')
-    expectRoundTripPreservesContent(md, '# Heading\n[link](url)\n![img](path)', 'text-attachment:id3')
+    expectRoundTripPreservesContent(
+      md,
+      '# Heading\n[link](url)\n![img](path)',
+      'text-attachment:id3',
+    )
   })
 
   it('handles empty text', () => {
@@ -140,9 +144,7 @@ describe('imageMarkdown', () => {
   })
 
   it('handles ref with query parameters', () => {
-    expect(imageMarkdown('img', 'path/to/image.png?v=123')).toBe(
-      '![img](path/to/image.png?v=123)',
-    )
+    expect(imageMarkdown('img', 'path/to/image.png?v=123')).toBe('![img](path/to/image.png?v=123)')
   })
 
   it('handles ref with hash fragment', () => {
@@ -172,9 +174,7 @@ describe('fileMarkdown', () => {
   })
 
   it('handles filename with brackets', () => {
-    expect(fileMarkdown('[file].txt', 'path/to/file.txt')).toBe(
-      '[[file].txt](path/to/file.txt)',
-    )
+    expect(fileMarkdown('[file].txt', 'path/to/file.txt')).toBe('[[file].txt](path/to/file.txt)')
   })
 
   it('handles filename with parentheses', () => {

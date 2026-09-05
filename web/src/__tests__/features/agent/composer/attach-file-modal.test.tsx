@@ -9,12 +9,20 @@ import {
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
-  uploadChatAttachment: vi.fn(async (_ws: string, _chat: string, input: { file: File } | { path: string }) => ({
-    ref: 'path' in input ? `chats/c1/attachments/x-${input.path}` : `chats/c1/attachments/x-${input.file.name}`,
-    filename: 'path' in input ? input.path : input.file.name,
-    size: 10,
-    contentType: 'file' in input ? input.file.type || 'application/octet-stream' : 'application/octet-stream',
-  })),
+  uploadChatAttachment: vi.fn(
+    async (_ws: string, _chat: string, input: { file: File } | { path: string }) => ({
+      ref:
+        'path' in input
+          ? `chats/c1/attachments/x-${input.path}`
+          : `chats/c1/attachments/x-${input.file.name}`,
+      filename: 'path' in input ? input.path : input.file.name,
+      size: 10,
+      contentType:
+        'file' in input
+          ? input.file.type || 'application/octet-stream'
+          : 'application/octet-stream',
+    }),
+  ),
 }))
 
 // Task 29 stubbed this same hook the same way, for the same reason: under
@@ -58,7 +66,9 @@ describe('AttachFileModal', () => {
     fireEvent.change(input, { target: { files: [file] } })
 
     await waitFor(() =>
-      expect(onInsertMarkdown).toHaveBeenCalledWith('[notes.txt](chats/c1/attachments/x-notes.txt)'),
+      expect(onInsertMarkdown).toHaveBeenCalledWith(
+        '[notes.txt](chats/c1/attachments/x-notes.txt)',
+      ),
     )
   })
 
@@ -120,7 +130,9 @@ describe('AttachFileModal', () => {
     )
     draw()
     const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    fireEvent.change(input, { target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } })
+    fireEvent.change(input, {
+      target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] },
+    })
 
     expect(await screen.findByText('Uploading…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Choose a file' })).toBeDisabled()
@@ -181,7 +193,9 @@ describe('AttachFileModal', () => {
       fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
 
       await waitFor(() =>
-        expect(onInsertMarkdown).toHaveBeenCalledWith('[notes.pdf](chats/c1/attachments/x-notes.pdf)'),
+        expect(onInsertMarkdown).toHaveBeenCalledWith(
+          '[notes.pdf](chats/c1/attachments/x-notes.pdf)',
+        ),
       )
       expect(onInsertMarkdown).not.toHaveBeenCalledWith(expect.stringMatching(/^!/))
     })
@@ -219,7 +233,9 @@ describe('AttachFileModal', () => {
       })
 
       expect(zone).not.toHaveClass('border-ring')
-      expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { path: '/Users/me/report.csv' })
+      expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', {
+        path: '/Users/me/report.csv',
+      })
       await waitFor(() =>
         expect(onInsertMarkdown).toHaveBeenCalledWith(
           '[/Users/me/report.csv](chats/c1/attachments/x-/Users/me/report.csv)',
@@ -262,7 +278,10 @@ describe('AttachFileModal', () => {
       fireEvent.change(input, { target: { files: [file] } })
 
       await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", '413 Payload Too Large'),
+        expect(toastError).toHaveBeenCalledWith(
+          "Couldn't attach that file",
+          '413 Payload Too Large',
+        ),
       )
       expect(onInsertMarkdown).not.toHaveBeenCalled()
       expect(onClose).not.toHaveBeenCalled()
@@ -276,7 +295,9 @@ describe('AttachFileModal', () => {
       const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
       fireEvent.change(input, { target: { files: [new File(['x'], 'huge.png')] } })
 
-      await waitFor(() => expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'boom'))
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'boom'),
+      )
     })
 
     // The upload state must clear on failure too, or the picker would stay
@@ -285,7 +306,9 @@ describe('AttachFileModal', () => {
       vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('offline'))
       draw()
       const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-      fireEvent.change(input, { target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } })
+      fireEvent.change(input, {
+        target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] },
+      })
 
       await waitFor(() => expect(toastError).toHaveBeenCalled())
       expect(screen.getByRole('button', { name: 'Choose a file' })).not.toBeDisabled()
@@ -299,7 +322,9 @@ describe('AttachFileModal', () => {
 
       fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
 
-      await waitFor(() => expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'disk full'))
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith("Couldn't attach that file", 'disk full'),
+      )
     })
   })
 

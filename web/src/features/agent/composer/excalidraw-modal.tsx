@@ -3,11 +3,16 @@ import { nanoid } from 'nanoid'
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
 import type { ExcalidrawSaveResult } from '@/features/agent/composer/excalidraw-canvas'
-import { excalidrawMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
+import {
+  excalidrawMarkdown,
+  imageMarkdown,
+} from '@/features/agent/composer/lib/attachment-markdown'
 import { toast } from '@/features/window/stores/toast-store'
 
 const ExcalidrawCanvas = lazy(() =>
-  import('@/features/agent/composer/excalidraw-canvas').then((m) => ({ default: m.ExcalidrawCanvas })),
+  import('@/features/agent/composer/excalidraw-canvas').then((m) => ({
+    default: m.ExcalidrawCanvas,
+  })),
 )
 
 interface ExcalidrawModalProps {
@@ -30,7 +35,13 @@ interface ExcalidrawModalProps {
  * `uploadChatAttachment(..., id)` below receive the SAME `id` — never let
  * the upload mint its own.
  */
-export function ExcalidrawModal({ wsId, chatId, open, onClose, onInsertMarkdown }: ExcalidrawModalProps) {
+export function ExcalidrawModal({
+  wsId,
+  chatId,
+  open,
+  onClose,
+  onInsertMarkdown,
+}: ExcalidrawModalProps) {
   const handleSave = useCallback(
     async ({ sceneJson, pngFile }: ExcalidrawSaveResult) => {
       const id = nanoid()
