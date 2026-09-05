@@ -121,3 +121,15 @@ export const CopyIcon = icon(
   </>,
   'CopyIcon',
 )
+
+export const PlusIcon = icon(<path d="M12 5.5v13M5.5 12h13" />, 'PlusIcon')
+
+/* The classic dog-eared page: the fold at top-right is what reads as "a
+   file", distinguishing it from ChatIcon's speech-bubble outline. */
+export const FileIcon = icon(
+  <>
+    <path d="M7 3.5h7l4.5 4.5v12.5H7z" />
+    <path d="M14 3.5v4.5h4.5" />
+  </>,
+  'FileIcon',
+)

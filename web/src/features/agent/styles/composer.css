@@ -493,6 +493,46 @@
   box-shadow: none;
 }
 
+/* The plus button's own left margin is unset — see handle-geometry.ts's
+   fieldRightPadding() derivation. `.handle`'s flex `gap: 2px` is the ONLY
+   spacing between it and `.send`; keeping `.send`'s base margin-left: 5px
+   here too would double-count against the field's exactly-sized padding. */
+.agent-chat .handle .send {
+  margin-left: 0;
+}
+
+/* Neutral, deliberately not `.send`'s primary treatment — "not the action".
+   Same 28px circle so the pair reads as one control family. */
+.agent-chat .plusbtn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--input);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+.agent-chat .plusbtn:hover,
+.agent-chat .plusbtn[data-open] {
+  background: color-mix(in oklch, var(--foreground) 8%, var(--muted));
+  color: var(--foreground);
+  border-color: color-mix(in oklch, var(--foreground) 22%, var(--input));
+}
+.agent-chat .plusbtn:active {
+  transform: scale(0.94);
+}
+.agent-chat .plusbtn svg:not([class*='size-']) {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+
 /* A stop notice REPLACES the input rather than sitting above it, because the
    fact it reports IS that there is nothing to type into. Same 38px box, same
    stadium — the bar has not gone anywhere, it has stopped being an input. The
