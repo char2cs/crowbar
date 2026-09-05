@@ -3,13 +3,20 @@ import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useDraggable, useDropLine } from '@platejs/dnd'
 import type { TElement } from 'platejs'
-import { Plate, type PlateEditor, usePlateEditor } from 'platejs/react'
+import {
+  createPlateEditor,
+  Plate,
+  type PlateEditor,
+  useEditorRef,
+  usePlateEditor,
+} from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
   AttachmentDragHandle,
   AttachmentDropLine,
   canDropAttachmentNode,
   onAttachmentDropHandler,
+  resolveDraggableBlockElement,
   useAttachmentDraggable,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
@@ -98,6 +105,97 @@ describe('canDropAttachmentNode', () => {
   })
 })
 
+/**
+ * Regression coverage for I1: two file-card attachments each deserialize as
+ * `[N] p -> [N, 0] a` (a link nested one level inside its own wrapping
+ * paragraph) — `canDropAttachmentNode` compares `PathApi.parent(...)` on
+ * whatever `@platejs/dnd` derives from the element handed to `useDraggable`,
+ * so feeding it the raw, nested link always compared two DIFFERENT
+ * paragraphs' paths and could never match. `resolveDraggableBlockElement`
+ * walks each link up to its wrapping paragraph BEFORE that comparison runs.
+ */
+describe('resolveDraggableBlockElement', () => {
+  it('returns the element unchanged when it is already a top-level block (a fence-based attachment)', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [{ type: 'code_block', children: [{ type: 'code_line', children: [{ text: 'x' }] }] }],
+    })
+    const codeBlock = editor.children[0] as TElement
+
+    expect(resolveDraggableBlockElement(editor, codeBlock)).toBe(codeBlock)
+  })
+
+  it('walks a nested link up to its wrapping paragraph (a file-card attachment)', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [
+        {
+          type: 'p',
+          children: [
+            { type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] },
+          ],
+        },
+      ],
+    })
+    const paragraph = editor.children[0] as TElement
+    const link = paragraph.children[0] as TElement
+
+    const resolved = resolveDraggableBlockElement(editor, link)
+
+    expect(resolved).toBe(paragraph)
+    expect(resolved).not.toBe(link)
+    expect(editor.api.findPath(resolved)).toEqual([0])
+  })
+
+  it('falls back to the element unchanged when it has no path in the document at all', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [{ type: 'p', children: [{ text: 'hi' }] }],
+    })
+    const detached: TElement = { type: 'a', children: [{ text: 'x' } as never] }
+
+    expect(resolveDraggableBlockElement(editor, detached)).toBe(detached)
+  })
+
+  it('resolves two separate file-card links to top-level paragraphs whose parent path is the SAME — the actual I1 fix', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: [
+        {
+          type: 'p',
+          children: [
+            { type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] },
+          ],
+        },
+        {
+          type: 'p',
+          children: [
+            { type: 'a', url: 'chats/c1/attachments/b.pdf', children: [{ text: 'b.pdf' }] },
+          ],
+        },
+      ],
+    })
+    const linkA = (editor.children[0] as TElement).children[0] as TElement
+    const linkB = (editor.children[1] as TElement).children[0] as TElement
+
+    const blockA = resolveDraggableBlockElement(editor, linkA)
+    const blockB = resolveDraggableBlockElement(editor, linkB)
+    const dragEntry = [blockA, editor.api.findPath(blockA)] as [TElement, number[]]
+    const dropEntry = [blockB, editor.api.findPath(blockB)] as [TElement, number[]]
+
+    // Before this fix, feeding the raw (unresolved) links in produced
+    // dragEntry/dropEntry paths `[0, 0]` and `[1, 0]` — parents `[0]` and
+    // `[1]`, never equal, so this always returned false. Resolved to their
+    // wrapping paragraphs, both entries' parent is the document root `[]`.
+    const result = canDropAttachmentNode({
+      dragEntry,
+      dropEntry,
+    } as unknown as Parameters<typeof canDropAttachmentNode>[0])
+
+    expect(result).toBe(true)
+  })
+})
+
 describe('onAttachmentDropHandler', () => {
   it('selects the dragged element when present', () => {
     const select = vi.fn()
@@ -154,6 +252,50 @@ describe('useAttachmentDraggable', () => {
       onDropHandler: onAttachmentDropHandler,
     })
     expect(result.current).toBe(draggableState)
+  })
+
+  // The I1 fix, exercised through the hook's real wiring rather than
+  // `resolveDraggableBlockElement` directly: a file card calls
+  // `useAttachmentDraggable(props.element)` with the LINK, same as always —
+  // the resolution to its wrapping paragraph has to happen INSIDE the hook.
+  it('resolves a nested file-card link to its wrapping paragraph before forwarding to useDraggable', () => {
+    vi.mocked(useDraggable).mockReturnValue({
+      isAboutToDrag: false,
+      isDragging: false,
+      nodeRef: { current: null },
+      previewRef: { current: null },
+      handleRef: vi.fn(),
+    })
+
+    function NestedFileCardWrapper({ children }: { children: ReactNode }) {
+      const editor = usePlateEditor({
+        plugins: chatComposerPlugins,
+        value: [
+          {
+            type: 'p',
+            children: [
+              { type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] },
+            ],
+          },
+        ],
+      })
+      return <Plate editor={editor}>{children}</Plate>
+    }
+
+    function useDraggableForNestedLink() {
+      const editor = useEditorRef()
+      const paragraph = editor.children[0] as TElement
+      const link = paragraph.children[0] as TElement
+      return { paragraph, result: useAttachmentDraggable(link) }
+    }
+
+    const { result } = renderHook(() => useDraggableForNestedLink(), {
+      wrapper: NestedFileCardWrapper,
+    })
+
+    expect(useDraggable).toHaveBeenCalledWith(
+      expect.objectContaining({ element: result.current.paragraph, type: 'p' }),
+    )
   })
 })
 

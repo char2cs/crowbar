@@ -1,7 +1,7 @@
 import { GripVertical } from 'lucide-react'
 import { type CanDropCallback, type DragItemNode, useDraggable, useDropLine } from '@platejs/dnd'
 import { PathApi, type TElement } from 'platejs'
-import type { PlateEditor } from 'platejs/react'
+import { type PlateEditor, useEditorRef } from 'platejs/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -32,10 +32,42 @@ export function onAttachmentDropHandler(
   if (dragElement) editor.tf.select(dragElement)
 }
 
+/**
+ * The top-level block ancestor of `element` — itself, if `element` already
+ * IS one (a fence-based attachment like a code block, whose own `PlateElement`
+ * root is a plain top-level block already), otherwise the highest matching
+ * block ancestor above it (a file card's wrapping paragraph: `insertAttachment
+ * Markdown` inserts each `[filename](ref)` as its own single-child paragraph,
+ * so the link itself sits one level below the top).
+ *
+ * `canDropAttachmentNode` below compares `PathApi.parent(...)` on whatever
+ * entries `@platejs/dnd` derives from the `element` handed to `useDraggable` —
+ * for an inline anchor nested in a paragraph that comparison is between two
+ * DIFFERENT paragraphs' paths and can never match. Resolving to the block
+ * ancestor here, once, fixes that for every attachment kind without
+ * `canDropAttachmentNode` itself needing to know about nesting at all.
+ *
+ * Exported standalone (same reasoning as `canDropAttachmentNode` above) so
+ * this walk can be unit-tested directly against a real editor instance
+ * without mounting `useDraggable`'s own HTML5 drag/pointer-capture wiring.
+ */
+export function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
+  const path = editor.api.findPath(element)
+  if (!path) return element
+  const ancestor = editor.api.above<TElement>({
+    at: path,
+    match: (n) => editor.api.isBlock(n),
+    mode: 'highest',
+  })
+  return ancestor ? ancestor[0] : element
+}
+
 export function useAttachmentDraggable(element: TElement) {
+  const editor = useEditorRef()
+  const blockElement = resolveDraggableBlockElement(editor, element)
   return useDraggable({
-    element,
-    type: element.type,
+    element: blockElement,
+    type: blockElement.type,
     // Attachments reorder only among their own siblings at the SAME level —
     // not into a list item or a table cell, mirroring the table row's own
     // same-parent constraint.
