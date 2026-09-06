@@ -7,6 +7,8 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
@@ -369,7 +371,11 @@ function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly Sidebar
 
   let targetPaneId = findPaneFor(target.id)
   if (!targetPaneId) {
-    openChatIntoPane(target, windowPaneStore.getState().activePaneId, 'center')
+    // Literally "the same 'makes its own view' a click already does" — so it
+    // calls the click's own function rather than re-deriving it from a drop
+    // aimed at the active pane, which would have merged the target into
+    // whatever was already there before the dragged rows even arrived.
+    openChatInOwnPane(target)
     targetPaneId = findPaneFor(target.id)
   }
   if (!targetPaneId) return
@@ -500,7 +506,65 @@ export function performSidebarPaneDrop(
 }
 
 /**
- * One chat, dropped OR CLICKED into one pane.
+ * One chat, CLICKED — spec §8.4: "clicking a chat in the tree makes its own
+ * view."
+ *
+ * Its own rule, deliberately NOT `openChatIntoPane`'s. That one answers a
+ * DROP, whose entire vocabulary is "into THIS pane, on THAT side" (§8.1) and
+ * whose occupied-pane case is a MERGE: a split carved out of the target pane's
+ * own share, plus `groupIntoArrangement` filing both chats into ONE Recents
+ * entry — "you asked for them side by side, so you get them side by side"
+ * (§8.2). A click asks for neither. Routing it through the drop with a
+ * synthetic `zone: 'center'` on whichever pane happened to be active is
+ * exactly what made clicking a row read as appending a chat to the view you
+ * were already in: measured live, four clicks produced one Recents SET of four
+ * chats and a 50/25/12.5/12.5 cascade of splits nested inside the first pane.
+ * Merging two views is the drag-and-drop gesture and only that.
+ *
+ *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
+ *     checked FIRST and against every pane, since the clicked row may be live
+ *     in a pane other than the active one. Same dedup pattern
+ *     `openChatIntoPane` and `open-agent-chat.ts` both use.
+ *   - **an EMPTY pane on screen → it fills that one.** An empty pane is a
+ *     fallback, not a view (see `pane-slice.ts`'s `dropEmptiedPanes`), so
+ *     there is nothing there to preserve and nothing to open beside. The
+ *     active pane first, so a click lands where the user is already looking.
+ *   - **otherwise → a brand-new pane** (`addPane`), a PEER of every pane
+ *     already up — never `splitPane` on the active one, which would charge
+ *     the view you were in for the view you asked for.
+ *
+ * Carries `openChatIntoPane`'s off-screen-workspace guard verbatim, for the
+ * same reason (no chatId->workspace resolution exists in the render path) —
+ * see the note on that function.
+ */
+export function openChatInOwnPane(subject: SidebarRow): void {
+  if (!subject.workspaceId) return
+  if (subject.workspaceId !== getActiveWorkspaceId()) return
+  const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
+  const chatId = subject.id
+
+  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
+  if (existingPane) {
+    paneActions.setActivePane(existingPane.id)
+    return
+  }
+
+  // Root layout only: a click never opens into the bottom panel, and
+  // `activePaneId` can legitimately be it.
+  const openPaneIds = getAllLeafIds(rootLayout)
+  const vacant = (id: string) => isPaneEmpty(panes[id])
+  const targetId =
+    (openPaneIds.includes(activePaneId) && vacant(activePaneId) ? activePaneId : undefined) ??
+    openPaneIds.find(vacant) ??
+    paneActions.addPane()
+  if (!targetId) return
+
+  paneActions.setPaneChat(targetId, chatId, null)
+  paneActions.setActivePane(targetId)
+}
+
+/**
+ * One chat, DROPPED onto one pane — spec §8.1/§8.2.
  *
  * §8.2: "dropping a chat that is already up goes TO it... it never opens
  * twice." Checked FIRST, before any zone/merge logic, and against every
@@ -510,11 +574,8 @@ export function performSidebarPaneDrop(
  * `Object.values(panes).find(p => p.chatId === chatId)`, reveal via
  * `setActivePane`, never a second `setPaneChat`.
  *
- * Exported for `space-content-actions.ts`'s `handleOpen` (spec §8.4:
- * "clicking a chat in the tree makes its own view") — a click is the same
- * "put this chat somewhere in a pane" question a drop asks, just answered
- * with a fixed target (the active pane, zone `'center'`) instead of one
- * resolved from where the pointer let go.
+ * NOT reachable from a plain click any more — see `openChatInOwnPane` above
+ * for why a click needs its own, merge-free rule.
  */
 export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   if (!subject.workspaceId) return

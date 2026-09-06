@@ -7,12 +7,20 @@ import {
 } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { chatBase, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
 import { saveReconnect } from '../lib/terminal-reconnect-map'
 import { retain as retainAttach, release as releaseAttach } from '../lib/attach-refcount'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
-import React, { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
@@ -97,6 +105,26 @@ interface XtermTerminalProps {
    * knocks the terminal out of line with the provider switcher below it.
    */
   flush?: boolean
+}
+
+/**
+ * Reactive echo of `getOwningChatId(wsId)` — the same wait as
+ * `useOwningChatId` in `use-workspace-effects.ts`, reimplemented here because
+ * that hook is private to the workspace-effects module. The sidebar records a
+ * workspace's owning chat asynchronously, independent of (and often slower
+ * than) the workspace's own hydration, so `terminalsBaseForWorkspace(wsId)`
+ * can throw for a workspace that only just activated.
+ *
+ * Returns null (and never subscribes) when there is no wsId to watch — a
+ * caller that renders with no `workspaceId` prop resolves the ACTIVE
+ * workspace itself, inside its own callback, and there is no scope here to
+ * gate on for it.
+ */
+function useOwningChatIdFor(wsId: string | undefined): string | null {
+  return useSyncExternalStore(
+    (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
+    () => (wsId ? getOwningChatId(wsId) : null),
+  )
 }
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive xterm host — init lock, resize, theme/font sync and link handling all coordinate one xterm instance via shared refs; the most tuned file in the terminal feature, no safe seam.
@@ -209,6 +237,19 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     reconcileAttachmentRef.current()
   }, [])
 
+  // Whether this terminal's base URL can be built right now WITHOUT throwing.
+  // A chat-owned terminal (chatId set — the agent chat pane) always can:
+  // chatBase(chatId) never touches the workspace scope registry. A
+  // workspace-owned shell tab needs the sidebar to have recorded wsId's
+  // owning chat first (terminalsBaseForWorkspace throws until then) — so
+  // initializeTerminal/doReconnect below WAIT on this instead of firing blind
+  // and hitting the throw, the same pattern use-workspace-effects.ts uses for
+  // the git/file effects. `!workspaceId` (no scope here to watch) is treated
+  // as ready so a caller with no workspaceId prop keeps its prior behavior —
+  // its own getActiveWorkspaceId() fallback is unaffected by this gate.
+  const owningChatId = useOwningChatIdFor(chatId ? undefined : workspaceId)
+  const chatScopeReady = Boolean(chatId) || !workspaceId || owningChatId !== null
+
   // Re-resolve the terminal connection after a transport drop (daemon restart)
   // without recreating the xterm UI. Runs resolveTerminalConnection which
   // handles the reuse/re-attach/create decision, updates the store, and then
@@ -224,6 +265,16 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // into the agent's frame. Both doors are flagged; neither may spawn.
   const doReconnect = useCallback(async () => {
     if (isInitializingRef.current) return
+    // Wait for the owning chat before building ANY URL below. Every caller
+    // invokes this as `void doReconnect()` with no `.catch` (onTransportDrop,
+    // the imperative-reattach swap effect) — a throw from
+    // terminalsBaseForWorkspace here, before the try block even starts, used
+    // to be an UNHANDLED PROMISE REJECTION, not merely a failed reconnect.
+    // Bailing here instead is also always safe: a live connectionId (the only
+    // way this fires) could not exist unless this workspace's owning chat was
+    // already resolved once before, so chatScopeReady is expected to already
+    // be true by the time any real caller reaches this.
+    if (!chatScopeReady) return
     // Resolve against the OWNING workspace (see the workspaceId prop doc):
     // hidden keep-alive workspaces reconnect here too, and the active
     // workspace may be a different one entirely.
@@ -310,7 +361,16 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     } finally {
       releaseInitLock()
     }
-  }, [attachOnly, chatId, getSession, releaseInitLock, sessionId, updateSession, workspaceId])
+  }, [
+    attachOnly,
+    chatId,
+    chatScopeReady,
+    getSession,
+    releaseInitLock,
+    sessionId,
+    updateSession,
+    workspaceId,
+  ])
 
   // The reconciler: called at every init-lock release. If the pane re-pointed this
   // terminal at a different session while a resolve was in flight (the guarded
@@ -509,6 +569,18 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const initializeTerminal = useCallback(async () => {
     const container = terminalContainerRef.current
     if (!container || isInitialized || isInitializingRef.current) return
+
+    // Wait for the owning chat BEFORE touching anything below — in particular
+    // before xtermRef.current is assigned further down. terminalsBaseForWorkspace
+    // throws until the sidebar records one, and that throw IS caught by this
+    // function's own try/catch — but xtermRef.current would already be set by
+    // then, and the retry effect (the poll below) guards on `xtermRef.current`
+    // being null to know whether it still needs to try again. Assign it before a
+    // throw and the retry effect sees "already initializing" forever: a
+    // permanently blank terminal. Bailing here, untouched, lets that effect's own
+    // chatScopeReady dependency re-run this the instant the id arrives — same
+    // wait as use-workspace-effects.ts's useOwningChatId.
+    if (!chatScopeReady) return
 
     const rect = container.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return
@@ -823,6 +895,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [
     attachOnly,
+    chatScopeReady,
     currentConnectionIdRef,
     fitTerminal,
     getSession,
@@ -935,7 +1008,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       clearTimeout(initTimer)
       removeLinkStyles(sessionId)
     }
-  }, [isVisible, sessionId])
+    // chatScopeReady: re-fires this timer once the owning chat arrives, for a
+    // terminal that became visible before the sidebar recorded one — see
+    // initializeTerminal's own chatScopeReady gate above.
+  }, [isVisible, sessionId, chatScopeReady])
 
   useEffect(() => {
     if (isInitialized || !isVisible || !terminalContainerRef.current) return
@@ -975,7 +1051,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId)
     }
-  }, [isInitialized, isVisible])
+    // chatScopeReady: initializeTerminal bails untouched (no xtermRef, no
+    // isInitializingRef) while the owning chat isn't recorded yet — this is
+    // what restarts the poll the moment it is, instead of leaving the
+    // terminal permanently blank with nothing left to retry it.
+  }, [isInitialized, isVisible, chatScopeReady])
 
   // Dispose only the xterm UI on unmount. The PTY process is owned by the
   // buffer store and killed in closeBuffer (via killTerminalSession) when the

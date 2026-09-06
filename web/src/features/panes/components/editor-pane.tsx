@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { EditorSurface } from '@/features/editor/components/editor-surface'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
@@ -46,17 +47,43 @@ export function EditorPane({
   // Lazy-Monaco seam (Task 4b): the workspace store constructs its Monaco-backed
   // EditorManager/ModelRegistry only on the first real editor need, so opening a
   // file is what pulls in `monaco-editor` — not cold launch. Arm it before we
-  // mount EditorSurface (which reads `store.editorManager` synchronously). The
-  // dynamic import resolves within this already-lazy pane chunk (monaco is loaded
+  // mount EditorSurface (which reads the manager synchronously). The dynamic
+  // import resolves within this already-lazy pane chunk (monaco is loaded
   // alongside it), so `armed` flips on the same/next tick — no user-visible gap.
   // `armEditor` is idempotent, so a second pane opening an already-armed store
   // starts armed and renders immediately.
-  const store = useWorkspaceStore()
-  const [armed, setArmed] = useState(() => store.editorManager !== undefined)
+  //
+  // Resolved by the BUFFER's own workspace (buffer.workspaceId) whenever that
+  // workspace already has a registered store — NOT the ambient
+  // WorkspaceStoreContext: WorkspaceHost keeps every retained WorkspaceView
+  // mounted at once for keep-alive, each rendering the same window-level pane
+  // tree under a DIFFERENT ambient context. Arming (and later mounting
+  // EditorSurface's Monaco widget against) the ambient workspace's
+  // EditorManager instead of the buffer's own would let a wrong-ambient
+  // hidden copy create a second, leaked Monaco model/widget under a manager
+  // the buffer's own `closeBuffer` cleanup — scoped to buf.workspaceId, see
+  // buffer-slice.ts's `editorManagerFor` — never visits.
+  //
+  // Falls back to the ambient workspace only when the buffer's own workspace
+  // has NO store yet — e.g. a buffer opened by a chat the user hasn't
+  // navigated into this session, so nothing ever called
+  // `getOrCreateWorkspaceStore` for it. Minting one here instead (rather than
+  // falling back) would register a store WorkspaceHost never agreed to retain
+  // and will never destroy (see getWorkspaceStore's own doc) — a worse,
+  // permanent leak than the wrong-ambient-copy one this fix targets. Live-
+  // verified: without this fallback, such a buffer's tab renders permanently
+  // blank instead of merely wrong-scoped. The fallback never fires for the
+  // keep-alive-retention case above, since a retained workspace's store
+  // already exists.
+  const ambientWorkspaceId = useWorkspaceStoreContext((s) => s.workspaceId)
+  const workspaceId =
+    buffer && getWorkspaceStore(buffer.workspaceId) ? buffer.workspaceId : ambientWorkspaceId
+  const workspaceStore = getWorkspaceStore(workspaceId)
+  const [armed, setArmed] = useState(() => workspaceStore?.editorManager !== undefined)
   useEffect(() => {
-    if (armed) return
+    if (armed || !workspaceStore) return
     let cancelled = false
-    void store
+    void workspaceStore
       .armEditor()
       .then(() => {
         if (!cancelled) setArmed(true)
@@ -67,7 +94,7 @@ export function EditorPane({
     return () => {
       cancelled = true
     }
-  }, [armed, store])
+  }, [armed, workspaceStore])
 
   // BUG-001: the file backing a restored buffer no longer exists on disk.
   // Render a terminal placeholder instead of an editor — there is no content
@@ -86,7 +113,13 @@ export function EditorPane({
   // Markdown buffers in rich view route to Plate instead of Monaco. This must
   // come BEFORE the `!armed` gate below: rich mode never touches Monaco, so it
   // must not wait on Monaco's arming to render.
-  if (buffer && isEditorContent(buffer) && isMarkdownPath(buffer.path) && markdownView === 'rich') {
+  if (
+    buffer &&
+    isEditorContent(buffer) &&
+    buffer.path &&
+    isMarkdownPath(buffer.path) &&
+    markdownView === 'rich'
+  ) {
     return (
       // M8: the lazy chunk can fail to load (offline, a stale asset hash after
       // a deploy) and a rejected `lazy()` throws during render — Suspense only
@@ -118,10 +151,12 @@ export function EditorPane({
     )
   }
 
-  // Hold the surface back until the Monaco handles are armed. Rendering nothing
-  // (rather than a spinner) avoids a flash: arming completes within the same lazy
+  // Hold the surface back until the Monaco handles are armed (also covers the
+  // buffer not having resolved yet — `workspaceStore` above is undefined
+  // without one, so `armed` can never flip true). Rendering nothing (rather
+  // than a spinner) avoids a flash: arming completes within the same lazy
   // chunk load that brought us here.
-  if (!armed) return null
+  if (!armed || !buffer) return null
 
   return (
     <ErrorBoundary
@@ -137,6 +172,7 @@ export function EditorPane({
         key={paneId}
         paneId={paneId}
         bufferId={bufferId}
+        workspaceId={workspaceId}
         isActiveSurface={isActiveSurface}
         isPreview={isPreview}
         onPromote={onPromote}

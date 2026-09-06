@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 export interface LspLocation {
   uri: string
   range: {
@@ -84,6 +85,15 @@ class LspClientImpl {
   // services). Reference-count opens so exactly ONE `/didOpen` POST goes out
   // (the first opener) and `/didClose` only fires when the LAST holder closes.
   private openRefs = new Map<string, number>()
+  // Opens whose `/didOpen` POST never went out because the owning chat id
+  // wasn't recorded yet (see ensureSubscribed) — flushed once it arrives.
+  // Without this, a file the editor already refcounts as "open" would never
+  // actually get opened on the server, and would never get diagnostics.
+  private pendingOpens = new Map<string, { content: string; languageId: string }>()
+  // wsId this instance is currently waiting on an owning-chat-id for, and the
+  // unsubscribe for that wait — see ensureSubscribed/awaitOwningChatId.
+  private awaitingScopeFor: string | null = null
+  private stopAwaitingScope: (() => void) | null = null
 
   isRunning(): boolean {
     return this.unsubscribe !== null
@@ -102,6 +112,24 @@ class LspClientImpl {
     if (!wsId || isHomeWorkspace(wsId)) return
     if (this.wsId === wsId && this.unsubscribe) return
 
+    // lspBaseForWorkspace(wsId) throws until the sidebar's own chat-list fetch
+    // records this workspace's owning chat id — a race against WorkspaceView's
+    // own (often faster) hydration that is very much still live the instant a
+    // buffer becomes a pane's active model (tab restoration on a cold
+    // activation, well before any user gesture). This is called synchronously
+    // from `onDiagnosticsUpdate`, so throwing here used to propagate straight
+    // out of the satellite hook's effect and crash via the nearest error
+    // boundary — identical shape to the fix in use-workspace-effects.ts. Wait
+    // for the id via subscribeToWorkspaceScope instead, and retry once it
+    // lands, rather than crashing or leaving diagnostics unsubscribed forever.
+    if (!getOwningChatId(wsId)) {
+      this.awaitOwningChatId(wsId)
+      return
+    }
+    this.stopAwaitingScope?.()
+    this.stopAwaitingScope = null
+    this.awaitingScopeFor = null
+
     this.unsubscribe?.()
     this.wsId = wsId
     this.lastByFile.clear()
@@ -111,6 +139,46 @@ class LspClientImpl {
     this.unsubscribe = wsManager.subscribe(`${lspBaseForWorkspace(wsId)}/ws`, (raw) =>
       this.dispatch(raw as DiagnosticsEvent),
     )
+  }
+
+  // Re-entrant wait for `wsId`'s owning chat id: a no-op while already waiting
+  // on the SAME wsId (ensureSubscribed is called from onDiagnosticsUpdate,
+  // documentOpen and startServer alike, often several times before the id
+  // lands), and drops any wait on a DIFFERENT wsId so switching workspaces
+  // mid-wait can't leak a stale listener.
+  private awaitOwningChatId(wsId: string): void {
+    if (this.awaitingScopeFor === wsId) return
+    this.stopAwaitingScope?.()
+    this.awaitingScopeFor = wsId
+    this.stopAwaitingScope = subscribeToWorkspaceScope(wsId, () => {
+      if (!getOwningChatId(wsId)) return
+      this.stopAwaitingScope?.()
+      this.stopAwaitingScope = null
+      this.awaitingScopeFor = null
+      // Only matters if the app still cares about this workspace; a stale wait
+      // for one the user has since navigated away from must not resubscribe.
+      if (getActiveWorkspaceId() !== wsId) return
+      this.ensureSubscribed()
+      this.flushPendingOpens()
+    })
+  }
+
+  // Send the `/didOpen` POSTs that documentOpen deferred while wsBase() had no
+  // owning chat id to address them with (see documentOpen/wsBase). Cleared
+  // eagerly so a POST that itself fails is not retried in a loop.
+  private flushPendingOpens(): void {
+    if (this.pendingOpens.size === 0) return
+    const base = this.wsBase()
+    if (!base) return
+    const opens = this.pendingOpens
+    this.pendingOpens = new Map()
+    for (const [filePath, { content, languageId }] of opens) {
+      void apiFetch(`${base}/didOpen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, languageId, text: content }),
+      }).catch(() => {})
+    }
   }
 
   private dispatch(event: DiagnosticsEvent): void {
@@ -134,6 +202,11 @@ class LspClientImpl {
   private wsBase(): string | null {
     const wsId = getActiveWorkspaceId()
     if (!wsId || isHomeWorkspace(wsId)) return null
+    // Same race as ensureSubscribed: lspBaseForWorkspace throws without a
+    // recorded owning chat id. Callers here (getDefinition, documentChange,
+    // documentClose, documentOpen) already tolerate a null base as "nothing to
+    // do yet", so degrade the same way instead of throwing through them.
+    if (!getOwningChatId(wsId)) return null
     return lspBaseForWorkspace(wsId)
   }
 
@@ -275,7 +348,15 @@ class LspClientImpl {
     this.openRefs.set(filePath, refs + 1)
     if (refs > 0) return
     const base = this.wsBase()
-    if (!base) return
+    if (!base) {
+      // No owning chat id yet — there is no route to POST to. Remember the
+      // open so awaitOwningChatId's retry can send it once the scope resolves
+      // (see flushPendingOpens); otherwise the server would never learn about
+      // a file the editor already considers open, and it could never compute
+      // diagnostics for it.
+      this.pendingOpens.set(filePath, { content, languageId })
+      return
+    }
     await apiFetch(`${base}/didOpen`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -305,6 +386,9 @@ class LspClientImpl {
       return
     }
     this.openRefs.delete(filePath)
+    // Closed before its didOpen ever went out (still waiting on the owning
+    // chat id) — nothing pending to flush, and nothing on the server to close.
+    this.pendingOpens.delete(filePath)
     const base = this.wsBase()
     if (!base) return
     await apiFetch(`${base}/didClose`, {

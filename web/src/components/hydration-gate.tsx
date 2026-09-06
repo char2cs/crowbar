@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { hydratePreferences, hydrateSidebar, hydrateWindowPaneLayout } from '@/lib/persistence/hydrate'
+import {
+  hydratePreferences,
+  hydrateSidebar,
+  hydrateWindowPaneLayout,
+} from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'

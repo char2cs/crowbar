@@ -1713,4 +1713,48 @@ describe('AgentChatPane', () => {
       expect(screen.queryByRole('textbox', { name: /message the agent/i })).not.toBeInTheDocument()
     })
   })
+
+  // ── Regression: a 404 from the WRONG ambient workspace must not close the pane ──
+  // WorkspaceHost keeps several WorkspaceViews mounted at once (keep-alive), each
+  // rendering its own copy of the shared window-level pane tree. Opening a chat
+  // writes ONE global `pane.chatId`, so every mounted workspace's own AgentChatPane
+  // tries to render it — including one whose ambient wsId is a totally different
+  // workspace than the chat's real owner. That copy's ledger fetch 404s (the chat
+  // genuinely isn't reachable under the wrong scope), which used to be treated as
+  // "the daemon confirmed this chat is deleted" and closed the pane — wiping out
+  // the correct copy's content too. `known` (this ambient workspace's own chat
+  // list) must gate that close: a chat this workspace never lists is never grounds
+  // to close what another, correct workspace is showing.
+  describe('a 404 from a workspace that does not know the chat', () => {
+    it('does not close the pane when the ambient workspace never lists the chat', async () => {
+      // Empty chat list for 'w1': `known` is permanently false for 'c1' here,
+      // exactly like a WorkspaceView whose ambient workspace isn't the chat's own.
+      const store = seedWorkspace([], 'w1')
+      listMessagesFn.mockRejectedValue(new ApiError('not found', 404))
+      const paneId = openChatPane(store, 'c1', '', 'Chat', 'w1')
+
+      await renderPane(store, paneId)
+
+      // The ledger's 404 lands and its effect fires — give it a tick to settle
+      // rather than asserting a still-mid-flight state.
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(paneOf(store, paneId)).toBeDefined()
+      expect(paneOf(store, paneId)?.chatId).toBe('c1')
+    })
+
+    it('still closes the pane once the ambient workspace has genuinely confirmed the chat, then loses it', async () => {
+      // Same 404, but this time the workspace's OWN list once had the chat —
+      // `known` was true, so a 404 now is a trustworthy "it's really gone".
+      const store = seedWorkspace([dormantChat({ id: 'c1' })], 'w1')
+      listMessagesFn.mockRejectedValue(new ApiError('not found', 404))
+      const paneId = openChatPane(store, 'c1', '', 'Chat', 'w1')
+
+      await renderPane(store, paneId)
+
+      await vi.waitFor(() => expect(paneOf(store, paneId)).toBeUndefined())
+    })
+  })
 })

@@ -6,7 +6,7 @@ import '../styles/monaco-editor.css'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useEditorScroll } from '@/features/editor/hooks/use-scroll'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
@@ -36,6 +36,19 @@ import type * as Monaco from 'monaco-editor'
 export interface EditorSurfaceProps {
   paneId: string
   bufferId: string
+  /**
+   * The workspace THIS buffer belongs to (buffer.workspaceId), NOT the ambient
+   * WorkspaceStoreContext. WorkspaceHost keeps every retained WorkspaceView
+   * mounted at once for keep-alive, each rendering the same window-level pane
+   * tree under a DIFFERENT ambient context — resolving the EditorManager from
+   * ambient context instead of the buffer's own would let a wrong-ambient
+   * hidden copy mount a second, leaked Monaco model/widget under a manager
+   * the buffer's own `closeBuffer` cleanup (scoped to buf.workspaceId, see
+   * buffer-slice.ts's `editorManagerFor`) never visits. Passed explicitly by
+   * EditorPane, which already looked the buffer up to arm this exact
+   * workspace's editor before mounting this surface.
+   */
+  workspaceId: string
   isActiveSurface?: boolean
   isPreview?: boolean
   onPromote?: () => void
@@ -66,6 +79,7 @@ export interface EditorSurfaceProps {
 export function EditorSurface({
   paneId,
   bufferId,
+  workspaceId,
   isActiveSurface = true,
   isPreview = false,
   onPromote,
@@ -81,9 +95,12 @@ export function EditorSurface({
   const editorModelPositionResolverRef = useRef<EditorModelPositionResolver | null>(null)
   const mouseHandlersRef = useRef<PaneOverlayMouseHandlers | null>(null)
 
-  const workspaceStore = useWorkspaceStore()
-  // Non-null: EditorPane awaits `store.armEditor()` before it mounts EditorSurface
-  // (that is the lazy-Monaco seam), so the manager is always present here.
+  // Resolved by the buffer's OWN workspace id (see the `workspaceId` prop
+  // doc), not ambient context. Non-null: EditorPane awaits
+  // `getWorkspaceStore(workspaceId)?.armEditor()` for this same workspaceId
+  // before it mounts EditorSurface (that is the lazy-Monaco seam), so the
+  // store and its manager are always present here.
+  const workspaceStore = getWorkspaceStore(workspaceId)!
   const editorManager = workspaceStore.editorManager!
   const registry = workspaceStore.activeEditorRegistry
 
@@ -266,7 +283,10 @@ export function EditorSurface({
     (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
       const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
-      if (!buffer || !hasTextContent(buffer)) return null
+      // Text-content buffers always carry a real path (see OpenEditorTabSpec) —
+      // skip publishing an active-buffer switch rather than key Monaco's model
+      // registry by an undefined uri if that invariant is ever violated.
+      if (!buffer || !hasTextContent(buffer) || !buffer.path) return null
       return { bufferId: buffer.id, filePath: buffer.path }
     },
     [paneId],

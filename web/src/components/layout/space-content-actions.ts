@@ -5,15 +5,12 @@ import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
 import { createChat, createChatWithOwnWorktree } from '@/features/agent/api/agent-api'
-import {
-  getActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { openChatIntoPane } from '@/components/sidebar/lib/drop-actions'
+import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -40,8 +37,9 @@ type NavigateFn = ReturnType<typeof useNavigate>
  * row came to look like every other row while silently doing nothing.
  *
  * AND it deliberately does NOT match a `branch` row, even though one lives in
- * the chat id space: `rows-from-repo.ts` gives a locked branch and a repo home
- * the id of the chat that owns their workspace, because that is what the daemon
+ * the chat id space: `rows-from-repo.ts` gives EVERY workspace-owning row —
+ * a locked branch, a repo home, and an ordinary fork or forked thread alike —
+ * the id of the chat that owns its workspace, because that is what the daemon
  * places by. Such a row is a WORKSPACE — `resolveRow` answers for it, via
  * `workspaceIdOfBranchRow`. Matching it here sent every verb down the chat
  * path, which is not a hypothetical: it made a locked branch's "+" silently
@@ -52,14 +50,19 @@ export function resolveChatRow(
   repos: readonly Repo[],
   id: string,
 ): { repo: Repo; chat: Chat } | null {
+  // A workspace-owning row lives in the chat id space but is NOT a chat row —
+  // `rows-from-repo.ts` gives that workspace's row this id precisely so the
+  // daemon can place under it. Matching it below would send every verb down
+  // the chat path: "+" would go silently inert, trash would delete the
+  // branch's own row, and rename would retitle it instead of moving the git
+  // branch. `workspaceIdOfBranchRow` is the one place that already knows every
+  // shape this id can take (locked, home, or an ordinary fold) — checked once,
+  // up front, rather than re-deriving its own `type === 'branch'` shortcut
+  // here, which stopped being able to tell a folded fork's row apart from a
+  // real conversation the moment it started sharing that id space too.
+  if (workspaceIdOfBranchRow(repos, id) !== null) return null
   for (const repo of repos) {
-    // A `branch` row lives in the chat id space but is NOT a chat row: it is
-    // how a locked branch or a repo home is drawn, and `rows-from-repo.ts`
-    // gives that workspace's row this id precisely so the daemon can place
-    // under it. Matching it here would send every verb down the chat path —
-    // "+" would go silently inert, trash would delete the branch's own row,
-    // and rename would retitle it instead of moving the git branch.
-    const chat = repo.chats?.find((c) => c.id === id && c.type !== 'branch')
+    const chat = repo.chats?.find((c) => c.id === id)
     if (chat) return { repo, chat }
   }
   return null
@@ -130,7 +133,7 @@ export function resolveRow(repos: readonly Repo[], id: string): ResolvedRow | nu
 }
 
 /** A `SidebarRow` good for exactly one thing: naming a chat and its
- *  workspace for `openChatIntoPane`, which reads only those two fields
+ *  workspace for `openChatInOwnPane`, which reads only those two fields
  *  (`subject.id`, `subject.workspaceId`). Every other field here is inert
  *  filler required by the type, not real row data — never hand this to
  *  anything that renders or drags a row. */
@@ -149,23 +152,29 @@ function paneOpenSubject(chatId: string, workspaceId: string): SidebarRowType {
 }
 
 /**
- * Open `chatId` (which runs in `workspaceId`) the way a click does (spec
- * §8.4) — into the active pane, reusing the exact drop mechanics
- * `openChatIntoPane` already gives a dragged chat (dedup-reveal if it is
- * already up, plain open into an empty pane, merge/split otherwise; never a
- * silent swap — see its own doc).
+ * Open `chatId` (which runs in `workspaceId`) the way a click does — spec
+ * §8.4, "clicking a chat in the tree makes its own view": `openChatInOwnPane`
+ * reveals it if it is already up, fills an empty pane if there is one, and
+ * otherwise gives it a brand-new pane of its own.
+ *
+ * It is deliberately NOT `openChatIntoPane(…, activePaneId, 'center')` any
+ * more. That call handed the click the DRAG-AND-DROP rules — a synthetic
+ * "you dropped this exactly on the active pane" — whose occupied-pane branch
+ * is a merge: a split carved out of the active pane and both chats grouped
+ * into one Recents entry. Clicking a second row then read as appending a chat
+ * to the view you were in, which is what it was reported as. Merging stays a
+ * drag-and-drop gesture; see `openChatInOwnPane`'s own doc.
  *
  * Only reachable when `workspaceId` IS ALREADY the active workspace:
- * `openChatIntoPane` itself refuses otherwise (its own documented guard — no
- * chatId->workspace resolution exists yet on the render side for an
- * off-screen workspace). A row naming a workspace that is not yet active goes
- * through `navigateThenOpenChat` below instead, which waits for it to become
- * active first rather than racing it.
+ * `openChatInOwnPane` itself refuses otherwise (the same documented guard
+ * `openChatIntoPane` carries — no chatId->workspace resolution exists yet on
+ * the render side for an off-screen workspace). A row naming a workspace that
+ * is not yet active goes through `navigateThenOpenChat` below instead, which
+ * waits for it to become active first rather than racing it.
  */
-function openChatInActivePane(chatId: string, workspaceId: string): boolean {
+function openChatInOwnView(chatId: string, workspaceId: string): boolean {
   if (workspaceId !== getActiveWorkspaceId()) return false
-  const { activePaneId } = windowPaneStore.getState()
-  openChatIntoPane(paneOpenSubject(chatId, workspaceId), activePaneId, 'center')
+  openChatInOwnPane(paneOpenSubject(chatId, workspaceId))
   return true
 }
 
@@ -202,13 +211,13 @@ function waitForActiveWorkspace(wsId: string, timeoutMs = 2000): Promise<boolean
 }
 
 /**
- * Navigate to `wsId`'s own route, then open `chatId` into the active pane
- * once the workspace has actually finished becoming active.
+ * Navigate to `wsId`'s own route, then open `chatId` into its own view once
+ * the workspace has actually finished becoming active.
  *
- * This is the sequencing `openChatInActivePane` alone cannot do: a bare
+ * This is the sequencing `openChatInOwnView` alone cannot do: a bare
  * `navigate()` only changes the URL, and clicking a workspace that was not
  * already active used to stop there — the click looked like it did nothing,
- * because nothing ever wrote a chat into a pane. `openChatIntoPane`'s own
+ * because nothing ever wrote a chat into a pane. `openChatInOwnPane`'s own
  * guard against an off-screen workspace's chat is exactly right; the fix is
  * to wait until the workspace is no longer off-screen, not to bypass it.
  */
@@ -220,8 +229,7 @@ async function navigateThenOpenChat(
   await navigate({ to: '/ide/$projectId/$repoId/$wsId', params })
   const becameActive = await waitForActiveWorkspace(params.wsId)
   if (!becameActive) return
-  const { activePaneId } = windowPaneStore.getState()
-  openChatIntoPane(paneOpenSubject(chatId, params.wsId), activePaneId, 'center')
+  openChatInOwnPane(paneOpenSubject(chatId, params.wsId))
 }
 
 /**
@@ -256,7 +264,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
       useSidebarStore.getState().toggleChatRow(id)
       return
     }
-    if (openChatInActivePane(id, wsId)) return
+    if (openChatInOwnView(id, wsId)) return
     void navigateThenOpenChat(navigate, { projectId, repoId: chatRow.repo.id, wsId }, id)
     return
   }
@@ -286,7 +294,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // separate id, read off the `Workspace` record the same way
   // `handleCreate` already does.
   const owningChatId = found.repo.workspaces.find((w) => w.id === found.subject.id)?.owningChatId
-  if (owningChatId && openChatInActivePane(owningChatId, found.subject.id)) return
+  if (owningChatId && openChatInOwnView(owningChatId, found.subject.id)) return
   // `subject.id`, never the row's — a branch row is addressed by its owning
   // chat, and only `resolveRow` knows which workspace that names.
   const params = { projectId: found.repo.projectId, repoId: found.repo.id, wsId: found.subject.id }
@@ -393,7 +401,7 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // server names it the same way Promote's spontaneous create already
     // does (model spec §4.1), since this is the same "nothing of its own
     // to name the branch" shape.
-    const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
+    const provider = enabledProvider()
     if (!provider) return
     // The daemon places by CHAT id, and the clicked row's own id is only that
     // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
@@ -404,11 +412,11 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // name no workspace of this repo (the repo home, a folder) and for a frame
     // that carries no owner yet.
     const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
-    createChatWithOwnWorktree(projectId, repo.id, provider.id, owningChatId || parentId).catch(
-      (err: unknown) => {
+    createChatWithOwnWorktree(projectId, repo.id, provider.id, owningChatId || parentId)
+      .then(() => announceTreeChange(repo.id))
+      .catch((err: unknown) => {
         toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
-      },
-    )
+      })
     return
   }
 
@@ -422,13 +430,65 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     return
   }
   // `subject.id`, not the clicked row's — this one needs the WORKSPACE (it
-  // opens that workspace's store and posts to its chats mount), and a branch
-  // row's own id is the chat that owns it.
+  // posts to that workspace's chats mount), and a branch row's own id is the
+  // chat that owns it.
   const wsId = subject.id
-  const store = getOrCreateWorkspaceStore(wsId)
-  const provider = store.getState().agentChats.providers.find((p) => p.enabled)
+  // THE GLOBAL PROVIDER LIST, not `getOrCreateWorkspaceStore(wsId)`'s.
+  //
+  // Providers are machine-level — `use-workspace-agent-chats-stream.ts` says so
+  // itself and mirrors every read into the global store for exactly this reason
+  // — but a per-WORKSPACE store only ever holds them once that workspace has
+  // been MOUNTED and run its own `seedProviders`. `getOrCreateWorkspaceStore`
+  // does not mount anything: for a row the user has never opened it happily
+  // mints a brand-new store whose `agentChats.providers` is `[]`, and the guard
+  // below then returned with no request, no toast and nothing on screen. That
+  // is the whole of "the thread button does nothing" — measured live: the
+  // daemon's chat count did not move on a click. The fork branch above was
+  // always right to read the global list; this one now agrees with it.
+  const provider = enabledProvider()
   if (!provider) return
-  createChat(wsId, provider.id).catch((err: unknown) => {
-    toast.error(err instanceof Error ? err.message : 'Failed to start chat')
-  })
+  createChat(wsId, provider.id)
+    .then(() => announceTreeChange(repo.id))
+    .catch((err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to start chat')
+    })
+}
+
+/**
+ * The provider a new chat is started with, or null — having SAID SO — when
+ * there is none.
+ *
+ * Both create paths used to return silently here. A silent return is
+ * indistinguishable from a dead button, and it is the shape both halves of "the
+ * fork and thread buttons do nothing" took: one because it genuinely had no
+ * providers to find (see the thread branch's own note), the other because a
+ * real outage empties this list (`use-workspace-agent-chats-stream.ts` toasts
+ * once for that, but only for a MOUNTED workspace — the sidebar can be the only
+ * thing on screen). A precondition that stops a click has to be visible.
+ */
+function enabledProvider(): { id: string } | null {
+  const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
+  if (provider) return provider
+  toast.error(
+    'No agent provider is enabled',
+    'Enable one in Settings → Providers to start a chat or fork a workspace.',
+  )
+  return null
+}
+
+/**
+ * Tell `repoId`'s sidebar tree to re-read its rows after this client created
+ * one.
+ *
+ * See `removal-commit.ts`'s `bumpRepoTree` for the full story — same signal,
+ * same reason, the create half. The daemon really does mint the chat and its
+ * worktree (measured live: the repo's chat count went 9 -> 11 on two clicks),
+ * but `openRepoTreeSubscription` reseeds `crowbar_chats` only on this
+ * generation moving, and the only thing that normally moves it is a chat frame
+ * arriving for a MOUNTED workspace of this repo. Fork from the sidebar with no
+ * workspace of that repo open — on the project-home route, say — and the row
+ * never appeared at all. The button had worked; nothing had drawn it.
+ */
+function announceTreeChange(repoId: string): void {
+  if (repoId) useFolderSignalStore.getState().bump(repoId)
 }

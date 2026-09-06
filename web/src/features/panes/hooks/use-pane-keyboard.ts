@@ -65,8 +65,8 @@ export function usePaneKeyboard() {
       if (matches(TAB_NEW_TERMINAL)) {
         // Law 3 (spec §7.2): nothing lands in a pane of its own — a pane
         // must hold a chat before a terminal opens into its editor view.
-        // Same ensure-chat-then-open sequence as NewTabView's own "New
-        // Terminal" row.
+        // ensurePaneChatThenOpen resolves and reuses the workspace's real
+        // owning chat; it never mints one (pane-command-actions.ts).
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
         ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {

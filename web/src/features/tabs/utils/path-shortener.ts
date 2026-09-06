@@ -42,7 +42,9 @@ export function calculateDisplayNames(
   // Group buffers by filename
   const fileNameGroups = new Map<string, PaneContent[]>()
   for (const buffer of regularBuffers) {
-    const fileName = getFileName(buffer.path)
+    // Non-virtual, non-marketplace buffers always carry a real path (see
+    // OpenEditorTabSpec) — the `?? ''` only guards the type.
+    const fileName = getFileName(buffer.path ?? '')
     if (!fileNameGroups.has(fileName)) {
       fileNameGroups.set(fileName, [])
     }
@@ -58,7 +60,7 @@ export function calculateDisplayNames(
       // Multiple files with same name, need to distinguish
       const pathSegmentsList = groupBuffers.map((b) => ({
         buffer: b,
-        segments: getPathSegments(b.path),
+        segments: getPathSegments(b.path ?? ''),
       }))
 
       // Find the minimum number of segments needed to distinguish all files

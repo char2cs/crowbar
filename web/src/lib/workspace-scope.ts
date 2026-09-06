@@ -23,6 +23,42 @@ export interface WorkspaceScope {
 let _activeWorkspaceId: string | null = null
 const _scopes = new Map<string, WorkspaceScope>()
 
+// Notified whenever a workspace's scope is (re)written — the only signal a
+// caller has that `getOwningChatId(wsId)` might now answer differently.
+// `_scopes` is a plain Map (not a store) precisely to stay dependency-free;
+// this is the minimal addition that lets `useOwningChatId` (use-workspace-
+// effects.ts) treat "the sidebar hasn't recorded an owning chat yet" as a
+// state to wait on and re-render for, instead of a one-shot answer read once
+// at mount. See `subscribeToWorkspaceScope` below.
+const _scopeListeners = new Map<string, Set<() => void>>()
+
+function notifyScopeListeners(wsId: string): void {
+  const listeners = _scopeListeners.get(wsId)
+  if (!listeners) return
+  for (const listener of listeners) listener()
+}
+
+/**
+ * Subscribe to every future write of `wsId`'s scope (route-derived or
+ * sidebar-derived). Fires on EVERY write, not just ones that change
+ * `owningChatId` — callers that only care about that field re-read it
+ * themselves and no-op if it hasn't actually changed, and writes are rare
+ * enough (once per navigation, once per chat-list refresh) that this stays
+ * cheap without the extra bookkeeping a diff would need.
+ */
+export function subscribeToWorkspaceScope(wsId: string, callback: () => void): () => void {
+  let listeners = _scopeListeners.get(wsId)
+  if (!listeners) {
+    listeners = new Set()
+    _scopeListeners.set(wsId, listeners)
+  }
+  listeners.add(callback)
+  return () => {
+    listeners!.delete(callback)
+    if (listeners!.size === 0) _scopeListeners.delete(wsId)
+  }
+}
+
 /** The wsId of the active workspace route (mirrors the registry's active id). */
 export function setActiveScopeWorkspaceId(wsId: string | null): void {
   _activeWorkspaceId = wsId
@@ -47,6 +83,7 @@ function mergeScope(scope: WorkspaceScope): WorkspaceScope {
 export function setWorkspaceScope(scope: WorkspaceScope): void {
   _scopes.set(scope.wsId, mergeScope(scope))
   _activeWorkspaceId = scope.wsId
+  notifyScopeListeners(scope.wsId)
 }
 
 /**
@@ -58,6 +95,7 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
  */
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
   _scopes.set(scope.wsId, mergeScope(scope))
+  notifyScopeListeners(scope.wsId)
 }
 
 // The router pathname for the active workspace route. Not anchored to the start
@@ -99,6 +137,7 @@ export function parseWorkspaceScopeFromPath(pathname: string): WorkspaceScope | 
 export function __resetWorkspaceScopesForTest(): void {
   _scopes.clear()
   _activeWorkspaceId = null
+  _scopeListeners.clear()
 }
 
 /**

@@ -76,9 +76,7 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
   const db = await getDB()
   const editorStates = await db.getAllFromIndex('editor-state', 'workspaceId', workspaceId)
 
-  const buffers = windowPaneStore
-    .getState()
-    .buffers.filter((b) => b.workspaceId === workspaceId)
+  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
   if (buffers.length > 0) {
     await reconcileRestoredBuffers(workspaceId, buffers)
   }
@@ -96,9 +94,7 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
  * hasExternalChange.
  */
 export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
-  const buffers = windowPaneStore
-    .getState()
-    .buffers.filter((b) => b.workspaceId === workspaceId)
+  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
   await reconcileRestoredBuffers(workspaceId, buffers)
 }
 
@@ -133,6 +129,9 @@ async function reconcileRestoredBuffers(
   if (realFileBuffers.length === 0) return
   await Promise.allSettled(
     realFileBuffers.map(async (buffer) => {
+      // isPersistableContent buffers always have a real path (openContent
+      // requires one for 'editor'); skip defensively if that ever breaks.
+      if (!buffer.path) return
       // Read from the hydrating workspace explicitly: hydration can still be
       // in flight when the user switches workspaces, and the active-workspace
       // readFile would then load the sibling worktree's file into this store.

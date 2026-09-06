@@ -13,7 +13,10 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 type EditorAPIInstance = typeof editorAPIInstance
 type EditorStateStoreHook = typeof useEditorStateStoreHook
@@ -52,9 +55,10 @@ const makeBuffer = (content: string, language = 'typescript'): EditorContent => 
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  isActive: true,
   language,
   tokens: [],
+  // Overwritten by setWorkspaceBuffer below with the real workspace id.
+  workspaceId: '',
 })
 
 /** Set the active buffer editorAPI reads. Task 26: panes/buffers moved off

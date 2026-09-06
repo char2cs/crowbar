@@ -24,7 +24,10 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 // synchronous way to release the buffer's rich/source preference.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { getActiveWorkspaceId, getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getActiveWorkspaceId,
+  getWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 

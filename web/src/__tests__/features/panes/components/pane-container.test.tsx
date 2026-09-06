@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { ROOT_PANE_POSITION, type PanePosition } from '@/features/panes/types/pane'
 import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
@@ -25,8 +28,7 @@ const { resolveDropTargetOverride } = vi.hoisted(() => ({
   },
 }))
 vi.mock('@/features/tabs/utils/internal-tab-drag', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/features/tabs/utils/internal-tab-drag')>()
+  const actual = await importOriginal<typeof import('@/features/tabs/utils/internal-tab-drag')>()
   return {
     ...actual,
     resolveDropTarget: (point: { x: number; y: number }) =>
@@ -408,7 +410,8 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // in the pane state this test seeded could make the tab preview except
     // its own isPreview field, which was set to false above.
     expect(
-      (windowPaneStore.getState().panes[ROOT_PANE_ID] as unknown as Record<string, unknown>).previewBufferId,
+      (windowPaneStore.getState().panes[ROOT_PANE_ID] as unknown as Record<string, unknown>)
+        .previewBufferId,
     ).toBe(undefined)
   })
 
@@ -472,7 +475,9 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // pane-drop-actions.test.ts already needs for these same two helpers.
     setActiveWorkspaceStoreRef(store)
 
-    const sourcePaneId = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    const sourcePaneId = windowPaneStore
+      .getState()
+      .paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     if (!sourcePaneId) throw new Error('splitPane did not create a source pane')
     windowPaneStore.setState((state) => {
       state.buffers.push({
@@ -511,7 +516,9 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // proves the tab actually lands in ROOT_PANE_ID, not just that clicking
     // through didn't throw.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('moved-tab')
-    expect(windowPaneStore.getState().panes[sourcePaneId]?.editorTabIds ?? []).not.toContain('moved-tab')
+    expect(windowPaneStore.getState().panes[sourcePaneId]?.editorTabIds ?? []).not.toContain(
+      'moved-tab',
+    )
   })
 })
 
@@ -843,9 +850,7 @@ describe('PaneContainer — file-tree drop never creates a pane of its own (spec
       .getState()
       .buffers.find((b) => b.path === '/center-dropped.ts')
     expect(openedBuffer).toBeDefined()
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(
-      openedBuffer!.id,
-    )
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(openedBuffer!.id)
   })
 
   it('a directory drop is ignored entirely — no tab, no pane change', async () => {

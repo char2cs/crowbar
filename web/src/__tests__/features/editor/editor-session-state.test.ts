@@ -8,12 +8,12 @@ const createEditorBuffer = (overrides: Partial<EditorContent> = {}): EditorConte
   name: 'app.ts',
   isPinned: false,
   isPreview: false,
-  isActive: true,
   content: 'const value = 1;\nconsole.log(value);\n',
   savedContent: 'const value = 1;\nconsole.log(value);\n',
   isDirty: false,
   isVirtual: false,
   tokens: [],
+  workspaceId: 'w1',
   ...overrides,
 })
 
@@ -74,7 +74,7 @@ describe('editor session state', () => {
       scrollTop: 120,
       scrollLeft: 8,
     })
-    useFoldStore.getState().actions.setCollapsedLines(buffer.path, [2, 4])
+    useFoldStore.getState().actions.setCollapsedLines(buffer.path ?? '', [2, 4])
 
     expect(buildPersistedEditorViewState(buffer)).toEqual({
       cursor: { line: 1, column: 4, offset: 20 },
@@ -110,6 +110,6 @@ describe('editor session state', () => {
       scrollTop: 300,
       scrollLeft: 12,
     })
-    expect(useFoldStore.getState().actions.getCollapsedLines(buffer.path)).toEqual([1])
+    expect(useFoldStore.getState().actions.getCollapsedLines(buffer.path ?? '')).toEqual([1])
   })
 })

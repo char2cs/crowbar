@@ -45,7 +45,12 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   setChatPlacement: vi.fn().mockResolvedValue({ chat: {}, shifted: [] }),
 }))
 
-import { performSidebarPaneDrop, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import {
+  openChatInOwnPane,
+  performSidebarPaneDrop,
+  performSidebarDrop,
+} from '@/components/sidebar/lib/drop-actions'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { placeWorkspace, placeFolder } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
@@ -723,6 +728,103 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 })
 
+/**
+ * `openChatInOwnPane` — spec §8.4's CLICK, and the point of it being its own
+ * function rather than a `openChatIntoPane(…, activePaneId, 'center')` call.
+ *
+ * Measured live before the split: clicking four sidebar rows in turn produced
+ * ONE Recents entry holding all four chats (the drop's `groupIntoArrangement`
+ * merge) and a 50/25/12.5/12.5 cascade of splits nested inside the first pane
+ * (the drop's `splitPane` on the target). That is what "clicking a new row
+ * appends a chat to the current view" was. Merging two views is a
+ * drag-and-drop gesture and only that.
+ */
+describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => {
+  beforeEach(() => setActiveWorkspaceId('ws-1'))
+
+  it('fills the empty pane a fresh window starts with, rather than opening a second one beside it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('gives a second chat a pane of its OWN — the active pane keeps what it was showing', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    const opened = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c2')
+    expect(opened).toBeDefined()
+    expect(windowPaneStore.getState().activePaneId).toBe(opened?.id)
+  })
+
+  it('NEVER merges the two into one Recents arrangement — that is the drop’s gesture, not the click’s', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    // The identical sequence through the DROP path groups all three into a
+    // single entry (see "an edge drop onto an occupied pane groups both chats"
+    // above) — three clicks are three separate views.
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+  })
+
+  it('every clicked view is an equal peer, not a subdivision of the one before it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(3)
+    const layout = windowPaneStore.getState().rootLayout
+    // Every pane still on screen holds exactly the chat it was opened with —
+    // nothing was swapped out, and nothing shares a pane.
+    const chatIds = getAllLeafIds(layout).map((id) => windowPaneStore.getState().panes[id]?.chatId)
+    expect([...chatIds].sort()).toEqual(['c1', 'c2', 'c3'])
+  })
+
+  it('a chat already up is gone TO, never opened twice', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    const paneCount = getAllLeafIds(windowPaneStore.getState().rootLayout).length
+
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(paneCount)
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
+    ).toHaveLength(1)
+  })
+
+  it('reuses an empty pane left on screen instead of adding another one beside it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const second = windowPaneStore.getState().paneActions.addPane()!
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[second]?.chatId).toBe('c2')
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([ROOT_PANE_ID, second])
+  })
+
+  it('carries the same off-screen-workspace refusal a drop does', () => {
+    setActiveWorkspaceId('ws-visible')
+
+    openChatInOwnPane(chatRow('c1', 'ws-offscreen'))
+
+    expect(Object.values(windowPaneStore.getState().panes).some((p) => p.chatId === 'c1')).toBe(
+      false,
+    )
+  })
+
+  it('is a no-op for a chat row naming no workspace at all', () => {
+    expect(() => openChatInOwnPane(chatRow('c1', 'ws-1', { workspaceId: null }))).not.toThrow()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+  })
+})
+
 describe('performSidebarPaneDrop — cross-workspace (Task 26 fix round 1, Critical 2)', () => {
   // The panes/buffers DATA hoist made this look safe to drop (there is
   // exactly one pane store now, no more "wrong store" to mutate), but the
@@ -878,7 +980,9 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
     const base = makeRepo()
     return {
       ...base,
-      workspaces: base.workspaces.map((w) => (w.id === 'ws-a' ? { ...w, status: 'locked' } : w)),
+      workspaces: base.workspaces.map((w) =>
+        w.id === 'ws-a' ? { ...w, status: 'locked', owningChatId: 'ws-a-row' } : w,
+      ),
       chats: [
         {
           id: 'home-row',
@@ -950,9 +1054,6 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
 
     // ws-a sits at index 0 of the repo root, so `ws-c` takes that slot — the
     // index is only computable if the target resolved to `ws-a` at all.
-    expect(placeWorkspace).toHaveBeenCalledWith(
-      'ws-c',
-      expect.objectContaining({ order: 0 }),
-    )
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', expect.objectContaining({ order: 0 }))
   })
 })

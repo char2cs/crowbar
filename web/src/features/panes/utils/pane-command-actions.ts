@@ -1,11 +1,6 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import {
-  getActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import { createChat } from '@/features/agent/api/agent-api'
-import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
-import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { getOwningChatId } from '@/lib/workspace-scope'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
@@ -66,12 +61,19 @@ export function openBranchReviewForActiveWorkspace(): string | null {
 
 // Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
 // the editor view [of a chat]". A pane must hold a chat before anything opens
-// into its editor view. When `paneId` already has one, `openTab` just runs;
-// otherwise this mints a new chat the same way ⌘N does (AGENT_NEW_CHAT in
-// use-pane-keyboard.ts: first enabled provider, createChat, setPaneChat) and
-// only then runs `openTab`. Shared by New Tab view's New Terminal/New File
-// rows and their ⌘J/⌘⇧N keyboard equivalents so the sequence lives in one
-// place.
+// into its editor view. When `paneId` already has one, `openTab` just runs.
+//
+// Every workspace already has a real, permanent owning chat — the daemon
+// mints one per locked branch, repo home and project home
+// (rows-from-repo.ts's `branchRowIds` doc) — so a chatless PANE never means a
+// chatless WORKSPACE. This resolves and reuses that owning chat
+// (`getOwningChatId`, the same read every other workspace-scoped surface
+// uses — lsp-client.ts, terminal.tsx, branch-review-pane.tsx, etc.) rather
+// than minting a second, redundant chat, which is what this used to do
+// unconditionally on any pane that merely hadn't been told its workspace's
+// chat yet. If no owning chat can be resolved (e.g. the sidebar hasn't
+// loaded this workspace's scope yet), this does nothing — never creates one
+// as a side effect of opening a terminal, a file, or a branch review.
 export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: () => void): void {
   const paneActions = windowPaneStore.getState().paneActions
   paneActions.setActivePane(paneId)
@@ -81,20 +83,27 @@ export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: ()
     return
   }
 
-  const workspaceStore = getOrCreateWorkspaceStore(wsId)
-  const provider = selectEnabledProviders(workspaceStore.getState())[0]
-  if (!provider) return
+  const owningChatId = getOwningChatId(wsId)
+  if (!owningChatId) return
 
-  createChat(wsId, provider.id)
-    .then((chatId) => {
-      workspaceStore.getState().setActiveAgentChatId(chatId)
-      const actions = windowPaneStore.getState().paneActions
-      actions.setActivePane(paneId)
-      // A brand-new chat has no runner yet — null until it spawns one.
-      actions.setPaneChat(paneId, chatId, null)
-      openTab()
-    })
-    .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
+  // Same dedup rule every other "put a chat in a pane" path already follows
+  // (open-agent-chat.ts's openAgentChat, drop-actions.ts's openChatIntoPane):
+  // a chat already showing somewhere is REVEALED, never duplicated into a
+  // second pane.
+  const existingPane = Object.values(windowPaneStore.getState().panes).find(
+    (p) => p.chatId === owningChatId,
+  )
+  if (existingPane) {
+    paneActions.setActivePane(existingPane.id)
+    openTab()
+    return
+  }
+
+  // No runner known yet — agent-chat-pane's own mount-time revive resolves
+  // and writes back the real one (same convention openAgentChat/
+  // openChatIntoPane use for a freshly attached chat).
+  paneActions.setPaneChat(paneId, owningChatId, null)
+  openTab()
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {

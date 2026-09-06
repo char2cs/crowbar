@@ -13,7 +13,11 @@ export const WINDOW_SESSION_ID = 'window'
 
 export async function saveWorkspaceLayout(layout: WorkspaceLayout): Promise<void> {
   const db = await getDB()
-  await db.put('workspace-layout', { ...layout, workspaceId: WINDOW_SESSION_ID, updatedAt: Date.now() })
+  await db.put('workspace-layout', {
+    ...layout,
+    workspaceId: WINDOW_SESSION_ID,
+    updatedAt: Date.now(),
+  })
 }
 
 export async function loadWindowPaneLayout(): Promise<WorkspaceLayout | null> {

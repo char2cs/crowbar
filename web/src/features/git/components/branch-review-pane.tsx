@@ -1,7 +1,8 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { getReview } from '../api/review-api'
 import { ReviewDiffTab } from './review-diff-tab'
 
@@ -12,6 +13,17 @@ interface BranchReviewPaneProps {
 
 export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) {
   const store = useWorkspaceStore()
+  // reviewBaseForWorkspace(wsId) — which getReview below resolves through —
+  // throws without a recorded owning chat id. The sidebar's chat-list fetch
+  // that records one races WorkspaceView's own (often faster) hydration, so on
+  // a workspace whose review tab auto-restores on activation this can still be
+  // null. Subscribing makes the id a piece of React state so `load` below can
+  // wait for it instead of firing early and having its catch set a permanent
+  // 'error' status — same fix as useWorkspaceEffects' useOwningChatId.
+  const owningChatId = useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getOwningChatId(wsId),
+  )
 
   // Branch + base for the shared diff header: title = branch name, meta = → base.
   // Sourced from the sidebar workspace record (same data the merge section uses).
@@ -49,14 +61,18 @@ export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) 
   }, [store, wsId])
 
   useEffect(() => {
+    // Nothing to fetch yet — wait for owningChatId (dependency below) rather
+    // than firing a call that can only fail and land on the error status.
+    if (owningChatId === null) return
     void load()
-  }, [load])
+  }, [load, owningChatId])
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex flex-1 flex-col overflow-hidden">
         <ReviewDiffTab
           onRetry={() => void load()}
+          wsId={wsId}
           branchHeader={branchHeader}
           isActivePane={isActivePane}
         />

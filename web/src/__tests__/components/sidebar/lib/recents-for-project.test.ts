@@ -4,7 +4,10 @@ import {
   workspaceIdsForProject,
 } from '@/components/sidebar/lib/recents-for-project'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import type { Repo, Workspace } from '@/lib/store/sidebar'
 
 // Task 26: panes/dormantArrangements are window-level now (one flat store
@@ -56,7 +59,8 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
 function seedLivePane(chatId: string) {
   const { paneActions, activePaneId } = windowPaneStore.getState()
   const target = paneActions.getPaneById(activePaneId)
-  const paneId = target?.chatId == null ? activePaneId : paneActions.splitPane(activePaneId, 'horizontal')!
+  const paneId =
+    target?.chatId == null ? activePaneId : paneActions.splitPane(activePaneId, 'horizontal')!
   paneActions.setPaneChat(paneId, chatId, null)
 }
 
@@ -227,7 +231,7 @@ describe('recentsForProject', () => {
     expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1' })
   })
 
-  it('resolves each SET member to its OWN workspace, not the first chat\'s', () => {
+  it("resolves each SET member to its OWN workspace, not the first chat's", () => {
     activeIds.current = ['ws-1', 'ws-2']
     storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
     storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })

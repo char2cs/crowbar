@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogPopup,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { fetchDeletePreview, type DeletePreview } from '@/components/sidebar/lib/delete-preview-client'
+import {
+  fetchDeletePreview,
+  type DeletePreview,
+} from '@/components/sidebar/lib/delete-preview-client'
 
 interface DeleteConfirmDialogProps {
   /** Names the row a trash click just targeted. Mounted once and reused
@@ -114,8 +123,8 @@ export function DeleteConfirmDialog({
         <div className="px-6 pb-2 text-muted-foreground text-sm">
           {preview ? (
             <>
-              This takes {label} and everything under it — {preview.fileCount} uncommitted files
-              and {preview.chatCount} chats.
+              This takes {label} and everything under it — {preview.fileCount} uncommitted files and{' '}
+              {preview.chatCount} chats.
             </>
           ) : previewFailed ? (
             <>This takes {label} and everything under it.</>

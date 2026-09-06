@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { apiFetch, ApiError, fetchFolders, fetchHomeWorkspace, fetchRepoChats } from '@/lib/api'
+import {
+  apiFetch,
+  ApiError,
+  chatDTOFromWire,
+  fetchFolders,
+  fetchHomeWorkspace,
+  fetchRepoChats,
+  workspaceDTOFromChat,
+  type RepoChatWireDTO,
+} from '@/lib/api'
+import type { ChatWorktreeDTO } from '@/lib/types'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
 // fast while still exercising the real attempt-counting logic.
@@ -236,7 +246,11 @@ describe('fetchRepoChats', () => {
         id: 'c1',
         repoId: 'r1',
         projectId: 'p1',
+        type: undefined,
         workspaceId: 'ws1',
+        // No `worktree` on the wire row, so this row holds no worktree of its
+        // own to own — see the dedicated `ownsWorktree` block below.
+        ownsWorktree: false,
         parentId: 'f0',
         title: 'Fix parser',
         order: 2,
@@ -262,7 +276,12 @@ describe('fetchRepoChats', () => {
         id: 'c1',
         repoId: 'r1',
         projectId: 'p1',
+        type: undefined,
         workspaceId: '',
+        // Holds no worktree, so it owns none — the third of the three shapes
+        // `ownsWorktree` distinguishes (owner / thread carrying its parent's /
+        // bubble).
+        ownsWorktree: false,
         parentId: '',
         title: '',
         order: 0,
@@ -308,5 +327,75 @@ describe('fetchRepoChats', () => {
   it('returns [] when the backend responds with no body', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
     expect(await fetchRepoChats('p1', 'r1')).toEqual([])
+  })
+})
+
+/**
+ * OWNERSHIP TRAVELS WITH THE CHAT.
+ *
+ * `worktree` rides EVERY row holding a workspace — a thread carries its
+ * parent's — so `owningChatId` is the only thing that picks the one row that IS
+ * that workspace. `workspaceDTOFromChat` has always spent that predicate to
+ * derive a separate `WorkspaceDTO`; keeping it on the chat as well is what lets
+ * the sidebar decide a row's KIND without waiting on a record that arrives on a
+ * different stream (see `ChatDTO.ownsWorktree`).
+ */
+describe('chatDTOFromWire — ownsWorktree', () => {
+  const worktree: ChatWorktreeDTO = {
+    branch: 'feature/one',
+    owningChatId: 'c-owner',
+    working: false,
+    added: 0,
+    deleted: 0,
+    mergeStrategy: '',
+    canMergeLocally: false,
+    mergeConflicts: false,
+  }
+
+  it('marks the row that owns the worktree', () => {
+    const dto = chatDTOFromWire(
+      { id: 'c-owner', workspaceId: 'ws-1', parentId: '', title: '', order: 0, worktree },
+      'p1',
+      'r1',
+    )
+
+    expect(dto.ownsWorktree).toBe(true)
+  })
+
+  it('does NOT mark a thread that merely carries its parent’s worktree', () => {
+    const dto = chatDTOFromWire(
+      { id: 'c-thread', workspaceId: 'ws-1', parentId: 'c-owner', title: '', order: 0, worktree },
+      'p1',
+      'r1',
+    )
+
+    expect(dto.ownsWorktree).toBe(false)
+    // Same workspace, same `worktree` object — `workspaceId` alone could never
+    // have told these two rows apart.
+    expect(dto.workspaceId).toBe('ws-1')
+  })
+
+  it('does not mark a bubble that holds no worktree at all', () => {
+    const dto = chatDTOFromWire(
+      { id: 'c-bubble', workspaceId: '', parentId: '', title: '', order: 0 },
+      'p1',
+      'r1',
+    )
+
+    expect(dto.ownsWorktree).toBe(false)
+  })
+
+  it('agrees with workspaceDTOFromChat on every row', () => {
+    const rows: RepoChatWireDTO[] = [
+      { id: 'c-owner', workspaceId: 'ws-1', parentId: '', title: '', order: 0, worktree },
+      { id: 'c-thread', workspaceId: 'ws-1', parentId: 'c-owner', title: '', order: 1, worktree },
+      { id: 'c-bubble', workspaceId: '', parentId: '', title: '', order: 2 },
+    ]
+
+    for (const row of rows) {
+      const ownsPerChat = chatDTOFromWire(row, 'p1', 'r1').ownsWorktree
+      const ownsPerWorkspace = workspaceDTOFromChat(row, 'p1', 'r1') !== null
+      expect(ownsPerChat).toBe(ownsPerWorkspace)
+    }
   })
 })

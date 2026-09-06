@@ -5,7 +5,10 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 // ── Per-item render probe ────────────────────────────────────────────
 // Each TabBarItem renders FileExplorerIcon INLINE (it is not independently
@@ -57,7 +60,6 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    isActive: i === 0,
     tokens: [],
     workspaceId: 'w1',
     ...overrides,

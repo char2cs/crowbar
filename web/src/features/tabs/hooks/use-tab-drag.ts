@@ -146,7 +146,15 @@ export function useTabDrag({
 
       resetDrag()
     },
-    [onActivatePaneBuffer, onTabClick, onMoveBufferToPane, paneId, onReorderBuffers, resetDrag, sortedBuffers],
+    [
+      onActivatePaneBuffer,
+      onTabClick,
+      onMoveBufferToPane,
+      paneId,
+      onReorderBuffers,
+      resetDrag,
+      sortedBuffers,
+    ],
   )
 
   // Track pointer position during drag for accurate drop-target resolution

@@ -64,8 +64,16 @@ export interface Chat {
   type?: ChatType
   /** A chat id, a folder id, or undefined/'' for the root of `workspaceId`. */
   parentId?: string
-  /** The workspace this chat owns, or undefined/'' for a bubble. */
+  /** The workspace this chat RUNS IN — its own if it owns one, otherwise the
+   *  one it borrows from an ancestor. Never proof of ownership on its own: a
+   *  thread carries its parent's. See {@link Chat.ownsWorktree}. */
   workspaceId?: string
+  /** Whether this row is the one that OWNS `workspaceId`'s worktree — i.e. this
+   *  row is a workspace, not a bubble. Carried on the chat (see
+   *  `ChatDTO.ownsWorktree`) so a row's KIND never depends on a separately
+   *  streamed `Workspace` record having already landed. Undefined on a row
+   *  cached before the field existed. */
+  ownsWorktree?: boolean
   title: string
   /** Sibling sort key, SHARED with folders and workspaces at the same level. */
   order: number

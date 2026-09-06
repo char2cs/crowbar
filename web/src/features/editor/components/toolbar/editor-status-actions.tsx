@@ -284,13 +284,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       setIsLanguageOpen(false)
       setLanguageSearch('')
     },
-    [
-      activeBuffer,
-      resolvedBufferId,
-      currentFileLanguageId,
-      rootFolderPath,
-      lspClient,
-    ],
+    [activeBuffer, resolvedBufferId, currentFileLanguageId, rootFolderPath, lspClient],
   )
 
   const displayOptions = [
@@ -432,9 +426,9 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         </div>
       )}
 
-      {activeBuffer?.type === 'editor' && isMarkdownPath(activeBuffer.path) && (
-        <MarkdownViewToggle bufferId={activeBuffer.id} />
-      )}
+      {activeBuffer?.type === 'editor' &&
+        activeBuffer.path &&
+        isMarkdownPath(activeBuffer.path) && <MarkdownViewToggle bufferId={activeBuffer.id} />}
 
       <div className="relative flex items-center self-center">
         <Button

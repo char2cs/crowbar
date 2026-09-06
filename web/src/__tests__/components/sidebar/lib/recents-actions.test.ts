@@ -16,7 +16,10 @@ import {
   getAllActiveWorkspaceIds,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Repo } from '@/lib/store/sidebar'

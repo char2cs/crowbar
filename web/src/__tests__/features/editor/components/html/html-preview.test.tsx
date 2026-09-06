@@ -1,7 +1,10 @@
 import { createElement } from 'react'
 import { render } from '@testing-library/react'
 import { describe, expect, it, beforeEach } from 'vitest'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { HtmlPreview } from '@/features/editor/components/html/html-preview'
 
 // Regression pin (Task 20): the preview frames potentially agent-generated /

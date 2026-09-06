@@ -3,7 +3,10 @@ import {
   initViewStoreSubscription,
   _resetViewStoreUnsubscribeForTesting,
 } from '@/features/editor/stores/view-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 const createMockStorage = () => {

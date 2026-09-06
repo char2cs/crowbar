@@ -28,18 +28,16 @@ export type EditorTabContentType =
  *  A saved layout outlives the code that wrote it, so the restore path checks
  *  a persisted buffer's type against this set and drops what it no longer
  *  knows — see stripNewTabs in persisted-layout.ts. */
-export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>(
-  [
-    'editor',
-    'terminal',
-    'commitDiff',
-    'markdownPreview',
-    'htmlPreview',
-    'csvPreview',
-    'externalEditor',
-    'branchReview',
-  ],
-)
+export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
+  'editor',
+  'terminal',
+  'commitDiff',
+  'markdownPreview',
+  'htmlPreview',
+  'csvPreview',
+  'externalEditor',
+  'branchReview',
+])
 
 // ── Base fields shared by every editor-tab content type ─────────────
 

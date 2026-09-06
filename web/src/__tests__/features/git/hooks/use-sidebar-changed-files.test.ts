@@ -7,6 +7,7 @@ import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 
 // Mock only the network layer; the real workspace + git stores drive the wiring.
 // getReview is the FULL line-level diff (gated behind the open pane);
@@ -58,6 +59,16 @@ describe('useSidebarChangedFiles', () => {
     // never leaves the fetch pending; tests that assert list content override it.
     mocks.getReviewFiles.mockResolvedValue([])
     useGitStore.setState({ gitStatus: null })
+    __resetWorkspaceScopesForTest()
+    // useReviewFilesSummary now waits for a recorded owning chat id (route-vs-
+    // sidebar race fix) — every workspace these tests address needs one.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-closed', owningChatId: 'chat1' })
+    setWorkspaceScope({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-committed',
+      owningChatId: 'chat2',
+    })
   })
 
   afterEach(() => {

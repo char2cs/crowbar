@@ -6,7 +6,7 @@
  * panel's own (now-deleted) test file did, at the function level rather
  * than through a rendered tree.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
   () => ({
@@ -41,8 +41,14 @@ import {
 } from '@/components/layout/space-content-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -170,6 +176,75 @@ describe('handleOpen', () => {
       handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-in-another-repo' })], navigate)
       expect(toggle).toHaveBeenCalledWith('c1')
       expect(navigate).not.toHaveBeenCalled()
+    })
+
+    /**
+     * Spec §8.4: "clicking a chat in the tree makes its own view." The click
+     * used to be routed straight through the DROP (`openChatIntoPane` with a
+     * synthetic `zone: 'center'` on the active pane), which meant an occupied
+     * active pane took the drop's MERGE branch: a split carved out of it, plus
+     * `groupIntoArrangement` filing both chats into one Recents entry. Clicking
+     * a second row therefore appended a chat to the view you were already in.
+     */
+    describe('opening it into a pane (the workspace is already on screen)', () => {
+      beforeEach(() => {
+        resetWindowPaneStoreForTests()
+        setActiveWorkspaceId('ws-a')
+      })
+      afterEach(() => {
+        resetWindowPaneStoreForTests()
+      })
+
+      it('fills the pane already on screen when it is empty, without navigating away', () => {
+        const navigate = vi.fn()
+        handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)
+
+        expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+        expect(navigate).not.toHaveBeenCalled()
+      })
+
+      it('gives a second clicked chat a pane of its OWN, and merges nothing', () => {
+        const navigate = vi.fn()
+        const repos = [
+          repo({
+            workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+            chats: [
+              { id: 'c1', repoId: 'r1', title: 'one', order: 0, workspaceId: 'ws-a' },
+              { id: 'c2', repoId: 'r1', title: 'two', order: 1, workspaceId: 'ws-a' },
+            ],
+          }),
+        ]
+
+        handleOpen('c1', repos, navigate)
+        handleOpen('c2', repos, navigate)
+
+        const panes = windowPaneStore.getState().panes
+        expect(panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+        expect(Object.values(panes).find((p) => p.chatId === 'c2')?.id).not.toBe(ROOT_PANE_ID)
+        // The drop's merge would have grouped c1+c2 into one Recents entry.
+        expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+      })
+
+      it('a chat already up is gone TO rather than opened a second time', () => {
+        const navigate = vi.fn()
+        const repos = [
+          repo({
+            workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+            chats: [
+              { id: 'c1', repoId: 'r1', title: 'one', order: 0, workspaceId: 'ws-a' },
+              { id: 'c2', repoId: 'r1', title: 'two', order: 1, workspaceId: 'ws-a' },
+            ],
+          }),
+        ]
+        handleOpen('c1', repos, navigate)
+        handleOpen('c2', repos, navigate)
+        const paneCount = Object.keys(windowPaneStore.getState().panes).length
+
+        handleOpen('c1', repos, navigate)
+
+        expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(paneCount)
+        expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+      })
     })
   })
 })
@@ -322,21 +397,109 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  // The thread half is a different question with a different answer: it opens
-  // that workspace's own store and posts to its chats mount, so it wants the
-  // WORKSPACE and never a chat id.
+  // The thread half is a different question with a different answer: it posts
+  // to that workspace's chats mount, so it wants the WORKSPACE and never a
+  // chat id.
+  //
+  // Providers come from the GLOBAL store now, not the per-workspace one this
+  // used to seed — see `enabledProvider` in space-content-actions.ts. Seeding
+  // the workspace store was itself the shape of the bug: only a MOUNTED
+  // workspace ever fills that copy, so on a row the user has never opened the
+  // real click found `providers: []` and returned with no request at all.
   it('its thread "+" still runs in the workspace, not in the owning chat', () => {
-    useSidebarStore.setState({ repos: [forkRepo()] })
-    getOrCreateWorkspaceStore('ws-a').setState({
-      agentChats: {
-        ...getOrCreateWorkspaceStore('ws-a').getState().agentChats,
-        providers: [{ id: 'claude', enabled: true }] as never,
-      },
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
     })
+    useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('ws-a', 'thread')
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+  })
+
+  // The regression that made "Thread does nothing" reproducible: a workspace
+  // with NO store of its own (never mounted — exactly what a sidebar row for an
+  // unopened workspace is) must still start a thread, because the provider list
+  // is machine-level and has nothing to do with which workspace is on screen.
+  it('starts a thread on a workspace that has never been mounted', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('ws-a', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+  })
+
+  // A precondition that stops the click has to SAY so. Silence here is
+  // indistinguishable from a dead button, which is how both create affordances
+  // came to be reported as doing nothing.
+  it('says why instead of silently doing nothing when no provider is enabled', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: false }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('ws-a', 'thread')
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+  })
+
+  it('says why instead of silently doing nothing when a fork finds no provider', () => {
+    useAgentProvidersStore.setState({ status: 'ready', providers: [] as never })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('ws-a', 'workspace')
+
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * THE OTHER HALF OF "THE FORK BUTTON DOES NOTHING": measured live, the POST
+   * went out and the daemon really did mint the chat and its worktree — the
+   * repo's chat count moved — and the sidebar never drew a row for it.
+   *
+   * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
+   * on exactly one trigger, this repo's generation moving, and the only thing
+   * that normally moves it is a chat frame arriving for a MOUNTED workspace of
+   * the repo. Its own comment records the assumption that made that safe — "a
+   * chat can only be created, renamed or moved from a surface that has that
+   * workspace mounted" — which the sidebar's own Fork/Thread buttons broke.
+   */
+  it('bumps the repo’s tree signal after a fork so the new row is drawn', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
+
+    handleCreate('ws-a', 'workspace')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
+  })
+
+  it('bumps it after a thread too', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
+
+    handleCreate('ws-a', 'thread')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
   })
 })
 
@@ -358,16 +521,11 @@ describe('starting a thread on a real workspace', () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
-    // Object-form `setState`, not a callback: the merged store's `setState`
-    // type doesn't accept a void-returning immer callback here (a
-    // pre-existing typing trap unrelated to this feature — see Task 13's own
-    // report on the identical trap in pane-slice.test.ts).
-    const store = getOrCreateWorkspaceStore('ws-a')
-    store.setState({
-      agentChats: {
-        ...store.getState().agentChats,
-        providers: [{ id: 'claude', enabled: true }] as never,
-      },
+    // The GLOBAL provider list — providers are machine-level, and a
+    // per-workspace copy only exists once that workspace has been mounted.
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
     })
 
     handleCreate('ws-a', 'thread')
@@ -483,7 +641,13 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   const lockedRepo = () =>
     repo({
       workspaces: [
-        { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
+        {
+          id: 'ws-locked',
+          branch: 'develop',
+          age: '',
+          status: 'locked',
+          owningChatId: 'develop-row',
+        },
         { id: 'ws-open', branch: 'feature/x', age: '' },
       ],
       chats: [branchRow('home-row', 'home-1'), branchRow('develop-row', 'ws-locked')],
@@ -524,11 +688,9 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
 
   it('its thread "+" runs in the WORKSPACE, not in the row id', () => {
     useSidebarStore.setState({ repos: [lockedRepo()] })
-    getOrCreateWorkspaceStore('ws-locked').setState({
-      agentChats: {
-        ...getOrCreateWorkspaceStore('ws-locked').getState().agentChats,
-        providers: [{ id: 'claude', enabled: true }] as never,
-      },
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
     })
 
     handleCreate('develop-row', 'thread')

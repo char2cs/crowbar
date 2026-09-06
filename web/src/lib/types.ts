@@ -192,8 +192,28 @@ export interface ChatDTO {
    *  inside the same repo-scoped list. Optional only because a row cached
    *  before the daemon emitted it carries none. */
   type?: ChatType
-  /** The workspace this chat OWNS, or '' for a bubble that owns none. */
+  /** The workspace this chat runs in. NOT proof of ownership — a thread carries
+   *  its parent's — see {@link ChatDTO.ownsWorktree}. '' for a row that has no
+   *  worktree ground at all. */
   workspaceId: string
+  /**
+   * Whether THIS row is the one that owns `workspaceId`'s worktree.
+   *
+   * Read off the SAME wire row the rest of this DTO comes from
+   * (`worktree.owningChatId === id` — see `chatDTOFromWire`), which is the
+   * entire point: it makes "this row is a workspace" a fact the chat carries
+   * itself, delivered atomically with it, instead of a JOIN against the
+   * separately-streamed `WorkspaceDTO`. Those two arrive on different channels
+   * (`crowbar_chats` reseeds on a folder-signal bump, `crowbar_workspaces` on
+   * its own entity stream) and are routinely skewed by a frame or more — and
+   * before this field the sidebar answered that skew by silently drawing a
+   * DIFFERENT KIND OF ROW (a chat bubble where a branch row belongs).
+   *
+   * Optional only because a row cached before the daemon emitted it carries
+   * none; `rows-from-repo.ts` falls back to the old `Workspace.owningChatId`
+   * join for those.
+   */
+  ownsWorktree?: boolean
   /** Another CHAT (this one is a thread of it), a FOLDER, or '' for the root of
    *  whatever workspace `workspaceId` names. */
   parentId?: string

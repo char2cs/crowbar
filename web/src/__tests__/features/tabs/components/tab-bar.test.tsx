@@ -6,7 +6,10 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider
@@ -41,7 +44,6 @@ function makeEditorBuffer(i: number): EditorContent {
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    isActive: i === 0,
     tokens: [],
     workspaceId: 'w1',
   }
@@ -254,7 +256,7 @@ describe('TabBar pane-top-row anatomy', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('the chat head shows the chat\'s own title', () => {
+  it("the chat head shows the chat's own title", () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
     act(() => {
       renderTabBar(store)
@@ -280,5 +282,56 @@ describe('TabBar pane-top-row anatomy', () => {
       fireEvent.click(screen.getByTestId('split-toggle'))
     })
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(true)
+  })
+})
+
+/**
+ * "The empty case is treated as a normal view. It shouldn't be treated like
+ * that — it should only appear when NO VIEW is opened. It's just a fallback
+ * when nothing is found, not a normal view."
+ *
+ * An emptied pane in a split now leaves the layout outright
+ * (`dropEmptiedPanes`, pane-slice.ts), so the only pane that reaches TabBar
+ * holding nothing is the last one in the window — the "nothing is open here"
+ * screen. It has no name to show, nothing to close, and no second view to
+ * toggle beside a chat that isn't there.
+ */
+describe('TabBar — a pane holding nothing draws no chrome for it', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('draws no split toggle, no chat head, no tab strip and no close control', () => {
+    const store = setupPaneStore({ chatId: null, buffers: [] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    expect(screen.queryByTestId('split-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /close split/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the row itself — it carries the window drag region and the traffic-light inset', () => {
+    const store = setupPaneStore({ chatId: null, buffers: [] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    const row = screen.getByTestId('pane-top-row')
+    expect(row).toBeInTheDocument()
+    expect(row).toHaveAttribute('data-tauri-drag-region')
+    expect(row.children).toHaveLength(0)
+  })
+
+  it('the same pane with a chat in it draws the full row again', () => {
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-head')).toBeInTheDocument()
   })
 })

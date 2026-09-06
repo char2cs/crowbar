@@ -25,7 +25,7 @@
  */
 
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 // See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
 // editor/languages singleton as the bare 'monaco-editor' specifier, without
 // eagerly bundling all built-in language contributions.
@@ -41,6 +41,9 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useStore } from 'zustand'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { isHomeWorkspace } from '@/lib/workspace-scope-url'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
@@ -94,6 +97,36 @@ export interface PaneEditorSatelliteDeps {
 }
 
 /**
+ * Whether the LSP diagnostics effect below may safely call into `LspClient`.
+ *
+ * `LspClient` resolves its own workspace id via `getActiveWorkspaceId()` (not
+ * anything this hook hands it) and, for a non-home workspace, needs that
+ * workspace's OWNING CHAT id to build the chat-scoped `/lsp` URL
+ * (`lspBaseForWorkspace` — see `workspace-scope-url.ts`). That id is recorded
+ * ASYNCHRONOUSLY by the sidebar's own chat-list fetch, completely independent
+ * of (and often slower than) the workspace's own hydration — the same race
+ * `use-workspace-effects.ts` already guards for git/files. A buffer becoming a
+ * pane's active model (including tab restoration on a cold workspace
+ * activation) used to call straight into `ensureSubscribed`/`wsBase`, which
+ * throw on a null id by design; the throw propagated out of the effect body
+ * and crashed via the nearest error boundary. This makes the id a piece of
+ * REACT STATE the effect can depend on, so it waits instead of crashing, and
+ * re-runs the moment the sidebar catches up instead of losing diagnostics for
+ * that file for good.
+ */
+export function useLspScopeReady(): boolean {
+  const wsId = getActiveWorkspaceId()
+  const owningChatId = useSyncExternalStore(
+    useCallback(
+      (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
+      [wsId],
+    ),
+    useCallback(() => (wsId ? getOwningChatId(wsId) : null), [wsId]),
+  )
+  return !wsId || isHomeWorkspace(wsId) || owningChatId !== null
+}
+
+/**
  * Bind the retained widget's satellite concerns for `paneId`. The retained
  * editor + active model are sourced from the active-editor registry (published
  * by the controller on every swap), so this hook never reads `activeBufferId`
@@ -119,6 +152,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // Non-null: this hook runs inside EditorSurface, which EditorPane mounts only
   // after awaiting `store.armEditor()`, so the manager is armed by now.
   const editorManager = workspaceStore.editorManager!
+  const lspScopeReady = useLspScopeReady()
 
   // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
   // render. A render subscription here re-rendered EditorSurface on every
@@ -758,6 +792,12 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     const model = modelRef.current
     const filePath = filePathRef.current
     if (!model || !filePath) return
+    // Wait for the owning-chat-id race in useLspScopeReady to resolve before
+    // touching LspClient — ensureSubscribed/wsBase throw on a null id. This
+    // effect re-runs (lspScopeReady is a dependency) the moment it does, so a
+    // cold activation retries the subscribe + open instead of crashing or
+    // losing diagnostics for this file for good.
+    if (!lspScopeReady) return
     const client = LspClient.getInstance()
 
     const applyMarkers = (fp: string, diagnostics: LspDiagnostic[]) => {
@@ -784,7 +824,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       const current = modelRef.current
       if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
     }
-  }, [languageId, swapTick])
+  }, [languageId, swapTick, lspScopeReady])
 
   // ── LSP re-analyze on edits (debounced, imperative — U5b) ─────────────────
   // Driven by the content-change signal, not a render dep. Each change (re)arms a

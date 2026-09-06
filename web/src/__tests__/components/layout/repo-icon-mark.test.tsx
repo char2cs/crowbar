@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { RepoIconMark, EditableRepoIcon, type RepoIconSource } from '@/components/layout/repo-icon-mark'
+import {
+  RepoIconMark,
+  EditableRepoIcon,
+  type RepoIconSource,
+} from '@/components/layout/repo-icon-mark'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api', async (importOriginal) => ({

@@ -46,7 +46,9 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   const { updateSettingsFromJSON } = useSettingsStore.getState()
   const { markPendingSave } = useFileWatcherStore.getState()
   const activeBuffer = buffers.find((buffer) => buffer.id === bufferId)
-  if (!activeBuffer || !isEditorContent(activeBuffer)) return false
+  // openContent always assigns a real path to an 'editor' buffer (see
+  // buffer-slice.ts) — bail rather than write to a path-less buffer.
+  if (!activeBuffer || !isEditorContent(activeBuffer) || !activeBuffer.path) return false
 
   const markBufferDirty = (id: string, isDirty: boolean) => {
     windowPaneStore.setState((state) => ({
@@ -242,7 +244,12 @@ export const useEditorAppStore = createSelectors(
           const contentAlreadyApplied = options?.contentAlreadyApplied === true
 
           const activeBuffer = buffers.find((b) => b.id === targetBufferId)
-          if (!activeBuffer || !isEditorContent(activeBuffer)) return
+          // openContent always assigns a real path to an 'editor' buffer (see
+          // buffer-slice.ts) — bail rather than write to a path-less buffer.
+          if (!activeBuffer || !isEditorContent(activeBuffer) || !activeBuffer.path) return
+          // Captured for the setTimeout closure below, where narrowing on
+          // activeBuffer.path does not carry over.
+          const activeBufferPath = activeBuffer.path
 
           if (targetBufferId) {
             trackBufferHistoryChange({
@@ -285,10 +292,10 @@ export const useEditorAppStore = createSelectors(
 
               const newTimeoutId = setTimeout(async () => {
                 try {
-                  markPendingSave(activeBuffer.path)
+                  markPendingSave(activeBufferPath)
                   // See saveEditorBufferById: write to this buffer's OWN
                   // workspace, not whichever one is merely active now.
-                  await writeWorkspaceFile(activeBuffer.workspaceId, activeBuffer.path, content)
+                  await writeWorkspaceFile(activeBuffer.workspaceId, activeBufferPath, content)
                   windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)
@@ -299,11 +306,11 @@ export const useEditorAppStore = createSelectors(
 
                   const rootFolderPath = useFileSystemStore.getState().rootFolderPath
                   if (rootFolderPath) {
-                    gitDiffCache.invalidate(rootFolderPath, activeBuffer.path)
+                    gitDiffCache.invalidate(rootFolderPath, activeBufferPath)
                     setTimeout(() => {
                       window.dispatchEvent(
                         new CustomEvent('git-status-updated', {
-                          detail: { filePath: activeBuffer.path },
+                          detail: { filePath: activeBufferPath },
                         }),
                       )
                     }, 50)

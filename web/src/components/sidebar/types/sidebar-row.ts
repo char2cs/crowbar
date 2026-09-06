@@ -12,6 +12,19 @@ export interface SidebarRow {
   working: boolean
   hasView: boolean
   branchName?: string
+  /** Lines added/deleted vs this workspace's fork parent (`Workspace.added`/
+   *  `.deleted`), for the second line rule §3.6 draws under a branch row's
+   *  label: `branchName -- added/deleted`. Present only on a `branch`-kind row
+   *  that owns a real workspace — absent (not zero) means no diff is known yet,
+   *  same as `Workspace.added`/`.deleted` themselves. */
+  added?: number
+  deleted?: number
+  /** Whether the workspace this row owns is a protected/locked branch — the
+   *  Lock glyph's own signal (RowGlyph, sidebar-row.tsx). A `branch` row's `id`
+   *  no longer doubles as this signal now that every workspace-owning row,
+   *  locked or not, is id'd from its owning chat (`rows-from-repo.ts`) rather
+   *  than only a locked one. */
+  locked?: boolean
   /**
    * The repo's own identity, present only on the project-home row (the one
    * `rows-from-repo.ts` ever gives a null parentId) — what its click-to-edit

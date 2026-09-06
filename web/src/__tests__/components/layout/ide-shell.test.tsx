@@ -28,6 +28,15 @@ vi.mock('@/components/layout/sidebar-project-header', () => ({
 vi.mock('@/components/layout/sidebar-tree-surface', () => ({
   SidebarTreeSurface: () => <div data-testid="sidebar-tree-surface" />,
 }))
+const { sidebarFooterMock } = vi.hoisted(() => ({
+  sidebarFooterMock: vi.fn(),
+}))
+vi.mock('@/components/layout/sidebar-footer', () => ({
+  SidebarFooter: (props: unknown) => {
+    sidebarFooterMock(props)
+    return <div data-testid="sidebar-footer" />
+  },
+}))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
 }))
@@ -95,18 +104,26 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
-  // task-10's placement override (project marks as the sidebar's own true
-  // last element, below the floating file-explorer card) is reverted: spec
-  // §2 rules that card "ALWAYS THE LAST ELEMENT... Nothing goes below it".
-  // The marks render inside SidebarProjectHeader's own window-chrome row
-  // now (its own component test covers the marks themselves) — IDEShell's
-  // job is just wiring the project data through to it, and no longer
-  // mounting a separate footer sibling at all.
-  it('passes project data through to SidebarProjectHeader instead of mounting a separate footer', () => {
+  // The product owner asked the project marks back at the sidebar's true
+  // bottom, below the floating file-explorer card — out of
+  // SidebarProjectHeader's cramped window-chrome row, where an earlier pass
+  // had put them. SidebarProjectHeader now takes no project-related props at
+  // all; SidebarFooter mounts as its own sibling row instead.
+  it('renders SidebarProjectHeader with no project-related props', () => {
     render(<IDEShell />)
-    expect(screen.queryByTestId('sidebar-footer')).not.toBeInTheDocument()
-    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith(
+    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith({})
+  })
+
+  it('mounts SidebarFooter below the carousel, wired to the same project data and handlers', () => {
+    render(<IDEShell />)
+    const footer = screen.getByTestId('sidebar-footer')
+    const carousel = screen.getByTestId('sidebar-carousel')
+    // DOCUMENT_POSITION_FOLLOWING: the footer comes after the carousel in DOM order.
+    expect(carousel.compareDocumentPosition(footer)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(sidebarFooterMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        projects: [],
+        activeProjectId: undefined,
         onSelectProject: expect.any(Function),
         onAddProject: expect.any(Function),
       }),

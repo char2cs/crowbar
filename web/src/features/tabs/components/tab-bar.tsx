@@ -235,6 +235,21 @@ const TabBar = ({
   )
   const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
   const isBottomPane = paneId === BOTTOM_PANE_ID
+  // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
+  // not a view: "it should only appear when NO VIEW is opened." An emptied
+  // pane in a split now collapses out of the layout entirely
+  // (`dropEmptiedPanes`, pane-slice.ts), so the only one that reaches here is
+  // the last pane in the window with nothing open in it — and that one has no
+  // name to show, nothing to close, and no second view to toggle beside a chat
+  // that is not there. Every control that names or acts on pane CONTENT goes.
+  //
+  // The ROW ITSELF stays, deliberately: it carries the macOS traffic-light
+  // inset and `data-tauri-drag-region` (without it the window's top-left is
+  // bare content and the frame loses its drag handle), and it is the only
+  // affordance that reopens a COLLAPSED sidebar — removing it outright would
+  // strand a user with no sidebar and nothing open in a window they cannot get
+  // back out of.
+  const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean
@@ -282,7 +297,7 @@ const TabBar = ({
       } else {
         handleTabClick(buffer.id)
       }
-      updateActivePath(buffer.path)
+      updateActivePath(buffer.path ?? '')
       setSrAnnouncement(
         `Switched to ${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ', unsaved changes' : ''}`,
       )
@@ -321,9 +336,13 @@ const TabBar = ({
   // `set()`, and this field carries no other invariant to protect.
   const handleToggleSplit = useCallback(() => {
     if (!paneId) return
+    // windowPaneStore's exported type erases the immer producer signature (see
+    // editor-app-store.ts's setState calls) — return a new partial state
+    // rather than mutating the draft in place.
     windowPaneStore.setState((state) => {
       const p = state.panes[paneId]
-      if (p) p.editorOpen = !p.editorOpen
+      if (!p) return {}
+      return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
     })
   }, [paneId])
 
@@ -416,7 +435,14 @@ const TabBar = ({
     await handleSave()
     if (paneId) removeEditorTabFromPane(paneId, pendingClose.bufferId)
     confirmCloseWithoutSaving()
-  }, [pendingClose, buffers, handleSave, confirmCloseWithoutSaving, paneId, removeEditorTabFromPane])
+  }, [
+    pendingClose,
+    buffers,
+    handleSave,
+    confirmCloseWithoutSaving,
+    paneId,
+    removeEditorTabFromPane,
+  ])
 
   const handleDiscardAndClose = useCallback(() => {
     if (!pendingClose) return
@@ -489,13 +515,16 @@ const TabBar = ({
       // needs the buffer's LIVE `content`, which that projection deliberately
       // does not track (it can hold a content-stale object reference).
       const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
-      if (buf && buf.path !== 'extensions://marketplace') {
+      // openContent always assigns a real path (see buffer-slice.ts); bail if
+      // that invariant is ever violated instead of reopening a path-less tab.
+      if (buf && buf.path && buf.path !== 'extensions://marketplace') {
+        const path = buf.path
         if (paneId) removeEditorTabFromPane(paneId, bufferId)
         closeBuffer(bufferId)
         setTimeout(async () => {
           try {
             const content = buf.type === 'editor' ? buf.content : ''
-            openContent({ type: 'editor', path: buf.path, name: buf.name, content })
+            openContent({ type: 'editor', path, name: buf.name, content })
           } catch (error) {
             console.error('Failed to reload buffer:', error)
           }
@@ -549,8 +578,9 @@ const TabBar = ({
           data-tauri-drag-region
         >
           {/* Spec §7.1: the split toggle leads the whole row, before the
-              chat name, outside the tab scroller. */}
-          {paneId && (
+              chat name, outside the tab scroller. Absent on an empty pane —
+              there is no chat for a second view to sit beside. */}
+          {paneId && !isEmptyPane && (
             <SplitToggleButton active={pane?.editorOpen ?? false} onToggle={handleToggleSplit} />
           )}
 
@@ -592,7 +622,11 @@ const TabBar = ({
                 className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
               >
                 {sortedBuffers.map((buffer, index) => (
-                  <SortableEditorTab key={buffer.id} id={buffer.id} tabRef={getTabRefCallback(index)}>
+                  <SortableEditorTab
+                    key={buffer.id}
+                    id={buffer.id}
+                    tabRef={getTabRefCallback(index)}
+                  >
                     <TabBarItem
                       buffer={buffer}
                       displayName={getBufferDisplayName(buffer)}
@@ -627,8 +661,9 @@ const TabBar = ({
           )}
 
           {/* A pane action, not a tab action — stays pinned at the right
-              edge, outside the scrolling tab container. */}
-          {paneId && (
+              edge, outside the scrolling tab container. Absent on an empty
+              pane: there is nothing in it to close. */}
+          {paneId && !isEmptyPane && (
             <CloseSplitButton
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}

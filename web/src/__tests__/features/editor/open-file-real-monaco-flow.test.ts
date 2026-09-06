@@ -35,7 +35,10 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
 // paint is rAF-scheduled; it rendered the instant the display woke). Kept as a
 // permanent guard: it pins the arm-seam → real-monaco content path end to end.
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 
@@ -72,9 +75,11 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       const activeBufferId = state.panes[paneId]?.activeEditorTabId
       expect(activeBufferId).toBe(bufferId)
       const buffer = state.buffers.find((b) => b.id === activeBufferId)!
+      // Set explicitly by openContent's `path: 'src/app.ts'` above.
+      const filePath = buffer.path!
       const ctx = applyActiveBuffer({ manager, registry: store.activeEditorRegistry }, paneId, {
         bufferId: buffer.id,
-        filePath: buffer.path,
+        filePath,
       })
 
       // The live symptom: editor sized, but no model/content ever reaches it.
@@ -84,7 +89,7 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       expect(model).not.toBeNull()
       expect(model!.getValue()).toBe(CONTENT)
       // Registry bookkeeping agrees (same model under the buffer's uri).
-      expect(store.modelRegistry!.get(fileUri(buffer.path))?.getValue()).toBe(CONTENT)
+      expect(store.modelRegistry!.get(fileUri(filePath))?.getValue()).toBe(CONTENT)
       // And the context published to satellites carries the model.
       expect(ctx?.model).toBeTruthy()
     } finally {

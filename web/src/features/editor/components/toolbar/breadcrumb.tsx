@@ -75,19 +75,19 @@ export default function Breadcrumb({
   }
 
   const isMarkdownFile = () => {
-    if (!activeBuffer) return false
+    if (!activeBuffer || !activeBuffer.path) return false
     const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
     return extension === 'md' || extension === 'markdown'
   }
 
   const isHtmlFile = () => {
-    if (!activeBuffer) return false
+    if (!activeBuffer || !activeBuffer.path) return false
     const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
     return extension === 'html' || extension === 'htm'
   }
 
   const isCsvFile = () => {
-    if (!activeBuffer) return false
+    if (!activeBuffer || !activeBuffer.path) return false
     const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
     return extension === 'csv'
   }
@@ -98,6 +98,7 @@ export default function Breadcrumb({
       : null
     if (
       !fullActiveBuffer ||
+      !fullActiveBuffer.path ||
       fullActiveBuffer.type === 'markdownPreview' ||
       fullActiveBuffer.type === 'htmlPreview' ||
       fullActiveBuffer.type === 'csvPreview'

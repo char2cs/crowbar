@@ -196,11 +196,11 @@ describe('SidebarRow', () => {
   // Addendum §6: a locked/protected branch (repo/project home, or any other
   // locked branch `rows-from-repo.ts` mints) must draw the Lock glyph, not
   // the plain GitBranch mark every ordinary workspace draws — confirmed live
-  // as wrong for `main`. `rows-from-repo.ts`'s own `walk()` sources a locked
-  // branch row's `id` from its OWNING CHAT while `workspaceId` still names the
-  // workspace — an ordinary fork instead keeps `id === workspaceId` (see that
-  // file's own extensive doc on `rowId`). That existing mismatch is the
-  // signal used here; no new field was added to `SidebarRow` for it.
+  // as wrong for `main`. Every workspace-owning row is now id'd from its
+  // owning chat, locked or not (`rows-from-repo.ts`'s `foldOwningChats`), so
+  // `row.locked` (`Workspace.status === 'locked'`, carried straight onto the
+  // row) is the signal now — the old id-vs-workspaceId mismatch stopped being
+  // unique to the locked case the moment a regular fork started folding too.
   describe('locked branch glyph', () => {
     function iconMarkup(el: React.ReactElement): string {
       const { container, unmount } = render(el)
@@ -209,7 +209,7 @@ describe('SidebarRow', () => {
       return html
     }
 
-    it('renders the Lock glyph when the row id was sourced from its owning chat (locked branch)', () => {
+    it('renders the Lock glyph when the row is locked', () => {
       const lockedRow: SidebarRowType = {
         ...baseRow,
         kind: 'branch',
@@ -218,6 +218,7 @@ describe('SidebarRow', () => {
         workspaceId: 'ws-locked',
         ownsWorktree: true,
         branchName: 'develop',
+        locked: true,
       }
       const html = iconMarkup(<SidebarRow row={lockedRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(<Lock aria-hidden="true" className="size-4" weight="fill" />)
@@ -233,26 +234,88 @@ describe('SidebarRow', () => {
         workspaceId: 'ws-home',
         ownsWorktree: true,
         branchName: 'main',
+        locked: true,
       }
       const html = iconMarkup(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(<Lock aria-hidden="true" className="size-5" weight="fill" />)
       expect(html).toBe(expected)
     })
 
-    it('renders the plain GitBranch glyph for a regular fork, whose id equals its own workspaceId', () => {
+    it('renders the plain GitBranch glyph for a regular (unlocked) fork', () => {
       const forkRow: SidebarRowType = {
         ...baseRow,
         kind: 'branch',
-        id: 'ws-1',
+        id: 'chat-owning-ws-1',
         parentId: 'parent-1',
         workspaceId: 'ws-1',
         ownsWorktree: true,
         branchName: 'feature/x',
+        locked: false,
       }
       const html = iconMarkup(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(<GitBranch aria-hidden="true" className="size-4" weight="fill" />)
       expect(html).toBe(expected)
     })
+  })
+
+  // Rule 6: a `branch` row that owns a real, unlocked workspace now draws a
+  // second line under its label — the workspace's branch name and change
+  // counts, muted, beneath the (now chat-titled) label line.
+  describe('branch row second line', () => {
+    const forkRow: SidebarRowType = {
+      ...baseRow,
+      kind: 'branch',
+      id: 'chat-1',
+      parentId: 'parent-1',
+      label: 'Fix the parser',
+      workspaceId: 'ws-1',
+      ownsWorktree: true,
+      branchName: 'feature/parser-fix',
+      added: 42,
+      deleted: 7,
+      locked: false,
+    }
+
+    it('shows the branch name and change counts on a second line', () => {
+      render(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} />)
+      expect(screen.getByText('Fix the parser')).toBeInTheDocument()
+      expect(screen.getByText('+42')).toBeInTheDocument()
+      expect(screen.getByText('-7')).toBeInTheDocument()
+      expect(screen.getByText(/feature\/parser-fix/)).toBeInTheDocument()
+    })
+
+    it('omits the counts when there is no diff yet, but still shows the branch name', () => {
+      render(<SidebarRow row={{ ...forkRow, added: 0, deleted: 0 }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.getByText('feature/parser-fix')).toBeInTheDocument()
+      expect(screen.queryByText(/^\+/)).not.toBeInTheDocument()
+    })
+
+    it('does not draw a second line for a locked branch', () => {
+      render(<SidebarRow row={{ ...forkRow, locked: true }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByText('feature/parser-fix')).not.toBeInTheDocument()
+    })
+
+    it('does not draw a second line for the project-home row', () => {
+      render(<SidebarRow row={{ ...forkRow, parentId: null }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByText('feature/parser-fix')).not.toBeInTheDocument()
+    })
+
+    it('does not draw a second line for a chat bubble row', () => {
+      const { container } = render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(container.querySelector('[data-sidebar-row-label] > span')).not.toBeInTheDocument()
+    })
+  })
+
+  // Rule 8: the fork button mints a child chat session forked into its own
+  // workspace — a git operation — so it now draws the same GitBranch mark
+  // every worktree-owning row's glyph does, not the old hand-rolled "+".
+  it('the fork control draws a GitBranch glyph, not the old "+"', () => {
+    render(<SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onCreate={vi.fn()} />)
+    const fork = screen.getByRole('button', { name: /fork/i })
+    expect(fork.querySelector('svg')).toBeInTheDocument()
+    // The old "+" was a hand-rolled two-stroke path; GitBranch is Phosphor's
+    // own multi-element mark, which never collapses to that exact shape.
+    expect(fork.innerHTML).not.toContain('M8 3v10M3 8h10')
   })
 
   it('clicking the row body opens it, not the trailing controls', () => {
@@ -292,12 +355,20 @@ describe('SidebarRow', () => {
   it('no row kind renders a trash control, even though onTrash is supplied', () => {
     const rows: SidebarRowType[] = [
       baseRow,
-      { ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', ownsWorktree: true },
+      {
+        ...baseRow,
+        kind: 'branch',
+        parentId: 'parent-1',
+        branchName: 'my-feature',
+        ownsWorktree: true,
+      },
       { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
       { ...baseRow, kind: 'folder', ownsWorktree: true },
     ]
     for (const row of rows) {
-      const { unmount } = render(<SidebarRow row={row} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+      const { unmount } = render(
+        <SidebarRow row={row} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />,
+      )
       expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
       expect(document.querySelector('[data-control="trash"]')).not.toBeInTheDocument()
       unmount()

@@ -8,7 +8,6 @@ export function createPaneBeside(
   bufferId?: string,
 ): string | null {
   return (
-    windowPaneStore.getState().paneActions.splitPane(paneId, direction, bufferId, placement) ??
-    null
+    windowPaneStore.getState().paneActions.splitPane(paneId, direction, bufferId, placement) ?? null
   )
 }

@@ -111,9 +111,7 @@ describe('DeleteConfirmDialog', () => {
     const onConfirm = vi.fn()
     const onTrashClick = renderTrashClick(baseRow, onConfirm)
     await onTrashClick()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
     expect(onConfirm).toHaveBeenCalledOnce()

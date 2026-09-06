@@ -5,7 +5,7 @@ import {
   useWorkspaceEffects,
 } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { setWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   __resetActivationFreshnessForTests,
   markWorkspaceDeactivated,
@@ -317,6 +317,47 @@ describe('useWorkspaceEffects', () => {
     }
   })
 
+  // ── Owning-chat-id race (cold-boot "no owning chat recorded" crash) ──────
+  // The route records a workspace's scope synchronously with NO chat id (the
+  // URL doesn't carry one — workspace-scope.ts). Only the sidebar's own,
+  // separate async chat-list fetch later attaches owningChatId via
+  // recordWorkspaceScope/setWorkspaceScope. On a cold activation whose
+  // hydration (IndexedDB-backed, often faster) wins that race, these effects
+  // used to fire before any chat id existed: gitBaseForWorkspace throws on a
+  // null one (crashing the WS subscription, caught by the pane's error
+  // boundary) and filesBaseForWorkspace's throw was swallowed by
+  // fetchFileTree's own .catch, leaving the explorer stuck empty forever.
+  // Both must wait for the id instead of firing early.
+  describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
+    it('does not subscribe to git or fetch the file tree before an owning chat id is recorded', () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+      renderHook(() => useWorkspaceEffects('ws-race'))
+
+      expect(fetchFileTree).not.toHaveBeenCalled()
+      const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+      expect(endpoints.some((ep) => ep.includes('/git/'))).toBe(false)
+    })
+
+    it('subscribes to git and fetches the file tree once the owning chat id arrives', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+      renderHook(() => useWorkspaceEffects('ws-race'))
+      expect(fetchFileTree).not.toHaveBeenCalled()
+
+      recordWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-race',
+        owningChatId: 'chat-race',
+      })
+
+      await waitFor(() => {
+        expect(fetchFileTree).toHaveBeenCalledWith('ws-race')
+      })
+      const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+      expect(endpoints).toContain('/v0/chats/chat-race/git/status')
+    })
+  })
+
   // ── Warm reactivation fast path (Task 33 Target A) ────────────────────────
   // A workspace hidden only briefly, whose own data still occupies the global
   // stores, must NOT re-seed on return — that fan-out (tree fetch + 4-request
@@ -425,7 +466,12 @@ describe('useWorkspaceEffects', () => {
 
       // A returns WITHIN the window. Reset normalises the store back to A with
       // an empty loading tree — the fast path must refuse it and refetch.
-      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
+      setWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-test',
+        owningChatId: 'chat-test',
+      })
       fetchFileTree.mockClear()
       fetchFileTree.mockResolvedValueOnce(treeA)
       resetWorkspaceScopedStores('ws-test')

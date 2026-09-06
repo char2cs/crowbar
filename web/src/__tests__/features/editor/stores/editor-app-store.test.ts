@@ -24,7 +24,10 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
 
 import { apiFetch } from '@/lib/api'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import {
   setWorkspaceScope,
   recordWorkspaceScope,
@@ -95,8 +98,8 @@ afterEach(() => {
 // filesBase() -> getActiveWorkspaceId() — i.e. B, not the buffer's own A —
 // silently overwriting B's file with A's content. These MUST fail against
 // the pre-fix-round-1 code and pass at HEAD.
-describe('editor-app-store — Critical 1: saves target the BUFFER\'s own workspace, not the active one', () => {
-  it('handleSave writes to the dirty buffer\'s own workspace', async () => {
+describe("editor-app-store — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
+  it("handleSave writes to the dirty buffer's own workspace", async () => {
     openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
 
     await useEditorAppStore.getState().actions.handleSave()
@@ -111,7 +114,7 @@ describe('editor-app-store — Critical 1: saves target the BUFFER\'s own worksp
     })
   })
 
-  it('saveEditorBufferById (Save As, an untitled buffer) writes to the buffer\'s own workspace', async () => {
+  it("saveEditorBufferById (Save As, an untitled buffer) writes to the buffer's own workspace", async () => {
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: 'untitled:Untitled-1',
@@ -120,7 +123,10 @@ describe('editor-app-store — Critical 1: saves target the BUFFER\'s own worksp
       isVirtual: true,
       workspaceId: 'ws-owner',
     })
-    vi.stubGlobal('prompt', vi.fn(() => 'new-name.ts'))
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'new-name.ts'),
+    )
 
     // saveEditorBufferById itself isn't exported from the module — drive it
     // the same way the rest of the app does, through handleSave (this buffer

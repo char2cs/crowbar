@@ -61,8 +61,78 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
     const snapshot = loadFromLocalStorage(wsId) ?? undefined
     const store = createWorkspaceStore(wsId, snapshot)
     registry.set(wsId, store)
+    notifyRegistryListeners()
   }
   return registry.get(wsId)!
+}
+
+/**
+ * Notified whenever a workspace store is REGISTERED or DESTROYED — i.e.
+ * whenever `getWorkspaceStore(wsId)` might start (or stop) answering.
+ *
+ * The registry is a plain Map, so there has never been anything to subscribe
+ * to; every caller either held a store already or minted one. That is fine for
+ * code that owns a workspace, and wrong for code that merely WATCHES one it
+ * must not bring into existence — the sidebar tree, which draws a row per
+ * workspace in the repo and would otherwise mint (and permanently leak, see
+ * `getWorkspaceStore`'s own doc) a store for every row the user has never
+ * opened. Those watchers need to re-bind when the real store finally appears,
+ * and this is the only signal that says it has.
+ */
+const registryListeners = new Set<() => void>()
+
+function notifyRegistryListeners(): void {
+  for (const listener of registryListeners) listener()
+}
+
+export function subscribeWorkspaceRegistry(callback: () => void): () => void {
+  registryListeners.add(callback)
+  return () => {
+    registryListeners.delete(callback)
+  }
+}
+
+/**
+ * Watch whether `chatId` is mid-turn inside `wsId`, WITHOUT creating `wsId`'s
+ * store if it does not exist.
+ *
+ * The subscribe half of {@link isChatWorking}, narrowed to one workspace
+ * because the caller (a sidebar row) already knows which workspace its chat
+ * runs in and has no business waking on every other workspace's writes.
+ *
+ * Re-binds through {@link subscribeWorkspaceRegistry}, which is what makes the
+ * not-yet-mounted case correct rather than merely safe: a row whose workspace
+ * has no store reads `false` (nothing is running a turn in a workspace with no
+ * live store — the `working` map is filled by that workspace's own chats
+ * stream, which only runs while it is mounted), and the moment the workspace
+ * IS mounted this attaches to the real store and the row starts spinning.
+ * Without the re-bind the row would be stuck on that `false` for the life of
+ * the session, which is precisely the "I never see the loading state" this
+ * exists to end.
+ */
+export function subscribeChatWorking(wsId: string, callback: () => void): () => void {
+  let bound: WorkspaceStore | undefined
+  let unbind: (() => void) | null = null
+  const rebind = () => {
+    const store = registry.get(wsId)
+    if (store === bound) return
+    unbind?.()
+    bound = store
+    unbind = store ? store.subscribe(callback) : null
+    callback()
+  }
+  const unsubscribeRegistry = subscribeWorkspaceRegistry(rebind)
+  rebind()
+  return () => {
+    unsubscribeRegistry()
+    unbind?.()
+  }
+}
+
+/** The snapshot half of {@link subscribeChatWorking} — a plain read, no store
+ *  minted, `false` for a workspace with no live store. */
+export function readChatWorking(wsId: string, chatId: string): boolean {
+  return registry.get(wsId)?.getState().agentChats.working[chatId] ?? false
 }
 
 /**
@@ -178,7 +248,7 @@ export function destroyWorkspaceStore(wsId: string): void {
         // buffer paths.
         const editorPaths: string[] = []
         for (const b of buffers) {
-          if (isEditorContent(b)) editorPaths.push(b.path)
+          if (isEditorContent(b) && b.path) editorPaths.push(b.path)
         }
         if (editorPaths.length > 0) {
           bestEffort(
@@ -197,32 +267,38 @@ export function destroyWorkspaceStore(wsId: string): void {
           cleanupBufferHistoryTracking(buf.id)
           useHistoryStore.getState().actions.clearHistory(buf.id)
         }
+
+        // Dispose editor resources (only if the workspace ever armed the
+        // editor — a terminal/agent-only workspace never constructs the
+        // manager) — and only when NONE of this workspace's editor buffers
+        // are still open in a live pane. disposeAll() unmounts every pane
+        // this workspace's EditorManager has a Monaco editor mounted into and
+        // disposes its whole model registry; doing that while a buffer it
+        // owns is still visible would kill a live editor out from under the
+        // user (disposed model, wiped undo history) rather than merely
+        // freeing a resource nobody can see any more.
+        //
+        // Task 26 fix round 2 (I2 revisited) reverted this gate to
+        // unconditional, reasoning that editor-surface.tsx resolved its
+        // EditorManager from the AMBIENT workspace, never from
+        // `buf.workspaceId` — so a still-visible copy of this buffer,
+        // rendered by a different WorkspaceView, could never be using the
+        // manager being destroyed, making the gate dead weight that only cost
+        // a permanent leak. editor-pane.tsx/editor-surface.tsx now resolve
+        // the manager via `getWorkspaceStore(buf.workspaceId)` instead (the
+        // ambient-hidden-copy leak that round 2 traded this gate away for),
+        // which makes round 2's premise false: a still-open buffer's REAL
+        // manager is once again this one, wherever it is rendered from. The
+        // gate is restored so disposeAll() cannot yank a live widget's model.
+        const hasSurvivingEditorBuffer = paneState.buffers.some(
+          (b) => b.workspaceId === wsId && isEditorContent(b) && openEditorTabIds.has(b.id),
+        )
+        if (!hasSurvivingEditorBuffer) {
+          store.editorManager?.disposeAll()
+        }
       }),
       'window-pane-store buffer teardown',
     )
-
-    // Dispose editor resources (only if the workspace ever armed the editor —
-    // a terminal/agent-only workspace never constructs the manager).
-    //
-    // Task 26 fix round 2 (I2 revisited): fix round 1 gated this on none of
-    // the workspace's editor buffers still being open in a live pane, on the
-    // theory that disposeAll() could kill a still-visible editor. Traced and
-    // found unreachable: WorkspaceHost only calls destroyWorkspaceStore AFTER
-    // this workspace's own React subtree (its own WorkspaceView, its own
-    // PaneContainer/EditorSurface instances) has already unmounted — see this
-    // file's own module doc and workspace-host.tsx's. A buffer that's still
-    // visible elsewhere is rendered by a DIFFERENT, still-mounted
-    // WorkspaceView, and editor-surface.tsx resolves ITS EditorManager from
-    // the ambient `useWorkspaceStore().editorManager` (that OTHER workspace's
-    // own manager) — never from `buf.workspaceId`'s manager — so this
-    // destroyed workspace's EditorManager was never the one backing that
-    // visible editor. The gate guarded against harm that can't happen, while
-    // — since this is the only caller of disposeAll(), and registry.delete
-    // below still runs unconditionally — permanently leaking the entire
-    // EditorManager/ModelRegistry whenever any of the workspace's editor
-    // buffers was still open anywhere, which this task's own hoist makes the
-    // common case. Reverted to run unconditionally, as before fix round 1.
-    store.editorManager?.disposeAll()
   }
 
   // Drop the warm-reactivation freshness ledger for this workspace so a future
@@ -230,6 +306,9 @@ export function destroyWorkspaceStore(wsId: string): void {
   clearWorkspaceFreshness(wsId)
 
   registry.delete(wsId)
+  // After the delete, so a watcher re-binding on this signal sees the store
+  // already gone rather than re-attaching to the one being torn down.
+  notifyRegistryListeners()
 }
 
 export function getAllActiveWorkspaceIds(): string[] {

@@ -110,6 +110,11 @@ export function toSidebarChat(chat: ChatDTO): Chat {
     type: chat.type,
     parentId: chat.parentId || undefined,
     workspaceId: chat.workspaceId || undefined,
+    // Undefined, not `false`, when the cached row predates the field: `false`
+    // would assert "this is a bubble", and `rows-from-repo.ts` must be able to
+    // tell that apart from "this row doesn't know yet" so it can fall back to
+    // the `Workspace.owningChatId` join for it.
+    ...(chat.ownsWorktree === undefined ? {} : { ownsWorktree: chat.ownsWorktree }),
     title: chat.title,
     order: chat.order ?? 0,
   }

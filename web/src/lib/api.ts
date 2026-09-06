@@ -387,6 +387,13 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
     projectId,
     type: row.type,
     workspaceId: row.workspaceId ?? '',
+    // The SAME predicate `workspaceDTOFromChat` above uses to decide this row
+    // is the worktree's row, kept on the chat instead of only being spent
+    // deriving a separate `WorkspaceDTO`. `worktree` rides EVERY row holding
+    // the workspace (a thread carries its parent's), so `owningChatId` is the
+    // only thing that picks the owner out — see ChatDTO.ownsWorktree for why
+    // the answer has to travel with the chat rather than be re-joined later.
+    ownsWorktree: row.worktree?.owningChatId === row.id,
     parentId: row.parentId,
     title: row.title,
     order: row.order ?? 0,

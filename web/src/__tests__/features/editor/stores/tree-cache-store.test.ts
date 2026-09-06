@@ -6,7 +6,10 @@ import {
   useTreeCacheStore,
   _resetTreeCacheSubscriptionForTesting,
 } from '@/features/editor/stores/tree-cache-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 describe('initTreeCacheSubscription', () => {
   beforeEach(() => {

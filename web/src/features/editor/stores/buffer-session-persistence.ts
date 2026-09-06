@@ -51,11 +51,11 @@ const saveSessionToStoreImmediate = (
 
   const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId)
   const activeBufferPath =
-    activeBuffer &&
-    ((activeBuffer.type === 'editor' && !activeBuffer.isVirtual) ||
-      activeBuffer.type === 'terminal')
-      ? activeBuffer.path
-      : null
+    (activeBuffer &&
+      ((activeBuffer.type === 'editor' && !activeBuffer.isVirtual) ||
+        activeBuffer.type === 'terminal') &&
+      activeBuffer.path) ||
+    null
 
   useSessionStore.getState().saveSession(projectPath, persistableBuffers, activeBufferPath)
 }

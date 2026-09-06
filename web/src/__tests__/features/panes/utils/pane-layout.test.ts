@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import type { LayoutLeaf } from '@/features/panes/types/pane'
+import type { LayoutLeaf, LayoutNode, LayoutSplit } from '@/features/panes/types/pane'
 import {
+  appendLeaf,
   createLeaf,
   createSplit,
   splitLayout,
@@ -70,6 +71,47 @@ describe('splitLayout', () => {
   })
   it('returns null for unknown id', () => {
     expect(splitLayout(createLeaf('a'), 'z', 'horizontal')).toBeNull()
+  })
+})
+
+/**
+ * The "one more view in this window" primitive (spec §8.4's click), as
+ * distinct from `splitLayout`'s "subdivide THIS pane" (§8.1's drop). The
+ * distinction is the whole point: routing a click through `splitLayout` on
+ * the active pane is what made repeated clicks cascade 50/25/12.5 nested
+ * inside the first pane, reading as "appended to the view you were in".
+ */
+describe('appendLeaf', () => {
+  it('joins at the top level, not inside the pane that happened to be active', () => {
+    const { layout, newPaneId } = appendLeaf(createLeaf('a'), 'horizontal')
+    expect(getAllLeafIds(layout)).toEqual(['a', newPaneId])
+  })
+
+  it('gives every peer in the flattened row an equal share', () => {
+    let layout: LayoutNode = createLeaf('a')
+    const ids = ['a']
+    for (let i = 0; i < 3; i++) {
+      const next = appendLeaf(layout, 'horizontal')
+      layout = next.layout
+      ids.push(next.newPaneId)
+    }
+
+    expect(getAllLeafIds(layout)).toEqual(ids)
+    // `splitLayout` on the active pane would have produced 50/25/12.5/12.5.
+    const entries = flattenForRender(layout as LayoutSplit)
+    expect(entries).toHaveLength(4)
+    entries.forEach((entry) => expect(entry.size).toBeCloseTo(25))
+  })
+
+  it('treats a cross-direction split as ONE peer and leaves its internal sizes alone', () => {
+    const stacked = createSplit('vertical', createLeaf('a'), createLeaf('b'), [70, 30])
+    const { layout, newPaneId } = appendLeaf(stacked, 'horizontal')
+
+    const entries = flattenForRender(layout as LayoutSplit)
+    expect(entries).toHaveLength(2)
+    expect(entries.map((e) => e.size)).toEqual([50, 50])
+    expect(getAllLeafIds(layout)).toEqual(['a', 'b', newPaneId])
+    expect(findSplit(layout, stacked.id)?.sizes).toEqual([70, 30])
   })
 })
 

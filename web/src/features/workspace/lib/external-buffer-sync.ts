@@ -86,7 +86,11 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
   // buffer) while the read was in flight — never clobber fresh edits.
   windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId && !b.isDirty
+      isEditorContent(b) &&
+      !b.isVirtual &&
+      b.path === path &&
+      b.workspaceId === workspaceId &&
+      !b.isDirty
         ? {
             ...b,
             content,

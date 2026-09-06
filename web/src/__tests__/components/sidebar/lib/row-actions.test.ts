@@ -423,8 +423,13 @@ describe('row-actions', () => {
  * the id of the CHAT that owns its workspace (`rows-from-repo.ts`). Without
  * translating first, the repo-home row stops matching `defaultWorkspaceId`,
  * falls into the chat branch, and renaming the repo silently retitles a
- * conversation instead — while a locked branch's rename retitles its own row
- * rather than moving the git branch.
+ * conversation instead — a locked branch's rename must still move the git
+ * branch, not retitle its own row as if it were a chat.
+ *
+ * An ORDINARY (unlocked) fork's row is the one case that changed with rule
+ * 6: its label is now its owning chat's title, not its branch, so renaming
+ * it retitles the chat — the opposite of what this same row did before every
+ * workspace-owning row folded the same way.
  */
 describe('performRenameRow — a branch row is not a chat', () => {
   beforeEach(() => {
@@ -439,7 +444,16 @@ describe('performRenameRow — a branch row is not a chat', () => {
           avatarColor: 'bg-indigo-700',
           defaultWorkspaceId: 'ws-home',
           defaultBranch: 'main',
-          workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
+          workspaces: [
+            {
+              id: 'ws-locked',
+              branch: 'develop',
+              age: '',
+              status: 'locked',
+              owningChatId: 'locked-row',
+            },
+            { id: 'ws-1', branch: 'feature-x', age: '', owningChatId: 'ws-1-row' },
+          ],
           chats: [
             {
               id: 'home-row',
@@ -450,12 +464,20 @@ describe('performRenameRow — a branch row is not a chat', () => {
               order: 0,
             },
             {
-              id: 'ws-1-row',
+              id: 'locked-row',
               repoId: 'repo-1',
               type: 'branch',
-              workspaceId: 'ws-1',
+              workspaceId: 'ws-locked',
               title: '',
-              order: 0,
+              order: 1,
+            },
+            {
+              id: 'ws-1-row',
+              repoId: 'repo-1',
+              type: 'chat',
+              workspaceId: 'ws-1',
+              title: 'Fix the parser',
+              order: 2,
             },
           ],
         },
@@ -469,10 +491,23 @@ describe('performRenameRow — a branch row is not a chat', () => {
     expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 
-  it('renaming a branch row still moves the git BRANCH', async () => {
-    await performRenameRow('ws-1-row', 'feature-y')
-    expect(api.renameWorkspaceBranch).toHaveBeenCalledWith('proj-1', 'repo-1', 'ws-1', 'feature-y')
+  it('renaming a LOCKED branch row is still routed as a branch rename, not a chat rename', async () => {
+    // `performRenameWorkspaceBranch` itself refuses a locked workspace before
+    // it ever reaches the API (its own guard, unrelated to this fix) — what
+    // this pins is the ROUTING decision one level up: a locked row's rename
+    // must not fall through to retitling the chat instead.
+    await performRenameRow('locked-row', 'feature-y')
+    expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
     expect(agentApi.renameChat).not.toHaveBeenCalled()
+  })
+
+  // Rule 6: an ordinary (unlocked) fork's row is now labelled by its owning
+  // chat's title, not its branch — so renaming it retitles the CHAT, the same
+  // as any other chat row, and no longer moves the git branch at all.
+  it('renaming an ordinary (unlocked) fork row retitles its CHAT, not the branch', async () => {
+    await performRenameRow('ws-1-row', 'New title')
+    expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'ws-1-row', 'New title')
+    expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
   })
 })
 
@@ -500,7 +535,9 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
           avatarColor: 'bg-indigo-700',
           defaultWorkspaceId: 'ws-home',
           defaultBranch: 'main',
-          workspaces: [{ id: 'ws-1', branch: 'develop', age: '', status: 'locked' }],
+          workspaces: [
+            { id: 'ws-1', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-1-row' },
+          ],
           folders: [],
           chats: [
             {

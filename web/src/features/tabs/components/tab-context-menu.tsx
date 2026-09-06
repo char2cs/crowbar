@@ -61,6 +61,10 @@ const TabContextMenu = ({
 }: TabContextMenuProps) => {
   if (!isOpen || !buffer) return null
 
+  // openContent always sets a real path (file path, or a synthetic scheme for
+  // terminal/commitDiff/branchReview) — narrow once rather than per item below.
+  const path = buffer.path ?? ''
+
   const items: ContextMenuItem[] = [
     {
       id: 'pin',
@@ -109,12 +113,12 @@ const TabContextMenu = ({
       icon: <Copy />,
       onClick: async () => {
         if (onCopyPath) {
-          onCopyPath(buffer.path)
+          onCopyPath(path)
           return
         }
 
         try {
-          await navigator.clipboard.writeText(buffer.path)
+          await navigator.clipboard.writeText(path)
         } catch (error) {
           console.error('Failed to copy path:', error)
         }
@@ -124,22 +128,22 @@ const TabContextMenu = ({
       id: 'copy-relative-path',
       label: 'Copy Relative Path',
       icon: <Copy />,
-      onClick: () => onCopyRelativePath?.(buffer.path),
+      onClick: () => onCopyRelativePath?.(path),
     },
     {
       id: 'reveal',
       label: 'Reveal in Finder',
       icon: <FolderOpen />,
-      onClick: () => onRevealInFinder?.(buffer.path),
+      onClick: () => onRevealInFinder?.(path),
     },
-    ...(!isVirtualContent(buffer) && !buffer.path.includes('://')
+    ...(!isVirtualContent(buffer) && !path.includes('://')
       ? [
           {
             id: 'terminal',
             label: 'Open in Terminal',
             icon: <Terminal />,
             onClick: () => {
-              const dirPath = getDirName(buffer.path)
+              const dirPath = getDirName(path)
               const dirName = getBaseName(dirPath, 'terminal')
               windowPaneStore.getState().bufferActions.openContent({
                 type: 'terminal',

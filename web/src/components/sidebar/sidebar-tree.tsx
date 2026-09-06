@@ -1,5 +1,10 @@
+import { useCallback, useSyncExternalStore } from 'react'
 import { useStore } from 'zustand'
 import { cn } from '@/lib/utils'
+import {
+  readChatWorking,
+  subscribeChatWorking,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   ROW_BASE,
@@ -39,16 +44,70 @@ const byOrder = (a: SidebarRowType, b: SidebarRowType) => a.order - b.order
  * rules of hooks (a varying call count/order as the tree's shape changes
  * across renders). This is the real component `renderRow` defers to instead,
  * mirroring `recents-band.tsx`'s `RecentsMemberRow`: it subscribes this ONE
- * row to live pane membership and overrides the `hasView: false` every row
- * arrives with from `rows-from-repo.ts` (a pure bridge that deliberately
- * never seeds live state — see that file's own note by `working: false`).
+ * row to the two LIVE facts `rows-from-repo.ts` deliberately refuses to seed —
+ * pane membership and turn state — and overrides the inert `hasView: false` /
+ * `working: false` every row arrives with from that pure bridge.
+ *
+ * `working` is the newer of the two and it closes a real hole. `rows-from-repo`
+ * has always seeded `working: false` on a chat row ("ALWAYS FALSE, AND NOT AN
+ * OVERSIGHT" — a value seeded once latches the spinner on a chat whose turn
+ * ended minutes ago) and a STATIC `Workspace.working` on a branch row, which is
+ * a field off a seeded record rather than a per-turn signal. Both reasons are
+ * still right; what was missing is the third option those notes point at —
+ * "anything else that comes to need real turn state here must subscribe per row
+ * the way Recents does". This is that subscription. Now that a workspace and
+ * its conversation render as ONE prominent, glyph-swapping row, the missing
+ * spinner is the most visible thing in the sidebar rather than a detail on a
+ * bubble.
+ *
+ * NOT `useWorkspaceStoreById` (what `RecentsMemberRow` uses) and NOT
+ * `isChatWorking`, and both refusals are load-bearing. `useWorkspaceStoreById`
+ * goes through `getOrCreateWorkspaceStore`, which MINTS a store for any id
+ * handed to it — fine for Recents, which only ever names workspaces that are
+ * already open, and a per-session leak here, where the tree draws a row for
+ * every workspace in the repo including the ones nobody has touched (see
+ * `getWorkspaceStore`'s own doc on exactly that leak). `isChatWorking` returns
+ * a boolean with nothing to subscribe to. `subscribeChatWorking` /
+ * `readChatWorking` are the watch-don't-create pair: no store is created, and
+ * the row re-binds to the real one the moment that workspace mounts.
  */
 function SidebarTreeRow({
   row,
   ...rest
 }: { row: SidebarRowType } & Omit<React.ComponentProps<typeof SidebarRow>, 'row'>) {
   const hasView = useStore(windowPaneStore, (s) => selectChatHasView(s, row.id))
-  return <SidebarRow row={{ ...row, hasView }} {...rest} />
+  // The row's OWN id is the chat id — every row the tree draws that has a real
+  // conversation behind it (a folded branch row and a bubble alike) is id'd by
+  // it (`rows-from-repo.ts`). A folder names no chat and no workspace, so it
+  // subscribes to nothing and reads a constant `false`.
+  const wsId = row.kind === 'folder' ? '' : (row.workspaceId ?? '')
+  const subscribe = useCallback(
+    (onChange: () => void) => (wsId ? subscribeChatWorking(wsId, onChange) : () => {}),
+    [wsId],
+  )
+  const getSnapshot = useCallback(
+    () => (wsId ? readChatWorking(wsId, row.id) : false),
+    [wsId, row.id],
+  )
+  const chatWorking = useSyncExternalStore(subscribe, getSnapshot)
+  // TWO LIVE SIGNALS AT TWO GRAINS, UNIONED — not a fallback, and not two
+  // sources disagreeing about one fact.
+  //
+  //   `chatWorking`  — THIS conversation is mid-turn. Exact, per-chat, and the
+  //                    only one that can ever be true for a bubble. Requires
+  //                    the workspace to be mounted (its `working` map is filled
+  //                    by that workspace's own chats stream).
+  //   `row.working`  — the WORKTREE has work in flight (`Workspace.working`,
+  //                    pushed live on `worktree_state` frames over the repo-wide
+  //                    chat feed, which stays open while the repo shows rows).
+  //                    Coarser, but answers for a workspace nobody has opened.
+  //
+  // Neither subsumes the other, and both mean the same thing to a reader —
+  // "this row is busy" — so the row spins if either says so. `row.working`
+  // arrives as a hard `false` on every `chat`-kind row by construction
+  // (`rows-from-repo.ts`), so for a bubble this is purely the chat signal.
+  const working = chatWorking || row.working
+  return <SidebarRow row={{ ...row, hasView, working }} {...rest} />
 }
 
 /**

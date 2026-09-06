@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { EditorContent } from '@/features/panes/types/pane-content'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 const readWorkspaceFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
 vi.mock('@/features/file-system/controllers/platform', () => ({
@@ -35,7 +38,6 @@ function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    isActive: true,
     tokens: [],
     workspaceId: 'ws-1',
     ...overrides,

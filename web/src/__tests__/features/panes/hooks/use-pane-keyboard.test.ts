@@ -120,31 +120,34 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 }))
 
 // ensurePaneChatThenOpen (the Law 3 fix — TAB_NEW_TERMINAL/TAB_NEW_FILE must
-// mint a chat on a chatless pane before opening a terminal/file into it) runs
-// for REAL here, exactly like AGENT_NEW_CHAT's own handler in
-// use-pane-keyboard.ts does — only its dependencies (createChat/
-// toastSpawnFailure above, workspace-store-registry below, both already
-// mocked to point at this file's fakeState/fakeStore) are faked. Only
-// splitActiveEditorGroup stays a bare stub — it is unrelated to this fix.
+// attach a pane's WORKSPACE's real owning chat before opening a terminal/file
+// into it, never mint a redundant new one) runs for REAL here. Its one real
+// dependency, getOwningChatId, is mocked below; `getOrCreateWorkspaceStore`/
+// createChat are no longer on this path at all — see pane-command-actions.ts.
+// Only splitActiveEditorGroup stays a bare stub — it is unrelated to this fix.
 vi.mock('@/features/panes/utils/pane-command-actions', async () => {
-  const actual = await vi.importActual<typeof import('@/features/panes/utils/pane-command-actions')>(
-    '@/features/panes/utils/pane-command-actions',
-  )
+  const actual = await vi.importActual<
+    typeof import('@/features/panes/utils/pane-command-actions')
+  >('@/features/panes/utils/pane-command-actions')
   return { ...actual, splitActiveEditorGroup: vi.fn() }
 })
 
-// ensurePaneChatThenOpen resolves its workspace store via the registry
-// (unlike AGENT_NEW_CHAT's handler, which reads `useWorkspaceStore()` off
-// workspace-context directly) — point it at the same fakeStore/fakeState so
-// the two paths agree on providers/setActiveAgentChatId.
+const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
+vi.mock('@/lib/workspace-scope', () => ({ getOwningChatId }))
+
+// pane-command-actions.ts (run for real above) also imports getActiveWorkspaceId
+// from the registry (for openBranchReviewForActiveWorkspace, unexercised here) —
+// mocked so importing it stays cheap: the real module pulls in the editor/Monaco
+// store graph, which previously timed out this suite's dynamic imports.
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getOrCreateWorkspaceStore: () => fakeStore,
+  getActiveWorkspaceId: () => null,
 }))
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getOwningChatId.mockReset()
   fakeState.activePaneId = ROOT_PANE_ID
   fakeState.agentChats = { providers: [], chats: [] }
   fakeState.panes = {
@@ -328,39 +331,39 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     expect(setPaneChat).not.toHaveBeenCalled()
   })
 
-  it('mod+j opens a terminal', async () => {
-    // The active pane has no chat yet, so ensurePaneChatThenOpen must mint one
-    // first (Law 3) — same first-enabled-provider/createChat mocking as the
-    // agent.newChat chord below, since it's the same underlying sequence.
-    fakeState.agentChats = {
-      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
-      chats: [],
-    }
-    createChat.mockResolvedValue('chat-1')
+  it("mod+j opens a terminal, attaching the workspace's real owning chat", () => {
+    // The active pane has no chat yet, so ensurePaneChatThenOpen must attach
+    // the workspace's real owning chat first (Law 3) — never mint one.
+    getOwningChatId.mockReturnValue('chat-1')
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true }))
 
-    await createChat.mock.results[0]?.value
-    await Promise.resolve()
-
+    expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
+    expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-1', null)
     expect(openContent).toHaveBeenCalledWith({ type: 'terminal' })
+    expect(createChat).not.toHaveBeenCalled()
   })
 
-  it('mod+shift+n opens an untitled virtual buffer', async () => {
-    fakeState.agentChats = {
-      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
-      chats: [],
-    }
-    createChat.mockResolvedValue('chat-1')
+  it('mod+j does nothing — no chat attached, no terminal opened — when no owning chat resolves', () => {
+    getOwningChatId.mockReturnValue(null)
+    renderHook(() => usePaneKeyboard())
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true }))
+
+    expect(setPaneChat).not.toHaveBeenCalled()
+    expect(openContent).not.toHaveBeenCalled()
+    expect(createChat).not.toHaveBeenCalled()
+  })
+
+  it("mod+shift+n opens an untitled virtual buffer, attaching the workspace's real owning chat", () => {
+    getOwningChatId.mockReturnValue('chat-1')
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true }))
 
-    await createChat.mock.results[0]?.value
-    await Promise.resolve()
-
+    expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-1', null)
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'editor', isVirtual: true }),
     )
+    expect(createChat).not.toHaveBeenCalled()
   })
 
   // The two N chords are dispatched by the same handler in registry order, so

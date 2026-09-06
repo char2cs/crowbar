@@ -262,7 +262,7 @@ describe('terminalCreate', () => {
 // promote/rename/placement verbs rather than in a second chat surface. So they
 // deliberately do NOT use chatBase's flat `/v0/chats/:chatId` shape.
 describe('worktreeVerbBaseForWorkspace', () => {
-  it("addresses the verb to the chat HOLDING the worktree, under its repo", () => {
+  it('addresses the verb to the chat HOLDING the worktree, under its repo', () => {
     recordWorkspaceScope({
       projectId: 'p1',
       repoId: 'r1',

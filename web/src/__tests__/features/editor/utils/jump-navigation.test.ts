@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 let store: ReturnType<typeof createWorkspaceStore>
 

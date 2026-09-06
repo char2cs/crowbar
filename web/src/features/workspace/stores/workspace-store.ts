@@ -101,28 +101,33 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       import('@/features/editor/lib/monaco-adapters'),
       import('@/features/panes/stores/window-pane-store'),
     ])
-      .then(([{ EDITOR_CREATE_OPTIONS, langForUri, realEditorApi, realModelApi }, { windowPaneStore }]) => {
-        // `text(uri)` reads the buffer content for the file at that uri, or '' if
-        // it isn't loaded; `lang(uri)` derives the Monaco language id from the path.
-        // Buffers are window-level now (Task 26) — scope the lookup to THIS
-        // workspace's own buffers (`buf.workspaceId`), since a hidden retained
-        // workspace can hold a buffer at the same relative path.
-        const registry = new ModelRegistry(realModelApi())
-        const meta: BufferMeta = {
-          lang: (uri) => langForUri(uri),
-          text: (uri) => {
-            const fsPath = uriToFsPath(uri)
-            const buf = windowPaneStore
-              .getState()
-              .buffers.find(
-                (b) => b.type === 'editor' && b.path === fsPath && b.workspaceId === wsId,
-              )
-            return buf && 'content' in buf ? buf.content : ''
-          },
-        }
-        modelRegistry = registry
-        editorManager = new EditorManager(realEditorApi(EDITOR_CREATE_OPTIONS), registry, meta)
-      })
+      .then(
+        ([
+          { EDITOR_CREATE_OPTIONS, langForUri, realEditorApi, realModelApi },
+          { windowPaneStore },
+        ]) => {
+          // `text(uri)` reads the buffer content for the file at that uri, or '' if
+          // it isn't loaded; `lang(uri)` derives the Monaco language id from the path.
+          // Buffers are window-level now (Task 26) — scope the lookup to THIS
+          // workspace's own buffers (`buf.workspaceId`), since a hidden retained
+          // workspace can hold a buffer at the same relative path.
+          const registry = new ModelRegistry(realModelApi())
+          const meta: BufferMeta = {
+            lang: (uri) => langForUri(uri),
+            text: (uri) => {
+              const fsPath = uriToFsPath(uri)
+              const buf = windowPaneStore
+                .getState()
+                .buffers.find(
+                  (b) => b.type === 'editor' && b.path === fsPath && b.workspaceId === wsId,
+                )
+              return buf && 'content' in buf ? buf.content : ''
+            },
+          }
+          modelRegistry = registry
+          editorManager = new EditorManager(realEditorApi(EDITOR_CREATE_OPTIONS), registry, meta)
+        },
+      )
       .catch((err) => {
         // A transient chunk-load failure (offline / CDN hiccup) must not wedge the
         // seam permanently: drop the cached promise so a later EditorPane mount

@@ -1,6 +1,7 @@
 import { buildSidebarTree, indexSidebarTree } from './workspace-tree-utils'
 import {
   getPostDeleteNavigationTarget,
+  EMPTY_CHATS,
   EMPTY_FOLDERS,
   type Chat,
   type Folder,
@@ -9,6 +10,7 @@ import {
 import type { RemovalDraft } from '@/lib/store/sidebar-removal'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 
 /** The little a removal needs to know about a project: which one, and its label. */
 export interface ProjectRow {
@@ -164,8 +166,11 @@ function draftFor(
   if (subject.kind === 'chat') {
     // NOT a branch row (`resolveChatRow`'s own rule — such a row is a
     // WORKSPACE, addressed by `workspaceIdOfBranchRow` elsewhere, and has no
-    // business reaching this branch at all).
-    const chat = repo.chats?.find((c) => c.id === subject.id && c.type !== 'branch')
+    // business reaching this branch at all). Generalized the same way that
+    // rule is: a folded, non-locked fork's row lives in this same chat id
+    // space now too, not just a locked branch or a repo home.
+    if (workspaceIdOfBranchRow(repos, subject.id) !== null) return null
+    const chat = repo.chats?.find((c) => c.id === subject.id)
     if (!chat) return null
     // The DELETE route is repo-scoped (`deleteChat`'s own contract) — any
     // workspace of this repo resolves the URL, same as
@@ -216,6 +221,28 @@ function draftFor(
     repo.id,
   )
   const descendants = tree.index.descendantsOf(workspace.id)
+  // BOTH HALVES OF EVERY ROW THAT GOES, NOT JUST THE WORKSPACE HALF.
+  //
+  // A workspace row IS its owning chat (`rows-from-repo.ts`) and the delete is
+  // literally `deleteChat` — so hiding the `Workspace` records alone left every
+  // one of those owning chats visible for the whole eight-second countdown.
+  // With its workspace gone from under it, such a chat has no workspace node to
+  // fold onto, and the row the user just deleted came straight back as a CHAT
+  // BUBBLE — a different glyph, a different label, a different set of verbs —
+  // which is exactly the "the branch row transformed into a conversation" the
+  // hold is supposed to make impossible. `rows-from-repo.ts` now refuses to
+  // draw that bubble, but the row must still DISAPPEAR, which is this list's
+  // job and this list's alone.
+  //
+  // Threads go too, for the same reason `chatDescendantsOf` takes them on a
+  // chat removal: the daemon's delete cascades the whole subtree, and hiding
+  // less than what is about to go promises less than happens.
+  const goingWorkspaceIds = new Set([workspace.id, ...descendants])
+  const hiddenChatIds: string[] = []
+  for (const chat of repo.chats ?? EMPTY_CHATS) {
+    if (!chat.workspaceId || !goingWorkspaceIds.has(chat.workspaceId)) continue
+    hiddenChatIds.push(chat.id, ...chatDescendantsOf(repo.chats ?? EMPTY_CHATS, chat.id))
+  }
   return {
     kind: 'workspace',
     id: workspace.id,
@@ -224,7 +251,10 @@ function draftFor(
     repoId: repo.id,
     wsId: '',
     providerIcon: '',
-    hiddenIds: [workspace.id, ...descendants],
+    hiddenIds: [workspace.id, ...descendants, ...new Set(hiddenChatIds)],
+    // Counts WORKSPACES only, unchanged: the tray row says how many more
+    // worktrees go with this one, and the chat ids above are the same rows
+    // counted once, not extra ones.
     extra: descendants.length,
     // Resolved now, against a tree that still has the row in it.
     fallbackWsId: getPostDeleteNavigationTarget(repos as Repo[], workspace.id),

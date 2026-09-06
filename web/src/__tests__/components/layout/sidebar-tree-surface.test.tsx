@@ -33,6 +33,12 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     }),
     subscribe: () => () => {},
   }),
+  // `SidebarTreeRow`'s live turn-state subscription (sidebar-tree.tsx). The
+  // watch-don't-create pair, deliberately NOT routed through
+  // `getOrCreateWorkspaceStore` above — see that component's own doc on why the
+  // tree must never mint a store for a row nobody has opened.
+  subscribeChatWorking: () => () => {},
+  readChatWorking: () => false,
 }))
 // Kept stubbed rather than removed: several rendered rows (the promote
 // dropdown, the space header overflow) can reach a real `toast.error` call on

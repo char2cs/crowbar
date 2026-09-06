@@ -48,7 +48,10 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => {
 })
 
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
@@ -56,6 +59,7 @@ import {
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { EditorManager } from '@/features/editor/lib/editor-manager'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
+import { useHistoryStore } from '@/features/editor/stores/history-store'
 
 // Task 4b: Monaco loads via a dynamic-import seam on first ACTUAL editor need
 // (EditorPane mount → store.armEditor()), NOT at store creation. createWorkspaceStore
@@ -117,39 +121,85 @@ describe('workspace-store editor arming seam', () => {
     expect(store.editorManager).toBeUndefined()
   })
 
-  // Task 26 fix round 2 (I2 revisited): fix round 1 gated
-  // destroyWorkspaceStore's editorManager.disposeAll() call on none of the
-  // workspace's editor buffers still being open in a live pane — traced and
-  // found to guard against unreachable harm (WorkspaceHost only destroys a
-  // workspace store AFTER its own subtree has unmounted; a buffer still
-  // visible elsewhere is rendered by a DIFFERENT WorkspaceView using ITS OWN
-  // ambient editorManager, never this one) while creating a real, permanent
-  // leak: since destroyWorkspaceStore is disposeAll()'s only caller and
-  // registry.delete still runs unconditionally, the gate meant the
-  // EditorManager/ModelRegistry for a destroyed workspace leaked forever
-  // whenever any of its editor buffers was still open somewhere — the common
-  // case this whole task creates. Reverted to run unconditionally; this pins
-  // it so the gate cannot silently come back.
-  it('disposes the editor manager on destroy even when one of its buffers is still open in a live pane', async () => {
+  // Bug fix (unify-sidebar keep-alive audit): Task 26 fix round 2 (I2
+  // revisited) made this gate unconditional, reasoning that a buffer still
+  // open elsewhere was always rendered by a DIFFERENT WorkspaceView against
+  // ITS OWN ambient EditorManager — never the one being destroyed — because
+  // editor-surface.tsx resolved the manager from the ambient
+  // WorkspaceStoreContext. editor-pane.tsx/editor-surface.tsx now resolve it
+  // via `getWorkspaceStore(buf.workspaceId)` instead (the fix for the
+  // wrong-ambient-hidden-copy leak that round 2's reasoning rested on), which
+  // makes round 2's premise false: a still-open buffer's REAL manager is once
+  // again this one, wherever it is rendered from. The gate is restored so
+  // disposeAll() cannot yank a live widget's model out from under the user.
+  it('does NOT dispose the editor manager on destroy while one of its buffers is still open in a live pane', async () => {
     resetWindowPaneStoreForTests()
-    const wsId = 'arm-ws-dispose'
+    const wsId = 'arm-ws-dispose-open'
     const store = getOrCreateWorkspaceStore(wsId)
     await store.armEditor()
     const disposeAll = vi.spyOn(store.editorManager!, 'disposeAll')
 
-    const bufferId = windowPaneStore.getState().bufferActions.openContent({
+    const openId = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: '/still-open.ts',
       name: 'still-open.ts',
       content: 'hello',
       workspaceId: wsId,
     })
-    // Confirm the precondition is real: left attached to its pane, the exact
-    // "still surviving" case fix round 1's gate gave up disposal for.
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(bufferId)
+    const closedId = windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/already-closed.ts',
+      name: 'already-closed.ts',
+      content: 'hello',
+      workspaceId: wsId,
+    })
+    // Detach the second buffer from every pane WITHOUT sweeping it from the
+    // flat buffer list — the exact "closed everywhere, not yet swept" case
+    // the teardown's own buffers filter targets — so the async teardown has
+    // real, independently-observable work to do: it clears this buffer's undo
+    // history, which this test can wait on for a real completion signal
+    // instead of a sleep.
+    windowPaneStore
+      .getState()
+      .paneActions.removeEditorTabFromPane(windowPaneStore.getState().activePaneId, closedId)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(openId)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(closedId)
+
+    const { pushHistory, getHistoryState } = useHistoryStore.getState().actions
+    pushHistory(closedId, { content: 'hello', timestamp: Date.now() })
+    expect(getHistoryState(closedId)?.past).toHaveLength(1)
 
     destroyWorkspaceStore(wsId)
 
-    expect(disposeAll).toHaveBeenCalledTimes(1)
+    // The async teardown (dynamic-imports window-pane-store) clears undo
+    // history for the no-longer-referenced buffer as its last step before the
+    // disposeAll gate in the SAME callback — once this has fired, that gate
+    // has necessarily already been evaluated too.
+    await vi.waitFor(() => expect(getHistoryState(closedId)?.past).toHaveLength(0))
+    expect(disposeAll).not.toHaveBeenCalled()
+  })
+
+  it('disposes the editor manager on destroy once none of its buffers are open in a live pane', async () => {
+    resetWindowPaneStoreForTests()
+    const wsId = 'arm-ws-dispose-closed'
+    const store = getOrCreateWorkspaceStore(wsId)
+    await store.armEditor()
+    const disposeAll = vi.spyOn(store.editorManager!, 'disposeAll')
+
+    const bufferId = windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/closing.ts',
+      name: 'closing.ts',
+      content: 'hello',
+      workspaceId: wsId,
+    })
+    windowPaneStore
+      .getState()
+      .paneActions.removeEditorTabFromPane(windowPaneStore.getState().activePaneId, bufferId)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(bufferId)
+
+    destroyWorkspaceStore(wsId)
+
+    await vi.waitFor(() => expect(disposeAll).toHaveBeenCalledTimes(1))
   })
 })

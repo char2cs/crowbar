@@ -113,7 +113,10 @@ function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
     }
     unsubs.push(
       windowPaneStore.subscribe((state) => {
-        if (state.panes === prevPaneSlice.panes && state.dormantArrangements === prevPaneSlice.dormant) {
+        if (
+          state.panes === prevPaneSlice.panes &&
+          state.dormantArrangements === prevPaneSlice.dormant
+        ) {
           return
         }
         prevPaneSlice = { panes: state.panes, dormant: state.dormantArrangements }

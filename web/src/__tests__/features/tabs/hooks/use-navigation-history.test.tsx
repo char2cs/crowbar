@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 vi.mock('@/features/editor/stores/state-store', () => ({
@@ -80,12 +83,14 @@ describe('useNavigationHistory', () => {
     openFile('w2', '/src/app.ts')
     act(() => {
       setActiveWorkspaceId('w2')
-      windowPaneStore.getState().paneActions.activateEditorTabInPane(
-        windowPaneStore.getState().activePaneId,
-        windowPaneStore
-          .getState()
-          .buffers.find((b) => b.workspaceId === 'w2' && b.path === '/src/app.ts')!.id,
-      )
+      windowPaneStore
+        .getState()
+        .paneActions.activateEditorTabInPane(
+          windowPaneStore.getState().activePaneId,
+          windowPaneStore
+            .getState()
+            .buffers.find((b) => b.workspaceId === 'w2' && b.path === '/src/app.ts')!.id,
+        )
     })
 
     expect(useJumpListStore.getState().entries).toEqual([])

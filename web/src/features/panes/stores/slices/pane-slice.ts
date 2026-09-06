@@ -11,12 +11,14 @@ import type {
 } from '@/features/panes/types/pane'
 import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 import {
+  appendLeaf,
   createLeaf,
   splitLayout,
   closeLayout,
   findLeaf,
   findSplit,
   getAllLeafIds,
+  getFirstLeafId,
   distributeSplit,
   resizeFlattenedLayout,
   normalizeLayout,
@@ -36,6 +38,14 @@ export interface PaneActions {
     bufferId?: string,
     placement?: SplitPlacement,
   ): string | null
+  /** Spec §8.4: a CLICK "makes its own view" — one more pane in this window,
+   *  a PEER of everything already up. `splitPane` answers §8.1's different
+   *  question ("into this view, on that side") and carves the new pane out of
+   *  the one it is handed; routing a click through it is what made clicking a
+   *  row read as appending to the pane you were in. Returns the new pane's id,
+   *  empty and active. Root layout only — a click never opens into the bottom
+   *  panel. */
+  addPane(): string | null
   closePane(paneId: string): void
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
@@ -166,6 +176,53 @@ function getLayoutKey(
   return paneId === BOTTOM_PANE_ID ? 'bottomLayout' : 'rootLayout'
 }
 
+/** Nothing in it at all — no chat, no editor tabs. The one state spec §5.4
+ *  calls a fallback rather than a view. */
+export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | undefined): boolean {
+  if (!pane) return false
+  return pane.chatId === null && pane.editorTabIds.length === 0
+}
+
+/**
+ * An emptied pane leaves the layout, collapsing into its sibling exactly as
+ * closing it would.
+ *
+ * A pane holding nothing is a FALLBACK — "it should only appear when NO VIEW
+ * is opened" — not a view of its own, so it must never sit in a split taking
+ * up a share of the window with a wordmark in it and a close button over it.
+ * The one legitimate empty pane is the LAST one in its tree, which is the
+ * "nothing is open in this window" screen (spec §5.4: "closing the last pane
+ * empties it rather than refusing") — that one stays, and `TabBar` draws it
+ * without any of the chrome that names or closes pane content.
+ *
+ * Safe to run as a plain layout edit rather than through `closePane`: an empty
+ * pane has no chat to archive into Recents and no editor tabs to hand to a
+ * survivor, which is everything `closePane` does beyond the layout itself.
+ *
+ * Called only from the transitions that actually EMPTY a pane
+ * (`setPaneChat(…, null)`, `forgetChat`, `removeEditorTabFromPane`), never on
+ * every write — a pane created empty by `splitPane`/`addPane` is filled by its
+ * caller in the very next action and must survive the gap.
+ */
+function dropEmptiedPanes(state: WindowPaneState): void {
+  for (const key of ['rootLayout', 'bottomLayout'] as const) {
+    for (const paneId of getAllLeafIds(state[key])) {
+      // The sole leaf of its own tree is the fallback screen — re-read each
+      // pass, since an earlier collapse in this loop may have made this the
+      // last one standing.
+      if (getAllLeafIds(state[key]).length <= 1) break
+      if (!isPaneEmpty(state.panes[paneId])) continue
+      const next = closeLayout(state[key], paneId)
+      if (next === null) break
+      state[key] = normalizeLayout(next)
+      delete state.panes[paneId]
+      state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter((id) => id !== paneId)
+      if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
+      if (state.activePaneId === paneId) state.activePaneId = getFirstLeafId(state[key])
+    }
+  }
+}
+
 /**
  * §3.2: "a row with a view is grey" — true when some pane already holds
  * `chatId`. `panes` is a flat `Record` (the split TREE lives only in
@@ -240,6 +297,27 @@ export const createPaneSlice: StateCreator<
           }
           state.activePaneId = newPaneId
           state.mostRecentActivePaneIds = [newPaneId, ...state.mostRecentActivePaneIds]
+        })
+        return newPaneId
+      },
+
+      addPane() {
+        let newPaneId: string | null = null
+        set((state) => {
+          const result = appendLeaf(state.rootLayout, 'horizontal')
+          state.rootLayout = result.layout
+          newPaneId = result.newPaneId
+          state.panes[result.newPaneId] = {
+            id: result.newPaneId,
+            type: 'group',
+            chatId: null,
+            runnerId: null,
+            editorTabIds: [],
+            activeEditorTabId: null,
+            editorOpen: false,
+          }
+          state.activePaneId = result.newPaneId
+          state.mostRecentActivePaneIds = [result.newPaneId, ...state.mostRecentActivePaneIds]
         })
         return newPaneId
       },
@@ -417,6 +495,9 @@ export const createPaneSlice: StateCreator<
           if (pane.editorTabIds.length === 0) pane.editorOpen = false
           // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
           syncSoleEditorTabCloseability(state, paneId)
+          // Took the last thing this pane held — an empty pane is a fallback,
+          // never a view, so it goes with it unless it is the last one left.
+          dropEmptiedPanes(state)
         })
       },
 
@@ -646,6 +727,14 @@ export const createPaneSlice: StateCreator<
               )
               .filter((e) => e.chatIds.length > 0)
           }
+
+          // An eviction (`use-workspace-agent-chats-stream.ts`'s `followRunner`
+          // clearing a pane to null) leaves a pane holding nothing. That is a
+          // fallback state, not a view: the pane collapses into its sibling
+          // rather than standing in the layout as an empty box with a close
+          // button on it. Only when it was genuinely emptied — a pane moving
+          // ONTO a chat is the normal case and must not disturb the layout.
+          if (chatId === null) dropEmptiedPanes(state)
         })
       },
 
@@ -675,35 +764,44 @@ export const createPaneSlice: StateCreator<
 
           // Spec §9: "If the last pane held something deleted it takes the
           // first chat still standing." Only reaches for a replacement when
-          // the deletion left NOTHING else live anywhere in the window — an
-          // ordinary close in a multi-pane layout just shows the empty stage
-          // in the one pane that lost its chat, same as any other close.
-          if (clearedPaneIds.length === 0) return
-          if (Object.values(state.panes).some((p) => p.chatId !== null)) return
+          // the deletion left NOTHING else live anywhere in the window — in a
+          // multi-pane layout the pane that lost its chat simply goes, the way
+          // every other emptied pane does (`dropEmptiedPanes` at the tail,
+          // which runs whichever branch this takes).
+          const lastOneStanding =
+            clearedPaneIds.length > 0 && !Object.values(state.panes).some((p) => p.chatId !== null)
           // "First" is the persisted Recents order (spec §5.6/§5.8) — the
           // only ordering this slice has anything to say about; a working-
           // but-viewless chat elsewhere would also qualify as "still
           // standing" but resolving one needs scanning every active
           // workspace store, which is Recents' own job
           // (`recents-for-project.ts`), not this window-level slice's.
-          const standing = state.dormantArrangements.find((e) => e.chatIds.length > 0)?.chatIds[0]
-          if (!standing) return
-          const fallbackPane = state.panes[clearedPaneIds[0]]
-          if (!fallbackPane) return
-          fallbackPane.chatId = standing
-          // The same survivor-stripping `closePane`/`setPaneChat` both do:
-          // this chat is about to be LIVE again, in a pane, so it sheds
-          // membership in whatever multi-chat entry still remembered it
-          // (a single-chat entry is deliberately left alone — see
-          // `setPaneChat`'s own note — so it just recomputes to 'live' at
-          // its existing slot).
-          state.dormantArrangements = state.dormantArrangements
-            .map((e) =>
-              e.chatIds.length > 1 && e.chatIds.includes(standing)
-                ? { ...e, chatIds: e.chatIds.filter((id) => id !== standing) }
-                : e,
-            )
-            .filter((e) => e.chatIds.length > 0)
+          const standing = lastOneStanding
+            ? state.dormantArrangements.find((e) => e.chatIds.length > 0)?.chatIds[0]
+            : undefined
+          const fallbackPane = standing ? state.panes[clearedPaneIds[0]] : undefined
+          if (standing && fallbackPane) {
+            fallbackPane.chatId = standing
+            // The same survivor-stripping `closePane`/`setPaneChat` both do:
+            // this chat is about to be LIVE again, in a pane, so it sheds
+            // membership in whatever multi-chat entry still remembered it
+            // (a single-chat entry is deliberately left alone — see
+            // `setPaneChat`'s own note — so it just recomputes to 'live' at
+            // its existing slot).
+            state.dormantArrangements = state.dormantArrangements
+              .map((e) =>
+                e.chatIds.length > 1 && e.chatIds.includes(standing)
+                  ? { ...e, chatIds: e.chatIds.filter((id) => id !== standing) }
+                  : e,
+              )
+              .filter((e) => e.chatIds.length > 0)
+          }
+
+          // Whatever the deletion left chatless goes with it — the pane that
+          // held the deleted chat is not a view any more, and spec §9's whole
+          // point is that deletion "must not leave a name behind". The last
+          // pane in the tree survives, chatless, as the fallback screen.
+          if (clearedPaneIds.length > 0) dropEmptiedPanes(state)
         })
       },
 
@@ -754,9 +852,7 @@ export const createPaneSlice: StateCreator<
           // never tracked before gets appended, in the caller's own natural
           // order — never touching an id some OTHER project already placed.
           const known = new Set(state.recentsOrder)
-          const seeded = state.recentsOrder.concat(
-            naturalOrder.filter((id) => !known.has(id)),
-          )
+          const seeded = state.recentsOrder.concat(naturalOrder.filter((id) => !known.has(id)))
           const withoutSource = seeded.filter((id) => id !== entryId)
           const targetIndex = withoutSource.indexOf(targetId)
           const insertAt =

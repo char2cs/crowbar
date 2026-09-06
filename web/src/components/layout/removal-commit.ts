@@ -2,6 +2,7 @@ import { deleteProject, deleteRepo } from '@/lib/api'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
 import { getOwningChatId } from '@/lib/workspace-scope'
+import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
@@ -79,15 +80,28 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       // A worktree is taken by deleting the CHAT that holds it: DELETE
       // .../chats/:id now cascades the worktree teardown, so this is the same
       // destruction the workspace route did, addressed by the only id a route
-      // may name. No fallback to that route — a missing owning chat is a
-      // scope-recording bug, and quietly deleting through a retiring URL would
-      // hide it. Rejected rather than thrown, so `flushDrainingRemovals`'s
-      // `.catch` on an unloading page still catches it.
-      const owningChatId = getOwningChatId(entry.id)
+      // may name. No fallback to a workspace route — that group is gone.
+      // Rejected rather than thrown, so `flushDrainingRemovals`'s `.catch` on
+      // an unloading page still catches it.
+      //
+      // Resolved from the SIDEBAR TREE first (`owningChatIdOfWorkspace` — the
+      // same union `rows-from-repo.ts` renders the row from), and only then
+      // from `workspace-scope.ts`'s side registry. That order is the fix: the
+      // registry is a second copy of this fact, written on navigation and on
+      // seed, and a workspace the user has only ever SEEN as a row — never
+      // opened — could legitimately be absent from it. Asking it first turned
+      // that absence into a rejected delete on a perfectly valid row, and since
+      // the row had already been optimistically hidden, the removal looked like
+      // it worked right up until the next reseed brought it back.
+      const owningChatId =
+        owningChatIdOfWorkspace(useSidebarStore.getState().repos, entry.id) ??
+        getOwningChatId(entry.id)
       if (!owningChatId) {
         return Promise.reject(new Error(`no owning chat recorded for workspace ${entry.id}`))
       }
-      return deleteChat(entry.id, owningChatId, ...opts)
+      return deleteChat(entry.id, owningChatId, ...opts).then(() => {
+        bumpRepoTree(entry.repoId)
+      })
     }
     case 'folder':
       // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
@@ -121,13 +135,42 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
     case 'project':
       return deleteProject(entry.projectId, ...opts)
     case 'chat':
-      // No local tombstone, same as workspace/repo/project above (unlike
-      // folder's own special case): a chat DOES arrive on a real push/reseed
-      // channel — `resolveChatRow`'s own doc references it — so there is no
-      // "flashes back until the next unrelated rebuild" hazard here to guard
-      // against the way there was for folders.
-      return deleteChat(entry.wsId, entry.id, ...opts)
+      // No local tombstone (unlike folder's own special case): a chat DOES
+      // arrive on a real push/reseed channel. But that channel has a condition
+      // — see `bumpRepoTree` — and this is one of the surfaces that does not
+      // meet it, so the acting client rings its own bell.
+      return deleteChat(entry.wsId, entry.id, ...opts).then(() => {
+        bumpRepoTree(entry.repoId)
+      })
   }
+}
+
+/**
+ * Tell this repo's sidebar tree to re-read its rows.
+ *
+ * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
+ * on exactly one trigger: this repo's generation in `useFolderSignalStore`
+ * moving. The only thing that normally moves it is
+ * `use-workspace-agent-chats-stream.ts`, on a structural chat frame — and that
+ * hook runs only for a MOUNTED workspace. App-sync's own comment records the
+ * assumption that made that acceptable: "a chat can only be created, renamed or
+ * moved from a surface that has that workspace mounted."
+ *
+ * That assumption is no longer true, and this is the correction. The sidebar is
+ * on screen on every route (including project home, where no repo workspace is
+ * mounted at all), it deletes and creates chats, and it does so for rows whose
+ * workspace the user has never opened. Without this bump the daemon really did
+ * take the chat and the row simply stayed on screen — which reads as "I deleted
+ * these chats and they came back", because the optimistic hide releases as soon
+ * as the WORKSPACE half tombstones and the surviving chat row paints again.
+ *
+ * The same reasoning `row-actions.ts` already applies to every folder and chat
+ * RENAME it fires (`performRenameChat`, `performRenameFolder`,
+ * `performCreateFolder`, `performSetWorkspaceLock` all bump); create and delete
+ * were the two verbs left out.
+ */
+function bumpRepoTree(repoId: string): void {
+  if (repoId) useFolderSignalStore.getState().bump(repoId)
 }
 
 /**

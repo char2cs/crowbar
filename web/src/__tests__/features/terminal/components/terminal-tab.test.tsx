@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 // jsdom can't run xterm/WebGL — stand in for it, same as agent-chat-pane's
 // own suite.
@@ -37,7 +40,7 @@ function renderTab(paneId: string | undefined, bufferId: string) {
     createElement(
       WorkspaceStoreContext.Provider,
       { value: store },
-      createElement(TerminalTab, { sessionId: 'pty-1', bufferId, paneId }),
+      createElement(TerminalTab, { sessionId: 'pty-1', bufferId, paneId, workspaceId: 'w1' }),
     ),
   )
 }

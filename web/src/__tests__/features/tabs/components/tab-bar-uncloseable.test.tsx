@@ -5,7 +5,10 @@ import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 // I2: isUncloseable currently only hides the tab-bar-item's × button. Every
 // OTHER close affordance — middle-click, and the tab context menu's Close /
@@ -77,7 +80,6 @@ function makeEditorBuffer(i: number): EditorContent {
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    isActive: false,
     tokens: [],
     workspaceId: 'w1',
   }
@@ -99,7 +101,6 @@ function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    isActive: false,
     tokens: [],
     isUncloseable,
     workspaceId: 'w1',
@@ -127,7 +128,11 @@ function setupSoleTabStore() {
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = [nt]
-    s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' }
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      editorTabIds: ['nt-1'],
+      activeEditorTabId: 'nt-1',
+    }
     return s
   })
   return store
@@ -144,7 +149,11 @@ function setupMultiPaneStore() {
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = [...editors, nt]
-    s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], editorTabIds: ['nt-1'], activeEditorTabId: 'nt-1' }
+    s.panes[ROOT_PANE_ID] = {
+      ...s.panes[ROOT_PANE_ID],
+      editorTabIds: ['nt-1'],
+      activeEditorTabId: 'nt-1',
+    }
     s.panes[BOTTOM_PANE_ID] = {
       ...s.panes[BOTTOM_PANE_ID],
       editorTabIds: editors.map((b) => b.id),
@@ -176,7 +185,8 @@ function setupTwoPaneStore(bufferOrder: 'root-first' | 'bottom-first' = 'root-fi
     // bottom-first here specifically defeats an unscoped `slice(idx + 1)`
     // over the flat array, which would otherwise coincidentally look correct
     // whenever the active pane's own tabs already come last in that array.
-    s.buffers = bufferOrder === 'bottom-first' ? [...bottomBufs, ...rootBufs] : [...rootBufs, ...bottomBufs]
+    s.buffers =
+      bufferOrder === 'bottom-first' ? [...bottomBufs, ...rootBufs] : [...rootBufs, ...bottomBufs]
     s.panes[ROOT_PANE_ID] = {
       ...s.panes[ROOT_PANE_ID],
       editorTabIds: rootBufs.map((b) => b.id),

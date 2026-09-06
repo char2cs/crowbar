@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
   windowPaneStore,
@@ -6,6 +6,14 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import type { EditorTabBase } from '@/features/panes/types/pane-content'
+import { getOwningChatId } from '@/lib/workspace-scope'
+
+// ensurePaneChatThenOpen resolves the workspace's real owning chat through
+// this — the same read every other workspace-scoped surface uses (lsp-
+// client.ts, terminal.tsx, branch-review-pane.tsx, ...). Mocked here so each
+// test controls exactly what "this workspace's owning chat" resolves to,
+// without needing a live sidebar/route to populate the real registry.
+vi.mock('@/lib/workspace-scope', () => ({ getOwningChatId: vi.fn() }))
 
 // Task 1 renamed the pane's tab list `bufferIds` -> `editorTabIds` and the
 // actions that write it (`addBufferToPane` -> `addEditorTabToPane`, which now
@@ -212,5 +220,69 @@ describe('pane command actions', () => {
     const bottomIds = getAllLeafIds(windowPaneStore.getState().bottomLayout)
     expect(bottomIds).toHaveLength(2)
     expect(paneActions.getPaneById(splitPaneId)?.locked).toBeFalsy()
+  })
+})
+
+// Every workspace already has a real owning chat, minted by the daemon
+// (rows-from-repo.ts). These lock the actual bug fix in: a pane that hasn't
+// been told its workspace's chat yet must REUSE that real chat, never mint a
+// second, redundant one — and must do nothing at all when no owning chat can
+// be resolved, rather than silently creating one.
+describe('ensurePaneChatThenOpen', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+    vi.mocked(getOwningChatId).mockReset()
+  })
+
+  it('runs openTab directly when the pane already has a chat — never consults the owning chat', async () => {
+    const { ensurePaneChatThenOpen } = await import('@/features/panes/utils/pane-command-actions')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'existing-chat', 'runner-1')
+    const openTab = vi.fn()
+
+    ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
+
+    expect(openTab).toHaveBeenCalledTimes(1)
+    expect(getOwningChatId).not.toHaveBeenCalled()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('existing-chat')
+  })
+
+  it("attaches the workspace's real owning chat to a chatless pane, then opens", async () => {
+    const { ensurePaneChatThenOpen } = await import('@/features/panes/utils/pane-command-actions')
+    vi.mocked(getOwningChatId).mockReturnValue('owning-chat-1')
+    const openTab = vi.fn()
+
+    ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
+
+    expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('owning-chat-1')
+    expect(openTab).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing — no chat attached, openTab never runs — when no owning chat resolves', async () => {
+    const { ensurePaneChatThenOpen } = await import('@/features/panes/utils/pane-command-actions')
+    vi.mocked(getOwningChatId).mockReturnValue(null)
+    const openTab = vi.fn()
+
+    ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+    expect(openTab).not.toHaveBeenCalled()
+  })
+
+  it('reveals a pane already showing the owning chat rather than duplicating it into this one', async () => {
+    const { ensurePaneChatThenOpen } = await import('@/features/panes/utils/pane-command-actions')
+    const paneActions = windowPaneStore.getState().paneActions
+    const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!otherPaneId) throw new Error('split failed')
+    paneActions.setPaneChat(otherPaneId, 'owning-chat-1', null)
+    paneActions.setActivePane(ROOT_PANE_ID)
+    vi.mocked(getOwningChatId).mockReturnValue('owning-chat-1')
+    const openTab = vi.fn()
+
+    ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
+
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+    expect(openTab).toHaveBeenCalledTimes(1)
   })
 })

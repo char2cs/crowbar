@@ -75,7 +75,15 @@ async function seedDB(workspaceId: string) {
   const layout: WorkspaceLayout = {
     workspaceId,
     panes: {
-      [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null },
+      [ROOT_PANE_ID]: {
+        id: ROOT_PANE_ID,
+        type: 'group',
+        chatId: null,
+        runnerId: null,
+        editorTabIds: [],
+        activeEditorTabId: null,
+        editorOpen: false,
+      },
     },
     rootLayout: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf('bottom-pane'),
@@ -228,7 +236,6 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
       isVirtual: false,
       isPinned: false,
       isPreview: false,
-      isActive: true,
       tokens: [],
       workspaceId: WS,
       ...overrides,
@@ -426,7 +433,6 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
       isVirtual: false,
       isPinned: false,
       isPreview: false,
-      isActive: true,
       tokens: [],
       workspaceId: WS,
       ...overrides,

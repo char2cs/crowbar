@@ -18,8 +18,8 @@ const editorBuffer: EditorContent = {
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  isActive: false,
   tokens: [],
+  workspaceId: 'w1',
 }
 
 const shared = {
@@ -95,7 +95,7 @@ describe('TabBarItem underline restyle', () => {
   // sole-tab-in-a-pane invariant (isUncloseable) now applies to any real
   // editor-tab content, exercised here with a plain editor buffer.
   it('renders an uncloseable tab with its label and no close button', () => {
-    const buffer: EditorContent = { ...editorBuffer, isActive: true, isUncloseable: true }
+    const buffer: EditorContent = { ...editorBuffer, isUncloseable: true }
     render(<TabBarItem buffer={buffer} isActive {...shared} />)
     expect(screen.getByText('bar.ts')).toBeInTheDocument()
     expect(screen.queryByLabelText(/close/i)).not.toBeInTheDocument()

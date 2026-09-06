@@ -177,7 +177,9 @@ export function useFileExplorerContextMenu({
           // this content instead.
           const createdBuffer = windowPaneStore
             .getState()
-            .buffers.find((buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId)
+            .buffers.find(
+              (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
+            )
           if (createdBuffer) {
             windowPaneStore.setState((state) => ({
               ...state,

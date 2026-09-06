@@ -101,7 +101,7 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
   // what destroyed anything) and would have passed identically against the
   // OLD, broken code. This exercises the REAL singleton and the REAL
   // destroy call.
-  it('pane layout survives destroyWorkspaceStore for the chat\'s own (evicted) workspace', async () => {
+  it("pane layout survives destroyWorkspaceStore for the chat's own (evicted) workspace", async () => {
     resetWindowPaneStoreForTests()
     getOrCreateWorkspaceStore('ws-evicted')
 
@@ -110,9 +110,7 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     destroyWorkspaceStore('ws-evicted')
     await flushMicrotasks()
 
-    expect(windowPaneStore.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatId).toBe(
-      'chat-1',
-    )
+    expect(windowPaneStore.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatId).toBe('chat-1')
   })
 
   it('an open editor buffer survives destroyWorkspaceStore for its own (evicted) workspace', async () => {

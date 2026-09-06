@@ -1156,7 +1156,31 @@ export function AgentChatPane({
               // under an open tab). Nothing in this pane can ever resolve, so
               // close it rather than leave a permanent "Couldn't load" error
               // with no way back.
-              onChatGone={() => windowPaneStore.getState().paneActions.closePane(paneId)}
+              //
+              // Gated on `known`: `wsId` here is this AgentChatPane's own
+              // AMBIENT workspace (from PaneContainer's WorkspaceStoreContext),
+              // not necessarily the chat's real owning workspace. WorkspaceHost
+              // keeps several WorkspaceViews mounted at once (keep-alive), each
+              // rendering its OWN copy of the shared pane tree — `pane.chatId`
+              // is a single window-level field (Task 26), so opening a chat
+              // makes EVERY mounted WorkspaceView's AgentChatPane try to show
+              // it, including ones whose ambient wsId is a different workspace
+              // entirely. That copy's ledger fetch 404s against the wrong scope
+              // — a routing mismatch, not evidence of deletion — and closePane
+              // mutates the shared store, so an ungated close here would wipe
+              // the chat out of the ONE copy that was rendering it correctly.
+              // `known` (agentChats.chats for THIS ambient workspace) is false
+              // both while its own chat list is still loading and, permanently,
+              // when the chat simply isn't this workspace's to show — neither
+              // is a deletion signal. Once this workspace's own list confirms
+              // the chat (`known` flips true) a later 404 is trustworthy again;
+              // a chat that never becomes known here is instead cleaned up by
+              // the vanished-chat sweep in use-workspace-agent-chats-stream.ts,
+              // which diffs THIS workspace's own list, not a foreign fetch.
+              onChatGone={() => {
+                if (!known) return
+                windowPaneStore.getState().paneActions.closePane(paneId)
+              }}
               onOpenTerminal={() => {
                 // Unchanged outside split — the chat view's own way through to the
                 // terminal, with no claim on bringing anybody back. In split there

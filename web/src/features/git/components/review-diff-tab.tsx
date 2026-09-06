@@ -17,6 +17,18 @@ const ReviewSearchBarLazy = lazy(() =>
 
 interface ReviewDiffTabProps {
   onRetry: () => void
+  /**
+   * The workspace THIS diff belongs to (BranchReviewContent.wsId /
+   * CommitDiffContent.wsId), NOT the ambient WorkspaceStoreContext.
+   * WorkspaceHost keeps every WorkspaceView it retains mounted at once for
+   * keep-alive, each rendering the same window-level pane tree under its OWN
+   * ambient context — a tab that read the ambient workspace instead of its
+   * own buffer's would fetch/display the WRONG (or empty) diff via
+   * useReviewFilesSummary/useReviewOutline in a hidden copy, scoped to
+   * whichever workspace happens to be active rather than the one this tab was
+   * opened for (same shape of bug as terminal-tab.tsx's `workspaceId` prop).
+   */
+  wsId: string
   /** Branch-review header data (branch name + base) for the shared diff header. */
   branchHeader?: { title: string; baseBranch?: string }
   isActivePane?: boolean
@@ -54,14 +66,14 @@ function CenteredState({ children }: { children: React.ReactNode }) {
  */
 export function ReviewDiffTab({
   onRetry,
+  wsId,
   branchHeader,
   isActivePane,
   commit,
   emptyMessage,
 }: ReviewDiffTabProps) {
-  const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
-  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId ?? null, commit)
-  const { outline } = useReviewOutline(wsId ?? null, commit)
+  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
+  const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
   // Mirrored into state as well as a ref: the reveal below has to run WHEN the
@@ -157,7 +169,7 @@ export function ReviewDiffTab({
         </Button>
       </div>
 
-      {searchOpen && wsId && (
+      {searchOpen && (
         <Suspense fallback={null}>
           <ReviewSearchBarLazy
             wsId={wsId}
@@ -171,7 +183,7 @@ export function ReviewDiffTab({
       <div className="min-h-0 flex-1">
         <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
           <ReviewCodeViewLazy
-            wsId={wsId ?? ''}
+            wsId={wsId}
             commit={commit}
             files={files}
             outline={outline}

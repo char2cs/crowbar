@@ -237,18 +237,35 @@ export async function performRenameProject(projectId: string, name: string): Pro
  * returned: no request, no error, and the name the user had just typed into
  * the inline editor simply gone. A rename that silently discards what was
  * typed is indistinguishable from one that worked and was then reverted.
+ *
+ * A FIFTH wrinkle joins the first: a branch row's id is no longer only a
+ * locked branch or a repo home — `rows-from-repo.ts` folds an ordinary fork's
+ * (and a forked thread's) owning chat into its row the same way now, and rule
+ * 6 makes that row's LABEL the chat's title, not its branch. Renaming it has
+ * to retitle the chat, same as a bubble does — only a LOCKED branch keeps its
+ * branch-name label (addendum rules 1-4's "Folder mechanism") and so is the
+ * one workspace-owning row still renamed as a branch.
  */
 export function performRenameRow(rowId: string, name: string): Promise<void> {
   const state = useSidebarStore.getState()
   // A branch row's id is the chat that OWNS its workspace, so it sits in the
   // chat id space while being no chat at all. Translating first is what keeps
-  // the three cases below meaning what they say: without it the repo-home row
-  // stops matching `defaultWorkspaceId`, falls into the chat branch, and
-  // renaming the repo silently retitles a conversation instead.
+  // the cases below meaning what they say: without it the repo-home row stops
+  // matching `defaultWorkspaceId`, falls into the chat branch, and renaming
+  // the repo silently retitles a conversation instead.
   const wsId = workspaceIdOfBranchRow(state.repos, rowId) ?? rowId
   const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === wsId)
   if (homeRepo) return performRenameRepo(homeRepo.id, name)
-  if (state.repos.some((r) => r.chats?.some((c) => c.id === rowId && c.type !== 'branch'))) {
+  if (wsId !== rowId) {
+    // `rowId` translated to a real workspace, so it names a folded row (see
+    // the fifth wrinkle above) — locked stays a branch rename, everything
+    // else is now a chat rename.
+    const repo = state.repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+    const ws = repo?.workspaces.find((w) => w.id === wsId)
+    if (ws?.status === 'locked') return performRenameWorkspaceBranch(wsId, name)
+    return performRenameChat(rowId, name)
+  }
+  if (state.repos.some((r) => r.chats?.some((c) => c.id === rowId))) {
     return performRenameChat(rowId, name)
   }
   const isFolder = state.repos.some((r) => r.folders?.some((f) => f.id === rowId))

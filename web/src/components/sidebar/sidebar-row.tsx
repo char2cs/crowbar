@@ -8,7 +8,6 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import {
-  ADD_GLYPH_PATH,
   DISCLOSURE_GLYPH_PATH,
   ROW_BASE,
   ROW_GLYPH_BOX,
@@ -17,7 +16,11 @@ import {
   ROW_INDENT_TRANSITION,
   ROW_NEST_TARGET,
   ROW_SUB_ACTION_HOVER,
+  ROW_SUBLABEL,
+  ROW_SUBLABEL_ADD,
+  ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
+import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
@@ -75,9 +78,14 @@ interface SidebarRowProps {
  *
  * Deliberately dumb: no selected/active state (§3.2 retires the tree's raised
  * ROW_ACTIVE surface — that concept moved to Recents' own "is-active" shell),
- * no second line ever (§3.3), and each trailing control renders only when its
- * handler prop is supplied, so a caller opts into exactly the affordances a
- * given row needs.
+ * and each trailing control renders only when its handler prop is supplied,
+ * so a caller opts into exactly the affordances a given row needs.
+ *
+ * §3.3 used to read "no second line ever" — retired by the product rule that
+ * unified workspaces and chats into one row model: a `branch` row that owns a
+ * real (unlocked) workspace now draws a second line under its label with that
+ * workspace's branch name and change counts (rule 6), the way the retired
+ * workspace tree's own `WorkspaceRowLabel` did.
  */
 export function SidebarRow({
   row,
@@ -119,6 +127,21 @@ export function SidebarRow({
   // pane — from ALSO answering yes and fighting the tree row for focus.
   const isThisRowRenaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
   const renaming = !inlineRenameDisabled && isThisRowRenaming
+  // Rule 6: a `branch` row that owns a real, unlocked workspace draws its
+  // OWNING CHAT's title on the label line now (`rows-from-repo.ts`'s own
+  // `label`/`branchName` split), with the branch name and change counts moved
+  // to a second line beneath it. A locked branch, the project-home row, and a
+  // genuinely chat-less workspace (no owner resolved yet) all keep the single
+  // branch/repo-name line instead (addendum rules 1-4: "Folder mechanism" for
+  // the first two — unchanged) — every one of those is exactly the case where
+  // `label` IS `branchName`, which is what the last check below catches
+  // without a field of its own: a second line would just repeat the label.
+  const showBranchSecondLine =
+    row.kind === 'branch' &&
+    !isProjectHome &&
+    !row.locked &&
+    !!row.branchName &&
+    row.label !== row.branchName
 
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
@@ -206,13 +229,29 @@ export function SidebarRow({
         {renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
-            mono={row.kind === 'branch'}
+            mono={row.kind === 'branch' && !showBranchSecondLine}
             onConfirm={(name) => {
               useSidebarInlineRenameStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
             }}
             onCancel={() => useSidebarInlineRenameStore.getState().stopRenaming()}
           />
+        ) : showBranchSecondLine ? (
+          // A flex COLUMN, not a row (matches the retired workspace tree's own
+          // `WorkspaceRowLabel`) — the counts sit UNDER the title, not beside
+          // it, so the title keeps the row's full width. ROW_BASE's `h-9` is a
+          // fixed 36px and the two leadings below (16px + 13px) are sized to
+          // fit inside it without growing the row.
+          <span
+            data-sidebar-row-label=""
+            className={cn(
+              'flex min-w-0 flex-1 flex-col justify-center',
+              row.hasView && 'text-muted-foreground',
+            )}
+          >
+            <span className={cn('truncate', row.labelProvisional && 'italic')}>{row.label}</span>
+            <BranchSecondLine row={row} />
+          </span>
         ) : (
           <span
             // Double-click-to-rename's delegation marker (sidebar-tree-chrome.tsx):
@@ -246,7 +285,15 @@ export function SidebarRow({
             row §3.5 already gives an empty container. The trash button that
             used to lead this cluster is gone entirely (addendum §1/§2):
             deleting is now a drag-to-trash gesture onto the file explorer
-            card, built elsewhere. */}
+            card, built elsewhere.
+
+            Rule 8: the fork control mints a CHILD chat session with its OWN
+            workspace forked from this row's branch — a git operation, not a
+            generic "+" — so it draws the same `GitBranch` mark `RowGlyph`
+            already uses for a row that owns a worktree (`weight="bold"`,
+            matching the thread button's own weight, rather than `"fill"`,
+            which reads too heavy at this size next to it). The thread button
+            beside it is unchanged. */}
         {onCreate && row.kind !== 'folder' && (
           <button
             type="button"
@@ -259,17 +306,7 @@ export function SidebarRow({
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <svg
-              aria-hidden="true"
-              className="size-3"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d={ADD_GLYPH_PATH} />
-            </svg>
+            <GitBranch aria-hidden="true" className="size-3" weight="bold" />
           </button>
         )}
 
@@ -319,20 +356,41 @@ export function SidebarRow({
   )
 }
 
+/**
+ * A `branch` row's second line: `branchName -- +added -deleted` (rule 6).
+ * Muted TOKEN throughout except the counts themselves, which keep the
+ * green/red they've always had — see `ROW_SUBLABEL`'s own doc on why the line
+ * is muted but the counts are not.
+ */
+function BranchSecondLine({ row }: { row: SidebarRowType }) {
+  const added = row.added ?? 0
+  const deleted = row.deleted ?? 0
+  return (
+    <span className={ROW_SUBLABEL}>
+      {row.branchName}
+      {(added > 0 || deleted > 0) && ' -- '}
+      {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
+      {added > 0 && deleted > 0 && ' '}
+      {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}
+    </span>
+  )
+}
+
 function RowGlyph({ row, large }: { row: SidebarRowType; large: boolean }) {
   const size = large ? 'size-5' : 'size-4'
   if (row.kind === 'folder') {
     return <Folder aria-hidden="true" className={size} weight="duotone" />
   }
   // A locked/protected branch (the repo/project home, or any other locked
-  // branch `rows-from-repo.ts`'s `walk()` mints) is id'd from its OWNING
-  // CHAT rather than from its own workspace — see that file's own doc on
-  // `branchRowIds` and the `rowId` derivation in `walk()`. An ordinary fork
-  // always keeps `id === workspaceId`, so the mismatch is exactly (and only)
-  // the locked case, with no extra field needed to carry it here.
+  // branch `rows-from-repo.ts`'s `walk()` mints) draws the Lock mark instead
+  // of the plain GitBranch every other worktree-owning row gets.
+  // `row.locked` is `rows-from-repo.ts`'s own `Workspace.status === 'locked'`
+  // read straight onto the row — every workspace-owning row is now id'd from
+  // its owning chat, locked or not, so the id/workspaceId mismatch this used
+  // to read off is no longer a signal unique to the locked case.
   // `workspace-branch-icon.tsx`'s own `status === 'locked'` case renders the
   // same glyph for the same fact.
-  if (row.kind === 'branch' && row.id !== row.workspaceId) {
+  if (row.kind === 'branch' && row.locked) {
     return <Lock aria-hidden="true" className={size} weight="fill" />
   }
   if (row.ownsWorktree) {

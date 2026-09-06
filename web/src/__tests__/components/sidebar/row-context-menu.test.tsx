@@ -54,7 +54,7 @@ const REPO: Repo = {
   defaultBranch: 'main',
   workspaces: [
     { id: 'ws-1', branch: 'feature-x', age: '' },
-    { id: 'ws-2', branch: 'develop', age: '', status: 'locked' },
+    { id: 'ws-2', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-2-row' },
   ],
   folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
   chats: [

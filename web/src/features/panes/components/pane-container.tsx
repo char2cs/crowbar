@@ -30,6 +30,7 @@ import {
 import type { PaneGroup } from '../types/pane'
 import type {
   BranchReviewContent,
+  CommitDiffContent,
   EditorContent,
   PaneContent,
   TerminalContent,
@@ -120,13 +121,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   // it can be added as an editor tab: addEditorTabToPane takes the tab's own
   // EditorTabBase-shaped object (only its `id` is read today, but the object
   // shape is the contract), not a bare id the way the old addBufferToPane did.
-  const addExistingTabToPane = useCallback(
-    (targetPaneId: string, tabId: string) => {
-      const tab = windowPaneStore.getState().buffers.find((b) => b.id === tabId)
-      if (tab) windowPaneStore.getState().paneActions.addEditorTabToPane(targetPaneId, tab)
-    },
-    [],
-  )
+  const addExistingTabToPane = useCallback((targetPaneId: string, tabId: string) => {
+    const tab = windowPaneStore.getState().buffers.find((b) => b.id === tabId)
+    if (tab) windowPaneStore.getState().paneActions.addEditorTabToPane(targetPaneId, tab)
+  }, [])
   // Stable identity: this feeds a memoized drop handler's dep array; an unstable
   // wrapper would defeat that memoization. It only closes over workspaceStore.
   const openTerminalBuffer = useCallback(
@@ -501,6 +499,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
               sessionId={buffer.sessionId}
               bufferId={buffer.id}
               paneId={pane.id}
+              workspaceId={buffer.workspaceId}
               initialCommand={buffer.initialCommand}
               workingDirectory={buffer.workingDirectory}
               remoteConnectionId={buffer.remoteConnectionId}
@@ -509,7 +508,17 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'commitDiff':
-          return <CommitDiffPane sha={buffer.sha} isActivePane={isActivePane} />
+          // wsId is the buffer's OWN workspace (CommitDiffContent.wsId), not
+          // the ambient ws above — see review-diff-tab.tsx's `wsId` prop doc
+          // for why a hidden keep-alive copy must not re-derive it from
+          // context.
+          return (
+            <CommitDiffPane
+              sha={buffer.sha}
+              wsId={(buffer as CommitDiffContent).wsId}
+              isActivePane={isActivePane}
+            />
+          )
 
         case 'externalEditor':
           return (
@@ -556,16 +565,19 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   )
 
   // Everything pane.editorTabIds holds — files, terminals, branch review,
-  // never the chat. Shared verbatim between the two render branches below (a
-  // pane with a chat, and a pane without one) so the editor region's actual
-  // content is identical either way — only its WRAPPER (and that wrapper's
-  // `hidden`/flex-basis) differs by presentation.
+  // never the chat. Shared verbatim whether or not the pane also holds a chat,
+  // so the editor region's actual content is identical either way — only its
+  // WRAPPER (and that wrapper's `hidden`/flex-basis) differs by presentation.
   const editorViewInner = (
     <>
-      {/* Under the New Tab rules a pane always holds at least one buffer, so
-          this should be unreachable. Kept — pointed at the same component — so
-          that if a bug ever does strand a pane with no tabs, it shows a usable
-          surface instead of a blank rectangle with no way out. */}
+      {/* NOT a second, ordinary kind of pane — a FALLBACK for a pane holding
+          nothing, which "should only appear when NO VIEW is opened". An
+          emptied pane in a split now leaves the layout outright
+          (`dropEmptiedPanes`, pane-slice.ts), so the only pane that reaches
+          this with no chat either is the last one in the window, and TabBar
+          draws that one with no chrome to name or close it. Deliberately inert
+          (just the wordmark) — a pane with nothing in it must never be a
+          screen a user can act from; see new-tab-view.tsx. */}
       {!activeBuffer && <NewTabView paneId={pane.id} />}
 
       {/* Keep terminal buffers always mounted to preserve PTY sessions.
@@ -591,6 +603,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 sessionId={b.sessionId}
                 bufferId={b.id}
                 paneId={pane.id}
+                workspaceId={b.workspaceId}
                 initialCommand={b.initialCommand}
                 workingDirectory={b.workingDirectory}
                 isActive={isActive && isActivePane}

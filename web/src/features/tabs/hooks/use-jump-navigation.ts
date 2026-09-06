@@ -19,8 +19,7 @@ export function useJumpNavigation() {
     const wsState = store.getState()
     const paneState = windowPaneStore.getState()
     const editorState = useEditorStateStore.getState()
-    const currentActiveBufferId =
-      paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
+    const currentActiveBufferId = paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
     const currentActiveBuffer = currentActiveBufferId
       ? paneState.buffers.find((b) => b.id === currentActiveBufferId)
       : undefined

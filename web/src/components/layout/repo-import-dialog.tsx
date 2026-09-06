@@ -285,7 +285,11 @@ function ImportRow({
   return (
     <div className="flex h-full items-center gap-2 rounded px-1 text-xs hover:bg-accent/60">
       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-        <Checkbox checked={checked} onChange={() => onToggle(branch.name)} ariaLabel={branch.name} />
+        <Checkbox
+          checked={checked}
+          onChange={() => onToggle(branch.name)}
+          ariaLabel={branch.name}
+        />
         <span className="min-w-0 flex-1 truncate font-mono">{branch.name}</span>
       </label>
       {/* Lock choice only matters — and only shows — once the branch is
@@ -295,7 +299,9 @@ function ImportRow({
         <button
           type="button"
           aria-pressed={locked}
-          aria-label={locked ? `Don't lock ${branch.name} after import` : `Lock ${branch.name} after import`}
+          aria-label={
+            locked ? `Don't lock ${branch.name} after import` : `Lock ${branch.name} after import`
+          }
           onClick={() => onToggleLock(branch.name)}
           className={`shrink-0 rounded p-0.5 ${locked ? 'text-foreground' : 'text-muted-foreground/40 hover:text-foreground'}`}
         >
