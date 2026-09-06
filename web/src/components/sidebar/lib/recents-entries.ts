@@ -1,4 +1,5 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
 import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
 
 /** Live > working > dormant (spec §5.6). A dormant multi-chat entry is drawn
@@ -22,6 +23,13 @@ function resolveState(
  * FIRST seen (led by `dormantArrangements`, the persisted order), and it
  * keeps that slot as it changes kind — recomputing `state` never moves it.
  *
+ * A row is a VIEW, never a pane. That is the whole reconciliation: grouping
+ * used to be recorded twice — once as pane layout with no group concept at
+ * all, once as `dormantArrangements` entries that a merge had to write by
+ * hand — and the two could disagree about what was one view. `viewId` on the
+ * panes is the single fact now, and `dormantArrangements` is left with only
+ * what panes cannot answer: what used to be up and is not any more.
+ *
  * `order` is spec §8.1's real, dragged order (`pane-slice.ts`'s
  * `recentsOrder`, written only by `reorderRecentsEntry`) — applied as a
  * final re-sort over whatever the population rules above produced: an id
@@ -37,8 +45,21 @@ export function deriveRecentsEntries(
   order: readonly string[] = [],
 ): RecentsEntry[] {
   const liveChatIds = new Set<string>()
+  // Every chat sharing a view with this one, itself included — the live
+  // group, keyed per member so a slot below can pull the rest of a view in
+  // behind whichever member it names.
+  const viewMates = new Map<string, string[]>()
+  const chatsByView = new Map<string, string[]>()
   for (const pane of panes) {
-    if (pane.chatId) liveChatIds.add(pane.chatId)
+    if (!pane.chatId) continue
+    liveChatIds.add(pane.chatId)
+    const viewId = viewIdOf(pane)
+    const mates = chatsByView.get(viewId)
+    if (mates) mates.push(pane.chatId)
+    else chatsByView.set(viewId, [pane.chatId])
+  }
+  for (const mates of chatsByView.values()) {
+    for (const chatId of mates) viewMates.set(chatId, mates)
   }
 
   const claimed = new Set<string>()
@@ -49,6 +70,20 @@ export function deriveRecentsEntries(
   for (const arrangement of dormantArrangements) {
     const chatIds = arrangement.chatIds.filter((id) => !claimed.has(id))
     if (chatIds.length === 0) continue // fully superseded by an earlier slot
+    // A LIVE chat brings its whole view with it. Its own dormant record is
+    // where the row is DRAWN (§5.6: "restoring a dormant one — the row stays
+    // exactly where it sits", and `recentsOrder` is keyed by this id), but
+    // what the row CONTAINS is a question only the panes answer. Without
+    // this, merging into a chat that happened to have been closed once split
+    // the view back across two rows — measured live: a merged pair drew as
+    // the reopened chat at its old slot plus a second row for the chat that
+    // joined it, which is exactly the "Recents shows panes, not views"
+    // this whole model replaces.
+    for (const id of [...chatIds]) {
+      for (const mate of viewMates.get(id) ?? []) {
+        if (!claimed.has(mate) && !chatIds.includes(mate)) chatIds.push(mate)
+      }
+    }
     for (const id of chatIds) claimed.add(id)
     entries.push({
       id: arrangement.id,
@@ -57,11 +92,27 @@ export function deriveRecentsEntries(
     })
   }
 
-  // A live view with no persisted slot is a brand-new row, appended in pane order.
+  // A live VIEW with no persisted slot is a brand-new row, appended in pane
+  // order — ONE row per view, not per pane. Panes sharing a `viewId` are the
+  // chats the user deliberately merged (the only gesture that does it is a
+  // drop, see `openChatIntoPane`), and §8.2's "you asked for them side by
+  // side" is a promise about this band as much as about the window: they
+  // belong to one slot, together. A pane nobody merged with is a view of one
+  // and lands here exactly as a single-chat row, which is why nothing here
+  // has to notice a merged view dissolving back down.
+  const liveViews = new Map<string, RecentsEntry>()
   for (const pane of panes) {
     if (!pane.chatId || claimed.has(pane.chatId)) continue
     claimed.add(pane.chatId)
-    entries.push({ id: pane.id, chatIds: [pane.chatId], state: 'live' })
+    const viewId = viewIdOf(pane)
+    const open = liveViews.get(viewId)
+    if (open) {
+      open.chatIds.push(pane.chatId)
+      continue
+    }
+    const entry: RecentsEntry = { id: viewId, chatIds: [pane.chatId], state: 'live' }
+    liveViews.set(viewId, entry)
+    entries.push(entry)
   }
 
   // A working chat with no view and no persisted slot — same population rule.

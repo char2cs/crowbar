@@ -18,6 +18,7 @@ import { flattenForRender, getAllLeafIds } from '@/features/panes/utils/pane-lay
 import type { LayoutSplit } from '@/features/panes/types/pane'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
 import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
 
 // Task 26: `agentChats.working` lives on the per-workspace store now (it never
@@ -36,6 +37,23 @@ function makeStore() {
       ...createPaneSlice(...([set, get, {}] as unknown as Parameters<typeof createPaneSlice>)),
     })),
   )
+}
+
+/**
+ * Put a multi-chat Recents entry into `dormantArrangements` directly.
+ *
+ * There is no longer an ACTION that writes one: grouping used to be recorded
+ * twice — here, by `groupIntoArrangement`, and (not at all) in the pane
+ * layout — and `viewId` on the panes is the single grouping fact now (see
+ * `pane-views.ts`). `RecentsEntry.chatIds` is still a list, so the survivor-
+ * stripping rules below still have a shape to defend; seeding it is the
+ * honest way to say "given such an entry exists" rather than routing through
+ * an action that no longer means that.
+ */
+function seedArrangement(store: ReturnType<typeof makeStore>, id: string, chatIds: string[]): void {
+  store.setState((s) => {
+    s.dormantArrangements.push({ id, chatIds, state: 'live' })
+  })
 }
 
 function makeStoreWithBuffers(buffers: Array<Record<string, unknown>>) {
@@ -1056,7 +1074,7 @@ describe('pane-slice — forgetChat (spec §9)', () => {
 
   it('plucks the chat out of a remembered SET, keeping the survivors grouped', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2', 'chat-3'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2', 'chat-3'])
     const entryId = store.getState().dormantArrangements[0].id
 
     store.getState().paneActions.forgetChat('chat-2')
@@ -1139,125 +1157,137 @@ describe('pane-slice — forgetChat (spec §9)', () => {
   })
 })
 
-// Task 22: spec §8.2's merge/survivor bookkeeping — "merging opens... you get
-// them side by side", "whatever goes up leaves every arrangement that was
-// remembering it... the arrangement you leave is remembered minus whatever
-// you took out of it", "an arrangement left with nobody in it goes."
-describe('pane-slice — groupIntoArrangement (spec §8.2 "merging")', () => {
-  it('groups two chats into one live entry', () => {
+// Task 22 / the View model: spec §8.2's merge and survivor rules. The merge
+// itself is no longer a Recents write at all — `viewId` on the panes IS the
+// group (see `pane-views.ts`), so a split that lands in the layout is the
+// same act as the chats being grouped. `groupIntoArrangement`, which used to
+// file the pair into `dormantArrangements` as a second, independently-
+// writable record of the same fact, is gone with it.
+describe('pane-slice — views are the grouping fact (spec §8.2 "merging")', () => {
+  it('a freshly added pane is its own view — nothing else carries its id', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-1',
-      'chat-2',
-    ])
+    const a = store.getState().paneActions.addPane()!
+    const b = store.getState().paneActions.addPane()!
+
+    const { panes } = store.getState()
+    expect(viewIdOf(panes[a])).not.toBe(viewIdOf(panes[b]))
+    expect(viewIdOf(panes[a])).not.toBe(viewIdOf(panes[ROOT_PANE_ID]))
   })
 
-  it('is a no-op for fewer than two chats', () => {
+  it('a split INHERITS the view it was carved out of — that is the merge', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1'])
-    expect(store.getState().dormantArrangements).toEqual([])
+    const target = store.getState().paneActions.addPane()!
+    const merged = store.getState().paneActions.splitPane(target, 'horizontal')!
+
+    const { panes } = store.getState()
+    expect(viewIdOf(panes[merged])).toBe(viewIdOf(panes[target]))
   })
 
-  it('extends an existing arrangement rather than nesting a second one — "grows instead of reopening"', () => {
+  it('a merged view is ONE Recents row carrying every chat in it', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
-    const [{ id }] = store.getState().dormantArrangements
+    const target = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(target, 'chat-1', null)
+    const merged = store.getState().paneActions.splitPane(target, 'horizontal')!
+    store.getState().paneActions.setPaneChat(merged, 'chat-2', null)
 
-    store.getState().paneActions.groupIntoArrangement(['chat-2', 'chat-3'])
+    const { panes, dormantArrangements, recentsOrder } = store.getState()
+    const entries = deriveRecentsEntries(
+      Object.values(panes),
+      {},
+      dormantArrangements,
+      recentsOrder,
+    )
 
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect(store.getState().dormantArrangements[0].id).toBe(id)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-1',
-      'chat-2',
-      'chat-3',
-    ])
+    expect(entries).toHaveLength(1)
+    expect([...entries[0].chatIds].sort()).toEqual(['chat-1', 'chat-2'])
+    expect(entries[0].id).toBe(viewIdOf(panes[target]))
   })
 
-  it('strips the incoming chats out of any OTHER arrangement they used to belong to', () => {
+  it('two separately-added panes are two rows, never one — a click never merges', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-3'])
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-1',
-      'chat-2',
-      'chat-3',
-    ])
+    const a = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(a, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    const { panes, dormantArrangements, recentsOrder } = store.getState()
+    const entries = deriveRecentsEntries(
+      Object.values(panes),
+      {},
+      dormantArrangements,
+      recentsOrder,
+    )
+
+    expect(entries).toHaveLength(2)
+    expect(entries.map((e) => e.chatIds)).toEqual([['chat-1'], ['chat-2']])
   })
 
-  // Fix round 1 (real, reviewer-verified regression): the original
-  // implementation always did filter-then-push, which re-inserted a GROWING
-  // entry at the array TAIL — dropping an already-live set from wherever it
-  // sat straight to the bottom of Recents on every merge. Spec §5.6: "an
-  // arrangement that gains or loses a pane inherits the place of the ONE IT
-  // GREW OUT OF."
-  it('grows an entry IN PLACE — it does not jump to the end of the list (Fix round 1)', () => {
+  // Zen's own rule, and the reason no code anywhere has to notice it: a group
+  // of one and an ungrouped pane are the same thing, so a merged view losing
+  // its second member is simply an ordinary view again.
+  it('a view down to one pane behaves exactly like an independent one', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['t', 'd']) // index 0
-    store.getState().paneActions.groupIntoArrangement(['x', 'y']) // index 1
+    const target = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(target, 'chat-1', null)
+    const merged = store.getState().paneActions.splitPane(target, 'horizontal')!
+    store.getState().paneActions.setPaneChat(merged, 'chat-2', null)
 
-    store.getState().paneActions.groupIntoArrangement(['t', 'z']) // grows the FIRST entry
+    store.getState().paneActions.closePane(merged)
 
-    const { dormantArrangements } = store.getState()
-    expect(dormantArrangements).toHaveLength(2)
-    // The grown set is still FIRST, not shoved to the end behind [x, y].
-    expect([...dormantArrangements[0].chatIds].sort()).toEqual(['d', 't', 'z'])
-    expect([...dormantArrangements[1].chatIds].sort()).toEqual(['x', 'y'])
+    const { panes, dormantArrangements, recentsOrder } = store.getState()
+    expect(
+      Object.values(panes).filter((p) => viewIdOf(p) === viewIdOf(panes[target])),
+    ).toHaveLength(1)
+    const live = deriveRecentsEntries(
+      Object.values(panes),
+      {},
+      dormantArrangements,
+      recentsOrder,
+    ).find((e) => e.state === 'live')
+    expect(live?.chatIds).toEqual(['chat-1'])
   })
 
-  // A brand-new group (no pre-existing entry to grow out of) has nowhere of
-  // its own to inherit — appending is the only sensible slot for it.
-  it('appends a genuinely brand-new group after whatever already exists', () => {
+  it('detachPaneToOwnView pulls a merged pane out into a view of its own', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['a', 'b'])
+    const target = store.getState().paneActions.addPane()!
+    const merged = store.getState().paneActions.splitPane(target, 'horizontal')!
+    expect(viewIdOf(store.getState().panes[merged])).toBe(viewIdOf(store.getState().panes[target]))
 
-    store.getState().paneActions.groupIntoArrangement(['c', 'd'])
+    store.getState().paneActions.detachPaneToOwnView(merged)
 
-    const { dormantArrangements } = store.getState()
-    expect(dormantArrangements).toHaveLength(2)
-    expect([...dormantArrangements[0].chatIds].sort()).toEqual(['a', 'b'])
-    expect([...dormantArrangements[1].chatIds].sort()).toEqual(['c', 'd'])
+    const { panes } = store.getState()
+    expect(viewIdOf(panes[merged])).not.toBe(viewIdOf(panes[target]))
   })
 
-  // Fix round 1: the "arrangement left with nobody in it goes" rule (§8.2)
-  // IS still reachable — not through setPaneChat pulling a group down to its
-  // LAST member (see the describe block below, where a shrunk-to-one entry
-  // is deliberately protected instead — it is now that chat's own slot) —
-  // but here: that already-single-member slot gets swept up whole into a
-  // DIFFERENT merge that doesn't choose it as the owner, and the now-empty
-  // record it leaves behind is pruned.
-  it('an arrangement left with nobody in it goes, when its sole member joins a different merge', () => {
+  // The trap the implementation calls out: a pane split OFF of P carries
+  // `viewId === P.id`, so detaching P by reusing its own id would leave the
+  // two still grouped.
+  it('detaching the pane a split was carved FROM really separates the two', () => {
     const store = makeStore()
-    // An EARLIER entry, so the owner search below finds IT first.
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
-    // chat-6's own slot: a pair that gets pulled back down to one member.
-    store.getState().paneActions.groupIntoArrangement(['chat-6', 'chat-7'])
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-7', null)
-    expect([...store.getState().dormantArrangements].map((e) => [...e.chatIds].sort())).toEqual([
-      ['chat-1', 'chat-2'],
-      ['chat-6'],
-    ])
+    const target = store.getState().paneActions.addPane()!
+    const merged = store.getState().paneActions.splitPane(target, 'horizontal')!
 
-    // chat-6 now joins a merge with chat-1 — the [chat-1, chat-2] entry (it
-    // comes first, and it already owns chat-1) is the one that grows;
-    // chat-6's own single-member entry has nobody left once chat-6 leaves it.
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-6'])
+    store.getState().paneActions.detachPaneToOwnView(target)
 
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect([...store.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-1',
-      'chat-2',
-      'chat-6',
-    ])
+    const { panes } = store.getState()
+    expect(viewIdOf(panes[target])).not.toBe(viewIdOf(panes[merged]))
+  })
+
+  it('is a no-op for a pane that is already a view of its own', () => {
+    const store = makeStore()
+    const solo = store.getState().paneActions.addPane()!
+    const before = store.getState().panes
+
+    store.getState().paneActions.detachPaneToOwnView(solo)
+
+    expect(store.getState().panes).toBe(before)
   })
 })
 
 describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §8.2)', () => {
   it('a chat moving fresh into a NEW pane leaves every arrangement that remembered it, survivors kept as a set', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2', 'chat-3'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2', 'chat-3'])
     const otherPane = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
 
     // Some other mechanism re-homes chat-2 onto a pane that isn't already
@@ -1288,7 +1318,7 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
   // recomputes to 'live' in place the next time Recents derives.
   it('pulling the last member out of a pair leaves the SURVIVOR its own single-chat slot — not removed', () => {
     const store = makeStore()
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
     const paneA = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
 
     // chat-1 moves out first — the pair's own entry sheds it (2 members, so
@@ -1335,7 +1365,7 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
   it('re-setting the SAME chat a pane already holds does not touch dormantArrangements', () => {
     const store = makeStore()
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.groupIntoArrangement(['chat-2', 'chat-3']) // unrelated set
+    seedArrangement(store, 'set-other', ['chat-2', 'chat-3']) // unrelated set
     const before = store.getState().dormantArrangements
 
     // Same chatId ROOT already holds, just a new runner (e.g. /resume) — no
@@ -1351,7 +1381,7 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
     // exactly as closePane's own dormant push already assumes it will.
     const store = makeStore()
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
 
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
 
@@ -1462,11 +1492,10 @@ describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () 
 describe('pane-slice — closePane splits the closing chat out of any SET it belongs to', () => {
   it("strips the closed chat from the set, leaving the survivor at the SET's own slot, and gives the closed chat its own fresh dormant record", () => {
     const store = makeStoreWithWorking({})
-    // Mirrors `performSidebarPaneDrop`'s own merge order — `setPaneChat`
-    // FIRST (chat-1 enters ROOT fresh, nothing to strip yet), THEN
-    // `groupIntoArrangement` (now that it is actually resident there).
+    // chat-1 is genuinely resident in ROOT, and some multi-chat entry
+    // remembers it alongside chat-2.
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
     const setId = store.getState().dormantArrangements[0].id
 
     // Closing chat-1's pane through the tab bar / pane-close keybinding —
@@ -1493,7 +1522,7 @@ describe('pane-slice — closePane splits the closing chat out of any SET it bel
   it('does not remember the split-out chat if the daemon is still working it', () => {
     const store = makeStoreWithWorking({ 'chat-1': true })
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
     const setId = store.getState().dormantArrangements[0].id
 
     store.getState().paneActions.closePane(ROOT_PANE_ID)

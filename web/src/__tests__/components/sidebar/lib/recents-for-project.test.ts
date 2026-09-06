@@ -55,13 +55,26 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
-/** Seed the REAL window pane store with one pane holding `chatId`. */
-function seedLivePane(chatId: string) {
+/**
+ * Seed the REAL window pane store with `chatId` in a view OF ITS OWN — what
+ * a click does (`addPane`, never `splitPane`, which would merge it into
+ * whatever the active pane's view is and collapse the two into one Recents
+ * row). Returns the pane id.
+ */
+function seedLivePane(chatId: string): string {
   const { paneActions, activePaneId } = windowPaneStore.getState()
   const target = paneActions.getPaneById(activePaneId)
-  const paneId =
-    target?.chatId == null ? activePaneId : paneActions.splitPane(activePaneId, 'horizontal')!
+  const paneId = target?.chatId == null ? activePaneId : paneActions.addPane()!
   paneActions.setPaneChat(paneId, chatId, null)
+  return paneId
+}
+
+/** Two chats MERGED into one view — a drop, which splits inside the target's
+ *  own subtree and inherits its `viewId`. The only gesture that groups. */
+function mergeChatsIntoOneView(first: string, second: string): void {
+  const paneId = seedLivePane(first)
+  const { paneActions } = windowPaneStore.getState()
+  paneActions.setPaneChat(paneActions.splitPane(paneId, 'horizontal')!, second, null)
 }
 
 beforeEach(() => {
@@ -208,14 +221,14 @@ describe('recentsForProject', () => {
   })
 
   it("trims a SET down to this project's own members instead of leaking the whole entry", () => {
-    // A record remembering chats from two different projects at once — built
-    // directly via `groupIntoArrangement` rather than through a real
-    // cross-project drag (the matrix already refuses one); this pins the
-    // READ side regardless of how such a record came to exist.
+    // One merged VIEW whose two panes hold chats from different projects —
+    // built the way a merge is actually built (a split inherits the view it
+    // was carved out of), not through a real cross-project drag, which the
+    // matrix already refuses. This pins the READ side regardless.
     activeIds.current = ['ws-1', 'ws-2']
     storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
     storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
-    windowPaneStore.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    mergeChatsIntoOneView('chat-1', 'chat-2')
     const repos = [
       makeTestRepo({
         id: 'r1',
@@ -235,7 +248,7 @@ describe('recentsForProject', () => {
     activeIds.current = ['ws-1', 'ws-2']
     storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
     storeStates.current.set('ws-2', { agentChats: { chats: [{ id: 'chat-2' }], working: {} } })
-    windowPaneStore.getState().paneActions.groupIntoArrangement(['chat-1', 'chat-2'])
+    mergeChatsIntoOneView('chat-1', 'chat-2')
     const repos = [
       makeTestRepo({
         id: 'r1',

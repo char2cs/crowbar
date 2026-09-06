@@ -29,9 +29,17 @@ import {
   getWorkspaceStore,
   isChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { viewIdOf, viewIsShared } from '@/features/panes/lib/pane-views'
+import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
 import { nanoid } from 'nanoid'
 
 export interface PaneActions {
+  /** Spec §8.1: "into THIS view, on that side" — the MERGE. The new pane is
+   *  carved out of `paneId`'s own share of the window AND tagged with
+   *  `paneId`'s `viewId`, so the two are one view from here on: one Recents
+   *  row, one group. Drag-and-drop is the only gesture that reaches this with
+   *  a chat (that is the whole rule — see `openChatIntoPane`); the split
+   *  commands reach it too, and mean the same thing. */
   splitPane(
     paneId: string,
     direction: SplitDirection,
@@ -39,13 +47,21 @@ export interface PaneActions {
     placement?: SplitPlacement,
   ): string | null
   /** Spec §8.4: a CLICK "makes its own view" — one more pane in this window,
-   *  a PEER of everything already up. `splitPane` answers §8.1's different
-   *  question ("into this view, on that side") and carves the new pane out of
-   *  the one it is handed; routing a click through it is what made clicking a
-   *  row read as appending to the pane you were in. Returns the new pane's id,
+   *  a PEER of everything already up, carrying a brand-new `viewId` that
+   *  nothing else shares. `splitPane` answers §8.1's different question
+   *  ("into this view, on that side") and carves the new pane out of the one
+   *  it is handed; routing a click through it is what made clicking a row
+   *  read as appending to the pane you were in. Returns the new pane's id,
    *  empty and active. Root layout only — a click never opens into the bottom
    *  panel. */
   addPane(): string | null
+  /** Make `paneId` a view of ITS OWN — a fresh `viewId` nothing else carries.
+   *  A no-op when it already is one (nothing else shares its view), so a
+   *  caller can state the guarantee unconditionally without churning the
+   *  store. What a CLICK uses when it lands in a pane that already exists:
+   *  §8.4's "makes its own view" is a promise about the view, not about
+   *  whether a pane had to be created to keep it. */
+  detachPaneToOwnView(paneId: string): void
   closePane(paneId: string): void
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
@@ -86,13 +102,6 @@ export interface PaneActions {
    *  vanished-chat diff), never by a local close — see
    *  `use-workspace-agent-chats-stream.ts`. */
   forgetChat(chatId: string): void
-  /** Spec §8.2: "merging opens, it does not file" — group `chatIds` (2+, one
-   *  already live, one freshly split beside it) into a single Recents entry
-   *  so `deriveRecentsEntries` draws them as one SET rather than as loose
-   *  singletons. Extends an existing arrangement if one already owns any of
-   *  them, and strips membership from wherever else they were remembered —
-   *  see `performSidebarPaneDrop` (components/sidebar/lib/drop-actions.ts). */
-  groupIntoArrangement(chatIds: readonly string[]): void
   /**
    * Spec §8.1: "above / below a Recents entry → it moves to that slot" —
    * moves `entryId` to sit directly before/after `targetId` in the
@@ -126,9 +135,21 @@ export interface PaneSlice {
   activePaneId: string
   mostRecentActivePaneIds: string[]
   fullscreenPaneId: string | null
-  /** Closed-but-idle views, remembered so the close is undoable — spec §5.5.
-   *  A chat the daemon is still working keeps its row via `agentChats.working`
-   *  alone; only an idle close needs to be remembered here. */
+  /**
+   * Closed-but-idle views, remembered so the close is undoable — spec §5.5.
+   * A chat the daemon is still working keeps its row via `agentChats.working`
+   * alone; only an idle close needs to be remembered here.
+   *
+   * DORMANT ONLY. This used to double as the grouping ledger too — a merge
+   * called `groupIntoArrangement` to file both chats under one entry so
+   * Recents drew them as one row — which meant "which chats are one view"
+   * had two answers that could disagree: this chat-id-keyed list, and the
+   * on-screen pane layout, which had no grouping concept at all. `viewId`
+   * (types/pane.ts) is now the single grouping fact, tagged on the panes
+   * themselves, and `deriveRecentsEntries` reads a LIVE row straight off it.
+   * What is left here is the one thing panes genuinely cannot answer: what
+   * used to be up and no longer is.
+   */
   dormantArrangements: RecentsEntry[]
   /** Recents' own persisted order (spec §5.6/§8.1) — entry ids, written ONLY
    *  by `reorderRecentsEntry`. Empty until the first drag; `deriveRecentsEntries`
@@ -148,6 +169,7 @@ function makeRootLeaf(): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
+    viewId: ROOT_PANE_ID,
   }
 }
 
@@ -160,6 +182,7 @@ function makeBottomLeaf(): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
+    viewId: BOTTOM_PANE_ID,
   }
 }
 
@@ -294,6 +317,10 @@ export const createPaneSlice: StateCreator<
             editorTabIds: bufferId ? [bufferId] : [],
             activeEditorTabId: bufferId ?? null,
             editorOpen: Boolean(bufferId),
+            // A split lands INSIDE the view it was carved from — that is what
+            // makes a merge a merge rather than a second view that happens to
+            // sit next door. The source pane's view, not a new one.
+            viewId: viewIdOf(state.panes[paneId] ?? { id: paneId }),
           }
           state.activePaneId = newPaneId
           state.mostRecentActivePaneIds = [newPaneId, ...state.mostRecentActivePaneIds]
@@ -315,6 +342,11 @@ export const createPaneSlice: StateCreator<
             editorTabIds: [],
             activeEditorTabId: null,
             editorOpen: false,
+            // A BRAND-NEW view. The pane's own id serves as the view id — it
+            // was just minted by `appendLeaf`, so nothing else can carry it,
+            // and it makes the common "one pane, its own view" case readable
+            // in a dump of the store rather than an opaque second nanoid.
+            viewId: result.newPaneId,
           }
           state.activePaneId = result.newPaneId
           state.mostRecentActivePaneIds = [result.newPaneId, ...state.mostRecentActivePaneIds]
@@ -322,11 +354,38 @@ export const createPaneSlice: StateCreator<
         return newPaneId
       },
 
+      detachPaneToOwnView(paneId) {
+        set((state) => {
+          if (!state.panes[paneId]) return
+          // Already a view of its own — including the untagged case, which
+          // `viewIdOf` already reads as independent. Writing anyway would
+          // churn `panes` (and with it the layout persistence subscription)
+          // on every single click.
+          if (!viewIsShared(state.panes, paneId)) return
+          // A FRESH id, never `paneId` itself: a pane that was split OFF of
+          // this one carries `viewId === paneId`, so reusing it here would
+          // leave the two still grouped — the precise opposite of detaching.
+          state.panes[paneId].viewId = nanoid()
+        })
+      },
+
       closePane(paneId) {
+        // Read BEFORE the layout edit below deletes the pane — the teardown
+        // fired at the tail needs to know what this pane was holding.
+        const releasedChatId = get().panes[paneId]?.chatId ?? null
+
         set((state) => {
           const key = getLayoutKey(state, paneId)
           const closingPane = state.panes[paneId]
           const closedChatId = closingPane?.chatId ?? null
+          // Does the VIEW outlive this pane? Asked while the pane is still in
+          // `panes`, so `viewIsShared` can see its own view. A view losing one
+          // of several members survives (the rest stay grouped); a view losing
+          // its only member is gone, and its id is free for the dormant record
+          // below to inherit — which is what keeps a closed view in the same
+          // Recents slot it occupied while it was live.
+          const viewSurvives = viewIsShared(state.panes, paneId)
+          const closedViewId = closingPane ? viewIdOf(closingPane) : paneId
 
           if (closedChatId) {
             // THIS pane's own view on the chat is ending — spec §8.2's
@@ -366,7 +425,13 @@ export const createPaneSlice: StateCreator<
             )
             if (!alreadyRemembered && !isChatWorking(closedChatId)) {
               state.dormantArrangements.push({
-                id: paneId,
+                // The dead VIEW's id, so the remembered row keeps the slot
+                // `recentsOrder` already gave it while it was live (a live row
+                // is keyed by its view). Only safe when the view really did
+                // die with this pane — a survivor still answers to that id,
+                // and two Recents entries sharing one id collide as React
+                // keys and in the persisted order alike.
+                id: viewSurvives ? nanoid() : closedViewId,
                 chatIds: [closedChatId],
                 state: 'dormant',
               })
@@ -420,6 +485,27 @@ export const createPaneSlice: StateCreator<
           )
           if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
         })
+
+        // "All of Crowbar's chats should die once the user has closed their
+        // view... Both. It's like killing a chat tab: removes both out of
+        // memory." A closed view was the only thing holding this chat's live
+        // session up, on either side — the vendor CLI in the daemon and the
+        // owning workspace's in-memory store here. Neither was ever released:
+        // `stopChat` (whose own doc says it "is what closing a chat TAB
+        // calls") had exactly one caller, the chat view's stop button, and
+        // this action only ever did Recents bookkeeping. So a closed chat kept
+        // its CLI running and its workspace resident until keep-alive aged it
+        // out — or forever, if the workspace stayed the active one.
+        //
+        // Fired AFTER the layout write, never inside it: the release re-reads
+        // panes to decide (a chat still up in another pane is not released at
+        // all), and it must see the world with this pane already gone. It is
+        // deliberately not awaited — closing a pane is a synchronous, local
+        // gesture that must not wait on a round trip — and it never deletes:
+        // the chat stays dormant and resumable, its row untouched.
+        if (releasedChatId) {
+          void releaseClosedChat(releasedChatId, () => get().panes)
+        }
       },
 
       setActivePane(paneId) {
@@ -802,47 +888,6 @@ export const createPaneSlice: StateCreator<
           // point is that deletion "must not leave a name behind". The last
           // pane in the tree survives, chatless, as the fallback screen.
           if (clearedPaneIds.length > 0) dropEmptiedPanes(state)
-        })
-      },
-
-      groupIntoArrangement(chatIds) {
-        if (chatIds.length < 2) return
-        set((state) => {
-          // An entry already holding any of these ids is the one they are all
-          // joining — a target already on screen GROWS instead of a duplicate
-          // grouping standing up beside it (spec §8.2).
-          const owner = state.dormantArrangements.find((e) =>
-            e.chatIds.some((id) => chatIds.includes(id)),
-          )
-          const merged = Array.from(new Set([...(owner?.chatIds ?? []), ...chatIds]))
-          const mergedEntry: RecentsEntry = {
-            id: owner?.id ?? nanoid(),
-            chatIds: merged,
-            state: 'live',
-          }
-
-          if (!owner) {
-            // Nothing existing to grow — a brand new group, appended like any
-            // other freshly-created row.
-            state.dormantArrangements.push(mergedEntry)
-            return
-          }
-
-          // Spec §5.6: "an arrangement that gains or loses a pane inherits
-          // the place it grew out of" — the OWNER's own slot is where the
-          // grown entry belongs, never the tail (filter-then-push always
-          // dropped an already-live set to the bottom of Recents on every
-          // merge). One pass over the ORIGINAL order: the owner's position
-          // becomes the merged entry in place, every OTHER entry sheds the
-          // ids that just joined it, and anything that empties out is
-          // dropped — which preserves every survivor's relative order too.
-          state.dormantArrangements = state.dormantArrangements
-            .map((e) =>
-              e === owner
-                ? mergedEntry
-                : { ...e, chatIds: e.chatIds.filter((id) => !chatIds.includes(id)) },
-            )
-            .filter((e) => e.chatIds.length > 0)
         })
       },
 

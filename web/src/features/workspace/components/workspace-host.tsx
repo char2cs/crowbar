@@ -3,6 +3,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { destroyWorkspaceStore } from '../stores/workspace-store-registry'
+import { subscribeWorkspaceEviction } from '../lib/workspace-eviction-request'
 import { planRetention, RETENTION_CAP } from '../lib/keep-alive-policy'
 import { workspaceSlotStyling } from '../lib/workspace-slot-style'
 import { WorkspaceView } from './workspace-view'
@@ -179,6 +180,31 @@ export function WorkspaceHost({
   useEffect(() => {
     reconcileRef.current()
   }, [activeWsId, keepAliveMinutes, existingIds])
+
+  // FORCED EVICTION — the close path asking for a workspace to go NOW,
+  // outside the retention window entirely (see workspace-eviction-request.ts).
+  // Retention exists to keep a workspace warm for a switch BACK; a workspace
+  // whose last view the user just closed is the opposite case, and aging it
+  // out over the keep-alive window would hold its whole live surface (chats
+  // stream, LSP, terminal transports, file watcher, Monaco registry) resident
+  // for something nobody can see.
+  //
+  // The request is honoured through the SAME unmount-then-destroy path an
+  // ordinary eviction takes — dropped from the retention map, queued for the
+  // post-commit destroy effect below, then reconciled so React tears the
+  // subtree down first. It never destroys a store directly, and the ACTIVE
+  // workspace is skipped outright: it is the route, mounted, and would be
+  // re-created the instant it went away.
+  useEffect(
+    () =>
+      subscribeWorkspaceEviction((wsId) => {
+        if (wsId === activeWsIdRef.current) return
+        if (!lastActiveRef.current!.delete(wsId)) return
+        pendingDestroyRef.current.push(wsId)
+        reconcileRef.current()
+      }),
+    [],
+  )
 
   // WARM-SWITCH span (M4 warm). When the active id changes to a workspace that
   // was ALREADY retained (kept mounted + hidden), becoming active is a display

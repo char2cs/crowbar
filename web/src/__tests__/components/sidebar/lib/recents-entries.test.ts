@@ -19,6 +19,125 @@ function makePane(overrides: Partial<PaneGroup> = {}): PaneGroup {
   }
 }
 
+/**
+ * A Recents row is a VIEW, never a pane. Grouping used to be recorded twice —
+ * once here as `dormantArrangements` entries a merge had to write by hand,
+ * once (not at all) in the pane layout — and the two could disagree about
+ * what was one view. `viewId` on the panes is the single fact now.
+ */
+describe('deriveRecentsEntries — one row per VIEW', () => {
+  it('panes sharing a view are ONE row carrying every chat in it', () => {
+    const panes = [
+      makePane({ chatId: 'chat-1', viewId: 'view-a' }),
+      makePane({ chatId: 'chat-2', viewId: 'view-a' }),
+    ]
+
+    const entries = deriveRecentsEntries(panes, {}, [])
+
+    expect(entries).toEqual([{ id: 'view-a', chatIds: ['chat-1', 'chat-2'], state: 'live' }])
+  })
+
+  it('panes in different views are separate rows', () => {
+    const panes = [
+      makePane({ chatId: 'chat-1', viewId: 'view-a' }),
+      makePane({ chatId: 'chat-2', viewId: 'view-b' }),
+    ]
+
+    const entries = deriveRecentsEntries(panes, {}, [])
+
+    expect(entries.map((e) => e.chatIds)).toEqual([['chat-1'], ['chat-2']])
+  })
+
+  // The grouped row is addressed by the VIEW, so `recentsOrder` (keyed by
+  // entry id) survives a merge instead of the row jumping slots.
+  it('keeps the view id as the row id, so a merge never moves the row', () => {
+    const before = deriveRecentsEntries([makePane({ chatId: 'chat-1', viewId: 'view-a' })], {}, [])
+    const after = deriveRecentsEntries(
+      [
+        makePane({ chatId: 'chat-1', viewId: 'view-a' }),
+        makePane({ chatId: 'chat-2', viewId: 'view-a' }),
+      ],
+      {},
+      [],
+    )
+
+    expect(after[0].id).toBe(before[0].id)
+  })
+
+  // An untagged pane is its own view (a layout persisted before views
+  // existed), so nothing groups by accident.
+  it('never groups untagged panes together', () => {
+    const panes = [makePane({ chatId: 'chat-1' }), makePane({ chatId: 'chat-2' })]
+
+    const entries = deriveRecentsEntries(panes, {}, [])
+
+    expect(entries.map((e) => e.chatIds)).toEqual([['chat-1'], ['chat-2']])
+  })
+
+  // Zen's rule, and the reason no code has to notice it: a group of one and
+  // an ungrouped pane are the same thing.
+  it('a view down to one pane is an ordinary single-chat row', () => {
+    const entries = deriveRecentsEntries([makePane({ chatId: 'chat-1', viewId: 'view-a' })], {}, [])
+
+    expect(entries).toEqual([{ id: 'view-a', chatIds: ['chat-1'], state: 'live' }])
+  })
+
+  it('a dormant record still claims its chat ahead of the live view loop', () => {
+    const panes = [makePane({ chatId: 'chat-2', viewId: 'view-a' })]
+    const dormant: RecentsEntry[] = [{ id: 'slot', chatIds: ['chat-1'], state: 'dormant' }]
+
+    const entries = deriveRecentsEntries(panes, {}, dormant)
+
+    expect(entries.map((e) => [e.id, e.chatIds])).toEqual([
+      ['slot', ['chat-1']],
+      ['view-a', ['chat-2']],
+    ])
+  })
+
+  // Measured live: merging into a chat that had been closed once split the
+  // view back across two rows — the reopened chat at its old slot, plus a
+  // second row for whatever joined it. The dormant record says WHERE the row
+  // is drawn; the panes say what is IN it.
+  it('a reopened chat brings its whole view to its own remembered slot', () => {
+    const panes = [
+      makePane({ chatId: 'chat-1', viewId: 'view-a' }),
+      makePane({ chatId: 'chat-2', viewId: 'view-a' }),
+    ]
+    const dormant: RecentsEntry[] = [{ id: 'slot', chatIds: ['chat-1'], state: 'dormant' }]
+
+    const entries = deriveRecentsEntries(panes, {}, dormant)
+
+    expect(entries).toEqual([{ id: 'slot', chatIds: ['chat-1', 'chat-2'], state: 'live' }])
+  })
+
+  // The absorbed member must not then be re-emitted by the live-view pass,
+  // and a second record that only named it has nothing left to draw.
+  it('never draws an absorbed member twice, from either source', () => {
+    const panes = [
+      makePane({ chatId: 'chat-1', viewId: 'view-a' }),
+      makePane({ chatId: 'chat-2', viewId: 'view-a' }),
+    ]
+    const dormant: RecentsEntry[] = [
+      { id: 'slot-1', chatIds: ['chat-1'], state: 'dormant' },
+      { id: 'slot-2', chatIds: ['chat-2'], state: 'dormant' },
+    ]
+
+    const entries = deriveRecentsEntries(panes, {}, dormant)
+
+    expect(entries).toEqual([{ id: 'slot-1', chatIds: ['chat-1', 'chat-2'], state: 'live' }])
+  })
+
+  // A DORMANT record naming a chat nothing holds pulls nothing in — there is
+  // no view to bring.
+  it('absorbs nothing for a chat that is not live', () => {
+    const dormant: RecentsEntry[] = [{ id: 'slot', chatIds: ['chat-1'], state: 'dormant' }]
+
+    const entries = deriveRecentsEntries([], {}, dormant)
+
+    expect(entries).toEqual([{ id: 'slot', chatIds: ['chat-1'], state: 'dormant' }])
+  })
+})
+
 describe('deriveRecentsEntries', () => {
   it('a chat appears once, in the highest band that claims it', () => {
     const panes = [makePane({ chatId: 'chat-1' })]

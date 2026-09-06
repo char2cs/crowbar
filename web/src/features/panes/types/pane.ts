@@ -11,6 +11,27 @@ export interface PaneGroup {
   /** Split toggle state — chat-only vs. chat+editor. */
   editorOpen: boolean
   locked?: boolean
+  /**
+   * The VIEW this pane belongs to — a real, tagged grouping fact, never
+   * inferred from where the pane happens to sit in the layout tree.
+   *
+   * A view is "as many chats as the user concentrated together". Two panes
+   * carrying the SAME `viewId` were deliberately merged (the only gesture
+   * that does it is a drag-and-drop, which splits inside the target's own
+   * subtree — see `openChatIntoPane`); two panes that merely ended up
+   * siblings because the window tiles that way carry DIFFERENT ones. That
+   * distinction has no other expression: `rootLayout` is one shared tiling
+   * tree for the whole window and cannot tell "these are one view" from
+   * "these are two views side by side", which is why a plain click kept
+   * reading as appending to whatever was already up.
+   *
+   * Read it through {@link viewIdOf}, never directly: a pane restored from a
+   * layout written before views existed carries none, and an untagged pane
+   * IS its own view. That fallback is also what makes a view dissolve for
+   * free — a group of one is indistinguishable from ungrouped, so nothing
+   * has to notice the last merge partner leaving.
+   */
+  viewId?: string
 }
 
 export interface LayoutLeaf {

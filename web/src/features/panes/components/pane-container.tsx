@@ -11,6 +11,7 @@ import { buildPaneContentStyle } from '../utils/pane-border'
 import { useSidebarOptional } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
+import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import {
@@ -624,6 +625,14 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
+      // Which VIEW this pane belongs to (types/pane.ts). Panes carrying the
+      // same value were deliberately merged into one view; panes carrying
+      // different ones are separate views that happen to be tiled beside each
+      // other. Published because that distinction is otherwise invisible from
+      // the outside — the layout tree looks identical either way — which is
+      // exactly what made "clicking a row appends to my current view" so hard
+      // to see, and to check.
+      data-view-id={viewIdOf(pane)}
       // The sidebar's own drag arm (`useSidebarDrag`) hit-tests THIS attribute
       // to find which pane a row/chat was dropped onto and at which zone
       // (center/edge) — spec §8.1. Every drop here ADDS; see

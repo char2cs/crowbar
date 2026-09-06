@@ -507,24 +507,26 @@ export function performSidebarPaneDrop(
 
 /**
  * One chat, CLICKED — spec §8.4: "clicking a chat in the tree makes its own
- * view."
+ * view." A BRAND-NEW view, every time: a fresh `viewId` nothing else on
+ * screen carries, holding this one chat.
  *
  * Its own rule, deliberately NOT `openChatIntoPane`'s. That one answers a
  * DROP, whose entire vocabulary is "into THIS pane, on THAT side" (§8.1) and
- * whose occupied-pane case is a MERGE: a split carved out of the target pane's
- * own share, plus `groupIntoArrangement` filing both chats into ONE Recents
- * entry — "you asked for them side by side, so you get them side by side"
- * (§8.2). A click asks for neither. Routing it through the drop with a
- * synthetic `zone: 'center'` on whichever pane happened to be active is
- * exactly what made clicking a row read as appending a chat to the view you
- * were already in: measured live, four clicks produced one Recents SET of four
- * chats and a 50/25/12.5/12.5 cascade of splits nested inside the first pane.
- * Merging two views is the drag-and-drop gesture and only that.
+ * whose occupied-pane case is a MERGE: a split carved out of the target
+ * pane's own share, tagged with the target's own view — "you asked for them
+ * side by side, so you get them side by side" (§8.2). A click asks for
+ * neither. Routing it through the drop with a synthetic `zone: 'center'` on
+ * whichever pane happened to be active is exactly what made clicking a row
+ * read as appending a chat to the view you were already in: measured live,
+ * four clicks produced one Recents SET of four chats and a 50/25/12.5/12.5
+ * cascade of splits nested inside the first pane. Merging two views is the
+ * drag-and-drop gesture and only that.
  *
  *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
  *     checked FIRST and against every pane, since the clicked row may be live
  *     in a pane other than the active one. Same dedup pattern
- *     `openChatIntoPane` and `open-agent-chat.ts` both use.
+ *     `openChatIntoPane` and `open-agent-chat.ts` both use. Its view is left
+ *     exactly as it is — revealing a chat is not a regrouping.
  *   - **an EMPTY pane on screen → it fills that one.** An empty pane is a
  *     fallback, not a view (see `pane-slice.ts`'s `dropEmptiedPanes`), so
  *     there is nothing there to preserve and nothing to open beside. The
@@ -532,6 +534,14 @@ export function performSidebarPaneDrop(
  *   - **otherwise → a brand-new pane** (`addPane`), a PEER of every pane
  *     already up — never `splitPane` on the active one, which would charge
  *     the view you were in for the view you asked for.
+ *
+ * `detachPaneToOwnView` covers the middle case, and is what makes "a brand-
+ * new view" true of the whole function rather than only of the `addPane`
+ * branch: a reused pane can be one member of a view somebody merged earlier,
+ * and filling it in place would have silently added this chat to that group —
+ * the same "it appended to what I was looking at" complaint, one level down.
+ * It is a no-op for a pane that is already a view of its own, which is the
+ * overwhelmingly common case.
  *
  * Carries `openChatIntoPane`'s off-screen-workspace guard verbatim, for the
  * same reason (no chatId->workspace resolution exists in the render path) —
@@ -559,12 +569,23 @@ export function openChatInOwnPane(subject: SidebarRow): void {
     paneActions.addPane()
   if (!targetId) return
 
+  paneActions.detachPaneToOwnView(targetId)
   paneActions.setPaneChat(targetId, chatId, null)
   paneActions.setActivePane(targetId)
 }
 
 /**
- * One chat, DROPPED onto one pane — spec §8.1/§8.2.
+ * One chat, DROPPED onto one pane — spec §8.1/§8.2. **The only gesture in
+ * the app that MERGES two chats into one view.**
+ *
+ * The merge is a single fact, written once: `splitPane` carves the new pane
+ * out of the target's own share of the window AND tags it with the target's
+ * `viewId` (pane-slice.ts). Both halves of "one view" — the layout subtree
+ * and the group membership — come from that one call, so they cannot drift.
+ * This used to need a second, separate write (`groupIntoArrangement`, filing
+ * both chat ids into a Recents entry) precisely because grouping had no
+ * expression in the pane model at all; Recents now reads the group off the
+ * panes, so a merge that lands in the layout is a merge Recents draws.
  *
  * §8.2: "dropping a chat that is already up goes TO it... it never opens
  * twice." Checked FIRST, before any zone/merge logic, and against every
@@ -606,7 +627,9 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
   const target = panes[paneId]
   if (!target) return
 
-  // Middle of an EMPTY pane: a plain open, exactly where you dropped it.
+  // Middle of an EMPTY pane: a plain open, exactly where you dropped it. No
+  // merge — an empty pane is a fallback, not a view, so there is nobody to
+  // be side by side WITH; the pane keeps whatever view it already answers to.
   if (zone === 'center' && target.chatId === null) {
     paneActions.setPaneChat(paneId, chatId, null)
     paneActions.setActivePane(paneId)
@@ -618,6 +641,11 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
   // can only ADD, never swap out what is already there (§8.2's rule 1 —
   // that silent swap is exactly the dwell-to-remove gesture's replacement),
   // so it falls back to the same split, defaulting to the right.
+  //
+  // "You asked for them side by side, so you get them side by side" (§8.2):
+  // `splitPane` inherits `target`'s `viewId` onto the new pane, so the two
+  // are one view from this moment — in the layout and in Recents alike,
+  // which now reads its live rows off exactly that tag.
   const splitOptions = getPaneSplitDropOptions(zone === 'center' ? 'right' : zone)
   if (!splitOptions) return
   const newPaneId = paneActions.splitPane(
@@ -629,8 +657,4 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
   if (!newPaneId) return
   paneActions.setPaneChat(newPaneId, chatId, null)
   paneActions.setActivePane(newPaneId)
-  // "You asked for them side by side, so you get them side by side" (§8.2) —
-  // only when there was something to merge WITH; splitting off an empty pane
-  // opens one chat alone, nothing to group.
-  if (target.chatId) paneActions.groupIntoArrangement([target.chatId, chatId])
 }

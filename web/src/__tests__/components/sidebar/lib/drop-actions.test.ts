@@ -68,6 +68,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
+import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
 
@@ -85,6 +87,21 @@ import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
  * describe block below only proves it is actually WIRED into the placement
  * sequence here.
  */
+
+/** Which VIEW the pane holding `chatId` belongs to — the grouping fact a
+ *  merge writes and a click never shares (features/panes/lib/pane-views.ts). */
+function liveViewOf(chatId: string): string | undefined {
+  const pane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)
+  return pane && viewIdOf(pane)
+}
+
+/** The chats of every LIVE Recents row, in band order — one row per view. */
+function liveRecents(): string[][] {
+  const { panes, dormantArrangements, recentsOrder } = windowPaneStore.getState()
+  return deriveRecentsEntries(Object.values(panes), {}, dormantArrangements, recentsOrder)
+    .filter((e) => e.state === 'live')
+    .map((e) => [...e.chatIds].sort())
+}
 
 const branchRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
   id,
@@ -693,38 +710,39 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
     expect(newPane).toBeDefined()
   })
 
-  it('an edge drop onto an occupied pane groups both chats into one Recents entry ("side by side")', () => {
+  it('an edge drop onto an occupied pane puts both chats in ONE view ("side by side")', () => {
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right')
 
-    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
-    const [entry] = windowPaneStore.getState().dormantArrangements
-    expect([...entry.chatIds].sort()).toEqual(['c1', 'c2'])
+    expect(liveViewOf('c2')).toBe(liveViewOf('c1'))
+    // And Recents draws the merged view as one row carrying both — the
+    // grouping is read off the panes, never written to Recents separately.
+    expect(liveRecents()).toEqual([['c1', 'c2']])
   })
 
-  it('merging into a pane already part of an arrangement GROWS it rather than nesting a second one', () => {
+  it('merging into a pane already part of a view GROWS that view rather than starting a second', () => {
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
-    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now grouped
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
 
     performSidebarPaneDrop([chatRow('c3', 'ws-1')], ROOT_PANE_ID, 'bottom')
 
-    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
-    const [entry] = windowPaneStore.getState().dormantArrangements
-    expect([...entry.chatIds].sort()).toEqual(['c1', 'c2', 'c3'])
+    expect(liveViewOf('c3')).toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1', 'c2', 'c3']])
   })
 
-  it('dropping an already-grouped chat elsewhere reveals it in place — the group is untouched', () => {
+  it('dropping an already-grouped chat elsewhere reveals it in place — the view is untouched', () => {
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
-    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now grouped
-    const grouped = windowPaneStore.getState().dormantArrangements
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
+    const view = liveViewOf('c1')
 
-    const freshPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'vertical')!
+    const freshPane = windowPaneStore.getState().paneActions.addPane()!
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], freshPane, 'center')
 
     expect(windowPaneStore.getState().panes[freshPane]?.chatId).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    expect(windowPaneStore.getState().dormantArrangements).toEqual(grouped)
+    expect(liveViewOf('c1')).toBe(view)
+    expect(liveViewOf('c2')).toBe(view)
   })
 })
 
@@ -761,15 +779,42 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     expect(windowPaneStore.getState().activePaneId).toBe(opened?.id)
   })
 
-  it('NEVER merges the two into one Recents arrangement — that is the drop’s gesture, not the click’s', () => {
+  it('mints a BRAND-NEW view id every time — no two clicks share one', () => {
     openChatInOwnPane(chatRow('c1', 'ws-1'))
     openChatInOwnPane(chatRow('c2', 'ws-1'))
     openChatInOwnPane(chatRow('c3', 'ws-1'))
 
-    // The identical sequence through the DROP path groups all three into a
-    // single entry (see "an edge drop onto an occupied pane groups both chats"
-    // above) — three clicks are three separate views.
+    const views = ['c1', 'c2', 'c3'].map(liveViewOf)
+    expect(views.every(Boolean)).toBe(true)
+    expect(new Set(views).size).toBe(3)
+  })
+
+  it('NEVER merges clicked chats into one Recents row — that is the drop’s gesture, not the click’s', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    // The identical sequence through the DROP path produces ONE row holding
+    // all three (see "an edge drop onto an occupied pane puts both chats in
+    // ONE view" above) — three clicks are three separate rows.
+    expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
     expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+  })
+
+  // The subtler half of "makes its own view": the pane a click REUSES can
+  // already be one member of a view somebody merged earlier, and filling it
+  // in place would silently have added this chat to that group — the same
+  // "it appended to what I was looking at" complaint, one level down.
+  it('pulls a REUSED pane out of whatever view it was merged into first', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const merged = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    expect(viewIdOf(windowPaneStore.getState().panes[merged])).toBe(liveViewOf('c1'))
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[merged]?.chatId).toBe('c2')
+    expect(liveViewOf('c2')).not.toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1'], ['c2']])
   })
 
   it('every clicked view is an equal peer, not a subdivision of the one before it', () => {
@@ -900,11 +945,9 @@ describe('performSidebarDrop — targetInRecents', () => {
       (p) => p.chatId === 'chat-b',
     )
     expect(newPane).toBeDefined()
-    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
-    expect([...windowPaneStore.getState().dormantArrangements[0].chatIds].sort()).toEqual([
-      'chat-a',
-      'chat-b',
-    ])
+    // One view holding both — Recents draws them as a single grouped row.
+    expect(liveViewOf('chat-b')).toBe(liveViewOf('chat-a'))
+    expect(liveRecents()).toEqual([['chat-a', 'chat-b']])
     // A merge, never a tree/chat-tree placement write.
     expect(setChatPlacement).not.toHaveBeenCalled()
   })
@@ -928,7 +971,7 @@ describe('performSidebarDrop — targetInRecents', () => {
     const store = getOrCreateWorkspaceStore('ws-x')
     store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    const otherPane = windowPaneStore.getState().paneActions.addPane()!
     windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
@@ -943,7 +986,9 @@ describe('performSidebarDrop — targetInRecents', () => {
     const store = getOrCreateWorkspaceStore('ws-x')
     store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    // `addPane`, not `splitPane` — two INDEPENDENT views, which is what two
+    // Recents rows to reorder means. A split would merge them into one.
+    const otherPane = windowPaneStore.getState().paneActions.addPane()!
     windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
@@ -958,9 +1003,9 @@ describe('performSidebarDrop — targetInRecents', () => {
       .getState()
       .seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const paneB = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    const paneB = windowPaneStore.getState().paneActions.addPane()!
     windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-b', 'runner-2')
-    const paneC = windowPaneStore.getState().paneActions.splitPane(paneB, 'horizontal')!
+    const paneC = windowPaneStore.getState().paneActions.addPane()!
     windowPaneStore.getState().paneActions.setPaneChat(paneC, 'chat-c', 'runner-3')
     // Natural order: [ROOT(a), paneB(b), paneC(c)]. Move c before a.
     await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)

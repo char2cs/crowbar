@@ -174,6 +174,13 @@ export function isChatWorking(chatId: string): boolean {
  * doesn't require trusting a denormalized field on the chat record to agree
  * with where it was actually found.
  *
+ * NOT THE CHAT'S OWNING WORKSPACE, and not a near-enough stand-in for it:
+ * `listChats` is REPO-scoped (`chatBase` → `/repos/:r/chats`), so every
+ * workspace store in a repo is seeded with that whole repo's chats and the
+ * first key iterated matches ANY of them. Use
+ * {@link resolveChatOwnerWorkspaceId} for "which workspace does this chat
+ * belong to" — its doc has the bug this distinction was found through.
+ *
  * REGISTRY-SCOPED, NOT OMNISCIENT: only searches currently-REGISTERED
  * stores (`WorkspaceHost`'s keep-alive set). `WorkspaceHost` evicts and
  * destroys a workspace's store on its own age/LRU window, while a pane
@@ -188,6 +195,35 @@ export function isChatWorking(chatId: string): boolean {
 export function resolveWorkspaceIdForChat(chatId: string): string | null {
   for (const [wsId, store] of registry.entries()) {
     if (store.getState().agentChats.chats.some((chat) => chat.id === chatId)) return wsId
+  }
+  return null
+}
+
+/**
+ * The workspace `chatId` actually BELONGS to — `chat.workspaceId` off the
+ * record itself — or null when no registered store knows the chat.
+ *
+ * The counterpart to {@link resolveWorkspaceIdForChat}, and NOT
+ * interchangeable with it. That one answers "which registry key was this
+ * found under", which is the right answer for building a workspace-scoped
+ * URL against a live store — but it is NOT the chat's owning workspace,
+ * because `listChats` is REPO-scoped (`chatBase` → `repoChatsBaseForWorkspace`,
+ * i.e. `/repos/:r/chats`): every workspace store in a repo is seeded with
+ * that whole repo's chat list, so the first registry key iterated matches any
+ * chat of the repo. Measured live: closing a view asked "does this workspace
+ * still have a chat on screen?" through the registry key and got yes for
+ * panes holding OTHER workspaces' chats entirely, so nothing was ever torn
+ * down.
+ *
+ * The id returned here names the real owner and may well have no live store
+ * (a workspace nobody opened) — which is exactly what a caller deciding
+ * whether a workspace is still in use needs, and why it cannot be answered by
+ * "where did I find it".
+ */
+export function resolveChatOwnerWorkspaceId(chatId: string): string | null {
+  for (const store of registry.values()) {
+    const chat = store.getState().agentChats.chats.find((c) => c.id === chatId)
+    if (chat) return chat.workspaceId || null
   }
   return null
 }

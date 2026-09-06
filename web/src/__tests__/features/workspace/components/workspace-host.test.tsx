@@ -41,6 +41,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
+import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
@@ -311,5 +312,74 @@ describe('WorkspaceHost', () => {
 
     expect(events.indexOf('unmount:a')).toBeGreaterThanOrEqual(0)
     expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
+  })
+})
+
+/**
+ * Forced eviction — the close path asking for a workspace to go NOW, outside
+ * the keep-alive window (workspace-eviction-request.ts). A workspace whose
+ * last VIEW the user just closed is not "recently visited for a fast switch
+ * back", which is the only thing retention is for; it is closed, its chats'
+ * CLIs have been stopped, and nothing is coming back to it.
+ */
+describe('WorkspaceHost — forced eviction', () => {
+  it('drops a retained workspace immediately, without waiting out keep-alive', () => {
+    // A generous window, so nothing here can be the timer path in disguise.
+    setKeepAlive(60)
+    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="b" />)
+    expect(slot('a')).not.toBeNull()
+    expect(destroySpy).not.toHaveBeenCalled()
+
+    act(() => requestWorkspaceEviction('a'))
+
+    expect(slot('a')).toBeNull()
+    expect(destroySpy).toHaveBeenCalledWith('a')
+  })
+
+  it('still unmounts before destroying — the same rule the ordinary path keeps', () => {
+    setKeepAlive(60)
+    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="b" />)
+    events.length = 0
+
+    act(() => requestWorkspaceEviction('a'))
+
+    expect(events.indexOf('unmount:a')).toBeGreaterThanOrEqual(0)
+    expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
+  })
+
+  // The ACTIVE workspace is the route. Its `WorkspaceView` is mounted over the
+  // store and would re-create it the instant it went away.
+  it('refuses to evict the workspace currently on screen', () => {
+    setKeepAlive(60)
+    render(<WorkspaceHost activeWsId="a" />)
+
+    act(() => requestWorkspaceEviction('a'))
+
+    expect(slot('a')).not.toBeNull()
+    expect(destroySpy).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op for a workspace this host never mounted', () => {
+    setKeepAlive(60)
+    render(<WorkspaceHost activeWsId="a" />)
+
+    act(() => requestWorkspaceEviction('never-seen'))
+
+    expect(destroySpy).not.toHaveBeenCalled()
+    expect(slot('a')).not.toBeNull()
+  })
+
+  it('stops listening once the host unmounts', () => {
+    setKeepAlive(60)
+    const { rerender, unmount } = render(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="b" />)
+    unmount()
+    destroySpy.mockClear()
+
+    act(() => requestWorkspaceEviction('a'))
+
+    expect(destroySpy).not.toHaveBeenCalled()
   })
 })
