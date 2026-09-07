@@ -8,6 +8,9 @@ import {
   AGENT_NEW_CHAT,
   AGENT_CYCLE_PROVIDER,
   AGENT_TOGGLE_VIEW_MODE,
+  AGENT_ZOOM_IN,
+  AGENT_ZOOM_OUT,
+  AGENT_ZOOM_RESET,
   CATEGORY_ORDER,
 } from '@/features/keymaps/registry'
 
@@ -83,5 +86,25 @@ describe('keymap registry — New Tab commands', () => {
   it('has no duplicate default chords', () => {
     const chords = COMMANDS.map((c) => c.defaultChord)
     expect(new Set(chords).size).toBe(chords.length)
+  })
+})
+
+describe('keymap registry — chat zoom commands', () => {
+  it('binds zoom in/out/reset to mod+=, mod+- and mod+0', () => {
+    expect(getCommand(AGENT_ZOOM_IN)?.defaultChord).toBe('mod+=')
+    expect(getCommand(AGENT_ZOOM_OUT)?.defaultChord).toBe('mod+-')
+    expect(getCommand(AGENT_ZOOM_RESET)?.defaultChord).toBe('mod+0')
+  })
+
+  it('files the zoom commands under Chats', () => {
+    expect(getCommand(AGENT_ZOOM_IN)?.category).toBe('Chats')
+    expect(getCommand(AGENT_ZOOM_OUT)?.category).toBe('Chats')
+    expect(getCommand(AGENT_ZOOM_RESET)?.category).toBe('Chats')
+  })
+
+  it('makes the zoom commands live-editable', () => {
+    expect(getCommand(AGENT_ZOOM_IN)?.liveEditable).toBe(true)
+    expect(getCommand(AGENT_ZOOM_OUT)?.liveEditable).toBe(true)
+    expect(getCommand(AGENT_ZOOM_RESET)?.liveEditable).toBe(true)
   })
 })

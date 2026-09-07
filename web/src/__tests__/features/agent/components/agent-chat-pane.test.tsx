@@ -176,6 +176,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useSettingsStore } from '@/features/settings/store'
 
 /**
@@ -396,6 +397,9 @@ beforeEach(() => {
     ),
   )
   useTerminalStore.setState({ sessions: new Map() })
+  // Global singleton, same as the settings store above — reset so a zoom test
+  // never leaks its level into the next test.
+  useZoomStore.setState({ zoom: 1, editorZoomLevel: 1, terminalZoomLevel: 1 })
   // The settings store is a GLOBAL singleton, so a test that lands the pane on
   // the terminal leaks that choice into every test after it. Reset to the
   // shipped default — Chat — before each one.
@@ -1494,6 +1498,31 @@ describe('AgentChatPane', () => {
       await pressToggle()
 
       expect(switchToTerminalFn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('chat zoom', () => {
+    it('applies the zoom-store level as CSS zoom on the chat surface', async () => {
+      useZoomStore.setState({ zoom: 1.4 })
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1.4' })
+    })
+
+    it('follows the store live as it changes', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1' })
+
+      await act(async () => {
+        useZoomStore.getState().actions.zoomIn()
+      })
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1.1' })
     })
   })
 
