@@ -610,7 +610,9 @@ async fn popup_native_context_menu(
 
     let menu: std::sync::Arc<Menu<tauri::Wry>> = {
         let table = webview.resources_table();
-        table.get::<Menu<tauri::Wry>>(rid).map_err(|e| e.to_string())?
+        table
+            .get::<Menu<tauri::Wry>>(rid)
+            .map_err(|e| e.to_string())?
         // `table` (the MutexGuard) is dropped here, at the end of this block —
         // BEFORE the blocking popup call below, unlike Tauri's own command.
     };
