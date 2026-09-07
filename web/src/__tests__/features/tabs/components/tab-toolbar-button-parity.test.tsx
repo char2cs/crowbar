@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import CloseSplitButton from '@/features/tabs/components/close-split-button'
+import CloseViewButton from '@/features/tabs/components/close-view-button'
 import TabAddButton from '@/features/tabs/components/tab-add-button'
 import TabNavigationButtons from '@/features/tabs/components/tab-navigation-buttons'
 import { SidebarProjectHeader } from '@/components/layout/sidebar-project-header'
@@ -48,21 +48,21 @@ describe('tab bar toolbar button parity', () => {
           onToggleSidebar={() => {}}
         />
         <TabAddButton isBottomPane={false} onNewTab={() => {}} />
-        <CloseSplitButton
+        <CloseViewButton
           isBottomPane={false}
           disablePaneActions={false}
-          isInSplit
-          onClosePane={() => {}}
+          canClose
+          onCloseView={() => {}}
         />
       </>,
     )
 
     const toggle = withoutMirror(screen.getByRole('button', { name: 'Show sidebar' }))
     const addTab = classesOf(screen.getByRole('button', { name: 'New tab' }))
-    const closeSplit = classesOf(screen.getByRole('button', { name: 'Close split pane' }))
+    const closeView = classesOf(screen.getByRole('button', { name: 'Close view' }))
 
     expect(diff(toggle, addTab)).toEqual([[], []])
-    expect(diff(toggle, closeSplit)).toEqual([[], []])
+    expect(diff(toggle, closeView)).toEqual([[], []])
   })
 
   it('renders the same toggle whether the sidebar is hidden or shown', () => {

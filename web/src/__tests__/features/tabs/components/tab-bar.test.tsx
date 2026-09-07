@@ -286,6 +286,77 @@ describe('TabBar pane-top-row anatomy', () => {
 })
 
 /**
+ * "Closing a View should terminate it. Now its just closing it, and I have
+ * to press it again to then close it." — the pane-chrome × used to close only
+ * the ONE pane clicked (`closePane`), surviving a multi-pane split; once that
+ * left the survivor solo, `isInSplit` gated the control off entirely, so
+ * there was nothing left in the pane chrome to finish the job with — the
+ * user had to go find Recents' × instead, a different control in a different
+ * place. A view is the close unit; this pins the fix at the surface the bug
+ * actually reached.
+ */
+describe('TabBar close control — closes the whole VIEW, in one click', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  /** A real split via the real action (spec §8.1), tagged with ONE shared
+   *  viewId, rather than two hand-built independent panes. */
+  function setupSplitView() {
+    const store = createWorkspaceStore('w1')
+    store.setState((s) => ({
+      ...s,
+      agentChats: {
+        ...s.agentChats,
+        chats: [makeChat({ id: 'chat-1' }), makeChat({ id: 'chat-2' })],
+      },
+    }))
+    resetWindowPaneStoreForTests()
+    windowPaneStore.setState((s) => {
+      s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], chatId: 'chat-1' }
+      return s
+    })
+    const paneB = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-2', null)
+    return { store, paneA: ROOT_PANE_ID, paneB }
+  }
+
+  it('closing from either pane of a split ends the WHOLE view, not just the one clicked', () => {
+    const { store, paneA, paneB } = setupSplitView()
+    act(() => {
+      renderTabBar(store, { paneId: paneA })
+    })
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Close view' }))
+    })
+
+    // Both members gone in the ONE click — not "closing" one half and
+    // leaving the survivor with no control left to finish the job. paneB
+    // collapses out of the layout entirely (dropEmptiedPanes); paneA (the
+    // window's permanent last-pane slot) survives but empty — the "nothing
+    // is open" fallback, not a still-live half of the view.
+    expect(windowPaneStore.getState().panes[paneB]).toBeUndefined()
+    expect(windowPaneStore.getState().panes[paneA]?.chatId).toBeNull()
+    const remainingChatIds = Object.values(windowPaneStore.getState().panes).map((p) => p.chatId)
+    expect(remainingChatIds).not.toContain('chat-1')
+    expect(remainingChatIds).not.toContain('chat-2')
+  })
+
+  it('a SOLO (non-split) view shows the same close control a split one does', () => {
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    // Regression: this control used to be gated on split MEMBERSHIP
+    // (isInSplit), so a lone pane — the exact shape every closed split
+    // dissolves into — drew no close control at all.
+    expect(screen.getByRole('button', { name: 'Close view' })).toBeInTheDocument()
+  })
+})
+
+/**
  * "The empty case is treated as a normal view. It shouldn't be treated like
  * that — it should only appear when NO VIEW is opened. It's just a fallback
  * when nothing is found, not a normal view."
@@ -310,7 +381,7 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
     expect(screen.queryByTestId('split-toggle')).not.toBeInTheDocument()
     expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /close split/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /close view/i })).not.toBeInTheDocument()
   })
 
   it('keeps the row itself — it carries the window drag region and the traffic-light inset', () => {

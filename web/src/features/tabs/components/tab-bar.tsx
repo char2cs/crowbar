@@ -9,6 +9,8 @@ import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/u
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { splitEditorGroup } from '@/features/panes/utils/pane-command-actions'
+import { panesInView, viewIdOf } from '@/features/panes/lib/pane-views'
+import { useAnyChatWorking } from '@/features/panes/hooks/use-any-chat-working'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
@@ -23,7 +25,7 @@ import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
 import TabNavigationButtons from './tab-navigation-buttons'
 import TabAddButton from './tab-add-button'
-import CloseSplitButton from './close-split-button'
+import CloseViewButton from './close-view-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { ChatHead } from './chat-head'
 import { SplitToggleButton } from './split-toggle-button'
@@ -99,7 +101,7 @@ const TabBar = ({
   const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
   const {
-    closePane,
+    closeView,
     setActivePane,
     activateEditorTabInPane,
     removeEditorTabFromPane,
@@ -225,15 +227,28 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  // Subscribe to the DERIVED count, not the whole `panes` record: a number is
-  // referentially stable, so TabBar no longer re-renders on every pane mutation
-  // (another pane's active-buffer swap, buffer add/remove, etc.) — only when the
-  // number of main panes actually changes.
-  const mainPaneCount = useStore(
-    windowPaneStore,
-    (s) => Object.keys(s.panes).filter((id) => id !== BOTTOM_PANE_ID).length,
+  // The VIEW's whole chat set, not just this pane's own — closing from here ends
+  // every pane in the view (`closeView`), so "is there anything left running to
+  // interrupt" has to ask all of them, the same way Recents' own × does for a SET
+  // entry (`recents-entries.ts`'s `resolveState`: `chatIds.some(working)`).
+  //
+  // Selected as a stable joined-id STRING, not the array `panesInView` returns —
+  // that call mints a fresh array every read, which would re-render this on every
+  // unrelated pane-store write; a string is referentially comparable the way
+  // `mainPaneCount`'s plain number used to be for the split-only version of this
+  // gate.
+  const viewChatIdsKey = useStore(windowPaneStore, (s) => {
+    if (!paneId) return ''
+    return panesInView(s.panes, paneId)
+      .map((p) => p.chatId)
+      .filter(Boolean)
+      .join(',')
+  })
+  const viewChatIds = useMemo(
+    () => (viewChatIdsKey ? viewChatIdsKey.split(',') : []),
+    [viewChatIdsKey],
   )
-  const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
+  const isViewWorking = useAnyChatWorking(viewChatIds)
   const isBottomPane = paneId === BOTTOM_PANE_ID
   // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
   // not a view: "it should only appear when NO VIEW is opened." An emptied
@@ -660,15 +675,15 @@ const TabBar = ({
             </SortableContext>
           )}
 
-          {/* A pane action, not a tab action — stays pinned at the right
-              edge, outside the scrolling tab container. Absent on an empty
-              pane: there is nothing in it to close. */}
-          {paneId && !isEmptyPane && (
-            <CloseSplitButton
+          {/* A VIEW action (spec §5.4), not a tab action — stays pinned at the
+              right edge, outside the scrolling tab container. Absent on an
+              empty pane: there is nothing in it to close. */}
+          {paneId && pane && !isEmptyPane && (
+            <CloseViewButton
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
-              isInSplit={isInSplit}
-              onClosePane={() => closePane(paneId)}
+              canClose={!isViewWorking}
+              onCloseView={() => closeView(viewIdOf(pane))}
             />
           )}
 
