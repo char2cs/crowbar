@@ -213,3 +213,44 @@ describe('chat.stream.token perf span', () => {
     expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(1)
   })
 })
+
+/**
+ * The fade itself, through a real mounted editor — the one thing the
+ * decoration rewrite could break silently.
+ *
+ * `freshDecorations`' own unit tests prove the RANGES are right; only
+ * mounting proves Plate actually applies them, splits the leaf along them and
+ * renders the animated span per word. If the plugin's `decorate` were not
+ * wired at all, every one of those unit tests would still pass and the
+ * transcript would simply stop animating.
+ */
+describe('MarkdownMessage fade-in', () => {
+  it('wraps each newly-streamed word in its own animated span, staggered', async () => {
+    const { rerender } = render(<MarkdownMessage>Building</MarkdownMessage>)
+    rerender(<MarkdownMessage>Building a CLI now</MarkdownMessage>)
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('.chat-fresh-text').length).toBeGreaterThan(0)
+    })
+    const spans = [...document.querySelectorAll<HTMLElement>('.chat-fresh-text')]
+    // Only the arrival is animated — text already on screen is not.
+    expect(spans.map((s) => s.textContent).join('')).toBe(' a CLI now')
+    // Each word on its own delay: that stagger IS the cascade.
+    const delays = spans.map((s) => s.style.animationDelay)
+    expect(delays.length).toBe(3)
+    expect(new Set(delays).size).toBe(3)
+    expect(delays.every((d) => d.endsWith('ms'))).toBe(true)
+  })
+
+  it('leaves already-settled text unanimated', async () => {
+    const { rerender } = render(<MarkdownMessage>Building</MarkdownMessage>)
+    rerender(<MarkdownMessage>Building a CLI</MarkdownMessage>)
+    await waitFor(() => {
+      expect(document.querySelectorAll('.chat-fresh-text').length).toBeGreaterThan(0)
+    })
+    const animated = [...document.querySelectorAll('.chat-fresh-text')]
+      .map((s) => s.textContent)
+      .join('')
+    expect(animated).not.toContain('Building')
+  })
+})

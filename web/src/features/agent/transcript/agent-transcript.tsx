@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -320,6 +320,37 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   useEffect(() => {
     anchor.notifyReflow()
   }, [dockHeight, anchor.notifyReflow])
+  // A TURN STARTING lifts the prompt that started it to the top of the
+  // transcript, so the reply has the whole viewport to grow down into rather
+  // than whatever slice bottom-following happened to leave under the previous
+  // turn — see `TranscriptAnchor.pinTurnToTop`.
+  //
+  // The queue's newest `clientRequestId` is the signal, because it is the only
+  // one that fires exactly ONCE per turn at the moment of dispatch:
+  // `messages` lags by a poll, `working` lags the daemon and is true for
+  // agent self-continued turns too, and `streamingBubbles` changes on every
+  // token. `enqueue` pushes the item synchronously, so the queued row is in
+  // the DOM by the time this layout effect reads for it.
+  //
+  // It is the QUEUED row that gets measured, not a message row: a just-sent
+  // prompt has no ledger-confirmed row yet, and by the time it does the pin's
+  // work is already done (`pinTurnToTop` keeps the offset, not the element).
+  const pinnedRequestId = useRef<string | null>(null)
+  const sawFirstQueue = useRef(false)
+  useLayoutEffect(() => {
+    const newest = queue.at(-1)?.clientRequestId ?? null
+    if (newest === pinnedRequestId.current) return
+    pinnedRequestId.current = newest
+    // A chat REOPENED with prompts still waiting inherits them; that is a
+    // restore, not a send, so the first run only ever records what it found.
+    const inherited = !sawFirstQueue.current
+    sawFirstQueue.current = true
+    if (!newest || inherited) return
+    const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+      `[data-client-request-id="${CSS.escape(newest)}"]`,
+    )
+    if (row) anchor.pinTurnToTop(row)
+  }, [queue, anchor.scrollRef, anchor.pinTurnToTop])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],

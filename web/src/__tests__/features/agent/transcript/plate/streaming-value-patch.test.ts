@@ -4,6 +4,7 @@ import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-compos
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import {
   applyStreamedValue,
+  freshDecorations,
   splitIntoWords,
   stableBlockCount,
   staggerDelay,
@@ -240,10 +241,37 @@ describe('applyStreamedValue performance', () => {
 // UNCHANGED prefix on screen in the same paragraph. Reported live as "text
 // repeated on itself, and the smoothing animation is clearly not working".
 function leaves(editor: ReturnType<typeof createPlateEditor>): { text: string; fresh: boolean }[] {
-  const block = editor.children[0] as { children: { text: string; chatFresh?: number }[] }
-  return block.children.map((c) => ({ text: c.text, fresh: c.chatFresh !== undefined }))
+  const block = editor.children[0] as { children: { text: string }[] }
+  const fresh = new Set<string>()
+  for (const entry of editor.api.nodes({ at: [] })) {
+    const [node] = entry
+    if (typeof (node as { text?: string }).text !== 'string') continue
+    const text = (node as { text: string }).text
+    for (const range of freshDecorations(editor, entry) as {
+      anchor: { offset: number }
+      focus: { offset: number }
+    }[]) {
+      fresh.add(text.slice(range.anchor.offset, range.focus.offset))
+    }
+  }
+  // The fade is a decoration now, so "which text is fresh" is read from the
+  // ranges rather than from split-up document leaves; the block itself stays
+  // whatever the markdown parse produced.
+  return block.children.flatMap((child) => {
+    const text = child.text
+    const covered = [...fresh].filter((f) => f.length > 0 && text.includes(f))
+    if (covered.length === 0) return [{ text, fresh: false }]
+    const freshText = covered.join('')
+    const at = text.lastIndexOf(freshText)
+    if (at < 0) return [{ text, fresh: true }]
+    const out: { text: string; fresh: boolean }[] = []
+    if (at > 0) out.push({ text: text.slice(0, at), fresh: false })
+    out.push({ text: freshText, fresh: true })
+    if (at + freshText.length < text.length)
+      out.push({ text: text.slice(at + freshText.length), fresh: false })
+    return out
+  })
 }
-
 describe('applyStreamedValue: reconciliation replaces part of a paragraph', () => {
   it('keeps the untouched prefix out of the fresh-marked (re-animated) leaves', () => {
     const editor = createPlateEditor({
@@ -300,13 +328,102 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
   })
 })
 
-// PERFORMANCE, live-reported: a large turn made the whole app unresponsive
-// while streaming. If the main thread ever falls a frame behind, the rAF
-// batcher hands back a bigger jump next time (more new blocks landing in one
-// insertion) — and splitting every word of a big jump into its own leaf for
-// the stagger animation made THAT jump itself more expensive, compounding.
-describe('applyStreamedValue: a large jump does not explode into a leaf per word', () => {
-  it('lands a many-word insertion as one fresh leaf, not one per word', () => {
+/** Every fade range currently emitted, as the text each one covers. */
+function fadeWords(editor: ReturnType<typeof createPlateEditor>): string[] {
+  const out: string[] = []
+  for (const entry of editor.api.nodes({ at: [] })) {
+    const [node] = entry
+    if (typeof (node as { text?: string }).text !== 'string') continue
+    const text = (node as { text: string }).text
+    for (const range of freshDecorations(editor, entry) as {
+      anchor: { offset: number }
+      focus: { offset: number }
+    }[]) {
+      out.push(text.slice(range.anchor.offset, range.focus.offset))
+    }
+  }
+  return out
+}
+
+/** Slate operations one call actually costs. Every operation runs the whole
+ *  plugin stack's `apply`/`normalizeNode` overrides — measured at ~1.4ms each
+ *  in Chrome with this plugin set — so this count IS the frame budget. */
+function countOps(editor: ReturnType<typeof createPlateEditor>, run: () => void): number {
+  const target = editor as unknown as { apply: (op: unknown) => void }
+  const original = target.apply.bind(editor)
+  let ops = 0
+  target.apply = (op: unknown) => {
+    ops++
+    original(op)
+  }
+  try {
+    run()
+  } finally {
+    target.apply = original
+  }
+  return ops
+}
+
+// PERFORMANCE, live-measured (Chrome 152): streaming rendered at ~24fps
+// against Claude Code Desktop's ~60fps, because the fade was written into the
+// DOCUMENT as one leaf per word — so an ordinary chunk cost one Slate
+// operation PER WORD, and each word's `animationend` cost another. At ~1.4ms
+// per operation (ListPlugin's `apply`/`normalizeNode` overrides dominate) an
+// 8-word chunk spent ~11ms of a 16.7ms frame before React rendered anything.
+//
+// These assert the COST, not just the output — a slow implementation produces
+// identical text. Both fail on the pre-decoration design.
+describe('applyStreamedValue: cost does not scale with the words in a chunk', () => {
+  it('spends the same handful of operations on a 2-word and a 60-word append', () => {
+    const short = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('start'),
+    })
+    const long = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('start'),
+    })
+    const manyWords = Array.from({ length: 60 }, (_, i) => `word${i}`).join(' ')
+
+    const shortOps = countOps(short, () =>
+      applyStreamedValue(short, chatMarkdownToValue('start two words')),
+    )
+    const longOps = countOps(long, () =>
+      applyStreamedValue(long, chatMarkdownToValue(`start ${manyWords}`)),
+    )
+
+    // The old design emitted one insert_node per word: 2 vs 60. Appending is
+    // a single `insert_text` now, whatever the word count.
+    expect(longOps).toBe(shortOps)
+    expect(longOps).toBeLessThanOrEqual(3)
+    // ...and the text still all arrived, still all faded.
+    expect(long.api.string([0])).toBe(`start ${manyWords}`)
+    expect(fadeWords(long).join('')).toBe(` ${manyWords}`)
+  })
+
+  it('appends at a flat cost no matter how long the reply has already grown', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('First paragraph.'),
+    })
+    let text = 'First paragraph.'
+    const costs: number[] = []
+    for (let i = 0; i < 40; i++) {
+      text += ` chunk${i} of more text`
+      costs.push(countOps(editor, () => applyStreamedValue(editor, chatMarkdownToValue(text))))
+    }
+
+    // Flat, not growing: the tail of a long reply costs exactly what its head
+    // did. This is what a per-word document split could never give, since a
+    // later chunk also had to be compared against an ever-longer run of
+    // still-unsettled word leaves.
+    expect(Math.max(...costs)).toBe(Math.min(...costs))
+    expect(editor.api.string([0])).toBe(text)
+  })
+})
+
+describe('applyStreamedValue: a large jump still animates as one unit', () => {
+  it('fades a many-word insertion as a single range, not one per word', () => {
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,
       value: [{ type: 'p', id: 'irrelevant', children: [{ text: '' }] }],
@@ -315,12 +432,10 @@ describe('applyStreamedValue: a large jump does not explode into a leaf per word
 
     applyStreamedValue(editor, chatMarkdownToValue(words))
 
-    const result = leaves(editor)
-    // Full text intact — nothing lost by skipping the per-word split.
-    expect(result.map((l) => l.text).join('')).toBe(words)
-    // Still animated — just not split into 200 separate leaves for it.
-    expect(result.every((l) => l.fresh)).toBe(true)
-    expect(result.length).toBeLessThan(5)
+    expect(editor.api.string([0])).toBe(words)
+    // Past WORD_SPLIT_CAP the stagger is imperceptible, so it collapses to
+    // one range rather than 200 DOM spans — still animated, just as one unit.
+    expect(fadeWords(editor)).toEqual([words])
   })
 
   it('still splits a small insertion per word, staggered as before', () => {
@@ -331,8 +446,6 @@ describe('applyStreamedValue: a large jump does not explode into a leaf per word
 
     applyStreamedValue(editor, chatMarkdownToValue('five short words here'))
 
-    const result = leaves(editor)
-    expect(result.map((l) => l.text).join('')).toBe('five short words here')
-    expect(result.length).toBe(4)
+    expect(fadeWords(editor)).toEqual(['five ', 'short ', 'words ', 'here'])
   })
 })
