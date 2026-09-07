@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { NewTabView } from '@/features/panes/components/new-tab-view'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
@@ -42,5 +42,25 @@ describe('NewTabView', () => {
     expect(svgs).toHaveLength(1)
     expect(svgs[0]).toHaveAttribute('aria-hidden', 'true')
     expect(svgs[0]).toHaveClass('pointer-events-none')
+  })
+
+  // The tumbling ASCII-art backdrop this pane used to lose along with the
+  // real actions it correctly gave up (see the file-level comment above) —
+  // ambient decoration, not a control, so it belongs back regardless.
+  // Lazy-loaded (see new-tab-view.tsx's own note on why), so this waits for
+  // the dynamic import to resolve rather than asserting synchronously.
+  it('renders the tumbling ASCII-art backdrop, still marked decorative and inert', async () => {
+    const { container } = render(<NewTabView paneId={ROOT_PANE_ID} />)
+    const pre = await waitFor(() => {
+      const el = container.querySelector('pre')
+      expect(el).toBeInTheDocument()
+      return el!
+    })
+    expect(pre.textContent).toBeTruthy()
+    const backdrop = pre.closest('[aria-hidden="true"]')
+    expect(backdrop).toHaveClass('pointer-events-none')
+    // Still nothing clickable — the backdrop must not reopen the hole this
+    // pane's whole simplification closed.
+    expect(container.querySelectorAll('button, a, input, [role="button"]')).toHaveLength(0)
   })
 })
