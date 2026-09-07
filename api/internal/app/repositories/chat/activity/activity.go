@@ -316,10 +316,17 @@ func (r *eventSourced) StartSubagent(
 	})
 }
 
+// StopSubagent uses sendWait, not send, for the same reason OpenChoice does: its
+// caller reads back the projection it just wrote. observation.go's subagent_post
+// case follows this with restateAsyncWork, whose OpenWork is a SQL read of the
+// very row this closes — under send it still saw the subagent running, so the
+// level matched, restateAsyncWork returned early without the turn_stopped that
+// clears Working, and nothing re-runs it: the spinner stayed lit forever. Only
+// codex shows it; a provider that restates its own async_work level masks it.
 func (r *eventSourced) StopSubagent(
 	ctx context.Context, chatID, subagentID, agentType string, now time.Time,
 ) error {
-	return r.send(ctx, commands.StopSubagent{
+	return r.sendWait(ctx, commands.StopSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Now: now,
 	})
 }
