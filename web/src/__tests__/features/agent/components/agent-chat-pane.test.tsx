@@ -522,7 +522,7 @@ describe('AgentChatPane', () => {
 
       // Mid-flight: the EXISTING spinner, and not a trace of the button the user
       // complained about.
-      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1', expect.any(AbortSignal))
       expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
@@ -1020,7 +1020,7 @@ describe('AgentChatPane', () => {
 
     // The buffer must never go on pointing at a runner that no longer exists — it lets r1
     // go, and takes up the one the revive put there.
-    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1', expect.any(AbortSignal))
     expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
     expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
   })
@@ -1045,7 +1045,7 @@ describe('AgentChatPane', () => {
         fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
-      expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
+      expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1', expect.any(AbortSignal))
       const xterm = await screen.findByTestId('xterm')
       expect(xterm).toHaveAttribute('data-session-id', 'pty9')
       expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r9' })

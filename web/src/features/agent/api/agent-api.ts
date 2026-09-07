@@ -879,9 +879,17 @@ export async function switchProvider(wsId: string, id: string, provider: string)
 // Returns the id of the RUNNER now on the chat. A chat that is still live is a
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
-export async function resumeChat(wsId: string, id: string): Promise<string> {
+// `signal` is not optional politeness: the caller renders a SPINNER WITH NO
+// BUTTON ON IT while this is out, so a resume that never answers is a chat the
+// user can only abandon. The daemon serialises every spawn path of one chat
+// behind a plain per-chat mutex with no context on it (inflight's Gate), so this
+// request can queue behind another spawn indefinitely and produce no response and
+// no access-log line at all. Whoever draws that spinner has to be able to stop
+// waiting — see AgentChatPane.revive.
+export async function resumeChat(wsId: string, id: string, signal?: AbortSignal): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
+    signal,
   })
   return res.id
 }

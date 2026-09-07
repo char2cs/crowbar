@@ -86,6 +86,14 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
 
+// How long the pane will wait for a resume before calling it refused.
+//
+// Matched to the daemon's own worst-case honest wait for a switch/resume to become
+// possible (awaitTurnOrForce's bound, termwait.DefaultStallQuiet), so a resume that
+// is genuinely still working is never cut off — only one that was never going to
+// answer at all. See revive for why the request is bounded rather than the UI.
+const REVIVE_REQUEST_BOUND_MS = 120_000
+
 // The pane's attach outcome.
 //
 // `pending` is the pre-resolution state and renders nothing. It is NOT `idle`: it means
@@ -475,6 +483,20 @@ export function AgentChatPane({
     setAttachment({ state: 'idle', reason: 'failed' })
   }, [shownChatId])
 
+  // HOW MANY REVIVES THIS PANE ACTUALLY HAS OUT — the fact, where the attach effect
+  // below used to infer it from the spinner being on screen.
+  //
+  // The two are only the same thing while every revive ends, and one does not have to.
+  // `reviving` is the single state in this machine with NO CONTROL ON IT (see
+  // ComposerSignpost: a spinner, and nothing to click), and the effect deliberately
+  // refuses to overwrite it — so a revive that never comes back is a chat the user can
+  // only abandon. That is the wedge this pair closes, and it was reachable both ends:
+  // the daemon serialises a chat's spawn paths behind a plain per-chat mutex with no
+  // context on it, and `apiFetch` sets no deadline on the request, so `resumeChat` could
+  // sit there forever and the `catch` holding `fail()` — the one line that puts the
+  // Resume button on screen — was simply never reached.
+  const revivesInFlight = useRef(0)
+
   // revive brings the chat's last provider back into its own native session — the CLI
   // resumes exactly where the user left it. Fired automatically when the pane finds its
   // chat dormant (see the attach effect), and by the Resume button when that failed.
@@ -487,13 +509,33 @@ export function AgentChatPane({
   const revive = useCallback(async () => {
     attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
     setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+    revivesInFlight.current += 1
+    // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
+    // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
+    // refused resume does, which is the state that carries the Resume button. Giving
+    // up early costs nothing and cannot strand anybody: the resume is a no-op on a
+    // chat that is already live, and if the daemon does come back to life afterwards
+    // the chat goes live in the store and the attach effect below picks it straight
+    // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
+    // so it can only fire on a resume that was never going to answer.
+    const abort = new AbortController()
+    const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
     try {
-      await resumeChat(wsId, shownChatId)
+      await resumeChat(wsId, shownChatId, abort.signal)
       if (!(await adopt())) fail()
     } catch (err: unknown) {
       fail()
       const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
-      toastSpawnFailure(err, name, 'resume')
+      // An abort reads as a DOMException about a cancelled fetch, which tells the user
+      // nothing about their chat. Say what actually happened instead.
+      toastSpawnFailure(
+        abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
+        name,
+        'resume',
+      )
+    } finally {
+      clearTimeout(bound)
+      revivesInFlight.current -= 1
     }
   }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
 
@@ -547,8 +589,16 @@ export function AgentChatPane({
       // Budget spent, or hidden and waiting to become visible. Don't stomp a revive
       // still in flight, and don't overwrite a `failed` we have already earned with the
       // vaguer `exited`.
+      //
+      // "Still in flight" is ASKED, not assumed. Reading `a.state === 'reviving'` as
+      // the answer is what made this state a dead end: the spinner carries no button,
+      // so a `reviving` with nothing behind it any more was a chat that could never be
+      // recovered from here, however many times the daemon restated it as dormant.
+      // Settling it to `idle` is what puts Resume back on screen.
       setAttachment((a) =>
-        a.state === 'reviving' || a.state === 'idle' ? a : { state: 'idle', reason: 'exited' },
+        (a.state === 'reviving' && revivesInFlight.current > 0) || a.state === 'idle'
+          ? a
+          : { state: 'idle', reason: 'exited' },
       )
       return
     }
