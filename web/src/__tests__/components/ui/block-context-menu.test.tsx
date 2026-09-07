@@ -5,7 +5,13 @@ import { Plate, PlateContent, type PlateEditor, usePlateEditor } from 'platejs/r
 import { BlockMenuKit } from '@/components/editor/plugins/block-menu-kit'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 
-type BlockNode = { id?: string; type?: string; indent?: number; align?: string; children?: [{ text?: string }] }
+type BlockNode = {
+  id?: string
+  type?: string
+  indent?: number
+  align?: string
+  children?: [{ text?: string }]
+}
 
 // Base UI's hover-to-open submenu (Turn into / Align) genuinely races its own
 // auto-close under jsdom: there's no real layout, so every anchor rect
@@ -132,7 +138,14 @@ describe('BlockContextMenu', () => {
 
     await selectFirstBlock()
 
-    expect(menuItemLabels()).toEqual(['Delete', 'Duplicate', 'Turn into', 'Indent', 'Outdent', 'Align'])
+    expect(menuItemLabels()).toEqual([
+      'Delete',
+      'Duplicate',
+      'Turn into',
+      'Indent',
+      'Outdent',
+      'Align',
+    ])
   })
 
   it('renders no menu at all on a touch device', async () => {
@@ -181,7 +194,9 @@ describe('BlockContextMenu item transforms', () => {
 
     const editor = editorRef.current!
     expect(editor.children).toHaveLength(3)
-    const firstTexts = editor.children.filter((n) => (n as BlockNode).children?.[0]?.text === 'first')
+    const firstTexts = editor.children.filter(
+      (n) => (n as BlockNode).children?.[0]?.text === 'first',
+    )
     expect(firstTexts).toHaveLength(2)
   })
 

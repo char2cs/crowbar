@@ -11,7 +11,11 @@
 
 import * as React from 'react'
 
-import { BLOCK_CONTEXT_MENU_ID, BlockMenuPlugin, BlockSelectionPlugin } from '@platejs/selection/react'
+import {
+  BLOCK_CONTEXT_MENU_ID,
+  BlockMenuPlugin,
+  BlockSelectionPlugin,
+} from '@platejs/selection/react'
 import { KEYS } from 'platejs'
 import { useEditorPlugin, useEditorReadOnly } from 'platejs/react'
 
@@ -81,7 +85,11 @@ export function BlockContextMenu({ children }: { children: React.ReactNode }) {
         { id: 'turn-into-h1', label: 'Heading 1', onClick: () => handleTurnInto(KEYS.h1) },
         { id: 'turn-into-h2', label: 'Heading 2', onClick: () => handleTurnInto(KEYS.h2) },
         { id: 'turn-into-h3', label: 'Heading 3', onClick: () => handleTurnInto(KEYS.h3) },
-        { id: 'turn-into-blockquote', label: 'Blockquote', onClick: () => handleTurnInto(KEYS.blockquote) },
+        {
+          id: 'turn-into-blockquote',
+          label: 'Blockquote',
+          onClick: () => handleTurnInto(KEYS.blockquote),
+        },
       ],
     },
     { id: 'sep-1', label: '', separator: true, onClick: () => {} },
@@ -126,7 +134,12 @@ export function BlockContextMenu({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-      <ContextMenu isOpen={menu.isOpen} position={menu.position} items={items} onClose={handleClose} />
+      <ContextMenu
+        isOpen={menu.isOpen}
+        position={menu.position}
+        items={items}
+        onClose={handleClose}
+      />
     </div>
   )
 }
