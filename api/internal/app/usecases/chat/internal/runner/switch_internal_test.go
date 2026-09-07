@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -84,4 +86,86 @@ func TestRegression_ResumableConversation_RecentConversationWithNoRecordedTurns_
 	require.NoError(t, err)
 	assert.Empty(t, sessionID, "a session announced moments ago with no recorded turn is still the crash race, not an old conversation")
 	assert.True(t, leftAt.IsZero(), "a refused resume carries no gap cutoff")
+}
+
+// stubRunnerStoreLiveness answers only LiveRunnerForChat, either with a runner or
+// with ErrNotFound — the two answers displaceForSwitch's work check now turns on.
+type stubRunnerStoreLiveness struct {
+	agentrunner.EventStore
+	runner engineagents.Runner
+	live   bool
+}
+
+func (s stubRunnerStoreLiveness) LiveRunnerForChat(
+	context.Context, string,
+) (engineagents.Runner, error) {
+	if !s.live {
+		return engineagents.Runner{}, agentrunner.ErrNotFound
+	}
+	return s.runner, nil
+}
+
+// runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
+// a real turn-start gate and in-flight registry, an empty on-disk prompt journal
+// (so the delivery guard passes), and the two answers under test.
+func runnersForDisplace(t *testing.T, working, live bool) *Runners {
+	t.Helper()
+	return &Runners{
+		ws:            fakeWSReader{chatsDir: t.TempDir()},
+		prompts:       agentjournal.NewPromptRequests(),
+		turnStarts:    inflight.NewGate(),
+		inflightTurns: inflight.NewTurns(),
+		turns:         stubTurnsForAttach{working: working},
+		runnerStore: stubRunnerStoreLiveness{
+			live:   live,
+			runner: engineagents.Runner{ID: "r-1"},
+		},
+	}
+}
+
+// TestRegression_DisplaceForSwitch_DormantChatFlaggedWorking_DoesNotWaitForever is
+// the fix for a chat that could only be abandoned.
+//
+// switchProviderLocked's retry loop asks displaceForSwitch whether to go round
+// again, and a `working` chat answered yes so the outgoing TUI is kept alive until
+// a later hook restates the work level as zero. On a DORMANT chat that wait can
+// never end: there is no CLI to finish the work and none to send the hook. The loop
+// therefore spun forever — about one lap per awaitTurnOrForce deadline — holding
+// the chat's spawn gate, which is a plain mutex with no context on it. Every later
+// resume, prompt and switch on that chat queued behind it and never answered at
+// all, with no access-log line either, because the log is written on completion.
+//
+// ResumeChat enters this same locked path, so the one call whose job is to bring a
+// dormant chat back was the call the stale flag stranded: the client sat on its
+// "Resuming this chat…" spinner — which carries no button — until the user gave up
+// on the chat. A durable `working` outliving its CLI is a REACHABLE state, not a
+// hypothetical: a SIGKILL mid-background-work sends no final stop, and boot
+// reconciliation only heals chats still reachable from a live runner row.
+func TestRegression_DisplaceForSwitch_DormantChatFlaggedWorking_DoesNotWaitForever(t *testing.T) {
+	rs := runnersForDisplace(t, true /* working */, false /* live */)
+
+	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
+
+	require.NoError(t, err)
+	assert.False(t, retry,
+		"a dormant chat's stale working flag must not ask the caller to loop again: "+
+			"nothing can ever clear it, so the retry holds the chat's spawn gate forever "+
+			"and every later resume on that chat blocks with no response at all")
+}
+
+// TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits is the
+// regression-of-the-regression-guard. The fix above must not also swallow the real
+// case the retry exists for: a turn_stop that handed work to the background after
+// the first await released its runner-scoped turn. There the CLI is alive, it is
+// genuinely still working, and quitting it there costs the answer — so a LIVE
+// runner must still be waited for exactly as before.
+func TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits(t *testing.T) {
+	rs := runnersForDisplace(t, true /* working */, true /* live */)
+
+	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
+
+	require.NoError(t, err)
+	assert.True(t, retry,
+		"a LIVE runner still doing background work must still be waited for — "+
+			"there is a CLI to finish it and a hook coming to say so")
 }

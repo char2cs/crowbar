@@ -184,7 +184,33 @@ func (rs *Runners) displaceForSwitch(
 		// A turn_stop may have handed work to the background after the first await
 		// released its runner-scoped turn. Keep the outgoing TUI alive until a later
 		// hook authoritatively restates the async-work level as zero.
-		return true, nil
+		//
+		// ONLY WHILE THERE IS ONE TO KEEP ALIVE. On a DORMANT chat this wait is
+		// unsatisfiable by construction: there is no CLI left to finish the work and
+		// none to send the hook that would restate it, so the caller's `continue`
+		// spins forever — roughly one lap per awaitTurnOrForce deadline, holding this
+		// chat's spawn gate the entire time. That gate is a plain mutex with no
+		// context on it, so every later resume, prompt and switch on the chat queues
+		// behind the loop and never answers at all: no response, and no access-log
+		// line either, because the log is written on completion.
+		//
+		// ResumeChat enters here for exactly this shape — a dormant chat whose
+		// durable `working` outlived the CLI that set it (a SIGKILL mid-background
+		// work sends no final stop; see closeAbandonedTurn). So the stale flag
+		// stranded the one call whose whole job is to bring that chat back, and the
+		// pane that called it sat on its "Resuming this chat…" spinner until the user
+		// abandoned the chat. A dormant chat's stale flag is not a reason to wait; it
+		// is the thing the resume is here to clear.
+		_, liveErr := rs.runnerStore.LiveRunnerForChat(ctx, chat.ID)
+		switch {
+		case liveErr == nil:
+			return true, nil
+		case !errors.Is(liveErr, agentrunner.ErrNotFound):
+			return false, fmt.Errorf("agent: switch provider: work-check live runner: %w", liveErr)
+		}
+		slog.WarnContext(ctx,
+			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",
+			"chat_id", chat.ID)
 	}
 	if err := rs.quitOutgoingCLI(ctx, chat.ID); err != nil {
 		return false, err
