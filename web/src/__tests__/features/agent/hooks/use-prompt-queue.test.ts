@@ -33,8 +33,7 @@ describe('hasPendingImageUpload', () => {
   })
 
   it('is true for multiple images even when only one is still pending', () => {
-    const draft =
-      '![done](chats/c1/attachments/a.png) and ![pending](blob:local-preview-id)'
+    const draft = '![done](chats/c1/attachments/a.png) and ![pending](blob:local-preview-id)'
     expect(hasPendingImageUpload(draft)).toBe(true)
   })
 })

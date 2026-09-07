@@ -301,9 +301,7 @@ describe('ExcalidrawTakeover', () => {
 
     clickAttach()
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /attaching/i })).toBeDisabled(),
-    )
+    await waitFor(() => expect(screen.getByRole('button', { name: /attaching/i })).toBeDisabled())
     fireEvent.click(screen.getByRole('button', { name: /attaching/i }))
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1)
 

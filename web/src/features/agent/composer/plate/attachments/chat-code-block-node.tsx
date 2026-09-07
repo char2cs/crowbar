@@ -171,10 +171,7 @@ function DraggableAttachmentBlock({
       className={cn('relative my-2', isDragging && 'opacity-50')}
     >
       <AttachmentDropLine />
-      <div
-        contentEditable={false}
-        className="group/attachment relative inline-block select-none"
-      >
+      <div contentEditable={false} className="group/attachment relative inline-block select-none">
         <AttachmentControls dragRef={handleRef} onDelete={removeAttachment} />
         {preview}
       </div>

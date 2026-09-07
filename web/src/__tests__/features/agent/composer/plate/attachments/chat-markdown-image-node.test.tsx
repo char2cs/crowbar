@@ -16,7 +16,9 @@ function renderWithDnd(ui: React.ReactNode) {
 
 describe('chat attachment images', () => {
   it('renders a plain image normally, unchanged from before this task', () => {
-    render(<MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>)
+    render(
+      <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
+    )
     const img = screen.getByAltText('a photo')
     expect(img).toBeInTheDocument()
   })
@@ -25,7 +27,9 @@ describe('chat attachment images', () => {
   // every other attachment kind — the excalidraw preview, the text-attachment
   // pill), so a tall photo could take over the whole composer.
   it('caps a settled image at a fixed max height', () => {
-    render(<MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>)
+    render(
+      <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
+    )
     const img = screen.getByAltText('a photo')
     expect(img.className).toContain('max-h-80')
   })
@@ -46,7 +50,9 @@ describe('chat attachment images', () => {
     expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
     interactive.unmount()
 
-    render(<MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>)
+    render(
+      <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
+    )
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
   })
 

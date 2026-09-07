@@ -214,7 +214,8 @@ export function settlePendingImageInto(
   const [entry] = Array.from(
     editor.api.nodes({
       at: [],
-      match: (n) => (n as { type?: string }).type === 'img' && (n as { url?: string }).url === objectUrl,
+      match: (n) =>
+        (n as { type?: string }).type === 'img' && (n as { url?: string }).url === objectUrl,
     }),
   )
   if (entry) {

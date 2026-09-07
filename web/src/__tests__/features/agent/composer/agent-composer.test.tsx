@@ -177,7 +177,9 @@ describe('AgentComposer', () => {
     await user.click(screen.getByRole('button', { name: /add to this message/i }))
     await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
 
-    await waitFor(() => expect(container.querySelector('[data-testid="excalidraw-takeover"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="excalidraw-takeover"]')).not.toBeNull(),
+    )
     expect(composerRoot.querySelector('[data-testid="excalidraw-takeover"]')).toBeNull()
 
     document.body.removeChild(container)

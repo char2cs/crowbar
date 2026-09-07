@@ -245,7 +245,10 @@ export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
       variant="outline"
       size="icon-xs"
       aria-label="Remove this attachment"
-      className={cn(ATTACHMENT_BUTTON_OPAQUE_BG, 'focus-visible:ring-0 focus-visible:ring-offset-0')}
+      className={cn(
+        ATTACHMENT_BUTTON_OPAQUE_BG,
+        'focus-visible:ring-0 focus-visible:ring-offset-0',
+      )}
       onClick={onDelete}
     >
       <Trash2Icon className="text-muted-foreground" />

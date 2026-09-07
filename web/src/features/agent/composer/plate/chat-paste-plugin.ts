@@ -119,11 +119,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
           insertPendingImageInto(editor, objectUrl, file.name)
           void uploadChatAttachment(wsId, chatId, { file })
             .then((result) => {
-              settlePendingImageInto(
-                editor,
-                objectUrl,
-                imageMarkdown(result.filename, result.ref),
-              )
+              settlePendingImageInto(editor, objectUrl, imageMarkdown(result.filename, result.ref))
             })
             .catch((err) => {
               settlePendingImageInto(editor, objectUrl, null)

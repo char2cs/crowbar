@@ -226,14 +226,12 @@ describe('fetchChatAttachmentMetadata', () => {
   it('ignores Content-Length on a non-ok response, even when one is present', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response('{"error":"not found"}', {
-            status: 404,
-            headers: { 'content-length': '22' },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        new Response('{"error":"not found"}', {
+          status: 404,
+          headers: { 'content-length': '22' },
+        }),
+      ),
     )
     await expect(
       fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf'),

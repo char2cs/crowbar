@@ -148,7 +148,11 @@ function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: Fil
         {...props}
         as="a"
         ref={useComposedRef(props.ref, nodeRef)}
-        className={cn('chat-attachment-file-card', ATTACHMENT_BOX_CLASS, isDragging && 'opacity-50')}
+        className={cn(
+          'chat-attachment-file-card',
+          ATTACHMENT_BOX_CLASS,
+          isDragging && 'opacity-50',
+        )}
         attributes={{
           ...props.attributes,
           href: href ?? undefined,

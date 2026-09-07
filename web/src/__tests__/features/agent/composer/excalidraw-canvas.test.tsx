@@ -1,7 +1,10 @@
 import { createRef } from 'react'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ExcalidrawCanvas, type ExcalidrawCanvasHandle } from '@/features/agent/composer/excalidraw-canvas'
+import {
+  ExcalidrawCanvas,
+  type ExcalidrawCanvasHandle,
+} from '@/features/agent/composer/excalidraw-canvas'
 
 // The real `<Excalidraw>` mounts a canvas-rendering tree that jsdom cannot
 // host (it also pulls in a raw JSON import Vite's test transform doesn't

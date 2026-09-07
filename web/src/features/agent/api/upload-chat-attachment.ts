@@ -102,5 +102,8 @@ async function encodeMultipartAttachment(
 // splits this hand-built Content-Disposition line in two, injecting an extra
 // header-looking line into the multipart body this client sends.
 function escapeFormDataValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, '')
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/[\r\n]/g, '')
 }

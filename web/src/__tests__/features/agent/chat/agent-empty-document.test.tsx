@@ -62,7 +62,8 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
 // mocked the same way agent-composer.test.tsx does, capturing `onSave` so a
 // test can trigger it directly.
 let latestExcalidrawOnSave: ((result: { sceneJson: string; pngFile: File }) => void) | null = null
-let latestExcalidrawInitialScene: { elements: unknown[]; appState: Record<string, unknown> } | undefined
+let latestExcalidrawInitialScene:
+  { elements: unknown[]; appState: Record<string, unknown> } | undefined
 vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
   ExcalidrawCanvas: ({
     onSave,

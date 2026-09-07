@@ -138,9 +138,7 @@ describe('chat attachment code blocks', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /remove this attachment/i }))
 
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /pasted text/i })).toBeNull(),
-    )
+    await waitFor(() => expect(screen.queryByRole('button', { name: /pasted text/i })).toBeNull())
   })
 
   it('renders no delete button for a plain, non-attachment code block', () => {
@@ -301,7 +299,9 @@ describe('chat attachment code blocks', () => {
       </DndScope>,
     )
     await act(async () => {
-      ref.current?.insertAttachmentMarkdown('```text-attachment:AbC123xy\nsome long pasted text\n```')
+      ref.current?.insertAttachmentMarkdown(
+        '```text-attachment:AbC123xy\nsome long pasted text\n```',
+      )
       ref.current?.insertAttachmentMarkdown('second paragraph')
     })
 
@@ -362,12 +362,15 @@ describe('chat attachment code blocks', () => {
   })
 
   it('still renders an ordinary image normally when it is not an excalidraw PNG sibling', () => {
-    render(<MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>)
+    render(
+      <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
+    )
     expect(document.querySelectorAll('img')).toHaveLength(1)
   })
 
   it('renders the image normally when it follows an excalidraw fence whose content is not a valid scene', () => {
-    const md = '```excalidraw:AbC123xy\nnot json\n```\n\n![diagram](chats/c1/attachments/diagram.png)'
+    const md =
+      '```excalidraw:AbC123xy\nnot json\n```\n\n![diagram](chats/c1/attachments/diagram.png)'
     render(<MarkdownMessageStatic>{md}</MarkdownMessageStatic>)
 
     expect(document.querySelectorAll('img')).toHaveLength(1)

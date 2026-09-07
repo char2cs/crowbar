@@ -28,7 +28,7 @@ describe('excalidraw design persistence', () => {
     expect(loadExcalidrawDesign('w2', 'c1')).toBe('{"elements":["c"]}')
   })
 
-  it('overwrites a chat\'s previous saved design rather than keeping both', () => {
+  it("overwrites a chat's previous saved design rather than keeping both", () => {
     saveExcalidrawDesign('w1', 'c1', '{"elements":["first"]}')
     saveExcalidrawDesign('w1', 'c1', '{"elements":["second"]}')
 
