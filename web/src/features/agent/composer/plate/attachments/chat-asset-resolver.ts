@@ -91,6 +91,7 @@ export async function fetchChatAttachmentMetadata(
   if (!parsed || !url) return null
   try {
     const response = await fetch(url, { method: 'HEAD', signal })
+    if (!response.ok) return { filename: parsed.filename, size: null }
     const len = response.headers.get('content-length')
     return { filename: parsed.filename, size: len ? Number(len) : null }
   } catch {

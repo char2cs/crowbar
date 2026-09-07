@@ -93,6 +93,35 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
+  // REGRESSION, reported by review: backslash/quote were the only characters
+  // escaped, so a filename carrying a literal CR/LF split the hand-built
+  // Content-Disposition line in two, injecting an extra header line into the
+  // multipart body this client itself constructs. Self-request-only (this
+  // is the CLIENT'S own outgoing request), but a real gap regardless.
+  it('strips CR/LF from the filename instead of letting it inject an extra header line', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { ref: 'r', fileName: 'f', size: 1, contentType: 'text/plain' } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = new File(['x'], 'evil\r\nX-Injected: yes.txt', { type: 'text/plain' })
+    await uploadChatAttachment('ws1', 'c1', { file }, 'x')
+
+    const [, init] = fetchMock.mock.calls[0]
+    const contentType = (init.headers as Record<string, string>)['Content-Type']
+    const boundary = contentType.split('boundary=')[1]
+    const text = new TextDecoder().decode(init.body as Uint8Array)
+    // The file part's own header block (Content-Disposition, Content-Type) —
+    // an unstripped CR/LF in the filename would split Content-Disposition
+    // into two lines, so this would be 3 lines instead of 2.
+    const filePart = text.split(`--${boundary}\r\n`)[2]
+    const headerBlock = filePart.split('\r\n\r\n')[0]
+    expect(headerBlock.split('\r\n')).toHaveLength(2)
+    vi.unstubAllGlobals()
+  })
+
   it('falls back to application/octet-stream when the File carries no type', async () => {
     const fetchMock = vi
       .fn()

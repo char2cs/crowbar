@@ -64,3 +64,43 @@ func TestRegression_AgentHomeAttachmentUploadAndRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, string(body))
 }
+
+// TestRegression_AttachmentHeadReportsContentLength proves a HEAD against the
+// attachment-read route reports the real file size, not a 404 — the web
+// client's own file-card size label (chat-asset-resolver.ts's
+// fetchChatAttachmentMetadata) is a HEAD against this exact route, with no
+// GET-only route registered here it always 404's, and Gin's own JSON 404
+// body's incidental Content-Length was silently displayed as the file's
+// size instead. The handler itself (attachments.go's Attachment) never
+// checks the request method, so a HEAD route reaching it is enough: Go's
+// net/http server suppresses the body but still reports the real
+// Content-Length it wrote.
+func TestRegression_AttachmentHeadReportsContentLength(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	homeBase := "/v0/projects/" + imported.projectID + "/home"
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	require.NotEmpty(t, created.ID)
+	h.Quiesce()
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "report.pdf")
+	const want = "hello from a HEAD-requested attachment"
+	require.NoError(t, os.WriteFile(src, []byte(want), 0o600))
+
+	var uploaded struct {
+		FileName string `json:"fileName"`
+	}
+	h.post(homeBase+"/chats/"+created.ID+"/attachments",
+		map[string]string{"path": src, "id": "att2"}, http.StatusCreated, &uploaded)
+
+	resp := h.raw(http.MethodHead,
+		homeBase+"/chats/"+created.ID+"/attachments/"+uploaded.FileName, nil, http.StatusOK)
+	defer func() { _ = resp.Body.Close() }()
+	assert.EqualValues(t, len(want), resp.ContentLength)
+}

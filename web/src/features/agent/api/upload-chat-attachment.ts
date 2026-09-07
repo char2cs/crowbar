@@ -96,8 +96,11 @@ async function encodeMultipartAttachment(
   return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
-// Mirrors Go's mime/multipart.Writer escapeQuotes — backslash and double-quote
-// are the only two characters that would otherwise break the quoted filename.
+// Mirrors Go's mime/multipart.Writer escapeQuotes (backslash and double-quote
+// escaped) plus stripping CR/LF, which neither escapeQuotes nor a quoted-string
+// header value has any valid escape for — left in, a filename carrying one
+// splits this hand-built Content-Disposition line in two, injecting an extra
+// header-looking line into the multipart body this client sends.
 function escapeFormDataValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, '')
 }

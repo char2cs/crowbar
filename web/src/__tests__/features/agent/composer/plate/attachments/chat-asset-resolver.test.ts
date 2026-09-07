@@ -217,6 +217,30 @@ describe('fetchChatAttachmentMetadata', () => {
     vi.unstubAllGlobals()
   })
 
+  // REGRESSION, reported by review: a REAL non-ok response (Gin's own JSON
+  // error body, before the backend registered HEAD for this route at all)
+  // carries its OWN real Content-Length — an empty-bodied `Response(null,
+  // {status: 404})`, the shape the test above uses, never reproduces that,
+  // so a missing `response.ok` check passed unnoticed. A non-ok response's
+  // Content-Length must never be reported as the file's own size.
+  it('ignores Content-Length on a non-ok response, even when one is present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"error":"not found"}', {
+            status: 404,
+            headers: { 'content-length': '22' },
+          }),
+        ),
+    )
+    await expect(
+      fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf'),
+    ).resolves.toEqual({ filename: 'report.pdf', size: null })
+    vi.unstubAllGlobals()
+  })
+
   it('forwards the abort signal to the HEAD request', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

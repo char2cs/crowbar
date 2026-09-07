@@ -90,16 +90,19 @@ func (rs *Runners) spawnRunner(
 	crowbarHome, projectID, repoID := paths.crowbarHome, paths.projectID, paths.repoID
 	worktree, tmpDir := paths.worktree, paths.tmpDir
 
-	// A COPY of promptMessage for dispatch — the durable ledger text is never mutated.
-	dispatchMessage, err := materializeAttachmentsForDispatch(paths.chatsDir, worktree, chatID, runnerID, promptMessage)
-	if err != nil {
-		worktreepath.RemoveUnderWorktree(ctx, worktree, worktreepath.AttachmentScratchDir(worktree, runnerID))
-		return "", fmt.Errorf("agent: spawn runner: materialize attachments: %w", err)
-	}
+	// Copies of promptMessage and conversation for dispatch — the durable ledger
+	// text is never mutated. conversation (AssembleConversation's rendering of
+	// the prior exchange, handed to a freshly spawned CLI on a restart or a
+	// provider switch) carries whatever attachment references the ORIGINAL
+	// turns held, exactly like promptMessage does for the live one — without
+	// this, only the CURRENT prompt's attachments resolved to real paths, and
+	// every earlier attachment a resumed/switched-to CLI was handed the
+	// literal logical reference for a file it therefore could not read.
+	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, promptMessage)
+	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, conversation)
 
 	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
 	if err != nil {
-		worktreepath.RemoveUnderWorktree(ctx, worktree, worktreepath.AttachmentScratchDir(worktree, runnerID))
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
 	// The tool surface is switched off by rendering a descriptor that does not
@@ -125,7 +128,7 @@ func (rs *Runners) spawnRunner(
 		crowbarHome:     crowbarHome,
 		launchSessionID: launchSessionID,
 		threads:         threads,
-		conversation:    conversation,
+		conversation:    dispatchConversation,
 		promptMessage:   dispatchMessage,
 		gapTurns:        gapTurns,
 		resuming:        resuming,
@@ -156,7 +159,6 @@ func (rs *Runners) spawnRunner(
 		// that never fires when the CLI never goes live. Forget it here, or every failed
 		// spawn leaks one handoff-sized string until the daemon restarts.
 		rs.agents.ForgetRunner(runnerID)
-		worktreepath.RemoveUnderWorktree(ctx, worktree, worktreepath.AttachmentScratchDir(worktree, runnerID))
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 	rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, plan, resumeContextFor(resuming, inject, tctx))
@@ -226,18 +228,16 @@ func (rs *Runners) forkCLI(
 	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
 		rs.agents.ForgetRunner(req.runnerID)
 		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
-		worktreepath.RemoveUnderWorktree(ctx, req.worktree, worktreepath.AttachmentScratchDir(req.worktree, req.runnerID))
 		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
 	}
 	termSessID, err := rs.term.CreateCommand(ctx, req.workspaceID, req.worktree, req.argv, req.env,
-		rs.onRunnerExit(req.crowbarHome, req.worktree, req.runnerID, req.tmpDir))
+		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
 	if err == nil {
 		return termSessID, nil
 	}
 	rs.pendingHooks.Discard(req.runnerID)
 	rs.agents.ForgetRunner(req.runnerID)
 	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
-	worktreepath.RemoveUnderWorktree(ctx, req.worktree, worktreepath.AttachmentScratchDir(req.worktree, req.runnerID))
 
 	// A CLI that is not installed is the ONE spawn failure the user can act on, so
 	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
@@ -423,11 +423,9 @@ func (rs *Runners) teardownAfterPersistFailure(
 	return cause
 }
 
-func (rs *Runners) onRunnerExit(home, worktree, runnerID, tmpDir string) func() {
+func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
 	return func() {
 		worktreepath.RemoveUnderHome(context.Background(), home, tmpDir)
-		worktreepath.RemoveUnderWorktree(context.Background(), worktree,
-			worktreepath.AttachmentScratchDir(worktree, runnerID))
 		// A dead PTY takes its api-transport connection (serve process + driver)
 		// with it — never leaked, and safe to call for a hooks-only runner that
 		// never had one.

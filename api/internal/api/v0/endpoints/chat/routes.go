@@ -83,6 +83,12 @@ func Register(
 	wsScoped.GET("/chats/:id/activity/:toolId/payload", h.ToolPayload)
 	wsScoped.POST("/chats/:id/attachments", h.UploadAttachment)
 	wsScoped.GET("/chats/:id/attachments/:file", h.Attachment)
+	// HEAD, not just GET: the web client's own file-card size label is a
+	// HEAD against this exact route (chat-asset-resolver.ts). With no HEAD
+	// route registered it always 404'd — Attachment itself never checks the
+	// request method, so net/http's own HEAD handling (real headers, body
+	// suppressed) is all a route pointed at it needs.
+	wsScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)
 	wsScoped.GET("/chats/:id/choices", h.Choices)
 	wsScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
 	wsScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)

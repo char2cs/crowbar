@@ -9,6 +9,8 @@ import type { Value } from 'platejs'
 import {
   ChatMarkdownEditor,
   insertAttachmentMarkdownInto,
+  insertPendingImageInto,
+  settlePendingImageInto,
   type CaretEdges,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
@@ -137,7 +139,7 @@ describe('insertAttachmentMarkdownInto', () => {
     insertAttachmentMarkdownInto(editor, '```excalidraw:abc\n{"elements":[]}\n```')
     insertAttachmentMarkdownInto(editor, '![diagram](chats/c1/attachments/x-diagram.png)')
 
-    const [, fence, image] = editor.children as {
+    const [fence, image] = editor.children as {
       type?: string
       url?: string
       children?: { type?: string; children?: { text?: string }[] }[]
@@ -203,6 +205,155 @@ describe('insertAttachmentMarkdownInto', () => {
       '![diagram](chats/c1/attachments/x-diagram.png)',
     )
   })
+
+  // REGRESSION, reported live: after attaching something, there was nowhere
+  // to keep typing except clicking below the block yourself.
+  it('lands the caret on a fresh empty line right after inserting a single attachment', () => {
+    const editor = editorWith('', 'end')
+
+    insertAttachmentMarkdownInto(editor, '```text-attachment:abc123\nhello world\n```')
+
+    const last = editor.children.at(-1) as { type?: string; children?: { text?: string }[] }
+    expect(last.type).toBe('p')
+    expect(last.children?.map((c) => c.text).join('')).toBe('')
+    expect(editor.selection).not.toBeNull()
+    expect(editor.api.end([])).toEqual(editor.selection?.focus)
+  })
+
+  // The multi-file-drop/paste case: each upload resolves independently and
+  // calls this separately — the SECOND file's insert must not stack a new
+  // blank paragraph on top of the one the FIRST file's insert just made.
+  it('reuses the same trailing empty line for a second attachment inserted right after the first', () => {
+    const editor = editorWith('', 'end')
+
+    insertAttachmentMarkdownInto(editor, '```text-attachment:aaa\nfirst\n```')
+    insertAttachmentMarkdownInto(editor, '```text-attachment:bbb\nsecond\n```')
+
+    const emptyParagraphs = (
+      editor.children as { type?: string; children?: { text?: string }[] }[]
+    ).filter((n) => n.type === 'p' && n.children?.every((c) => c.text === ''))
+    expect(emptyParagraphs).toHaveLength(1)
+    expect(chatValueToMarkdown(editor.children as Value)).toBe(
+      '```text-attachment:aaa\nfirst\n```\n\n```text-attachment:bbb\nsecond\n```',
+    )
+  })
+})
+
+// REGRESSION, reported live: "photos attachments are not loaded instantly...
+// I'm suspecting that we're waiting for a backend confirmation, let's not
+// wait for them." Confirmed: `uploadAttachmentMarkdown` awaited the network
+// round trip before any markdown — and therefore any preview — ever reached
+// the document at all. `insertPendingImageInto` puts a local
+// `URL.createObjectURL` preview in immediately; `settlePendingImageInto`
+// swaps it for the real ref (or removes it, on failure) once the upload
+// actually settles.
+describe('insertPendingImageInto / settlePendingImageInto', () => {
+  it('inserts an image node pointing at the local object URL immediately', () => {
+    const editor = editorWith('', 'end')
+
+    insertPendingImageInto(editor, 'blob:local-preview', 'photo.png')
+
+    const [image] = editor.children as { type?: string; url?: string }[]
+    expect(image.type).toBe('img')
+    expect(image.url).toBe('blob:local-preview')
+  })
+
+  it('replaces the placeholder url with the real one once the upload settles, in place', () => {
+    const editor = editorWith('', 'end')
+    insertPendingImageInto(editor, 'blob:local-preview', 'photo.png')
+
+    settlePendingImageInto(
+      editor,
+      'blob:local-preview',
+      '![photo.png](chats/c1/attachments/photo.png)',
+    )
+
+    const [image] = editor.children as { type?: string; url?: string }[]
+    expect(image.type).toBe('img')
+    expect(image.url).toBe('chats/c1/attachments/photo.png')
+  })
+
+  // The person may have kept typing (or attached something else) while the
+  // upload was in flight — the placeholder is found by its OWN url, not by
+  // whatever position it happened to start at.
+  it('finds the placeholder by its own url, not by position, if the document changed since', () => {
+    const editor = editorWith('', 'end')
+    insertPendingImageInto(editor, 'blob:first', 'first.png')
+    insertAttachmentMarkdownInto(editor, '```text-attachment:aaa\nkeep typing\n```')
+    insertPendingImageInto(editor, 'blob:second', 'second.png')
+
+    settlePendingImageInto(editor, 'blob:first', '![first.png](chats/c1/attachments/first.png)')
+
+    const images = (editor.children as { type?: string; url?: string }[]).filter(
+      (n) => n.type === 'img',
+    )
+    expect(images).toMatchObject([
+      { type: 'img', url: 'chats/c1/attachments/first.png' },
+      { type: 'img', url: 'blob:second' },
+    ])
+  })
+
+  it('removes the placeholder when the upload failed instead of leaving a broken image behind', () => {
+    const editor = editorWith('', 'end')
+    insertPendingImageInto(editor, 'blob:local-preview', 'photo.png')
+
+    settlePendingImageInto(editor, 'blob:local-preview', null)
+
+    const images = (editor.children as { type?: string }[]).filter((n) => n.type === 'img')
+    expect(images).toHaveLength(0)
+  })
+
+  it('revokes the object URL once settled, win or lose', () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL')
+    const editor = editorWith('', 'end')
+    insertPendingImageInto(editor, 'blob:local-preview', 'photo.png')
+
+    settlePendingImageInto(
+      editor,
+      'blob:local-preview',
+      '![photo.png](chats/c1/attachments/photo.png)',
+    )
+
+    expect(revoke).toHaveBeenCalledWith('blob:local-preview')
+    revoke.mockRestore()
+  })
+
+  it('is a safe no-op when the placeholder is no longer in the document at all', () => {
+    const editor = editorWith('', 'end')
+
+    expect(() =>
+      settlePendingImageInto(editor, 'blob:never-inserted', '![x](chats/c1/attachments/x.png)'),
+    ).not.toThrow()
+  })
+
+  // REGRESSION, reported by review: `uploadAttachmentMarkdown` picks
+  // `imageMarkdown` vs `fileMarkdown` off the SERVER's own sniffed content
+  // type (attachment-markdown.ts), which can disagree with the browser's
+  // `File.type` guess that put this upload on the optimistic image path in
+  // the first place (a HEIC/AVIF photo, or a truncated/corrupted image, are
+  // both real cases). `fileMarkdown` deserializes to a LINK nested inside a
+  // wrapping paragraph, not a top-level node with its own `.url` — patching
+  // `url` in place on the placeholder left a void `img` node pointing at a
+  // non-image file (a broken image icon), and since nothing ever REMOVED
+  // the node, its `blob:` url — already revoked — kept matching
+  // `hasPendingImageUpload`'s regex forever, silently blocking Send with no
+  // error and no way to recover short of deleting the attachment by hand.
+  it('replaces the placeholder outright when the upload resolves to a non-image attachment', () => {
+    const editor = editorWith('', 'end')
+    insertPendingImageInto(editor, 'blob:local-preview', 'photo.heic')
+
+    settlePendingImageInto(
+      editor,
+      'blob:local-preview',
+      '[photo.heic](chats/c1/attachments/photo.heic)',
+    )
+
+    const images = (editor.children as { type?: string }[]).filter((n) => n.type === 'img')
+    expect(images).toHaveLength(0)
+    const markdown = chatValueToMarkdown(editor.children as never)
+    expect(markdown).toContain('[photo.heic](chats/c1/attachments/photo.heic)')
+    expect(markdown).not.toContain('blob:')
+  })
 })
 
 describe('ChatMarkdownEditor imperative handle', () => {
@@ -226,6 +377,50 @@ describe('ChatMarkdownEditor imperative handle', () => {
 
     const lastCall = onChange.mock.calls.at(-1)?.[0] as string
     expect(lastCall).toContain('text-attachment:abc123')
+  })
+
+  it('inserts a pending image at a local object URL, and reports it via onChange', () => {
+    const ref = createRef<ChatMarkdownEditorHandle>()
+    const onChange = vi.fn()
+    render(
+      <ChatMarkdownEditor
+        ref={ref}
+        initialValue=""
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={onChange}
+        onKeyDown={vi.fn()}
+      />,
+    )
+
+    ref.current?.insertPendingImage('blob:local-preview', 'photo.png')
+
+    expect(onChange.mock.calls.at(-1)?.[0]).toContain('blob:local-preview')
+  })
+
+  it('settles a pending image to its real ref, and reports the swap via onChange', () => {
+    const ref = createRef<ChatMarkdownEditorHandle>()
+    const onChange = vi.fn()
+    render(
+      <ChatMarkdownEditor
+        ref={ref}
+        initialValue=""
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={onChange}
+        onKeyDown={vi.fn()}
+      />,
+    )
+    ref.current?.insertPendingImage('blob:local-preview', 'photo.png')
+
+    ref.current?.settlePendingImage(
+      'blob:local-preview',
+      '![photo.png](chats/c1/attachments/photo.png)',
+    )
+
+    const lastCall = onChange.mock.calls.at(-1)?.[0] as string
+    expect(lastCall).toContain('chats/c1/attachments/photo.png')
+    expect(lastCall).not.toContain('blob:local-preview')
   })
 
   // wsId/chatId are accepted-but-unused this task (a later task's paste
@@ -464,5 +659,137 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
     expect(select).not.toHaveBeenCalled()
     expect(event.preventDefault).not.toHaveBeenCalled()
     expect(onKeyDown).not.toHaveBeenCalled()
+  })
+})
+
+// A minimal, controllable stand-in — jsdom has no real `ResizeObserver`, and
+// this feature had NO test coverage at all before this: every previous fix to
+// it (composer.css's `.pill`/`.multi` split) was verified live, by hand, each
+// time it broke. `trigger()` simulates the browser calling back into a real
+// observer's callback on a genuine size change.
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = []
+  observed: Element | null = null
+  constructor(private callback: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this)
+  }
+  observe(el: Element) {
+    this.observed = el
+  }
+  disconnect() {
+    this.observed = null
+  }
+  unobserve() {}
+  trigger() {
+    this.callback([], this as unknown as ResizeObserver)
+  }
+}
+
+describe('ChatMarkdownEditor height reporting', () => {
+  const realResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    FakeResizeObserver.instances = []
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
+  })
+
+  afterEach(() => {
+    globalThis.ResizeObserver = realResizeObserver
+  })
+
+  // LAYOUT-effect-equivalent timing: the whole reason this reports via a ref
+  // callback (fired synchronously during commit, same phase as a layout
+  // effect) rather than a plain `useEffect` is so the very first frame the
+  // box is visible in already has the right height — see the file's own note
+  // on why a recalled multi-line draft used to paint one frame of the wrong
+  // (fully-rounded, single-line) pill radius before this fired.
+  it('reports the editable height synchronously on mount, before any resize fires', () => {
+    const onHeightChange = vi.fn()
+    render(
+      <ChatMarkdownEditor
+        initialValue="hello"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+
+    // jsdom always reports 0 for `getBoundingClientRect` — the value itself
+    // isn't the point here (the resize test below covers a real value); what
+    // matters is that mounting alone, with no resize ever firing, already
+    // reported SOMETHING, synchronously.
+    expect(onHeightChange).toHaveBeenCalledWith(0)
+  })
+
+  it('reports a new height when the observed editable resizes', () => {
+    const onHeightChange = vi.fn()
+    const { container } = render(
+      <ChatMarkdownEditor
+        initialValue="hello"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+    const editable = container.querySelector('[data-slate-editor]') as HTMLElement
+    onHeightChange.mockClear()
+    vi.spyOn(editable, 'getBoundingClientRect').mockReturnValue({ height: 64 } as DOMRect)
+
+    expect(FakeResizeObserver.instances).toHaveLength(1)
+    FakeResizeObserver.instances[0]!.trigger()
+
+    expect(onHeightChange).toHaveBeenCalledWith(64)
+  })
+
+  // REGRESSION target: the previous implementation queried for
+  // `[data-slate-editor]` ONCE inside a `useLayoutEffect` with a stable
+  // dependency array, so it never re-ran once mounted — if the editable's
+  // own DOM node were ever replaced without this component's effect
+  // re-running (a dev-only Fast Refresh remount is exactly this shape,
+  // reported live more than once as the pill's rounding going stale until a
+  // full reload), the observer silently kept watching a DETACHED node
+  // forever. Reporting via a ref CALLBACK on the editable itself instead
+  // means a fresh observed node is a NEW attach, which React always calls
+  // this back for — there is no "stable dependency" for staleness to hide
+  // behind. Proven here by a real unmount+remount: the OLD observer must be
+  // torn down, and a brand new one attached to the fresh node.
+  it('tears down the old observer and attaches a fresh one across a genuine remount', () => {
+    const onHeightChange = vi.fn()
+    const { container, unmount } = render(
+      <ChatMarkdownEditor
+        initialValue="hello"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+    const firstEditable = container.querySelector('[data-slate-editor]')
+    expect(FakeResizeObserver.instances).toHaveLength(1)
+    const firstObserver = FakeResizeObserver.instances[0]!
+    expect(firstObserver.observed).toBe(firstEditable)
+
+    unmount()
+    expect(firstObserver.observed).toBeNull()
+
+    render(
+      <ChatMarkdownEditor
+        initialValue="hello again"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+
+    expect(FakeResizeObserver.instances).toHaveLength(2)
+    expect(FakeResizeObserver.instances[1]!.observed).not.toBeNull()
+    expect(FakeResizeObserver.instances[1]!.observed).not.toBe(firstEditable)
   })
 })
