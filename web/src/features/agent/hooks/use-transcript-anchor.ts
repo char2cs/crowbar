@@ -8,6 +8,28 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
    grew faster than the scroll did. */
 const STICK_SLACK = 96
 
+/**
+ * How recently a real input must have happened for a scroll to be read as the
+ * READER's rather than the browser's.
+ *
+ * `scrollTop` changing is not evidence that anybody scrolled. The browser
+ * moves it on its own — scroll anchoring, keeping the view stable when
+ * content around it resizes — and a streaming transcript is content resizing
+ * continuously, so this is the common case rather than an edge one. Measured
+ * live on a 35-item numbered list: the view jumped 213px backward in one
+ * sample while `scrollHeight` moved 3px (far too small to have clamped it),
+ * with no gesture anywhere near, and following then stopped dead for 15.6
+ * seconds because that jump was indistinguishable from the reader scrolling
+ * up.
+ *
+ * A real gesture always announces itself first — `wheel`, `touchmove`,
+ * `keydown`, or a scrollbar drag — a frame or two before the scroll event it
+ * causes. Generous on purpose: erring toward "the reader did it" only ever
+ * reproduces the old behaviour of pausing, which is safe, while erring the
+ * other way would yank a reader back to the bottom mid-sentence.
+ */
+const READER_INPUT_MS = 1000
+
 /** Where the reader was, captured on unmount so the NEXT time this exact
  *  chat mounts (a switch back, this session) it can pick up from here
  *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
@@ -181,6 +203,12 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // being re-measured, which also keeps this off the layout-reading path of
   // every ResizeObserver callback.
   const pinnedTop = useRef<number | null>(null)
+  // When the reader last actually did something — see READER_INPUT_MS.
+  const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
+  // A scrollbar drag only announces itself once, at `pointerdown`, and can
+  // then run for as long as the reader holds the button; the timestamp alone
+  // would go stale under them mid-drag.
+  const pointerHeld = useRef(false)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -325,9 +353,36 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       resync()
     }
     window.addEventListener('focus', onWindowFocus)
+    // Captured on the window, not the container: a keypress scrolls the
+    // transcript while focus sits anywhere in the chat, and capture phase
+    // means nothing downstream can swallow the signal before it is recorded.
+    const noteInput = () => {
+      lastInputAt.current = performance.now()
+    }
+    const onPointerDown = () => {
+      pointerHeld.current = true
+      noteInput()
+    }
+    const onPointerUp = () => {
+      pointerHeld.current = false
+      noteInput()
+    }
+    const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove', 'keydown'] as const
+    for (const type of INPUT_EVENTS) {
+      window.addEventListener(type, noteInput, { capture: true, passive: true })
+    }
+    window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: true })
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: true })
     return () => {
       observer.disconnect()
       window.removeEventListener('focus', onWindowFocus)
+      for (const type of INPUT_EVENTS) {
+        window.removeEventListener(type, noteInput, { capture: true })
+      }
+      window.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      window.removeEventListener('pointerup', onPointerUp, { capture: true })
+      window.removeEventListener('pointercancel', onPointerUp, { capture: true })
       follow.current?.stop()
       follow.current = null
       resyncRef.current = () => {}
@@ -388,10 +443,22 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     ) {
       return
     }
-    // Real input: the reader's own scroll wins immediately, even mid-glide —
-    // the loop's own drift check would catch this too on its next frame, but
-    // clearing the expected value here means the NEXT tick doesn't have to.
+    // Not one of our own writes. The loop's own drift check would catch this
+    // too on its next frame, but clearing the expected value here means the
+    // NEXT tick doesn't have to.
     expectedScrollTop.current = null
+    // ...but "not ours" is still not "the reader's". The browser moves
+    // scrollTop by itself to keep the view stable when content around it
+    // resizes, which a streaming transcript does constantly — see
+    // READER_INPUT_MS. Treating that as a gesture is what left a reply
+    // stranded mid-generation with the transcript refusing to follow it any
+    // further. Nobody having touched anything means the view is still where
+    // the reader left it: keep following, from wherever it now sits.
+    const reader = pointerHeld.current || performance.now() - lastInputAt.current < READER_INPUT_MS
+    if (!reader) {
+      resyncRef.current()
+      return
+    }
     // Re-armed as soon as the reader comes back to the bottom, so following
     // resumes without them having to do anything but scroll down.
     stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
