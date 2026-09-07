@@ -268,3 +268,73 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     expect(held.length).toBeLessThanOrEqual(splitIntoWords(' three').length)
   })
 })
+
+/**
+ * REGRESSION, caught live on a 30-item numbered list and reproduced in Chrome:
+ * `.chat-fresh-text` spans climbed monotonically to 314 over a single reply
+ * and never fell until the stream stopped.
+ *
+ * Settling is bookkeeping — it deliberately performs no edit — and a block
+ * only recomputes its decorations when something re-renders it. While a list
+ * streams, only the LAST item is ever re-rendered, so every finished item kept
+ * its animated spans in the DOM for the rest of the turn: each one an element
+ * still carrying a running `animation` declaration that `fill-mode: both`
+ * keeps alive. The old pre-decoration design never had this because settling
+ * unset the marks, which merged the leaves back into plain text and removed
+ * the spans outright.
+ *
+ * Bounded, not zero, is the contract: words that genuinely are still fading
+ * keep their spans.
+ */
+describe('finished fades do not pile up in the DOM', () => {
+  const listItem = (i: number) => `${i + 1}. item ${i} of the list here`
+
+  it('releases settled spans instead of holding every word of the reply', async () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(listItem(0)),
+    })
+    render(
+      <Plate editor={editor}>
+        <PlateContent readOnly />
+      </Plate>,
+    )
+
+    // Twelve list items stream in, each finishing its fade (as a real browser
+    // reports via `animationend`) before the next one starts.
+    let markdown = listItem(0)
+    for (let i = 1; i < 12; i++) {
+      markdown += `\n${listItem(i)}`
+      await act(async () => {
+        applyStreamedValue(editor, chatMarkdownToValue(markdown))
+      })
+      await act(async () => {
+        for (const generation of liveGenerations(editor)) settleFreshGeneration(editor, generation)
+      })
+    }
+    // One more frame for the coalesced cleanup pass to land.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+    })
+
+    // Before the fix this was every word of all twelve items — it only ever
+    // grew. Bounded well under that is the whole assertion.
+    const spans = document.querySelectorAll('.chat-fresh-text').length
+    expect(spans).toBeLessThan(10)
+    // ...and the reply is all still there, unharmed by the cleanup.
+    expect(editor.children.length).toBe(12)
+  })
+})
+
+/** Generations currently emitting an animated range, from the editor itself. */
+function liveGenerations(editor: ReturnType<typeof createPlateEditor>): number[] {
+  const out = new Set<number>()
+  for (const entry of editor.api.nodes({ at: [] })) {
+    if (typeof (entry[0] as { text?: string }).text !== 'string') continue
+    for (const range of freshDecorations(editor, entry) as unknown as Record<string, unknown>[]) {
+      const generation = range[CHAT_FRESH_MARK]
+      if (typeof generation === 'number') out.add(generation)
+    }
+  }
+  return [...out]
+}
