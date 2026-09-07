@@ -16,6 +16,7 @@ import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -278,6 +279,10 @@ export function AgentChatPane({
   // to close, silently, on a brand-new chat.
   const [chatBlank, setChatBlank] = useState(true)
   const chatViewRef = useRef<AgentChatViewHandle>(null)
+  // CSS `zoom`, not transform: scale — it relayouts the surface instead of just
+  // repainting it, and it's scoped to the chat surface only (the terminal has
+  // its own font-size-based terminalZoomLevel).
+  const chatZoom = useZoomStore.use.zoom()
   // `pending` while the chat list is still in flight is DERIVED, not written by
   // the attach effect below. Dormancy is unknowable until the list lands, so
   // there is nothing for the machine to record — the pane simply has nothing to
@@ -1069,7 +1074,10 @@ export function AgentChatPane({
                   'relative min-h-0 min-w-0 shrink grow-0'
                 : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
             )}
-            style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
+            style={{
+              zoom: chatZoom,
+              ...(splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined),
+            }}
           >
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
