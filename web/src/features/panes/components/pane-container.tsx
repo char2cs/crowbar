@@ -3,7 +3,13 @@ import {
   useBuffersByIds,
   useBufferActions,
 } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+  WorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useChatWorkspaceId } from '@/features/panes/hooks/use-chat-workspace-id'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -125,9 +131,28 @@ export function PaneContainer({
     },
     [bufferActions],
   )
-  // Needed only to hand AgentChatPane the chat's owning workspace — the chat
-  // is no longer a buffer, so there is no per-buffer wsId to read any more.
-  const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
+  // THE CHAT'S OWN WORKSPACE, not the one that happens to be on screen.
+  //
+  // Panes are window-level (Task 26) and a drop can put ANY workspace's chat
+  // in one, but a chat's own state and every chat-scoped URL are still
+  // workspace-keyed. Reading the ambient `WorkspaceStoreContext` here — the
+  // `WorkspaceView` that happens to be rendering this pane — is what made a
+  // chat from another workspace render permanently blank (its id is not in
+  // the on-screen workspace's `agentChats.chats`, so nothing ever attaches),
+  // and is the gap `openChatIntoPane`'s active-workspace refusal stood in for.
+  // `useChatWorkspaceId` resolves the real owner (features/panes/lib/
+  // pane-chat-workspace.ts); the ambient id remains the fallback for a chat
+  // nothing can name a workspace for yet.
+  const ambientWsId = useWorkspaceStoreContext((s) => s.workspaceId)
+  const ambientStore = useWorkspaceStore()
+  const chatWsId = useChatWorkspaceId(pane.chatId)
+  const wsId = chatWsId ?? ambientWsId
+  // The STORE half of the same answer. `getWorkspaceStore` never mints one —
+  // a workspace `WorkspaceHost` did not mount has no store to read and would
+  // leak a permanent, unmanaged one if this created it — so a chat whose
+  // owner has been evicted falls back to the ambient store, which (chat lists
+  // being repo-scoped) still knows every chat of its own repo.
+  const chatStore = (chatWsId && getWorkspaceStore(chatWsId)) || ambientStore
   // A freshly opened/dropped buffer must be looked up in the buffer list before
   // it can be added as an editor tab: addEditorTabToPane takes the tab's own
   // EditorTabBase-shaped object (only its `id` is read today, but the object
@@ -674,7 +699,13 @@ export function PaneContainer({
         // and the file-drag ring above both already use, so a pane hovered
         // during a sidebar-row drag reads as the SAME kind of "this is the
         // target" as everything else in the app already does.
-        'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
+        //
+        // Dropped the moment the SplitDropOverlay below is drawing this
+        // pane's own zone: that rectangle already says "this one, on that
+        // side", and the same rule the file-drag ring above follows applies —
+        // two concentric secondary borders is a double border, not a clearer
+        // signal.
+        !internalHoverZone && 'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
       )}
       onMouseDownCapture={handlePaneMouseDownCapture}
       onClick={handlePaneClick}
@@ -778,8 +809,16 @@ export function PaneContainer({
               )}
               style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[0]}%` }}
             >
-              <Suspense fallback={null}>
-                {/* `paneId` was `bufferId` and a known, disclosed gap until the
+              {/* The chat surface reads its workspace store off CONTEXT
+                  (`useWorkspaceStore`), so handing it the right `wsId` is only
+                  half the answer — it has to READ from that workspace's own
+                  store too, or a chat from another repo is simply never found.
+                  Re-provided here, around the chat view alone: everything else
+                  in this pane (editor tabs, terminals) genuinely belongs to
+                  the workspace whose view is on screen, and must keep it. */}
+              <WorkspaceStoreContext.Provider value={chatStore}>
+                <Suspense fallback={null}>
+                  {/* `paneId` was `bufferId` and a known, disclosed gap until the
                     final fix wave: AgentChatPane wrote runner-follow repoints
                     and title renames through `bufferActions
                     .repointAgentChatBuffer`/`.renameBuffer`, both of which look
@@ -792,23 +831,24 @@ export function PaneContainer({
                     `paneActions.setPaneChat(paneId, ...)` — the real write path
                     for what chat a pane holds — and the relabel is gone
                     entirely, since ChatHead reads the live title by chat id. */}
-                <AgentChatPane
-                  chatId={pane.chatId}
-                  runnerId={pane.runnerId ?? ''}
-                  wsId={wsId}
-                  paneId={pane.id}
-                  isActivePane={isActivePane}
-                  // Was hard-coded true: a pane holds at most one chat, so
-                  // within the pane the chat view is always the one showing.
-                  // With views that is no longer the whole question — the
-                  // pane itself can be in an arrangement that is off screen.
-                  // It matters beyond appearances: the dormant-chat revive
-                  // fires on `isVisible`, so a parked view left claiming to
-                  // be visible would spawn a vendor CLI for a chat nobody is
-                  // looking at, once per remount.
-                  isVisible={showing}
-                />
-              </Suspense>
+                  <AgentChatPane
+                    chatId={pane.chatId}
+                    runnerId={pane.runnerId ?? ''}
+                    wsId={wsId}
+                    paneId={pane.id}
+                    isActivePane={isActivePane}
+                    // Was hard-coded true: a pane holds at most one chat, so
+                    // within the pane the chat view is always the one showing.
+                    // With views that is no longer the whole question — the
+                    // pane itself can be in an arrangement that is off screen.
+                    // It matters beyond appearances: the dormant-chat revive
+                    // fires on `isVisible`, so a parked view left claiming to
+                    // be visible would spawn a vendor CLI for a chat nobody is
+                    // looking at, once per remount.
+                    isVisible={showing}
+                  />
+                </Suspense>
+              </WorkspaceStoreContext.Provider>
             </div>
           )}
 

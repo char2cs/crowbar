@@ -6,6 +6,11 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import {
+  destroyWorkspaceStore,
+  getAllActiveWorkspaceIds,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
@@ -1063,5 +1068,59 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
     await renderPane(store, undefined, true)
 
     expect(screen.getByTestId('chat-chat-1').getAttribute('data-visible')).toBe('true')
+  })
+})
+
+/**
+ * WHOSE WORKSPACE a pane's chat belongs to.
+ *
+ * Panes are window-level (Task 26), so a drop can put ANY workspace's chat in
+ * one — but a chat's own state and every chat-scoped URL are still
+ * workspace-keyed. This used to read the AMBIENT `WorkspaceStoreContext` (the
+ * `WorkspaceView` that happens to be rendering the pane), so a chat from
+ * another workspace was resolved against the wrong store: never found, never
+ * attached, permanently blank — and, since `setPaneChat` persists, blank
+ * across reload. That is the gap `openChatIntoPane`'s active-workspace
+ * refusal stood in for, and closing it is what makes a cross-workspace drag
+ * land.
+ */
+describe('PaneContainer — the chat’s own workspace, not the ambient one', () => {
+  afterEach(() => {
+    getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  })
+
+  const chatRecord = (id: string, wsId: string) => ({
+    id,
+    workspaceId: wsId,
+    title: id,
+    liveRunnerId: '',
+    terminalSessionId: '',
+    activeProviderId: 'claude',
+    createdAt: '2026-01-01T00:00:00Z',
+    order: 0,
+    parentId: '',
+  })
+
+  it('hands the chat surface the workspace the CHAT belongs to', async () => {
+    getOrCreateWorkspaceStore('w-owner')
+      .getState()
+      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    // Rendered under a DIFFERENT workspace's context — the one on screen.
+    await renderPane(createWorkspaceStore('w-onscreen'))
+
+    expect(await screen.findByTestId('chat-chat-1')).toHaveAttribute('data-ws-id', 'w-owner')
+  })
+
+  it('falls back to the ambient workspace while nothing can name an owner yet', async () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-unknown', null)
+
+    await renderPane(createWorkspaceStore('w-onscreen'))
+
+    expect(await screen.findByTestId('chat-chat-unknown')).toHaveAttribute(
+      'data-ws-id',
+      'w-onscreen',
+    )
   })
 })

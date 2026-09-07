@@ -22,6 +22,10 @@ import {
   type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 import { getPaneDropZoneFromRect, type PaneDropZone } from '@/features/panes/utils/pane-drop-zones'
+import {
+  clearInternalTabDragData,
+  setInternalTabDragHoverTarget,
+} from '@/features/tabs/utils/internal-tab-drag'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { handleTrash } from '@/components/layout/space-content-actions'
 import { toast } from '@/features/window/stores/toast-store'
@@ -163,9 +167,7 @@ export const PANE_HIT_ATTR = 'data-pane-hit'
  * workspace store shares, so a bare paneId string cannot uniquely name a DOM
  * node: `document.querySelector('[data-pane-drop="root-pane"]')` can just as
  * easily return a hidden, off-screen workspace's node as the one actually
- * under the pointer, depending on DOM order — the exact hazard
- * `performSidebarPaneDrop`'s own active-workspace guard exists to close for
- * the commit path (Fix round 1). The hit test ALREADY resolved the one true
+ * under the pointer, depending on DOM order. The hit test ALREADY resolved the one true
  * element via `elementsFromPoint` (which, unlike `querySelector`, only ever
  * returns what is actually painted at that point); carrying it forward here
  * is what lets `paintPaneHit` below never have to re-derive it by attribute.
@@ -300,6 +302,32 @@ function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null
   if ((prev?.el ?? null) === (next?.el ?? null)) return
   prev?.el.removeAttribute(PANE_HIT_ATTR)
   next?.el.setAttribute(PANE_HIT_ATTR, '')
+}
+
+/**
+ * The other half of what a pane hover has to say: not just WHICH pane, but
+ * WHERE IN IT — the live quadrant preview `SplitDropOverlay` draws, so a
+ * sidebar row being carried over a pane shows the shape of the split it is
+ * about to make before the release, exactly as dragging an editor tab always
+ * did.
+ *
+ * Deliberately the SAME channel that drag already uses
+ * (`features/tabs/utils/internal-tab-drag.ts`'s hover target →
+ * `PaneContainer`'s `crowbar-internal-tab-drag-hover` listener →
+ * `SplitDropOverlay`'s `activeZoneOverride`) rather than a second preview of
+ * this hook's own: the zone math is already shared (`getPaneDropZoneFromRect`,
+ * which `paneZone.hit` above calls and `resolveDropTarget` calls for tabs), so
+ * anything new here would be a second renderer for one already-shared answer,
+ * free to drift from it. A pane's element lives inside `WorkspaceHost`, not
+ * the sidebar, so this window-level channel is also the only handle either
+ * drag has on it.
+ *
+ * The channel carries a plain `{paneId, zone}` and dedups its own writes, so
+ * this is safe to call on every resolved hover; `clearInternalTabDragData`
+ * tears it down at the end of the drag, the same call `use-tab-drag.ts` makes.
+ */
+function publishPaneZonePreview(hit: SidebarPaneHit | null): void {
+  setInternalTabDragHoverTarget({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
 }
 
 /**
@@ -526,6 +554,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       const pane = hit?.kind === 'pane' ? hit : null
       if (!samePaneHit(pane, paneHitRef.current)) {
         paintPaneHit(paneHitRef.current, pane)
+        publishPaneZonePreview(pane)
         paneHitRef.current = pane
         // The public state carries only the logical value — never `el`,
         // which is internal plumbing for `paintPaneHit` alone (see
@@ -656,6 +685,9 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       draggingRef.current = null
       dropTargetRef.current = null
       paintPaneHit(paneHitRef.current, null)
+      // Takes the zone preview down with it — same teardown `use-tab-drag.ts`
+      // runs at the end of its own drag.
+      clearInternalTabDragData()
       paneHitRef.current = null
       lastHitRef.current = null
       ghostOriginRef.current = null
@@ -733,6 +765,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
       paintPaneHit(paneHitRef.current, null)
+      clearInternalTabDragData()
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)

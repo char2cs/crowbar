@@ -79,6 +79,33 @@ export interface PaneActions {
    * view of any size (spec §5.4).
    */
   closeView(viewId: string): void
+  /**
+   * MOVE an already-open pane into `targetPaneId`'s view, as a split carved
+   * out of the target's own share — the merge half of spec §8.1/§8.2 for a
+   * chat that is ALREADY up somewhere.
+   *
+   * `splitPane` alone cannot express this. It mints an EMPTY pane, so a
+   * caller with a chat that already has one had to choose between opening
+   * that chat a second time (§8.2: "it never opens twice") and refusing the
+   * split. Refusing is what shipped, and — once every chat got a view of its
+   * own and only the showing view occupies the screen — that made a split
+   * unreachable for any chat the user had ever opened: every Recents row and
+   * every clicked tree row already had a pane, so a drop onto a pane resolved
+   * to "reveal its view" instead of a merge, every time.
+   *
+   * A MOVE, not a close-and-reopen: no `releaseClosedChat`, no dormant
+   * record, no teardown of any kind — the vendor CLI, the workspace store and
+   * the chat's whole live surface are untouched, the pane simply changes
+   * which tree holds it and which view it answers to. The view it LEFT
+   * dissolves for free when it held nothing else (its now-empty tree is
+   * dropped), exactly as `viewIdOf`'s group-of-one fallback already promises.
+   */
+  mergePaneIntoView(
+    sourcePaneId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    placement: SplitPlacement,
+  ): void
   /** Make `paneId` a view of ITS OWN — a fresh `viewId` nothing else carries.
    *  A no-op when it already is one (nothing else shares its view), so a
    *  caller can state the guarantee unconditionally without churning the
@@ -584,6 +611,87 @@ export const createPaneSlice: StateCreator<
           if (!get().panes[paneId]) continue
           get().paneActions.closePane(paneId)
         }
+      },
+
+      mergePaneIntoView(sourcePaneId, targetPaneId, direction, placement) {
+        set((state) => {
+          if (sourcePaneId === targetPaneId) return
+          const source = state.panes[sourcePaneId]
+          const target = state.panes[targetPaneId]
+          if (!source || !target) return
+          // Both slots resolved BEFORE anything moves — `paneSlot` locates a
+          // pane by walking the trees, and the lift below changes them.
+          const sourceSlot = paneSlot(state, sourcePaneId)
+          const targetSlot = locatePane(state, targetPaneId)
+          if (!targetSlot) return
+          const sourceTree = readTree(state, sourceSlot)
+          if (!sourceTree) return
+
+          // 1. Lift the pane out of whatever tree holds it. Removal first, so
+          //    the id is in exactly one tree at every point — inserting first
+          //    would leave it in two, and `closeLayout` would then have to
+          //    guess which copy the caller meant.
+          const remainder = closeLayout(sourceTree, sourcePaneId)
+          let rootEmptied = false
+          if (remainder !== null) {
+            writeTree(state, sourceSlot, normalizeLayout(remainder))
+          } else if (sourceSlot.kind === 'parked') {
+            // The view it left held nothing else — it is gone, not parked
+            // empty.
+            delete state.parkedViews[sourceSlot.viewId]
+          } else {
+            rootEmptied = sourceSlot.kind === 'root'
+          }
+
+          // 2. Carve its new home out of the target's own share, re-homing
+          //    THIS pane rather than minting a second one.
+          const targetTree = readTree(state, targetSlot)
+          const result =
+            targetTree && splitLayout(targetTree, targetPaneId, direction, placement, sourcePaneId)
+          if (!result) {
+            // Unreachable — `targetPaneId` was located above and the lift
+            // cannot have taken it with it — but a HALF-applied move (a pane
+            // lifted out of one tree and into none) would strand it in
+            // `panes` with no tree drawing it. Put it back instead: this
+            // restores a deleted parked view and a stale root alike, since
+            // both branches above left `sourceTree` untouched.
+            writeTree(state, sourceSlot, sourceTree)
+            return
+          }
+          writeTree(state, targetSlot, result.layout)
+          // The single fact that makes this a merge: one view, both panes.
+          state.panes[sourcePaneId].viewId = viewIdOf(target)
+
+          // 3. The showing tree can only have emptied when the pane came off
+          //    it and landed somewhere off screen — bring that view over
+          //    rather than leaving `rootLayout` naming a leaf another tree now
+          //    owns (the two are disjoint by invariant).
+          if (rootEmptied) {
+            if (targetSlot.kind === 'parked') {
+              showParkedView(state, targetSlot.viewId)
+            } else {
+              state.panes[ROOT_PANE_ID] = makeRootLeaf()
+              state.rootLayout = createLeaf(ROOT_PANE_ID)
+              state.activeViewId = ROOT_PANE_ID
+              state.activePaneId = ROOT_PANE_ID
+            }
+          }
+
+          // The target can have been the EMPTY STAGE — a fallback, never a
+          // view (spec §5.4) — and an empty pane must not sit in a split
+          // beside a real one. `splitPane`'s own callers get this for free
+          // from the `setPaneChat` that follows them; a MOVE writes no chat,
+          // so it has to ask for it.
+          dropEmptiedPanes(state)
+
+          if (locatePane(state, sourcePaneId)?.kind === 'root') {
+            state.activePaneId = sourcePaneId
+          }
+          state.mostRecentActivePaneIds = [
+            sourcePaneId,
+            ...state.mostRecentActivePaneIds.filter((id) => id !== sourcePaneId),
+          ]
+        })
       },
 
       detachPaneToOwnView(paneId) {

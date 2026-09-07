@@ -1734,6 +1734,120 @@ describe('pane-slice — one view on screen at a time', () => {
 })
 
 /**
+ * `mergePaneIntoView` — MOVING an already-open pane into another view.
+ *
+ * The action that makes a drag-created split possible for a chat that is
+ * already up. `splitPane` alone mints an EMPTY pane, so a caller holding a
+ * chat that already has one could only duplicate it (against §8.2's "it never
+ * opens twice") or refuse the split. Refusing is what shipped, and once every
+ * chat got a view of its own that made a split unreachable for anything the
+ * user had ever opened.
+ *
+ * A MOVE, deliberately: none of `closePane`'s teardown runs, so the pane
+ * carries its live chat, runner and editor tabs across intact.
+ */
+describe('pane-slice — mergePaneIntoView', () => {
+  it('re-homes a parked view’s pane as a split of the showing one, in ONE view', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+    // `b`'s view is showing; ROOT's is parked.
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([b])
+
+    store.getState().paneActions.mergePaneIntoView(ROOT_PANE_ID, b, 'horizontal', 'after')
+
+    expect(getAllLeafIds(store.getState().rootLayout).sort()).toEqual([ROOT_PANE_ID, b].sort())
+    expect(viewIdOf(store.getState().panes[ROOT_PANE_ID])).toBe(viewIdOf(store.getState().panes[b]))
+    // The view it left held nothing else — gone, not parked empty.
+    expect(store.getState().parkedViews).toEqual({})
+  })
+
+  it('carries the pane’s own live state across — no close, no reopen', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    store.getState().paneActions.mergePaneIntoView(ROOT_PANE_ID, b, 'vertical', 'before')
+
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
+    expect(store.getState().panes[ROOT_PANE_ID].runnerId).toBe('runner-1')
+    // Nothing was remembered as closed — it never closed.
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('honours placement — "before" puts the arriving pane first', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    store.getState().paneActions.mergePaneIntoView(ROOT_PANE_ID, b, 'horizontal', 'before')
+
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID, b])
+  })
+
+  it('leaves a multi-pane source view standing, minus the pane that left', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const mate = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(mate, 'chat-2', null)
+    const target = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(target, 'chat-3', null)
+    const sourceView = viewIdOf(store.getState().panes[ROOT_PANE_ID])
+
+    store.getState().paneActions.mergePaneIntoView(mate, target, 'horizontal', 'after')
+
+    expect(getAllLeafIds(store.getState().parkedViews[sourceView])).toEqual([ROOT_PANE_ID])
+    expect(getAllLeafIds(store.getState().rootLayout).sort()).toEqual([mate, target].sort())
+    expect(viewIdOf(store.getState().panes[mate])).toBe(viewIdOf(store.getState().panes[target]))
+  })
+
+  it('brings the target’s view over when the pane leaving emptied the screen', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const parked = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(parked, 'chat-2', null)
+    store.getState().paneActions.activateView(ROOT_PANE_ID) // ROOT showing, `parked` parked
+
+    // ROOT is the whole showing tree, and it is being merged into the parked one.
+    store.getState().paneActions.mergePaneIntoView(ROOT_PANE_ID, parked, 'horizontal', 'after')
+
+    expect(store.getState().parkedViews).toEqual({})
+    expect(getAllLeafIds(store.getState().rootLayout).sort()).toEqual([ROOT_PANE_ID, parked].sort())
+    expect(store.getState().activeViewId).toBe(viewIdOf(store.getState().panes[parked]))
+  })
+
+  it('collapses the empty stage it landed beside — a fallback is not a split partner', () => {
+    const store = makeStore()
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-1', null)
+    store.getState().paneActions.activateView(ROOT_PANE_ID) // the empty stage is showing
+
+    store.getState().paneActions.mergePaneIntoView(b, ROOT_PANE_ID, 'horizontal', 'after')
+
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([b])
+    expect(store.getState().panes[ROOT_PANE_ID]).toBeUndefined()
+  })
+
+  it('is a no-op for a pane merged into itself, or into one that does not exist', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const before = store.getState().rootLayout
+
+    store
+      .getState()
+      .paneActions.mergePaneIntoView(ROOT_PANE_ID, ROOT_PANE_ID, 'horizontal', 'after')
+    store
+      .getState()
+      .paneActions.mergePaneIntoView(ROOT_PANE_ID, 'no-such-pane', 'horizontal', 'after')
+
+    expect(store.getState().rootLayout).toBe(before)
+  })
+})
+
+/**
  * Closing. The teardown semantics are unchanged and deliberately so — a close
  * still stops the vendor CLI and evicts the workspace store via
  * `releaseClosedChat` — but a view of any size must now take ALL of its panes

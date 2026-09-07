@@ -626,13 +626,12 @@ describe('performSidebarDrop — chats', () => {
 // below moved from `getOrCreateWorkspaceStore('ws-1').getState()` to
 // `windowPaneStore.getState()` for that reason.
 
-describe('performSidebarPaneDrop — non-chat subjects', () => {
-  it('ignores branch/folder/workflow rows — no pane has an "open into" meaning for them yet', () => {
+describe('performSidebarPaneDrop — rows that name no chat', () => {
+  it('ignores folder/workflow rows — a folder only folds, and nothing produces a workflow row yet', () => {
     const before = windowPaneStore.getState().panes[ROOT_PANE_ID]
 
     performSidebarPaneDrop(
       [
-        chatRow('branch-a', 'ws-1', { kind: 'branch' }),
         chatRow('folder-a', 'ws-1', { kind: 'folder' }),
         chatRow('flow-a', 'ws-1', { kind: 'workflow' }),
       ],
@@ -651,6 +650,181 @@ describe('performSidebarPaneDrop — non-chat subjects', () => {
         'center',
       ),
     ).not.toThrow()
+  })
+})
+
+/**
+ * A WORKSPACE row dropped onto a pane — "we should support splits if users
+ * drag either a single chat-view, or a workspace row into the pane system".
+ *
+ * It used to be refused with every other non-chat kind ("no pane has an
+ * 'open into' meaning for them yet"), which is precisely why dragging a
+ * workspace row onto the pane area did nothing at all. It has a meaning, and
+ * it is the same one a chat row has: `rows-from-repo.ts` gives every
+ * workspace-owning row the id of the CHAT that owns its worktree, so a
+ * workspace row IS a chat row wearing a workspace's clothes.
+ */
+describe('performSidebarPaneDrop — a workspace row', () => {
+  /** A row exactly as `rows-from-repo.ts` builds one for a fork: id'd from the
+   *  owning chat, carrying the workspace it owns. */
+  const workspaceRow = (chatId: string, wsId: string) => branchRow(chatId, { workspaceId: wsId })
+
+  beforeEach(() => {
+    useSidebarStore.setState({
+      ...getInitialState(),
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'owner-a' },
+            // No owner resolvable — its row keeps its own WORKSPACE id.
+            { id: 'ws-b', branch: 'b', age: '', order: 1 },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('opens the chat that owns the workspace', () => {
+    performSidebarPaneDrop([workspaceRow('owner-a', 'ws-a')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('owner-a')
+  })
+
+  it('splits an occupied pane exactly as a chat row does, into ONE view', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+
+    performSidebarPaneDrop([workspaceRow('owner-a', 'ws-a')], ROOT_PANE_ID, 'right')
+
+    const opened = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'owner-a',
+    )
+    expect(opened?.id).toBeDefined()
+    expect(opened?.id).not.toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(liveViewOf('owner-a')).toBe(liveViewOf('c1'))
+  })
+
+  it('is a no-op when no owning chat can be resolved — that row id is a WORKSPACE id, not a chat', () => {
+    performSidebarPaneDrop([workspaceRow('ws-b', 'ws-b')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+  })
+})
+
+/**
+ * THE SPLIT THE PRODUCT OWNER COULD NOT MAKE.
+ *
+ * Once every chat got a view of its own (`openChatInOwnPane`) and only the
+ * showing view occupies the screen, every chat the user had ever opened
+ * already had a pane — parked, off screen, but a pane. `openChatIntoPane`'s
+ * dedup read "already up anywhere → go TO it" as a blanket refusal, so a drop
+ * onto a pane's EDGE switched views instead of splitting. Every Recents row is
+ * exactly such a chat, so dragging one onto the pane area could never produce
+ * a split at all.
+ *
+ * §8.2's "it never opens twice" is a rule against DUPLICATION, and it still
+ * holds here: the pane the chat is already in MOVES (`mergePaneIntoView`),
+ * carrying its own live state with it. Never a second pane for one chat, and
+ * never a close-and-reopen either.
+ */
+describe('performSidebarPaneDrop — a chat that already has a view of its own', () => {
+  /** The state a Recents row for a single-chat view describes: `chatId` is up
+   *  in a view of its own, currently parked behind `showing`. */
+  function parkChatInOwnView(chatId: string, showing: string) {
+    openChatInOwnPane(chatRow(chatId, 'ws-1'))
+    openChatInOwnPane(chatRow(showing, 'ws-1'))
+  }
+
+  it('splits the showing pane, rather than switching to the dragged chat’s parked view', () => {
+    parkChatInOwnView('c1', 'c2')
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(1)
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(leaves).toHaveLength(2)
+    expect(leaves.map((id) => windowPaneStore.getState().panes[id]?.chatId).sort()).toEqual([
+      'c1',
+      'c2',
+    ])
+  })
+
+  it('leaves both panes in ONE view, and nothing parked behind them', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
+    // c1's own view held nothing else, so it is gone rather than parked empty.
+    expect(windowPaneStore.getState().parkedViews).toEqual({})
+    expect(liveRecents()).toEqual([['c1', 'c2']])
+  })
+
+  it('MOVES the pane it already had — same pane, same runner, never a second one', () => {
+    parkChatInOwnView('c1', 'c2')
+    const before = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')!
+    windowPaneStore.getState().paneActions.setPaneChat(before.id, 'c1', 'runner-1')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    const holding = Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1')
+    expect(holding).toHaveLength(1)
+    expect(holding[0].id).toBe(before.id)
+    expect(holding[0].runnerId).toBe('runner-1')
+  })
+
+  it('gives every pane exactly one chat — a split is never a second chat in one pane', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    for (const pane of Object.values(windowPaneStore.getState().panes)) {
+      expect(typeof pane.chatId === 'string' || pane.chatId === null).toBe(true)
+    }
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId !== null),
+    ).toHaveLength(2)
+  })
+
+  it('honours the zone: a left drop puts the arriving chat FIRST', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], windowPaneStore.getState().activePaneId, 'left')
+
+    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(windowPaneStore.getState().panes[leaves[0]]?.chatId).toBe('c1')
+  })
+
+  it('a cross-workspace row already up elsewhere merges the same way', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-offscreen'))
+    openChatInOwnPane(chatRow('c2', 'ws-visible'))
+    setActiveWorkspaceId('ws-visible')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-offscreen')],
+      windowPaneStore.getState().activePaneId,
+      'bottom',
+    )
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
   })
 })
 
@@ -886,13 +1060,13 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     expect(Object.keys(windowPaneStore.getState().parkedViews)).toEqual([ROOT_PANE_ID])
   })
 
-  it('carries the same off-screen-workspace refusal a drop does', () => {
+  it('opens a chat whose workspace is not the routed one — the resolver replaced that refusal', () => {
     setActiveWorkspaceId('ws-visible')
 
     openChatInOwnPane(chatRow('c1', 'ws-offscreen'))
 
     expect(Object.values(windowPaneStore.getState().panes).some((p) => p.chatId === 'c1')).toBe(
-      false,
+      true,
     )
   })
 
@@ -902,27 +1076,37 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
   })
 })
 
-describe('performSidebarPaneDrop — cross-workspace (Task 26 fix round 1, Critical 2)', () => {
-  // The panes/buffers DATA hoist made this look safe to drop (there is
-  // exactly one pane store now, no more "wrong store" to mutate), but the
-  // RENDER side was never rebuilt to match: a pane resolves "is this chat
-  // known" through the AMBIENT WorkspaceStoreContext of whichever
-  // WorkspaceView happens to render it, not the chat's real owning
-  // workspace — no chatId->workspace lookup exists in the render path. A
-  // chat from an off-screen workspace landed here would never be found in
-  // the on-screen workspace's agentChats.chats: the pane renders permanently
-  // blank, no CLI ever spawns, and — since setPaneChat persists to
-  // IndexedDB — it SURVIVES RELOAD. Refused until that resolution mechanism
-  // is actually built.
-  it('refuses a drop when the dragged chat belongs to a workspace other than the one whose pane was actually hit', () => {
+/**
+ * CROSS-WORKSPACE drops.
+ *
+ * This used to be refused outright: `openChatIntoPane` compared the row's
+ * workspace against `getActiveWorkspaceId()` and silently did nothing
+ * otherwise. The reason was real — the RENDER side resolved a pane's chat
+ * through the AMBIENT `WorkspaceStoreContext` of whichever `WorkspaceView`
+ * happened to draw it, so a chat from another workspace rendered permanently
+ * blank and (since `setPaneChat` persists) survived reload — but the refusal
+ * covered a very common case: the sidebar shows a whole PROJECT, and Recents
+ * spans every workspace in it, so most rows on screen at any moment belong to
+ * a workspace other than the routed one. Dropping any of them did nothing at
+ * all.
+ *
+ * The mechanism the refusal stood in for is now built — `resolveChatWorkspaceId`
+ * (features/panes/lib/pane-chat-workspace.ts), read by `PaneContainer` through
+ * `useChatWorkspaceId` — so the drop is a drop.
+ */
+describe('performSidebarPaneDrop — cross-workspace', () => {
+  it('splits for a chat whose workspace is not the routed one', () => {
     setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
 
     performSidebarPaneDrop([chatRow('c1', 'ws-offscreen')], ROOT_PANE_ID, 'right')
 
     const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')
-    expect(newPane).toBeUndefined()
+    expect(newPane).toBeDefined()
+    expect(newPane?.id).not.toBe(ROOT_PANE_ID)
+    // Nothing was evicted to make room, and the two are ONE view.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('already-here')
+    expect(liveViewOf('c1')).toBe(liveViewOf('already-here'))
   })
 
   it('still works normally once the chat and the active workspace agree', () => {

@@ -2,16 +2,17 @@ import { toast } from '@/features/window/stores/toast-store'
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import {
-  getActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
+import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import {
+  owningChatIdOfWorkspace,
+  workspaceIdOfBranchRow,
+} from '@/components/sidebar/lib/branch-row-id'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -358,12 +359,11 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
  * that is already up goes TO it, and a target already on screen grows
  * instead of reopening.
  *
- * Carries the same off-screen-workspace limitation `openChatIntoPane`
- * already discloses on its own guard: a chat whose workspace isn't the one
- * currently active silently does nothing (no chatId->workspace resolution
- * exists in the render path yet). Recents can span every active workspace
- * in a project, so this is reachable in practice, not just hypothetically —
- * flagged rather than worked around here.
+ * Recents spans every active workspace in a project, so `target` and
+ * `dragged` can easily belong to different ones. That used to be silently
+ * refused; `resolveChatWorkspaceId` (features/panes/lib/pane-chat-workspace.ts)
+ * now answers "which workspace does this chat belong to" for the render path
+ * too, so it no longer has to be.
  */
 function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly SidebarRow[]): void {
   const findPaneFor = (chatId: string) =>
@@ -381,7 +381,7 @@ function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly Sidebar
   if (!targetPaneId) return
   for (const subject of dragged) {
     if (subject.id === target.id) continue // dropped onto itself — nothing to merge
-    if (subject.kind === 'chat') openChatIntoPane(subject, targetPaneId, 'center')
+    openChatIntoPane(subject, targetPaneId, 'center')
   }
 }
 
@@ -482,18 +482,57 @@ export async function performSidebarDrop(
   }
 }
 
+/** The chat a row opens into a pane, and the workspace that chat belongs to. */
+interface PaneChatSubject {
+  chatId: string
+  workspaceId: string
+}
+
+/**
+ * What a dragged row means to the PANE system: one chat, and its owning
+ * workspace — or null for a row that names no chat at all.
+ *
+ * Two row kinds resolve, and they are the two the user can actually drag onto
+ * a pane:
+ *
+ *   - a **chat** row (the tree's bubbles, and every Recents row — a Recents
+ *     SET renders each member as its own draggable chat row, so a drag from
+ *     the band always grabs exactly one chat, which is what makes "one chat
+ *     per pane" fall out for free);
+ *   - a **branch** row — a WORKSPACE row, and already a chat row wearing a
+ *     workspace's clothes: `rows-from-repo.ts` gives every workspace-owning
+ *     row the id of the CHAT that owns its worktree. This used to be refused
+ *     outright ("no pane has an 'open into' meaning for them yet"), which is
+ *     exactly why dragging a workspace row onto the pane area did nothing.
+ *     The chat is re-resolved through the sidebar's own tree
+ *     (`owningChatIdOfWorkspace`, the same source the delete path reads)
+ *     rather than trusting the row id blindly: a workspace whose owning chat
+ *     has not arrived keeps its own workspace id as the row id, and opening
+ *     THAT into a pane would point the pane at a chat that does not exist.
+ *
+ * A folder only folds and no 'workflow' row is produced anywhere yet, so both
+ * stay null — a no-op rather than a guess at behaviour nothing has defined.
+ */
+function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
+  if (row.kind === 'chat') {
+    const workspaceId = resolveChatWorkspaceId(row.id, row.workspaceId)
+    return workspaceId ? { chatId: row.id, workspaceId } : null
+  }
+  if (row.kind !== 'branch' || !row.workspaceId) return null
+  const owner =
+    owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId) ??
+    (isKnownChatId(row.id) ? row.id : null)
+  if (!owner) return null
+  return {
+    chatId: owner,
+    workspaceId: resolveChatWorkspaceId(owner, row.workspaceId) ?? row.workspaceId,
+  }
+}
+
 /**
  * A row dropped onto a pane — spec §8.1/§8.2. Every drop here ADDS; nothing
  * this reaches for can remove a pane or evict a chat that is already showing
  * (the dwell-to-remove gesture this replaced is gone — Task 22).
- *
- * Scoped to `kind === 'chat'` subjects. A branch/folder/workflow row has no
- * "open into a pane" meaning in this app today — a branch NAVIGATES to a
- * different workspace route entirely (`space-content-actions.ts`'s
- * `handleOpen`), a folder only folds, and no 'workflow' row is produced
- * anywhere yet (`SidebarRowKind` carries it for a future feature). Dropping
- * one of those kinds onto a pane is silently a no-op rather than a guess at
- * behavior nothing in the codebase has defined.
  */
 export function performSidebarPaneDrop(
   subjects: SidebarRow[],
@@ -501,7 +540,7 @@ export function performSidebarPaneDrop(
   zone: SidebarPaneZone,
 ): void {
   for (const subject of subjects) {
-    if (subject.kind === 'chat') openChatIntoPane(subject, paneId, zone)
+    openChatIntoPane(subject, paneId, zone)
   }
 }
 
@@ -548,15 +587,19 @@ export function performSidebarPaneDrop(
  * It is a no-op for a pane that is already a view of its own, which is the
  * overwhelmingly common case.
  *
- * Carries `openChatIntoPane`'s off-screen-workspace guard verbatim, for the
- * same reason (no chatId->workspace resolution exists in the render path) —
- * see the note on that function.
+ * The chat and its workspace both come from `paneChatSubject`, so this no
+ * longer refuses a row belonging to an off-screen workspace: the render path
+ * resolves a pane's chat to its own workspace now (see
+ * `features/panes/lib/pane-chat-workspace.ts`), which is the mechanism that
+ * refusal stood in for. `space-content-actions.ts`'s click still NAVIGATES to
+ * a row's workspace first — that is a routing decision about where the user
+ * should be, and it is unaffected by this.
  */
 export function openChatInOwnPane(subject: SidebarRow): void {
-  if (!subject.workspaceId) return
-  if (subject.workspaceId !== getActiveWorkspaceId()) return
+  const resolved = paneChatSubject(subject)
+  if (!resolved) return
   const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
-  const chatId = subject.id
+  const chatId = resolved.chatId
 
   const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
   if (existingPane) {
@@ -592,50 +635,52 @@ export function openChatInOwnPane(subject: SidebarRow): void {
  * expression in the pane model at all; Recents now reads the group off the
  * panes, so a merge that lands in the layout is a merge Recents draws.
  *
- * §8.2: "dropping a chat that is already up goes TO it... it never opens
- * twice." Checked FIRST, before any zone/merge logic, and against every
- * pane in the chat's own workspace — not just `paneId` — because the row
- * dragged onto pane B might already be showing, live, in pane A. The
- * established dedup pattern (`open-agent-chat.ts`'s `openAgentChat`):
- * `Object.values(panes).find(p => p.chatId === chatId)`, reveal via
- * `setActivePane`, never a second `setPaneChat`.
+ * §8.2's "it never opens twice" is a rule against DUPLICATION, not against
+ * the merge. Read as a blanket refusal it made a split unreachable: once
+ * every chat got a view of its own and only the showing view occupies the
+ * screen, every chat the user had ever opened already had a pane — parked,
+ * off screen, but a pane — so "already up → go TO it" fired for every
+ * Recents row and every previously-clicked tree row, and a drop onto a pane
+ * edge switched views instead of splitting. That is the "I can't create a
+ * split" this function is the whole of.
+ *
+ * So the dedup is a MOVE, not a refusal: `mergePaneIntoView` lifts the pane
+ * the chat is already in out of whatever view holds it and re-homes it as a
+ * split of the target, inheriting the target's `viewId`. Still exactly one
+ * pane per chat, still never a second `setPaneChat` — and the view it left
+ * dissolves on its own when it held nothing else. Only two drops are still a
+ * plain reveal: onto the pane already showing the chat (nothing to
+ * rearrange), and onto the MIDDLE of an empty pane, where §8.4's "an empty
+ * pane is a fallback, not a view" means there is nobody to be side by side
+ * with in the first place.
+ *
+ * `paneChatSubject` resolves both the chat and its owning workspace, so a
+ * row from a workspace other than the routed one lands like any other — the
+ * render path resolves a pane's chat to its own workspace now
+ * (`features/panes/lib/pane-chat-workspace.ts`), which is what the old
+ * active-workspace refusal was standing in for.
  *
  * NOT reachable from a plain click any more — see `openChatInOwnPane` above
  * for why a click needs its own, merge-free rule.
  */
 export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
-  if (!subject.workspaceId) return
-  // Task 26 fix-round-1 (Critical 2): this refusal was removed once, on the
-  // reasoning that panes/buffers are window-level now so there is no more
-  // "wrong store" to mutate. That's true for the DATA side, but the RENDER
-  // side was never rebuilt to match: a pane's "is this chat known" check
-  // (AgentChatPane, via the AMBIENT WorkspaceStoreContext of whichever
-  // WorkspaceView happens to render it) still resolves the chat against
-  // whatever workspace is on screen, not the chat's real owning workspace —
-  // no chatId->workspace lookup exists anywhere in the render path yet. A
-  // chat from a different, off-screen workspace dropped in here would never
-  // be found in the active workspace's agentChats.chats, so the pane renders
-  // permanently blank (no CLI ever spawns) and — because setPaneChat persists
-  // to IndexedDB — SURVIVES RELOAD. Restored until that resolution mechanism
-  // (PaneGroup/chat carrying its own workspace identity through the render
-  // path) is actually built; this guard is what stands in for it meanwhile.
-  if (subject.workspaceId !== getActiveWorkspaceId()) return
+  const resolved = paneChatSubject(subject)
+  if (!resolved) return
   const { panes, paneActions } = windowPaneStore.getState()
-  const chatId = subject.id
-
-  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
-  if (existingPane) {
-    paneActions.setActivePane(existingPane.id)
-    return
-  }
+  const chatId = resolved.chatId
 
   const target = panes[paneId]
   if (!target) return
+  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
 
   // Middle of an EMPTY pane: a plain open, exactly where you dropped it. No
   // merge — an empty pane is a fallback, not a view, so there is nobody to
   // be side by side WITH; the pane keeps whatever view it already answers to.
   if (zone === 'center' && target.chatId === null) {
+    if (existingPane) {
+      paneActions.setActivePane(existingPane.id)
+      return
+    }
     paneActions.setPaneChat(paneId, chatId, null)
     paneActions.setActivePane(paneId)
     return
@@ -648,11 +693,29 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
   // so it falls back to the same split, defaulting to the right.
   //
   // "You asked for them side by side, so you get them side by side" (§8.2):
-  // `splitPane` inherits `target`'s `viewId` onto the new pane, so the two
-  // are one view from this moment — in the layout and in Recents alike,
-  // which now reads its live rows off exactly that tag.
+  // both branches below tag the arriving pane with `target`'s `viewId`, so
+  // the two are one view from this moment — in the layout and in Recents
+  // alike, which now reads its live rows off exactly that tag.
   const splitOptions = getPaneSplitDropOptions(zone === 'center' ? 'right' : zone)
   if (!splitOptions) return
+
+  if (existingPane) {
+    // Dropped onto the pane it is already in: the arrangement it is asking
+    // for is the one it has.
+    if (existingPane.id === paneId) {
+      paneActions.setActivePane(paneId)
+      return
+    }
+    paneActions.mergePaneIntoView(
+      existingPane.id,
+      paneId,
+      splitOptions.direction,
+      splitOptions.placement,
+    )
+    paneActions.setActivePane(existingPane.id)
+    return
+  }
+
   const newPaneId = paneActions.splitPane(
     paneId,
     splitOptions.direction,

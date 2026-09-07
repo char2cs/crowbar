@@ -93,6 +93,43 @@ export function subscribeWorkspaceRegistry(callback: () => void): () => void {
 }
 
 /**
+ * Fire `callback` whenever ANY registered workspace store changes, and
+ * whenever the set of registered stores itself changes.
+ *
+ * The subscribe half of the registry-wide scans this module already exposes
+ * ({@link resolveChatOwnerWorkspaceId}, {@link isChatWorking}) — those answer
+ * "right now" and had no way to say "ask again". A render path resolving a
+ * chat's owning workspace needs both: which workspace a pane's chat belongs to
+ * is unknowable until SOME store has been seeded with that chat, and the pane
+ * mounts before that happens.
+ *
+ * Re-binds on every registry change, so a workspace mounted after this was
+ * armed is watched too — the same rebind {@link subscribeChatWorking} makes
+ * for one id, widened to all of them because a chat's owning store is exactly
+ * what the caller does not know yet.
+ */
+export function subscribeWorkspaceStores(callback: () => void): () => void {
+  let bound: Array<() => void> = []
+  // `notify` is false for the FIRST bind only: a subscriber has just read the
+  // current answer for itself, and firing at it there is an update during
+  // subscription that no caller asked for (React's own `useSyncExternalStore`
+  // re-checks after subscribing anyway, and warns about the stray one).
+  // Every REbind is a genuine change of what is being watched, so it does.
+  const rebind = (notify: boolean) => {
+    for (const unbind of bound) unbind()
+    bound = [...registry.values()].map((store) => store.subscribe(callback))
+    if (notify) callback()
+  }
+  const unsubscribeRegistry = subscribeWorkspaceRegistry(() => rebind(true))
+  rebind(false)
+  return () => {
+    unsubscribeRegistry()
+    for (const unbind of bound) unbind()
+    bound = []
+  }
+}
+
+/**
  * Watch whether `chatId` is mid-turn inside `wsId`, WITHOUT creating `wsId`'s
  * store if it does not exist.
  *
