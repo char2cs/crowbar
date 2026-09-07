@@ -50,7 +50,6 @@
     "@platejs/selection": "^53.1.6",
     "@platejs/slash-command": "^53.0.0",
     "@platejs/table": "^53.0.9",
-    "@radix-ui/react-context-menu": "^2.3.7",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-toolbar": "^1.1.19",
     "@radix-ui/react-tooltip": "^1.2.16",
