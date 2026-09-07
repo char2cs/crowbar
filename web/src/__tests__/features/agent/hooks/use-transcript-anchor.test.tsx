@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  tailRoom,
   useTranscriptAnchor,
   type TranscriptAnchor,
   type UseTranscriptAnchorOptions,
@@ -519,5 +520,212 @@ describe('useTranscriptAnchor', () => {
       // fully-stuck reader's own distance-from-bottom ever gets to zero.
       expect(onPositionChange).toHaveBeenCalledWith({ stuck: true, distanceFromBottom: 400 })
     })
+  })
+})
+
+/**
+ * Turn-start pinning — see `tailRoom`'s own doc comment.
+ *
+ * Measured against Claude Code Desktop frame-by-frame: it lifts the prompt
+ * you just sent to the TOP of the transcript the instant the turn starts, and
+ * the reply fills the space underneath. Crowbar left the new turn wherever
+ * bottom-following had parked the previous one — roughly mid-viewport, with
+ * the whole previous exchange still stacked above it — so a reply had far
+ * less room to grow into before the view had to scroll again, and every one
+ * of those extra scrolls was another chance to visibly lag and then snap.
+ */
+describe('tailRoom', () => {
+  it('reserves exactly the shortfall while the reply is shorter than the viewport', () => {
+    // The prompt starts 900px down a 1000px-tall content, viewport 400px:
+    // only 100px sits below it, so 300px more is needed to lift it to the top.
+    expect(tailRoom(900, 1000, 400)).toBe(300)
+  })
+
+  it('reserves nothing — releasing the pin — once the reply fills the viewport', () => {
+    // 500px of reply below the prompt already exceeds the 400px viewport.
+    expect(tailRoom(500, 1000, 400)).toBe(0)
+  })
+
+  it('is exactly zero at the handover point, so the two phases meet with no jump', () => {
+    // The instant the content below the pin equals the viewport, the
+    // reservation reaches zero — the pinned position and the true bottom are
+    // then the same pixel, which is what makes the handoff invisible.
+    expect(tailRoom(600, 1000, 400)).toBe(0)
+    expect(tailRoom(601, 1000, 400)).toBe(1)
+  })
+
+  it('never reserves negative room for a reply far past the viewport', () => {
+    expect(tailRoom(0, 5000, 400)).toBe(0)
+  })
+})
+
+describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
+  let scrollHeight = 0
+  let clientHeight = 400
+  let pinTop = 0
+  let observerCallbacks: Array<() => void> = []
+  const RealResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    scrollHeight = 1000
+    clientHeight = 400
+    pinTop = 900
+    observerCallbacks = []
+    class ControllableResizeObserver {
+      callback: () => void
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+      observe() {
+        if (!observerCallbacks.includes(this.callback)) observerCallbacks.push(this.callback)
+      }
+      unobserve() {}
+      disconnect() {
+        observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+      }
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: ControllableResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: RealResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+    vi.useRealTimers()
+  })
+
+  const fire = () =>
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+
+  function PinHost({ onReady }: { onReady: (anchor: TranscriptAnchor) => void }) {
+    const anchor = useTranscriptAnchor()
+    useEffect(() => {
+      onReady(anchor)
+    }, [anchor, onReady])
+    return (
+      <div
+        data-testid="scroller"
+        ref={(node) => {
+          anchor.scrollRef.current = node
+          if (!node || Object.hasOwn(node, 'scrollHeight')) return
+          let top = 0
+          // Room reserved on the content element is real scrollable height,
+          // exactly as the padding this hook writes would be in a browser.
+          const reserved = () => {
+            const content = node.lastElementChild as HTMLElement | null
+            return parseFloat(content?.style.paddingBottom || '0') || 0
+          }
+          Object.defineProperty(node, 'scrollTop', {
+            configurable: true,
+            get: () => top,
+            set: (v: number) => {
+              const max = Math.max(0, scrollHeight + reserved() - clientHeight)
+              top = Math.max(0, Math.min(v, max))
+            },
+          })
+          Object.defineProperty(node, 'scrollHeight', {
+            configurable: true,
+            get: () => scrollHeight + reserved(),
+          })
+          Object.defineProperty(node, 'clientHeight', {
+            configurable: true,
+            get: () => clientHeight,
+          })
+          node.getBoundingClientRect = () => ({ top: 0 }) as DOMRect
+        }}
+        onScroll={anchor.onScroll}
+      >
+        <div data-testid="content">
+          <div
+            data-testid="pin"
+            ref={(node) => {
+              if (!node) return
+              // The prompt sits `pinTop` down the content; its on-screen top
+              // is that minus however far the container is scrolled.
+              node.getBoundingClientRect = () =>
+                ({
+                  top: pinTop - (node.parentElement?.parentElement?.scrollTop ?? 0),
+                }) as DOMRect
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  it('lifts the just-sent prompt to the top instead of leaving it mid-viewport', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    // Before pinning there is nowhere further to scroll: the ceiling is 600,
+    // which leaves the prompt (900 down) 300px BELOW the top of the viewport —
+    // exactly the "sits in the lower-middle with old context still above it"
+    // the recordings showed.
+    expect(scroller.scrollTop).toBe(600)
+    expect(pinTop - scroller.scrollTop).toBe(300)
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    // Now the prompt's top edge IS the top of the viewport.
+    expect(scroller.scrollTop).toBe(900)
+    expect(pinTop - scroller.scrollTop).toBe(0)
+  })
+
+  it('holds the prompt at the top while a short reply grows underneath it', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    // 200px of reply lands — still short of the 400px viewport, so the prompt
+    // must not move at all: the reply fills the reserved space instead.
+    scrollHeight = 1200
+    fire()
+    vi.advanceTimersByTime(1500)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('hands over to ordinary bottom-following once the reply outgrows the space', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    const content = getByTestId('content')
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+    expect(content.style.paddingBottom).toBe('300px')
+
+    // The reply grows past the viewport: 700px now sits below the prompt.
+    scrollHeight = 1600
+    fire()
+    vi.advanceTimersByTime(1500)
+
+    // Nothing is reserved any more, and the transcript is following the true
+    // bottom again — 1600 - 400.
+    expect(content.style.paddingBottom).toBe('')
+    expect(scroller.scrollTop).toBe(1200)
+  })
+
+  it('reserves nothing at all when the reply already fills the viewport', () => {
+    let anchor!: TranscriptAnchor
+    pinTop = 200
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const content = getByTestId('content')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    expect(content.style.paddingBottom).toBe('')
   })
 })

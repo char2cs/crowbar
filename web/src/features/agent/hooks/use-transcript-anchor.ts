@@ -78,6 +78,43 @@ export interface TranscriptAnchor {
    * until more text pushes past it" was reported as live.
    */
   notifyReflow: () => void
+  /**
+   * Call as a turn STARTS, with the just-sent user message's element: the
+   * transcript brings that message's top edge up to the top of the viewport
+   * and leaves the reply room to grow downward into, instead of starting the
+   * reply wherever bottom-following happened to leave the previous turn.
+   *
+   * Pass null to give up the pin early (the chat closed, the turn never
+   * produced anything). It releases itself as soon as the reply outgrows the
+   * space below it — see `tailRoom`.
+   */
+  pinTurnToTop: (element: HTMLElement | null) => void
+}
+
+/**
+ * How much empty room the content needs BELOW `pin` for that pin to be able
+ * to sit at the top of the viewport — the whole of this behaviour, in one
+ * number.
+ *
+ * A scroll container cannot scroll past its own end, so "put this element at
+ * the top" is not a scroll instruction at all when there is nothing below it:
+ * it is a request for somewhere to scroll TO. Reserving exactly the shortfall
+ * is what makes it reachable, and it is deliberately the ONLY thing this
+ * behaviour does — with the room reserved, the ordinary bottom-follow below
+ * already lands in the right place in both phases, and the handoff between
+ * them needs no mode of its own:
+ *
+ *   - while the reply is shorter than the viewport, the true bottom IS the
+ *     pinned position, so following the bottom holds the prompt at the top
+ *     and the reply fills the space underneath;
+ *   - once the reply outgrows that space the shortfall reaches zero, this
+ *     stops reserving anything, and following the bottom is once again
+ *     following the bottom.
+ *
+ * Returns 0 (and so releases the pin) the moment it is no longer needed.
+ */
+export function tailRoom(pinTop: number, contentHeight: number, viewportHeight: number): number {
+  return Math.max(0, viewportHeight - (contentHeight - pinTop))
 }
 
 /**
@@ -131,6 +168,19 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // behaviour exactly when `loadingHistory` is never mentioned.
   const easedArmed = useRef(!(options.loadingHistory ?? false))
   const armFrame = useRef(0)
+  // How far down the content the turn currently held at the top begins, or
+  // null when none is — see `pinTurnToTop`. Cleared by `applyTailRoom` itself
+  // once the reply has grown past the space below it.
+  //
+  // An OFFSET, not the element it was measured from, for two reasons. The
+  // element does not survive the turn: a just-sent prompt starts life as a
+  // queued row and is swapped — in a single commit — for a virtualized
+  // message row the moment the ledger confirms it, so anything holding the
+  // node would lose the pin mid-reply. And nothing above the pin moves while
+  // a turn runs (it is settled history), so the offset stays true without
+  // being re-measured, which also keeps this off the layout-reading path of
+  // every ResizeObserver callback.
+  const pinnedTop = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -174,7 +224,36 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       })
     }
     scheduleArmRef.current = scheduleArm
+    // Reserves (and keeps re-measuring) the room the pinned turn needs below
+    // it — see `tailRoom`. Written as padding on the content element rather
+    // than as a spacer sibling because `.scroll`'s LAST child is what the
+    // observer below treats as the content: a new element there would
+    // silently become the thing being watched, and the real content's growth
+    // would stop being seen at all.
+    const applyTailRoom = () => {
+      const pinTop = pinnedTop.current
+      const box = content as HTMLElement
+      if (pinTop === null) {
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        return
+      }
+      const reserved = parseFloat(box.style.paddingBottom || '0') || 0
+      const room = tailRoom(pinTop, el.scrollHeight - reserved, el.clientHeight)
+      // Released for good once the reply has outgrown the space: re-measuring
+      // a pin nobody can see any more would keep this running for the rest of
+      // the turn, and re-reserving room mid-reply would yank the reader.
+      if (room <= 0) {
+        pinnedTop.current = null
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        return
+      }
+      // Sub-pixel churn here feeds straight back into the ResizeObserver that
+      // called this, so only a real change is written.
+      if (Math.abs(room - reserved) > 1) box.style.paddingBottom = `${room}px`
+    }
+
     const resync = () => {
+      applyTailRoom()
       const keep = restoreFromBottom.current
       if (keep !== null) {
         // Older messages just landed above the fold. Holding the distance from
@@ -253,6 +332,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       follow.current = null
       resyncRef.current = () => {}
       scheduleArmRef.current = () => {}
+      pinnedTop.current = null
       cancelAnimationFrame(armFrame.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
@@ -275,6 +355,23 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   }, [options.loadingHistory])
 
   const notifyReflow = useCallback(() => {
+    resyncRef.current()
+  }, [])
+
+  const pinTurnToTop = useCallback((element: HTMLElement | null) => {
+    const el = scrollRef.current
+    if (!el || !element) {
+      pinnedTop.current = null
+      resyncRef.current()
+      return
+    }
+    // Measured once, here — see `pinnedTop`.
+    pinnedTop.current =
+      element.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+    // A turn starting is also the reader rejoining the live end — it is their
+    // own prompt that just landed. Without this, a prompt sent after reading
+    // back through history would reserve the room and then not move.
+    stuck.current = true
     resyncRef.current()
   }, [])
 
@@ -305,5 +402,5 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (el) restoreFromBottom.current = el.scrollHeight - el.scrollTop
   }, [])
 
-  return { scrollRef, onScroll, preservePosition, notifyReflow }
+  return { scrollRef, onScroll, preservePosition, notifyReflow, pinTurnToTop }
 }
