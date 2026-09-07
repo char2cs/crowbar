@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { ContextMenu } from '@/components/ui/context-menu'
 
 const MENU_RID = 7
@@ -88,12 +88,12 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('logs and still closes when popup_native_context_menu rejects', async () => {
+  it('logs and falls back to the rendered, dismissible popup when popup_native_context_menu rejects', async () => {
     invokeMock.mockRejectedValueOnce(new Error('popup failed'))
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const onClose = vi.fn()
 
-    render(
+    const { getByText } = render(
       <ContextMenu
         isOpen
         position={{ x: 0, y: 0 }}
@@ -103,11 +103,25 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     )
 
     await waitFor(() => expect(closeMock).toHaveBeenCalledOnce())
-    await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       'Failed to show native context menu:',
       expect.any(Error),
     )
+
+    // The user must not be left with silence: a broken native popup call
+    // falls back to the same rendered menu the non-Tauri path already uses.
+    await waitFor(() => expect(getByText('A')).toBeInTheDocument())
+
+    // onClose must NOT have fired on the failure path itself — doing so
+    // would flip the caller's `isOpen` to false and unmount the fallback
+    // before it ever got to render (every real call site gates its own
+    // render on that same `isOpen`).
+    expect(onClose).not.toHaveBeenCalled()
+
+    // The fallback must be a real, usable menu: its own dismissal (Escape)
+    // still calls the real onClose, exactly like the non-Tauri path.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   // Regression: a real right-click under React.StrictMode (this app wraps its

@@ -11,15 +11,27 @@ import { isTauri, showNativeContextMenu } from '@/lib/crowbar-bridge'
 export interface ContextMenuItem {
   id: string
   label: string
+  /** Fallback-only: the non-Tauri rendered popup draws this icon. The native OS menu never shows per-item icons, by design, and ignores this entirely. */
   icon?: React.ReactNode
   onClick: () => void
   separator?: boolean
   disabled?: boolean
+  /**
+   * Displayed verbatim as text in the fallback popup, but on the native path
+   * (Tauri) this is passed straight through as the native menu's
+   * `accelerator` string, which the underlying `muda` crate PARSES — it must
+   * be valid Tauri accelerator syntax (e.g. `"CmdOrCtrl+R"`), not a display
+   * string like `"⌘R"`. An invalid value fails the whole native `Menu.new()`
+   * call, which falls back to the rendered popup — but the accelerator
+   * display is then lost for that click.
+   */
   shortcut?: string
+  /** Fallback-only: rendered next to the label in the non-Tauri popup. Being a `React.ReactNode` (not a string), this can never become a native `accelerator` — use `shortcut` for that instead. The native OS menu ignores this entirely. */
   keybinding?: React.ReactNode
+  /** Fallback-only: applied as a class on the rendered menu item. The native OS menu has no per-item styling and ignores this entirely. */
   className?: string
   items?: ContextMenuItem[]
-  /** When false, clicking this item will not auto-close the menu. Defaults to true. */
+  /** When false, clicking this item will not auto-close the menu. Defaults to true. Fallback-only: the native OS menu always closes itself when an item is chosen. */
   closeOnClick?: boolean
 }
 
@@ -29,7 +41,7 @@ export interface ContextMenuRootProps {
   items: ContextMenuItem[]
   onClose: () => void
   className?: string
-  /** Optional content rendered below the last menu item (e.g. inline error panel). */
+  /** Optional content rendered below the last menu item (e.g. inline error panel). Fallback-only — there is no native-menu equivalent, so this is ignored entirely when a native popup is shown. */
   footer?: React.ReactNode
 }
 
@@ -201,16 +213,27 @@ function ContextMenuHost({
     onCloseRef.current = onClose
   }, [onClose])
 
+  // Set when showNativeContextMenu() itself throws (Menu.new() or
+  // popup_native_context_menu rejecting) so the render below falls back to
+  // the rendered popup instead of leaving the user with no menu at all.
+  const [nativeFailed, setNativeFailed] = useState(false)
+
   useEffect(() => {
     if (!isTauri() || !isOpen) return
     let cancelled = false
+    setNativeFailed(false)
     void (async () => {
       try {
         await showNativeContextMenu(items, position, () => cancelled)
+        if (!cancelled) onCloseRef.current()
       } catch (error) {
         console.error('Failed to show native context menu:', error)
-      } finally {
-        if (!cancelled) onCloseRef.current()
+        if (!cancelled) setNativeFailed(true)
+        // Do NOT call onClose here — the fallback ImperativeContextMenu's own
+        // dismissal calls the real onClose when the user actually dismisses
+        // it. Closing immediately would flip the caller's `isOpen` to false
+        // and unmount the fallback before it ever renders, since every real
+        // call site gates its own render on that same `isOpen`.
       }
     })()
     return () => {
@@ -221,7 +244,7 @@ function ContextMenuHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
-  if (isTauri()) return null
+  if (isTauri() && !nativeFailed) return null
 
   return (
     <ImperativeContextMenu
