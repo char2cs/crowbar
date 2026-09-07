@@ -578,6 +578,51 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
     }
 }
 
+/// Pops a native context menu built via `@tauri-apps/api/menu`'s `Menu.new()`, at
+/// (`x`, `y`) in the calling window's coordinate space.
+///
+/// This exists ONLY because Tauri's own built-in `plugin:menu|popup` command
+/// (tauri-2.11.5 `src/menu/plugin.rs:667-696`) has a real deadlock: it holds
+/// `webview.resources_table()`'s `MutexGuard` (a webview-wide lock every other
+/// resource-backed command — file streams, images, and this app's own terminal
+/// PTY channels — needs to touch) across the ENTIRE, open-ended duration of the
+/// blocking native popup call. Confirmed live via `sample` on a hung dev build:
+/// the main thread sat inside `-[NSMenu popUpMenuPositioningItem:...]` while an
+/// unrelated `resources::plugin::close` call was stuck on that same mutex,
+/// wedging the whole webview for as long as the menu stayed open. `ResourceTable::get`
+/// already returns an owned `Arc<Menu<_>>` (`resources/mod.rs:133-140`), so the
+/// only fix needed is dropping the guard before the blocking call — this command
+/// is that fix, otherwise identical to the built-in one.
+///
+/// Async + `spawn_blocking`, matching `reveal_in_finder` above: a plain sync
+/// command runs inline on the thread dispatching the IPC message (the app's main
+/// thread for a WKWebView call), and `popup_at`'s own main-thread dispatch would
+/// deadlock against itself if called from there directly.
+#[tauri::command]
+async fn popup_native_context_menu(
+    webview: tauri::Webview,
+    window: tauri::Window,
+    rid: tauri::ResourceId,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    use tauri::menu::{ContextMenu, Menu};
+
+    let menu: std::sync::Arc<Menu<tauri::Wry>> = {
+        let table = webview.resources_table();
+        table.get::<Menu<tauri::Wry>>(rid).map_err(|e| e.to_string())?
+        // `table` (the MutexGuard) is dropped here, at the end of this block —
+        // BEFORE the blocking popup call below, unlike Tauri's own command.
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        menu.popup_at(window, tauri::LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("popup_native_context_menu task panicked: {e}"))?
+}
+
 /// Native macOS chrome for a Crowbar window: the vibrancy blur behind the transparent
 /// window plus the post-creation WebKit 60fps un-cap. Applied to EVERY window, not just
 /// `main` — a second window is the same app and must look and animate identically.
@@ -1058,6 +1103,7 @@ pub fn run() {
             diagnostics::diagnostics_export,
             reveal_in_finder,
             set_vibrancy_appearance,
+            popup_native_context_menu,
             open_window,
         ])
         .build(tauri::generate_context!())

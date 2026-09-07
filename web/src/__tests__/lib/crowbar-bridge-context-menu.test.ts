@@ -1,27 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 
-const popupMock = vi.fn().mockResolvedValue(undefined)
+const MENU_RID = 42
+
 const closeMock = vi.fn().mockResolvedValue(undefined)
-const menuNewMock = vi.fn().mockResolvedValue({ popup: popupMock, close: closeMock })
+const menuNewMock = vi.fn().mockResolvedValue({ rid: MENU_RID, close: closeMock })
 
 vi.mock('@tauri-apps/api/menu', () => ({
   Menu: { new: (...args: unknown[]) => menuNewMock(...args) },
 }))
 
+// showNativeContextMenu pops the menu via `popup_native_context_menu`, this
+// app's own command — not the JS `menu.popup()` method — because Tauri's
+// built-in `plugin:menu|popup` command holds the webview's resources-table
+// lock across the whole blocking popup call, deadlocking every other
+// resource-backed command for as long as the menu stays open. See the doc
+// comment on `showNativeContextMenu` and on `popup_native_context_menu` in
+// `desktop/src-tauri/src/lib.rs`.
+const invokeMock = vi.fn().mockResolvedValue(undefined)
+
+type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: typeof invokeMock } }
+
 describe('showNativeContextMenu', () => {
   beforeEach(() => {
-    popupMock.mockClear()
+    invokeMock.mockClear()
     closeMock.mockClear()
     menuNewMock.mockClear()
-    menuNewMock.mockResolvedValue({ popup: popupMock, close: closeMock })
+    menuNewMock.mockResolvedValue({ rid: MENU_RID, close: closeMock })
+    invokeMock.mockResolvedValue(undefined)
+    ;(window as TauriWindow).__TAURI_INTERNALS__ = { invoke: invokeMock }
   })
 
   afterEach(() => {
+    delete (window as TauriWindow).__TAURI_INTERNALS__
     vi.resetModules()
   })
 
-  it('maps a flat item list to MenuItemOptions and pops up at the given position', async () => {
+  it('maps a flat item list to MenuItemOptions and pops up via popup_native_context_menu', async () => {
     const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
     const onClick = vi.fn()
     const items: ContextMenuItem[] = [
@@ -56,9 +71,11 @@ describe('showNativeContextMenu', () => {
     renameEntry.action('rename')
     expect(onClick).toHaveBeenCalledOnce()
 
-    expect(popupMock).toHaveBeenCalledOnce()
-    const [positionArg] = popupMock.mock.calls[0]
-    expect(positionArg).toMatchObject({ x: 120, y: 80 })
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('popup_native_context_menu', {
+      rid: MENU_RID,
+      x: 120,
+      y: 80,
+    })
   })
 
   it('maps nested items to a Submenu entry', async () => {
@@ -100,13 +117,47 @@ describe('showNativeContextMenu', () => {
     expect(closeMock).toHaveBeenCalledOnce()
   })
 
-  it('still closes the menu when popup rejects, and rethrows', async () => {
-    popupMock.mockRejectedValueOnce(new Error('popup failed'))
+  it('still closes the menu when popup_native_context_menu rejects, and rethrows', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('popup failed'))
     const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
 
     await expect(
       showNativeContextMenu([{ id: 'a', label: 'A', onClick: vi.fn() }], { x: 0, y: 0 }),
     ).rejects.toThrow('popup failed')
+    expect(closeMock).toHaveBeenCalledOnce()
+  })
+
+  // React StrictMode double-invokes effects (setup → cleanup → setup again)
+  // synchronously, before this function's first `await` can resolve. Without
+  // the `isCancelled` check, BOTH invocations would go on to build a menu and
+  // invoke a REAL popup — two live, stacked native menus from one right-click.
+  it('closes the menu without popping it up when cancelled before Menu.new() resolves', async () => {
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
+
+    await showNativeContextMenu(
+      [{ id: 'a', label: 'A', onClick: vi.fn() }],
+      { x: 0, y: 0 },
+      () => true,
+    )
+
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(closeMock).toHaveBeenCalledOnce()
+  })
+
+  it('pops up normally when isCancelled reports false', async () => {
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
+
+    await showNativeContextMenu(
+      [{ id: 'a', label: 'A', onClick: vi.fn() }],
+      { x: 0, y: 0 },
+      () => false,
+    )
+
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('popup_native_context_menu', {
+      rid: MENU_RID,
+      x: 0,
+      y: 0,
+    })
     expect(closeMock).toHaveBeenCalledOnce()
   })
 })

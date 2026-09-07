@@ -206,7 +206,7 @@ function ContextMenuHost({
     let cancelled = false
     void (async () => {
       try {
-        await showNativeContextMenu(items, position)
+        await showNativeContextMenu(items, position, () => cancelled)
       } catch (error) {
         console.error('Failed to show native context menu:', error)
       } finally {

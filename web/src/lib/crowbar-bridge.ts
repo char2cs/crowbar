@@ -7,7 +7,6 @@ import type {
   SubmenuOptions,
   PredefinedMenuItemOptions,
 } from '@tauri-apps/api/menu'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
@@ -535,14 +534,40 @@ function toNativeMenuEntries(items: ContextMenuItem[]): NativeMenuEntry[] {
 
 /** Pops up the OS's own context menu. Always closes the underlying native
  * resource handle when the popup dismisses, whether an item was picked or
- * the popup was closed with no selection. */
+ * the popup was closed with no selection.
+ *
+ * Deliberately does NOT call `menu.popup()` (the JS method `@tauri-apps/api/menu`
+ * provides) — that invokes Tauri's built-in `plugin:menu|popup` command, which has
+ * a confirmed deadlock: it holds the webview's global resources-table lock for the
+ * entire, open-ended time the menu stays open, wedging every other resource-backed
+ * Tauri command (including this app's own terminal PTY channels) until it's
+ * dismissed. `popup_native_context_menu` (`desktop/src-tauri/src/lib.rs`) is a
+ * from-scratch command that does the same thing without holding that lock across
+ * the blocking call. `menu.close()` below is unaffected — the generic
+ * `plugin:resources|close` command it calls was never the buggy one.
+ *
+ * `isCancelled` guards against React StrictMode's dev-only double-invoke of
+ * effects (setup → cleanup → setup again, synchronously, before this
+ * function's first `await` can resolve): the caller flips its own flag in the
+ * FIRST invocation's cleanup, then this function checks it right after
+ * `Menu.new()` resolves. Without this, both invocations would go on to call
+ * `Menu.new()` and pop up a REAL native menu each — two live, stacked
+ * NSMenu tracking sessions — because a native popup, unlike a mocked one, has
+ * already been dispatched to Rust by the time an effect's own `cancelled`
+ * flag would normally stop it. Dismissing the top one then looks like "the
+ * menu reopens": the second one is still sitting there underneath. */
 export async function showNativeContextMenu(
   items: ContextMenuItem[],
   position: { x: number; y: number },
+  isCancelled?: () => boolean,
 ): Promise<void> {
   const menu = await Menu.new({ items: toNativeMenuEntries(items) })
+  if (isCancelled?.()) {
+    await menu.close()
+    return
+  }
   try {
-    await menu.popup(new LogicalPosition(position.x, position.y))
+    await tauriInvoke('popup_native_context_menu', { rid: menu.rid, x: position.x, y: position.y })
   } finally {
     await menu.close()
   }
