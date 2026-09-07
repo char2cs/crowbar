@@ -360,6 +360,60 @@ describe('creating a workspace off the repo-home row', () => {
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(postWorkspace).not.toHaveBeenCalled()
   })
+
+  // Regression: a burst of clicks on one row's "+" (the exact shape of "the fork
+  // button does nothing" — no visible feedback between click and the row appearing
+  // made a user click again) used to mint one chat AND one runner per click. Most of
+  // those runners lost the concurrent-worktree-fork startup race and left a chat
+  // with a real id and zero conversation, ever — permanently unresumable. One
+  // request in flight per row closes this at its source.
+  it('a second click while the first create is still in flight mints nothing extra', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [repo()] })
+
+    handleCreate('home-1', 'workspace')
+    handleCreate('home-1', 'workspace')
+    handleCreate('home-1', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledOnce()
+  })
+
+  it('releases the guard once the request settles, so the NEXT click is honored', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [repo()] })
+
+    handleCreate('home-1', 'workspace')
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    handleCreate('home-1', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
+  })
+
+  it('a different row is never blocked by another row’s in-flight create', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({
+      repos: [repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })],
+    })
+
+    handleCreate('home-1', 'workspace')
+    handleCreate('home-2', 'workspace')
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
+  })
 })
 
 /**

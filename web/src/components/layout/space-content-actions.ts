@@ -369,6 +369,19 @@ export function handleTrashProject(projectId: string): boolean {
   return true
 }
 
+// Keys currently mid-request, so a rapid-fire burst of clicks on one row's "+" mints
+// AT MOST ONE chat instead of one per click. This used to be reachable for real: with
+// no visible feedback between click and the row appearing (the bug `announceTreeChange`
+// exists to fix), a user who saw nothing happen clicked again — and each click was a
+// genuine, separate POST the daemon happily minted a chat and a runner for. Most of
+// those runners then lost the startup race spawn.go's own doc describes (concurrent
+// worktree forks off the same parent are exactly the contention that race needs),
+// leaving a pile of chats with a real id and zero conversation, ever — permanently
+// unresumable, forever re-erroring the moment anything opens them. One request in
+// flight per (kind, parentId) closes the hole at its source rather than papering over
+// the mess it leaves behind.
+const createInFlight = new Set<string>()
+
 /** Creates a workspace (fork) or a thread (chat) under `parentId`. */
 export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
   const currentRepos = useSidebarStore.getState().repos
@@ -386,6 +399,13 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   const { projectId } = repo
   if (!projectId) return
 
+  const inFlightKey = `${kind}:${parentId}`
+  if (createInFlight.has(inFlightKey)) return
+  createInFlight.add(inFlightKey)
+  const release = (): void => {
+    createInFlight.delete(inFlightKey)
+  }
+
   if (kind === 'workspace') {
     // Task 8: mints the workspace AND its first chat in ONE call (POST
     // .../chats {ownWorktree: true} — backend Task 7) instead of the old
@@ -402,7 +422,10 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // does (model spec §4.1), since this is the same "nothing of its own
     // to name the branch" shape.
     const provider = enabledProvider()
-    if (!provider) return
+    if (!provider) {
+      release()
+      return
+    }
     // The daemon places by CHAT id, and the clicked row's own id is only that
     // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
     // draws those AS their owning `branch` chat). A REGULAR fork's row is id'd
@@ -417,6 +440,7 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
       .catch((err: unknown) => {
         toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
       })
+      .finally(release)
     return
   }
 
@@ -427,6 +451,7 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   // click.
   if (subject.kind !== 'workspace') {
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
+    release()
     return
   }
   // `subject.id`, not the clicked row's — this one needs the WORKSPACE (it
@@ -446,12 +471,16 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   // daemon's chat count did not move on a click. The fork branch above was
   // always right to read the global list; this one now agrees with it.
   const provider = enabledProvider()
-  if (!provider) return
+  if (!provider) {
+    release()
+    return
+  }
   createChat(wsId, provider.id)
     .then(() => announceTreeChange(repo.id))
     .catch((err: unknown) => {
       toast.error(err instanceof Error ? err.message : 'Failed to start chat')
     })
+    .finally(release)
 }
 
 /**

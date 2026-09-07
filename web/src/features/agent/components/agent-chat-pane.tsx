@@ -490,23 +490,43 @@ export function AgentChatPane({
   // resumes exactly where the user left it. Fired automatically when the pane finds its
   // chat dormant (see the attach effect), and by the Resume button when that failed.
   //
-  // Failure is a FIRST-CLASS OUTCOME, not an edge: the backend refuses outright to resume
-  // a chat with no recorded conversation ("no conversation to resume" — a CLI that died
-  // before its session-start hook ever fired leaves one), and the CLI itself may be gone
-  // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
-  // still appears. It never retries by itself.
+  // A chat with no `activeProviderId` has never had ANY runner placed on it — no CLI
+  // ever reached its session-start hook, so there is no conversation on record at all.
+  // resumeChat is not merely likely to fail there, it is REFUSED OUTRIGHT, the same way,
+  // every single time ("no conversation to resume" — agentrunner: last conversation: not
+  // found) — retrying it is not a retry, it is calling an operation that cannot ever
+  // succeed for this chat. switchProviderLocked's own doc comment names this exact case
+  // ("a chat no provider has ever run on... its very first spawn") as the one it already
+  // handles correctly, so THAT is the call a never-run chat needs — an ordinary fresh
+  // spawn, not a resume.
+  //
+  // Failure is still a FIRST-CLASS OUTCOME, not an edge: the CLI itself may be gone from
+  // the PATH, or the spawn may lose the same startup race a rapid-fire create can hit
+  // (see spawn.go's exitedDuringStartup). Both land in `idle: failed`, which is the one
+  // place the Resume button still appears. It never retries by itself.
   const revive = useCallback(async () => {
     attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-    setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+    const neverRan = activeProviderId === ''
+    const startProvider = neverRan ? providers.find((p) => p.enabled) : undefined
+    const verb = neverRan ? 'start' : 'resume'
+    setAttachment({
+      state: 'reviving',
+      message: neverRan ? 'Starting this chat…' : 'Resuming this chat…',
+    })
     try {
-      await resumeChat(wsId, shownChatId)
+      if (neverRan) {
+        if (!startProvider) throw new Error('No agent provider is enabled')
+        await switchProvider(wsId, shownChatId, startProvider.id)
+      } else {
+        await resumeChat(wsId, shownChatId)
+      }
       if (!(await adopt())) fail()
     } catch (err: unknown) {
       fail()
       const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
-      toastSpawnFailure(err, name, 'resume')
+      toastSpawnFailure(err, name, verb)
     }
-  }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
+  }, [wsId, shownChatId, adopt, fail, providers, chatProviderId, activeProviderId])
 
   // Attach to the runner's PTY, revive the chat if nobody is on it, or settle. The seeding
   // must happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal

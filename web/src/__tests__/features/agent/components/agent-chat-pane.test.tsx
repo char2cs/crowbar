@@ -571,6 +571,53 @@ describe('AgentChatPane', () => {
       err.mockRestore()
     })
 
+    // THE OTHER real bug the user hit, and the one `no conversation to resume`
+    // above does NOT model: a chat whose `activeProviderId` is EMPTY — no runner
+    // has EVER been placed on it, ever (AgentChatDTO's own doc: "Empty only on a
+    // chat no runner has ever been placed on"). resumeChat is not merely likely to
+    // fail there — the backend REFUSES it outright, deterministically, every
+    // single retry ("no conversation to resume": store.go's LastConversation
+    // finds nothing to resolve). Reviving such a chat has to call switchProvider
+    // (an ordinary fresh spawn — switchProviderLocked's own doc names this exact
+    // case: "a chat no provider has ever run on... its very first spawn"), which
+    // can actually succeed, instead of retrying an operation that structurally
+    // never can.
+    it('revives a chat that has NEVER run via switchProvider, not the doomed resumeChat', async () => {
+      const revived = deferred<string>()
+      switchProviderFn.mockReturnValue(revived.promise)
+
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: '' })])
+      const paneId = openChatPane(store, 'c1', '')
+      await renderPane(store, paneId)
+
+      // The FIRST enabled provider (claude) — the same fallback a fresh create uses.
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'claude')
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(screen.getByText(/starting this chat/i)).toBeTruthy()
+
+      await act(async () => {
+        revived.resolve('r9')
+      })
+
+      const xterm = await screen.findByTestId('xterm')
+      expect(xterm).toHaveAttribute('data-session-id', 'pty-revived')
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    it('reports the failure through switchProvider (never resumeChat) for a chat that has never run', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      switchProviderFn.mockRejectedValue(new Error('claude: not on PATH'))
+
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: '' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(switchProviderFn).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+
     // THE TERMINAL_WAIT LESSON, applied to the OTHER two: a blank chat (nothing
     // ever said yet) never mounts AgentChatView's dock at all — AgentEmptyDocument
     // renders instead — so a reviving/idle-failed signpost that lives ONLY in the
