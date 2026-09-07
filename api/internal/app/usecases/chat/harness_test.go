@@ -320,12 +320,13 @@ func (f *fakeRunnerBroadcaster) snapshot() []runnerFrame {
 }
 
 type fakeWorkspace struct {
-	home      string
-	projectID string
-	repoID    string
-	worktree  string
-	chatsDir  string
-	err       error
+	home        string
+	projectID   string
+	repoID      string
+	worktree    string
+	chatsDir    string
+	err         error
+	worktreeErr error // fails only WorktreeDir, leaving AgentChatsDir callers unaffected
 }
 
 func (f *fakeWorkspace) WorktreeDir(
@@ -334,6 +335,9 @@ func (f *fakeWorkspace) WorktreeDir(
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
 	if f.err != nil {
 		return "", "", "", "", f.err
+	}
+	if f.worktreeErr != nil {
+		return "", "", "", "", f.worktreeErr
 	}
 	return f.home, f.projectID, f.repoID, f.worktree, nil
 }

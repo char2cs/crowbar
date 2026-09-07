@@ -352,3 +352,28 @@ func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "feature/x-2", got)
 }
+
+// --- Attachment durable store (Task 1) ---
+
+func TestAttachmentsDir(t *testing.T) {
+	dir := AttachmentsDir("/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "/crow/projects/p1/slug/branch/chats/chat-1/attachments", dir)
+}
+
+func TestRestoreDurableAttachmentRefs_RewritesAnAbsoluteReferenceBack(t *testing.T) {
+	text := "look ![x](/crow/projects/p1/slug/branch/chats/chat-1/attachments/photo.png) done"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "look ![x](chats/chat-1/attachments/photo.png) done", out)
+}
+
+func TestRestoreDurableAttachmentRefs_LeavesUnrelatedTextUntouched(t *testing.T) {
+	text := "nothing to restore here, and no /crow/projects/p1/slug/branch/chats/OTHER-CHAT/attachments/x.png reference either"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, text, out, "a different chat's durable dir is not this chat's to rewrite")
+}
+
+func TestRestoreDurableAttachmentRefs_MultipleReferences(t *testing.T) {
+	text := "![a](/crow/projects/p1/slug/branch/chats/chat-1/attachments/one.png) and ![b](/crow/projects/p1/slug/branch/chats/chat-1/attachments/two.png)"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "![a](chats/chat-1/attachments/one.png) and ![b](chats/chat-1/attachments/two.png)", out)
+}

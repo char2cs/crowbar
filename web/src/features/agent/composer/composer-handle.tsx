@@ -1,4 +1,5 @@
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
@@ -16,6 +17,10 @@ interface ComposerHandleProps {
   sending: boolean
   onSend: () => void
   onStop: () => void
+  /** Opens the embedded Excalidraw editor. */
+  onOpenExcalidraw: () => void
+  /** Opens the drag-and-drop/click-to-browse file picker. */
+  onOpenAttachFile: () => void
 }
 
 /**
@@ -39,6 +44,8 @@ export function ComposerHandle({
   sending,
   onSend,
   onStop,
+  onOpenExcalidraw,
+  onOpenAttachFile,
 }: ComposerHandleProps) {
   const stopping = working && canStop
   const sendingVisual = !stopping && !hasText && sending
@@ -46,6 +53,7 @@ export function ComposerHandle({
 
   return (
     <div className="handle" style={{ transform: `translateY(${handleOffset(fieldHeight)}px)` }}>
+      <ComposerPlusButton onOpenExcalidraw={onOpenExcalidraw} onOpenAttachFile={onOpenAttachFile} />
       <button
         type="button"
         className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}

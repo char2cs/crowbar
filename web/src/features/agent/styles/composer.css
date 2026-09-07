@@ -310,6 +310,12 @@
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
 }
+.agent-chat .pill.drop-target {
+  border-color: color-mix(in oklch, var(--ring) 60%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 0 0 3px color-mix(in oklch, var(--ring) 25%, transparent);
+}
 
 .agent-chat .pill .field {
   display: block;
@@ -323,7 +329,9 @@
   background: none;
   outline: none;
   resize: none;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 50vh;
   padding: 0 62px 0 0;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -493,6 +501,42 @@
   box-shadow: none;
 }
 
+/* The plus button's own left margin is unset — see handle-geometry.ts's
+   fieldRightPadding() derivation. `.handle`'s flex `gap: 2px` is the ONLY
+   spacing between it and `.send`; keeping `.send`'s base margin-left: 5px
+   here too would double-count against the field's exactly-sized padding. */
+.agent-chat .handle .send {
+  margin-left: 0;
+}
+
+/* Cosmetic treatment (ghost variant, fully rounded, 28px to match `.send`)
+   now lives on the shared `Button` component (composer-plus-button.tsx) —
+   `.plusbtn` is left as a bare positioning hook only. */
+.agent-chat .plusbtn svg:not([class*='size-']) {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+
+/* Once wrapped, the plus button moves above `.send` instead of beside it —
+   taken out of `.handle`'s flex row so `.handle` shrinks to fit just `.send`. */
+.agent-chat .pill.multi .plusbtn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+}
+
+.agent-chat .pill.multi .field {
+  padding-right: 32px; /* fieldRightPadding(sendInset(), 1) — one circle now */
+  scrollbar-gutter: stable;
+  /* Narrows the scrolling box (and the native scrollbar riding its edge)
+     clear of `.send`'s own reach past the pill's padding: 4px inset + 28px
+     diameter − the pill's own 14px padding. `width`, not `margin` — `.field`
+     is already `width: 100%`, and an explicit margin-right there is an
+     over-constrained box the browser just discards at layout time. */
+  width: calc(100% - 18px);
+}
+
 /* A stop notice REPLACES the input rather than sitting above it, because the
    fact it reports IS that there is nothing to type into. Same 38px box, same
    stadium — the bar has not gone anywhere, it has stopped being an input. The
@@ -619,6 +663,19 @@
   min-height: 0;
   overflow: hidden;
 }
+/* Same affordance as `.pill.drop-target`, drawn as an inset overlay rather
+   than a border: the pill's own border IS its edge, but the document has no
+   edge of its own to recolor — an inset ring reads as "drop here" without
+   implying the writing area itself just gained a border. */
+.agent-chat .docwrap.drop-target::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in oklch, var(--ring) 60%, transparent);
+  background: color-mix(in oklch, var(--ring) 4%, transparent);
+  pointer-events: none;
+}
 .agent-chat .doc {
   --pad: max(40px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;
@@ -676,8 +733,12 @@
   height: 24px;
   padding: 0 7px;
 }
+/* Zeroed for the same reason as `.handle .send` above: the plus button now
+   leads this side group, and `.side`'s own flex `gap: 2px` is the ONLY
+   spacing the two circles need — keeping this margin too would stack an
+   extra 5px on top of that gap instead of the tight single-family look. */
 .agent-chat .dochandle .send {
-  margin-left: 5px;
+  margin-left: 0;
 }
 
 /* ── the row under the pill ────────────────────────────── */

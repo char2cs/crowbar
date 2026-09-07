@@ -186,6 +186,41 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.scrollPositions['c1']).toBeUndefined()
   })
 
+  // ── excalidrawEditRequests: a one-shot "open the takeover with this scene"
+  //    signal from an Edit button buried in a chat's transcript up to the
+  //    composer that owns the takeover — cleared once the composer consumes it.
+
+  it('requestExcalidrawEdit records the scene for that chat only', () => {
+    const s = createWorkspaceStore('w1')
+    const scene = { elements: [{ type: 'rectangle' }], appState: {} }
+
+    s.getState().requestExcalidrawEdit('c1', scene)
+
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(s.getState().agentChats.excalidrawEditRequests['c2']).toBeUndefined()
+  })
+
+  it('clearExcalidrawEditRequest removes only that chat’s pending request', () => {
+    const s = createWorkspaceStore('w1')
+    const scene = { elements: [], appState: {} }
+    s.getState().requestExcalidrawEdit('c1', scene)
+    s.getState().requestExcalidrawEdit('c2', scene)
+
+    s.getState().clearExcalidrawEditRequest('c1')
+
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toBeUndefined()
+    expect(s.getState().agentChats.excalidrawEditRequests['c2']).toEqual(scene)
+  })
+
+  it('removeAgentChat forgets a pending excalidraw edit request', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().requestExcalidrawEdit('c1', { elements: [], appState: {} })
+
+    s.getState().removeAgentChat('c1')
+
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toBeUndefined()
+  })
+
   // ── The sticky model / effort selection ───────────────────────────────────
   // The PATCH answers 202 with no body and rides no lifecycle frame, so this write
   // is the only thing that brings an accepted pair back into the store.

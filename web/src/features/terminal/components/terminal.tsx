@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useEffectEvent, useRef, useState } from 
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -484,6 +485,17 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     },
     [writeBuffered],
   )
+
+  const handleTauriTerminalDrop = useCallback(
+    (paths: string[]) => {
+      const text = formatDroppedPathsForTerminal(paths)
+      if (!text) return
+      writeBuffered(text, 'file-drop')
+      requestAnimationFrame(() => xtermRef.current?.focus())
+    },
+    [writeBuffered],
+  )
+  useTauriFileDrop(terminalContainerRef, handleTauriTerminalDrop)
 
   const handleTerminalDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes('Files')) return

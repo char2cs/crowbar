@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import {
   clearInternalTabDragData,
   getInternalTabDragData,
@@ -442,6 +443,19 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     },
     [pane.id, handleFileOpen, workspaceStore],
   )
+
+  const handleTauriFileDrop = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0 || !handleFileOpen) return
+      workspaceStore.getState().paneActions.setActivePane(pane.id)
+      for (const droppedPath of paths) {
+        // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
+        await handleFileOpen(droppedPath, false)
+      }
+    },
+    [pane.id, handleFileOpen, workspaceStore],
+  )
+  useTauriFileDrop(containerRef, handleTauriFileDrop)
 
   const renderActiveBuffer = useCallback(
     (buffer: PaneRenderBuffer) => {

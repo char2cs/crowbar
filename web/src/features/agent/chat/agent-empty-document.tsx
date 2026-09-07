@@ -1,11 +1,29 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
+import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
+import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
+import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
+import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
+import {
+  parseExcalidrawScene,
+  type ParsedExcalidrawScene,
+} from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import {
   ChatMarkdownEditor,
   type CaretEdges,
+  type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
@@ -37,6 +55,12 @@ export interface AgentEmptyDocumentHandle {
 }
 
 export interface AgentEmptyDocumentProps {
+  /** Threaded straight through to `ChatMarkdownEditor`, which needs both to
+   *  register paste interception (uploading a pasted image calls
+   *  `uploadChatAttachment(wsId, chatId, ...)`). Optional to match
+   *  `ChatMarkdownEditorProps` — see its own note. */
+  wsId?: string
+  chatId?: string
   /** The draft to OPEN with. The box owns its text after that. */
   draft: string
   /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
@@ -82,6 +106,8 @@ export interface AgentEmptyDocumentProps {
  * back at position zero on every keystroke.
  */
 export function AgentEmptyDocument({
+  wsId,
+  chatId,
   draft,
   draftSeed,
   hasText,
@@ -97,6 +123,16 @@ export function AgentEmptyDocument({
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  // Task 34's modals reach the box the same way the composer's own do
+  // (`agent-composer.tsx`'s `editorRef`) — they sit as SIBLINGS of the
+  // editor, outside `<Plate>`'s tree.
+  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
+  const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
+    ParsedExcalidrawScene | undefined
+  >(undefined)
+  const [dropTarget, setDropTarget] = useState(false)
 
   useImperativeHandle(
     ref,
@@ -104,6 +140,67 @@ export function AgentEmptyDocument({
       getHandleRect: () => handleRef.current?.getBoundingClientRect() ?? null,
     }),
     [],
+  )
+
+  const insertAttachmentMarkdown = useCallback((md: string) => {
+    editorRef.current?.insertAttachmentMarkdown(md)
+  }, [])
+  const insertPendingImage = useCallback((objectUrl: string, alt: string) => {
+    editorRef.current?.insertPendingImage(objectUrl, alt)
+  }, [])
+  const settlePendingImage = useCallback((objectUrl: string, finalMarkdown: string | null) => {
+    editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
+  }, [])
+
+  // Attaching needs both ids — undefined here only for parity with
+  // `ChatMarkdownEditorProps` (see its own note); the real call site
+  // (`agent-chat-view.tsx`) always supplies both.
+  const attachmentsReady = Boolean(wsId && chatId)
+  const { uploadAndInsert } = useAttachmentUpload(
+    wsId ?? '',
+    chatId ?? '',
+    insertAttachmentMarkdown,
+    insertPendingImage,
+    settlePendingImage,
+  )
+
+  // Same reasoning as agent-composer.tsx's own memoized drop handlers: an
+  // inline arrow here would get a fresh identity on every render (this
+  // component re-renders on every keystroke via `onDraftChange`), tearing
+  // down and re-establishing Tauri's `onDragDropEvent` IPC subscription.
+  const handleTauriDrop = useCallback(
+    (paths: string[]) => {
+      setDropTarget(false)
+      if (!attachmentsReady) return
+      for (const path of paths) void uploadAndInsert({ path })
+    },
+    [attachmentsReady, uploadAndInsert],
+  )
+
+  useTauriFileDrop(wrapRef, handleTauriDrop)
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    setDropTarget(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (!related || !e.currentTarget.contains(related)) setDropTarget(false)
+  }, [])
+
+  // Plain-browser (non-Tauri dev) fallback — same as agent-composer.tsx's
+  // own pill drop handler.
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      setDropTarget(false)
+      if (!e.dataTransfer.types.includes('Files')) return
+      e.preventDefault()
+      if (!attachmentsReady) return
+      for (const file of Array.from(e.dataTransfer.files)) void uploadAndInsert({ file })
+    },
+    [attachmentsReady, uploadAndInsert],
   )
 
   const place = useCallback(() => {
@@ -142,10 +239,20 @@ export function AgentEmptyDocument({
   const idle = !stopping && !sendingVisual && empty
 
   return (
-    <div className="docwrap" data-testid="agent-empty-document">
+    <div
+      ref={wrapRef}
+      className={cn('docwrap', dropTarget && 'drop-target')}
+      data-testid="agent-empty-document"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div ref={docRef} className="doc">
         <ChatMarkdownEditor
           key={draftSeed}
+          ref={editorRef}
+          wsId={wsId}
+          chatId={chatId}
           initialValue={draft}
           placeholder="Describe the change…"
           ariaLabel="Describe the change"
@@ -160,6 +267,18 @@ export function AgentEmptyDocument({
           <div className="grp">
             <span className="side">{controls}</span>
             <span className="side">
+              {attachmentsReady && (
+                <ComposerPlusButton
+                  onOpenExcalidraw={() => {
+                    const saved = wsId && chatId ? loadExcalidrawDesign(wsId, chatId) : null
+                    setExcalidrawInitialScene(
+                      (saved ? parseExcalidrawScene(saved) : null) ?? undefined,
+                    )
+                    setModal('excalidraw')
+                  }}
+                  onOpenAttachFile={() => setModal('attach-file')}
+                />
+              )}
               <button
                 type="button"
                 className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
@@ -182,6 +301,25 @@ export function AgentEmptyDocument({
           </div>
         </div>
       </div>
+      {wsId && chatId && modal === 'attach-file' && (
+        <AttachFileModal
+          wsId={wsId}
+          chatId={chatId}
+          open
+          onClose={() => setModal(null)}
+          onInsertMarkdown={insertAttachmentMarkdown}
+        />
+      )}
+      {wsId && chatId && modal === 'excalidraw' && (
+        <ExcalidrawTakeover
+          wsId={wsId}
+          chatId={chatId}
+          open
+          onClose={() => setModal(null)}
+          onInsertMarkdown={insertAttachmentMarkdown}
+          initialScene={excalidrawInitialScene}
+        />
+      )}
     </div>
   )
 }

@@ -46,6 +46,39 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   configurable: true,
 })
 
+// jsdom does not implement DataTransfer at all — no constructor exists. A real
+// OS file drop never reaches this object anyway on the Tauri desktop build
+// (see useTauriFileDrop); this stub only unblocks tests that construct one
+// directly to exercise the browser-DataTransfer code path.
+if (typeof globalThis.DataTransfer === 'undefined') {
+  class DataTransferStub {
+    dropEffect = 'none'
+    effectAllowed = 'uninitialized'
+    files = [] as unknown as FileList
+    items = [] as unknown as DataTransferItemList
+    #data = new Map<string, string>()
+    get types(): readonly string[] {
+      return Array.from(this.#data.keys())
+    }
+    clearData(format?: string) {
+      if (format) this.#data.delete(format)
+      else this.#data.clear()
+    }
+    getData(format: string) {
+      return this.#data.get(format) ?? ''
+    }
+    setData(format: string, value: string) {
+      this.#data.set(format, value)
+    }
+    setDragImage() {}
+  }
+  Object.defineProperty(globalThis, 'DataTransfer', {
+    value: DataTransferStub,
+    writable: true,
+    configurable: true,
+  })
+}
+
 // jsdom does not implement the Web Animations API, and this stub is load-bearing
 // BECAUSE of the ResizeObserver one directly above.
 //

@@ -309,6 +309,14 @@ func extraRoutes() []string {
 		"GET " + ws + "/chats/:id/choices",
 		"GET " + ws + "/chats/:id/messages",
 		"GET " + ws + "/chats/:id/telemetry",
+		// Chat attachments: an uploaded file (image, CSV, text) a message
+		// references. GET serves the stored bytes; HEAD the same response's
+		// headers alone (the composer's own file-card size lookup) — the
+		// handler never checks the request method, so registering both against
+		// it is enough.
+		"POST " + ws + "/chats/:id/attachments",
+		"GET " + ws + "/chats/:id/attachments/:file",
+		"HEAD " + ws + "/chats/:id/attachments/:file",
 		// The provider's own slash-command list, so the composer can autocomplete
 		// commands the CLI itself defines.
 		"GET " + ws + "/chats/:id/slash-catalog",
@@ -412,6 +420,11 @@ func extraRoutes() []string {
 		"GET " + home + "/chats/:id/choices",
 		"GET " + home + "/chats/:id/messages",
 		"GET " + home + "/chats/:id/telemetry",
+		// Same attachments pair as the workspace group above, mounted on home
+		// for the same reason as the rest of this block.
+		"POST " + home + "/chats/:id/attachments",
+		"GET " + home + "/chats/:id/attachments/:file",
+		"HEAD " + home + "/chats/:id/attachments/:file",
 		"GET " + home + "/chats/:id/slash-catalog",
 		"PATCH " + home + "/chats/:id/selection",
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",

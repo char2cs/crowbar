@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
@@ -402,4 +403,36 @@ func RemoveUnderHome(
 	if err := os.RemoveAll(target); err != nil {
 		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
 	}
+}
+
+// AttachmentsDir returns a chat's durable attachment store: the directory the
+// upload endpoint writes into and the asset-serving GET endpoint reads from.
+//
+// Path: <chatsDir>/<chatID>/attachments. It nests under the same chats/
+// sibling directory ChatsDir already roots the ledger and RunnerDir under
+// (never inside the git worktree, so an upload never appears in git status),
+// keyed by the chat's own id — unlike RunnerDir, an attachment's chat pointer
+// is never erased, and deleting the chat already removes chats/<chatID>
+// wholesale, so there is no separate cleanup path to get right here.
+func AttachmentsDir(chatsDir, chatID string) string {
+	return filepath.Join(chatsDir, chatID, "attachments")
+}
+
+// RestoreDurableAttachmentRefs reverses materializeAttachmentsForDispatch's
+// one rewrite (dispatch_attachments.go, runner package): a user_prompt hook's
+// own self-reported message IS the text the CLI actually received, which —
+// whenever that dispatch referenced an attachment — is the file's real
+// absolute path in the durable store, not the logical
+// chats/<chatID>/attachments/<file> reference the rest of Crowbar (the
+// asset-serving endpoint, every other stored turn) expects. The ingestion
+// path has no other copy of the original text to fall back on for a prompt
+// typed straight into the CLI's own terminal, so it must un-rewrite this one
+// in place rather than special-case its source. Every other occurrence in
+// text is left untouched, and text with no such reference at all comes back
+// unchanged.
+func RestoreDurableAttachmentRefs(text, chatsDir, chatID string) string {
+	absolutePrefix := filepath.ToSlash(AttachmentsDir(chatsDir, chatID))
+	pattern := regexp.MustCompile(regexp.QuoteMeta(absolutePrefix) + `/([^/)\s]+)`)
+	logicalPrefix := "chats/" + chatID + "/attachments"
+	return pattern.ReplaceAllString(text, logicalPrefix+"/$1")
 }

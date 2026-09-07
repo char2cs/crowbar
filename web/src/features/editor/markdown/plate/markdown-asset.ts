@@ -9,10 +9,18 @@ import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
  * keep their raw src.
  */
 export interface MarkdownAssetInfo {
-  /** Workspace id the file belongs to (for `readWorkspaceFile`). */
+  /** Workspace id the file belongs to (for `readWorkspaceFile`, or a `resolve`
+   *  override that needs it). */
   wsId: string
-  /** The file's own directory, workspace-relative ('' = workspace root). */
+  /** The file's own directory, workspace-relative ('' = workspace root).
+   *  Unused when `resolve` is set. */
   fileDir: string
+  /** Override the default fileDir-relative `readWorkspaceFile` resolution.
+   *  When present, `loadLocalImage` calls this directly with the raw `src`
+   *  instead — the chat asset context (`chat-asset-resolver.ts`) uses this to
+   *  route through the attachment-serving endpoint, since a chat-attachment
+   *  ref isn't a workspace-relative path. */
+  resolve?: (src: string) => Promise<string | null>
 }
 
 export const MarkdownAssetContext = createContext<MarkdownAssetInfo | null>(null)
@@ -69,6 +77,7 @@ export async function loadLocalImage(
   src: string,
 ): Promise<string | null> {
   if (!asset || !src || isSelfLoading(src)) return null
+  if (asset.resolve) return asset.resolve(src)
   const path = resolveAssetPath(asset.fileDir, src)
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
   const mime = IMAGE_MIME[ext]

@@ -6,7 +6,7 @@ import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-per
 // workspaceBase(wsId)/chats (00 agentic-engine spec §2); the {success,data}
 // envelope is unwrapped by apiFetch. Modelled on features/git/api/review-api.ts.
 
-function chatBase(wsId: string): string {
+export function chatBase(wsId: string): string {
   return `${workspaceBase(wsId)}/chats`
 }
 

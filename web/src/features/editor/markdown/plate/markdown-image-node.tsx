@@ -17,22 +17,28 @@ import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
  * screenshots/logos) resolve against the file's folder and load as data URLs,
  * exactly like the raw-HTML `<img>` path; remote/`data:` srcs load themselves.
  */
-interface MarkdownImageNode {
+export interface MarkdownImageNode {
   type: 'img'
   url?: string
   /** alt text, stored by @platejs as an array of text nodes (or a string). */
   caption?: Array<{ text?: string }> | string
 }
 
-function captionToAlt(caption: MarkdownImageNode['caption']): string {
+export function captionToAlt(caption: MarkdownImageNode['caption']): string {
   if (Array.isArray(caption)) return caption.map((c) => c?.text ?? '').join('')
   return typeof caption === 'string' ? caption : ''
 }
 
-export function MarkdownImageElement(props: PlateElementProps) {
-  const element = props.element as unknown as MarkdownImageNode
-  const url = element.url ?? ''
-  const alt = captionToAlt(element.caption)
+/**
+ * `url`, resolved against the current `MarkdownAssetContext` if there is one
+ * (a local image loads as a data URL; a remote/`data:` src or the absence of
+ * an asset context just returns `url` unchanged). Extracted from
+ * `MarkdownImageElement` so `ChatAttachmentImageElement` (chat-markdown-
+ * image-node.tsx) — which needs the SAME resolution but different chrome
+ * around the `<img>` itself (a drag handle, a max-height cap) — doesn't have
+ * to duplicate it.
+ */
+export function useResolvedImageSrc(url: string): string {
   const asset = useMarkdownAsset()
   const [resolvedSrc, setResolvedSrc] = useState(url)
 
@@ -51,6 +57,15 @@ export function MarkdownImageElement(props: PlateElementProps) {
       cancelled = true
     }
   }, [asset, url])
+
+  return resolvedSrc
+}
+
+export function MarkdownImageElement(props: PlateElementProps) {
+  const element = props.element as unknown as MarkdownImageNode
+  const url = element.url ?? ''
+  const alt = captionToAlt(element.caption)
+  const resolvedSrc = useResolvedImageSrc(url)
 
   return (
     <PlateElement {...props} className="inline-block">

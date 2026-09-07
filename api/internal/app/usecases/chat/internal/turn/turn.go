@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -127,7 +128,22 @@ func (t *Turns) openTurnFromPrompt(
 		t.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
+	// This hook's own message IS the text the CLI actually received — which,
+	// whenever Crowbar's own dispatch referenced an attachment, is the file's
+	// real absolute path in the durable store, not the logical
+	// chats/<chatID>/attachments/<file> reference every other consumer of a
+	// stored turn (the asset-serving endpoint included) expects. Restore it
+	// before this text becomes anything durable: the title derived from it,
+	// and the ledger row itself below. A prompt typed straight into the CLI's
+	// own terminal never contains this shape, so the rewrite is a no-op for it.
+	userText := ev.Message
+	if chatsDir, cErr := t.ws.AgentChatsDir(ctx, runner.WorkspaceID); cErr != nil {
+		slog.WarnContext(ctx, "agent: ingest hook: resolve chats dir for attachment ref restore",
+			"chat_id", chat.ID, "runner_id", runner.ID, "err", cErr)
+	} else {
+		userText = worktreepath.RestoreDurableAttachmentRefs(ev.Message, chatsDir, chat.ID)
+	}
+	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(userText), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
 	// A user prompt opens the turn: mark the chat Working so the read model (and
@@ -143,7 +159,7 @@ func (t *Turns) openTurnFromPrompt(
 	t.turns.Begin(runner.ID, chat.ID)
 	appendErr := t.conversations.AppendRunnerTurn(
 		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
-		domain.TurnRoleUser, ev.Message,
+		domain.TurnRoleUser, userText,
 	)
 	// The reply this prompt is about to produce, opened NOW so the tool calls,
 	// subagents and interruptions that follow attach to it. Without an open turn

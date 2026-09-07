@@ -35,6 +35,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** True while an image attachment still shows its OWN optimistic local
+ *  preview — `insertPendingImageInto`/`settlePendingImageInto` (chat-
+ *  markdown-editor.tsx) point it at a `URL.createObjectURL` blob until its
+ *  upload resolves, and a `blob:` url is meaningless outside this browser
+ *  session: the agent could never fetch it, and it stops working the moment
+ *  this tab revokes or closes it. Sending has to wait for the swap, not race
+ *  it — the whole point of the optimistic preview is instant FEEDBACK, not
+ *  skipping the upload itself. */
+export function hasPendingImageUpload(text: string): boolean {
+  return /!\[[^\]]*\]\(blob:/.test(text)
+}
+
 /** A queue item handed to the server and waiting to be proven delivered. Only
  *  these are resolvable by evidence; the rest are the user's. */
 export function awaitingEvidence(item: PromptQueueItem): boolean {
@@ -438,6 +450,9 @@ export function usePromptQueue(options: PromptQueueOptions) {
   const enqueue = useCallback(
     (raw: string): EnqueueResult => {
       const text = raw.trim()
+      if (hasPendingImageUpload(text)) {
+        return { ok: false, error: 'Wait for the attached photo to finish uploading.' }
+      }
       if (!isPromptTextWithinLimit(text)) {
         // Empty gets no error: Enter reaches here even with nothing typed
         // (the send button is disabled for that case, but Enter bypasses

@@ -24,6 +24,7 @@ type spawnPaths struct {
 	repoID      string
 	worktree    string
 	tmpDir      string
+	chatsDir    string
 }
 
 func (rs *Runners) spawnPaths(
@@ -68,6 +69,7 @@ func (rs *Runners) spawnPaths(
 		repoID:      repoID,
 		worktree:    worktree,
 		tmpDir:      tmpDir,
+		chatsDir:    chatsDir,
 	}, nil
 }
 

@@ -1011,6 +1011,18 @@ func (configurableListGetUsecase) Telemetry(string) (engineagents.Telemetry, boo
 	return engineagents.Telemetry{}, false
 }
 
+func (configurableListGetUsecase) UploadAttachment(
+	context.Context, string, agentusecase.UploadAttachmentInput,
+) (agentusecase.StoredAttachment, error) {
+	return agentusecase.StoredAttachment{}, nil
+}
+
+func (configurableListGetUsecase) ReadAttachment(
+	context.Context, string, string,
+) ([]byte, string, error) {
+	return nil, "", nil
+}
+
 // TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both
 // halves and forwards them together with the path id, answering 202 with an empty
 // body.

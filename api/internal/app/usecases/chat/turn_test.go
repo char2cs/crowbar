@@ -19,6 +19,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -62,6 +63,33 @@ func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 	result, err := f.activity.Payload(f.ctx, calls[0].ResultRef)
 	require.NoError(t, err)
 	assert.Equal(t, "applied", string(result))
+}
+
+// TestRegression_UserPromptHookRestoresTheDurableAttachmentRef pins the bug a
+// live excalidraw-attachment send surfaced: a user_prompt hook's own message
+// IS the text the CLI actually received, which is the file's real ABSOLUTE
+// path in the durable store (materializeAttachmentsForDispatch's rewrite)
+// whenever the prompt referenced an attachment. Recording that verbatim as
+// the ledger's turn text broke two things at once — the asset-serving
+// endpoint can't resolve a raw filesystem path, so the picture never
+// rendered again, and that local path leaked into what the user reads as
+// their own sent message. The ledger must always hold the logical
+// chats/<chatID>/attachments/<file> reference.
+func TestRegression_UserPromptHookRestoresTheDurableAttachmentRef(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	absPath := filepath.ToSlash(filepath.Join(
+		worktreepath.AttachmentsDir(f.ws.chatsDir, chatID), "diagram.png"))
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt,
+		map[string]any{"prompt": "check this out ![diagram](" + absPath + ")"})
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t,
+		"check this out ![diagram](chats/"+chatID+"/attachments/diagram.png)",
+		page.Items[0].Text)
 }
 
 func TestObservation_ToolCallsAttachToTheTurnThePromptOpened(t *testing.T) {
