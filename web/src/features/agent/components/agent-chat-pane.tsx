@@ -190,6 +190,9 @@ export function AgentChatPane({
   // Does the store KNOW this chat at all? "Not in the store yet" (the seed is in flight)
   // is not "dormant", and must not render the Resume button — see `pending` above.
   const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === shownChatId))
+  // Has an authoritative list ever landed? That is what turns `!known` from
+  // "not yet" into "not in it" — see the resolve effect below.
+  const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
   // The runner on the shown chat — mine, or whoever replaced it. '' = dormant.
   const liveRunnerId = useStore(
     store,
@@ -538,6 +541,50 @@ export function AgentChatPane({
       revivesInFlight.current -= 1
     }
   }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
+
+  // A CHAT THE LIST NEVER MENTIONS.
+  //
+  // `known` is this pane's entire basis for "do we know what this chat is", and
+  // while it is false `attachment` reads `pending` — which renders nothing,
+  // spawns nothing and asks nothing. That is exactly right for the moment before
+  // the list lands, and exactly wrong once it has: a pane pointed at a chat the
+  // list does not carry is then waiting on a fact that is never coming. A
+  // restored layout, a chat opened from another scope, or a list that raced the
+  // pane all land here.
+  //
+  // And the wait is SELF-SEALING, which is what makes it permanent rather than
+  // merely wrong. Every path that could teach the store this chat exists —
+  // adopt(), refreshChatWorking() — is reachable only through code gated on
+  // `live`, and `live` is gated on this. Nothing breaks the cycle from inside
+  // it. The visible cost is the prompt queue: its dispatcher bails on `!live`
+  // every pass, so the composer holds the user's message on "queued" forever and
+  // never attempts the POST — no error, no retry, no request at all.
+  //
+  // So ask the daemon, ONCE per chat per mount. Same budget shape as the revive
+  // budget above and for the same reason — a chat that is genuinely gone must
+  // not become a retry storm — and like adopt() this only ever READS. Spawning
+  // and attaching stay the attach effect's job, which takes over the moment the
+  // row lands in the store.
+  const resolvedRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!listSeeded || known || !shownChatId) return
+    if (resolvedRef.current.has(shownChatId)) return
+    resolvedRef.current.add(shownChatId)
+    void getChat(wsId, shownChatId)
+      .then((chat) => {
+        const s = store.getState()
+        s.upsertAgentChat(chat)
+        // The server-folded answer, exactly as adopt() writes it. There is no
+        // newer frame truth to clobber here: the store had never heard of this
+        // chat at all.
+        s.setAgentChatWorking(chat.id, chat.working === true)
+      })
+      .catch(() => {
+        // Genuinely gone, or the read failed. The pane has asked its one
+        // question; `pending` is now an honest "nothing to show" instead of a
+        // wait, and the user drives from the sidebar.
+      })
+  }, [store, wsId, listSeeded, known, shownChatId])
 
   // Attach to the runner's PTY, revive the chat if nobody is on it, or settle. The seeding
   // must happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal

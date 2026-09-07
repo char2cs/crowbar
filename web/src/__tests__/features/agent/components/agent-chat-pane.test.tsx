@@ -305,6 +305,14 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   return store
 }
 
+/** A workspace whose chat list has NOT arrived yet — no seed has run. Distinct
+ *  from seeding an empty list, which is the daemon answering "there are none". */
+function unseededWorkspace(wsId = 'w1') {
+  const store = createWorkspaceStore(wsId)
+  store.getState().setAgentProviders(providers)
+  return store
+}
+
 type Store = ReturnType<typeof seedWorkspace>
 
 function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
@@ -941,7 +949,12 @@ describe('AgentChatPane', () => {
     // The seed is in flight: the store does not know this chat yet. "Not known" is
     // not "dormant" — flashing Resume here would offer a button that spawns a
     // second CLI onto a chat that may well be live.
-    const store = seedWorkspace([])
+    //
+    // NO SEED HAS RUN, which is the actual condition being described. Seeding an
+    // empty list is a different fact — the daemon answering "there are none" —
+    // and a pane pointed at a chat that answer does not carry resolves it rather
+    // than waiting (see agent-chat-pane-unknown-chat-wedge.test.tsx).
+    const store = unseededWorkspace()
     const bufferId = openBuffer(store, 'c1', 'r1')
     await renderPane(store, bufferId)
 

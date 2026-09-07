@@ -63,6 +63,21 @@ export const selectEnabledProviders = (s: WorkspaceState): AgentProvider[] =>
 export interface AgentChatsState {
   chats: AgentChat[]
   /**
+   * Has an AUTHORITATIVE chat list ever landed for this workspace?
+   *
+   * `chats` alone cannot answer that, and the difference is not cosmetic. An
+   * empty-or-incomplete list reads identically before the first seed and after
+   * one that simply does not mention some chat — but "not known YET" is a wait
+   * that ends, and "not in the list" is a wait that does not. A surface pointed
+   * at a chat the list never mentions (a pane restored from a saved layout, a
+   * chat opened from another scope) has to be able to tell those apart, or it
+   * sits in its pre-resolution state for the life of the mount.
+   *
+   * Set once by seedAgentChats and never cleared: this is "the answer arrived",
+   * not "the answer is current".
+   */
+  listSeeded: boolean
+  /**
    * Is this chat's agent busy — the spinner map, keyed by chat id.
    *
    * NOT derived here. Every value is the server's own folded answer
@@ -277,6 +292,7 @@ export interface AgentChatsSlice {
 
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
+  listSeeded: false,
   working: {},
   terminalWaits: {},
   compacting: {},
@@ -351,6 +367,7 @@ export const createAgentChatsSlice: StateCreator<
 
     set((s) => {
       s.agentChats.chats = chats
+      s.agentChats.listSeeded = true
       if (opts?.keepWorking) {
         for (const id of Object.keys(s.agentChats.working)) {
           if (!present.has(id)) delete s.agentChats.working[id]
