@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,47 +13,40 @@ import (
 
 func TestMaterializeAttachmentsForDispatch_RewritesAReferencedFile(t *testing.T) {
 	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
 	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
 	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
 	text := "please look at ![a photo](chats/chat-1/attachments/" + fileName + ") thanks"
-	out, err := materializeAttachmentsForDispatch(chatsDir, worktree, "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch(chatsDir, "chat-1", text)
 
-	wantRel := ".crowbar-attachments/runner-1/" + fileName
-	assert.Contains(t, out, wantRel)
-	assert.NotContains(t, out, "chats/chat-1/attachments/"+fileName)
-	data, err := os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName))
-	require.NoError(t, err)
-	assert.Equal(t, "bytes", string(data))
+	wantAbs := filepath.ToSlash(filepath.Join(durableDir, fileName))
+	assert.Contains(t, out, wantAbs, "the rewritten reference must be the file's real absolute path in the durable store")
+	assert.True(t, filepath.IsAbs(wantAbs), "sanity: the path this test expects must itself be absolute")
+	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName+")",
+		"the logical markdown link must be gone, replaced by the absolute path")
 }
 
 func TestMaterializeAttachmentsForDispatch_LeavesUnreferencedTextUntouched(t *testing.T) {
-	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", "plain text, no attachments")
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch("chats", "chat-1", "plain text, no attachments")
 	assert.Equal(t, "plain text, no attachments", out)
 }
 
 func TestMaterializeAttachmentsForDispatch_IgnoresAReferenceToADifferentChat(t *testing.T) {
 	text := "![x](chats/OTHER-CHAT/attachments/f.png)"
-	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch("chats", "chat-1", text)
 	assert.Equal(t, text, out, "a reference naming a different chat's store must never be rewritten")
 }
 
 func TestMaterializeAttachmentsForDispatch_LeavesAMissingDurableFileUnrewritten(t *testing.T) {
 	text := "![gone](chats/chat-1/attachments/never-uploaded.png)"
-	out, err := materializeAttachmentsForDispatch(t.TempDir(), t.TempDir(), "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch(t.TempDir(), "chat-1", text)
 	assert.Equal(t, text, out)
 }
 
 func TestMaterializeAttachmentsForDispatch_MultipleReferences(t *testing.T) {
 	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
 	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
 
@@ -64,25 +56,16 @@ func TestMaterializeAttachmentsForDispatch_MultipleReferences(t *testing.T) {
 	require.NoError(t, err)
 
 	text := "look at ![](chats/chat-1/attachments/" + fileName1 + ") and ![](chats/chat-1/attachments/" + fileName2 + ")"
-	out, err := materializeAttachmentsForDispatch(chatsDir, worktree, "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch(chatsDir, "chat-1", text)
 
-	// Both references should be rewritten
-	assert.Contains(t, out, ".crowbar-attachments/runner-1/"+fileName1)
-	assert.Contains(t, out, ".crowbar-attachments/runner-1/"+fileName2)
-	assert.NotContains(t, out, "chats/chat-1/attachments/"+fileName1)
-	assert.NotContains(t, out, "chats/chat-1/attachments/"+fileName2)
-
-	// Both files should be in scratch
-	_, err = os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName1))
-	require.NoError(t, err)
-	_, err = os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName2))
-	require.NoError(t, err)
+	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName1)))
+	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName2)))
+	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName1+")")
+	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName2+")")
 }
 
 func TestMaterializeAttachmentsForDispatch_DuplicateReference(t *testing.T) {
 	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
 	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
 
@@ -92,15 +75,14 @@ func TestMaterializeAttachmentsForDispatch_DuplicateReference(t *testing.T) {
 	// Same reference appears twice in the text
 	ref := "chats/chat-1/attachments/" + fileName
 	text := "![](" + ref + ") and ![](" + ref + ")"
-	out, err := materializeAttachmentsForDispatch(chatsDir, worktree, "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch(chatsDir, "chat-1", text)
 
 	// Both occurrences should be rewritten
-	scratchRef := ".crowbar-attachments/runner-1/" + fileName
+	absRef := filepath.ToSlash(filepath.Join(durableDir, fileName))
 	count := 0
 	pos := 0
 	for {
-		idx := findStringIndex(out, scratchRef, pos)
+		idx := findStringIndex(out, absRef, pos)
 		if idx == -1 {
 			break
 		}
@@ -108,12 +90,11 @@ func TestMaterializeAttachmentsForDispatch_DuplicateReference(t *testing.T) {
 		pos = idx + 1
 	}
 	assert.Equal(t, 2, count, "both occurrences of the same reference should be rewritten")
-	assert.NotContains(t, out, ref)
+	assert.NotContains(t, out, "]("+ref+")")
 }
 
 func TestMaterializeAttachmentsForDispatch_PartiallyMissingFiles(t *testing.T) {
 	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
 	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
 
@@ -122,67 +103,14 @@ func TestMaterializeAttachmentsForDispatch_PartiallyMissingFiles(t *testing.T) {
 
 	// Reference to existing file and missing file
 	text := "![](chats/chat-1/attachments/" + fileName1 + ") and ![](chats/chat-1/attachments/missing.png)"
-	out, err := materializeAttachmentsForDispatch(chatsDir, worktree, "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch(chatsDir, "chat-1", text)
 
 	// Existing file should be rewritten
-	assert.Contains(t, out, ".crowbar-attachments/runner-1/"+fileName1)
-	assert.NotContains(t, out, "chats/chat-1/attachments/"+fileName1)
+	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName1)))
+	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName1+")")
 
 	// Missing file should stay unrewritten
 	assert.Contains(t, out, "chats/chat-1/attachments/missing.png")
-
-	// Existing file should be in scratch
-	_, err = os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName1))
-	require.NoError(t, err)
-}
-
-func TestMaterializeAttachmentsForDispatch_MkdirAllError(t *testing.T) {
-	// Use a path that can't be created as a directory
-	// (e.g., trying to create under a file instead of a directory)
-	home := t.TempDir()
-	filePath := filepath.Join(home, "file")
-	chatsDir := filepath.Join(home, "chats")
-	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
-	fileName, _, err := repoattachments.Store(durableDir, "id1", "photo.png", []byte("bytes"))
-	require.NoError(t, err)
-
-	// Create a file where we try to create the scratch directory
-	worktreeFile := filePath
-	_, err = os.Create(worktreeFile)
-	require.NoError(t, err)
-
-	// Try to materialize with the scratch path being under a file
-	// This should fail when trying to create the scratch directory
-	text := "![](chats/chat-1/attachments/" + fileName + ")"
-	_, err = materializeAttachmentsForDispatch(chatsDir, worktreeFile, "chat-1", "runner-1", text)
-	require.Error(t, err)
-}
-
-func TestMaterializeAttachmentsForDispatch_WriteFileError(t *testing.T) {
-	// Create a scenario where we can't write the scratch file
-	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
-	chatsDir := filepath.Join(home, "chats")
-	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
-
-	fileName, _, err := repoattachments.Store(durableDir, "id1", "photo.png", []byte("bytes"))
-	require.NoError(t, err)
-
-	scratchDir := worktreepath.AttachmentScratchDir(worktree, "runner-1")
-	require.NoError(t, os.MkdirAll(scratchDir, 0o700))
-
-	// Create a file at the destination path so WriteFile fails
-	destFile := filepath.Join(scratchDir, fileName)
-	require.NoError(t, os.WriteFile(destFile, []byte("old"), 0o700))
-
-	// Now make the file a directory to cause WriteFile to fail
-	require.NoError(t, os.Remove(destFile))
-	require.NoError(t, os.Mkdir(destFile, 0o700))
-
-	text := "![](chats/chat-1/attachments/" + fileName + ")"
-	_, err = materializeAttachmentsForDispatch(chatsDir, worktree, "chat-1", "runner-1", text)
-	require.Error(t, err)
 }
 
 func TestMaterializeAttachmentsForDispatch_RejectsPathTraversalInFileName(t *testing.T) {
@@ -191,10 +119,9 @@ func TestMaterializeAttachmentsForDispatch_RejectsPathTraversalInFileName(t *tes
 	// tightened regex excludes "/" from the filename group, so this reference
 	// never matches the pattern. Even if a malformed ref somehow bypassed the
 	// regex, the belt-and-suspenders filepath.Base check in the loop would
-	// reject it before it reaches repoattachments.Read or filepath.Join.
+	// reject it before it reaches filepath.Join.
 	text := "![](chats/chat-1/attachments/../../chat-2/attachments/secret.png)"
-	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch("chats", "chat-1", text)
 	// Text must be completely unrewritten: the traversal path never matches the tightened regex
 	assert.Equal(t, text, out, "a filename segment containing / must not match the pattern and must stay unrewritten")
 }
@@ -203,8 +130,7 @@ func TestMaterializeAttachmentsForDispatch_RejectsAbsolutePathInFileName(t *test
 	// Security: absolute paths in the filename segment (e.g., /etc/passwd)
 	// must also not match the regex pattern and must stay unrewritten.
 	text := "![](chats/chat-1/attachments//etc/passwd)"
-	out, err := materializeAttachmentsForDispatch("chats", "worktree", "chat-1", "runner-1", text)
-	require.NoError(t, err)
+	out := materializeAttachmentsForDispatch("chats", "chat-1", text)
 	assert.Equal(t, text, out, "a filename segment starting with / must not match and must stay unrewritten")
 }
 

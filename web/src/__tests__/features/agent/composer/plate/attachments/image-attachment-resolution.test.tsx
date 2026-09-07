@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
@@ -25,7 +27,7 @@ describe('chat image attachment resolution', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <MarkdownMessageStatic>
           {'![a diagram](chats/c1/attachments/shot.png)'}
         </MarkdownMessageStatic>
@@ -41,13 +43,19 @@ describe('chat image attachment resolution', () => {
     vi.unstubAllGlobals()
   })
 
+  // Wrapped in a real `<DndProvider>`: an image is now a draggable attachment
+  // too (chat-markdown-image-node.tsx), same as a text-attachment or file
+  // card already were — `useAttachmentDraggable` throws "Expected drag drop
+  // context" once it actually renders without one.
   it('resolves the same reference in the interactive editor', async () => {
     vi.stubGlobal('fetch', mockImageFetch())
 
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
-        <MarkdownMessage>{'![a diagram](chats/c1/attachments/shot.png)'}</MarkdownMessage>
-      </ChatMarkdownAssetProvider>,
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'![a diagram](chats/c1/attachments/shot.png)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
     )
 
     const img = await screen.findByRole('img', { name: 'a diagram' })

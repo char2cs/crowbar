@@ -9,6 +9,7 @@ import {
   lastLineTop,
 } from '@/features/agent/chat/agent-empty-document'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
+import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 
 // Same stand-in agent-chat-view.test.tsx uses: jsdom never delivers a keydown
@@ -18,12 +19,27 @@ import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 // tests below can observe what `insertAttachmentMarkdown` was called with,
 // without needing a real Slate document.
 const insertedMarkdown = vi.hoisted(() => [] as string[])
+const insertedPendingImages = vi.hoisted(() => [] as [string, string][])
+const settledPendingImages = vi.hoisted(() => [] as [string, string | null][])
 vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
   ChatMarkdownEditor: forwardRef(
-    (_props: unknown, ref: Ref<{ insertAttachmentMarkdown: (md: string) => void }>) => {
+    (
+      _props: unknown,
+      ref: Ref<{
+        insertAttachmentMarkdown: (md: string) => void
+        insertPendingImage: (objectUrl: string, alt: string) => void
+        settlePendingImage: (objectUrl: string, finalMarkdown: string | null) => void
+      }>,
+    ) => {
       useImperativeHandle(ref, () => ({
         insertAttachmentMarkdown: (md: string) => {
           insertedMarkdown.push(md)
+        },
+        insertPendingImage: (objectUrl: string, alt: string) => {
+          insertedPendingImages.push([objectUrl, alt])
+        },
+        settlePendingImage: (objectUrl: string, finalMarkdown: string | null) => {
+          settledPendingImages.push([objectUrl, finalMarkdown])
         },
       }))
       return createElement('div', { 'data-testid': 'editor-stub' })
@@ -46,13 +62,17 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
 // mocked the same way agent-composer.test.tsx does, capturing `onSave` so a
 // test can trigger it directly.
 let latestExcalidrawOnSave: ((result: { sceneJson: string; pngFile: File }) => void) | null = null
+let latestExcalidrawInitialScene: { elements: unknown[]; appState: Record<string, unknown> } | undefined
 vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
   ExcalidrawCanvas: ({
     onSave,
+    initialScene,
   }: {
     onSave: (result: { sceneJson: string; pngFile: File }) => void
+    initialScene?: { elements: unknown[]; appState: Record<string, unknown> }
   }) => {
     latestExcalidrawOnSave = onSave
+    latestExcalidrawInitialScene = initialScene
     return createElement('div', { 'data-testid': 'excalidraw-canvas-mock' })
   },
 }))
@@ -62,14 +82,19 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastEr
 
 beforeEach(() => {
   insertedMarkdown.length = 0
+  insertedPendingImages.length = 0
+  settledPendingImages.length = 0
   vi.mocked(uploadChatAttachment).mockReset()
   vi.mocked(useTauriFileDrop).mockClear()
   toastError.mockClear()
   latestExcalidrawOnSave = null
+  latestExcalidrawInitialScene = undefined
+  localStorage.clear()
 })
 
 afterEach(() => {
   latestExcalidrawOnSave = null
+  latestExcalidrawInitialScene = undefined
 })
 
 function draw(overrides: Partial<Parameters<typeof AgentEmptyDocument>[0]> = {}) {
@@ -308,9 +333,21 @@ describe('AgentEmptyDocument attachments', () => {
       await latestExcalidrawOnSave?.({ sceneJson: '{"elements":[]}', pngFile })
     })
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId('excalidraw-takeover')).toBeNull())
     expect(insertedMarkdown.some((md) => md.includes('excalidraw:'))).toBe(true)
     expect(insertedMarkdown.at(-1)).toContain('![diagram](chats/c1/attachments/x-diagram.png)')
+  })
+
+  it('preloads the excalidraw takeover with this chat’s previously saved local design', async () => {
+    saveExcalidrawDesign('w1', 'c1', '{"elements":[{"id":"saved"}],"appState":{}}')
+    const user = userEvent.setup()
+    draw({ wsId: 'w1', chatId: 'c1' })
+
+    await user.click(screen.getByRole('button', { name: /add to this message/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await screen.findByTestId('excalidraw-canvas-mock')
+
+    expect(latestExcalidrawInitialScene).toEqual({ elements: [{ id: 'saved' }], appState: {} })
   })
 
   it('uploads a browser-dropped file over the document and inserts markdown, toggling the drop-target class', async () => {
@@ -330,8 +367,14 @@ describe('AgentEmptyDocument attachments', () => {
     fireEvent.drop(wrap, { dataTransfer: { types: ['Files'], files: [file] } })
 
     expect(wrap).not.toHaveClass('drop-target')
+    // An image file takes the optimistic path (chat-markdown-image-node.tsx)
+    // now — insertedMarkdown (the non-optimistic `insertAttachmentMarkdown`
+    // call) never fires for this one.
+    expect(insertedPendingImages.map(([, alt]) => alt)).toContain('a.png')
     await waitFor(() =>
-      expect(insertedMarkdown).toContain('![a.png](chats/c1/attachments/x-a.png)'),
+      expect(settledPendingImages.map(([, markdown]) => markdown)).toContain(
+        '![a.png](chats/c1/attachments/x-a.png)',
+      ),
     )
   })
 

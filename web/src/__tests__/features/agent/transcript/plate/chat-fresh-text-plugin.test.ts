@@ -7,6 +7,22 @@ import { applyStreamedValue } from '@/features/agent/transcript/plate/streaming-
 
 type FreshLeaf = { text: string; chatFresh?: number; chatFreshDelay?: number }
 
+// `chatComposerPlugins` now registers `NodeIdPlugin` (needed for
+// `@platejs/dnd`'s hover/drop-target resolution — see attachment-drag-
+// handle.tsx). It only assigns `.id` through a real transform, so a REAL
+// editor's `.children` carries one after `applyStreamedValue` while a bare
+// `chatMarkdownToValue(...)` parse — never run through the editor — never
+// does. Irrelevant to what these tests check (mark/seam settling, not node
+// identity), so it's stripped before comparing.
+function withoutIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutIds)
+  if (value && typeof value === 'object') {
+    const { id: _id, ...rest } = value as Record<string, unknown>
+    return Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, withoutIds(v)]))
+  }
+  return value
+}
+
 // `onAnimationEnd` itself isn't exercised here — jsdom ships no CSS engine, so
 // no animation ever runs there to end (confirmed: even a bare React element's
 // `onAnimationEnd` never fires under `fireEvent.animationEnd` in this suite).
@@ -29,7 +45,7 @@ describe('settleChatFreshText', () => {
     for (const leaf of leaves.slice(1)) settleChatFreshText(editor, leaf as never)
 
     // Same shape a fresh reparse would produce — one plain leaf, no seam.
-    expect(editor.children).toEqual(chatMarkdownToValue('Building a CLI'))
+    expect(withoutIds(editor.children)).toEqual(chatMarkdownToValue('Building a CLI'))
   })
 
   it('is a safe no-op for a text node no longer in the document', () => {
@@ -40,6 +56,6 @@ describe('settleChatFreshText', () => {
     const orphan = { text: 'gone', chatFresh: 1, chatFreshDelay: 0 }
 
     expect(() => settleChatFreshText(editor, orphan as never)).not.toThrow()
-    expect(editor.children).toEqual(chatMarkdownToValue('Building a CLI'))
+    expect(withoutIds(editor.children)).toEqual(chatMarkdownToValue('Building a CLI'))
   })
 })

@@ -9,7 +9,11 @@ import {
 } from '@/features/agent/composer/lib/attachment-markdown'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
-import { insertAttachmentMarkdownInto } from '@/features/agent/composer/plate/chat-markdown-editor'
+import {
+  insertAttachmentMarkdownInto,
+  insertPendingImageInto,
+  settlePendingImageInto,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface ChatPastePluginOptions {
@@ -47,10 +51,11 @@ function isRealCodeBlock(node: { type?: string; lang?: unknown }): boolean {
 
 /**
  * Paste interception, as a plugin's `handlers` — NOT the `PlateContent` DOM
- * prop. Same reasoning as `agent-chat-keys`'s onKeyDown (chat-markdown-
- * editor.tsx): a plugin handler runs before slate-react's own `onPaste`
- * (`isEventHandled` there checks `event.isDefaultPrevented()`), so this is
- * the last point a `preventDefault()` can still stop Slate's own insertion.
+ * prop. Every branch that intercepts a paste must both call
+ * `event.preventDefault()` (stops the browser's own paste) AND `return true`
+ * (stops Plate's `pipeHandler` from also running Slate's default insertion —
+ * `preventDefault()` alone does not; reported live as the raw pasted text
+ * landing a second time, right below the fence this plugin had just inserted).
  *
  * Order:
  *  1. Shift held at paste time -> bypass everything, default paste happens.
@@ -62,6 +67,10 @@ function isRealCodeBlock(node: { type?: string; lang?: unknown }): boolean {
  *     let default paste happen — see `isRealCodeBlock` above.
  *  3. Clipboard has image data -> always intercepted, uploads + inserts an
  *     image node.
+ *  3b. Clipboard carries any OTHER file (a PDF copied in Finder, a CSV, a
+ *     docx, ...) -> uploaded through the same `uploadAttachmentMarkdown` the
+ *     drop and Attach File paths already share, so it gets the identical
+ *     image/file/CSV-table resolution by content-type.
  *  4. Plain text over threshold, under the shared inline size cap -> wrapped
  *     as a `text-attachment` fence.
  *  4b. Plain text over the inline size cap (`inline-attachment-cap.ts`,
@@ -96,24 +105,28 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
         if (imageItem) {
           event.preventDefault()
           const file = imageItem.getAsFile()
-          if (!file) return
-          // The selection to insert at is read fresh, INSIDE
-          // `insertAttachmentMarkdownInto`, once the upload resolves — not
-          // captured here before the `await`. A Slate `Point`/`Path`
-          // captured now is a position in the CURRENT document; anything the
-          // person types while the upload is in flight can shift or
-          // invalidate it before `insertNodes` ever runs. Reading
-          // `editor.selection` at insertion time instead is what every other
-          // async attach path in this composer already does (agent-
-          // composer.tsx's `uploadAndInsert` -> the imperative
-          // `insertAttachmentMarkdown` handle, for a drop or the Attach File
-          // modal) — it inserts at wherever the caret actually is once the
-          // network round trip completes, never at a stale location.
+          if (!file) return true
+          // Optimistic: a local `URL.createObjectURL` preview goes in
+          // immediately, right where the caret is AT PASTE TIME — reported
+          // live as "photos attachments are not loaded instantly... let's
+          // not wait for them." `settlePendingImageInto` below finds this
+          // same node by its OWN object url once the upload resolves, not by
+          // position, so it's unaffected by anything typed in the meantime —
+          // unlike the position-based insert this replaced (which used to
+          // defer reading the selection until the upload settled specifically
+          // to dodge a stale position), there is no position left to go stale.
+          const objectUrl = URL.createObjectURL(file)
+          insertPendingImageInto(editor, objectUrl, file.name)
           void uploadChatAttachment(wsId, chatId, { file })
             .then((result) => {
-              insertAttachmentMarkdownInto(editor, imageMarkdown(result.filename, result.ref))
+              settlePendingImageInto(
+                editor,
+                objectUrl,
+                imageMarkdown(result.filename, result.ref),
+              )
             })
             .catch((err) => {
+              settlePendingImageInto(editor, objectUrl, null)
               // Unhandled otherwise: a paste of a large/rejected image would
               // silently do nothing, mid-typing, with no feedback at all.
               toast.error(
@@ -123,7 +136,34 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
                   : 'Crowbar could not reach the daemon — try again.',
               )
             })
-          return
+          return true
+        }
+
+        // A file that isn't an image — a PDF, a CSV, a docx, anything copied
+        // in the OS file manager rather than a browser. `clipboardData.files`
+        // is where the browser actually exposes that File's bytes; it is
+        // never populated for a plain text/image copy, so this only fires for
+        // a genuine file paste. Without this branch such a paste had no
+        // `image/*` item and no `text/plain` payload either, so Cmd/Ctrl+V
+        // silently did nothing at all.
+        const otherFiles = Array.from(clipboard?.files ?? [])
+        if (otherFiles.length > 0) {
+          event.preventDefault()
+          for (const file of otherFiles) {
+            void uploadAttachmentMarkdown(wsId, chatId, { file })
+              .then((markdown) => {
+                insertAttachmentMarkdownInto(editor, markdown)
+              })
+              .catch((err) => {
+                toast.error(
+                  'Could not attach that file',
+                  err instanceof Error
+                    ? err.message
+                    : 'Crowbar could not reach the daemon — try again.',
+                )
+              })
+          }
+          return true
         }
 
         const text = clipboard?.getData('text/plain') ?? ''
@@ -149,10 +189,11 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
                   : 'Crowbar could not reach the daemon — try again.',
               )
             })
-          return
+          return true
         }
 
         insertAttachmentMarkdownInto(editor, textAttachmentMarkdown(nanoid(), text))
+        return true
       },
     },
   })

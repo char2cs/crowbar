@@ -8,6 +8,7 @@ import type {
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import type { TranscriptScrollPosition } from '@/features/agent/hooks/use-transcript-anchor'
+import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 
 // The queue that reads these is itself capped, so an id older than this window is
 // already unreachable by anything that could act on it.
@@ -166,6 +167,15 @@ export interface AgentChatsState {
    * nothing more useful to land on than the newest message anyway.
    */
   scrollPositions: Record<string, TranscriptScrollPosition>
+  /**
+   * A one-shot "open the takeover with this scene" signal, keyed by chat id —
+   * how an Edit button on a diagram rendered deep in a chat's transcript
+   * reaches the composer (which owns the takeover) without threading a
+   * callback prop through every Plate node component in between. The
+   * composer's effect consumes it (opens the takeover, preloaded) and clears
+   * it in the same tick; never persisted, same as scrollPositions above.
+   */
+  excalidrawEditRequests: Record<string, ParsedExcalidrawScene>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -224,6 +234,11 @@ export interface AgentChatsSlice {
   /** Record wherever the reader left a chat's transcript, for its next
    *  mount this session to restore — see AgentChatsState.scrollPositions. */
   setAgentChatScrollPosition: (chatId: string, position: TranscriptScrollPosition) => void
+  /** Signal the composer to open the takeover, preloaded with this scene —
+   *  see AgentChatsState.excalidrawEditRequests. */
+  requestExcalidrawEdit: (chatId: string, scene: ParsedExcalidrawScene) => void
+  /** Consume (drop) a chat's pending edit request once the composer has acted on it. */
+  clearExcalidrawEditRequest: (chatId: string) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -269,6 +284,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   streamingMessages: {},
   turnRevision: {},
   scrollPositions: {},
+  excalidrawEditRequests: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -463,6 +479,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.scrollPositions[chatId]
+      delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
     })
@@ -527,6 +544,16 @@ export const createAgentChatsSlice: StateCreator<
   setAgentChatScrollPosition: (chatId, position) =>
     set((s) => {
       s.agentChats.scrollPositions[chatId] = position
+    }),
+
+  requestExcalidrawEdit: (chatId, scene) =>
+    set((s) => {
+      s.agentChats.excalidrawEditRequests[chatId] = scene
+    }),
+
+  clearExcalidrawEditRequest: (chatId) =>
+    set((s) => {
+      delete s.agentChats.excalidrawEditRequests[chatId]
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

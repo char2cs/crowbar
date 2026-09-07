@@ -81,4 +81,16 @@ describe('TextAttachmentPill', () => {
     fireEvent.click(screen.getByRole('button', { name: /pasted text/i }))
     expect(screen.getByRole('heading', { name: 'Pasted text' })).toBeInTheDocument()
   })
+
+  // REGRESSION, reported live: "Attachments that are text, or files should
+  // be a square... like Claude's attachments" — this was a thin, single-line
+  // pill (`rounded-full`) before. Shares `ATTACHMENT_BOX_CLASS`
+  // (attachment-box.ts) with the file card so both kinds look identical.
+  it('renders as the shared boxed-card footprint, not the old thin pill', () => {
+    render(<TextAttachmentPill text="hello" />)
+    const button = screen.getByRole('button', { name: /pasted text/i })
+    expect(button.className).toContain('chat-attachment-box')
+    expect(button.className).toMatch(/(?:^|\s)size-28(?:\s|$)/)
+    expect(button.className).not.toContain('rounded-full')
+  })
 })

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +32,14 @@ export function ComposerPlusButton({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className="plusbtn"
+        // `icon-xs` shrinks to `sm:size-6` (24px) at the `sm:` breakpoint —
+        // this app's window is always past that, so it rendered visibly
+        // smaller than `.send`'s fixed 28px. `sm:size-7` beats it (same
+        // conflict group, same modifier) and matches PLUS_DIAMETER ===
+        // SEND_DIAMETER (handle-geometry.ts) — the two must read as one
+        // circle size, not two.
+        className="plusbtn rounded-full sm:size-7"
+        render={<Button variant="ghost" size="icon-xs" />}
         data-open={open || undefined}
         aria-label="Add to this message"
         title="Add to this message"

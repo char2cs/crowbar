@@ -189,11 +189,7 @@ func (rs *Runners) submitPromptOverAPI(
 	}
 
 	// A COPY of text for dispatch — the durable ledger text is never mutated.
-	// Reused, not per-turn: live.ID already exists (this is the mixed-transport
-	// case, no fresh spawn), so its scratch dir is reaped by the SAME
-	// onRunnerExit that spawnRunner's own materialization (Task 6/7) relies on,
-	// for that runner's whole remaining lifetime rather than after this one call.
-	dispatchText, err := rs.rewritePromptTextForDispatch(ctx, chat.WorkspaceID, chat.ID, worktree, live.ID, text)
+	dispatchText, err := rs.rewritePromptTextForDispatch(ctx, chat.WorkspaceID, chat.ID, text)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "materialize attachments", err,

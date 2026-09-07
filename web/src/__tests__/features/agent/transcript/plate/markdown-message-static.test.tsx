@@ -1,7 +1,25 @@
 import { render, screen } from '@testing-library/react'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
 import { describe, expect, it } from 'vitest'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+
+// `MarkdownMessage` (the interactive/streaming path) now renders a draggable
+// image attachment (`ChatAttachmentImageBlock`), which calls `useDraggable`
+// and throws "Expected drag drop context" with no `<DndProvider>` ancestor.
+// In the app this is `AgentChatView`'s one `DndScope` (dnd-scope.tsx) — see
+// its own comment for why the streaming transcript is inside it. A bare
+// `render(<MarkdownMessage>)` has no such ancestor, so the parity suite below
+// needs the same real (unmocked) `<DndProvider>` the composer's own tests use
+// (agent-composer.test.tsx, image-attachment-resolution.test.tsx).
+function renderInteractive(text: string) {
+  return render(
+    <DndProvider backend={HTML5Backend}>
+      <MarkdownMessage>{text}</MarkdownMessage>
+    </DndProvider>,
+  )
+}
 
 /**
  * A settled message, rendered without an interactive editor.
@@ -158,14 +176,14 @@ const NODE_SELECTOR = '[data-slate-node="element"]'
 
 describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
   it('renders the same text content for the full fixture', () => {
-    const interactive = render(<MarkdownMessage>{FULL_FIXTURE}</MarkdownMessage>)
+    const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)
 
     expect(staticRender.container.textContent).toBe(interactive.container.textContent)
   })
 
   it('renders the same element tag sequence for the full fixture', () => {
-    const interactive = render(<MarkdownMessage>{FULL_FIXTURE}</MarkdownMessage>)
+    const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)
 
     const interactiveTags = Array.from(interactive.container.querySelectorAll(NODE_SELECTOR)).map(
@@ -186,7 +204,7 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
   })
 
   it('renders both list flavors: an unordered item (role=listitem) and an ordered <ol><li>, same as the interactive editor', () => {
-    const interactive = render(<MarkdownMessage>{FULL_FIXTURE}</MarkdownMessage>)
+    const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)
 
     // The unordered items get no `<ul>` wrapper — `role="listitem"` (set by
@@ -204,7 +222,7 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
   })
 
   it('renders the same href and image src for the full fixture', () => {
-    const interactive = render(<MarkdownMessage>{FULL_FIXTURE}</MarkdownMessage>)
+    const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)
 
     expect(staticRender.container.querySelector('a')?.getAttribute('href')).toBe(
@@ -216,7 +234,7 @@ describe('MarkdownMessageStatic vs. MarkdownMessage parity', () => {
   })
 
   it('renders the callout and raw HTML block identically', () => {
-    const interactive = render(<MarkdownMessage>{FULL_FIXTURE}</MarkdownMessage>)
+    const interactive = renderInteractive(FULL_FIXTURE)
     const staticRender = render(<MarkdownMessageStatic>{FULL_FIXTURE}</MarkdownMessageStatic>)
 
     expect(

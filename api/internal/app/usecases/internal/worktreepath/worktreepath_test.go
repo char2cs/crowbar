@@ -1,11 +1,9 @@
 package worktreepath
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -355,75 +353,27 @@ func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 	assert.Equal(t, "feature/x-2", got)
 }
 
-// --- Attachment durable store and scratch dir (Task 1) ---
+// --- Attachment durable store (Task 1) ---
 
 func TestAttachmentsDir(t *testing.T) {
 	dir := AttachmentsDir("/crow/projects/p1/slug/branch/chats", "chat-1")
 	assert.Equal(t, "/crow/projects/p1/slug/branch/chats/chat-1/attachments", dir)
 }
 
-func TestAttachmentScratchDir(t *testing.T) {
-	dir := AttachmentScratchDir("/work/tree", "runner-1")
-	assert.Equal(t, "/work/tree/.crowbar-attachments/runner-1", dir)
+func TestRestoreDurableAttachmentRefs_RewritesAnAbsoluteReferenceBack(t *testing.T) {
+	text := "look ![x](/crow/projects/p1/slug/branch/chats/chat-1/attachments/photo.png) done"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "look ![x](chats/chat-1/attachments/photo.png) done", out)
 }
 
-func TestUnderWorktree(t *testing.T) {
-	assert.True(t, UnderWorktree("/work/tree/.crowbar-attachments/r1", "/work/tree"))
-	assert.False(t, UnderWorktree("/work/tree", "/work/tree"), "worktree itself is never under worktree")
-	assert.False(t, UnderWorktree("/work/tree-other/x", "/work/tree"), "string-prefix sibling is not nested")
-	assert.False(t, UnderWorktree("", "/work/tree"))
-	assert.False(t, UnderWorktree("/work/tree/x", ""))
+func TestRestoreDurableAttachmentRefs_LeavesUnrelatedTextUntouched(t *testing.T) {
+	text := "nothing to restore here, and no /crow/projects/p1/slug/branch/chats/OTHER-CHAT/attachments/x.png reference either"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, text, out, "a different chat's durable dir is not this chat's to rewrite")
 }
 
-func TestRemoveUnderWorktree(t *testing.T) {
-	base := t.TempDir()
-	worktree := filepath.Join(base, "worktree")
-	target := filepath.Join(worktree, ".crowbar-attachments", "r1")
-	require.NoError(t, os.MkdirAll(target, 0o755))
-
-	RemoveUnderWorktree(context.Background(), worktree, target)
-
-	_, err := os.Stat(target)
-	assert.True(t, os.IsNotExist(err))
-}
-
-func TestRemoveUnderWorktree_RefusesAPathOutsideTheWorktree(t *testing.T) {
-	base := t.TempDir()
-	worktree := filepath.Join(base, "worktree")
-	outside := filepath.Join(base, "outside")
-	require.NoError(t, os.MkdirAll(outside, 0o755))
-
-	RemoveUnderWorktree(context.Background(), worktree, outside)
-
-	assert.DirExists(t, outside, "must never remove a path outside the worktree")
-}
-
-// TestRemoveUnderWorktree_HandlesRemovalError exercises RemoveUnderWorktree's
-// os.RemoveAll error path: the target directory has its own contents but has had
-// write permission revoked, so RemoveAll can enumerate it (needs only
-// read+execute) but cannot unlink the child file inside it (needs write on the
-// parent), and must log the error rather than failing the caller — a real
-// removal failure, unlike the already-covered success case.
-func TestRemoveUnderWorktree_HandlesRemovalError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory write permission")
-	}
-	base := t.TempDir()
-	worktree := filepath.Join(base, "worktree")
-	require.NoError(t, os.MkdirAll(worktree, 0o755))
-	target := filepath.Join(worktree, ".crowbar-attachments", "r1")
-	require.NoError(t, os.MkdirAll(target, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(target, "child.txt"), []byte("x"), 0o600))
-	require.NoError(t, os.Chmod(target, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(target, 0o700) })
-
-	// Call should not panic and should not remove the directory (error path taken).
-	RemoveUnderWorktree(context.Background(), worktree, target)
-
-	// Verify the directory still exists: os.RemoveAll failed and the caller was
-	// not failed (error path was logged, not propagated).
-	assert.DirExists(t, target, "locked directory must not be removed; error path should have been taken")
+func TestRestoreDurableAttachmentRefs_MultipleReferences(t *testing.T) {
+	text := "![a](/crow/projects/p1/slug/branch/chats/chat-1/attachments/one.png) and ![b](/crow/projects/p1/slug/branch/chats/chat-1/attachments/two.png)"
+	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	assert.Equal(t, "![a](chats/chat-1/attachments/one.png) and ![b](chats/chat-1/attachments/two.png)", out)
 }

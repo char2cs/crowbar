@@ -1,5 +1,6 @@
 import type { DragEvent, KeyboardEvent } from 'react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   AgentActivity,
   AgentTerminalWait,
@@ -11,7 +12,12 @@ import { ComposerField } from '@/features/agent/composer/composer-field'
 import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
-import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
+import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
+import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
+import {
+  parseExcalidrawScene,
+  type ParsedExcalidrawScene,
+} from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import type {
   CaretEdges,
   ChatMarkdownEditorHandle,
@@ -23,6 +29,7 @@ import {
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
@@ -66,6 +73,20 @@ interface AgentComposerProps {
   draftSeed: number
   /** The text that seed carries — see the note on `seed` in the view. */
   seedText: string
+  /**
+   * Where the excalidraw takeover portals to, instead of rendering inline.
+   *
+   * The composer lives inside `.dock`, a small bottom-pinned bar —
+   * `position: absolute` itself, which makes it the CSS containing block for
+   * any `position: absolute` descendant regardless of `.dock`'s own size.
+   * Rendering the takeover inline there sized it to the dock, not the chat
+   * pane (reported live: "not just where the input box is at"). The caller
+   * (agent-chat-view.tsx) passes the `.agent-chat.chat` section itself, so
+   * `inset-0` covers the whole pane. Undefined (tests that render this
+   * component standalone) falls back to inline — harmless there since
+   * nothing constrains its size in a bare test host.
+   */
+  takeoverContainer?: HTMLElement | null
 }
 
 /**
@@ -78,6 +99,9 @@ interface AgentComposerProps {
  */
 export function AgentComposer(props: AgentComposerProps) {
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
+  const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
+    ParsedExcalidrawScene | undefined
+  >(undefined)
   // Owned here, not by ComposerField — Tasks 29/34's modals sit as SIBLINGS
   // of the field below, outside `<Plate>`'s tree, and this is their only way
   // to reach the box's `insertAttachmentMarkdown`.
@@ -88,6 +112,31 @@ export function AgentComposer(props: AgentComposerProps) {
   const insertAttachmentMarkdown = useCallback((md: string) => {
     editorRef.current?.insertAttachmentMarkdown(md)
   }, [])
+  const insertPendingImage = useCallback((objectUrl: string, alt: string) => {
+    editorRef.current?.insertPendingImage(objectUrl, alt)
+  }, [])
+  const settlePendingImage = useCallback((objectUrl: string, finalMarkdown: string | null) => {
+    editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
+  }, [])
+
+  // Nullable, not the throwing `useWorkspaceStore()`: this component's own
+  // tests render it bare (no provider) and must keep working — absent
+  // context just means no cross-tab edit requests can reach it, same as
+  // ExcalidrawPreview's own guard.
+  const workspaceStore = useContext(WorkspaceStoreContext)
+  const pendingExcalidrawEdit = useSyncExternalStore(
+    useCallback(
+      (onChange) => (workspaceStore ? workspaceStore.subscribe(onChange) : () => {}),
+      [workspaceStore],
+    ),
+    () => workspaceStore?.getState().agentChats.excalidrawEditRequests[props.chatId],
+  )
+  useEffect(() => {
+    if (!pendingExcalidrawEdit) return
+    setExcalidrawInitialScene(pendingExcalidrawEdit)
+    setModal('excalidraw')
+    workspaceStore?.getState().clearExcalidrawEditRequest(props.chatId)
+  }, [pendingExcalidrawEdit, props.chatId, workspaceStore])
 
   // Upload, CSV-inline resolution, and the failure toast all live in this one
   // shared hook now (also used by attach-file-modal.tsx and
@@ -98,6 +147,8 @@ export function AgentComposer(props: AgentComposerProps) {
     props.wsId,
     props.chatId,
     insertAttachmentMarkdown,
+    insertPendingImage,
+    settlePendingImage,
   )
 
   // Memoized: `useTauriFileDrop`'s own effect re-subscribes to Tauri's
@@ -220,7 +271,11 @@ export function AgentComposer(props: AgentComposerProps) {
               sending={props.sending}
               onSend={props.onSend}
               onStop={props.onStop}
-              onOpenExcalidraw={() => setModal('excalidraw')}
+              onOpenExcalidraw={() => {
+                const saved = loadExcalidrawDesign(props.wsId, props.chatId)
+                setExcalidrawInitialScene((saved ? parseExcalidrawScene(saved) : null) ?? undefined)
+                setModal('excalidraw')
+              }}
               onOpenAttachFile={() => setModal('attach-file')}
             />
           </div>
@@ -233,15 +288,22 @@ export function AgentComposer(props: AgentComposerProps) {
               onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
             />
           )}
-          {modal === 'excalidraw' && (
-            <ExcalidrawModal
-              wsId={props.wsId}
-              chatId={props.chatId}
-              open
-              onClose={() => setModal(null)}
-              onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
-            />
-          )}
+          {modal === 'excalidraw' &&
+            (() => {
+              const takeover = (
+                <ExcalidrawTakeover
+                  wsId={props.wsId}
+                  chatId={props.chatId}
+                  open
+                  onClose={() => setModal(null)}
+                  onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
+                  initialScene={excalidrawInitialScene}
+                />
+              )
+              return props.takeoverContainer
+                ? createPortal(takeover, props.takeoverContainer)
+                : takeover
+            })()}
         </>
       )
     }

@@ -146,7 +146,6 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		}
 		rs.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
 		rs.reapCrashOrphanRunnerTmp(ctx, r)
-		rs.reapCrashOrphanRunnerAttachments(ctx, r)
 
 		// Close the turn it died in the middle of. Turn state has never been durable truth
 		// (domain.Chat.Working is documented as reconciled, not authoritative — a CLI
@@ -254,25 +253,6 @@ func (rs *Runners) reapCrashOrphanRunnerTmp(
 		return
 	}
 	worktreepath.RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
-}
-
-// reapCrashOrphanRunnerAttachments removes r's scratch attachment directory
-// (if any) after a crash — the dual-mechanism counterpart to onRunnerExit's
-// normal-exit cleanup, mirroring reapCrashOrphanRunnerTmp's own structure.
-// RunnerDir's reap checks paths against crowbarHome; a scratch attachment
-// copy lives INSIDE the worktree instead, so this checks against the
-// worktree root via RemoveUnderWorktree, not RemoveUnderHome.
-func (rs *Runners) reapCrashOrphanRunnerAttachments(
-	ctx context.Context,
-	runner agents.Runner,
-) {
-	_, _, _, worktree, err := rs.ws.WorktreeDir(ctx, runner.WorkspaceID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: boot reconcile: reap runner attachments: worktree dir (best-effort, continuing)",
-			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
-		return
-	}
-	worktreepath.RemoveUnderWorktree(ctx, worktree, worktreepath.AttachmentScratchDir(worktree, runner.ID))
 }
 
 func (rs *Runners) retireOthersOn(

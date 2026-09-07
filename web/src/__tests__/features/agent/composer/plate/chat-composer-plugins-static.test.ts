@@ -23,12 +23,21 @@ describe('chatComposerPluginsStatic', () => {
   // `code_block` is included alongside link/callout: `ChatCodeBlockElementStatic`
   // (Task 35) is a genuinely different component from the interactive
   // `ChatCodeBlockElement` — same reason link/callout swap — even though
-  // `inputRules`/`shortcuts` are unchanged between the two.
-  it('swaps only link, callout and code_block; drops the floating toolbar and dnd rather than swapping them', () => {
+  // `inputRules`/`shortcuts` are unchanged between the two. `p` and `img`
+  // joined once ordinary paragraphs became drop targets and images became
+  // draggable, respectively (both interactive-only) — `p` appears TWICE
+  // because `chatComposerPlugins` itself registers the paragraph plugin
+  // twice (once via `BasicNodesKit`, once via the explicit override that
+  // replaces it — see chat-composer-plugins.ts), and the static derivation
+  // swaps BOTH positions, each producing a new (by-reference) plugin object
+  // even where the resulting component is the same.
+  it('swaps only link, callout, code_block, paragraph and img; drops the floating toolbar and dnd rather than swapping them', () => {
     expect(chatComposerPluginsStatic.some((p) => DROPPED_KEYS.has(p.key))).toBe(false)
     const shared = chatComposerPluginsStatic.filter((p) => !DROPPED_KEYS.has(p.key))
     const interactiveWithoutDropped = chatComposerPlugins.filter((p) => !DROPPED_KEYS.has(p.key))
     const changed = shared.filter((plugin, i) => plugin !== interactiveWithoutDropped[i])
-    expect(changed.map((p) => p.key).sort()).toEqual(['a', 'callout', 'code_block'].sort())
+    expect(changed.map((p) => p.key).sort()).toEqual(
+      ['a', 'callout', 'code_block', 'img', 'p', 'p'].sort(),
+    )
   })
 })

@@ -10,8 +10,13 @@ import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } f
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
-import { ExcalidrawModal } from '@/features/agent/composer/excalidraw-modal'
+import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
+import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
+import {
+  parseExcalidrawScene,
+  type ParsedExcalidrawScene,
+} from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import {
   ChatMarkdownEditor,
   type CaretEdges,
@@ -124,6 +129,9 @@ export function AgentEmptyDocument({
   // editor, outside `<Plate>`'s tree.
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
+  const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
+    ParsedExcalidrawScene | undefined
+  >(undefined)
   const [dropTarget, setDropTarget] = useState(false)
 
   useImperativeHandle(
@@ -137,6 +145,12 @@ export function AgentEmptyDocument({
   const insertAttachmentMarkdown = useCallback((md: string) => {
     editorRef.current?.insertAttachmentMarkdown(md)
   }, [])
+  const insertPendingImage = useCallback((objectUrl: string, alt: string) => {
+    editorRef.current?.insertPendingImage(objectUrl, alt)
+  }, [])
+  const settlePendingImage = useCallback((objectUrl: string, finalMarkdown: string | null) => {
+    editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
+  }, [])
 
   // Attaching needs both ids — undefined here only for parity with
   // `ChatMarkdownEditorProps` (see its own note); the real call site
@@ -146,6 +160,8 @@ export function AgentEmptyDocument({
     wsId ?? '',
     chatId ?? '',
     insertAttachmentMarkdown,
+    insertPendingImage,
+    settlePendingImage,
   )
 
   // Same reasoning as agent-composer.tsx's own memoized drop handlers: an
@@ -251,6 +267,18 @@ export function AgentEmptyDocument({
           <div className="grp">
             <span className="side">{controls}</span>
             <span className="side">
+              {attachmentsReady && (
+                <ComposerPlusButton
+                  onOpenExcalidraw={() => {
+                    const saved = wsId && chatId ? loadExcalidrawDesign(wsId, chatId) : null
+                    setExcalidrawInitialScene(
+                      (saved ? parseExcalidrawScene(saved) : null) ?? undefined,
+                    )
+                    setModal('excalidraw')
+                  }}
+                  onOpenAttachFile={() => setModal('attach-file')}
+                />
+              )}
               <button
                 type="button"
                 className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
@@ -269,12 +297,6 @@ export function AgentEmptyDocument({
                   <UpIcon size={16} />
                 )}
               </button>
-              {attachmentsReady && (
-                <ComposerPlusButton
-                  onOpenExcalidraw={() => setModal('excalidraw')}
-                  onOpenAttachFile={() => setModal('attach-file')}
-                />
-              )}
             </span>
           </div>
         </div>
@@ -289,12 +311,13 @@ export function AgentEmptyDocument({
         />
       )}
       {wsId && chatId && modal === 'excalidraw' && (
-        <ExcalidrawModal
+        <ExcalidrawTakeover
           wsId={wsId}
           chatId={chatId}
           open
           onClose={() => setModal(null)}
           onInsertMarkdown={insertAttachmentMarkdown}
+          initialScene={excalidrawInitialScene}
         />
       )}
     </div>

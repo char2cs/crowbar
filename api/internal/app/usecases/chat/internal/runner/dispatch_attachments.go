@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 )
 
@@ -40,51 +39,61 @@ func findAttachmentRefs(chatID, text string) []attachmentRef {
 	return out
 }
 
-// materializeAttachmentsForDispatch copies every attachment text references
-// (belonging to chatID) from the durable store (chatsDir/<chatID>/attachments)
-// into runnerID's scratch directory inside worktree, and returns a COPY of
-// text with each durable reference rewritten to the scratch path. text is
-// never mutated — the stored LedgerTurn.Text stays the durable reference
-// forever; only this dispatch-time copy changes.
+// materializeAttachmentsForDispatch returns a COPY of text with every durable
+// attachment reference (belonging to chatID) rewritten to that file's real,
+// absolute path in the durable store (chatsDir/<chatID>/attachments/<file>)
+// — the CLI reads the SAME file Crowbar's own asset-serving endpoint does,
+// nothing is copied anywhere. text is never mutated — the stored
+// LedgerTurn.Text stays the durable logical reference forever; only this
+// dispatch-time copy changes.
+//
+// No copy step exists here on purpose: both Claude and Codex, at every
+// permission level Crowbar offers (guarded/manual through full-auto/auto for
+// Claude, workspace-write for Codex), read an arbitrary absolute path outside
+// their own worktree with no escalation and no prompt — confirmed live
+// against the running daemon, not assumed. Materializing a scratch copy
+// INSIDE the worktree used to seem like the only way to guarantee a
+// readable path, but it bought nothing a real permission boundary needed and
+// cost every attachment-bearing turn an untracked directory sitting in the
+// user's own git worktree for as long as the turn ran.
 //
 // A reference to a file no longer in the durable store (deleted out of band)
 // is left unrewritten: the CLI then hits a plain "no such file" reading a
 // path that does not resolve, rather than this silently sending a broken
 // prompt.
-func materializeAttachmentsForDispatch(
-	chatsDir, worktree, chatID, runnerID, text string,
-) (string, error) {
+func materializeAttachmentsForDispatch(chatsDir, chatID, text string) string {
 	refs := findAttachmentRefs(chatID, text)
 	if len(refs) == 0 {
-		return text, nil
-	}
-	scratchDir := worktreepath.AttachmentScratchDir(worktree, runnerID)
-	//nolint:gosec // G301: 0o700 matches RunnerDir's own perms for daemon-managed chat state.
-	if err := os.MkdirAll(scratchDir, 0o700); err != nil {
-		return "", fmt.Errorf("agent: materialize attachments: mkdir scratch dir: %w", err)
+		return text
 	}
 	durableDir := worktreepath.AttachmentsDir(chatsDir, chatID)
 	out := text
+	done := make(map[string]bool, len(refs))
 	for _, ref := range refs {
+		// The same reference can appear more than once in text — rewriting it
+		// is a whole-string ReplaceAll, so every occurrence is already handled
+		// the first time this logical ref is seen. Skipping the repeat matters
+		// here specifically because the rewritten form (an absolute path
+		// ending in .../chatID/attachments/fileName) CONTAINS the logical
+		// reference as its own suffix: a second, redundant ReplaceAll would
+		// match that suffix inside the path just written and nest it again.
+		if done[ref.logical] {
+			continue
+		}
+		done[ref.logical] = true
 		// Belt-and-suspenders: even though the regex excludes "/", reject any
 		// fileName that isn't a bare filename (contains path separators). This
 		// guards against future regex changes and makes the guarantee robust.
 		if filepath.Base(ref.fileName) != ref.fileName {
 			continue
 		}
-		data, _, err := repoattachments.Read(durableDir, ref.fileName)
-		if err != nil {
+		dest := filepath.Join(durableDir, ref.fileName)
+		if _, err := os.Stat(dest); err != nil {
 			continue
 		}
-		dest := filepath.Join(scratchDir, ref.fileName)
-		//nolint:gosec // G306: read back only by the CLI subprocess this daemon just forked; matches the durable store's own perms.
-		if err := os.WriteFile(dest, data, 0o600); err != nil {
-			return "", fmt.Errorf("agent: materialize attachments: write scratch copy: %w", err)
-		}
-		rel := filepath.ToSlash(filepath.Join(worktreepath.AttachmentScratchDirName, runnerID, ref.fileName))
-		out = strings.ReplaceAll(out, ref.logical, rel)
+		out = strings.ReplaceAll(out, ref.logical, filepath.ToSlash(dest))
 	}
-	return out, nil
+	return out
 }
 
 // rewritePromptTextForDispatch is materializeAttachmentsForDispatch with the
@@ -95,11 +104,11 @@ func materializeAttachmentsForDispatch(
 // directly with it, so it has no need for this wrapper.
 func (rs *Runners) rewritePromptTextForDispatch(
 	ctx context.Context,
-	workspaceID, chatID, worktree, runnerID, text string,
+	workspaceID, chatID, text string,
 ) (string, error) {
 	chatsDir, err := rs.ws.AgentChatsDir(ctx, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("agent: submit prompt: chats dir: %w", err)
 	}
-	return materializeAttachmentsForDispatch(chatsDir, worktree, chatID, runnerID, text)
+	return materializeAttachmentsForDispatch(chatsDir, chatID, text), nil
 }

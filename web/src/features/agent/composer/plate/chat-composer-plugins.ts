@@ -2,12 +2,15 @@ import { MarkdownPlugin } from '@platejs/markdown'
 import { CodeBlockRules } from '@platejs/code-block'
 import { CodeBlockPlugin, CodeLinePlugin } from '@platejs/code-block/react'
 import { DndPlugin } from '@platejs/dnd'
+import { NodeIdPlugin } from 'platejs'
 import remarkGfm from 'remark-gfm'
 
 import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { IndentPlugin } from '@platejs/indent/react'
 import { ListKit } from '@/components/editor/plugins/list-kit'
+import { ParagraphPlugin } from 'platejs/react'
+import { ParagraphElement } from '@/components/ui/paragraph-node'
 import {
   ChatLinkKit,
   ChatLinkKitStatic,
@@ -39,6 +42,11 @@ import {
   ChatCodeBlockElement,
   ChatCodeBlockElementStatic,
 } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
+import {
+  ChatMarkdownImageElement,
+  ChatMarkdownImageElementStatic,
+} from '@/features/agent/composer/plate/attachments/chat-markdown-image-node'
+import { ChatParagraphElement } from '@/features/agent/composer/plate/attachments/chat-paragraph-node'
 
 /**
  * The chat's markdown, both directions.
@@ -102,6 +110,14 @@ const ChatCodeBlockPluginStatic = CodeBlockPlugin.configure({
   node: { component: ChatCodeBlockElementStatic },
 })
 
+// Same plugin as `MarkdownImageKit`'s, only its node component swapped —
+// chat's own reason to override it (unlike code_block's) is the same for
+// both interactive and static rendering, so one configured plugin replaces
+// the kit's single entry rather than needing an interactive/static pair.
+const ChatMarkdownImageKit = [
+  MarkdownImageKit[0].configure({ node: { component: ChatMarkdownImageElement } }),
+]
+
 export const chatComposerPlugins = [
   ...BasicNodesKit,
   ...ListKit,
@@ -113,7 +129,7 @@ export const chatComposerPlugins = [
   ...ChatLinkKit,
   ...HtmlKit,
   ...CalloutKit,
-  ...MarkdownImageKit,
+  ...ChatMarkdownImageKit,
   TablePlugin.withComponent(CommentTableElement),
   TableRowPlugin.withComponent(CommentTableRowElement),
   TableCellPlugin.withComponent(CommentTableCellElement),
@@ -129,6 +145,27 @@ export const chatComposerPlugins = [
   // registered bare (no `enableScroller`) since chat has no long vertical
   // document to auto-scroll while dragging, the way a full page editor does.
   DndPlugin,
+  // `@platejs/dnd`'s own hover/drop-target resolution keys everything off
+  // `element.id` — `getHoverDirection` explicitly bails when the candidate
+  // you're hovering shares the DRAGGED item's id, which is EVERY candidate
+  // when nothing ever assigns one: every block's `.id` is `undefined`, and
+  // `undefined === undefined`. Confirmed directly (no plugin under any key
+  // in `editor.plugins` assigns one without this — this app never actually
+  // had one, an incorrect assumption from earlier in this feature's build).
+  // Without it, a drop target could never be distinguished from the thing
+  // being dragged, live or in a test — attachment-to-attachment reordering
+  // "worked" only in the sense that a stuck `dropTarget` state (see the
+  // `drag.end` fix, attachment-drag-handle.tsx) happened to render a line
+  // SOMEWHERE, not because hover ever legitimately resolved a target.
+  NodeIdPlugin,
+  // A plain paragraph is otherwise never a valid drop target at all — only
+  // an attachment block registers with `@platejs/dnd`, so an attachment
+  // could only ever swap places with ANOTHER attachment. Registered after
+  // `...BasicNodesKit` (whose own `ParagraphPlugin.withComponent(Paragraph
+  // Element)` this replaces — a later entry with the same `.key` wins,
+  // confirmed empirically rather than assumed) so an attachment can be
+  // dropped anywhere a paragraph can, not just next to another attachment.
+  ParagraphPlugin.withComponent(ChatParagraphElement),
   ...ChatFloatingToolbarKit,
   // Renders the streaming transcript's fade-in. Inert everywhere else: the
   // mark it looks for is set only by streaming-value-patch.ts, so it never
@@ -155,6 +192,14 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
   // that `ChatCodeBlockElement` does — a settled message is read, not
   // reordered, and has no `<DndProvider>` ancestor to call it against.
   [CodeBlockPlugin.key]: ChatCodeBlockPluginStatic,
+  // Back to the plain, shared `ParagraphElement` — a settled message is read,
+  // not reordered, and has nothing to drop an attachment ONTO it for.
+  [ParagraphPlugin.key]: ParagraphPlugin.withComponent(ParagraphElement),
+  // Same reasoning as `CodeBlockPlugin` above — `ChatMarkdownImageElementStatic`
+  // keeps the height cap, drops the drag handle.
+  [MarkdownImageKit[0].key]: MarkdownImageKit[0].configure({
+    node: { component: ChatMarkdownImageElementStatic },
+  }),
 }
 
 // `PlateStatic` still renders `render.afterEditable` (see @platejs/core's

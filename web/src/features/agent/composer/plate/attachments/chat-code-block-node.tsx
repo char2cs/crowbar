@@ -1,16 +1,22 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useCallback, type ReactNode } from 'react'
 import { type TCodeBlockElement, NodeApi, PathApi } from 'platejs'
-import { PlateElement, type PlateElementProps, useComposedRef } from 'platejs/react'
+import {
+  PlateElement,
+  type PlateEditor,
+  type PlateElementProps,
+  useComposedRef,
+  useEditorRef,
+} from 'platejs/react'
 import { cn } from '@/lib/utils'
 import {
-  AttachmentDragHandle,
+  AttachmentControls,
   AttachmentDropLine,
   useAttachmentDraggable,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 import { parseAttachmentLang } from './attachment-lang'
-import { parseExcalidrawScene } from './excalidraw-scene'
+import { parseExcalidrawScene, type ParsedExcalidrawScene } from './excalidraw-scene'
 import { TextAttachmentPill } from './text-attachment-pill'
 import { ExcalidrawPreview } from './excalidraw-preview'
 
@@ -20,6 +26,20 @@ import { ExcalidrawPreview } from './excalidraw-preview'
  *  already uses. */
 function codeBlockSource(element: TCodeBlockElement): string {
   return element.children.map((line) => NodeApi.string(line)).join('\n')
+}
+
+/** The scene a code block resolves to as an excalidraw fence, or `null` if
+ *  it isn't one (wrong lang) or its content doesn't parse as a real scene —
+ *  the single gate `resolveCodeBlockPreview`'s own excalidraw branch and
+ *  `ChatMarkdownImageElement`'s sibling-suppression check both defer to, so
+ *  "does this fence show a preview" and "does its PNG sibling hide itself"
+ *  can never disagree. */
+export function excalidrawSceneFromCodeBlock(
+  element: TCodeBlockElement,
+): ParsedExcalidrawScene | null {
+  const parsed = parseAttachmentLang(element.lang)
+  if (parsed?.kind !== 'excalidraw' && element.lang !== 'excalidraw') return null
+  return parseExcalidrawScene(codeBlockSource(element))
 }
 
 /** The `url` of the `img` node immediately following this code block, if
@@ -54,6 +74,32 @@ export function findFollowingImageRef(
   return node?.type === 'img' ? node.url : undefined
 }
 
+/**
+ * Deletes an excalidraw fence AND its own persisted-PNG sibling together —
+ * `excalidraw-takeover.tsx` inserts the two as one adjacent pair, one logical
+ * attachment. Deleting only the fence (`useAttachmentDraggable`'s generic
+ * `remove`, which knows nothing about this pairing) orphaned the image:
+ * still `hidden` (`isExcalidrawPngSibling` never re-evaluates once its own
+ * preceding fence is gone — slate-react does not re-render a node whose OWN
+ * props are unchanged just because a SIBLING was removed), but very much
+ * still in the document — and still sent, reappearing in the message the
+ * person had just "deleted" it from. Removes the image FIRST, at its own
+ * (unshifted) path, before removing the fence — the other order would
+ * require re-deriving the image's path after the fence's removal shifts it.
+ */
+function removeExcalidrawAttachment(editor: PlateEditor, element: TCodeBlockElement) {
+  const path = editor.api.findPath(element)
+  if (!path) return
+  editor.tf.withoutNormalizing(() => {
+    if (excalidrawSceneFromCodeBlock(element)) {
+      const nextPath = PathApi.next(path)
+      const next = editor.api.node(nextPath)?.[0] as { type?: string } | undefined
+      if (next?.type === 'img') editor.tf.removeNodes({ at: nextPath })
+    }
+    editor.tf.removeNodes({ at: path })
+  })
+}
+
 /** The raw code body, plus whichever kind-specific preview a fence resolves
  *  to (or `null` for a plain/unrecognized block) — the one piece of logic
  *  the draggable (interactive) and plain (static) renderers below must never
@@ -74,8 +120,18 @@ function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
   let preview: ReactNode = null
   if (parsed?.kind === 'text-attachment') {
     preview = <TextAttachmentPill text={codeBlockSource(element)} />
-  } else if (parsed?.kind === 'excalidraw') {
-    const scene = parseExcalidrawScene(codeBlockSource(element))
+  } else {
+    // A bare `excalidraw` tag (no `:{id}` suffix) never comes from the
+    // composer — that path always mints one (excalidrawMarkdown, chat-
+    // attachment-markdown.ts) — but it's exactly what an AGENT writes when a
+    // reply includes a diagram: it has no way to know the id-suffix
+    // convention exists at all. Rather than requiring one, this falls back
+    // to content validation alone: parseExcalidrawScene's structural check
+    // (a real elements[]/appState shape) is already a strong enough guard
+    // against a fence that merely mentions "excalidraw" in prose — the same
+    // false-positive the id suffix exists to prevent for the composer's own
+    // fences, just proven a different way.
+    const scene = excalidrawSceneFromCodeBlock(element)
     if (scene) preview = <ExcalidrawPreview scene={scene} pngRef={findFollowingImageRef(props)} />
   }
 
@@ -98,17 +154,28 @@ function DraggableAttachmentBlock({
   codeBody,
   ...props
 }: PlateElementProps<TCodeBlockElement> & { preview: ReactNode; codeBody: ReactNode }) {
-  const { isDragging, nodeRef, handleRef } = useAttachmentDraggable(props.element)
+  const editor = useEditorRef()
+  const { isDragging, nodeRef, handleRef, remove } = useAttachmentDraggable(props.element)
+  const removeAttachment = useCallback(() => {
+    if (excalidrawSceneFromCodeBlock(props.element)) {
+      removeExcalidrawAttachment(editor, props.element)
+    } else {
+      remove()
+    }
+  }, [editor, props.element, remove])
 
   return (
     <PlateElement
       {...props}
       ref={useComposedRef(props.ref, nodeRef)}
-      className={cn('group/attachment relative my-2', isDragging && 'opacity-50')}
+      className={cn('relative my-2', isDragging && 'opacity-50')}
     >
-      <AttachmentDragHandle dragRef={handleRef} />
       <AttachmentDropLine />
-      <div contentEditable={false} className="select-none">
+      <div
+        contentEditable={false}
+        className="group/attachment relative inline-block select-none"
+      >
+        <AttachmentControls dragRef={handleRef} onDelete={removeAttachment} />
         {preview}
       </div>
       <div className="hidden">{codeBody}</div>
@@ -119,12 +186,13 @@ function DraggableAttachmentBlock({
 /**
  * Chat's fenced-code-block renderer, for the INTERACTIVE editor (the
  * composer, and the transcript's currently-streaming bubble — see
- * `chatComposerPlugins`, not its static derivative). A `text-attachment:{id}`/
- * `excalidraw:{id}` tag with a validly-shaped id (and, for Excalidraw,
- * content that actually parses as a scene) renders a kind-specific preview,
+ * `chatComposerPlugins`, not its static derivative). A `text-attachment:{id}`
+ * tag with a validly-shaped id, or an `excalidraw:{id}` / bare `excalidraw`
+ * tag whose content parses as a real scene, renders a kind-specific preview,
  * reorderable via `AttachmentDragHandle`; anything else — including a bare
- * tag with no id, or invalid JSON — falls through to a plain code block,
- * identical to before this task and with no drag machinery at all.
+ * `text-attachment` tag with no id, or invalid Excalidraw JSON — falls
+ * through to a plain code block, identical to before this task and with no
+ * drag machinery at all.
  *
  * The raw block stays mounted whenever a preview renders over it — same
  * hidden-but-present technique `mermaid-code-block.tsx` uses — so Slate's
@@ -157,7 +225,15 @@ export function ChatCodeBlockElementStatic(props: PlateElementProps<TCodeBlockEl
   return (
     <PlateElement {...props} className="my-2">
       {preview ? (
-        <div className="chat-attachment-block">
+        // `inline-block`, not a plain block: the chat's very first turn
+        // renders full-width (`.frozen` in transcript.css), unlike an
+        // ordinary bubble which shrinks to its content — a plain block here
+        // would stretch to that full width right along with it, landing
+        // ExcalidrawPreview's own absolutely-positioned edit button off in
+        // the empty space past the diagram's real (narrower) edge instead of
+        // on its corner. Shrinking to content keeps this wrapper's width
+        // tied to the preview's own, in every context alike.
+        <div className="chat-attachment-block inline-block">
           <div contentEditable={false} className="select-none">
             {preview}
           </div>

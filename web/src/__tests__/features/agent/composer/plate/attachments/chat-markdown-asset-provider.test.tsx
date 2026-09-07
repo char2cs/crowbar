@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
+import { useChatId } from '@/features/agent/composer/plate/attachments/chat-id-context'
 
 beforeEach(() => {
   __resetWorkspaceScopesForTest()
@@ -32,7 +33,7 @@ describe('ChatMarkdownAssetProvider', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <Probe />
       </ChatMarkdownAssetProvider>,
     )
@@ -54,11 +55,25 @@ describe('ChatMarkdownAssetProvider', () => {
       return null
     }
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <CaptureWsId />
       </ChatMarkdownAssetProvider>,
     )
     expect(seen[0]?.wsId).toBe('ws1')
+  })
+
+  it('supplies the chat id via ChatIdContext', () => {
+    const seen: (string | null)[] = []
+    function CaptureChatId() {
+      seen.push(useChatId())
+      return null
+    }
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <CaptureChatId />
+      </ChatMarkdownAssetProvider>,
+    )
+    expect(seen[0]).toBe('c1')
   })
 
   it('memoizes the value across re-renders with the same wsId', () => {
@@ -68,12 +83,12 @@ describe('ChatMarkdownAssetProvider', () => {
       return null
     }
     const { rerender } = render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <CaptureRef />
       </ChatMarkdownAssetProvider>,
     )
     rerender(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <CaptureRef />
       </ChatMarkdownAssetProvider>,
     )
@@ -88,12 +103,12 @@ describe('ChatMarkdownAssetProvider', () => {
       return null
     }
     const { rerender } = render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <CaptureRef />
       </ChatMarkdownAssetProvider>,
     )
     rerender(
-      <ChatMarkdownAssetProvider wsId="ws2">
+      <ChatMarkdownAssetProvider wsId="ws2" chatId="c1">
         <CaptureRef />
       </ChatMarkdownAssetProvider>,
     )

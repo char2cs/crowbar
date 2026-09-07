@@ -111,14 +111,14 @@ describe('ComposerHandle', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  // Task 24: the plus button rides alongside send, never in place of it —
-  // DOM order matters because the design spec puts it "to the right of send".
-  it('renders send and plus as siblings, send first in DOM order', () => {
+  // The plus button rides alongside send, never in place of it — DOM order
+  // matters because it sits to the LEFT of send (attach, then send).
+  it('renders send and plus as siblings, plus first in DOM order', () => {
     draw()
 
     const send = screen.getByRole('button', { name: 'Send prompt' })
     const plus = screen.getByRole('button', { name: /add to this message/i })
-    expect(send.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(plus.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('opens Excalidraw from the plus dropdown without touching send', async () => {

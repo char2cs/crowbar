@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
@@ -417,50 +418,21 @@ func AttachmentsDir(chatsDir, chatID string) string {
 	return filepath.Join(chatsDir, chatID, "attachments")
 }
 
-// AttachmentScratchDirName is the dot-prefixed directory, at a workspace's
-// worktree root, that holds per-runner scratch copies of attachments
-// materialized for CLI dispatch. Deliberately absent from the worktree's own
-// .gitignore — writing to a file the user owns and tracks is not this
-// daemon's business, least of all for a directory that only exists for the
-// seconds-to-minutes a turn referencing an attachment is in flight (chat
-// attachments design spec, "Storage & agent delivery").
-const AttachmentScratchDirName = ".crowbar-attachments"
-
-// AttachmentScratchDir returns runnerID's scratch attachment directory inside
-// worktree, keyed by runnerID for the same reason RunnerDir is: it is what a
-// runner's onExit callback already has in hand on a clean death, and what
-// boot reconciliation can re-derive from a bare dead-runner row with no chat
-// pointer needed.
-func AttachmentScratchDir(worktree, runnerID string) string {
-	return filepath.Join(worktree, AttachmentScratchDirName, runnerID)
-}
-
-// UnderWorktree reports whether path is strictly nested under worktree — the
-// scratch-attachment analogue of UnderHome, for a path living INSIDE the git
-// worktree rather than under crowbar home.
-func UnderWorktree(path, worktree string) bool {
-	if path == "" || worktree == "" {
-		return false
-	}
-	return strings.HasPrefix(path, strings.TrimRight(worktree, "/")+"/")
-}
-
-// RemoveUnderWorktree deletes target only when it is strictly under worktree,
-// and never fails the caller — the scratch-attachment analogue of
-// RemoveUnderHome. RunnerDir's own reap helper checks crowbarHome; a scratch
-// attachment copy lives INSIDE the git worktree instead, so it needs this
-// separate boundary rather than reusing that one.
-func RemoveUnderWorktree(
-	ctx context.Context,
-	worktree string,
-	target string,
-) {
-	if !UnderWorktree(target, worktree) {
-		slog.WarnContext(ctx, "agent: refusing to rm attachment scratch path outside the worktree (skipping)",
-			"target", target, "worktree", worktree)
-		return
-	}
-	if err := os.RemoveAll(target); err != nil {
-		slog.WarnContext(ctx, "agent: reap attachment scratch path", "target", target, "err", err)
-	}
+// RestoreDurableAttachmentRefs reverses materializeAttachmentsForDispatch's
+// one rewrite (dispatch_attachments.go, runner package): a user_prompt hook's
+// own self-reported message IS the text the CLI actually received, which —
+// whenever that dispatch referenced an attachment — is the file's real
+// absolute path in the durable store, not the logical
+// chats/<chatID>/attachments/<file> reference the rest of Crowbar (the
+// asset-serving endpoint, every other stored turn) expects. The ingestion
+// path has no other copy of the original text to fall back on for a prompt
+// typed straight into the CLI's own terminal, so it must un-rewrite this one
+// in place rather than special-case its source. Every other occurrence in
+// text is left untouched, and text with no such reference at all comes back
+// unchanged.
+func RestoreDurableAttachmentRefs(text, chatsDir, chatID string) string {
+	absolutePrefix := filepath.ToSlash(AttachmentsDir(chatsDir, chatID))
+	pattern := regexp.MustCompile(regexp.QuoteMeta(absolutePrefix) + `/([^/)\s]+)`)
+	logicalPrefix := "chats/" + chatID + "/attachments"
+	return pattern.ReplaceAllString(text, logicalPrefix+"/$1")
 }

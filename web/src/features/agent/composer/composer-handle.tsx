@@ -53,6 +53,7 @@ export function ComposerHandle({
 
   return (
     <div className="handle" style={{ transform: `translateY(${handleOffset(fieldHeight)}px)` }}>
+      <ComposerPlusButton onOpenExcalidraw={onOpenExcalidraw} onOpenAttachFile={onOpenAttachFile} />
       <button
         type="button"
         className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
@@ -69,7 +70,6 @@ export function ComposerHandle({
           <UpIcon size={16} />
         )}
       </button>
-      <ComposerPlusButton onOpenExcalidraw={onOpenExcalidraw} onOpenAttachFile={onOpenAttachFile} />
     </div>
   )
 }

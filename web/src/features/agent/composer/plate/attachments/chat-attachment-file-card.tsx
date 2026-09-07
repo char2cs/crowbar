@@ -9,7 +9,7 @@ import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asse
 import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
 import { cn } from '@/lib/utils'
 import {
-  AttachmentDragHandle,
+  AttachmentControls,
   AttachmentDropLine,
   useAttachmentDraggable,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
@@ -18,6 +18,7 @@ import {
   fetchChatAttachmentMetadata,
   parseChatAttachmentRef,
 } from './chat-asset-resolver'
+import { ATTACHMENT_BOX_CLASS } from './attachment-box'
 
 const UNITS = ['KB', 'MB', 'GB', 'TB']
 
@@ -137,20 +138,17 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
  */
 function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
   const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
-  const { isDragging, nodeRef, handleRef } = useAttachmentDraggable(props.element)
+  const { isDragging, nodeRef, handleRef, remove } = useAttachmentDraggable(props.element)
 
   return (
     <span className="group/attachment relative inline-flex align-middle">
-      <AttachmentDragHandle dragRef={handleRef} />
+      <AttachmentControls dragRef={handleRef} onDelete={remove} />
       <AttachmentDropLine />
       <PlateElement
         {...props}
         as="a"
         ref={useComposedRef(props.ref, nodeRef)}
-        className={cn(
-          'chat-attachment-file-card inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 align-middle text-sm no-underline',
-          isDragging && 'opacity-50',
-        )}
+        className={cn('chat-attachment-file-card', ATTACHMENT_BOX_CLASS, isDragging && 'opacity-50')}
         attributes={{
           ...props.attributes,
           href: href ?? undefined,
@@ -160,9 +158,15 @@ function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: Fil
           },
         }}
       >
-        <FileExplorerIcon fileName={filename} size={14} className="shrink-0" />
-        <span className="truncate">{props.children}</span>
-        {sizeLabel && <span className="shrink-0 text-muted-foreground text-xs">{sizeLabel}</span>}
+        <FileExplorerIcon fileName={filename} size={28} className="shrink-0" />
+        {/* contentEditable={false} — a filename is a reference, not prose a caret should enter. */}
+        <span
+          contentEditable={false}
+          className="line-clamp-2 w-full break-words px-1 font-medium text-foreground text-xs"
+        >
+          {props.children}
+        </span>
+        {sizeLabel && <span className="text-[11px] text-muted-foreground">{sizeLabel}</span>}
       </PlateElement>
     </span>
   )
@@ -175,7 +179,7 @@ function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props 
     <PlateElement
       {...props}
       as="a"
-      className="chat-attachment-file-card inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 align-middle text-sm no-underline"
+      className={cn('chat-attachment-file-card', ATTACHMENT_BOX_CLASS)}
       attributes={{
         ...props.attributes,
         href: href ?? undefined,
@@ -185,9 +189,11 @@ function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props 
         },
       }}
     >
-      <FileExplorerIcon fileName={filename} size={14} className="shrink-0" />
-      <span className="truncate">{props.children}</span>
-      {sizeLabel && <span className="shrink-0 text-muted-foreground text-xs">{sizeLabel}</span>}
+      <FileExplorerIcon fileName={filename} size={28} className="shrink-0" />
+      <span className="line-clamp-2 w-full break-words px-1 font-medium text-foreground text-xs">
+        {props.children}
+      </span>
+      {sizeLabel && <span className="text-[11px] text-muted-foreground">{sizeLabel}</span>}
     </PlateElement>
   )
 }

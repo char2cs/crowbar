@@ -55,7 +55,11 @@ beforeEach(() => {
 
 type ClipboardItemStub = { type: string; kind: string; getAsFile: () => File | null }
 type PasteEventStub = {
-  clipboardData: { getData: (type: string) => string; items: ClipboardItemStub[] } | null
+  clipboardData: {
+    getData: (type: string) => string
+    items: ClipboardItemStub[]
+    files: File[]
+  } | null
   preventDefault: () => void
 }
 type KeyEventStub = { key: string }
@@ -83,10 +87,10 @@ function editorWith(markdown: string): PlateEditor {
   return createPlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(markdown) })
 }
 
-function pasteEvent(text: string, items: ClipboardItemStub[] = []) {
+function pasteEvent(text: string, items: ClipboardItemStub[] = [], files: File[] = []) {
   const preventDefault = vi.fn()
   const event: PasteEventStub = {
-    clipboardData: { getData: () => text, items },
+    clipboardData: { getData: () => text, items, files },
     preventDefault,
   }
   return { event, preventDefault }
@@ -102,10 +106,15 @@ describe('createChatPastePlugin', () => {
     const editor = editorWith('')
     const { event, preventDefault } = pasteEvent('x'.repeat(500))
 
-    onPaste({ editor, event })
+    const handled = onPaste({ editor, event })
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(chatValueToMarkdown(editor.children as never)).toContain('```text-attachment:')
+    // Plate's pipeHandler only skips Slate's own fallback paste insertion
+    // when a plugin handler returns `true` — `preventDefault()` alone does
+    // not stop it. Reported live: the raw pasted text landed a second time,
+    // as a plain paragraph, right below the fence this handler just inserted.
+    expect(handled).toBe(true)
   })
 
   // Finding I4: an over-threshold paste that ALSO exceeds the shared inline
@@ -120,9 +129,10 @@ describe('createChatPastePlugin', () => {
     const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
     const { event, preventDefault } = pasteEvent(hugeText)
 
-    onPaste({ editor, event })
+    const handled = onPaste({ editor, event })
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(handled).toBe(true)
     expect(uploadAttachmentMarkdownMock).toHaveBeenCalledTimes(1)
     const [, , input] = uploadAttachmentMarkdownMock.mock.calls[0] as [
       string,
@@ -198,10 +208,11 @@ describe('createChatPastePlugin', () => {
     const before = editor.children
     const { event, preventDefault } = pasteEvent('hello there')
 
-    onPaste({ editor, event })
+    const handled = onPaste({ editor, event })
 
     expect(preventDefault).not.toHaveBeenCalled()
     expect(editor.children).toBe(before)
+    expect(handled).not.toBe(true)
   })
 
   it('lets Shift+paste bypass interception entirely, even for an over-threshold paste', () => {
@@ -259,14 +270,51 @@ describe('createChatPastePlugin', () => {
     const file = new File(['bytes'], 'pasted-image.png', { type: 'image/png' })
     const { event, preventDefault } = pasteEvent('', [imageItem(file)])
 
-    onPaste({ editor, event })
+    const handled = onPaste({ editor, event })
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(handled).toBe(true)
     expect(uploadChatAttachmentMock).toHaveBeenCalledWith('w1', 'c1', { file })
     await waitFor(() => {
       expect(chatValueToMarkdown(editor.children as never)).toContain(
         '![pasted-image.png](chats/c1/attachments/x-pasted-image.png)',
       )
+    })
+  })
+
+  // REGRESSION, reported live: "photos attachments are not loaded
+  // instantly... let's not wait for them." The preview must appear
+  // synchronously, before the upload promise ever resolves — not just
+  // eventually, which the test above already covers.
+  it('inserts a local preview immediately, before the upload resolves', () => {
+    let resolveUpload!: (value: {
+      ref: string
+      filename: string
+      size: number
+      contentType: string
+    }) => void
+    uploadChatAttachmentMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const file = new File(['bytes'], 'pasted-image.png', { type: 'image/png' })
+    const { event } = pasteEvent('', [imageItem(file)])
+
+    onPaste({ editor, event })
+
+    // Synchronous — no `await`/`waitFor` — the upload promise above is still
+    // pending at this point.
+    const markdown = chatValueToMarkdown(editor.children as never)
+    expect(markdown).toMatch(/!\[pasted-image\.png\]\(blob:/)
+
+    resolveUpload({
+      ref: 'chats/c1/attachments/x-pasted-image.png',
+      filename: 'pasted-image.png',
+      size: 10,
+      contentType: 'image/png',
     })
   })
 
@@ -320,6 +368,103 @@ describe('createChatPastePlugin', () => {
         'Crowbar could not reach the daemon — try again.',
       ),
     )
+  })
+
+  // REGRESSION: pasting a non-image file (a PDF copied in Finder, say) had no
+  // `image/*` clipboard item and no `text/plain` payload either, so
+  // Cmd/Ctrl+V silently did nothing at all — this is the branch that fixes
+  // that by reading `clipboardData.files` directly.
+  it('uploads a pasted non-image file through the shared upload/markdown resolver', async () => {
+    uploadAttachmentMarkdownMock.mockResolvedValue(
+      '[report.pdf](chats/c1/attachments/x-report.pdf)',
+    )
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const file = new File(['bytes'], 'report.pdf', { type: 'application/pdf' })
+    const { event, preventDefault } = pasteEvent('', [], [file])
+
+    const handled = onPaste({ editor, event })
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(handled).toBe(true)
+    expect(uploadAttachmentMarkdownMock).toHaveBeenCalledWith('w1', 'c1', { file })
+    await waitFor(() => {
+      expect(chatValueToMarkdown(editor.children as never)).toContain(
+        '[report.pdf](chats/c1/attachments/x-report.pdf)',
+      )
+    })
+  })
+
+  it('surfaces a failed non-image file upload as a toast instead of silently doing nothing', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const file = new File(['bytes'], 'huge.pdf', { type: 'application/pdf' })
+    const { event } = pasteEvent('', [], [file])
+
+    onPaste({ editor, event })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that file',
+        '413 Payload Too Large',
+      ),
+    )
+  })
+
+  it('falls back to a generic description for a non-Error non-image file rejection', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce('boom')
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const file = new File(['bytes'], 'huge.pdf', { type: 'application/pdf' })
+    const { event } = pasteEvent('', [], [file])
+
+    onPaste({ editor, event })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Could not attach that file',
+        'Crowbar could not reach the daemon — try again.',
+      ),
+    )
+  })
+
+  it('prefers an image clipboard item over a files entry when both are present', () => {
+    uploadChatAttachmentMock.mockResolvedValue({
+      ref: 'chats/c1/attachments/x-pasted-image.png',
+      filename: 'pasted-image.png',
+      size: 10,
+      contentType: 'image/png',
+    })
+    const { onPaste } = pastePluginHandlers()
+    const editor = editorWith('')
+    const imageFile = new File(['bytes'], 'pasted-image.png', { type: 'image/png' })
+    const { event } = pasteEvent('', [imageItem(imageFile)], [imageFile])
+
+    onPaste({ editor, event })
+
+    expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(1)
+    expect(uploadAttachmentMarkdownMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves a non-image file paste alone with the caret inside a real code block', () => {
+    const { onPaste } = pastePluginHandlers()
+    const editor = (() => {
+      const e = editorWith('```js\nconsole.log(1)\n```')
+      const idx = e.children.findIndex(
+        (node) => (node as { type?: string }).type === CodeBlockPlugin.key,
+      )
+      const point = e.api.end([idx])
+      e.selection = { anchor: point!, focus: point! }
+      return e
+    })()
+    const file = new File(['bytes'], 'report.pdf', { type: 'application/pdf' })
+    const { event, preventDefault } = pasteEvent('', [], [file])
+
+    onPaste({ editor, event })
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(uploadAttachmentMarkdownMock).not.toHaveBeenCalled()
   })
 
   // Wave 6, Bug 2 (live-reproduced): two over-threshold pastes back to back,

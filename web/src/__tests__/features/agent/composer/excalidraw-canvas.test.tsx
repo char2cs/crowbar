@@ -1,13 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ExcalidrawCanvas } from '@/features/agent/composer/excalidraw-canvas'
+import { ExcalidrawCanvas, type ExcalidrawCanvasHandle } from '@/features/agent/composer/excalidraw-canvas'
 
 // The real `<Excalidraw>` mounts a canvas-rendering tree that jsdom cannot
 // host (it also pulls in a raw JSON import Vite's test transform doesn't
 // touch when the module is externalized) — mocked here so this file can
-// exercise `ExcalidrawCanvas`'s OWN glue (the API-null guard, the
-// save-in-flight disabling, and the scene/PNG payload it hands to `onSave`)
-// without depending on the library's internals.
+// exercise `ExcalidrawCanvas`'s OWN glue (the imperative `save()` handle it
+// exposes, and the scene/PNG payload it hands to `onSave`) without depending
+// on the library's internals.
 const fakeApi = {
   getSceneElements: () => [{ id: 'el1' }],
   getAppState: () => ({ zoom: 1 }),
@@ -22,9 +23,17 @@ const exportToBlobMock = vi.hoisted(() =>
   vi.fn(async () => new Blob(['png-bytes'], { type: 'image/png' })),
 )
 
+let latestInitialData: unknown
 vi.mock('@excalidraw/excalidraw', () => ({
-  Excalidraw: ({ excalidrawAPI }: { excalidrawAPI: (api: unknown) => void }) => {
+  Excalidraw: ({
+    excalidrawAPI,
+    initialData,
+  }: {
+    excalidrawAPI: (api: unknown) => void
+    initialData?: unknown
+  }) => {
     excalidrawAPI(fakeApi)
+    latestInitialData = initialData
     return <div data-testid="excalidraw-mock" />
   },
   exportToBlob: exportToBlobMock,
@@ -35,25 +44,31 @@ vi.mock('@excalidraw/excalidraw/index.css', () => ({}))
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  latestInitialData = undefined
 })
 
 describe('ExcalidrawCanvas', () => {
-  it('calls onCancel when Cancel is clicked', () => {
-    const onCancel = vi.fn()
-    render(<ExcalidrawCanvas onCancel={onCancel} onSave={vi.fn()} />)
+  it('preloads Excalidraw with initialScene when one is given', () => {
+    const scene = { elements: [{ id: 'preloaded' }], appState: { zoom: 2 } }
+    render(<ExcalidrawCanvas onSave={vi.fn()} initialScene={scene} />)
 
-    fireEvent.click(screen.getByText('Cancel'))
-
-    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(latestInitialData).toMatchObject({ elements: scene.elements, appState: scene.appState })
   })
 
-  it('hands onSave a serialized scene and a PNG file built from the exported blob', async () => {
+  it('passes no initialData when there is no initialScene', () => {
+    render(<ExcalidrawCanvas onSave={vi.fn()} />)
+
+    expect(latestInitialData).toBeUndefined()
+  })
+
+  it('hands onSave a serialized scene and a PNG file built from the exported blob, via the imperative save() handle', async () => {
     const onSave = vi.fn()
-    render(<ExcalidrawCanvas onCancel={vi.fn()} onSave={onSave} />)
+    const ref = createRef<ExcalidrawCanvasHandle>()
+    render(<ExcalidrawCanvas ref={ref} onSave={onSave} />)
 
-    fireEvent.click(screen.getByText('Save'))
+    await ref.current?.save()
 
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(onSave).toHaveBeenCalledTimes(1)
     const [result] = onSave.mock.calls[0]
     const scene = JSON.parse(result.sceneJson)
     expect(scene.elements).toEqual([{ id: 'el1' }])
@@ -62,33 +77,7 @@ describe('ExcalidrawCanvas', () => {
     expect(exportToBlobMock).toHaveBeenCalledTimes(1)
   })
 
-  it('disables Save while a save is in flight', async () => {
-    let resolveBlob!: (blob: Blob) => void
-    exportToBlobMock.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveBlob = resolve as (blob: Blob) => void
-        }),
-    )
-    render(<ExcalidrawCanvas onCancel={vi.fn()} onSave={vi.fn()} />)
-
-    fireEvent.click(screen.getByText('Save'))
-
-    await waitFor(() => expect(screen.getByText('Saving…')).toBeInTheDocument())
-    expect(screen.getByText('Saving…').closest('button')).toBeDisabled()
-    expect(screen.getByText('Cancel').closest('button')).toBeDisabled()
-
-    resolveBlob(new Blob(['x'], { type: 'image/png' }))
-    await waitFor(() => expect(screen.getByText('Save')).toBeInTheDocument())
-  })
-
-  // TestRegression: `handleSave` used to call `onSave(...)` without an
-  // `await` — `finally { setSaving(false) }` ran (re-enabling Save) the
-  // instant the PNG was exported, WHILE the real `onSave` (an async upload,
-  // in `ExcalidrawModal`) was still in flight. A fast double-click fired it
-  // twice before the first resolved: two `nanoid()`s, two uploads, a
-  // duplicate fence+image pair inserted.
-  it('TestRegression_staysDisabledUntilAnAsyncOnSaveResolves_soADoubleClickOnlyFiresOnce', async () => {
+  it('save() resolves only once the caller-awaited onSave has settled', async () => {
     let resolveSave!: () => void
     const onSave = vi.fn(
       () =>
@@ -96,20 +85,19 @@ describe('ExcalidrawCanvas', () => {
           resolveSave = resolve
         }),
     )
-    render(<ExcalidrawCanvas onCancel={vi.fn()} onSave={onSave} />)
+    const ref = createRef<ExcalidrawCanvasHandle>()
+    render(<ExcalidrawCanvas ref={ref} onSave={onSave} />)
 
-    const saveButton = screen.getByText('Save').closest('button')!
-    fireEvent.click(saveButton)
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    let settled = false
+    const promise = ref.current!.save().then(() => {
+      settled = true
+    })
 
-    // The upload is still pending — Save must still be disabled, so a second,
-    // fast click cannot fire a second onSave (and thus a second nanoid/upload).
-    await waitFor(() => expect(screen.getByText('Saving…').closest('button')).toBeDisabled())
-    fireEvent.click(screen.getByText('Saving…').closest('button')!)
-    expect(onSave).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+    expect(settled).toBe(false)
 
     resolveSave()
-    await waitFor(() => expect(screen.getByText('Save')).toBeInTheDocument())
-    expect(onSave).toHaveBeenCalledTimes(1)
+    await promise
+    expect(settled).toBe(true)
   })
 })

@@ -36,26 +36,24 @@ var _ seam.WorkspaceReader = fakeWSReader{}
 
 func TestRewritePromptTextForDispatch_RewritesAnAttachmentReference(t *testing.T) {
 	home := t.TempDir()
-	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
 	durableDir := worktreepath.AttachmentsDir(chatsDir, "chat-1")
 	fileName, _, err := repoattachments.Store(durableDir, "ab12", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
-	rs := &Runners{ws: fakeWSReader{chatsDir: chatsDir, worktree: worktree}}
+	rs := &Runners{ws: fakeWSReader{chatsDir: chatsDir}}
 	text := "![photo](chats/chat-1/attachments/" + fileName + ")"
-	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", worktree, "runner-1", text)
+	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", text)
 	require.NoError(t, err)
 
-	assert.Contains(t, out, ".crowbar-attachments/runner-1/"+fileName)
-	data, err := os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName))
-	require.NoError(t, err)
-	assert.Equal(t, "bytes", string(data))
+	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName)))
+	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName+")",
+		"the logical markdown link must be gone, replaced by the absolute path")
 }
 
 func TestRewritePromptTextForDispatch_NoAttachmentReference_ReturnsTextUnchanged(t *testing.T) {
-	rs := &Runners{ws: fakeWSReader{chatsDir: filepath.Join(t.TempDir(), "chats"), worktree: t.TempDir()}}
-	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "/worktree", "runner-1", "hello")
+	rs := &Runners{ws: fakeWSReader{chatsDir: filepath.Join(t.TempDir(), "chats")}}
+	out, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "hello")
 	require.NoError(t, err)
 	assert.Equal(t, "hello", out)
 }
@@ -75,7 +73,7 @@ func (e assertError) Error() string { return string(e) }
 
 func TestRewritePromptTextForDispatch_ChatsDirLookupFailure_IsWrapped(t *testing.T) {
 	rs := &Runners{ws: boomWorkspaceReader{}}
-	_, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "/worktree", "runner-1", "hello")
+	_, err := rs.rewritePromptTextForDispatch(context.Background(), "ws-1", "chat-1", "hello")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "chats dir")
 	assert.ErrorContains(t, err, "boom")
@@ -140,10 +138,10 @@ func apiPushAttachmentTestAgent(t *testing.T) engineagents.Agent {
 
 // TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing is Task 8's
 // end-to-end pin: a chat with a live api connection and an attachment
-// reference in its prompt text gets the SAME scratch-copy rewrite the
-// spawnRunner/restart_tui path already gets (Task 6), and the CLI on the wire
-// receives the rewritten scratch path, never the durable chats/<id>/attachments
-// reference.
+// reference in its prompt text gets the SAME absolute-path rewrite the
+// spawnRunner/restart_tui path already gets, and the CLI on the wire
+// receives the file's real absolute path, never the durable logical
+// chats/<id>/attachments reference.
 func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
@@ -207,13 +205,9 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for the prompt dispatch to reach the wire")
 	}
-	assert.Contains(t, dispatched, ".crowbar-attachments/runner-1/"+fileName,
-		"the CLI must receive the scratch-rewritten path, not the durable reference")
-	assert.NotContains(t, dispatched, "chats/chat-1/attachments/")
-
-	data, err := os.ReadFile(filepath.Join(worktree, ".crowbar-attachments", "runner-1", fileName))
-	require.NoError(t, err)
-	assert.Equal(t, "bytes", string(data))
+	assert.Contains(t, dispatched, filepath.ToSlash(filepath.Join(durableDir, fileName)),
+		"the CLI must receive the file's real absolute path, not the logical reference")
+	assert.NotContains(t, dispatched, "]("+"chats/chat-1/attachments/"+fileName+")")
 }
 
 // TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUncertain
@@ -288,7 +282,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for the prompt dispatch to reach the wire")
 	}
-	assert.Contains(t, dispatched, ".crowbar-attachments/runner-1/"+fileName,
+	assert.Contains(t, dispatched, filepath.ToSlash(filepath.Join(durableDir, fileName)),
 		"materialization must still have run before the wire-level failure")
 
 	record, found, lookupErr := rs.prompts.Lookup(journalDir, requestID, textHash)

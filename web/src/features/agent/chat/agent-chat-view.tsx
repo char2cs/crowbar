@@ -7,9 +7,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { KeyboardEvent, ReactNode, Ref } from 'react'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import type { KeyboardEvent, Ref } from 'react'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
   stopChat,
   type AgentChatMessage,
@@ -171,38 +170,18 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
   }
 }
 
-/**
- * The one `<DndProvider>` this feature needs, scoped to a single chat view
- * rather than the app root.
- *
- * `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx,
- * wired into `ChatCodeBlockElement`/`ChatAttachmentFileCard`) are built on
- * `react-dnd`'s `useDrag`/`useDrop`, which THROW without an ancestor
- * `DndProvider` — and nothing else in this app renders one (the file
- * editor's own `table-node.tsx` `RowDragHandle` has the identical latent
- * gap, left alone; fixing it is out of this feature's scope). `AgentChatView`
- * is the real common ancestor of every Plate tree that can render an
- * attachment node live: the transcript's streaming `MarkdownMessage` (via
- * `transcript` below) and the composer's `ChatMarkdownEditor` (via
- * `AgentComposer` and `AgentEmptyDocument`, both rendered further down) —
- * confirmed by reading this file rather than assumed. One provider here
- * covers both, instead of two separate ones duplicated at each leaf.
- *
- * Deliberately NOT wrapping the settled transcript: `MarkdownMessageStatic`
- * renders through `chatComposerPluginsStatic`, whose code-block/link node
- * components never call `useAttachmentDraggable` at all (see
- * chat-composer-plugins.ts's `STATIC_NODE_OVERRIDES`), so a settled message
- * never needs this context — this wrapper costs nothing extra by covering it
- * anyway, but the real gate is in the plugin set, not here.
- */
-// Safe with several chat tabs kept mounted at once (see AgentChatPane's
-// keep-alive `hidden` tabs): `DndProvider` without an explicit `context`/
-// `manager` prop shares ONE global-singleton `DragDropManager`/`HTML5Backend`
-// across every mount, ref-counted (react-dnd's `DndProvider.js`) — many
-// `DndScope`s never means many competing HTML5 backends.
-function DndScope({ children }: { children: ReactNode }) {
-  return <DndProvider backend={HTML5Backend}>{children}</DndProvider>
-}
+// `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
+// `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
+// THROW without an ancestor one, and this is the real common ancestor of
+// every Plate tree that can render an attachment node live: the
+// transcript's streaming `MarkdownMessage` (via `transcript` below) and the
+// composer's `ChatMarkdownEditor` (via `AgentComposer`/`AgentEmptyDocument`
+// further down). Deliberately NOT wrapping the settled transcript:
+// `MarkdownMessageStatic` renders through `chatComposerPluginsStatic`, whose
+// code-block/link node components never call `useAttachmentDraggable` at all
+// (see chat-composer-plugins.ts's `STATIC_NODE_OVERRIDES`), so a settled
+// message never needs this context — costs nothing extra to cover it anyway,
+// but the real gate is in the plugin set, not here.
 
 /**
  * The chat surface: a transcript, and one bar under it.
@@ -289,6 +268,14 @@ export function AgentChatView({
   // track, which is what made the glass read as smudging the thumb itself.
   const [scrollbarWidth, setScrollbarWidth] = useState(0)
   useEffect(() => setScrollbarWidth(measureScrollbarWidth()), [])
+  // The excalidraw takeover portals here instead of rendering inline under
+  // the composer — the composer sits inside `.dock`, itself `position:
+  // absolute` and therefore ITS OWN containing block for any absolutely-
+  // positioned descendant regardless of `.dock`'s own (small, bottom-pinned)
+  // size. State, not a plain ref: AgentComposer needs the actual node to
+  // portal into, and a ref's `.current` isn't populated yet during the render
+  // that first needs it.
+  const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
   // The empty document's own handle, read exactly once — at the instant of the
   // first send — so the arrival slide has something to arrive FROM. A ref, not
   // state: nothing ever renders off it, and it must survive the very unmount
@@ -746,7 +733,7 @@ export function AgentChatView({
   if (settling) {
     return (
       <DndScope>
-        <ChatMarkdownAssetProvider wsId={wsId}>
+        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
           <section className="agent-chat chat" aria-label="Agent chat">
             {transcript}
           </section>
@@ -758,7 +745,7 @@ export function AgentChatView({
   if (blank) {
     return (
       <DndScope>
-        <ChatMarkdownAssetProvider wsId={wsId}>
+        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
           <section className="agent-chat chat" aria-label="Agent chat">
             <AgentEmptyDocument
               ref={emptyDocRef}
@@ -789,8 +776,9 @@ export function AgentChatView({
 
   return (
     <DndScope>
-      <ChatMarkdownAssetProvider wsId={wsId}>
+      <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
         <section
+          ref={setChatSurfaceEl}
           className="agent-chat chat"
           aria-label="Agent chat"
           style={
@@ -846,6 +834,7 @@ export function AgentChatView({
               onRevive={onRevive}
               draftSeed={seed.n}
               seedText={seed.text}
+              takeoverContainer={chatSurfaceEl}
             />
             <ProviderBar
               wsId={wsId}

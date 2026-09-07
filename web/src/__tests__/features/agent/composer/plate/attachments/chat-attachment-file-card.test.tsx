@@ -46,7 +46,7 @@ describe('formatAttachmentSize', () => {
 describe('chat attachment file card', () => {
   it('renders an ordinary link unchanged for a non-attachment href', () => {
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <MarkdownMessageStatic>{'[docs](https://example.com)'}</MarkdownMessageStatic>
       </ChatMarkdownAssetProvider>,
     )
@@ -70,7 +70,7 @@ describe('chat attachment file card', () => {
     )
 
     const { container } = render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <MarkdownMessageStatic>
           {'[report.pdf](chats/c1/attachments/report.pdf)'}
         </MarkdownMessageStatic>
@@ -99,6 +99,35 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
+  // REGRESSION, reported live: "Attachments that are text, or files should
+  // be a square... like Claude's attachments" — this was a thin, single-line
+  // row before. Shares `ATTACHMENT_BOX_CLASS` (attachment-box.ts) with the
+  // text-attachment pill so both kinds look identical.
+  it('renders as the shared boxed-card footprint, not the old thin row', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '2048' } }),
+        ),
+    )
+
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    const anchor = screen.getByText('report.pdf').closest('a')!
+    expect(anchor.className).toContain('chat-attachment-box')
+    expect(anchor.className).toMatch(/(?:^|\s)size-28(?:\s|$)/)
+
+    vi.unstubAllGlobals()
+  })
+
   it('falls back to the ordinary link with no MarkdownAssetContext at all', () => {
     const { container } = render(
       <MarkdownMessageStatic>
@@ -120,7 +149,7 @@ describe('chat attachment file card', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')))
 
     render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <MarkdownMessageStatic>
           {'[report.pdf](chats/c1/attachments/report.pdf)'}
         </MarkdownMessageStatic>
@@ -144,7 +173,7 @@ describe('chat attachment file card', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <ChatMarkdownAssetProvider wsId="unscoped-ws">
+      <ChatMarkdownAssetProvider wsId="unscoped-ws" chatId="c1">
         <MarkdownMessageStatic>
           {'[report.pdf](chats/c1/attachments/report.pdf)'}
         </MarkdownMessageStatic>
@@ -180,7 +209,7 @@ describe('chat attachment file card', () => {
 
     render(
       <DndProvider backend={HTML5Backend}>
-        <ChatMarkdownAssetProvider wsId="ws1">
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
       </DndProvider>,
@@ -210,10 +239,95 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
+  // REGRESSION, reported live: a caret could be placed and moved inside the
+  // filename text, like any other link's own editable content — but this
+  // text is a reference to an uploaded file, not prose the person is meant
+  // to edit.
+  it('marks the filename non-editable, so a caret cannot enter it', () => {
+    render(
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
+    )
+    const label = screen.getByText('report.pdf')
+    expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
+  })
+
+  // REGRESSION, reported live: there was no way to select and remove an
+  // attachment at all — dragging could reorder one but nothing could delete
+  // one.
+  it('renders a delete button alongside the file card, which removes the attachment on click', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
+    )
+    const deleteButton = screen.getByRole('button', { name: /remove this attachment/i })
+    expect(deleteButton).toBeInTheDocument()
+    expect(deleteButton.closest('a')).toBeNull()
+
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => expect(screen.queryByText('report.pdf')).toBeNull())
+    vi.unstubAllGlobals()
+  })
+
+  // REGRESSION, reported live: dragging an attachment did nothing at all —
+  // root-caused via live DOM inspection to the handle sitting directly
+  // inside the Slate editor's own `contenteditable="true"` region with no
+  // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
+  // real mousedown+move inside editable content as a text-selection gesture
+  // BEFORE react-dnd's own native `dragstart` ever fires, regardless of the
+  // button's `draggable="true"`.
+  //
+  // `MarkdownMessage` (this file's harness) renders `readOnly`, so its own
+  // Slate root already carries `contenteditable="false"` regardless of this
+  // fix — asserting merely "some ancestor is non-editable" would pass
+  // trivially either way. The real contract is a wrapper CLOSER than the
+  // editor root, since the actual composer (which this stands in for) is
+  // genuinely editable and has no such root-level escape hatch.
+  it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndProvider backend={HTML5Backend}>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndProvider>,
+    )
+    const handle = screen.getByRole('button', { name: /reorder this attachment/i })
+    const island = handle.closest('[contenteditable="false"]')
+    expect(island).not.toBeNull()
+    expect(island?.classList.contains('slate-editor')).toBe(false)
+
+    vi.unstubAllGlobals()
+  })
+
   it('falls back to an ordinary link for a non-attachment href, through the INTERACTIVE renderer too', () => {
     render(
       <DndProvider backend={HTML5Backend}>
-        <ChatMarkdownAssetProvider wsId="ws1">
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[docs](https://example.com)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
       </DndProvider>,
@@ -222,6 +336,7 @@ describe('chat attachment file card', () => {
     expect(anchor?.getAttribute('href')).toContain('example.com')
     expect(anchor?.className).not.toContain('chat-attachment-file-card')
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /remove this attachment/i })).toBeNull()
   })
 
   it('ignores a metadata fetch that resolves after the component has already unmounted', async () => {
@@ -232,7 +347,7 @@ describe('chat attachment file card', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending))
 
     const { unmount } = render(
-      <ChatMarkdownAssetProvider wsId="ws1">
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
         <MarkdownMessageStatic>
           {'[report.pdf](chats/c1/attachments/report.pdf)'}
         </MarkdownMessageStatic>

@@ -35,8 +35,30 @@ describe('parseExcalidrawScene', () => {
     expect(parseExcalidrawScene('null')).toBeNull()
   })
 
-  it('rejects when appState is missing', () => {
-    expect(parseExcalidrawScene(JSON.stringify({ elements: [] }))).toBeNull()
+  // REGRESSION: a real `.excalidraw` file — and an agent asked to write
+  // "valid Excalidraw JSON" reliably produces this exact shape — routinely
+  // omits appState entirely. It holds view/style state, never what's drawn,
+  // so a missing one defaults to `{}` rather than rejecting the whole scene.
+  it('accepts a scene with no appState at all, defaulting to {}', () => {
+    expect(parseExcalidrawScene(JSON.stringify({ elements: [{ type: 'rectangle' }] }))).toEqual({
+      elements: [{ type: 'rectangle' }],
+      appState: {},
+    })
+  })
+
+  // The real shape that surfaced this: type/version/elements/files, no
+  // appState — a genuine .excalidraw file export.
+  it('accepts the real .excalidraw file export shape (type/version/elements/files, no appState)', () => {
+    const raw = JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      elements: [{ id: 'a', type: 'rectangle' }],
+      files: {},
+    })
+    expect(parseExcalidrawScene(raw)).toEqual({
+      elements: [{ id: 'a', type: 'rectangle' }],
+      appState: {},
+    })
   })
 
   it('rejects when appState is not an object', () => {
