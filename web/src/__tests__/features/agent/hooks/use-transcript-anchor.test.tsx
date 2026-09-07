@@ -15,6 +15,20 @@ import {
  * live by the mounted element's getters, stand in for both — same pattern
  * use-preserved-scroll.test.tsx uses for the same reason.
  */
+/**
+ * A scroll the READER caused. A browser never delivers a bare scroll event
+ * for a gesture — it always emits the input that caused it first (`wheel`
+ * here), and `useTranscriptAnchor` relies on exactly that to tell a real
+ * gesture apart from the browser moving the view by itself (scroll
+ * anchoring, which a streaming transcript triggers constantly). Setting
+ * `scrollTop` and firing `scroll` alone simulates the browser, not a person.
+ */
+function readerScrollsTo(scroller: HTMLElement, top: number) {
+  fireEvent.wheel(scroller)
+  scroller.scrollTop = top
+  fireEvent.scroll(scroller)
+}
+
 describe('useTranscriptAnchor', () => {
   let scrollHeight = 0
   let clientHeight = 400
@@ -165,8 +179,7 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBeLessThan(1000)
 
     // The reader scrolls up, mid-animation — theirs wins at once.
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 200)
 
     vi.advanceTimersByTime(1500) // the animation would otherwise have finished by now
     expect(scroller.scrollTop).toBe(200)
@@ -200,13 +213,11 @@ describe('useTranscriptAnchor', () => {
 
     grow(1400)
     vi.advanceTimersByTime(50)
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 200)
     vi.advanceTimersByTime(1500) // several time constants — fully settled
 
     // Back at the bottom (scrollHeight 1400 - clientHeight 400 = 1000).
-    scroller.scrollTop = 1000
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 1000)
 
     grow(1800) // ceiling: 1800 - 400 = 1400
     vi.advanceTimersByTime(50)
@@ -396,8 +407,7 @@ describe('useTranscriptAnchor', () => {
 
     grow(1400) // ceiling: 1400 - 400 = 1000
     vi.advanceTimersByTime(1500)
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller) // a real gesture — following stops
+    readerScrollsTo(scroller, 200) // a real gesture — following stops
 
     scrollHeight = 1800 // the dock grows again while scrolled away
     act(() => anchor?.notifyReflow())
@@ -497,8 +507,7 @@ describe('useTranscriptAnchor', () => {
       const onPositionChange = vi.fn()
       const { getByTestId, unmount } = render(<Host anchorOptions={{ onPositionChange }} />)
       const scroller = getByTestId('scroller')
-      scroller.scrollTop = 250 // well short of the 600 ceiling — not stuck
-      fireEvent.scroll(scroller)
+      readerScrollsTo(scroller, 250) // well short of the 600 ceiling — not stuck
 
       expect(onPositionChange).not.toHaveBeenCalled()
       unmount()
@@ -727,5 +736,163 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     vi.advanceTimersByTime(1500)
 
     expect(content.style.paddingBottom).toBe('')
+  })
+})
+
+/**
+ * Who moved the scrollbar?
+ *
+ * Following stops the moment the reader scrolls up — that is this hook's whole
+ * contract, and it is the right one. But `scrollTop` changing is NOT evidence
+ * that the reader did anything: the browser moves it too, on its own, to keep
+ * the view stable when content around it changes size (scroll anchoring). A
+ * transcript is content changing size continuously, so this is not an edge
+ * case.
+ *
+ * Measured live during a 35-item numbered list, sampled every 200ms: the view
+ * sat correctly 20-80px from the bottom for 15 seconds, then jumped BACKWARD
+ * 213px in a single sample while `scrollHeight` moved by only 3px — far too
+ * small a content change to have clamped it, and no gesture anywhere near it.
+ * Following then stopped dead for 15.6 seconds, the gap frozen at 242px, and
+ * only recovered when something unrelated forced a resync. Read as "scroll
+ * bouncing, not stable".
+ *
+ * Real input is the discriminator, and the browser hands it to us: a gesture
+ * arrives as `wheel`, `touchmove`, `keydown` or a scrollbar `pointerdown`
+ * moments before the scroll event it causes. An anchoring adjustment arrives
+ * with none of them.
+ */
+describe('useTranscriptAnchor: telling the reader apart from the browser', () => {
+  let scrollHeight = 0
+  let clientHeight = 400
+  let observerCallbacks: Array<() => void> = []
+  const RealResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    scrollHeight = 1000
+    clientHeight = 400
+    observerCallbacks = []
+    class ControllableResizeObserver {
+      callback: () => void
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+      observe() {
+        if (!observerCallbacks.includes(this.callback)) observerCallbacks.push(this.callback)
+      }
+      unobserve() {}
+      disconnect() {
+        observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+      }
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: ControllableResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: RealResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+    vi.useRealTimers()
+  })
+
+  const grow = (next: number) => {
+    scrollHeight = next
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+  }
+
+  function Host() {
+    const anchor = useTranscriptAnchor()
+    return (
+      <div
+        data-testid="scroller"
+        ref={(node) => {
+          anchor.scrollRef.current = node
+          if (!node || Object.hasOwn(node, 'scrollHeight')) return
+          let top = 0
+          Object.defineProperty(node, 'scrollTop', {
+            configurable: true,
+            get: () => top,
+            set: (v: number) => {
+              top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+            },
+          })
+          Object.defineProperty(node, 'scrollHeight', {
+            configurable: true,
+            get: () => scrollHeight,
+          })
+          Object.defineProperty(node, 'clientHeight', {
+            configurable: true,
+            get: () => clientHeight,
+          })
+        }}
+        onScroll={anchor.onScroll}
+      >
+        <div data-testid="content" />
+      </div>
+    )
+  }
+
+  it('keeps following when the browser moves the view with no input from the reader', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600) // pinned to the bottom
+
+    // Scroll anchoring pulls the view up as content around it resizes. No
+    // wheel, no key, no pointer — nobody touched anything.
+    act(() => {
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // It has to recover on its own. Before this, following stopped here for
+    // the rest of the turn.
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  it('still stops following the moment the reader really does scroll up', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    // The same movement, this time caused by a real gesture.
+    act(() => {
+      fireEvent.wheel(scroller)
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Left exactly where they put it — yanking a reader back to the bottom is
+    // worse than never following at all.
+    expect(scroller.scrollTop).toBe(350)
+  })
+
+  it('treats a keyboard scroll as the reader too', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    act(() => {
+      fireEvent.keyDown(scroller, { key: 'PageUp' })
+      scroller.scrollTop = 200
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    expect(scroller.scrollTop).toBe(200)
   })
 })
