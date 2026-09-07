@@ -337,6 +337,7 @@ export function AgentChatView({
     wsId,
     chatId,
     working,
+    compacting,
     live,
     active,
     visible,

@@ -74,6 +74,11 @@ export interface PromptQueueOptions {
   wsId: string
   chatId: string
   working: boolean
+  /** Busy in a way `working` cannot see. A bare /compact opens no tracked turn,
+   *  so the aggregate reports idle for the whole compaction — dispatching against
+   *  that "idle" hands the CLI a prompt mid-compaction and aborts the compaction.
+   *  The composer already promises this queues; the FIFO has to honour it. */
+  compacting: boolean
   live: boolean
   active: boolean
   visible: boolean
@@ -111,6 +116,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     wsId,
     chatId,
     working,
+    compacting,
     live,
     active,
     visible,
@@ -423,12 +429,19 @@ export function usePromptQueue(options: PromptQueueOptions) {
   )
 
   // Only the FIFO head can move.
+  //
+  // `working` is not the whole of "busy": a compaction opens no tracked turn, so
+  // the aggregate folds it as idle and this guard used to wave the head straight
+  // through — the prompt reached the CLI mid-compaction and killed it. Both busy
+  // signals are read HERE, at flush time, so a compaction that starts after the
+  // prompt was already queued still holds it.
   useEffect(() => {
     const head = queue[0]
-    if (!head || head.state !== 'queued' || working || !live || !active || !visible) return
+    if (!head || head.state !== 'queued' || working || compacting || !live || !active || !visible)
+      return
     if (head.waitForIdleEpoch !== undefined && head.waitForIdleEpoch > idleEpoch) return
     void dispatch(head)
-  }, [queue, working, live, active, visible, idleEpoch, dispatch])
+  }, [queue, working, compacting, live, active, visible, idleEpoch, dispatch])
 
   // A replacement CLI that disappears before user_prompt is not accepted. Keep
   // the same request identity but require a human retry; never silently resubmit.
