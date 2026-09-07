@@ -188,20 +188,53 @@ function pruneRuns(editor: PlateEditor, invalidFromBlock: number): void {
   if (settled && kept.length === 0) settled.clear()
 }
 
+// One cleanup pass per frame, however many words finished in it — see
+// `settleFreshGeneration`. Coalesced the same way the delta batcher coalesces
+// store writes (streaming-message-batcher.ts), because a chunk's words all
+// finish within a frame or two of each other and each one asking for its own
+// pass would mean a pass per word.
+const pendingCleanup = new WeakMap<PlateEditor, number>()
+
+function scheduleFadeCleanup(editor: PlateEditor): void {
+  if (typeof requestAnimationFrame !== 'function') return
+  if (pendingCleanup.has(editor)) return
+  pendingCleanup.set(
+    editor,
+    requestAnimationFrame(() => {
+      pendingCleanup.delete(editor)
+      // Absent until an editor is actually mounted in React — a headless one
+      // (the markdown codec's, or a test's) has no rendering to invalidate.
+      editor.api.redecorate?.()
+    }),
+  )
+}
+
 /**
  * Retires one finished fade. Called from the real `animationend` — never a
  * timer — and costs no editor operation at all: a settled generation is
- * simply one `freshDecorations` stops emitting.
+ * simply one `freshDecorations` stops emitting as animated.
  *
- * Nothing has to re-render for this to be correct. The animation ends at
- * full opacity and `fill-mode: both` holds it there, so a decoration that
- * outlives its own animation until the next streamed chunk re-renders the
- * block looks exactly like the plain text it will become.
+ * REGRESSION this schedules a cleanup pass for: settling is bookkeeping, and
+ * a block only recomputes its decorations when something re-renders it. While
+ * a LIST streams, only the last item is ever re-rendered — so every finished
+ * item kept its animated spans in the DOM for the rest of the turn, each one
+ * an element still carrying an `animation` declaration `fill-mode: both`
+ * keeps alive. Measured on a 30-item list: 314 of them by the end, released
+ * only when the stream stopped. The design this replaced never had the
+ * problem because settling unset the marks, which merged the leaves back to
+ * plain text and removed the spans outright.
+ *
+ * `redecorate` is the whole pass, and it is cheaper than it sounds: it bumps
+ * the decoration version, so decorations are recomputed (a fast miss for
+ * every leaf holding no run) but `isTextDecorationsEqual` still gates the
+ * re-render, and only blocks whose decorations actually changed re-render.
  */
 export function settleFreshGeneration(editor: PlateEditor, generation: number): void {
   const settled = settledGenerations.get(editor) ?? new Set<number>()
+  if (settled.has(generation)) return
   settled.add(generation)
   settledGenerations.set(editor, settled)
+  scheduleFadeCleanup(editor)
 }
 
 /**
