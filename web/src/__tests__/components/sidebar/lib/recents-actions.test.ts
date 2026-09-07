@@ -152,7 +152,11 @@ describe('closeRecent', () => {
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
   })
 
-  it('an idle live chat becomes a dormant arrangement on close, never lost', () => {
+  // Was "becomes a dormant arrangement on close, never lost" — that lingering
+  // row was exactly the bug: "the pane disappears, but its row on recents
+  // don't — I have to hit the X once again to then have it removed from
+  // recents" (verbatim). A close is now final on both sides, in one action.
+  it('an idle live chat leaves Recents entirely on close — no dormant residue, no second X needed', () => {
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
     const entry: RecentsBandEntry = {
@@ -164,15 +168,17 @@ describe('closeRecent', () => {
     }
     closeRecent(entry)
 
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([
-      { id: ROOT_PANE_ID, chatIds: ['chat-1'], state: 'dormant' },
-    ])
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
 
   it('forgets a DORMANT entry outright — there is no pane to close', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    windowPaneStore.getState().paneActions.closePane(ROOT_PANE_ID) // seeds one dormant arrangement keyed ROOT_PANE_ID
+    const { paneActions } = windowPaneStore.getState()
+    // A dormant record now only ever comes from setPaneChat's own hotswap-
+    // away archive (spec §8.4) — closePane no longer seeds one.
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
     expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
+    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
 
     // Task 26: ids are already globally unique (one pane store), so
     // recents-for-project.ts no longer mints a workspace-qualified `.id`
@@ -180,8 +186,8 @@ describe('closeRecent', () => {
     // id now. `closeRecent` still forgets by `.localId` (the field the store
     // is actually keyed by), which continues to be the correct field to use.
     const entry: RecentsBandEntry = {
-      id: ROOT_PANE_ID,
-      localId: ROOT_PANE_ID,
+      id: entryId,
+      localId: entryId,
       chatIds: ['chat-1'],
       state: 'dormant',
       workspaceId: 'ws-1',
@@ -200,7 +206,7 @@ describe('closeRecent', () => {
  * eviction), rather than only the pane the gesture happened to name.
  */
 describe('closeRecent — a view of any size', () => {
-  it('ends every member of a MERGED view, and remembers them all', () => {
+  it('ends every member of a MERGED view, leaving no Recents residue for any of them', () => {
     const { paneActions } = windowPaneStore.getState()
     paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
     const b = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
@@ -220,11 +226,7 @@ describe('closeRecent — a view of any size', () => {
     expect(Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId)).toEqual([])
     expect(windowPaneStore.getState().panes[b]).toBeUndefined()
     expect(windowPaneStore.getState().panes[c]).toBeUndefined()
-    const remembered = windowPaneStore
-      .getState()
-      .dormantArrangements.flatMap((e) => e.chatIds)
-      .sort()
-    expect(remembered).toEqual(['chat-1', 'chat-2', 'chat-3'])
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
 
   // The row's own id is the DORMANT RECORD's when it inherited one, not the

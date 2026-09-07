@@ -746,63 +746,36 @@ export const createPaneSlice: StateCreator<
           const slot = paneSlot(state, paneId)
           const closingPane = state.panes[paneId]
           const closedChatId = closingPane?.chatId ?? null
-          // Does the VIEW outlive this pane? Asked while the pane is still in
-          // `panes`, so `viewIsShared` can see its own view. A view losing one
-          // of several members survives (the rest stay grouped); a view losing
-          // its only member is gone, and its id is free for the dormant record
-          // below to inherit — which is what keeps a closed view in the same
-          // Recents slot it occupied while it was live.
-          const viewSurvives = viewIsShared(state.panes, paneId)
-          const closedViewId = closingPane ? viewIdOf(closingPane) : paneId
 
           if (closedChatId) {
-            // THIS pane's own view on the chat is ending — spec §8.2's
-            // survivor rule applies here too, not only when a chat moves
-            // elsewhere: it sheds membership in any MULTI-chat arrangement
-            // remembering it, and the survivors keep their slot. Left
+            // THIS pane's own view on the chat is ending, on BOTH sides — the
+            // row goes with the pane, not one press behind it. Spec §5.5 USED
+            // to remember a fresh dormant record here instead ("the view
+            // dies, the row does not"), so Recents kept a click-to-reopen row
+            // after every close — exactly the friction the product owner
+            // closed this out for: "the pane disappears, but its row on
+            // recents don't — I have to hit the X once again to then have it
+            // removed from recents." One close now purges EVERY trace this
+            // chat has in `dormantArrangements`, not only its membership in a
+            // multi-chat SET (spec §8.2's survivor rule, still needed: left
             // unstripped, a SET's own `chatIds` never caught up with a pane
-            // closed through the tab bar or the pane-close keybinding
-            // (never Recents' own × control, which closes every member's
-            // pane at once) — the closed chat rode along as "live" forever,
-            // since `resolveState` reads an entry live off ANY member still
-            // showing.
-            const memberOfSet = state.dormantArrangements.some(
-              (e) => e.chatIds.length > 1 && e.chatIds.includes(closedChatId),
-            )
-            if (memberOfSet) {
+            // closed through the tab bar or the pane-close keybinding — never
+            // Recents' own × control, which closes every member's pane at
+            // once — and the closed chat rode along as "live" forever, since
+            // `resolveState` reads an entry live off ANY member still
+            // showing). A single-chat record can ALSO predate this close
+            // (`setPaneChat`'s own hotswap-away archive, spec §8.4) — leaving
+            // that one behind would silently bring the row right back the
+            // moment `deriveRecentsEntries` next re-derives, the very bug
+            // this closes.
+            if (state.dormantArrangements.some((e) => e.chatIds.includes(closedChatId))) {
               state.dormantArrangements = state.dormantArrangements
                 .map((e) =>
-                  e.chatIds.length > 1 && e.chatIds.includes(closedChatId)
+                  e.chatIds.includes(closedChatId)
                     ? { ...e, chatIds: e.chatIds.filter((id) => id !== closedChatId) }
                     : e,
                 )
                 .filter((e) => e.chatIds.length > 0)
-            }
-
-            // Spec §5.5: "the view dies, the row does not." A chat the daemon is
-            // still working keeps its "working, no view" row off `agentChats.working`
-            // alone — nothing to remember yet. An idle chat's view is gone for good
-            // unless we remember it here, so the close stays undoable.
-            //
-            // Skipped when some entry already remembers this chat on its own
-            // (checked AFTER the strip above, so a chat just split out of a
-            // SET is free to get its own fresh slot here rather than being
-            // mistaken for already-remembered).
-            const alreadyRemembered = state.dormantArrangements.some((e) =>
-              e.chatIds.includes(closedChatId),
-            )
-            if (!alreadyRemembered && !isChatWorking(closedChatId)) {
-              state.dormantArrangements.push({
-                // The dead VIEW's id, so the remembered row keeps the slot
-                // `recentsOrder` already gave it while it was live (a live row
-                // is keyed by its view). Only safe when the view really did
-                // die with this pane — a survivor still answers to that id,
-                // and two Recents entries sharing one id collide as React
-                // keys and in the persisted order alike.
-                id: viewSurvives ? nanoid() : closedViewId,
-                chatIds: [closedChatId],
-                state: 'dormant',
-              })
             }
           }
 

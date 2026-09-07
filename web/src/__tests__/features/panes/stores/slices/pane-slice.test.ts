@@ -1019,9 +1019,11 @@ describe('pane-slice — an emptied pane leaves the layout', () => {
   })
 })
 
-// Spec §5.5: "the view dies, the row does not." dormantArrangements is what
-// makes an idle close undoable; a chat the daemon is still working relies on
-// agentChats.working alone and must not also get a dormant record.
+// Spec §5.5 USED to say "the view dies, the row does not" — a plain close
+// left a dormant, click-to-reopen record. Removed: "the pane disappears, but
+// its row on recents don't — I have to hit the X once again to then have it
+// removed from recents" (verbatim). A close is now final on both sides; the
+// Recents row goes with the pane, in the SAME action.
 //
 // Task 26: `isChatWorking` (pane-slice.ts's own read of "is this chat
 // mid-turn") searches every REGISTERED workspace store's real
@@ -1035,20 +1037,18 @@ function makeStoreWithWorking(working: Record<string, boolean>) {
   return makeStore()
 }
 
-describe('pane-slice — dormantArrangements (spec §5.5)', () => {
-  it('closing a pane holding an idle chat remembers it as dormant', () => {
+describe('pane-slice — closing a view leaves no dormant record (spec §5.5)', () => {
+  it('closing a pane holding an idle chat leaves it out of Recents entirely — no second close needed', () => {
     const store = makeStoreWithWorking({})
     const paneId = ROOT_PANE_ID
     store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
 
     store.getState().paneActions.closePane(paneId)
 
-    expect(store.getState().dormantArrangements).toEqual([
-      { id: paneId, chatIds: ['chat-1'], state: 'dormant' },
-    ])
+    expect(store.getState().dormantArrangements).toEqual([])
   })
 
-  it('closing a pane holding a WORKING chat does not add a dormant record', () => {
+  it('closing a pane holding a WORKING chat does not add a dormant record either', () => {
     const store = makeStoreWithWorking({ 'chat-1': true })
     const paneId = ROOT_PANE_ID
     store.getState().paneActions.setPaneChat(paneId, 'chat-1', 'runner-1')
@@ -1069,26 +1069,52 @@ describe('pane-slice — dormantArrangements (spec §5.5)', () => {
     actions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
     expect(() => actions.closePane(ROOT_PANE_ID)).not.toThrow()
   })
+
+  // setPaneChat's own hotswap-away archive (spec §8.4) is a SEPARATE
+  // mechanism, untouched by this — a chat can still predate this pane's
+  // close with an existing dormant record. Closing purges it too, rather
+  // than leaving a stale row `deriveRecentsEntries` would silently revive.
+  it('closing a chat that already had a stale dormant record (from an earlier hotswap-away) purges that too', () => {
+    const store = makeStoreWithWorking({})
+    const { paneActions } = store.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1 as dormant
+    expect(store.getState().dormantArrangements).toHaveLength(1)
+    // chat-1 comes back — into its OWN, still-empty pane, not swapped back
+    // over chat-2 (which would just re-archive chat-2 instead, per §8.4).
+    const other = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    paneActions.setPaneChat(other, 'chat-1', 'runner-1')
+
+    paneActions.closePane(other) // closes chat-1 — its OWN stale record must go too
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
 })
 
-// Spec §5.4: "on a remembered one → forgets the arrangement." The symmetric
-// removal to the push `closePane` does above.
+// Spec §5.4: "on a remembered one → forgets the arrangement." Still reachable
+// off a record some OTHER path left behind (setPaneChat's own hotswap-away
+// archive, spec §8.4) — closePane no longer creates one of its own to forget.
 describe('pane-slice — forgetDormantArrangement (spec §5.4)', () => {
+  function archiveChatOne(store: ReturnType<typeof makeStoreWithWorking>) {
+    const { paneActions } = store.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
+    return store.getState().dormantArrangements[0]!.id
+  }
+
   it('removes the named arrangement, leaving the rest', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    const entryId = archiveChatOne(store)
     expect(store.getState().dormantArrangements).toHaveLength(1)
 
-    store.getState().paneActions.forgetDormantArrangement(ROOT_PANE_ID)
+    store.getState().paneActions.forgetDormantArrangement(entryId)
 
     expect(store.getState().dormantArrangements).toEqual([])
   })
 
   it('is a no-op for an id that names no arrangement', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    archiveChatOne(store)
 
     store.getState().paneActions.forgetDormantArrangement('no-such-entry')
 
@@ -1127,8 +1153,9 @@ describe('pane-slice — forgetChat (spec §9)', () => {
 
   it('drops an arrangement left with nobody in it', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    const { paneActions } = store.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1 as dormant
     expect(store.getState().dormantArrangements).toHaveLength(1)
 
     store.getState().paneActions.forgetChat('chat-1')
@@ -1158,15 +1185,16 @@ describe('pane-slice — forgetChat (spec §9)', () => {
 
   it('an emptied last pane falls back to the first chat still standing (spec §9)', () => {
     const store = makeStoreWithWorking({})
-    // chat-2 already has its own remembered (dormant) slot — a chat that
-    // survives this deletion, "still standing".
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    const { paneActions } = store.getState()
+    // chat-2 gets its own remembered (dormant) slot the moment chat-1
+    // replaces it in the same pane (setPaneChat's own hotswap-away archive,
+    // spec §8.4) — a chat that survives this deletion, "still standing".
+    // chat-1 ends up the only LIVE view, in the window's sole pane.
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
     expect(store.getState().dormantArrangements).toEqual([
-      { id: ROOT_PANE_ID, chatIds: ['chat-2'], state: 'dormant' },
+      { id: expect.any(String), chatIds: ['chat-2'], state: 'dormant' },
     ])
-    // chat-1 is the only LIVE view, in the window's sole pane.
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
     store.getState().paneActions.forgetChat('chat-1')
 
@@ -1392,15 +1420,24 @@ describe('pane-slice — setPaneChat sheds stale arrangement membership (spec §
 
   it('restoring a dormant chat via setPaneChat keeps its record — and its slot — instead of deleting it (spec §5.6)', () => {
     const store = makeStoreWithWorking({})
-    // A single-chat entry, exactly as closePane's own dormant push creates.
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    const { paneActions } = store.getState()
+    // A single-chat entry, exactly as setPaneChat's own hotswap-away archive
+    // creates (spec §8.4) when chat-2 replaces chat-1 in the same pane.
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
     const [dormantRecord] = store.getState().dormantArrangements
-    expect(dormantRecord).toEqual({ id: ROOT_PANE_ID, chatIds: ['chat-1'], state: 'dormant' })
+    expect(dormantRecord).toEqual({
+      id: expect.any(String),
+      chatIds: ['chat-1'],
+      state: 'dormant',
+    })
 
     const before = store.getState().dormantArrangements
-    // Restore it into a pane — the same write `openAgentChat` performs.
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    // Restore it into its OWN, still-empty pane — the same write
+    // `openAgentChat` performs — not swapped back over chat-2 (which would
+    // just re-archive chat-2 instead, per §8.4, and confound this assertion).
+    const other = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(other, 'chat-1', null)
 
     // The SAME record, same id, same slot — not deleted and re-derived
     // fresh (which would have appended it after every other dormant entry).
@@ -1490,13 +1527,17 @@ describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () 
 
   it('does not double-archive a chat that already has its own dormant slot', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
-    // Restore chat-1 — spec §5.6 keeps this the SAME record, at its slot.
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const { paneActions } = store.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-3', 'runner-3') // archives chat-1 as dormant
+    // Restore chat-1 into its OWN, still-empty pane (spec §5.6 keeps this the
+    // SAME record, at its slot) — not swapped back over chat-3, which would
+    // just archive chat-3 too and confound the length assertion below.
+    const other = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(other, 'chat-1', null)
     expect(store.getState().dormantArrangements).toHaveLength(1)
 
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2')
+    store.getState().paneActions.setPaneChat(other, 'chat-2', 'runner-2')
 
     // chat-1 already had a slot remembering it — swapping it back out must
     // not mint a second record alongside that one.
@@ -1538,7 +1579,7 @@ describe('pane-slice — setPaneChat archives an evicted chat (spec §8.4)', () 
 })
 
 describe('pane-slice — closePane splits the closing chat out of any SET it belongs to', () => {
-  it("strips the closed chat from the set, leaving the survivor at the SET's own slot, and gives the closed chat its own fresh dormant record", () => {
+  it("strips the closed chat from the set, leaving the survivor at the SET's own slot, and leaves the closed chat with no record of its own", () => {
     const store = makeStoreWithWorking({})
     // chat-1 is genuinely resident in ROOT, and some multi-chat entry
     // remembers it alongside chat-2.
@@ -1555,16 +1596,12 @@ describe('pane-slice — closePane splits the closing chat out of any SET it bel
     store.getState().paneActions.closePane(ROOT_PANE_ID)
 
     const entries = store.getState().dormantArrangements
-    expect(entries).toHaveLength(2)
     // The survivor keeps the SET's own slot (spec §5.6), even reduced to
-    // one member.
-    const survivor = entries.find((e) => e.id === setId)
-    expect(survivor?.chatIds).toEqual(['chat-2'])
-    // The closed chat gets its OWN fresh record — remembered so the close
-    // stays undoable (spec §5.5), no longer riding chat-2's.
-    const closed = entries.find((e) => e.id !== setId)
-    expect(closed?.chatIds).toEqual(['chat-1'])
-    expect(closed?.state).toBe('dormant')
+    // one member — and that is the ONLY entry left. A close is final now:
+    // chat-1 gets no record of its own to ride along in Recents with.
+    expect(entries).toHaveLength(1)
+    expect(entries[0].id).toBe(setId)
+    expect(entries[0].chatIds).toEqual(['chat-2'])
   })
 
   it('does not remember the split-out chat if the daemon is still working it', () => {
@@ -1584,17 +1621,21 @@ describe('pane-slice — closePane splits the closing chat out of any SET it bel
     // working row off `agentChats.working` alone (spec §5.5).
   })
 
-  it('does not push a second, single-chat record for a chat that already has its own dormant slot', () => {
+  it('re-closing a chat that already had its own dormant slot (from an earlier hotswap-away) purges that record too', () => {
     const store = makeStoreWithWorking({})
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    store.getState().paneActions.closePane(ROOT_PANE_ID) // chat-1 gets its own dormant slot
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null) // reopened, same slot
+    const { paneActions } = store.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-3', 'runner-3') // archives chat-1 as dormant
+    // Reopened into its OWN, still-empty pane — not swapped back over
+    // chat-3, which would just archive chat-3 too.
+    const other = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    paneActions.setPaneChat(other, 'chat-1', null)
     expect(store.getState().dormantArrangements).toHaveLength(1)
 
-    store.getState().paneActions.closePane(ROOT_PANE_ID)
+    store.getState().paneActions.closePane(other)
 
-    expect(store.getState().dormantArrangements).toHaveLength(1)
-    expect(store.getState().dormantArrangements[0].chatIds).toEqual(['chat-1'])
+    // A close is final now — no record survives it, stale or otherwise.
+    expect(store.getState().dormantArrangements).toEqual([])
   })
 })
 
@@ -1870,9 +1911,9 @@ describe('pane-slice — closing a view', () => {
     expect(live).toEqual([])
     expect(store.getState().panes[b]).toBeUndefined()
     expect(store.getState().panes[c]).toBeUndefined()
-    // Every member is remembered, so a three-chat close stays undoable.
-    const remembered = store.getState().dormantArrangements.flatMap((e) => e.chatIds)
-    expect([...remembered].sort()).toEqual(['chat-1', 'chat-2', 'chat-3'])
+    // A close is final on every member now — none of the three chats leaves
+    // a dormant Recents row behind for a second, separate dismiss.
+    expect(store.getState().dormantArrangements).toEqual([])
   })
 
   it('closing a view never touches a sibling view', () => {

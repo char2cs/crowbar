@@ -27,6 +27,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
 
 const stop = vi.mocked(stopChat)
 
@@ -139,6 +140,54 @@ describe('closePane tears the closed chat down on both sides', () => {
     // chat-1 is still up in the surviving half of the view, so the workspace
     // is still in use — nothing to evict.
     expect(evicted).toEqual([])
+  })
+
+  // The reported bug: "closing the current view, its underlying chats are not
+  // closed — I'm obligated to close those twice." closeView (the pane-chrome
+  // ×'s own action as of the previous fix) iterates closePane per member —
+  // this proves BOTH members' stopChat calls actually land on a real close,
+  // not just that the layout empties. Same-workspace first: the cross-
+  // workspace case gets its own test right below.
+  it('closeView on a merged view stops EVERY member’s chat, not just one', async () => {
+    seedWorkspace('ws-1', [chat('chat-1', 'ws-1'), chat('chat-2', 'ws-1')])
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const merged = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    paneActions.setPaneChat(merged, 'chat-2', 'runner-2')
+    const view = viewIdOf(windowPaneStore.getState().panes[ROOT_PANE_ID])
+
+    windowPaneStore.getState().paneActions.closeView(view)
+    await settle()
+
+    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
+    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-2')
+    expect(stop).toHaveBeenCalledTimes(2)
+    // Requested once PER MEMBER (each releaseClosedChat independently decides
+    // the workspace is no longer in use) — harmless (WorkspaceHost's own
+    // unmount-then-destroy is idempotent), just not deduped at the source.
+    expect(evicted).toEqual(['ws-1', 'ws-1'])
+  })
+
+  // Drag-to-split (restored two commits ago) lets a view hold panes from
+  // DIFFERENT workspaces. closeView's per-member closePane resolves each
+  // member's own owning workspace independently — this is the shape that
+  // would silently strand a runner if it didn't.
+  it('closeView on a merged view spanning TWO workspaces stops both chats in their own workspace', async () => {
+    seedWorkspace('ws-1', [chat('chat-1', 'ws-1')])
+    seedWorkspace('ws-2', [chat('chat-2', 'ws-2')])
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const merged = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    paneActions.setPaneChat(merged, 'chat-2', 'runner-2')
+    const view = viewIdOf(windowPaneStore.getState().panes[ROOT_PANE_ID])
+
+    windowPaneStore.getState().paneActions.closeView(view)
+    await settle()
+
+    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
+    expect(stop).toHaveBeenCalledWith('ws-2', 'chat-2')
+    expect(stop).toHaveBeenCalledTimes(2)
+    expect([...evicted].sort()).toEqual(['ws-1', 'ws-2'])
   })
 
   it('keeps the workspace the route is currently on, whose view is still mounted', async () => {
