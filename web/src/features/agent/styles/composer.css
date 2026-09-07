@@ -653,10 +653,12 @@
 }
 
 /* ── the blank chat's document ─────────────────────────── */
-/* Its own measure, and deliberately NOT the transcript's: a conversation is read
-   in a 720px column of 14px UI text, and a thing you are WRITING gets 16px at
-   1.7 with the same 720px of line. The two agree on the measure and disagree on
-   the size, which is the difference between reading and drafting. */
+/* Its own measure, but not its own size: this used to sit at 16px/1.7 while the
+   transcript read at 14px, deliberately disagreeing "drafting" from "reading."
+   That size call is now overridden — the empty document reads at the exact
+   size rendered turn output uses (`.agent-prose`, transcript.css), so nothing
+   about the type changes once the first turn lands. Only the 720px measure
+   stays this surface's own. */
 .agent-chat .docwrap {
   position: relative;
   flex: 1;
@@ -679,10 +681,13 @@
 .agent-chat .doc {
   --pad: max(40px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.7;
   outline: none;
   color: var(--foreground);
+  /* Content wider than the measure (an unwrapped long line, a code fence)
+     scrolls instead of clipping. */
+  overflow-x: auto;
 }
 /* The document's editable. Plate owns the blocks inside it; this is only the
    column they sit in. */
@@ -960,13 +965,17 @@
 /* A blank markdown document, because that is what a good first prompt looks
    like. The affordance is inverted from the transcript's: the writing surface is
    the page and the controls are the box, rather than the other way round. */
+/* `.sheet` below is a retired static placeholder — nothing renders it any
+   more (the live `.doc` above is the interactive Plate editor). This rule
+   still shares the `.doc` selector and sits LATER in the cascade, so its
+   `overflow` used to win over the live rule's own — dropped here rather than
+   left to silently reintroduce that clip. */
 .agent-chat .doc {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  overflow: hidden;
 }
 .agent-chat .doc .sheet {
   width: 100%;

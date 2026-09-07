@@ -171,7 +171,7 @@ describe('lastLineTop', () => {
   })
 
   it('falls back to the first-line position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 27.2)
+    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 23.8)
   })
 
   it('falls back to the first-line position when the editor holds no text at all', () => {
@@ -182,7 +182,7 @@ describe('lastLineTop', () => {
     editable.appendChild(document.createElement('p')) // present, but empty
     doc.appendChild(editable)
 
-    expect(lastLineTop(doc)).toBeCloseTo(48 + 27.2)
+    expect(lastLineTop(doc)).toBeCloseTo(48 + 23.8)
   })
 
   it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
