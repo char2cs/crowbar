@@ -11,13 +11,31 @@ type Node = { text?: string; children?: Node[] } & Record<string, unknown>
 export const CHAT_FRESH_MARK = 'chatFresh'
 /** This leaf's `animation-delay`, in ms — see `staggerDelay` below. */
 export const CHAT_FRESH_DELAY_MARK = 'chatFreshDelay'
+/** A finished fade still holding its place in the leaf split so the words
+ *  after it keep their identity — see `pruneRuns`. Deliberately matches NO
+ *  plugin: it splits the leaf (which is its whole job) and renders as the
+ *  plain text it now is, with no animation to restart. */
+export const CHAT_FRESH_HELD = 'chatFreshHeld'
 
-// Keys equality must look past: `NodeIdPlugin` (registered in
-// chat-composer-plugins.ts) stamps a fresh random id onto every block it
-// normalizes, so two parses of identical markdown never carry the same one —
-// it is Plate's own "not content" prop (`isMetadataProp` flags exactly this
-// key).
-const IGNORED_KEYS = new Set(['id'])
+// Keys equality must look past, because a PLUGIN derives them rather than the
+// markdown carrying them — so the document and a fresh parse of the very same
+// text disagree about them forever, and a diff that respected them would
+// consider every block permanently changed.
+//
+// - `id`: `NodeIdPlugin` (registered in chat-composer-plugins.ts) stamps a
+//   fresh random one onto every block it normalizes, so two parses of
+//   identical markdown never match. It is Plate's own "not content" prop
+//   (`isMetadataProp` flags exactly this key).
+// - `listStart`: `@platejs/list`'s `normalizeListStart` renumbers ordered
+//   items from their position and DELETES the prop from the first item, whose
+//   `1` is implicit — while the markdown parse always emits it. Measured, in
+//   Chrome, on a streamed 10-item numbered list: this one prop on this one
+//   block dropped `stableBlockCount` to 0 of 10, so every flush tore the whole
+//   list down and reinserted it, and every reinsertion re-entered that same
+//   renumbering pass — 121 Slate operations per flush on a 24-item list, a
+//   42ms median frame and a 571ms freeze. Both are derived, both are the
+//   plugin's to maintain, and neither is what the agent actually said.
+const IGNORED_KEYS = new Set(['id', 'listStart'])
 
 // A whole delta can be a full sentence (Claude's hook) or a few words
 // (Codex's stream) — the transport's chunking is not ours to change (see the
@@ -129,20 +147,43 @@ function recordRun(editor: PlateEditor, run: FreshRun): void {
   freshRuns.set(editor, runs)
 }
 
-/** Drops runs that can no longer be rendered: already settled, aged out of
- *  the generation window, or living in a block this patch is about to
- *  rewrite (their character offsets would no longer mean anything). */
+const pathKey = (path: Path) => path.join('.')
+
+/**
+ * Drops runs that can no longer be rendered — but never one whose BOUNDARY a
+ * still-fading neighbour depends on.
+ *
+ * REGRESSION this shape exists to prevent, root-caused in slate's own source:
+ * `slate-react` keys each rendered leaf `${textKey}-${i}`, where `i` is the
+ * positional index into the split `Text.decorations` rebuilds from scratch
+ * every render. Dropping ONE settled range therefore shifts the index of
+ * every leaf after it in the same text node — React sees new keys, unmounts
+ * those spans, mounts fresh ones, and a fresh DOM node starts its CSS
+ * animation from zero. Mid-stream that happened continuously, so words never
+ * got an uninterrupted stretch of real time to finish fading and sat at the
+ * animation's invisible start state until the stream stopped.
+ *
+ * So a settled run keeps holding its boundary (rendered inert — see
+ * `freshDecorations`) for as long as ANY run in the same text node is still
+ * fading, and a line's runs are only ever released together, once nothing
+ * there is animating and the reindex can touch only inert leaves.
+ */
 function pruneRuns(editor: PlateEditor, invalidFromBlock: number): void {
   const runs = freshRuns.get(editor)
   if (!runs?.length) return
   const settled = settledGenerations.get(editor)
   const floor = (freshGenerations.get(editor) ?? 0) - MAX_LIVE_GENERATIONS
-  const kept = runs.filter(
-    (run) =>
-      !settled?.has(run.generation) &&
-      run.generation > floor &&
-      (run.path[0] ?? 0) < invalidFromBlock,
-  )
+  const live = (run: FreshRun) => !settled?.has(run.generation) && run.generation > floor
+  // The text nodes that still have something fading in them. Everything else
+  // is free to go: a line with no live run left can collapse its whole split
+  // at once without disturbing an animation, because there is none to disturb.
+  const animating = new Set<string>()
+  for (const run of runs) if (live(run)) animating.add(pathKey(run.path))
+  const kept = runs.filter((run) => {
+    if ((run.path[0] ?? 0) >= invalidFromBlock) return false
+    if (live(run)) return true
+    return animating.has(pathKey(run.path))
+  })
   freshRuns.set(editor, kept)
   if (settled && kept.length === 0) settled.clear()
 }
@@ -179,36 +220,42 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
   if (!runs?.length) return []
   const settled = settledGenerations.get(editor)
 
+  const floor = (freshGenerations.get(editor) ?? 0) - MAX_LIVE_GENERATIONS
+
   const ranges: DecoratedRange[] = []
   for (const run of runs) {
     if (!pathEquals(run.path, path)) continue
-    if (settled?.has(run.generation)) continue
     // A reparse can reshape the leaf this run was recorded against (an
     // inline mark opening mid-word splits it). Its offsets then name text
     // that is no longer there, so the run is dropped rather than guessed at.
     if (run.end > text.length || run.start >= run.end) continue
+    // Still held only to keep the split stable for a fading neighbour (see
+    // `pruneRuns`). It carries no mark any plugin renders, so it is plain
+    // text that merely happens to be its own leaf — and, crucially, no
+    // animation to be restarted if React does remount it.
+    const held = settled?.has(run.generation) || run.generation <= floor
+    const mark = (offset: number, next: number, delay: number) =>
+      ranges.push(
+        (held
+          ? { anchor: { path, offset }, focus: { path, offset: next }, [CHAT_FRESH_HELD]: true }
+          : {
+              anchor: { path, offset },
+              focus: { path, offset: next },
+              [CHAT_FRESH_MARK]: run.generation,
+              [CHAT_FRESH_DELAY_MARK]: delay,
+            }) as unknown as DecoratedRange,
+      )
 
-    const body = text.slice(run.start, run.end)
     // See WORD_SPLIT_CAP: past this many words the stagger step is already
     // imperceptible, and one range beats hundreds of DOM spans.
     if (run.totalWords > WORD_SPLIT_CAP) {
-      ranges.push({
-        anchor: { path, offset: run.start },
-        focus: { path, offset: run.end },
-        [CHAT_FRESH_MARK]: run.generation,
-        [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS,
-      } as unknown as DecoratedRange)
+      mark(run.start, run.end, SCROLL_LEAD_MS)
       continue
     }
     let offset = run.start
-    splitIntoWords(body).forEach((word, i) => {
+    splitIntoWords(text.slice(run.start, run.end)).forEach((word, i) => {
       const next = offset + word.length
-      ranges.push({
-        anchor: { path, offset },
-        focus: { path, offset: next },
-        [CHAT_FRESH_MARK]: run.generation,
-        [CHAT_FRESH_DELAY_MARK]: SCROLL_LEAD_MS + staggerDelay(run.wordOffset + i, run.totalWords),
-      } as unknown as DecoratedRange)
+      mark(offset, next, SCROLL_LEAD_MS + staggerDelay(run.wordOffset + i, run.totalWords))
       offset = next
     })
   }

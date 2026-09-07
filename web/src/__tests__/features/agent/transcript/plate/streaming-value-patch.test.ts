@@ -250,7 +250,11 @@ function leaves(editor: ReturnType<typeof createPlateEditor>): { text: string; f
     for (const range of freshDecorations(editor, entry) as {
       anchor: { offset: number }
       focus: { offset: number }
+      chatFresh?: number
     }[]) {
+      // Animated ranges only — a settled run keeps emitting an inert one to
+      // hold its boundary for the words still fading after it.
+      if (range.chatFresh === undefined) continue
       fresh.add(text.slice(range.anchor.offset, range.focus.offset))
     }
   }
@@ -338,7 +342,9 @@ function fadeWords(editor: ReturnType<typeof createPlateEditor>): string[] {
     for (const range of freshDecorations(editor, entry) as {
       anchor: { offset: number }
       focus: { offset: number }
+      chatFresh?: number
     }[]) {
+      if (range.chatFresh === undefined) continue
       out.push(text.slice(range.anchor.offset, range.focus.offset))
     }
   }
@@ -447,5 +453,83 @@ describe('applyStreamedValue: a large jump still animates as one unit', () => {
     applyStreamedValue(editor, chatMarkdownToValue('five short words here'))
 
     expect(fadeWords(editor)).toEqual(['five ', 'short ', 'words ', 'here'])
+  })
+})
+
+// PERFORMANCE, live-reported after the decoration fix landed ("fps still
+// drops"), then isolated in Chrome to ORDERED lists specifically — bulleted
+// ones were always fine.
+//
+// `@platejs/list`'s `normalizeListStart` renumbers ordered items from their
+// position and DELETES `listStart` from the first item, whose `1` is
+// implicit; the markdown parse always emits it. That single derived prop on
+// that single block made the document and a fresh parse of the very same text
+// disagree forever, so `stableBlockCount` returned 0 and every flush tore the
+// whole list down and reinserted it — and each reinsertion re-entered the same
+// renumbering pass, which is why the cost grew with the square of the list.
+// Measured before the fix: 24 items cost 121 Slate operations per flush, a
+// 42.5ms median frame and one 571ms freeze.
+describe('applyStreamedValue: an ordered list streams as cheaply as prose', () => {
+  const orderedList = (items: number) =>
+    Array.from({ length: items }, (_, i) => `${i + 1}. item ${i} body text`).join('\n')
+
+  /** Streams `markdown` in small deltas, as Codex's transport does, and
+   *  reports the worst single flush's Slate operation count. */
+  function worstFlushOps(markdown: string, wordsPerDelta = 2): number {
+    const tokens = markdown.match(/\s*\S+/g) ?? []
+    const steps: string[] = []
+    let acc = ''
+    tokens.forEach((token, i) => {
+      acc += token
+      if ((i + 1) % wordsPerDelta === 0) steps.push(acc)
+    })
+    if (acc !== steps.at(-1)) steps.push(acc)
+
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(steps[0]!),
+    })
+    let worst = 0
+    for (let i = 1; i < steps.length; i++) {
+      worst = Math.max(
+        worst,
+        countOps(editor, () => applyStreamedValue(editor, chatMarkdownToValue(steps[i]!))),
+      )
+    }
+    return worst
+  }
+
+  it('does not re-insert the whole list on every delta', () => {
+    // The tell, directly: a longer list must not cost proportionally more per
+    // flush. Before the fix these were 45, 120 and 325.
+    const eight = worstFlushOps(orderedList(8))
+    const twentyFour = worstFlushOps(orderedList(24))
+    expect(twentyFour).toBeLessThanOrEqual(eight + 2)
+    expect(twentyFour).toBeLessThanOrEqual(8)
+  })
+
+  it('leaves the document agreeing with a fresh parse, list numbering aside', () => {
+    const markdown = orderedList(10)
+    // Streamed in deltas, not applied in one go: the divergence only builds
+    // up once the list plugin has normalized a list it inserted itself.
+    const tokens = markdown.match(/\s*\S+/g) ?? []
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(tokens.slice(0, 2).join('')),
+    })
+    for (let i = 4; i <= tokens.length; i += 2) {
+      applyStreamedValue(editor, chatMarkdownToValue(tokens.slice(0, i).join('')))
+    }
+
+    // Every block matches, which is what keeps the next delta on the cheap
+    // path. `listStart` is excluded by IGNORED_KEYS precisely because the
+    // list plugin owns it and the parse cannot agree with it.
+    const parsed = chatMarkdownToValue(markdown)
+    expect(stableBlockCount(editor.children as never, parsed)).toBe(parsed.length)
+  })
+
+  it('costs an ordered list no more per delta than a bulleted one', () => {
+    const bulleted = Array.from({ length: 14 }, (_, i) => `- item ${i} body text`).join('\n')
+    expect(worstFlushOps(orderedList(14))).toBeLessThanOrEqual(worstFlushOps(bulleted) + 2)
   })
 })
