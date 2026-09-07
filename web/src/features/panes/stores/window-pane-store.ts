@@ -16,6 +16,8 @@ export type WindowPaneSnapshot = Partial<
     | 'panes'
     | 'rootLayout'
     | 'bottomLayout'
+    | 'parkedViews'
+    | 'activeViewId'
     | 'activePaneId'
     | 'fullscreenPaneId'
     | 'mostRecentActivePaneIds'
@@ -59,6 +61,8 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
       state.panes === prev.panes &&
       state.rootLayout === prev.rootLayout &&
       state.bottomLayout === prev.bottomLayout &&
+      state.parkedViews === prev.parkedViews &&
+      state.activeViewId === prev.activeViewId &&
       state.activePaneId === prev.activePaneId &&
       state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
       state.buffers === prev.buffers
@@ -78,6 +82,11 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         panes: persistable.panes,
         rootLayout: current.rootLayout,
         bottomLayout: current.bottomLayout,
+        // Without these two a reload would restore every open view's PANES
+        // but only one tree to hang them on — the parked arrangements would
+        // be lost and their chats would come back as unreachable orphans.
+        parkedViews: current.parkedViews,
+        activeViewId: current.activeViewId,
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
         buffers: persistable.buffers,
@@ -123,10 +132,13 @@ export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPan
     panes: fresh.panes,
     rootLayout: fresh.rootLayout,
     bottomLayout: fresh.bottomLayout,
+    parkedViews: fresh.parkedViews,
+    activeViewId: fresh.activeViewId,
     activePaneId: fresh.activePaneId,
     fullscreenPaneId: fresh.fullscreenPaneId,
     mostRecentActivePaneIds: fresh.mostRecentActivePaneIds,
     dormantArrangements: fresh.dormantArrangements,
+    recentsOrder: fresh.recentsOrder,
     buffers: fresh.buffers,
     closedBuffersHistory: fresh.closedBuffersHistory,
     pendingClose: fresh.pendingClose,

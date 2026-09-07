@@ -252,3 +252,67 @@ describe('deriveRecentsEntries', () => {
     })
   })
 })
+
+/**
+ * `showing` — what makes the band a SWITCHER rather than a list.
+ *
+ * `state: 'live'` means "has a pane", and several views satisfy that at once
+ * now. Only one of them is on screen, and without a way to say which, every
+ * open view would wear the active row's treatment and "you are here" would be
+ * unreadable.
+ */
+describe('deriveRecentsEntries — which view is on screen', () => {
+  it('marks only the entry whose view is active', () => {
+    const panes = [
+      makePane({ chatId: 'c1', viewId: 'view-a' }),
+      makePane({ chatId: 'c2', viewId: 'view-b' }),
+    ]
+
+    const entries = deriveRecentsEntries(panes, {}, [], [], 'view-b')
+
+    expect(entries.find((e) => e.id === 'view-b')?.showing).toBe(true)
+    expect(entries.find((e) => e.id === 'view-a')?.showing).toBeUndefined()
+  })
+
+  it('a MERGED view is showing as a whole — any member answers for it', () => {
+    const panes = [
+      makePane({ chatId: 'c1', viewId: 'view-a' }),
+      makePane({ chatId: 'c2', viewId: 'view-a' }),
+    ]
+
+    const entries = deriveRecentsEntries(panes, {}, [], [], 'view-a')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].chatIds.sort()).toEqual(['c1', 'c2'])
+    expect(entries[0].showing).toBe(true)
+  })
+
+  // A row drawn at a dormant record's slot still has to report the state of
+  // the LIVE view it now contains — the slot id and the view id differ there,
+  // so this cannot be answered by comparing ids.
+  it('answers for a row sitting at a remembered slot, by its live members', () => {
+    const panes = [makePane({ chatId: 'c1', viewId: 'view-a' })]
+    const remembered: RecentsEntry[] = [{ id: 'slot', chatIds: ['c1'], state: 'dormant' }]
+
+    const entries = deriveRecentsEntries(panes, {}, remembered, [], 'view-a')
+
+    expect(entries).toEqual([{ id: 'slot', chatIds: ['c1'], state: 'live', showing: true }])
+  })
+
+  it('marks nothing when no view is named — a caller with no active view has no answer', () => {
+    const panes = [makePane({ chatId: 'c1', viewId: 'view-a' })]
+
+    const entries = deriveRecentsEntries(panes, {}, [])
+
+    expect(entries[0].showing).toBeUndefined()
+  })
+
+  it('a dormant row is never showing, even when its id matches the active view', () => {
+    const remembered: RecentsEntry[] = [{ id: 'view-a', chatIds: ['c1'], state: 'dormant' }]
+
+    const entries = deriveRecentsEntries([], {}, remembered, [], 'view-a')
+
+    expect(entries[0].state).toBe('dormant')
+    expect(entries[0].showing).toBeUndefined()
+  })
+})

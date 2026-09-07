@@ -189,6 +189,13 @@ function RecentsEntryRow({
   // ground, unlit — per §5.3 "at rest the shell and every member are empty".
   const isSet = entry.chatIds.length >= 2
   const isLive = entry.state === 'live'
+  // THE SWITCHER'S "you are here". Several views can be live at once and only
+  // one occupies the screen, so `state: 'live'` no longer decides the lit
+  // treatment on its own — three steps now: showing (lit), open but off
+  // screen (a filled, unlit ground), remembered (nothing). Reusing the SET
+  // shell's own idle token for the middle step rather than inventing a
+  // fourth surface.
+  const isShowing = isLive && entry.showing === true
   // §5.4: every row has a close control except the working one. There is
   // nothing left to close, and that absence is the "still running" signal.
   const canClose = entry.state !== 'working'
@@ -202,10 +209,11 @@ function RecentsEntryRow({
   // row — the bug this file was patched for). The member below cancels
   // `ROW_BASE`'s own margin with an equal negative one exactly when this
   // wrapper is the one taking over that spacing, so the net is applied once.
-  const soloActive = !isSet && isLive
+  const soloActive = !isSet && isShowing
 
   return (
     <div
+      data-view-showing={isShowing || undefined}
       className={cn(
         'group relative',
         // A SET's shell is a real container (§5.3): its own ground, radius,
@@ -222,8 +230,19 @@ function RecentsEntryRow({
         // wrong pass at this fix) deleted the shell's only left/right
         // gutter and rendered it flush against the sidebar's edges.
         isSet && 'mx-1.5 my-0.5 rounded-xl p-0.5',
-        isSet && (isLive ? ROW_ACTIVE : 'bg-sidebar-element-idle'),
+        isSet && (isShowing ? ROW_ACTIVE : 'bg-sidebar-element-idle'),
         soloActive && cn('mx-1.5 my-0.5 rounded-lg', ROW_ACTIVE),
+        // NOTE — a solo view that is OPEN BUT OFF SCREEN gets no ground of its
+        // own here, deliberately. Giving it one (measured: the SET shell's
+        // `bg-sidebar-element-idle` is a 11% light overlay) renders it LIGHTER
+        // than `ROW_ACTIVE`'s dark, inset-lit surface and inverts the
+        // hierarchy — every parked row shouting over the one you are actually
+        // looking at. `ROW_ACTIVE` reads as "selected" precisely because the
+        // rows around it are bare, which is the same relationship it has in
+        // the tree. What separates open-off-screen from remembered is already
+        // said on the row itself: `hasView` greys its label (§3.2, "a row with
+        // a view is grey"), and it is passed for every live entry regardless
+        // of which one is showing.
       )}
       data-testid={isSet ? `recents-set-${entry.id}` : undefined}
     >
@@ -234,6 +253,9 @@ function RecentsEntryRow({
           // can each belong to a different workspace within the project.
           workspaceId={entry.chatWorkspaces?.[chatId] ?? entry.workspaceId}
           chatId={chatId}
+          // Open is open: a view sitting off screen still HAS a view, and the
+          // tree's grey "already open" marker must not flicker off every time
+          // the user looks at something else.
           hasView={isLive}
           reserveClose={canClose}
           cancelOwnMargin={soloActive}

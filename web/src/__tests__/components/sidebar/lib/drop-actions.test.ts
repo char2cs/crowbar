@@ -739,7 +739,10 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
     const freshPane = windowPaneStore.getState().paneActions.addPane()!
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], freshPane, 'center')
 
-    expect(windowPaneStore.getState().panes[freshPane]?.chatId).toBeNull()
+    // The empty view the drop was aimed at evaporates as the c1+c2 view comes
+    // back over it — an arrangement with nothing in it is not something to
+    // switch back to.
+    expect(windowPaneStore.getState().panes[freshPane]).toBeUndefined()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(liveViewOf('c1')).toBe(view)
     expect(liveViewOf('c2')).toBe(view)
@@ -817,17 +820,43 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     expect(liveRecents()).toEqual([['c1'], ['c2']])
   })
 
-  it('every clicked view is an equal peer, not a subdivision of the one before it', () => {
+  it('each clicked view REPLACES the one on screen — three clicks, one view showing', () => {
     openChatInOwnPane(chatRow('c1', 'ws-1'))
     openChatInOwnPane(chatRow('c2', 'ws-1'))
     openChatInOwnPane(chatRow('c3', 'ws-1'))
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(3)
-    const layout = windowPaneStore.getState().rootLayout
-    // Every pane still on screen holds exactly the chat it was opened with —
-    // nothing was swapped out, and nothing shares a pane.
-    const chatIds = getAllLeafIds(layout).map((id) => windowPaneStore.getState().panes[id]?.chatId)
-    expect([...chatIds].sort()).toEqual(['c1', 'c2', 'c3'])
+    // THE BUG. Three separately clicked chats used to draw as three columns
+    // at once: each click appended a peer leaf to the one shared tiling tree,
+    // so "its own view" was true in the data and invisible on screen.
+    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(showing).toHaveLength(1)
+    expect(windowPaneStore.getState().panes[showing[0]]?.chatId).toBe('c3')
+
+    // Nothing was swapped out or lost: the other two are open, off screen,
+    // each still holding exactly the chat it was opened with.
+    const parked = Object.values(windowPaneStore.getState().parkedViews)
+    expect(parked).toHaveLength(2)
+    const chatIds = parked
+      .flatMap((tree) => getAllLeafIds(tree))
+      .map((id) => windowPaneStore.getState().panes[id]?.chatId)
+    expect([...chatIds].sort()).toEqual(['c1', 'c2'])
+    // And every one of them keeps its Recents row — a switcher needs targets.
+    expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
+  })
+
+  it('clicking a chat that is already open SWITCHES to its view, never duplicates it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const c1Pane = windowPaneStore.getState().activePaneId
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([c1Pane])
+    expect(windowPaneStore.getState().activePaneId).toBe(c1Pane)
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
+    ).toHaveLength(1)
   })
 
   it('a chat already up is gone TO, never opened twice', () => {
@@ -851,7 +880,10 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     openChatInOwnPane(chatRow('c2', 'ws-1'))
 
     expect(windowPaneStore.getState().panes[second]?.chatId).toBe('c2')
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([ROOT_PANE_ID, second])
+    // Filled in place rather than opening a third view beside it — and it is
+    // the only thing on screen, with c1's view parked behind it.
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([second])
+    expect(Object.keys(windowPaneStore.getState().parkedViews)).toEqual([ROOT_PANE_ID])
   })
 
   it('carries the same off-screen-workspace refusal a drop does', () => {
@@ -1100,5 +1132,62 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
     // ws-a sits at index 0 of the repo root, so `ws-c` takes that slot — the
     // index is only computable if the target resolved to `ws-a` at all.
     expect(placeWorkspace).toHaveBeenCalledWith('ws-c', expect.objectContaining({ order: 0 }))
+  })
+})
+
+/**
+ * RECENTS IS THE VIEW SWITCHER — spec §8.1's "into that view, opened", now
+ * that the view in question is usually NOT the one on screen.
+ *
+ * The band already draws exactly one row per view, so it is the switcher
+ * rather than a second, parallel tab strip listing the same views again. That
+ * makes its rows drop targets for a view that is off screen, which before
+ * views owned their own trees could not work at all: the split machinery
+ * looked the target pane up in `rootLayout` only, found nothing, and silently
+ * dropped the merge on the floor.
+ */
+describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () => {
+  beforeEach(() => setActiveWorkspaceId('ws-1'))
+
+  it('merges into a view that is NOT on screen, and brings it over', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const c1Pane = windowPaneStore.getState().activePaneId
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    // c1's view is parked; c2's is showing.
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+
+    // `targetInRecents` is what `use-sidebar-drag.ts`'s hit test threads
+    // through when the drop lands on a band row rather than a tree row.
+    void performSidebarDrop([chatRow('c3', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    // It really landed in c1's own arrangement...
+    expect(liveViewOf('c3')).toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1', 'c3'], ['c2']])
+    // ...and the user is looking at the thing they just acted on, with both
+    // chats genuinely on screen together.
+    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(showing).toHaveLength(2)
+    const showingChats = showing.map((id) => windowPaneStore.getState().panes[id]?.chatId)
+    expect([...showingChats].sort()).toEqual(['c1', 'c3'])
+  })
+
+  it('merging into an off-screen view leaves every OTHER view alone', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    const c2View = liveViewOf('c2')
+
+    void performSidebarDrop([chatRow('c3', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    expect(liveViewOf('c2')).toBe(c2View)
+    expect(liveViewOf('c2')).not.toBe(liveViewOf('c1'))
+  })
+
+  it('merges into the SHOWING view without disturbing anything either', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    void performSidebarDrop([chatRow('c2', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    expect(liveViewOf('c2')).toBe(liveViewOf('c1'))
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
   })
 })

@@ -524,16 +524,21 @@ export function performSidebarPaneDrop(
  *
  *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
  *     checked FIRST and against every pane, since the clicked row may be live
- *     in a pane other than the active one. Same dedup pattern
- *     `openChatIntoPane` and `open-agent-chat.ts` both use. Its view is left
- *     exactly as it is — revealing a chat is not a regrouping.
+ *     in a pane other than the active one — including one in a view that is
+ *     currently off screen, in which case `setActivePane` brings that whole
+ *     view over. Same dedup pattern `openChatIntoPane` and
+ *     `open-agent-chat.ts` both use. Its view is left exactly as it is —
+ *     revealing a chat is a SWITCH, never a regrouping.
  *   - **an EMPTY pane on screen → it fills that one.** An empty pane is a
  *     fallback, not a view (see `pane-slice.ts`'s `dropEmptiedPanes`), so
  *     there is nothing there to preserve and nothing to open beside. The
  *     active pane first, so a click lands where the user is already looking.
- *   - **otherwise → a brand-new pane** (`addPane`), a PEER of every pane
- *     already up — never `splitPane` on the active one, which would charge
- *     the view you were in for the view you asked for.
+ *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen
+ *     while the arrangement that was showing is parked whole — never
+ *     `splitPane` on the active one, which would charge the view you were in
+ *     for the view you asked for, and never a peer leaf tiled beside it,
+ *     which is what "a new view" used to amount to and why two separately
+ *     clicked chats still ended up side by side.
  *
  * `detachPaneToOwnView` covers the middle case, and is what makes "a brand-
  * new view" true of the whole function rather than only of the `addPane`

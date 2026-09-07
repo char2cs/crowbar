@@ -110,16 +110,29 @@ function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
     let prevPaneSlice = {
       panes: windowPaneStore.getState().panes,
       dormant: windowPaneStore.getState().dormantArrangements,
+      activeView: windowPaneStore.getState().activeViewId,
     }
     unsubs.push(
       windowPaneStore.subscribe((state) => {
         if (
           state.panes === prevPaneSlice.panes &&
-          state.dormantArrangements === prevPaneSlice.dormant
+          state.dormantArrangements === prevPaneSlice.dormant &&
+          // Recents is the VIEW SWITCHER, so which view is on screen is one of
+          // the facts it draws (`RecentsEntry.showing`) — and switching views
+          // touches neither of the other two: the panes are all still there,
+          // unchanged, just hung on a different tree. Without this the "you
+          // are here" marker stayed on whichever row happened to be showing
+          // when `panes` last changed, which is a switcher that cannot tell
+          // you where you are.
+          state.activeViewId === prevPaneSlice.activeView
         ) {
           return
         }
-        prevPaneSlice = { panes: state.panes, dormant: state.dormantArrangements }
+        prevPaneSlice = {
+          panes: state.panes,
+          dormant: state.dormantArrangements,
+          activeView: state.activeViewId,
+        }
         setTick((t) => t + 1)
       }),
     )

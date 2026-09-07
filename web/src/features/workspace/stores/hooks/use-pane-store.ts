@@ -19,6 +19,14 @@ function usePaneStore<T>(selector: (state: WindowPaneState) => T): T {
 
 export const useRootLayout = (): LayoutNode => usePaneStore((s) => s.rootLayout)
 
+/** The open-but-not-showing views' trees, keyed by view id (`PaneSlice`).
+ *  Referentially stable across every mutation that doesn't add, remove or
+ *  re-tile a parked view — so growing the SHOWING view never re-renders the
+ *  dormant ones. */
+export const useParkedViews = (): Record<string, LayoutNode> => usePaneStore((s) => s.parkedViews)
+
+export const useActiveViewId = (): string => usePaneStore((s) => s.activeViewId)
+
 export const useFullscreenPaneId = (): string | null => usePaneStore((s) => s.fullscreenPaneId)
 
 export const useActivePaneId = (): string => usePaneStore((s) => s.activePaneId)

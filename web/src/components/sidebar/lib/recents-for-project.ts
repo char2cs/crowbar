@@ -81,7 +81,7 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
     Object.assign(working, agentChats.working)
   }
 
-  const { panes, dormantArrangements, recentsOrder } = windowPaneStore.getState()
+  const { panes, dormantArrangements, recentsOrder, activeViewId } = windowPaneStore.getState()
   const projectPanes = Object.values(panes).filter(
     (p) => p.chatId != null && chatWorkspace.has(p.chatId),
   )
@@ -94,7 +94,13 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
     .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => chatWorkspace.has(id)) }))
     .filter((e) => e.chatIds.length > 0)
 
-  return deriveRecentsEntries(projectPanes, working, projectDormant, recentsOrder).map((entry) => ({
+  return deriveRecentsEntries(
+    projectPanes,
+    working,
+    projectDormant,
+    recentsOrder,
+    activeViewId,
+  ).map((entry) => ({
     ...entry,
     // Ids are already globally unique (one pane store, real chat/nanoid ids)
     // — no more workspace-qualification needed, so localId is just id.

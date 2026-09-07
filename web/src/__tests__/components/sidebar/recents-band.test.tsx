@@ -133,12 +133,49 @@ describe('RecentsBand', () => {
         localId: 'e1',
         chatIds: ['chat-1', 'chat-2'],
         state: 'live',
+        // Lit means SHOWING, not merely open: several views are live at once
+        // now and only the one on screen wears the active surface.
+        showing: true,
         workspaceId: 'ws-1',
       },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
     expect(shell.className).toMatch(/bg-background/)
+  })
+
+  it('a live set that is NOT the view on screen is filled but unlit', () => {
+    const entries: RecentsBandEntry[] = [
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        workspaceId: 'ws-1',
+      },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = screen.getByTestId('recents-set-e1')
+    // The set shell keeps its own unlit ground (§5.3) — but the "you are
+    // here" surface belongs to exactly one row.
+    expect(shell.className).not.toMatch(/bg-background/)
+    expect(shell.className).toMatch(/bg-sidebar-element-idle/)
+    expect(shell.getAttribute('data-view-showing')).toBeNull()
+  })
+
+  // Measured, not assumed: `bg-sidebar-element-idle` is a light overlay and
+  // `ROW_ACTIVE` a dark inset-lit surface, so grounding every open-but-parked
+  // solo row renders it MORE prominent than the one on screen and inverts the
+  // hierarchy. What already separates parked from remembered is the row's own
+  // `hasView` grey (§3.2).
+  it('a live solo row that is not showing takes no ground of its own', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'live', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const wrapper = screen.getByTestId('recents-row-chat-1').parentElement!
+    expect(wrapper.className).not.toMatch(/bg-background/)
+    expect(wrapper.className).not.toMatch(/bg-sidebar-element-idle/)
   })
 
   it('a dormant (at-rest) set does not light the shell', () => {
@@ -168,12 +205,15 @@ describe('RecentsBand', () => {
     return el.className.split(/\s+/).filter(Boolean)
   }
 
-  it('a lone live entry does not double SidebarRow’s own margin on its shell wrapper', () => {
+  it('a lone SHOWING entry does not double SidebarRow’s own margin on its shell wrapper', () => {
     const entry: RecentsBandEntry = {
       id: 'e1',
       localId: 'e1',
       chatIds: ['chat-1'],
       state: 'live',
+      // The active surface belongs to the view on screen — that is the one
+      // whose wrapper takes over the row's margin.
+      showing: true,
       workspaceId: 'ws-1',
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)

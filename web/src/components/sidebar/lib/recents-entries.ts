@@ -43,7 +43,12 @@ export function deriveRecentsEntries(
   working: Record<string, boolean>,
   dormantArrangements: RecentsEntry[],
   order: readonly string[] = [],
+  activeViewId?: string,
 ): RecentsEntry[] {
+  // The chats of the one view that is on screen. `liveChatIds` below answers
+  // "has a pane at all", which several views satisfy at once now; this
+  // narrower set is what tells the band which of them the user is looking at.
+  const showingChatIds = new Set<string>()
   const liveChatIds = new Set<string>()
   // Every chat sharing a view with this one, itself included — the live
   // group, keyed per member so a slot below can pull the rest of a view in
@@ -54,6 +59,7 @@ export function deriveRecentsEntries(
     if (!pane.chatId) continue
     liveChatIds.add(pane.chatId)
     const viewId = viewIdOf(pane)
+    if (viewId === activeViewId) showingChatIds.add(pane.chatId)
     const mates = chatsByView.get(viewId)
     if (mates) mates.push(pane.chatId)
     else chatsByView.set(viewId, [pane.chatId])
@@ -89,6 +95,7 @@ export function deriveRecentsEntries(
       id: arrangement.id,
       chatIds,
       state: resolveState(chatIds, liveChatIds, working),
+      showing: chatIds.some((id) => showingChatIds.has(id)) || undefined,
     })
   }
 
@@ -110,7 +117,12 @@ export function deriveRecentsEntries(
       open.chatIds.push(pane.chatId)
       continue
     }
-    const entry: RecentsEntry = { id: viewId, chatIds: [pane.chatId], state: 'live' }
+    const entry: RecentsEntry = {
+      id: viewId,
+      chatIds: [pane.chatId],
+      state: 'live',
+      showing: viewId === activeViewId || undefined,
+    }
     liveViews.set(viewId, entry)
     entries.push(entry)
   }

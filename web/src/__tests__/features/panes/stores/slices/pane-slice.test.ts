@@ -14,8 +14,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { flattenForRender, getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import type { LayoutSplit } from '@/features/panes/types/pane'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import { viewIdOf } from '@/features/panes/lib/pane-views'
@@ -857,7 +856,7 @@ describe('pane-slice — addPane (spec §8.4)', () => {
     expect(store.getState().activePaneId).toBe(added)
   })
 
-  it('never carves the new pane out of the active one — every view is an equal peer', () => {
+  it('takes the whole screen — the views before it are parked, never tiled beside it', () => {
     const store = makeStore()
     store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
@@ -866,13 +865,49 @@ describe('pane-slice — addPane (spec §8.4)', () => {
     const third = store.getState().paneActions.addPane()!
     store.getState().paneActions.setPaneChat(third, 'chat-3', null)
 
-    const layout = store.getState().rootLayout as LayoutSplit
-    const sizes = flattenForRender(layout).map((e) => e.size)
-    expect(sizes).toHaveLength(3)
-    // Repeatedly splitting the ACTIVE pane instead produced 50/25/25 — the
-    // first pane keeping half the window and each new view squeezing into
-    // what was left of it.
-    sizes.forEach((size) => expect(size).toBeCloseTo(100 / 3))
+    // THE BUG THIS FEATURE EXISTS FOR. `addPane` used to append a peer leaf to
+    // the one shared tree, so three separately clicked chats drew as three
+    // columns at once — genuinely independent views in the data, still tiled
+    // on screen. Only the newest occupies the content area now.
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([third])
+    expect(store.getState().activeViewId).toBe(third)
+
+    // Parked, not closed: the other two are whole, off screen, and still hold
+    // their chats.
+    expect(Object.keys(store.getState().parkedViews).sort()).toEqual([ROOT_PANE_ID, second].sort())
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
+    expect(store.getState().panes[second].chatId).toBe('chat-2')
+  })
+
+  it('a view switched back to is the same arrangement it was parked as', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    // A real MERGE, so the parked view has more than one pane to preserve.
+    const mate = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(mate, 'chat-2', null)
+    const merged = store.getState().rootLayout
+
+    const solo = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(solo, 'chat-3', null)
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([solo])
+
+    store.getState().paneActions.activateView(ROOT_PANE_ID)
+
+    expect(store.getState().rootLayout).toEqual(merged)
+    expect(store.getState().activeViewId).toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(store.getState().rootLayout).sort()).toEqual([ROOT_PANE_ID, mate].sort())
+    // And the view it left is now the parked one.
+    expect(Object.keys(store.getState().parkedViews)).toEqual([solo])
+  })
+
+  it('the empty stage is never parked — it is a fallback, not a view to switch back to', () => {
+    const store = makeStore()
+    // Nothing open: rootLayout is the bare empty root pane.
+    const opened = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(opened, 'chat-1', null)
+
+    expect(store.getState().parkedViews).toEqual({})
+    expect(store.getState().panes[ROOT_PANE_ID]).toBeUndefined()
   })
 
   it('is a ROOT-layout primitive — the bottom panel is never where a click lands', () => {
@@ -938,10 +973,15 @@ describe('pane-slice — an emptied pane leaves the layout', () => {
     const second = store.getState().paneActions.addPane()!
 
     // The gap `addPane` leaves — an empty pane its caller is about to fill —
-    // must survive long enough to be filled.
+    // must survive long enough to be filled. It is the SHOWING view's only
+    // pane now, so a sweep that treated "empty" as "collapse me" would take
+    // the whole new view down before its chat ever arrived.
     store.getState().paneActions.setPaneChat(second, 'chat-2', null)
 
-    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID, second])
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([second])
+    expect(store.getState().panes[second].chatId).toBe('chat-2')
+    // The view it opened in front of is untouched, off screen.
+    expect(Object.keys(store.getState().parkedViews)).toEqual([ROOT_PANE_ID])
   })
 
   it('losing the last editor tab collapses a chatless pane out of the layout', () => {
@@ -974,7 +1014,8 @@ describe('pane-slice — an emptied pane leaves the layout', () => {
 
     store.getState().paneActions.removeEditorTabFromPane(second, 'tab-1')
 
-    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID, second])
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([second])
+    expect(store.getState().panes[second].chatId).toBe('chat-2')
   })
 })
 
@@ -1166,12 +1207,19 @@ describe('pane-slice — forgetChat (spec §9)', () => {
 describe('pane-slice — views are the grouping fact (spec §8.2 "merging")', () => {
   it('a freshly added pane is its own view — nothing else carries its id', () => {
     const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-0', null)
     const a = store.getState().paneActions.addPane()!
+    // Filled before the next one opens: an empty view is nothing to switch
+    // back to, so `addPane` evaporates one rather than parking it.
+    store.getState().paneActions.setPaneChat(a, 'chat-a', null)
     const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-b', null)
 
     const { panes } = store.getState()
     expect(viewIdOf(panes[a])).not.toBe(viewIdOf(panes[b]))
     expect(viewIdOf(panes[a])).not.toBe(viewIdOf(panes[ROOT_PANE_ID]))
+    // Three views, one on screen — the whole point of the tag.
+    expect(new Set([a, b, ROOT_PANE_ID].map((id) => viewIdOf(panes[id]))).size).toBe(3)
   })
 
   it('a split INHERITS the view it was carved out of — that is the merge', () => {
@@ -1600,5 +1648,224 @@ describe('pane-slice — reorderRecentsEntry (spec §8.1)', () => {
     store.getState().paneActions.reorderRecentsEntry('a', 'ghost', 'before', ['a'])
 
     expect(store.getState().recentsOrder).toEqual(['a'])
+  })
+})
+
+/**
+ * VIEW ACTIVATION — the law the whole view model exists to enforce: exactly
+ * one view occupies the content area, and every other open view is whole,
+ * reachable and doing nothing.
+ *
+ * `rootLayout` IS the showing view's tree, so "only the active view renders"
+ * needs no filter in the render path — it is a property of the data the
+ * renderer already walks. These assert that property directly.
+ */
+describe('pane-slice — one view on screen at a time', () => {
+  it('the showing tree only ever holds ONE view id', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const merged = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(merged, 'chat-2', null)
+    const other = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(other, 'chat-3', null)
+    store.getState().paneActions.activateView(ROOT_PANE_ID)
+
+    const { rootLayout, panes, activeViewId } = store.getState()
+    const viewIds = new Set(getAllLeafIds(rootLayout).map((id) => viewIdOf(panes[id])))
+    expect([...viewIds]).toEqual([activeViewId])
+  })
+
+  it('activating a view parks the one that was showing, whole', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    store.getState().paneActions.activateView(ROOT_PANE_ID)
+
+    expect(store.getState().activeViewId).toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(Object.keys(store.getState().parkedViews)).toEqual([viewIdOf(store.getState().panes[b])])
+    // Parked is not closed — the chat is untouched.
+    expect(store.getState().panes[b].chatId).toBe('chat-2')
+  })
+
+  it('is a no-op for the view already showing, and for one nothing parked', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const before = store.getState()
+
+    store.getState().paneActions.activateView(ROOT_PANE_ID)
+    store.getState().paneActions.activateView('a-view-that-never-existed')
+
+    expect(store.getState().rootLayout).toBe(before.rootLayout)
+    expect(store.getState().activeViewId).toBe(before.activeViewId)
+  })
+
+  it('focusing a pane in a parked view brings that whole view over', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([b])
+
+    // Every "go to that chat" gesture in the app routes through this one
+    // action, which is why none of them needs switching code of its own.
+    store.getState().paneActions.setActivePane(ROOT_PANE_ID)
+
+    expect(store.getState().activeViewId).toBe(ROOT_PANE_ID)
+    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+  })
+
+  it('a switched-to view restores the pane that was last focused IN IT', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const mate = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(mate, 'chat-2', null)
+    store.getState().paneActions.setActivePane(mate)
+
+    const away = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(away, 'chat-3', null)
+    store.getState().paneActions.activateView(ROOT_PANE_ID)
+
+    expect(store.getState().activePaneId).toBe(mate)
+  })
+})
+
+/**
+ * Closing. The teardown semantics are unchanged and deliberately so — a close
+ * still stops the vendor CLI and evicts the workspace store via
+ * `releaseClosedChat` — but a view of any size must now take ALL of its panes
+ * with it, and closing what is on screen must reveal what is behind it rather
+ * than dropping the user on an empty stage.
+ */
+describe('pane-slice — closing a view', () => {
+  it('closeView ends every pane in the view, not just the one named', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+    const c = store.getState().paneActions.splitPane(b, 'vertical')!
+    store.getState().paneActions.setPaneChat(c, 'chat-3', null)
+    const view = viewIdOf(store.getState().panes[ROOT_PANE_ID])
+
+    store.getState().paneActions.closeView(view)
+
+    const live = Object.values(store.getState().panes).filter((p) => p.chatId !== null)
+    expect(live).toEqual([])
+    expect(store.getState().panes[b]).toBeUndefined()
+    expect(store.getState().panes[c]).toBeUndefined()
+    // Every member is remembered, so a three-chat close stays undoable.
+    const remembered = store.getState().dormantArrangements.flatMap((e) => e.chatIds)
+    expect([...remembered].sort()).toEqual(['chat-1', 'chat-2', 'chat-3'])
+  })
+
+  it('closing a view never touches a sibling view', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const other = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(other, 'chat-2', null)
+
+    store.getState().paneActions.closeView(viewIdOf(store.getState().panes[other]))
+
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+  })
+
+  it('closing the showing view REVEALS the one behind it, not the empty stage', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    store.getState().paneActions.closePane(b)
+
+    expect(store.getState().activeViewId).toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBe('chat-1')
+    expect(store.getState().parkedViews).toEqual({})
+  })
+
+  it('closing the LAST view leaves the empty stage — that one really is a fallback', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(store.getState().panes[ROOT_PANE_ID].chatId).toBeNull()
+    expect(store.getState().parkedViews).toEqual({})
+  })
+
+  it('closing one member of a merged view leaves the rest showing and grouped', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const b = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(b, 'chat-2', null)
+
+    store.getState().paneActions.closePane(b)
+
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(store.getState().activeViewId).toBe(viewIdOf(store.getState().panes[ROOT_PANE_ID]))
+  })
+})
+
+/**
+ * A view that is off screen is still a real arrangement that can be grown —
+ * that is what makes an inactive view's Recents row a valid drop target
+ * (spec §8.1's "into that view, opened"). Before views owned their own trees
+ * this could not work at all: the split machinery looked the pane up in
+ * `rootLayout` only, found nothing, and silently did nothing.
+ */
+describe('pane-slice — editing a view that is not on screen', () => {
+  it('splitting a parked pane grows THAT view, and leaves the screen alone', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const showing = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(showing, 'chat-2', null)
+
+    const grown = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    store.getState().paneActions.setPaneChat(grown, 'chat-3', null)
+
+    // The parked view really grew...
+    expect(getAllLeafIds(store.getState().parkedViews[ROOT_PANE_ID]).sort()).toEqual(
+      [ROOT_PANE_ID, grown].sort(),
+    )
+    expect(viewIdOf(store.getState().panes[grown])).toBe(ROOT_PANE_ID)
+    // ...without yanking the screen, and without pointing focus at a pane
+    // nothing renders.
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([showing])
+    expect(store.getState().activePaneId).toBe(showing)
+  })
+
+  it('closing the last pane of a parked view drops the view outright', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const showing = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(showing, 'chat-2', null)
+
+    store.getState().paneActions.closePane(ROOT_PANE_ID)
+
+    expect(store.getState().parkedViews).toEqual({})
+    expect(store.getState().panes[ROOT_PANE_ID]).toBeUndefined()
+    // The screen is untouched throughout.
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([showing])
+    expect(store.getState().activePaneId).toBe(showing)
+  })
+
+  it('a parked pane emptied by an eviction takes its dead view with it', () => {
+    const store = makeStore()
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    const showing = store.getState().paneActions.addPane()!
+    store.getState().paneActions.setPaneChat(showing, 'chat-2', null)
+
+    // `followRunner`'s eviction, landing on a pane in a view nobody is
+    // looking at.
+    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
+
+    expect(store.getState().parkedViews).toEqual({})
+    expect(store.getState().panes[ROOT_PANE_ID]).toBeUndefined()
+    expect(getAllLeafIds(store.getState().rootLayout)).toEqual([showing])
   })
 })

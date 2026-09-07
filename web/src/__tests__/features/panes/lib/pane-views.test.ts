@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { panesInView, viewIdOf, viewIsShared } from '@/features/panes/lib/pane-views'
+import {
+  panesInView,
+  partitionLayoutByView,
+  viewIdOf,
+  viewIsShared,
+} from '@/features/panes/lib/pane-views'
+import {
+  createLeaf,
+  createSplit,
+  getAllLeafIds,
+  normalizeLayout,
+} from '@/features/panes/utils/pane-layout'
 import type { PaneGroup } from '@/features/panes/types/pane'
 
 function pane(id: string, viewId?: string): PaneGroup {
@@ -63,5 +74,83 @@ describe('viewIsShared', () => {
 
   it('is false for untagged panes, which are never each other', () => {
     expect(viewIsShared(record(pane('p1'), pane('p2')), 'p1')).toBe(false)
+  })
+})
+
+/**
+ * `partitionLayoutByView` — the one function that has to deal with a tiling
+ * tree holding more than one view, because that is the shape every layout
+ * persisted before views owned their own trees is in. Splitting it correctly
+ * is what stops the first reload after this feature ships from faithfully
+ * restoring the side-by-side tiling the feature removes.
+ */
+describe('partitionLayoutByView', () => {
+  it('gives every view in a mixed tree a tree of its own', () => {
+    const panes = record(pane('a', 'v1'), pane('b', 'v2'), pane('c', 'v1'))
+    const layout = createSplit(
+      'horizontal',
+      createLeaf('a'),
+      createSplit('vertical', createLeaf('b'), createLeaf('c')),
+    )
+
+    const trees = partitionLayoutByView(layout, panes)
+
+    expect(Object.keys(trees).sort()).toEqual(['v1', 'v2'])
+    expect(getAllLeafIds(trees.v1).sort()).toEqual(['a', 'c'])
+    expect(getAllLeafIds(trees.v2)).toEqual(['b'])
+  })
+
+  it('reads UNTAGGED panes as one view each — the pre-views shape, correctly', () => {
+    const panes = record(pane('a'), pane('b'))
+    const layout = createSplit('horizontal', createLeaf('a'), createLeaf('b'))
+
+    const trees = partitionLayoutByView(layout, panes)
+
+    expect(Object.keys(trees).sort()).toEqual(['a', 'b'])
+    expect(getAllLeafIds(trees.a)).toEqual(['a'])
+    expect(getAllLeafIds(trees.b)).toEqual(['b'])
+  })
+
+  it('a tree that is already one view comes back whole and unchanged', () => {
+    const panes = record(pane('a', 'v'), pane('b', 'v'))
+    const layout = createSplit('horizontal', createLeaf('a'), createLeaf('b'))
+
+    const trees = partitionLayoutByView(layout, panes)
+
+    expect(Object.keys(trees)).toEqual(['v'])
+    expect(trees.v).toEqual(normalizeLayout(layout))
+  })
+
+  // Built by subtraction rather than by re-tiling, so a view that was three
+  // nested splits deep keeps that arrangement instead of being flattened into
+  // arbitrary halves.
+  it('keeps a view internal nesting when its view-mates are subtracted out', () => {
+    const panes = record(pane('a', 'v1'), pane('x', 'v2'), pane('b', 'v1'), pane('c', 'v1'))
+    const layout = createSplit(
+      'horizontal',
+      createLeaf('x'),
+      createSplit(
+        'vertical',
+        createLeaf('a'),
+        createSplit('horizontal', createLeaf('b'), createLeaf('c')),
+      ),
+    )
+
+    const trees = partitionLayoutByView(layout, panes)
+
+    expect(getAllLeafIds(trees.v1)).toEqual(['a', 'b', 'c'])
+    const v1 = trees.v1
+    expect(v1.type).toBe('split')
+    if (v1.type === 'split') expect(v1.direction).toBe('vertical')
+  })
+
+  it('answers nothing for a tree whose leaves no pane record knows', () => {
+    // Every leaf reads as its own view via `viewIdOf`'s id fallback, so this
+    // never silently collapses unknown panes into one shared arrangement.
+    const trees = partitionLayoutByView(
+      createSplit('horizontal', createLeaf('a'), createLeaf('b')),
+      {},
+    )
+    expect(Object.keys(trees).sort()).toEqual(['a', 'b'])
   })
 })

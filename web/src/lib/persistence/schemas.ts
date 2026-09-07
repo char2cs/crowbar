@@ -30,6 +30,17 @@ export interface WorkspaceLayout {
   panes: Record<string, PaneGroup>
   rootLayout: LayoutNode
   bottomLayout: LayoutNode
+  /**
+   * The open-but-not-showing views' tiling trees, keyed by view id, and which
+   * view `rootLayout` is — see `PaneSlice`. Both OPTIONAL, and absent on every
+   * record written before views owned their own trees: a layout from then
+   * carried every open view tiled into `rootLayout` together, which
+   * `restoreWindowViews` (hydrate.ts) reads correctly by splitting that one
+   * tree back apart rather than restoring the side-by-side tiling the view
+   * model exists to remove.
+   */
+  parkedViews?: Record<string, LayoutNode>
+  activeViewId?: string
   activePaneId: string
   mostRecentActivePaneIds: string[]
   buffers: PaneContent[]

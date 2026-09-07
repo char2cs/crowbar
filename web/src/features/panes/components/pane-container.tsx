@@ -97,13 +97,23 @@ import { TerminalPane } from './terminal-pane'
 interface PaneContainerProps {
   pane: PaneGroup
   position?: PanePosition
+  /** Whether this pane's VIEW is the one on screen — see PaneNodeRenderer.
+   *  A parked view's panes stay mounted (so nothing they hold is torn down)
+   *  but must do no work: every surface below is handed `isActive`/`isVisible`
+   *  false, which is the same dormant state a background TAB inside a pane
+   *  already runs in, so no surface needs a second notion of "hidden". */
+  showing?: boolean
 }
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
 type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane renderer — resolves pane content to lazily-loaded surfaces and owns split routing; its length is the routing table, not multiple concerns.
-export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneContainerProps) {
+export function PaneContainer({
+  pane,
+  position = ROOT_PANE_POSITION,
+  showing = true,
+}: PaneContainerProps) {
   const activePaneId = useActivePaneId()
   const { activateEditorTabInPane, setActivePane } = usePaneActions()
   const bufferActions = useBufferActions()
@@ -141,7 +151,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   )
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
-  const isActivePane = pane.id === activePaneId
+  // A pane in a PARKED view is never the active one, whatever `activePaneId`
+  // says: `activePaneId` names one pane for the whole window, and a view that
+  // is off screen has no claim on it. Folded in here rather than at each of
+  // the six surfaces below so no surface can be given a live `isActive` for a
+  // view nobody is looking at.
+  const isActivePane = showing && pane.id === activePaneId
 
   // The active-pane ring answers "which of these has focus" — a question that only
   // exists when there is more than one pane on screen. With a single pane it marks the
@@ -608,7 +623,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 initialCommand={b.initialCommand}
                 workingDirectory={b.workingDirectory}
                 isActive={isActive && isActivePane}
-                isVisible={isActive}
+                // A terminal in a PARKED view is not visible however this
+                // pane has its own tabs arranged — `showing` is the outer of
+                // the two questions, and xterm gates its render loop on
+                // exactly this flag. Without it a hidden view's terminal
+                // would keep drawing into a `display: none` subtree.
+                isVisible={isActive && showing}
               />
             </div>
           )
@@ -778,7 +798,15 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                   wsId={wsId}
                   paneId={pane.id}
                   isActivePane={isActivePane}
-                  isVisible
+                  // Was hard-coded true: a pane holds at most one chat, so
+                  // within the pane the chat view is always the one showing.
+                  // With views that is no longer the whole question — the
+                  // pane itself can be in an arrangement that is off screen.
+                  // It matters beyond appearances: the dormant-chat revive
+                  // fires on `isVisible`, so a parked view left claiming to
+                  // be visible would spawn a vendor CLI for a chat nobody is
+                  // looking at, once per remount.
+                  isVisible={showing}
                 />
               </Suspense>
             </div>

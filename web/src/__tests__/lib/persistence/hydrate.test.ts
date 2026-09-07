@@ -24,6 +24,7 @@ import {
   hydratePreferences,
   hydrateSidebar,
   hydrateWindowPaneLayout,
+  restoreWindowViews,
 } from '@/lib/persistence/hydrate'
 import { ApiError } from '@/lib/api'
 import { getDB, resetDB } from '@/lib/persistence/idb'
@@ -37,7 +38,7 @@ import {
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { createLeaf } from '@/features/panes/utils/pane-layout'
+import { createLeaf, createSplit, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -186,7 +187,10 @@ describe('hydrateWindowPaneLayout', () => {
           editorOpen: false,
         },
       },
-      rootLayout: createLeaf(ROOT_PANE_ID),
+      // Both panes really in the tree — a pane listed in `panes` but in no
+      // layout at all is not a shape anything writes, and leaving it that way
+      // let this assert an `activePaneId` naming a pane nothing could render.
+      rootLayout: createSplit('horizontal', createLeaf(ROOT_PANE_ID), createLeaf(rightPaneId)),
       bottomLayout: createLeaf('bottom-pane'),
       activePaneId: rightPaneId,
       mostRecentActivePaneIds: [rightPaneId, ROOT_PANE_ID],
@@ -612,5 +616,157 @@ describe('hydrateSidebar', () => {
     )
     await hydrateSidebar()
     expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
+  })
+})
+
+/**
+ * `restoreWindowViews` — the half of hydration that decides what is ON SCREEN
+ * after a reload. Pure, so it can be exercised without IndexedDB.
+ *
+ * Its whole reason to exist is the second describe below: a layout written
+ * before views owned their own trees holds every open view tiled into one
+ * `rootLayout`, and restoring that verbatim would reproduce the side-by-side
+ * tiling this feature removes — on the first launch after shipping it.
+ */
+describe('restoreWindowViews', () => {
+  const pane = (id: string, viewId?: string, chatId: string | null = null) => ({
+    id,
+    type: 'group' as const,
+    chatId,
+    runnerId: null,
+    editorTabIds: [],
+    activeEditorTabId: null,
+    editorOpen: false,
+    ...(viewId !== undefined && { viewId }),
+  })
+
+  describe('a record written since views owned their own trees', () => {
+    it('restores exactly one view showing and the rest parked', () => {
+      const parked = { v2: createLeaf('b') }
+      const result = restoreWindowViews({
+        panes: { a: pane('a', 'v1'), b: pane('b', 'v2') },
+        rootLayout: createLeaf('a'),
+        parkedViews: parked,
+        activeViewId: 'v1',
+        activePaneId: 'a',
+      })
+
+      expect(result.activeViewId).toBe('v1')
+      expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
+      expect(Object.keys(result.parkedViews)).toEqual(['v2'])
+      expect(result.activePaneId).toBe('a')
+    })
+
+    it('never lets the showing view also sit in the parked set', () => {
+      const result = restoreWindowViews({
+        panes: { a: pane('a', 'v1') },
+        rootLayout: createLeaf('a'),
+        // Two authoritative copies of one arrangement; the showing one wins.
+        parkedViews: { v1: createLeaf('a'), v2: createLeaf('b') },
+        activeViewId: 'v1',
+        activePaneId: 'a',
+      })
+
+      expect(Object.keys(result.parkedViews)).toEqual(['v2'])
+    })
+  })
+
+  describe('a record written BEFORE views owned their own trees', () => {
+    it('splits the one tiled tree back into a view each, showing only one', () => {
+      const result = restoreWindowViews({
+        panes: { a: pane('a', 'v1', 'chat-1'), b: pane('b', 'v2', 'chat-2') },
+        rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
+        activePaneId: 'b',
+      })
+
+      // The pane the user was on decides which view comes back on screen.
+      expect(result.activeViewId).toBe('v2')
+      expect(getAllLeafIds(result.rootLayout)).toEqual(['b'])
+      expect(Object.keys(result.parkedViews)).toEqual(['v1'])
+      expect(getAllLeafIds(result.parkedViews.v1)).toEqual(['a'])
+    })
+
+    it('keeps a MERGED view whole rather than splitting it per pane', () => {
+      const result = restoreWindowViews({
+        panes: {
+          a: pane('a', 'v1', 'chat-1'),
+          b: pane('b', 'v1', 'chat-2'),
+          c: pane('c', 'v2', 'chat-3'),
+        },
+        rootLayout: createSplit(
+          'horizontal',
+          createSplit('vertical', createLeaf('a'), createLeaf('b')),
+          createLeaf('c'),
+        ),
+        activePaneId: 'a',
+      })
+
+      expect(getAllLeafIds(result.rootLayout).sort()).toEqual(['a', 'b'])
+      expect(getAllLeafIds(result.parkedViews.v2)).toEqual(['c'])
+    })
+
+    it('reads UNTAGGED panes as one view each — the shape before views existed', () => {
+      const result = restoreWindowViews({
+        panes: { a: pane('a'), b: pane('b') },
+        rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
+        activePaneId: 'a',
+      })
+
+      expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
+      expect(Object.keys(result.parkedViews)).toEqual(['b'])
+    })
+  })
+
+  /**
+   * The shape an UPGRADE actually produces, observed live: the new store
+   * persists its defaults (`parkedViews: {}`, `activeViewId` still the boot
+   * value) over a `rootLayout` the old code wrote, which is one tree holding
+   * every open view tiled together. Both new fields are present — and `{}` is
+   * a perfectly truthy empty object — so a restore that checks for their
+   * PRESENCE happily hands the mixed tree back and reproduces the exact
+   * side-by-side tiling this feature removes.
+   */
+  it('re-splits a mixed tree even when the record carries both new fields', () => {
+    const result = restoreWindowViews({
+      panes: { a: pane('a', 'v1', 'chat-1'), b: pane('b', 'v2', 'chat-2') },
+      rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
+      parkedViews: {},
+      activeViewId: 'v1',
+      activePaneId: 'b',
+    })
+
+    expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
+    expect(result.activeViewId).toBe('v1')
+    expect(Object.keys(result.parkedViews)).toEqual(['v2'])
+    expect(getAllLeafIds(result.parkedViews.v2)).toEqual(['b'])
+    // And the focused pane is healed onto the view that actually shows.
+    expect(result.activePaneId).toBe('a')
+  })
+
+  it('keeps already-parked views while re-splitting a mixed showing tree', () => {
+    const result = restoreWindowViews({
+      panes: { a: pane('a', 'v1'), b: pane('b', 'v2'), c: pane('c', 'v3') },
+      rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
+      parkedViews: { v3: createLeaf('c') },
+      activeViewId: 'v1',
+      activePaneId: 'a',
+    })
+
+    expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
+    expect(Object.keys(result.parkedViews).sort()).toEqual(['v2', 'v3'])
+  })
+
+  it('heals an activePaneId that names no pane the showing tree holds', () => {
+    // Otherwise the active-pane ring, the keyboard commands and every
+    // `getActivePane()` caller address a pane nobody can see.
+    const result = restoreWindowViews({
+      panes: { a: pane('a', 'v1') },
+      rootLayout: createLeaf('a'),
+      parkedViews: {},
+      activeViewId: 'v1',
+      activePaneId: 'long-gone',
+    })
+
+    expect(result.activePaneId).toBe('a')
   })
 })

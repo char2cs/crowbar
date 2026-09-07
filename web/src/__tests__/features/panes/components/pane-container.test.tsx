@@ -60,13 +60,27 @@ vi.mock('@/components/ui/sidebar', async (importOriginal) => {
 // PTY-attach effect would only fire once per genuine mount.
 const { terminalMountCount } = vi.hoisted(() => ({ terminalMountCount: { current: 0 } }))
 vi.mock('@/features/panes/components/terminal-pane', () => ({
-  TerminalPane: ({ sessionId, bufferId }: { sessionId?: string; bufferId: string }) => {
+  TerminalPane: ({
+    sessionId,
+    bufferId,
+    isActive,
+    isVisible,
+  }: {
+    sessionId?: string
+    bufferId: string
+    isActive?: boolean
+    isVisible?: boolean
+  }) => {
     useEffect(() => {
       terminalMountCount.current += 1
     }, [])
     return createElement('div', {
       'data-testid': `terminal-marker-${bufferId}`,
       'data-session-id': sessionId ?? '',
+      // xterm gates its render loop on these — a hidden view's terminal must
+      // be told to stop, not merely covered up.
+      'data-active': String(isActive ?? ''),
+      'data-visible': String(isVisible ?? ''),
     })
   },
 }))
@@ -181,24 +195,28 @@ vi.mock('@/features/panes/components/split-drop-overlay', () => ({
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
 
-function PaneHost({ position }: { position?: PanePosition }) {
+function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
   // Task 26: panes are window-level now — read off windowPaneStore, not the
   // per-workspace WorkspaceStoreContext.
   const pane = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID])
   if (!pane) return null
-  return createElement(PaneContainer, { pane, position })
+  return createElement(PaneContainer, { pane, position, showing })
 }
 
 // `position` defaults to ROOT_PANE_POSITION (PaneContainer's own default) for
 // every existing caller; Task 9's window-edge/interior-pane tests pass one
 // explicitly to control which of the pane's own edges are real window edges.
-async function renderPane(store: ReturnType<typeof createWorkspaceStore>, position?: PanePosition) {
+async function renderPane(
+  store: ReturnType<typeof createWorkspaceStore>,
+  position?: PanePosition,
+  showing?: boolean,
+) {
   await act(async () => {
     render(
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store },
-        createElement(PaneHost, { position }),
+        createElement(PaneHost, { position, showing }),
       ),
     )
   })
@@ -989,5 +1007,61 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     // rounded sibling that would read as a still-detached header.
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
+  })
+})
+
+/**
+ * A pane whose VIEW is parked stays mounted — that is the whole point, so
+ * nothing it holds is torn down — but it must do no work. Hiding it without
+ * telling the surfaces inside would be the cosmetic half of dormancy: the
+ * xterm render loop keeps running against a `display: none` subtree, and the
+ * chat pane's dormant-chat revive keeps thinking it is on screen and spawns a
+ * vendor CLI for a view nobody is looking at.
+ */
+describe('PaneContainer — a pane in a view that is not on screen', () => {
+  it('tells the chat surface it is not visible, and not the active pane', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    await renderPane(store, undefined, false)
+
+    const chat = screen.getByTestId('chat-chat-1')
+    expect(chat.getAttribute('data-visible')).toBe('false')
+    // `activePaneId` names one pane for the whole window; a view that is off
+    // screen has no claim on it however that field happens to read.
+    expect(chat.getAttribute('data-active-pane')).toBe('false')
+  })
+
+  it('tells a terminal to stop — it is never visible from behind another view', async () => {
+    const store = createWorkspaceStore('w1')
+    seedTerminalTab(store, ROOT_PANE_ID, 'term-1')
+
+    await renderPane(store, undefined, false)
+
+    const term = screen.getByTestId('terminal-marker-term-1')
+    expect(term.getAttribute('data-visible')).toBe('false')
+    expect(term.getAttribute('data-active')).toBe('false')
+  })
+
+  it('still mounts everything — parked is not closed', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedTerminalTab(store, ROOT_PANE_ID, 'term-1')
+
+    await renderPane(store, undefined, false)
+
+    // Unmounting instead would dispose the xterm (blank on remount, scrollback
+    // gone) and refcount-release the Monaco models with their undo history.
+    expect(screen.getByTestId('chat-chat-1')).toBeInTheDocument()
+    expect(screen.getByTestId('terminal-marker-term-1')).toBeInTheDocument()
+  })
+
+  it('the showing pane is told the opposite', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    await renderPane(store, undefined, true)
+
+    expect(screen.getByTestId('chat-chat-1').getAttribute('data-visible')).toBe('true')
   })
 })

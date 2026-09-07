@@ -10,6 +10,16 @@ interface PaneNodeRendererProps {
   node: LayoutNode
   hiddenPaneId?: string | null
   position?: PanePosition
+  /**
+   * Whether this tree is the one on screen. False for a PARKED view — mounted
+   * so its terminals, editors and chats keep their state, `display: none` so
+   * it costs no layout or paint, and told so here so the surfaces inside can
+   * actually STOP: a hidden xterm must not run its render loop, and a chat
+   * pane must not treat itself as visible (its dormant-chat revive fires on
+   * `isVisible`, and would otherwise spawn a vendor CLI for a view nobody is
+   * looking at). Hiding without saying so is the cosmetic half of dormancy.
+   */
+  showing?: boolean
 }
 
 function binaryPosition(
@@ -37,6 +47,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   node,
   hiddenPaneId = null,
   position = ROOT_PANE_POSITION,
+  showing = true,
 }: PaneNodeRendererProps) {
   // Subscribe to ONLY this node's own pane — never the whole `panes` record.
   // immer's structural sharing keeps every sibling pane's reference identical
@@ -67,7 +78,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
     if (!pane) return null
     return (
       <PaneBoundary paneId={node.id}>
-        <PaneContainer pane={pane} position={position} />
+        <PaneContainer pane={pane} position={position} showing={showing} />
       </PaneBoundary>
     )
   }
@@ -86,7 +97,12 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
         className="min-h-0 min-w-0 grow-0 shrink"
         style={{ flexBasis: `${node.sizes[0]}%` }}
       >
-        <PaneNodeRenderer node={node.first} hiddenPaneId={hiddenPaneId} position={firstPos} />
+        <PaneNodeRenderer
+          node={node.first}
+          hiddenPaneId={hiddenPaneId}
+          position={firstPos}
+          showing={showing}
+        />
       </div>
       <PaneSash
         direction={node.direction}
@@ -101,7 +117,12 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
         className="min-h-0 min-w-0 grow-0 shrink"
         style={{ flexBasis: `${node.sizes[1]}%` }}
       >
-        <PaneNodeRenderer node={node.second} hiddenPaneId={hiddenPaneId} position={secondPos} />
+        <PaneNodeRenderer
+          node={node.second}
+          hiddenPaneId={hiddenPaneId}
+          position={secondPos}
+          showing={showing}
+        />
       </div>
     </div>
   )

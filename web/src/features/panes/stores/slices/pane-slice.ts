@@ -11,7 +11,6 @@ import type {
 } from '@/features/panes/types/pane'
 import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 import {
-  appendLeaf,
   createLeaf,
   splitLayout,
   closeLayout,
@@ -46,15 +45,40 @@ export interface PaneActions {
     bufferId?: string,
     placement?: SplitPlacement,
   ): string | null
-  /** Spec §8.4: a CLICK "makes its own view" — one more pane in this window,
-   *  a PEER of everything already up, carrying a brand-new `viewId` that
-   *  nothing else shares. `splitPane` answers §8.1's different question
-   *  ("into this view, on that side") and carves the new pane out of the one
-   *  it is handed; routing a click through it is what made clicking a row
-   *  read as appending to the pane you were in. Returns the new pane's id,
-   *  empty and active. Root layout only — a click never opens into the bottom
-   *  panel. */
+  /** Spec §8.4: a CLICK "makes its own view" — a brand-new view that TAKES
+   *  THE SCREEN, carrying a `viewId` nothing else shares and a tiling tree of
+   *  its own holding one empty pane. Whatever was showing is parked whole
+   *  into `parkedViews` (it goes away from view, not away), so the new view
+   *  fills the content area rather than tiling beside it.
+   *
+   *  This used to `appendLeaf` onto the ONE shared `rootLayout`, which is the
+   *  bug the view model exists to kill: two independently-clicked chats were
+   *  genuinely separate views in the data and still drew side by side,
+   *  because a peer leaf in the shared tiling tree is all "a separate view"
+   *  ever amounted to. `splitPane` still answers §8.1's different question
+   *  ("into this view, on that side") and is the only thing that grows a
+   *  view. Returns the new pane's id, empty and active. Root layout only — a
+   *  click never opens into the bottom panel. */
   addPane(): string | null
+  /**
+   * Put `viewId` on screen: its tree becomes `rootLayout`, and the tree that
+   * was showing is parked under its own view id. A no-op for the view that
+   * is already showing, and for one nothing has parked.
+   *
+   * THE one write path for `activeViewId`. Every other way of reaching a
+   * view — clicking its Recents row, revealing a chat that is already open,
+   * dropping a chat onto it — goes through `setActivePane`, which calls this
+   * for the pane's owning view before focusing the pane.
+   */
+  activateView(viewId: string): void
+  /**
+   * Close a whole VIEW — every pane in it, through `closePane`, one at a
+   * time, so each member's own chat gets the full teardown (`stopChat` +
+   * workspace eviction; see `release-closed-chat.ts`) rather than only
+   * whichever pane the gesture happened to name. What Recents' × means for a
+   * view of any size (spec §5.4).
+   */
+  closeView(viewId: string): void
   /** Make `paneId` a view of ITS OWN — a fresh `viewId` nothing else carries.
    *  A no-op when it already is one (nothing else shares its view), so a
    *  caller can state the guarantee unconditionally without churning the
@@ -130,8 +154,35 @@ export interface PaneActions {
 
 export interface PaneSlice {
   panes: Record<string, PaneGroup>
+  /**
+   * THE SHOWING VIEW'S TILING TREE — and only that view's.
+   *
+   * It used to be the whole window's one tree, holding every open pane at
+   * once regardless of which view each belonged to. That is precisely why
+   * tagging panes with a `viewId` fixed nothing on screen: the tag said
+   * "these are two independent views" while the tree said "tile them beside
+   * each other", and the tree is what renders. Now the invariant is that
+   * every leaf here belongs to `activeViewId`, so "only the active view
+   * occupies the screen" needs no filter in the render path — it is true of
+   * the data the renderer already walks, and an inactive view costs the
+   * layout exactly nothing.
+   */
   rootLayout: LayoutNode
   bottomLayout: LayoutNode
+  /**
+   * Every OTHER view's tree, keyed by view id — open, off screen, and whole.
+   * `rootLayout` and this are disjoint: a view's tree is in exactly one of
+   * the two, never both, so there is a single authoritative copy of every
+   * arrangement at all times.
+   *
+   * Parked, NOT closed: the chats in these views keep their vendor CLI, their
+   * workspace store and their Recents row. Only `closePane`/`closeView` end a
+   * view (and only they run the `releaseClosedChat` teardown).
+   */
+  parkedViews: Record<string, LayoutNode>
+  /** Which view `rootLayout` currently is. Written only by `activateView`
+   *  (and by `addPane`, which mints a view and shows it in one step). */
+  activeViewId: string
   activePaneId: string
   mostRecentActivePaneIds: string[]
   fullscreenPaneId: string | null
@@ -186,17 +237,112 @@ function makeBottomLeaf(): PaneGroup {
   }
 }
 
-function layoutContainsPane(layout: LayoutNode, paneId: string): boolean {
-  return findLeaf(layout, paneId) !== null
+/**
+ * Which of the window's tiling trees a pane sits in.
+ *
+ * There is no longer one root tree: the showing view's is `rootLayout`, the
+ * bottom panel's is `bottomLayout`, and every parked view owns one in
+ * `parkedViews`. Every action that edits a tree resolves its slot first, so
+ * the same code path grows/shrinks a view whether or not it happens to be on
+ * screen — which is what lets a chat be dropped onto an off-screen view's
+ * Recents row and genuinely land in that view's arrangement.
+ */
+type TreeSlot = { kind: 'root' } | { kind: 'bottom' } | { kind: 'parked'; viewId: string }
+
+type TreeHolder = Pick<PaneSlice, 'rootLayout' | 'bottomLayout' | 'parkedViews'>
+
+/** Every tree in the window, showing and parked alike. */
+function allTreeSlots(state: TreeHolder): TreeSlot[] {
+  return [
+    { kind: 'root' },
+    { kind: 'bottom' },
+    ...Object.keys(state.parkedViews).map((viewId) => ({ kind: 'parked' as const, viewId })),
+  ]
 }
 
-function getLayoutKey(
-  state: Pick<PaneSlice, 'rootLayout' | 'bottomLayout'>,
-  paneId: string,
-): 'rootLayout' | 'bottomLayout' {
-  if (layoutContainsPane(state.rootLayout, paneId)) return 'rootLayout'
-  if (layoutContainsPane(state.bottomLayout, paneId)) return 'bottomLayout'
-  return paneId === BOTTOM_PANE_ID ? 'bottomLayout' : 'rootLayout'
+function readTree(state: TreeHolder, slot: TreeSlot): LayoutNode | null {
+  if (slot.kind === 'root') return state.rootLayout
+  if (slot.kind === 'bottom') return state.bottomLayout
+  return state.parkedViews[slot.viewId] ?? null
+}
+
+function writeTree(state: TreeHolder, slot: TreeSlot, layout: LayoutNode): void {
+  if (slot.kind === 'root') state.rootLayout = layout
+  else if (slot.kind === 'bottom') state.bottomLayout = layout
+  else state.parkedViews[slot.viewId] = layout
+}
+
+/** The slot actually holding `paneId`, or null when no tree does. */
+function locatePane(state: TreeHolder, paneId: string): TreeSlot | null {
+  for (const slot of allTreeSlots(state)) {
+    const tree = readTree(state, slot)
+    if (tree && findLeaf(tree, paneId) !== null) return slot
+  }
+  return null
+}
+
+/** {@link locatePane}, falling back to the canonical tree for a pane no tree
+ *  holds — the same defaulting `getLayoutKey` did before views existed. */
+function paneSlot(state: TreeHolder, paneId: string): TreeSlot {
+  return (
+    locatePane(state, paneId) ?? (paneId === BOTTOM_PANE_ID ? { kind: 'bottom' } : { kind: 'root' })
+  )
+}
+
+/**
+ * Whether `slot`'s tree is nothing but one pane with nothing in it — the
+ * "no view is open" fallback screen (spec §5.4), not a view.
+ *
+ * It is the one arrangement that must never be PARKED: parking it would file
+ * an empty stage in Recents as a view the user could switch back to, and mint
+ * a fresh one every time they opened something. It evaporates instead.
+ */
+function isEmptyStage(state: WindowPaneState, slot: TreeSlot): boolean {
+  const tree = readTree(state, slot)
+  if (!tree) return false
+  const leaves = getAllLeafIds(tree)
+  return leaves.length === 1 && isPaneEmpty(state.panes[leaves[0]])
+}
+
+/** Take the showing tree off screen — parked under its own view id, or
+ *  dropped outright when it is only the empty stage. Leaves `rootLayout`
+ *  stale; every caller installs a replacement in the same `set`. */
+function parkShowingView(state: WindowPaneState): void {
+  if (isEmptyStage(state, { kind: 'root' })) {
+    for (const id of getAllLeafIds(state.rootLayout)) {
+      delete state.panes[id]
+      state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter((x) => x !== id)
+    }
+    return
+  }
+  state.parkedViews[state.activeViewId] = state.rootLayout
+}
+
+/** Put a parked view's tree on screen and focus a pane in it — its most
+ *  recently active member, else its first. */
+function showParkedView(state: WindowPaneState, viewId: string): void {
+  const tree = state.parkedViews[viewId]
+  if (!tree) return
+  delete state.parkedViews[viewId]
+  state.rootLayout = tree
+  state.activeViewId = viewId
+  const leaves = new Set(getAllLeafIds(tree))
+  const next = state.mostRecentActivePaneIds.find((id) => leaves.has(id)) ?? getFirstLeafId(tree)
+  state.activePaneId = next
+  state.mostRecentActivePaneIds = [
+    next,
+    ...state.mostRecentActivePaneIds.filter((id) => id !== next),
+  ]
+}
+
+/** The parked view to fall back to when the showing one ends — most recently
+ *  active first, so closing a view reveals the one you were in before it. */
+function nextParkedViewId(state: WindowPaneState): string | undefined {
+  for (const paneId of state.mostRecentActivePaneIds) {
+    const slot = locatePane(state, paneId)
+    if (slot?.kind === 'parked') return slot.viewId
+  }
+  return Object.keys(state.parkedViews)[0]
 }
 
 /** Nothing in it at all — no chat, no editor tabs. The one state spec §5.4
@@ -228,20 +374,58 @@ export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | u
  * caller in the very next action and must survive the gap.
  */
 function dropEmptiedPanes(state: WindowPaneState): void {
-  for (const key of ['rootLayout', 'bottomLayout'] as const) {
-    for (const paneId of getAllLeafIds(state[key])) {
-      // The sole leaf of its own tree is the fallback screen — re-read each
-      // pass, since an earlier collapse in this loop may have made this the
-      // last one standing.
-      if (getAllLeafIds(state[key]).length <= 1) break
+  // Every tree, not just the showing one: a pane emptied by an eviction or a
+  // deletion is just as much a non-view when it sits in a parked arrangement,
+  // and leaving it there would put an empty box in that view the moment the
+  // user switched back to it.
+  for (const slot of allTreeSlots(state)) {
+    const initial = readTree(state, slot)
+    if (!initial) continue
+    for (const paneId of getAllLeafIds(initial)) {
+      // Re-read each pass: an earlier collapse in this loop may have made
+      // this the last one standing, or dropped the tree entirely.
+      const tree = readTree(state, slot)
+      if (!tree) break
+      const leaves = getAllLeafIds(tree)
+      if (leaves.length <= 1) {
+        if (isPaneEmpty(state.panes[leaves[0]])) {
+          if (slot.kind === 'parked') {
+            // Not a fallback — an off-screen view with nothing in it is
+            // nothing at all, so the whole view goes.
+            delete state.panes[leaves[0]]
+            delete state.parkedViews[slot.viewId]
+            state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
+              (id) => id !== leaves[0],
+            )
+          } else if (slot.kind === 'root') {
+            // The showing view emptied out. It is only the "nothing is open"
+            // fallback screen if there is genuinely nothing else open —
+            // otherwise it is an empty view standing in front of real ones,
+            // so it goes and the view behind it comes forward. (Before views
+            // there was one tree, so a sole empty leaf could only ever mean
+            // the fallback; now it usually doesn't.)
+            const reveal = nextParkedViewId(state)
+            if (reveal) {
+              delete state.panes[leaves[0]]
+              state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
+                (id) => id !== leaves[0],
+              )
+              showParkedView(state, reveal)
+            }
+          }
+        }
+        break
+      }
       if (!isPaneEmpty(state.panes[paneId])) continue
-      const next = closeLayout(state[key], paneId)
+      const next = closeLayout(tree, paneId)
       if (next === null) break
-      state[key] = normalizeLayout(next)
+      writeTree(state, slot, normalizeLayout(next))
       delete state.panes[paneId]
       state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter((id) => id !== paneId)
       if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
-      if (state.activePaneId === paneId) state.activePaneId = getFirstLeafId(state[key])
+      if (state.activePaneId === paneId) {
+        state.activePaneId = getFirstLeafId(readTree(state, slot) ?? state.rootLayout)
+      }
     }
   }
 }
@@ -294,6 +478,10 @@ export const createPaneSlice: StateCreator<
     panes: { [ROOT_PANE_ID]: makeRootLeaf(), [BOTTOM_PANE_ID]: makeBottomLeaf() },
     rootLayout: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf(BOTTOM_PANE_ID),
+    parkedViews: {},
+    // The empty stage IS a view id's worth of state — `makeRootLeaf` tags the
+    // root pane with `ROOT_PANE_ID` as its view, so the two agree from boot.
+    activeViewId: ROOT_PANE_ID,
     activePaneId: ROOT_PANE_ID,
     mostRecentActivePaneIds: [ROOT_PANE_ID],
     fullscreenPaneId: null,
@@ -304,10 +492,12 @@ export const createPaneSlice: StateCreator<
       splitPane(paneId, direction, bufferId?, placement = 'after') {
         let newPaneId: string | null = null
         set((state) => {
-          const key = getLayoutKey(state, paneId)
-          const result = splitLayout(state[key], paneId, direction, placement)
+          const slot = paneSlot(state, paneId)
+          const tree = readTree(state, slot)
+          if (!tree) return
+          const result = splitLayout(tree, paneId, direction, placement)
           if (!result) return
-          state[key] = result.layout
+          writeTree(state, slot, result.layout)
           newPaneId = result.newPaneId
           state.panes[newPaneId] = {
             id: newPaneId,
@@ -322,7 +512,14 @@ export const createPaneSlice: StateCreator<
             // sit next door. The source pane's view, not a new one.
             viewId: viewIdOf(state.panes[paneId] ?? { id: paneId }),
           }
-          state.activePaneId = newPaneId
+          // Only when the split landed in the SHOWING tree. A merge into a
+          // parked view (a chat dropped on its Recents row) must not point
+          // `activePaneId` at a pane no tree on screen holds — the caller
+          // routes focus through `setActivePane`, which brings the whole view
+          // over first.
+          if (slot.kind === 'root') {
+            state.activePaneId = newPaneId
+          }
           state.mostRecentActivePaneIds = [newPaneId, ...state.mostRecentActivePaneIds]
         })
         return newPaneId
@@ -331,11 +528,14 @@ export const createPaneSlice: StateCreator<
       addPane() {
         let newPaneId: string | null = null
         set((state) => {
-          const result = appendLeaf(state.rootLayout, 'horizontal')
-          state.rootLayout = result.layout
-          newPaneId = result.newPaneId
-          state.panes[result.newPaneId] = {
-            id: result.newPaneId,
+          const id = nanoid()
+          // What was showing goes away from view, whole and undisturbed —
+          // never subdivided to make room, which is what `appendLeaf` used to
+          // do here and what made a click read as "appended to what I was
+          // looking at".
+          parkShowingView(state)
+          state.panes[id] = {
+            id,
             type: 'group',
             chatId: null,
             runnerId: null,
@@ -343,15 +543,47 @@ export const createPaneSlice: StateCreator<
             activeEditorTabId: null,
             editorOpen: false,
             // A BRAND-NEW view. The pane's own id serves as the view id — it
-            // was just minted by `appendLeaf`, so nothing else can carry it,
-            // and it makes the common "one pane, its own view" case readable
-            // in a dump of the store rather than an opaque second nanoid.
-            viewId: result.newPaneId,
+            // was just minted, so nothing else can carry it, and it makes the
+            // common "one pane, its own view" case readable in a dump of the
+            // store rather than an opaque second nanoid.
+            viewId: id,
           }
-          state.activePaneId = result.newPaneId
-          state.mostRecentActivePaneIds = [result.newPaneId, ...state.mostRecentActivePaneIds]
+          state.rootLayout = createLeaf(id)
+          state.activeViewId = id
+          state.activePaneId = id
+          state.mostRecentActivePaneIds = [id, ...state.mostRecentActivePaneIds]
+          newPaneId = id
         })
         return newPaneId
+      },
+
+      activateView(viewId) {
+        set((state) => {
+          if (viewId === state.activeViewId) return
+          if (!state.parkedViews[viewId]) return
+          parkShowingView(state)
+          showParkedView(state, viewId)
+        })
+      },
+
+      closeView(viewId) {
+        // One `closePane` per member, deliberately: that action is where the
+        // whole teardown lives (Recents bookkeeping, the layout edit, and the
+        // `releaseClosedChat` that stops the vendor CLI and evicts the
+        // workspace store), and it is what makes closing a MERGED view stop
+        // every one of its chats rather than only the pane the gesture named.
+        //
+        // Members are snapshotted first rather than re-found each pass:
+        // closing the last pane of a tree RESEEDS the canonical empty stage
+        // under the very same id and view (see `closePane`'s null branch), so
+        // a "find the next member" loop would never terminate on it.
+        const memberIds = Object.values(get().panes)
+          .filter((p) => viewIdOf(p) === viewId)
+          .map((p) => p.id)
+        for (const paneId of memberIds) {
+          if (!get().panes[paneId]) continue
+          get().paneActions.closePane(paneId)
+        }
       },
 
       detachPaneToOwnView(paneId) {
@@ -362,10 +594,38 @@ export const createPaneSlice: StateCreator<
           // churn `panes` (and with it the layout persistence subscription)
           // on every single click.
           if (!viewIsShared(state.panes, paneId)) return
+          const slot = paneSlot(state, paneId)
+          const tree = readTree(state, slot)
+          if (!tree) return
+          // Leaving the group is a move in the LAYOUT too, not just a
+          // relabel: the pane has to come out of the tree it shared, or it
+          // would keep drawing beside its old view-mates while claiming to be
+          // a view of its own — the same split between tag and tree the view
+          // model exists to close.
+          const remainder = closeLayout(tree, paneId)
           // A FRESH id, never `paneId` itself: a pane that was split OFF of
           // this one carries `viewId === paneId`, so reusing it here would
-          // leave the two still grouped — the precise opposite of detaching.
-          state.panes[paneId].viewId = nanoid()
+          // leave the two still grouped.
+          const ownViewId = nanoid()
+          state.panes[paneId].viewId = ownViewId
+          if (remainder === null) {
+            // It was the whole tree after all — nothing to move, just retag.
+            if (slot.kind === 'parked') {
+              delete state.parkedViews[slot.viewId]
+              state.parkedViews[ownViewId] = tree
+            } else if (slot.kind === 'root') {
+              state.activeViewId = ownViewId
+            }
+            return
+          }
+          if (slot.kind === 'root') {
+            state.parkedViews[state.activeViewId] = normalizeLayout(remainder)
+          } else {
+            writeTree(state, slot, normalizeLayout(remainder))
+          }
+          state.rootLayout = createLeaf(paneId)
+          state.activeViewId = ownViewId
+          state.activePaneId = paneId
         })
       },
 
@@ -375,7 +635,7 @@ export const createPaneSlice: StateCreator<
         const releasedChatId = get().panes[paneId]?.chatId ?? null
 
         set((state) => {
-          const key = getLayoutKey(state, paneId)
+          const slot = paneSlot(state, paneId)
           const closingPane = state.panes[paneId]
           const closedChatId = closingPane?.chatId ?? null
           // Does the VIEW outlive this pane? Asked while the pane is still in
@@ -438,12 +698,13 @@ export const createPaneSlice: StateCreator<
             }
           }
 
-          const result = closeLayout(state[key], paneId)
+          const tree = readTree(state, slot)
+          const result = tree ? closeLayout(tree, paneId) : null
           if (result !== null) {
-            state[key] = normalizeLayout(result)
-            const remainingIds = getAllLeafIds(state[key])
+            writeTree(state, slot, normalizeLayout(result))
+            const remainingIds = getAllLeafIds(readTree(state, slot) ?? result)
             const fallbackId =
-              remainingIds[0] ?? (key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID)
+              remainingIds[0] ?? (slot.kind === 'bottom' ? BOTTOM_PANE_ID : ROOT_PANE_ID)
             if (closingPane) {
               const fp = state.panes[fallbackId]
               if (fp) {
@@ -469,16 +730,33 @@ export const createPaneSlice: StateCreator<
             }
             if (state.activePaneId === paneId) state.activePaneId = fallbackId
             delete state.panes[paneId]
+          } else if (slot.kind === 'parked') {
+            // The last pane of a view that wasn't even on screen. Nothing to
+            // reseed — an off-screen view with no panes is not a fallback
+            // stage, it is simply gone.
+            delete state.panes[paneId]
+            delete state.parkedViews[slot.viewId]
           } else {
-            const fallbackId = key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID
+            const fallbackId = slot.kind === 'bottom' ? BOTTOM_PANE_ID : ROOT_PANE_ID
             // `paneId` IS `fallbackId` when it was the tree's sole leaf under its
             // own canonical id (the common single-pane-workspace case) — deleting
             // unconditionally below would wipe the fresh empty group this just
             // made. Only a paneId distinct from the fallback is stale.
             if (paneId !== fallbackId) delete state.panes[paneId]
-            state.panes[fallbackId] = key === 'rootLayout' ? makeRootLeaf() : makeBottomLeaf()
-            state[key] = createLeaf(fallbackId)
-            if (state.activePaneId === paneId) state.activePaneId = ROOT_PANE_ID
+            // The showing view just ended. Another open view takes the screen
+            // if there is one — closing a view REVEALS what you had behind
+            // it, the way closing a tab does; the empty stage is only what is
+            // left when there is genuinely nothing else open.
+            const reveal = slot.kind === 'root' ? nextParkedViewId(state) : undefined
+            if (reveal) {
+              if (paneId === fallbackId) delete state.panes[paneId]
+              showParkedView(state, reveal)
+            } else {
+              state.panes[fallbackId] = slot.kind === 'bottom' ? makeBottomLeaf() : makeRootLeaf()
+              writeTree(state, slot, createLeaf(fallbackId))
+              if (slot.kind === 'root') state.activeViewId = ROOT_PANE_ID
+              if (state.activePaneId === paneId) state.activePaneId = ROOT_PANE_ID
+            }
           }
           state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
             (id) => id !== paneId,
@@ -510,6 +788,18 @@ export const createPaneSlice: StateCreator<
 
       setActivePane(paneId) {
         set((state) => {
+          // Focusing a pane means SHOWING it. Every "go to that chat" gesture
+          // in the app already routes through here — a Recents row, revealing
+          // a chat that is already open, the pane a moved conversation landed
+          // in — so making this bring the owning view over is what turns all
+          // of them into view switches at once, with no second rule to keep
+          // in step. A pane in the showing view resolves to no slot change
+          // and this costs nothing.
+          const slot = locatePane(state, paneId)
+          if (slot?.kind === 'parked') {
+            parkShowingView(state)
+            showParkedView(state, slot.viewId)
+          }
           state.activePaneId = paneId
           state.mostRecentActivePaneIds = [
             paneId,
