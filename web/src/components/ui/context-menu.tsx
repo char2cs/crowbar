@@ -3,10 +3,7 @@ import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { cn } from '@/lib/utils'
-import { Menu } from '@tauri-apps/api/menu'
-import type { MenuItemOptions, SubmenuOptions, PredefinedMenuItemOptions } from '@tauri-apps/api/menu'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
-import { isTauri } from '@/lib/crowbar-bridge'
+import { isTauri, showNativeContextMenu } from '@/lib/crowbar-bridge'
 
 // ── Imperative context-menu API (opened programmatically, not via a trigger) ──
 
@@ -33,47 +30,6 @@ export interface ContextMenuRootProps {
   className?: string
   /** Optional content rendered below the last menu item (e.g. inline error panel). */
   footer?: React.ReactNode
-}
-
-// ── Native menu (Tauri) ──────────────────────────────────────────────────────
-
-type NativeMenuEntry = MenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions
-
-function toNativeMenuEntries(items: ContextMenuItem[]): NativeMenuEntry[] {
-  return items.map((item): NativeMenuEntry => {
-    if (item.separator) {
-      return { item: 'Separator' }
-    }
-    if (item.items && item.items.length > 0) {
-      return {
-        text: item.label,
-        enabled: !item.disabled,
-        items: toNativeMenuEntries(item.items),
-      }
-    }
-    return {
-      id: item.id,
-      text: item.label,
-      enabled: !item.disabled,
-      accelerator: item.shortcut,
-      action: () => item.onClick(),
-    }
-  })
-}
-
-/** Pops up the OS's own context menu. Always closes the underlying native
- * resource handle when the popup dismisses, whether an item was picked or
- * the popup was closed with no selection. */
-export async function showNativeContextMenu(
-  items: ContextMenuItem[],
-  position: { x: number; y: number },
-): Promise<void> {
-  const menu = await Menu.new({ items: toNativeMenuEntries(items) })
-  try {
-    await menu.popup(new LogicalPosition(position.x, position.y))
-  } finally {
-    await menu.close()
-  }
 }
 
 function ImperativeContextMenu({
@@ -201,7 +157,14 @@ export function useContextMenu<T = unknown>() {
 // renders nothing; outside Tauri (plain-browser `bun run dev`) it falls back
 // to ImperativeContextMenu, the rendered popup this app used everywhere
 // before native menus existed.
-function ContextMenuHost({ isOpen, position, items, onClose, className, footer }: ContextMenuRootProps) {
+function ContextMenuHost({
+  isOpen,
+  position,
+  items,
+  onClose,
+  className,
+  footer,
+}: ContextMenuRootProps) {
   const onCloseRef = useRef(onClose)
   useEffect(() => {
     onCloseRef.current = onClose

@@ -1,10 +1,18 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { Channel } from '@tauri-apps/api/core'
+import { Menu } from '@tauri-apps/api/menu'
+import type {
+  MenuItemOptions,
+  SubmenuOptions,
+  PredefinedMenuItemOptions,
+} from '@tauri-apps/api/menu'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import type { ContextMenuItem } from '@/components/ui/context-menu'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
@@ -497,6 +505,47 @@ export async function setMacOSWindowAppearance(
 
 export async function toggleMenuBar(_toggle: boolean): Promise<void> {
   // FUTURE: invoke Tauri menu bar plugin
+}
+
+// ── Native Context Menu ───────────────────────────────────────────────────────
+
+type NativeMenuEntry = MenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions
+
+function toNativeMenuEntries(items: ContextMenuItem[]): NativeMenuEntry[] {
+  return items.map((item): NativeMenuEntry => {
+    if (item.separator) {
+      return { item: 'Separator' }
+    }
+    if (item.items && item.items.length > 0) {
+      return {
+        text: item.label,
+        enabled: !item.disabled,
+        items: toNativeMenuEntries(item.items),
+      }
+    }
+    return {
+      id: item.id,
+      text: item.label,
+      enabled: !item.disabled,
+      accelerator: item.shortcut,
+      action: () => item.onClick(),
+    }
+  })
+}
+
+/** Pops up the OS's own context menu. Always closes the underlying native
+ * resource handle when the popup dismisses, whether an item was picked or
+ * the popup was closed with no selection. */
+export async function showNativeContextMenu(
+  items: ContextMenuItem[],
+  position: { x: number; y: number },
+): Promise<void> {
+  const menu = await Menu.new({ items: toNativeMenuEntries(items) })
+  try {
+    await menu.popup(new LogicalPosition(position.x, position.y))
+  } finally {
+    await menu.close()
+  }
 }
 
 // ── Tauri Helpers ─────────────────────────────────────────────────────────────

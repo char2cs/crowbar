@@ -42,7 +42,9 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     expect(container).toBeEmptyDOMElement()
 
     await waitFor(() => expect(menuNewMock).toHaveBeenCalledOnce())
-    const [{ items: nativeItems }] = menuNewMock.mock.calls[0] as [{ items: Array<{ action: (id: string) => void }> }]
+    const [{ items: nativeItems }] = menuNewMock.mock.calls[0] as [
+      { items: Array<{ action: (id: string) => void }> },
+    ]
     expect(nativeItems[0].action).toBeInstanceOf(Function)
     nativeItems[0].action('a')
     expect(onClick).toHaveBeenCalledOnce()

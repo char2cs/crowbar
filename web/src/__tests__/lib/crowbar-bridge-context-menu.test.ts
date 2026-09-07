@@ -22,7 +22,7 @@ describe('showNativeContextMenu', () => {
   })
 
   it('maps a flat item list to MenuItemOptions and pops up at the given position', async () => {
-    const { showNativeContextMenu } = await import('@/components/ui/context-menu')
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
     const onClick = vi.fn()
     const items: ContextMenuItem[] = [
       { id: 'rename', label: 'Rename', onClick, shortcut: 'CmdOrCtrl+R' },
@@ -35,9 +35,21 @@ describe('showNativeContextMenu', () => {
     expect(menuNewMock).toHaveBeenCalledTimes(1)
     const [{ items: nativeItems }] = menuNewMock.mock.calls[0] as [{ items: unknown[] }]
     expect(nativeItems).toEqual([
-      { id: 'rename', text: 'Rename', enabled: true, accelerator: 'CmdOrCtrl+R', action: expect.any(Function) },
+      {
+        id: 'rename',
+        text: 'Rename',
+        enabled: true,
+        accelerator: 'CmdOrCtrl+R',
+        action: expect.any(Function),
+      },
       { item: 'Separator' },
-      { id: 'delete', text: 'Delete', enabled: false, accelerator: undefined, action: expect.any(Function) },
+      {
+        id: 'delete',
+        text: 'Delete',
+        enabled: false,
+        accelerator: undefined,
+        action: expect.any(Function),
+      },
     ])
 
     const [renameEntry] = nativeItems as Array<{ action: (id: string) => void }>
@@ -50,7 +62,7 @@ describe('showNativeContextMenu', () => {
   })
 
   it('maps nested items to a Submenu entry', async () => {
-    const { showNativeContextMenu } = await import('@/components/ui/context-menu')
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
     const items: ContextMenuItem[] = [
       {
         id: 'turn-into',
@@ -68,14 +80,20 @@ describe('showNativeContextMenu', () => {
         text: 'Turn into',
         enabled: true,
         items: [
-          { id: 'turn-into-h1', text: 'Heading 1', enabled: true, accelerator: undefined, action: expect.any(Function) },
+          {
+            id: 'turn-into-h1',
+            text: 'Heading 1',
+            enabled: true,
+            accelerator: undefined,
+            action: expect.any(Function),
+          },
         ],
       },
     ])
   })
 
   it('closes the menu after popup resolves', async () => {
-    const { showNativeContextMenu } = await import('@/components/ui/context-menu')
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
 
     await showNativeContextMenu([{ id: 'a', label: 'A', onClick: vi.fn() }], { x: 0, y: 0 })
 
@@ -84,7 +102,7 @@ describe('showNativeContextMenu', () => {
 
   it('still closes the menu when popup rejects, and rethrows', async () => {
     popupMock.mockRejectedValueOnce(new Error('popup failed'))
-    const { showNativeContextMenu } = await import('@/components/ui/context-menu')
+    const { showNativeContextMenu } = await import('@/lib/crowbar-bridge')
 
     await expect(
       showNativeContextMenu([{ id: 'a', label: 'A', onClick: vi.fn() }], { x: 0, y: 0 }),
