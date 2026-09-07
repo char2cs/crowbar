@@ -2125,3 +2125,67 @@ func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T)
 	chat = f.chat(t, chatID)
 	require.False(t, chat.Working, "once the subagent finishes the spinner MUST stop — no stuck-on")
 }
+
+// TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne pins the
+// read-after-write ordering restateAsyncWork depends on, in BOTH directions.
+//
+// subagent_post closes the subagent through the activity repo and then asks
+// OpenWork — a SQL read of the very row it just closed — whether any subagent is
+// still open. That write is projected by an asynx subscriber, so dispatching it
+// without waiting for handlers let the read still see the subagent running: the
+// recomputed level matched what the chat already held, restateAsyncWork returned
+// early WITHOUT emitting the turn_stopped that clears Working, and since nothing
+// re-runs that check the spinner stayed lit forever. Only codex shows it — claude
+// restates its own async_work level on every turn_stop and so has a second
+// mechanism that masks the stale read.
+//
+// Draining two subagents one at a time is what makes this a guard rather than a
+// coincidence: the middle assertion fails for a "just always clear it" fix, and
+// the last one fails for the stale-read bug.
+func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+	prompt(t, f, runnerID, "codex", "delegate this to two subagents")
+
+	for _, id := range []string{"sub-1", "sub-2"} {
+		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
+			mustJSON(t, map[string]any{
+				"session_id": "sess-1", "agent_id": id, "agent_type": "explorer",
+			})))
+	}
+	f.wait()
+
+	// codex's own top-level turn ends with both subagents still running.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		stopPayload(t, "Delegated to two subagents.", 0)))
+	f.wait()
+	require.True(t, f.chat(t, chatID).Working,
+		"precondition: codex's turn ended but both its subagents are still working")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
+		})))
+	f.wait()
+	require.True(t, f.chat(t, chatID).Working,
+		"one of the two finished — the spinner must KEEP SPINNING for the other")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
+		mustJSON(t, map[string]any{
+			"session_id": "sess-1", "agent_id": "sub-2", "agent_type": "explorer",
+		})))
+	f.wait()
+	require.False(t, f.chat(t, chatID).Working,
+		"the last subagent finished — the spinner MUST stop, or the provider is done and the UI never says so")
+
+	// The ledger the subagent shelf reads must agree with the spinner: both rows
+	// closed, so the shelf shows nothing running either.
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 2)
+	for _, s := range subs {
+		assert.NotNil(t, s.EndedAt, "subagent %q must be closed in the ledger", s.ID)
+	}
+}
