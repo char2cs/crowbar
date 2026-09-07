@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronRightIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { isTauri, showNativeContextMenu } from '@/lib/crowbar-bridge'
@@ -30,6 +31,66 @@ export interface ContextMenuRootProps {
   className?: string
   /** Optional content rendered below the last menu item (e.g. inline error panel). */
   footer?: React.ReactNode
+}
+
+const menuItemClass =
+  "flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-4.5 sm:[&>svg:not([class*='size-'])]:size-4 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0"
+
+const popupClass =
+  "relative flex not-[class*='w-']:min-w-[180px] origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+
+function renderMenuItems(items: ContextMenuItem[], onCloseRef: React.RefObject<() => void>) {
+  return items.map((item) => {
+    if (item.separator) {
+      return <MenuPrimitive.Separator key={item.id} className="mx-2 my-1 h-px bg-border" />
+    }
+    if (item.items && item.items.length > 0) {
+      return (
+        <MenuPrimitive.SubmenuRoot key={item.id}>
+          <MenuPrimitive.SubmenuTrigger
+            disabled={item.disabled}
+            className={cn(menuItemClass, item.className)}
+          >
+            <span className="flex-1">{item.label}</span>
+            <ChevronRightIcon className="ml-auto size-4 opacity-60" />
+          </MenuPrimitive.SubmenuTrigger>
+          <MenuPrimitive.Portal>
+            <MenuPrimitive.Positioner
+              side="right"
+              align="start"
+              sideOffset={-4}
+              className="z-[10040]"
+            >
+              <MenuPrimitive.Popup className={popupClass}>
+                <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
+                  {renderMenuItems(item.items, onCloseRef)}
+                </div>
+              </MenuPrimitive.Popup>
+            </MenuPrimitive.Positioner>
+          </MenuPrimitive.Portal>
+        </MenuPrimitive.SubmenuRoot>
+      )
+    }
+    return (
+      <MenuPrimitive.Item
+        key={item.id}
+        disabled={item.disabled}
+        className={cn(menuItemClass, item.className)}
+        onClick={() => {
+          item.onClick()
+          if (item.closeOnClick !== false) onCloseRef.current()
+        }}
+      >
+        {item.icon}
+        <span className="flex-1">{item.label}</span>
+        {item.shortcut && (
+          <kbd className="ms-auto font-medium font-sans text-muted-foreground/72 text-xs tracking-widest">
+            {item.shortcut}
+          </kbd>
+        )}
+      </MenuPrimitive.Item>
+    )
+  })
 }
 
 function ImperativeContextMenu({
@@ -81,39 +142,9 @@ function ImperativeContextMenu({
           sideOffset={0}
           className="z-[10040]"
         >
-          <MenuPrimitive.Popup
-            className={cn(
-              "relative flex not-[class*='w-']:min-w-[180px] origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
-              className,
-            )}
-          >
+          <MenuPrimitive.Popup className={cn(popupClass, className)}>
             <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
-              {items.map((item) =>
-                item.separator ? (
-                  <MenuPrimitive.Separator key={item.id} className="mx-2 my-1 h-px bg-border" />
-                ) : (
-                  <MenuPrimitive.Item
-                    key={item.id}
-                    disabled={item.disabled}
-                    className={cn(
-                      "flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-4.5 sm:[&>svg:not([class*='size-'])]:size-4 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0",
-                      item.className,
-                    )}
-                    onClick={() => {
-                      item.onClick()
-                      if (item.closeOnClick !== false) onCloseRef.current()
-                    }}
-                  >
-                    {item.icon}
-                    <span className="flex-1">{item.label}</span>
-                    {item.shortcut && (
-                      <kbd className="ms-auto font-medium font-sans text-muted-foreground/72 text-xs tracking-widest">
-                        {item.shortcut}
-                      </kbd>
-                    )}
-                  </MenuPrimitive.Item>
-                ),
-              )}
+              {renderMenuItems(items, onCloseRef)}
               {footer}
             </div>
           </MenuPrimitive.Popup>
