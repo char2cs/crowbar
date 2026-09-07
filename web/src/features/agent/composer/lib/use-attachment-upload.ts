@@ -47,6 +47,7 @@ export function useAttachmentUpload(
           : null
 
       if (imageFile && insertPending && settlePending) {
+        // react-doctor-disable-next-line no-create-object-url-without-revoke -- revoked in chat-markdown-editor.tsx's settlePendingImageInto, which every branch below (success and catch) hands this same objectUrl to; the rule can't trace it across the settlePending callback boundary.
         const objectUrl = URL.createObjectURL(imageFile)
         insertPending(objectUrl, imageFile.name)
         try {

@@ -115,6 +115,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
           // unlike the position-based insert this replaced (which used to
           // defer reading the selection until the upload settled specifically
           // to dodge a stale position), there is no position left to go stale.
+          // react-doctor-disable-next-line no-create-object-url-without-revoke -- revoked in chat-markdown-editor.tsx's settlePendingImageInto, called on both the .then and .catch below with this same objectUrl; the rule can't trace it across that async boundary.
           const objectUrl = URL.createObjectURL(file)
           insertPendingImageInto(editor, objectUrl, file.name)
           void uploadChatAttachment(wsId, chatId, { file })

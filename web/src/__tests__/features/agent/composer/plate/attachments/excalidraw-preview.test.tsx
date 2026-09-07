@@ -210,6 +210,26 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
+  // REGRESSION: exportToSvg renders whatever `scene.elements`/`appState` say
+  // — content an agent or another chat participant can fully control (it's
+  // just attachment JSON) — and the result went straight into
+  // `dangerouslySetInnerHTML` with no sanitization. A `<script>` survives
+  // `.outerHTML` serialization even though the SVG spec doesn't otherwise
+  // execute it there; DOMPurify strips it, matching every other
+  // dangerouslySetInnerHTML sink in this codebase.
+  it('sanitizes the live SVG render, stripping a script element the scene JSON could smuggle in', async () => {
+    const svg = fakeSvg()
+    const script = document.createElementNS('http://www.w3.org/2000/svg', 'script')
+    script.textContent = 'window.pwned = true'
+    svg.appendChild(script)
+    exportToSvgMock.mockResolvedValue(svg)
+
+    render(<ExcalidrawPreview scene={scene} />)
+
+    await waitFor(() => expect(screen.getByTestId('live-excalidraw-render')).toBeInTheDocument())
+    expect(document.querySelector('script')).not.toBeInTheDocument()
+  })
+
   // Unmount safety is deliberately NOT covered by a separate test. React
   // invokes the exact same effect-cleanup closure (`cancelled = true`) on
   // unmount as it does before re-running the effect for a dependency change

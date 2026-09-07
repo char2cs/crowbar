@@ -134,6 +134,7 @@ export function AgentComposer(props: AgentComposerProps) {
   useEffect(() => {
     if (!pendingExcalidrawEdit) return
     setExcalidrawInitialScene(pendingExcalidrawEdit)
+    // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: not a derived copy of pendingExcalidrawEdit, an external-store event handler. Both setState calls run in the same batched effect invocation, so the modal never paints with a stale/absent scene; clearExcalidrawEditRequest is itself a side effect that can't happen during render.
     setModal('excalidraw')
     workspaceStore?.getState().clearExcalidrawEditRequest(props.chatId)
   }, [pendingExcalidrawEdit, props.chatId, workspaceStore])

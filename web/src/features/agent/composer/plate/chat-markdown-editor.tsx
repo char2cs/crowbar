@@ -484,6 +484,7 @@ export function ChatMarkdownEditor({
       const report = () => onHeightChange(node.getBoundingClientRect().height)
       report()
       const observer = new ResizeObserver(report)
+      // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.481: disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.
       observer.observe(node)
       heightObserverRef.current = observer
     },

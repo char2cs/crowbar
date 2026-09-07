@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useContext, useEffect, useState } from 'react'
+import DOMPurify from 'dompurify'
 import { PencilIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -118,7 +119,13 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         // instead of squaring off for a multi-line box. Setting markup
         // through state keeps this DOM subtree entirely inside React's own
         // reconciliation, the same as everywhere else in this codebase.
-        setSvgMarkup(svg.outerHTML)
+        // scene.elements/appState is attachment JSON an agent or another
+        // chat participant fully controls, so exportToSvg's output is
+        // untrusted — sanitize the same way as every other
+        // dangerouslySetInnerHTML sink in this codebase.
+        setSvgMarkup(
+          DOMPurify.sanitize(svg.outerHTML, { USE_PROFILES: { svg: true, svgFilters: true } }),
+        )
       })
       .catch(() => {
         // Malformed-enough scene JSON that even restore() can't repair it —
@@ -162,6 +169,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         <div
           className="max-h-80 [&>svg]:h-auto [&>svg]:max-h-80 [&>svg]:w-full"
           style={{ filter: darkFilter }}
+          // react-doctor-disable-next-line dangerous-html-sink -- `svgMarkup` is DOMPurify.sanitize() output (l.126 above, USE_PROFILES svg) of exportToSvg's own render; sanitized before setSvgMarkup ever stores it.
           dangerouslySetInnerHTML={{ __html: svgMarkup }}
         />
       ) : (
