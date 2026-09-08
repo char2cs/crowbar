@@ -333,19 +333,18 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
  * through every recursive one, since a folder nested inside another folder
  * is still in the same repo-or-home tree its ancestor is.
  *
- * `repoPositions`, when given, is BOTH an identity set and an out parameter:
- * `rows-from-home.ts` pre-seeds it with one entry per repo filed in this
- * project's home (keyed by the repo's own row id, values irrelevant), feeds
- * a matching stand-in into the SAME `buildSidebarTree` call that placed
- * `nodes` so the repo shares one real sibling sort with every chat/folder
- * around it, and reads the entries back afterward. A node whose id is a key
- * here is one of those stand-ins — it draws no row of its own (the repo
- * already has one, `rowsFromRepo`'s own header push, corrected in place by
- * the caller using the position written back here) and it is never a
- * container: nothing else in a project's home is ever filed INTO a repo, so
- * its `children` are always empty and the recursion below is a no-op for it.
- * `rowsFromRepo`'s own call never passes this, so its repo-internal tree
- * (where "another repo" can never appear as a node) is completely unaffected.
+ * Each row's own `order` is its REAL wire value (`node.chat.order` /
+ * `.folder.order` / `.workspace.order`), not `nodes`' own array position —
+ * `index` is only a fallback for the rare row with no order field at all.
+ * This is load-bearing at project-home's root level, where this function's
+ * output is concatenated with a repo's own header row
+ * (`rowsFromRepo`/`space-scroller.tsx`'s `SpacePanel`): Task 3 put a repo's
+ * `order` on the same server-computed scale as its real home chat/folder
+ * siblings, so the two only interleave correctly here if a chat/folder row
+ * carries that same real scale through too, rather than a LOCAL 0..n-1
+ * index compacted from whatever subset of siblings happened to reach this
+ * one `buildSidebarTree` call (which, at the home root, never includes a
+ * repo — see `rows-from-home.ts`'s own doc).
  */
 export function walkTreeIntoRows(
   rows: SidebarRow[],
@@ -354,15 +353,10 @@ export function walkTreeIntoRows(
   ownerOfChat: ReadonlyMap<string, string>,
   chatTitleById: ReadonlyMap<string, string>,
   foldersCanFork: boolean,
-  repoPositions?: Map<string, { parentId: string | null; order: number }>,
 ): void {
-  nodes.forEach((node, order) => {
-    if (node.kind === 'chat' && repoPositions?.has(node.id)) {
-      repoPositions.set(node.id, { parentId, order })
-      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
-      return
-    }
+  nodes.forEach((node, index) => {
     if (node.kind === 'chat') {
+      const order = node.chat.order ?? index
       // A chat that OWNS a worktree is a workspace row, and it says so
       // itself — it does not need its `Workspace` record to be on hand to
       // be one. Reaching `walk` still holding that ownership means exactly
@@ -395,7 +389,7 @@ export function walkTreeIntoRows(
           // claiming `locked: false` for a branch that is actually locked
           // would offer verbs the daemon then refuses.
         })
-        walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+        walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
         return
       }
       rows.push({
@@ -437,7 +431,7 @@ export function walkTreeIntoRows(
         working: false,
         hasView: false,
       })
-      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
       return
     }
     if (node.kind === 'folder') {
@@ -445,7 +439,7 @@ export function walkTreeIntoRows(
         id: node.id,
         kind: 'folder',
         parentId,
-        order,
+        order: node.folder.order ?? index,
         label: node.folder.name,
         // A folder's own "+" forks a branch — but only when it sits under a
         // real repo. A project-home folder has no worktree to fork at all
@@ -491,7 +485,7 @@ export function walkTreeIntoRows(
         id: node.id,
         kind: 'branch',
         parentId,
-        order,
+        order: node.workspace.order ?? index,
         label,
         labelProvisional,
         ownsWorktree: true,
@@ -506,9 +500,9 @@ export function walkTreeIntoRows(
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the
       // workspace still has to arrive at the row the user can see.
-      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
       return
     }
-    walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+    walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
   })
 }

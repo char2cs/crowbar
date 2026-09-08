@@ -629,6 +629,88 @@ describe('SpaceScroller', () => {
       expect(repoIndex).toBeLessThan(testingIndex)
     })
 
+    // Task 3's own backend regression
+    // (TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero) drags a
+    // repo to a NON-ZERO position among real home siblings and asserts the
+    // wire order lands exactly there. This is that same drag, asserted at
+    // the RENDER boundary instead: the repo is dragged BETWEEN two home
+    // chats, not to either edge, which is the one shape the deleted
+    // `repoPositions` stand-in mechanism could get right for free (it fed
+    // the repo into the very sort that produced the chats' own compacted
+    // index) but a naive delete of just that mechanism cannot — a chat's
+    // rendered `order` also has to carry ITS real wire value now (see
+    // rows-from-home.test.ts's own "not a index compacted from array
+    // position"), or the two rows collide the moment they share this root.
+    it('a repo dragged BETWEEN two home chats renders between them, not always first or last', () => {
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              {
+                id: HOME_ROW_ID,
+                repoId: '',
+                type: 'branch',
+                workspaceId: 'home-ws-1',
+                title: '',
+                order: 0,
+              },
+              { id: 'c-alpha', repoId: '', workspaceId: 'home-ws-1', title: 'alpha', order: 0 },
+              // Gap at 1 is deliberate: after a repo-focused reorder, the
+              // backend densifies the WHOLE merged sibling set (repo + home
+              // chats/folders) together, so a chat sitting after the repo
+              // keeps whatever slot that merge left it — never necessarily
+              // adjacent to another chat's own order.
+              { id: 'c-bravo', repoId: '', workspaceId: 'home-ws-1', title: 'bravo', order: 2 },
+            ],
+            folders: [],
+          },
+        },
+      })
+      const projects = [makeProject('p1')]
+      render(
+        <SpaceScroller
+          projects={projects}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => [
+            makeRow('repo-row', 'checkout', {
+              kind: 'branch',
+              order: 1,
+              repoIcon: {
+                repoId: 'repo-1',
+                projectId: 'p1',
+                name: 'checkout',
+                avatarLabel: 'C',
+                avatarColor: 'bg-indigo-700',
+              },
+            }),
+          ]}
+          recentsForProject={noRecents}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={vi.fn()}
+        />,
+      )
+
+      const labels = screen
+        .getAllByRole('treeitem')
+        .map((el) => el.textContent)
+        .filter((t): t is string => t !== null)
+      const alphaIndex = labels.findIndex((t) => t.includes('alpha'))
+      const repoIndex = labels.findIndex((t) => t.includes('checkout'))
+      const bravoIndex = labels.findIndex((t) => t.includes('bravo'))
+      expect(alphaIndex).toBeGreaterThanOrEqual(0)
+      expect(repoIndex).toBeGreaterThanOrEqual(0)
+      expect(bravoIndex).toBeGreaterThanOrEqual(0)
+      expect(alphaIndex).toBeLessThan(repoIndex)
+      expect(repoIndex).toBeLessThan(bravoIndex)
+    })
+
     it('renders nothing extra before the daemon has backfilled the home workspace’s owning chat', () => {
       useHomeTreeStore.setState({ trees: { p1: { chats: [], folders: [] } } })
       const projects = [makeProject('p1')]

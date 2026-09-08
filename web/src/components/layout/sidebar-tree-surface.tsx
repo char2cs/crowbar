@@ -97,10 +97,7 @@ export function SidebarTreeSurface({
           (c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId,
         )
         if (!seeded) return []
-        // Chrome-lookup only (rename dialog, context menu) — id-based, never
-        // sorted, so the repo-interleaved `order`/`parentId` correction
-        // `SpacePanel` applies for RENDERING is not needed here.
-        return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders).rows
+        return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders)
       }),
     [projects, homeTrees],
   )

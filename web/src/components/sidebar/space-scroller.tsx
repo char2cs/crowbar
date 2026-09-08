@@ -226,31 +226,16 @@ function SpacePanel({
   const homeSeeded =
     homeWorkspaceId !== null &&
     !!homeTree?.chats.some((c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId)
-  // Every repo header row already in `repoRows` (rowsFromRepo's own push),
-  // reduced to the one placement fact rowsFromHome needs to seat it in the
-  // SAME sibling sort as this project's home chats/folders — see that
-  // function's own doc for why the row's raw `order`/`parentId` cannot be
-  // trusted for rendering as-is (a repo's row never gets its `order`
-  // recomputed the way a chat/folder row's does, so the two collide the
-  // moment they share a container).
-  const repoPlacements = repoRows
-    .filter((r): r is SidebarRow & { repoIcon: NonNullable<SidebarRow['repoIcon']> } =>
-      Boolean(r.repoIcon),
-    )
-    .map((r) => ({ id: r.id, folderId: r.parentId ?? '', order: r.order }))
-  const { rows: homeRows, repoPositions } =
-    homeSeeded && homeTree
-      ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders, repoPlacements)
-      : { rows: [], repoPositions: new Map() }
-  // Corrected in place rather than re-built: everything else about the row
-  // (repoIcon, ownsWorktree, branchName, lock state...) still comes from
-  // `rowsFromRepo`'s own push, unchanged — only where it SITS among its
-  // project-home siblings was ever wrong.
-  const positionedRepoRows = repoRows.map((r) => {
-    const position = repoPositions.get(r.id)
-    return position ? { ...r, parentId: position.parentId, order: position.order } : r
-  })
-  const rows = [...homeRows, ...positionedRepoRows]
+  // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
+  // its own real `parentId`/`order` straight off the wire — Task 3 put a
+  // repo's position on its own `Node` row, computed server-side against
+  // these SAME real home chat/folder siblings, so it needs no correction
+  // here any more: it interleaves into the same sibling sort as
+  // `rowsFromHome`'s rows just by sitting in the same flat list, exactly the
+  // way a chat or folder row already does.
+  const homeRows =
+    homeSeeded && homeTree ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders) : []
+  const rows = [...homeRows, ...repoRows]
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
