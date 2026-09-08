@@ -620,30 +620,40 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     useEffect(() => {
       onReady(anchor)
     }, [anchor, onReady])
+    // `scrollHeight` (the describe block's own state) doubles as `.stream`'s
+    // NATURAL height here — i.e. everything real, before any reservation —
+    // so `el`'s total can model `.scroll-spacer` (transcript.css) actually
+    // collapsing as reserved padding grows `.stream`, the way a real
+    // browser's flex layout does: `.scroll`'s own scrollHeight is never less
+    // than `clientHeight` (the spacer fills the gap up to it) and never more
+    // than `.stream`'s own total once that alone exceeds it (the spacer is
+    // fully collapsed by then).
+    let scrollerNode: HTMLElement | null = null
+    const reserved = () => {
+      const content = scrollerNode?.lastElementChild as HTMLElement | null
+      return parseFloat(content?.style.paddingBottom || '0') || 0
+    }
+    const streamTotal = () => scrollHeight + reserved()
+    const spacerHeight = () => Math.max(0, clientHeight - streamTotal())
+    const elTotal = () => Math.max(clientHeight, streamTotal())
     return (
       <div
         data-testid="scroller"
         ref={(node) => {
           anchor.scrollRef.current = node
+          scrollerNode = node
           if (!node || Object.hasOwn(node, 'scrollHeight')) return
           let top = 0
-          // Room reserved on the content element is real scrollable height,
-          // exactly as the padding this hook writes would be in a browser.
-          const reserved = () => {
-            const content = node.lastElementChild as HTMLElement | null
-            return parseFloat(content?.style.paddingBottom || '0') || 0
-          }
           Object.defineProperty(node, 'scrollTop', {
             configurable: true,
             get: () => top,
             set: (v: number) => {
-              const max = Math.max(0, scrollHeight + reserved() - clientHeight)
-              top = Math.max(0, Math.min(v, max))
+              top = Math.max(0, Math.min(v, Math.max(0, elTotal() - clientHeight)))
             },
           })
           Object.defineProperty(node, 'scrollHeight', {
             configurable: true,
-            get: () => scrollHeight + reserved(),
+            get: () => elTotal(),
           })
           Object.defineProperty(node, 'clientHeight', {
             configurable: true,
@@ -653,17 +663,36 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
         }}
         onScroll={anchor.onScroll}
       >
-        <div data-testid="content">
+        <div
+          data-testid="content"
+          ref={(node) => {
+            if (!node) return
+            // `.stream`'s own top follows the spacer ABOVE it collapsing —
+            // unlike `.scroll`'s, this position is never disturbed by
+            // `.stream`'s own padding-bottom growing, which is the whole
+            // point of measuring `pinTurnToTop` against it instead.
+            node.getBoundingClientRect = () =>
+              ({ top: spacerHeight() - (scrollerNode?.scrollTop ?? 0) }) as DOMRect
+            if (!Object.hasOwn(node, 'scrollHeight')) {
+              // `applyTailRoom` reads THIS element's own scrollHeight now,
+              // not `.scroll`'s — see the hook's own comment for why.
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => streamTotal(),
+              })
+            }
+          }}
+        >
           <div
             data-testid="pin"
             ref={(node) => {
               if (!node) return
-              // The prompt sits `pinTop` down the content; its on-screen top
-              // is that minus however far the container is scrolled.
+              // The prompt sits `pinTop` down the FULL scrollable area
+              // (spacer included); its on-screen top is that minus however
+              // far the container is scrolled — independent of how that
+              // `pinTop` happens to split between spacer and real content.
               node.getBoundingClientRect = () =>
-                ({
-                  top: pinTop - (node.parentElement?.parentElement?.scrollTop ?? 0),
-                }) as DOMRect
+                ({ top: pinTop - (scrollerNode?.scrollTop ?? 0) }) as DOMRect
             }}
           />
         </div>
@@ -689,6 +718,38 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     // Now the prompt's top edge IS the top of the viewport.
     expect(scroller.scrollTop).toBe(900)
     expect(pinTop - scroller.scrollTop).toBe(0)
+  })
+
+  // Regression, reported live: a brand-new chat's first prompt is short
+  // enough that `.scroll-spacer` (transcript.css) is still most of the
+  // viewport at the instant `pinTurnToTop` measures it. Reserving room on
+  // `.stream` grows it, which shrinks that spacer by the exact same amount —
+  // `.scroll-spacer` is deliberately pinned to 0 the moment there is real
+  // content to make room for instead — which silently moves anything
+  // measured relative to `.scroll` (which contains both). The next resync
+  // read that shift as the content having SHRUNK and reserved even more to
+  // compensate, which shrank the spacer further still: a feedback loop that
+  // does not appear at all once a conversation is already taller than the
+  // pane (every other test in this file), only on the very first turn of a
+  // new one. Landed live as an almost entirely blank transcript — the
+  // reserved gap ballooned to roughly double the viewport, with the actual
+  // (tiny) prompt scrolled off above the visible area entirely.
+  it('does not runaway-reserve blank space when the first turn in a chat is short', () => {
+    scrollHeight = 100 // `.stream`'s natural height — a short first prompt
+    pinTop = clientHeight - scrollHeight // 300: where it sits before any reservation exists, with `.scroll-spacer` filling the rest of the empty pane above it
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const content = getByTestId('content')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    // The padding just written resizes `.stream` — exactly what a real
+    // ResizeObserver watching it would report next.
+    fire()
+    vi.advanceTimersByTime(1500)
+
+    // Exactly enough room for the prompt to reach the top of the viewport —
+    // clientHeight (400) minus its own height (100) — not double that.
+    expect(content.style.paddingBottom).toBe('300px')
   })
 
   // Regression: chasing this bug through the input-recency heuristic (the

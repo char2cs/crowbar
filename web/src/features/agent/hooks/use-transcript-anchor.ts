@@ -216,6 +216,22 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // a turn runs (it is settled history), so the offset stays true without
   // being re-measured, which also keeps this off the layout-reading path of
   // every ResizeObserver callback.
+  //
+  // Measured relative to `.stream` (the content element `applyTailRoom`
+  // reserves padding on), NOT `.scroll` (the scrollable container) — the
+  // latter also contains `.scroll-spacer`, a flex-grow sibling ABOVE
+  // `.stream` that bottom-anchors a short conversation and collapses toward
+  // 0 the instant real content needs the room instead (transcript.css). The
+  // very first reservation this pin ever triggers does exactly that: it
+  // grows `.stream`, which shrinks the spacer by the same amount, which
+  // silently moves anything measured relative to `.scroll` out from under
+  // whatever offset was captured here — a turn no longer settled history.
+  // Reported live as a nearly blank transcript after a short first prompt:
+  // the spacer being large (little content yet) is precisely what made the
+  // shift big enough to notice. `.stream`'s own top is never affected by its
+  // sibling's height, so an offset measured against it stays true for the
+  // same reason the original comment already gives for the rest of this
+  // value.
   const pinnedTop = useRef<number | null>(null)
   // When the reader last actually did something — see READER_INPUT_MS.
   const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
@@ -298,7 +314,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         return
       }
       const reserved = parseFloat(box.style.paddingBottom || '0') || 0
-      const room = tailRoom(pinTop, el.scrollHeight - reserved, el.clientHeight)
+      // `box.scrollHeight`, not `el.scrollHeight` — see `pinnedTop`'s own doc
+      // for why measuring against `.scroll` itself (which also contains
+      // `.scroll-spacer`) is exactly the bug this replaced.
+      const room = tailRoom(pinTop, box.scrollHeight - reserved, el.clientHeight)
       // Released for good once the reply has outgrown the space: re-measuring
       // a pin nobody can see any more would keep this running for the rest of
       // the turn, and re-reserving room mid-reply would yank the reader.
@@ -496,9 +515,14 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       resyncRef.current()
       return
     }
-    // Measured once, here — see `pinnedTop`.
-    pinnedTop.current =
-      element.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+    // Measured once, here, against `.stream` (`el`'s last child — see the
+    // mount effect above) rather than `el` itself — see `pinnedTop`'s own
+    // doc for why. Both elements are fixed for the element's lifetime; no
+    // scrollTop term is needed the way `el`-relative measurement required,
+    // since a descendant's rect and its ancestor CONTENT element's rect move
+    // together by the same amount as `el` scrolls.
+    const base = el.lastElementChild as HTMLElement | null
+    pinnedTop.current = element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
     // A turn starting is also the reader rejoining the live end — it is their
     // own prompt that just landed. Without this, a prompt sent after reading
     // back through history would reserve the room and then not move.
