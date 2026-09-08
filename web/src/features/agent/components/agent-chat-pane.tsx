@@ -553,7 +553,32 @@ export function AgentChatPane({
       // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
       // so it can only fire on a resume that was never going to answer.
       const abort = new AbortController()
-      const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
+      // Set ONLY here — the one signal that this request genuinely, on its own
+      // terms, was never going to answer. Distinguishing this from the abort
+      // below matters: both trip the SAME abort.signal, but only this one is
+      // actually news to the user.
+      let boundFired = false
+      const bound = setTimeout(() => {
+        boundFired = true
+        abort.abort()
+      }, REVIVE_REQUEST_BOUND_MS)
+      // externalSignal fires this on a real unmount (the pane's buffer/tab
+      // closing mid-resume — see this function's own doc comment) — but ALSO
+      // on every other reason the CALLER's effect re-runs, including a
+      // dependency the request's own success is what just changed: adopt()
+      // (below) writes liveRunnerId into the store the instant resumeChat
+      // answers, the attach effect below watches liveRunnerId, and its
+      // cleanup — this forwarder — fires before the next render can prove
+      // the request actually worked. React 18 StrictMode's dev-only
+      // mount→cleanup→mount double-invoke exercises the identical path on
+      // literally the first mount of every pane, live-reproduced against a
+      // real claude chat: "Couldn't resume — the daemon did not answer the
+      // resume" for a resume the daemon's own access log recorded answering
+      // in under 60ms. None of those callers are actually reporting a dead
+      // daemon, so none of them earn the toast or the `failed` state below —
+      // either nobody is left to read it (a real unmount), or a fresher
+      // attempt (this same one succeeding, or a StrictMode-surviving second
+      // invocation) already owns the pane's outcome.
       const forwardExternalAbort = () => abort.abort()
       externalSignal?.addEventListener('abort', forwardExternalAbort)
       // Own this chat's revive for every OTHER pane too — see
@@ -572,6 +597,11 @@ export function AgentChatPane({
           // requests exists to eliminate, one call later, inside its own fix.
           if (!(await adopt(abort.signal))) fail()
         } catch (err: unknown) {
+          // An external teardown (real unmount, StrictMode's throwaway pass,
+          // or this same call's own success) is not a failure to report —
+          // see boundFired's own doc comment above. `finally` below still
+          // runs either way.
+          if (abort.signal.aborted && !boundFired) return
           fail()
           const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
           // An abort reads as a DOMException about a cancelled fetch, which tells the user

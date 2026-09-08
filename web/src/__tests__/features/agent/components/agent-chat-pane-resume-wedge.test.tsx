@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { StrictMode, createElement } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
@@ -436,5 +436,95 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// ── A resume that answers must not be reported as one that didn't ─────────
+//
+// REGRESSION, live-reproduced against a real claude chat (make dev-desktop):
+// reopening a dormant chat from the sidebar showed "Couldn't resume Claude
+// chat: The daemon did not answer the resume" — while the daemon's own access
+// log recorded that exact resume request answering 200 in under 60ms, and the
+// chat's transcript and composer came back correct and live a moment later.
+//
+// Root cause: the auto-revive effect's cleanup (`() => controller.abort()`,
+// see the effect above `if (sessionId) seedAttach(...)`) shares ONE
+// AbortController with revive()'s own request. That cleanup fires not only on
+// a genuine unmount, but on every change to the effect's own dependencies —
+// including `liveRunnerId`, which revive()'s own adopt() call writes into the
+// store the instant resumeChat succeeds. React StrictMode's dev-only
+// mount→cleanup→mount double-invoke (this codebase's own established way of
+// catching exactly this class of bug — see dnd-scope.test.tsx) exercises the
+// identical path on literally the first mount of every pane: the thrown-away
+// first invocation's revive() is aborted by the simulated cleanup before its
+// request can resolve, and the catch block reported that abort as "the
+// daemon did not answer" — a false claim about a request the daemon in fact
+// answered fine a moment later, over a connection nobody was using any more.
+//
+// This fix only closes THAT false claim (no toast, no `failed` banner) for an
+// externally-torn-down attempt. It does not touch attemptedRef's own,
+// separately-reasoned "revived exactly once, ever, per chat per mount"
+// invariant a few lines below — so under this exact StrictMode double-invoke,
+// the thrown-away first attempt still spends that one-shot budget, and this
+// pane's own retry machinery will not fire a second resumeChat call on its
+// own. Live, the chat came back correctly anyway (this file's own commit
+// message has the daemon log to show it), which means something OUTSIDE this
+// effect — most likely a live push once the daemon's hooks report the runner
+// — is what actually delivers the attach in that case. This test does not
+// model that channel, so it asserts only what this fix actually guarantees:
+// no false failure surfaces over an attempt nobody refused.
+describe('AgentChatPane: a resume that answers must not report the wrong outcome', () => {
+  it('does not toast a resume failure when StrictMode double-invokes the auto-revive effect', async () => {
+    // Mimics apiFetch's real behaviour, unlike a bare mockResolvedValue():
+    // rejects at once if already aborted, otherwise resolves on the next
+    // tick, rejecting instead if aborted before that tick fires. A mock that
+    // never looks at the signal could never fail this test either way.
+    resumeChatFn.mockImplementation(
+      (_wsId: unknown, _id: unknown, signal?: AbortSignal) =>
+        new Promise<string>((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
+          }
+          const timer = setTimeout(() => resolve('r-revived'), 0)
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(new DOMException('Aborted', 'AbortError'))
+          })
+        }),
+    )
+    const store = seedWorkspace([dormantChat({ id: 'c1' })])
+    const bufferId = openBuffer(store, 'c1', '')
+
+    await act(async () => {
+      render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: store },
+            createElement(PaneHost, { bufferId }),
+          ),
+        ),
+      )
+    })
+    // Let the surviving (second) invocation's own request settle, then flush
+    // the state update it lands — two real ticks, matching this file's own
+    // pattern elsewhere for a resolved-mid-flight revive.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    await act(async () => {})
+
+    // The toast this regression is about, and the visible state that would
+    // carry the SAME false claim (StrictMode's thrown-away first invocation
+    // still marks the chat's one-shot revive budget spent — see attemptedRef
+    // — so nothing here retries the request a second time; that budget is a
+    // separate, deliberately-scoped invariant this fix does not touch).
+    // Neither the toast nor a "could not restart" banner may appear over an
+    // attempt that was torn down by our own caller, not refused by the daemon.
+    expect(toastErrorFn).not.toHaveBeenCalled()
+    expect(screen.queryByText(/could not restart this agent/i)).not.toBeInTheDocument()
   })
 })
