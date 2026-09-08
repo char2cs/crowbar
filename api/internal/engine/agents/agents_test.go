@@ -302,10 +302,34 @@ func TestAgent_ParseTelemetryMapsTheProvidersReport(t *testing.T) {
 	assert.Equal(t, now, got.ObservedAt)
 }
 
-func TestAgent_ParseTelemetryIsUnsupportedWhereNoChannelIsDeclared(t *testing.T) {
-	_, err := get(t, "codex").ParseTelemetry([]byte(`{}`), time.Now())
+// This test used to assert codex declares NO telemetry channel. It did declare
+// one — events.telemetry, mapping thread/tokenUsage/updated — but only the v2
+// top-level telemetry.callback block was ever read, so every codex report came
+// back ErrUnsupported, t.telemetry.Set was never called, and the context gauge
+// (which renders nothing without a usedPercent) has never appeared on a codex chat.
+//
+// The genuinely-undeclared case is covered where it belongs, on a descriptor that
+// declares telemetry neither way:
+// translate/telemetry.TestParseCallback_UnsupportedWhenNeitherFormIsDeclared.
+func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
+	// Shape copied from the LIVE capture in
+	// internal/protocol/testdata/fixtures/codex/thread_tokenUsage_updated.json —
+	// modelContextWindow sits inside tokenUsage, not beside it.
+	raw := []byte(`{"threadId":"t1","turnId":"tn1","tokenUsage":{
+	  "total":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
+	  "modelContextWindow":258400}}`)
 
-	assert.ErrorIs(t, err, agents.ErrTelemetryUnsupported)
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context, "no context usage means the gauge renders nothing")
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 16924, *got.Context.UsedTokens)
+	require.NotNil(t, got.Context.CapacityTokens)
+	assert.Equal(t, 258400, *got.Context.CapacityTokens)
+	// The gauge renders nothing at all without a percentage; it is derived here.
+	require.NotNil(t, got.Context.UsedPercent)
+	assert.InDelta(t, 6.55, *got.Context.UsedPercent, 0.1)
 }
 
 func TestAgent_SlashCatalogRefusesAnInvalidWorkdir(t *testing.T) {

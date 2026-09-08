@@ -57,10 +57,18 @@ events:
   # inProgress — codex's own TurnStatus enum). Ungated, this event also swallowed
   # every FAILED turn: it recorded an ordinary stop whose message resolved to
   # nothing, so the user saw the spinner end on an empty reply and turn.error was
-  # discarded. An interrupt is still an ordinary stop — the human asked for it.
+  # discarded.
+  #
+  # DELIBERATELY UNGATED all the same — turn_failed below carries the narrow
+  # `failed` clause and dispatch.Resolve offers it FIRST (sorted name order), so
+  # the split works without this event having to enumerate the statuses it wants.
+  # Enumerating them would be a wedge: a status this list forgot — `inProgress`,
+  # or anything codex adds later — would match NEITHER event, and a turn that
+  # never receives a close is a spinner that never stops. Falling through to an
+  # ordinary stop is the safe default. An interrupt is an ordinary stop too: the
+  # human asked for it.
   turn_stop:
     in: turn/completed
-    when: { turn.status: completed || interrupted }
     map:
       session_id: "threadId || session_id"
       message:    "turn.items[type=agentMessage].text || last_assistant_message"
