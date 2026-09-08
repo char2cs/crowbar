@@ -142,9 +142,71 @@ describe('WorkingLine', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  // This test's NAME has always said "says the agent is BLOCKED"; its assertion
+  // said the opposite — that the strip renders nothing at all. Nothing else
+  // renders in its place either: toDividerTag maps permission, notification and
+  // elicitation to null, so the spinner vanished and the chat looked dead with no
+  // explanation anywhere on screen. That is the "we lose track of whether codex is
+  // working" report.
   it('says the agent is BLOCKED rather than working', () => {
+    render(<WorkingLine working activity={activity({ interruptions: [interruption()] })} />)
+
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.getByText(/waiting for your permission/i)).toBeInTheDocument()
+  })
+
+  // The original bug this quieting exists to prevent: a blocked agent must not
+  // look busy. A blocked line carries no spinner and no rotating verb.
+  it('shows no spinner and no working verb while blocked', () => {
+    render(<WorkingLine working activity={activity({ interruptions: [interruption()] })} />)
+
+    expect(screen.queryByText(/…$/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('agent-activity-strip')).toHaveAttribute('data-blocked', 'true')
+  })
+
+  it('names what an elicitation is waiting for', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({
+          interruptions: [interruption({ kind: 'elicitation', detail: 'Pick a database' })],
+        })}
+      />,
+    )
+    expect(screen.getByText('Pick a database')).toBeInTheDocument()
+  })
+
+  // The composer renders pendingChoices[0], so a pending choice already speaks for
+  // the block — two voices saying it is one too many.
+  it('stays quiet when a pending choice is already speaking for the block', () => {
     const { container } = render(
-      <WorkingLine working activity={activity({ interruptions: [interruption()] })} />,
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption()], choices: [choice()] })}
+      />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // An interruption Crowbar raised about ITSELF is not a wait on a person: the
+  // agent is still working and the transcript already draws a pill for it.
+  it('keeps working through an interruption that is not a wait on a person', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption({ kind: 'model_changed' })] })}
+      />,
+    )
+    const strip = screen.getByTestId('agent-activity-strip')
+    expect(strip).toBeInTheDocument()
+    expect(strip).not.toHaveAttribute('data-blocked', 'true')
+  })
+
+  // An idle chat carrying a stale unresolved interruption must not claim to be
+  // waiting on anything — it is not mid-turn at all.
+  it('stays quiet when the chat is not working, however it is blocked', () => {
+    const { container } = render(
+      <WorkingLine working={false} activity={activity({ interruptions: [interruption()] })} />,
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -204,9 +266,14 @@ describe('WorkingLine', () => {
         activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
       />,
     )
-    // An unresolved ledger interruption of any kind (this one included) blocks
-    // the working line, same as the permission case above — proving nothing
-    // here silently "worked" by accident.
-    expect(container).toBeEmptyDOMElement()
+    // This used to assert an EMPTY container, which held only because every
+    // unresolved interruption blanked the line outright. That blanking was the
+    // "we lose track of whether it is working" bug, so the assertion now states
+    // what this test is actually about: a ledger compaction record must not turn
+    // the Compacting branch on. A compaction is not a wait on a PERSON either, so
+    // an ordinary working line beside it is correct — the chat really is working.
+    expect(container).not.toBeEmptyDOMElement()
+    expect(screen.queryByText(/compacting/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('agent-activity-strip')).not.toHaveAttribute('data-blocked', 'true')
   })
 })

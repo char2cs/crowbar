@@ -3,6 +3,8 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentActivity } from '@/features/agent/api/agent-api'
 import {
   blockedOn,
+  blocksOnAPerson,
+  describeInterruption,
   describeTool,
   pendingChoices,
   runningTools,
@@ -80,19 +82,41 @@ export function WorkingLine({ activity, working, since, compactingLive }: Workin
     return () => window.clearInterval(timer)
   }, [working, since])
 
-  // A CHAT WAITING ON A PERSON IS NOT WORKING. The bar already says what is
-  // wanted and what to do about it, and a "working…" line beside it is a second
-  // voice contradicting the first — which is exactly how a blocked agent came to
-  // look busy. Quiet for a prompt nobody can answer too: the fact that the
-  // answer has to happen in a terminal does not make this a turn in flight.
-  // Compaction is the one interruption kind that doesn't apply here.
-  const blocked = pendingChoices(activity).length > 0 || (interruption !== null && !compacting)
+  // A CHAT WAITING ON A PERSON IS NOT WORKING, so it must never wear the spinner
+  // and the rotating verb — that is exactly how a blocked agent came to look busy.
+  //
+  // But going SILENT for it was the opposite failure, and a worse one. The
+  // composer only ever renders pendingChoices[0], and toDividerTag draws nothing
+  // at all for the permission, notification and elicitation kinds, so a block with
+  // no pending choice behind it — a prompt that never opened durably, a second
+  // simultaneous prompt, an interruption the backend never resolved — erased the
+  // spinner and put nothing in its place. The chat simply looked dead, with no
+  // explanation anywhere on screen. That is the "we lose track of whether it is
+  // working" report.
+  //
+  // So: quiet only when something ELSE is already speaking for the block, which is
+  // what a pending choice in the composer means. Otherwise say what is being
+  // waited on, without claiming to be working.
+  const blockedByPerson = !compacting && blocksOnAPerson(interruption)
+  const answeringInTheBar = pendingChoices(activity).length > 0
   // `working` is turn-dispatch state and stays FALSE for a /compact — it never
   // opens a tracked turn (see compactingLive's own doc comment) — so gating
   // on `working` alone would hide this branch for the exact case it exists
   // to cover. Compacting is its own "there is something to show" condition,
   // independent of whether a turn happens to be open too.
-  if ((!working && !compacting) || blocked) return null
+  if ((!working && !compacting) || answeringInTheBar) return null
+
+  // Not a turn in flight: no spinner, no verb, no elapsed clock. Just the reason.
+  if (blockedByPerson && interruption) {
+    return (
+      <div className="activity" data-testid="agent-activity-strip" data-blocked="true">
+        <div className="hd">
+          <span className="dim">{describeInterruption(interruption)}</span>
+        </div>
+      </div>
+    )
+  }
+
   // Compaction isn't a tool call — nothing to enumerate under it.
   const tools = compacting ? [] : runningTools(activity)
 

@@ -140,6 +140,28 @@ export function describeTool(call: AgentToolCall): string {
   return `${call.name} · ${call.target}`
 }
 
+/**
+ * The interruption kinds that mean the agent is waiting on a PERSON.
+ *
+ * The rest are things Crowbar did to the chat itself — it stopped the turn, it
+ * switched provider, model or effort — and the transcript already draws a pill for
+ * each. The agent is not blocked on anyone for those, so a turn in flight during
+ * one is still a turn in flight.
+ *
+ * Compaction is deliberately absent: it is the CLI's own housekeeping, and its
+ * ledger record is born already resolved, so it is driven by a live push instead
+ * (see WorkingLine's `compactingLive`).
+ */
+const PERSON_BLOCKING: ReadonlySet<string> = new Set([
+  'permission',
+  'notification',
+  'elicitation',
+])
+
+export function blocksOnAPerson(interruption: AgentInterruption | null): boolean {
+  return interruption !== null && PERSON_BLOCKING.has(interruption.kind)
+}
+
 /** Human copy for why the agent is stopped. Each kind is a genuinely different
  *  thing to tell someone, which is why they are not collapsed into one string. */
 export function describeInterruption(interruption: AgentInterruption): string {
