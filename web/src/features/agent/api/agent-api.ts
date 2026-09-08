@@ -421,6 +421,10 @@ export interface AgentToolCall {
    *  Absent is legible; a guess would be wrong. */
   target?: string
   status: ToolCallStatus
+  /** A short caption for a FAILED call — absent on every other status. The full
+   *  failure text is the result payload, fetched on demand like any other side
+   *  (see `getToolPayload`); this is the one line worth showing without asking. */
+  error?: string
   durationMs?: number
   hasRequest: boolean
   hasResult: boolean
@@ -543,6 +547,11 @@ export interface AgentChoice {
   /** Who answered it when `resolution` is `answered`: policy (`true`) or a
    *  human's own click (`false`). */
   autoApproved?: boolean
+  /** Which of `options` (or a question's own options) was actually picked, when
+   *  `resolution` is `answered` through Crowbar. Absent for one that proceeded
+   *  at the provider's own terminal or was abandoned with its turn — those
+   *  genuinely have no such answer to report, not merely an unrecorded one. */
+  answeredOptionIds?: string[]
 }
 
 export interface AgentActivity {

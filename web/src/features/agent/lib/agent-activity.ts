@@ -1,6 +1,7 @@
 import type {
   AgentActivity,
   AgentChoice,
+  AgentChoiceOption,
   AgentChoiceQuestion,
   AgentInterruption,
   AgentToolCall,
@@ -118,6 +119,58 @@ export function choiceDetail(activity: AgentActivity, choice: AgentChoice): stri
   if (choice.kind === 'tool_permission') return choiceToolTarget(activity, choice)
   const headline = describeChoice(choice)
   return choice.title && choice.title !== headline ? choice.title : ''
+}
+
+/** An option with no label is named by its kind — Crowbar's own word for it —
+ *  so a provider that labels nothing still gets a legible control rather than
+ *  a blank. Shared by the live card (composer-choice.tsx) and the resolved
+ *  record below, so the two can never spell the same option differently. */
+export function optionLabel(option: AgentChoiceOption): string {
+  if (option.label) return option.label
+  return option.kind.charAt(0).toUpperCase() + option.kind.slice(1)
+}
+
+/** Choices no longer pending, oldest first — the record of what was decided,
+ *  once nobody is waiting on it any more. */
+export function resolvedChoices(activity: AgentActivity): AgentChoice[] {
+  return activity.choices.filter((choice) => !choice.pending).sort((a, b) => a.seq - b.seq)
+}
+
+/** What a resolved choice's `answeredOptionIds` actually named, read back
+ *  against the options it was asked with — a permission's allow/deny, an
+ *  elicitation's verb, or a question's own answers. Empty when the choice
+ *  carries none: nothing was answered through Crowbar (`proceeded`,
+ *  `abandoned`), or it predates this being recorded at all. */
+export function pickedOptionLabels(choice: AgentChoice): string[] {
+  const ids = choice.answeredOptionIds
+  if (!ids || ids.length === 0) return []
+  const all: AgentChoiceOption[] = [
+    ...choice.options,
+    ...(choice.questions ?? []).flatMap((q) => q.options),
+  ]
+  const byID = new Map(all.map((option) => [option.id, option]))
+  return ids.map((id) => {
+    const option = byID.get(id)
+    return option ? optionLabel(option) : id
+  })
+}
+
+/** One line for a choice that is no longer pending — the transcript's only
+ *  record that a permission was ever asked, once it stops blocking anyone.
+ *  `Bash · Allow` reads the same way a tool row's own `name · target` does:
+ *  what it was about, then what happened.
+ *
+ *  `proceeded` (decided at the CLI's own terminal) and `abandoned` (never
+ *  decided) are told apart from `answered` because they are different facts —
+ *  and from each other, because "the terminal handled it" and "nobody
+ *  answered" call for different reactions from a reader scanning back. */
+export function describeResolvedChoice(choice: AgentChoice): string {
+  const subject = choice.toolName || describeChoice(choice)
+  if (choice.resolution === 'proceeded') return `${subject} · answered at the terminal`
+  if (choice.resolution === 'abandoned') return `${subject} · left unanswered`
+  const picked = pickedOptionLabels(choice)
+  const verb = picked.length > 0 ? picked.join(', ') : 'Answered'
+  return `${subject} · ${verb}`
 }
 
 /** Tool calls still running, oldest first — which is the order they started and

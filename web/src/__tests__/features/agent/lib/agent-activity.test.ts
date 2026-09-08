@@ -13,10 +13,14 @@ import {
   choiceToolTarget,
   describeChoice,
   describeInterruption,
+  describeResolvedChoice,
   describeTool,
   formatDuration,
   NO_ACTIVITY,
+  optionLabel,
   pendingChoices,
+  pickedOptionLabels,
+  resolvedChoices,
   runningSubagents,
   runningTools,
 } from '@/features/agent/lib/agent-activity'
@@ -330,6 +334,118 @@ describe('choiceQuestions', () => {
   it('reports nothing for a permission or an elicitation', () => {
     expect(choiceQuestions(choice())).toEqual([])
     expect(choiceQuestions(choice({ kind: 'elicitation', options: [] }))).toEqual([])
+  })
+})
+
+describe('resolvedChoices', () => {
+  it('reports nothing while every choice is still pending', () => {
+    expect(resolvedChoices(activity({ choices: [choice()] }))).toEqual([])
+  })
+
+  it('keeps every no-longer-pending choice, oldest first', () => {
+    const done = activity({
+      choices: [
+        choice({ id: 'b', seq: 2, pending: false }),
+        choice({ id: 'a', seq: 1, pending: false }),
+        choice({ id: 'open', seq: 3 }),
+      ],
+    })
+
+    expect(resolvedChoices(done).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('optionLabel', () => {
+  it('uses the provider’s own label when there is one', () => {
+    expect(optionLabel({ id: 'allow', kind: 'allow', label: 'Allow' })).toBe('Allow')
+  })
+
+  it('title-cases the kind when the provider labels nothing', () => {
+    expect(optionLabel({ id: 'allow', kind: 'allow' })).toBe('Allow')
+  })
+})
+
+describe('pickedOptionLabels', () => {
+  it('reports nothing when no answer was recorded', () => {
+    expect(pickedOptionLabels(choice({ pending: false, resolution: 'proceeded' }))).toEqual([])
+    expect(pickedOptionLabels(choice({ pending: false, resolution: 'answered' }))).toEqual([])
+  })
+
+  it('resolves the answered ids against the choice’s own options', () => {
+    const answered = choice({
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['allow'],
+    })
+
+    expect(pickedOptionLabels(answered)).toEqual(['Allow'])
+  })
+
+  it('resolves against a QUESTION’s own options too, not only the prompt-level ones', () => {
+    const answered = choice({
+      kind: 'question',
+      options: [],
+      questions: [
+        {
+          id: 'q0',
+          text: 'Which?',
+          options: [{ id: 'a', kind: 'answer', label: 'Option A' }],
+        },
+      ],
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['a'],
+    })
+
+    expect(pickedOptionLabels(answered)).toEqual(['Option A'])
+  })
+
+  // An id nothing on the record still names describes: an unrecognised label is
+  // strictly better than dropping the fact something was picked at all.
+  it('falls back to the raw id when it names no known option', () => {
+    const answered = choice({ pending: false, resolution: 'answered', answeredOptionIds: ['x'] })
+
+    expect(pickedOptionLabels(answered)).toEqual(['x'])
+  })
+})
+
+describe('describeResolvedChoice', () => {
+  it('names what was picked, against the tool it gated', () => {
+    const answered = choice({
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['allow'],
+    })
+
+    expect(describeResolvedChoice(answered)).toBe('Bash · Allow')
+  })
+
+  it('says an answer went through Crowbar even without which one, for an older record', () => {
+    const answered = choice({ pending: false, resolution: 'answered' })
+
+    expect(describeResolvedChoice(answered)).toBe('Bash · Answered')
+  })
+
+  it('tells apart a terminal answer from one nobody ever gave', () => {
+    expect(describeResolvedChoice(choice({ pending: false, resolution: 'proceeded' }))).toBe(
+      'Bash · answered at the terminal',
+    )
+    expect(describeResolvedChoice(choice({ pending: false, resolution: 'abandoned' }))).toBe(
+      'Bash · left unanswered',
+    )
+  })
+
+  it('falls back to the prompt’s own headline when there is no gated tool', () => {
+    const asked = choice({
+      kind: 'question',
+      toolName: '',
+      question: 'Which do you want?',
+      options: [],
+      pending: false,
+      resolution: 'proceeded',
+    })
+
+    expect(describeResolvedChoice(asked)).toBe('Which do you want? · answered at the terminal')
   })
 })
 

@@ -6,7 +6,9 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type {
   AgentActivity,
   AgentChatMessage,
+  AgentChoice,
   AgentProvider,
+  AgentSubagent,
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
@@ -27,9 +29,17 @@ import {
 } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
-import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
+import {
+  groupChoicesByTurn,
+  groupSubagentsByTurn,
+  groupToolCallsByTurn,
+} from '@/features/agent/transcript/turn-tools'
 
 interface AgentTranscriptProps {
+  /** Needed only to fetch a finished tool call's own request/result bytes on
+   *  demand — see MessageRow's own doc. */
+  wsId?: string
+  chatId?: string
   messages: AgentChatMessage[]
   /** One per still-open message item — see useChatMessages. Almost always
    *  0 or 1 entries; more than one only for a provider (Codex) that can
@@ -273,6 +283,10 @@ function TranscriptRowView({
   firstTurnSequence,
   firstReplySequence,
   callsByTurn,
+  subagentsByTurn,
+  choicesByTurn,
+  wsId,
+  chatId,
   precedingUserAt,
   lastInAgentRun,
 }: {
@@ -281,6 +295,10 @@ function TranscriptRowView({
   firstTurnSequence: number | undefined
   firstReplySequence: number | undefined
   callsByTurn: Map<string, AgentToolCall[]>
+  subagentsByTurn: Map<string, AgentSubagent[]>
+  choicesByTurn: Map<string, AgentChoice[]>
+  wsId?: string
+  chatId?: string
   precedingUserAt: Map<number, string>
   lastInAgentRun: Set<number>
 }) {
@@ -289,7 +307,8 @@ function TranscriptRowView({
       return <EventDivider tags={row.tags} providers={providers} />
     case 'first-turn-divider':
       return <FirstTurnDivider />
-    case 'message':
+    case 'message': {
+      const assistant = row.message.role === 'assistant'
       return (
         <MessageRow
           message={row.message}
@@ -297,10 +316,15 @@ function TranscriptRowView({
           firstTurn={row.message.sequence === firstTurnSequence}
           firstReply={row.message.sequence === firstReplySequence}
           turnbar={lastInAgentRun.has(row.message.sequence)}
-          toolCallsByTurn={row.message.role === 'assistant' ? callsByTurn : undefined}
+          toolCallsByTurn={assistant ? callsByTurn : undefined}
+          subagentsByTurn={assistant ? subagentsByTurn : undefined}
+          choicesByTurn={assistant ? choicesByTurn : undefined}
+          wsId={wsId}
+          chatId={chatId}
           precedingUserAt={precedingUserAt.get(row.message.sequence)}
         />
       )
+    }
   }
 }
 
@@ -397,6 +421,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
+  )
+  const subagentsByTurn = useMemo(
+    () => groupSubagentsByTurn(props.activity.subagents),
+    [props.activity.subagents],
+  )
+  const choicesByTurn = useMemo(
+    () => groupChoicesByTurn(props.activity.choices),
+    [props.activity.choices],
   )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   const lastInAgentRun = useMemo(() => lastInAgentRunSequences(messages), [messages])
@@ -638,6 +670,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     firstTurnSequence={firstTurnSequence}
                     firstReplySequence={firstReplySequence}
                     callsByTurn={callsByTurn}
+                    subagentsByTurn={subagentsByTurn}
+                    choicesByTurn={choicesByTurn}
+                    wsId={props.wsId}
+                    chatId={props.chatId}
                     precedingUserAt={precedingUserAt}
                     lastInAgentRun={lastInAgentRun}
                   />

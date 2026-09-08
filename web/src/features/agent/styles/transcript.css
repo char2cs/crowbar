@@ -537,6 +537,9 @@
 .agent-chat .turnbar > button:first-child {
   margin-left: -8px;
 }
+.agent-chat .turn-effort {
+  font-size: var(--ui-text-xs);
+}
 
 /* When it flags an assistant turn it lives INSIDE `.turnbar`, inheriting
    that row's own layout and muted colour for free. As a user row's own
@@ -573,10 +576,65 @@
   margin: 0;
   line-height: 1.5;
 }
-.agent-chat .tools li > span:first-child {
+/* A row's own SUMMARY (its name, error caption, duration) lays out the same
+   whether or not it is wrapped in a <details> — `<details>` opens the payload
+   below it, `<summary>` here is where the ROW's own flex layout actually
+   lives once one is present. */
+.agent-chat .tools li > details {
+  width: 100%;
+}
+.agent-chat .tools li > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-chat .tools li > details > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-chat .tools li > span:first-child,
+.agent-chat .tools li > details > summary > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.agent-chat .tools li > details[open] > summary > span:first-child {
+  overflow: visible;
+  white-space: normal;
+}
+/* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
+   shown next to its name rather than only inferred from the row's colour. */
+.agent-chat .tools .err {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tools .payload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 6px 0 4px;
+}
+.agent-chat .tools .payload-label {
+  margin: 0;
+  font-weight: 500;
+}
+.agent-chat .tools .payload-status {
+  margin: 0;
+  font-style: italic;
+}
+.agent-chat .tools .payload pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
 }
 /* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
    without this, all three rendered pixel-identical, so a failed tool call
@@ -594,6 +652,11 @@
 .agent-chat .tools li[data-status='abandoned']::before {
   content: '–';
   flex: none;
+}
+/* A resolved choice (AgentTurnChoices) that was never actually answered
+   through Crowbar reads the same muted way an abandoned tool call does. */
+.agent-chat .tools li[data-resolution='abandoned'] {
+  opacity: 0.6;
 }
 
 /* The compaction boundary. Everything above it is out of the model's context and
