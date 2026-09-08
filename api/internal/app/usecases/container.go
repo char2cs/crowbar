@@ -32,6 +32,7 @@ type GORMStores struct {
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
+	Folders                  store.ScopedStore[domain.Folder, string]
 }
 
 // Container holds every application usecase, composing the aggregate

@@ -129,6 +129,42 @@ func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: terminal session store:")
 }
 
+// TestNewGORMStores_FolderStoreError triggers the "folder store" error branch:
+// Folders is the LAST store newGORMStores builds, so allowing every earlier
+// store's own migration to succeed before injecting a failure lands on the
+// folder store's own migration. failAt is 7, not 6, because
+// TerminalSession's AutoMigrate happens to issue TWO ExecContext calls
+// (unlike every other store here, which issues one) — probed empirically
+// rather than assumed, since the existing failAt=1/2/3 tests only exercise
+// stores built before TerminalSession's own double call.
+func TestNewGORMStores_FolderStoreError(t *testing.T) {
+	db := newFailAfterExecDB(t, 7)
+	_, err := newGORMStores(db)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "app: folder store:")
+}
+
+func TestNewGORMStores_FolderRoundTrip(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	stores, err := newGORMStores(db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{ID: "f1", Name: "Work", RepoID: "r1"}))
+
+	got, err := stores.Folders.FindByKey(ctx, "f1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Work", got.Name)
+	assert.Equal(t, "r1", got.RepoID)
+
+	require.NoError(t, stores.Folders.Delete(ctx, "f1"))
+	gone, err := stores.Folders.FindByKey(ctx, "f1")
+	require.NoError(t, err)
+	assert.Nil(t, gone)
+}
+
 func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
