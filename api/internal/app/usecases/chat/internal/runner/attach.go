@@ -43,13 +43,23 @@ func (r *attachRegistry) set(runnerID string, v attachedView) {
 }
 
 func (r *attachRegistry) get(runnerID string) (attachedView, bool) {
+	if r == nil {
+		return attachedView{}, false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v, ok := r.byRun[runnerID]
 	return v, ok
 }
 
+// drop is nil-safe like apiConnRegistry's own, for the same reason: retire()
+// (lifecycle.go) now reaches this from every teardown path, including tests
+// and callers that construct a Runners with no attach registry at all because
+// nothing about their scenario ever attaches one.
 func (r *attachRegistry) drop(runnerID string) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.byRun, runnerID)

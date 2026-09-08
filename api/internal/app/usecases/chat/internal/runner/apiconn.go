@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -47,6 +48,21 @@ type apiconn struct {
 	// connection later, on the way back to native — nothing else needs them.
 	agent engineagents.Agent
 	tctx  engineagents.TemplateCtx
+	// dispatchedOverAPI is set once pushPromptOverAPI has actually sent a prompt
+	// down THIS connection — never on establish alone. A freshly (re)established
+	// connection sits idle until something is dispatched to it: the spawn that
+	// created it may have carried its own opening prompt over the companion PTY's
+	// own argv instead (submitPromptOverAPI's replacement-spawn fallback embeds
+	// text into the respawned CLI's command line, never into a Dispatch call —
+	// see prompts.go). apiOwnsThisEvent (turn/ingest.go) reads this to tell those
+	// two cases apart: a connection that exists but has dispatched nothing has
+	// nothing of its own to echo, so the companion PTY's hooks for that turn are
+	// the ONLY record of it, not a redundant copy of something this connection
+	// is independently reporting. Confirmed live: without this, exactly that
+	// turn's hooks were dropped as "redundant" while the api side had genuinely
+	// never been asked to carry it, silently erasing the turn from the ledger
+	// even though the CLI itself answered normally.
+	dispatchedOverAPI atomic.Bool
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -169,6 +185,17 @@ func (rs *Runners) startAPIConn(
 	if !ok {
 		return nil, false
 	}
+	// A previous connection for this SAME runner id (SwitchToNative re-establishes
+	// on live.ID, never a fresh one) can have left its socket file behind: drop's
+	// SIGKILL gives the old `serve` no chance to unlink what it was listening on.
+	// Left in place, that stale file satisfies waitForSocket's mere existence
+	// check the instant this fork starts, racing the handshake below against a
+	// corpse instead of the process just started — confirmed live as "connection
+	// refused" on a socket path that very much exists. Removing it first
+	// guarantees the file waitForSocket blocks on is always this call's OWN
+	// process binding, never a leftover one. A path with nothing there (the
+	// common case, a runner id's first connection) is a silent no-op.
+	_ = os.Remove(tctx.Socket)
 	cmd, err := forkServeProcess(serveArgv)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: start serve", "err", err, "runner_id", runnerID)
@@ -411,33 +438,6 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 // in the chat usecase and shutdownAgentRunners in app/container.go.
 func (rs *Runners) Shutdown() {
 	rs.apiConns.closeAll()
-}
-
-// pushPromptOverAPI delivers text to runnerID's live api connection, if it has
-// one — no PTY restart, no new runnerID: the same connection applyAPITransport
-// opened at spawn carries every message the conversation ever sends. ok=false
-// means this runner has no live api connection at all (a hooks-only provider,
-// or a mixed-transport one whose serve process never came up); the caller
-// falls back to restart_tui exactly as it did before mixed transport existed.
-func (rs *Runners) pushPromptOverAPI(
-	ctx context.Context, runnerID, sessionID, cwd, text string,
-) (usedSessionID string, ok bool, err error) {
-	conn, ok := rs.apiConns.get(runnerID)
-	if !ok {
-		return "", false, nil
-	}
-	// The session was already established (Fresh or Resume) by
-	// applyAPITransport at spawn time, before attach's argv was ever
-	// rendered — this call only ever runs Action (turn/start).
-	result, err := conn.driver.Dispatch(ctx, "prompt", map[string]string{
-		"session_id": sessionID,
-		"cwd":        cwd,
-		"text":       text,
-	})
-	if err != nil {
-		return "", true, err
-	}
-	return result["session_id"], true, nil
 }
 
 // awaitAndReplyOverSocket blocks on the SAME answerdesk.Await an HTTP hook relay
