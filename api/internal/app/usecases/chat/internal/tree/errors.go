@@ -34,6 +34,20 @@ var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the 
 // across. Handlers map it to 409.
 var ErrCrossContext = errors.New("usecases: a folder cannot move to a different context")
 
+// ErrNotAContainer is returned when a move or create names a REPO as its
+// parent/folder id. A repo's own Node row rides through this package's
+// planning snapshot purely so it densifies correctly alongside its home
+// chat/folder siblings (see plan.go's mergeHomeForest) — it was never meant
+// to be filed INTO, the same way nothing may be filed into a chat's own
+// runner. Hardened after an SDD review caught it reachable via a raw
+// PATCH .../chats/:id/placement (or the folder-move route) with no frontend
+// involvement: repoScopeOf answering nil for a row with no WorkspaceID (the
+// SAME "nothing to conflict with" posture a plain bubble sibling correctly
+// gets) let a repo's own id slip through checkFolderContainer/
+// checkChatContainer's cross-scope refusal unrefused. Handlers map it to
+// 409, alongside the rest of this file's placement refusals.
+var ErrNotAContainer = errors.New("usecases: a repo cannot be filed into")
+
 // ErrNameRequired is returned when a create or rename supplies a blank name. A
 // nameless folder is an unlabelled box the user cannot tell apart from any
 // other; it is refused at the usecase boundary so the API and any future caller

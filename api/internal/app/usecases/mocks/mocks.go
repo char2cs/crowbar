@@ -446,7 +446,6 @@ func (s *NodePlacements) Forget(
 	return nil
 }
 
-// WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
 // FolderStore is a fake store.Store[domain.Folder, string] — the plain-GORM
 // identity surface a home-scoped folder's name now lives on (2026-09-08
 // sidebar-placement-unification Task 5).

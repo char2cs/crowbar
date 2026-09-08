@@ -168,6 +168,13 @@ func New(
 		repos.Workspace,
 		gormStores.Folders,
 		repos.Node,
+		// homeChats restores the per-project scoping a bare-root repo reorder
+		// needs for its CHAT-kind Node siblings (SDD review fix round 2,
+		// 2026-09-08 sidebar-placement-unification Task 5) — see
+		// project.HomeChats' own doc for why this narrow read is needed even
+		// though the rest of project.go deliberately dropped the chat
+		// package as a sibling-read dependency.
+		repos.AgentChat,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -257,17 +264,26 @@ func New(
 		terminalMeta,
 	)
 	return &Container{
-		Project:              projectUsecase,
-		ProjectImport:        projectImport,
-		ProjectDelete:        projectDelete,
-		Workspace:            workspaceUsecase,
-		File:                 fileUsecase,
-		Git:                  gitUsecase,
-		Terminal:             terminalUsecase,
-		ProviderSync:         providerSync,
-		BranchReview:         branchReview,
-		TerminalMeta:         terminalMeta,
-		AgentChat:            agentic.chat,
+		Project:       projectUsecase,
+		ProjectImport: projectImport,
+		ProjectDelete: projectDelete,
+		Workspace:     workspaceUsecase,
+		File:          fileUsecase,
+		Git:           gitUsecase,
+		Terminal:      terminalUsecase,
+		ProviderSync:  providerSync,
+		BranchReview:  branchReview,
+		TerminalMeta:  terminalMeta,
+		// Wrapped, not the raw chat usecase: a home-scoped chat's ParentID/
+		// Order are frozen at creation now (2026-09-08
+		// sidebar-placement-unification Task 5) — every READ needs its live
+		// Node position overlaid, or a chat filed into a home folder renders
+		// at the panel root forever, surviving a reload. See
+		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
+		// does not close (no WS-broadcast fix, only the read/reload path).
+		AgentChat: agentusecase.NewHomeCorrectedChats(
+			agentic.chat, workspaceGitStatusReader{workspace: workspaceUsecase}, repos.Node,
+		),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
 		AgentAnswer:          agentic.chat,
@@ -325,7 +341,16 @@ func newAgentWiring(
 	// construction cycle if that usecase reached back into it. (The tool surface
 	// needs the same answer and gets it from the chat usecase, which re-exposes
 	// this as Ancestors.)
-	lineage := agentusecase.NewChatLineage(repos.AgentChat)
+	//
+	// Wrapped, not the raw repository: a home-scoped chat's ParentID is frozen
+	// at creation now (2026-09-08 sidebar-placement-unification Task 5), and
+	// this lineage read (LoadChat/ListByWorkspace) is what decides what a
+	// freshly spawned CLI is told to read — unlike Container.AgentChat, wrapped
+	// separately above in New, this one is built here, independently, and was
+	// missed by that fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
+	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
+		repos.AgentChat, workspaceGitStatusReader{workspace: workspaceUsecase}, repos.Node,
+	))
 	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {
 		return agentWiring{}, err

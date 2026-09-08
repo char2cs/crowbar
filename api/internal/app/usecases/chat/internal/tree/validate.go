@@ -182,6 +182,9 @@ func (u *chatFolderUsecase) checkFolderContainer(
 		}
 		row = &got
 	}
+	if row.Type == nodePhantomType {
+		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, ErrNotAContainer)
+	}
 	parentRepoID, err := u.repoScopeOf(ctx, *row)
 	if err != nil {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
@@ -297,6 +300,9 @@ func checkParentKind(
 	parentID string,
 	ownWorktree bool,
 ) error {
+	if row.Type == nodePhantomType {
+		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, ErrNotAContainer)
+	}
 	if row.Type == domain.ChatTypeFolder || row.Type == domain.ChatTypeBranch {
 		return nil
 	}

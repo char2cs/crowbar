@@ -172,6 +172,38 @@ func TestMove_Home_ReparentsViaNode(t *testing.T) {
 	assert.Empty(t, chats.Ordered, "a home move never writes the chat aggregate")
 }
 
+// A repo's own Node phantom row (mergeHomeForest's placeholder, purely so a
+// repo densifies alongside its home siblings) is NOT a legal container for
+// anything — hardened after an SDD review caught it reachable via a raw
+// PATCH with no frontend involvement: checkFolderContainer's repoScopeOf
+// used to answer nil ("nothing to conflict with") for it, the same posture
+// correctly taken for a plain bubble sibling, silently letting a folder be
+// filed under a repo and become permanently unreachable (repos are BFS
+// leaves — nothing walks INTO one to find what was filed there).
+func TestMove_Home_RefusesFilingUnderARepo(t *testing.T) {
+	_, _, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	folder, _, err := uc.Create(ctx, tree.CreateInput{Name: "docs"})
+	require.NoError(t, err)
+
+	_, _, err = uc.Move(ctx, folder.ID, tree.MoveInput{ParentID: name("repo-1")})
+	assert.ErrorIs(t, err, tree.ErrNotAContainer)
+}
+
+// The CHAT-placement half of the same hardening (checkParentKind, not
+// checkFolderContainer) -- a home chat's parent may never resolve to a repo
+// either.
+func TestPlaceChat_Home_RefusesFilingUnderARepo(t *testing.T) {
+	chats, _, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
+
+	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{ParentID: name("repo-1")})
+	assert.ErrorIs(t, err, tree.ErrNotAContainer)
+}
+
 // The direct Node-native proof of Task 5's whole point: moving a home folder
 // densifies against a REPO's own Node row sharing the exact same container,
 // read from ONE Node.ListByParent call -- no cross-aggregate merge step (the

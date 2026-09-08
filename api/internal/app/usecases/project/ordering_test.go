@@ -95,7 +95,7 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 	nodes.Rows = []domain.Node{
@@ -133,7 +133,7 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		t.Helper()
 		repos := mocks.NewRepositoryStore()
 		nodes := mocks.NewNodePlacements()
-		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
 		require.NoError(t, repos.Save(context.Background(),
 			domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 		nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
@@ -171,7 +171,7 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		nodes := mocks.NewNodePlacements()
 		folders := mocks.NewFolderStore()
 		folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder-1", RepoID: ""})
-		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 		ctx := context.Background()
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 		nodes.Rows = []domain.Node{
@@ -189,6 +189,83 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		chatOrder := nodeRow(t, nodes, "chat-in-folder").Order
 		assert.Less(t, chatOrder, n.Order, "the folder’s existing child must sort BEFORE the repo")
 	})
+}
+
+// TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeChats
+// is the SDD review's Critical 2 fix: domain.Node carries no project id of
+// its own, so the bare project-home root (folderID == "") is one literal
+// container SHARED by every project's home Node rows. Before this fix,
+// placeRepoAmongHomeSiblings included every CHAT-kind Node row sharing that
+// container unconditionally — reordering ONE repo in project pA renumbered
+// (and WROTE, via Nodes.SetOrder) project pB's own home chat as a side
+// effect, corrupting a different project's sidebar the user never touched.
+// homeChatIDSet restores the scoping homeContainerChats used to guarantee
+// before Task 5 deleted the merge it lived in.
+func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeChats(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
+	workspaces := mocks.NewWorkspacePlacements()
+	workspaces.Rows = []domain.Workspace{
+		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
+		{ID: "home-ws-B", ProjectID: "pB", Kind: domain.WorkspaceKindHome},
+	}
+	homeChats := mocks.NewAgentChatPlacements()
+	homeChats.Rows = []domain.Chat{
+		{ID: "chat-A1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat},
+		{ID: "chat-B1", WorkspaceID: "home-ws-B", Type: domain.ChatTypeChat},
+	}
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, homeChats)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
+	nodes.Rows = []domain.Node{
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
+		{ID: "chat-A1", Kind: domain.NodeKindChat, Order: 1},
+		// chat-B1 shares the literal "" root but belongs to a DIFFERENT
+		// project — the exact row the pre-fix code leaked into pA's densify.
+		{ID: "chat-B1", Kind: domain.NodeKindChat, Order: 2},
+	}
+
+	// Drag repo-A past BOTH chats sharing the root -- the reinsert this target
+	// forces is what actually shifts chat-B1's dense index in the unfiltered
+	// (pre-fix) computation; a smaller target can coincidentally leave its
+	// index unchanged even when it was never excluded, which would pass by
+	// accident rather than by the fix actually working.
+	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(2)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, nodeRow(t, nodes, "chat-B1").Order,
+		"project pB's chat must be untouched by project pA's own repo reorder")
+	for _, w := range nodes.Ordered {
+		assert.NotEqual(t, "chat-B1", w.ID, "project pB's chat must never be WRITTEN by pA's reorder")
+	}
+	for _, w := range nodes.Placed {
+		assert.NotEqual(t, "chat-B1", w.ID, "project pB's chat must never be WRITTEN by pA's reorder")
+	}
+}
+
+// TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour documents
+// the fallback deliberately: a caller that never wires HomeChats (nil) gets
+// the SAME posture this whole function had for its first Task-5 version —
+// every chat sharing the bare root treated as a sibling, unscoped. Not a
+// silent trap: homeChatIDSet's own doc names this explicitly.
+func TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
+	workspaces := mocks.NewWorkspacePlacements()
+	workspaces.Rows = []domain.Workspace{{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome}}
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
+	nodes.Rows = []domain.Node{
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
+		{ID: "chat-elsewhere", Kind: domain.NodeKindChat, Order: 1},
+	}
+
+	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, nodeRow(t, nodes, "chat-elsewhere").Order,
+		"with HomeChats unwired, an unrelated chat sharing the root is still treated as a sibling and renumbered")
 }
 
 // The move is what carries the repo's workspaces across. Left behind, they would
@@ -263,7 +340,7 @@ func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
@@ -291,7 +368,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "repo-folder", RepoID: "other-repo"})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -309,7 +386,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 // project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
 func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -319,7 +396,7 @@ func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -334,7 +411,7 @@ func TestUpdateRepo_LeavingAFolderDensifiesIt(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "a", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "b", ProjectID: "p1"}))
@@ -402,7 +479,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
+	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
@@ -622,7 +699,7 @@ func (s *repositoryStoreMissingAfterSave) FindWhere(
 // failed — the caller gets back what it just wrote instead of an error.
 func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
 
 	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
 
