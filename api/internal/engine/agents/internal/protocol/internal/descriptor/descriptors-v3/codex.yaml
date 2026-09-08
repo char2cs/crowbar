@@ -52,29 +52,86 @@ events:
       message:    "item.content[type=text].text || prompt"
 
   # turn.lastAgentMessage does not exist — the answer is an item IN a list.
+  #
+  # turn/completed is a SUM TYPE on turn.status (completed|interrupted|failed|
+  # inProgress — codex's own TurnStatus enum). Ungated, this event also swallowed
+  # every FAILED turn: it recorded an ordinary stop whose message resolved to
+  # nothing, so the user saw the spinner end on an empty reply and turn.error was
+  # discarded. An interrupt is still an ordinary stop — the human asked for it.
   turn_stop:
     in: turn/completed
+    when: { turn.status: completed || interrupted }
     map:
       session_id: "threadId || session_id"
       message:    "turn.items[type=agentMessage].text || last_assistant_message"
 
-  tool_pre:
-    in: item/started
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # The other half of that sum type. No `message:` deliberately: a failed turn's
+  # items are not reliably populated, and closeAssistantTurn has already salvaged
+  # whatever message_delta streamed before the failure — mapping it here would
+  # only risk overwriting real text with an empty string.
+  turn_failed:
+    in: turn/completed
+    when: { turn.status: failed }
     map:
       session_id: "threadId || session_id"
-      tool_id:    "item.id || tool_use_id"
-      tool_name:  "item.type || tool_name"
-      tool_input: item
+      reason:     "turn.error.message || turn.status"
+      detail:     turn.error.additionalDetails
 
-  tool_post:
-    in: item/completed
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
+  # were missing, so a turn that searched the web showed NO activity for that step.
+  #
+  # tool_target is what the transcript actually renders (`name · target`); with it
+  # unmapped every codex tool call read as the bare word "commandExecution". Each
+  # variant keeps its target in its own field, hence the alternation:
+  #   commandExecution -> command   fileChange  -> changes[0].path
+  #   webSearch        -> query     mcpToolCall -> server (its tool is the NAME)
+  # changes[0] is an INDEX selector: FileUpdateChange.kind is an object
+  # ({"type":"update"}), so no [field=value] selector can address that list.
+  tool_pre:
+    in: item/started
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall }
     map:
       session_id:  "threadId || session_id"
       tool_id:     "item.id || tool_use_id"
-      tool_name:   "item.type || tool_name"
-      tool_result: "item.content || tool_response"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_input:  item
+
+  # tool_result was `item.content`, which exists on NO codex item — every tool
+  # call completed with an empty result. The real output field differs per
+  # variant: aggregatedOutput (commandExecution), result (mcpToolCall),
+  # changes (fileChange).
+  tool_post:
+    in: item/completed
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall }
+    map:
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_result: "item.aggregatedOutput || item.result || item.changes || tool_response"
+      duration_ms: "item.durationMs || duration_ms"
+
+  # Fires on the SAME wire event as tool_post, separated only by item.status.
+  # dispatch.Resolve tries candidates in sorted name order, so `tool_fail` is
+  # offered before `tool_post` and its narrower when: wins on a failure; anything
+  # else falls through to tool_post. tool_post deliberately declares NO status
+  # clause: webSearch carries no status field at all, and a `when:` whose path is
+  # missing never matches — gating it would have left every web search open
+  # forever.
+  tool_fail:
+    in: item/completed
+    when:
+      item.type:   commandExecution || fileChange || mcpToolCall || dynamicToolCall
+      item.status: failed || declined
+    map:
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_result: "item.aggregatedOutput || item.result || item.changes || tool_response"
+      tool_error:  "item.error.message || item.status"
+      duration_ms: "item.durationMs || duration_ms"
 
   # No index: this delta stream is already arrival-ordered.
   message_delta:

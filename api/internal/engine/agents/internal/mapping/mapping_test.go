@@ -360,3 +360,45 @@ func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
 		t.Fatalf("all-empty alternation should be empty, got %q", got)
 	}
 }
+
+// A list whose interesting element is positional, not findable by a field=value
+// match. codex's fileChange.changes is exactly this: its `kind` is an OBJECT
+// ({"type":"update"}), so `changes[kind=update]` can never match and the first
+// changed path is otherwise unaddressable.
+func changesDoc() map[string]any {
+	var d map[string]any
+	_ = json.Unmarshal([]byte(`{"item":{"changes":[
+	  {"path":"/w/main.go","kind":{"type":"update"},"diff":"@@ -1 +1 @@"},
+	  {"path":"/w/util.go","kind":{"type":"add"}}
+	]}}`), &d)
+	return d
+}
+
+func TestString_SelectsFromAnArrayByIndex(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[0].path"); got != "/w/main.go" {
+		t.Fatalf("got %q, want /w/main.go", got)
+	}
+	if got := mapping.String(changesDoc(), "item.changes[1].path"); got != "/w/util.go" {
+		t.Fatalf("got %q, want /w/util.go", got)
+	}
+}
+
+func TestString_IndexSelectionComposesWithAlternation(t *testing.T) {
+	got := mapping.String(changesDoc(), "item.command || item.changes[0].path")
+	if got != "/w/main.go" {
+		t.Fatalf("got %q, want the fallback branch to resolve", got)
+	}
+}
+
+func TestString_IndexOutOfRangeIsEmptyNotAPanic(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[9].path"); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+// A nested selector must still reach a scalar under an object-valued key.
+func TestString_SelectsANestedFieldOfAnIndexedElement(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[0].kind.type"); got != "update" {
+		t.Fatalf("got %q, want update", got)
+	}
+}

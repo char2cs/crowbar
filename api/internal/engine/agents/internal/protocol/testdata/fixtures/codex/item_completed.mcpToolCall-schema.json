@@ -1,0 +1,34 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "mcpToolCall",
+      "id": "item_mcp_1",
+      "server": "crowbar",
+      "tool": "get_chat_log",
+      "status": "completed",
+      "arguments": {
+        "chatId": "c1"
+      },
+      "appContext": null,
+      "pluginId": null,
+      "readOnlyHint": true,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ok"
+          }
+        ],
+        "structuredContent": null,
+        "_meta": null
+      },
+      "error": null,
+      "durationMs": 88
+    },
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "completedAtMs": 1787518750963
+  },
+  "emittedAtMs": 1787518750963
+}

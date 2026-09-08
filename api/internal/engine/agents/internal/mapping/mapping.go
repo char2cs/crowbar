@@ -95,26 +95,53 @@ func walk(doc map[string]any, path string) (any, bool) {
 	return cur, true
 }
 
-// parseSelector splits `name[field=value]` into its parts. A segment without that
-// exact shape is a plain key.
+// indexField is the sentinel parseSelector reports for `name[N]`. It is not a
+// legal payload key — a JSON object key could be "0", but never "" — so it can
+// never collide with a real `name[field=value]` selector.
+const indexField = ""
+
+// parseSelector splits a selector segment into its parts. Two shapes:
+//
+//	name[field=value]  — the first element whose field equals value
+//	name[N]            — the Nth element, zero-based
+//
+// The index form exists because a list's interesting element is not always
+// findable by a scalar field match: codex's fileChange.changes carries its
+// `kind` as an OBJECT ({"type":"update"}), so no field=value selector can
+// address it and the changed path would otherwise be unmappable.
+//
+// A segment matching neither shape is a plain key.
 func parseSelector(seg string) (name, field, want string, ok bool) {
 	open := strings.IndexByte(seg, '[')
 	if open <= 0 || !strings.HasSuffix(seg, "]") {
 		return seg, "", "", false
 	}
 	inner := seg[open+1 : len(seg)-1]
-	field, want, found := strings.Cut(inner, "=")
-	if !found || field == "" {
+	if field, want, found := strings.Cut(inner, "="); found && field != "" {
+		return seg[:open], field, want, true
+	}
+	// No `=`: an all-digit body is an index, anything else is a plain key.
+	if inner == "" || strings.IndexFunc(inner, func(r rune) bool {
+		return r < '0' || r > '9'
+	}) >= 0 {
 		return seg, "", "", false
 	}
-	return seg[:open], field, want, true
+	return seg[:open], indexField, inner, true
 }
 
-// selectFrom returns the first element of list whose field equals want.
+// selectFrom picks one element out of list: by zero-based index when field is
+// indexField, otherwise the first element whose field equals want.
 func selectFrom(list any, field, want string) (any, bool) {
 	arr, isArray := list.([]any)
 	if !isArray {
 		return nil, false
+	}
+	if field == indexField {
+		i, err := strconv.Atoi(want)
+		if err != nil || i < 0 || i >= len(arr) {
+			return nil, false
+		}
+		return arr[i], true
 	}
 	for _, item := range arr {
 		obj, isObject := item.(map[string]any)
