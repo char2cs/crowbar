@@ -365,8 +365,14 @@ export async function listChats(wsId: string): Promise<AgentChat[]> {
   return (raw ?? []).map(mapChat)
 }
 
-export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
-  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`)
+export async function getChat(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<AgentChatDetail> {
+  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`, {
+    signal,
+  })
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
@@ -862,11 +868,23 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
-export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
+//
+// `signal` for the identical reason resumeChat takes one (see that function's
+// own comment): this drives the SAME daemon-side per-chat spawn mutex
+// (switchProviderLocked), and the caller renders the same buttonless
+// "Starting {provider}…" spinner while this is out — a switch that never
+// answers is a pane the user can only abandon just like an unbounded resume.
+export async function switchProvider(
+  wsId: string,
+  id: string,
+  provider: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
+    signal,
   })
   return res.id
 }

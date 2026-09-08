@@ -333,6 +333,73 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
     },
   )
 
+  // REGRESSION: resumeChat's own request was bounded, but adopt()'s
+  // getChat() call right after it — the one line that actually reads the
+  // revived chat back and puts a live PTY on screen — had no signal of its
+  // own. A resumeChat that answers fine but an adopt() that then hangs
+  // reproduced the exact same "Resuming this chat…" wedge, one call later,
+  // inside the fix meant to eliminate it.
+  it(
+    'settles into the resumable state when resumeChat answers but the FOLLOW-UP adopt() read hangs',
+    { timeout: 60_000 },
+    async () => {
+      vi.useFakeTimers()
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        resumeChatFn.mockResolvedValue('r-revived') // this half answers fine
+        getChatFn.mockImplementation(neverAnswers()) // adopt()'s own read never does
+        const store = seedWorkspace([dormantChat({ id: 'c1' })])
+        await renderPane(store, openBuffer(store, 'c1', ''))
+
+        expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
+        expect(screen.queryByTestId('pane-resume')).toBeNull()
+
+        // The SAME bound that covers resumeChat has to also end adopt()'s
+        // own hung read — not a second, unbounded wait stacked on top of it.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(120_000)
+        })
+
+        expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
+        expect(screen.getByTestId('pane-resume')).toBeTruthy()
+      } finally {
+        errSpy.mockRestore()
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  // REGRESSION: the effect that fires revive() automatically had no cleanup
+  // function at all — a pane that genuinely unmounts mid-resume (its
+  // buffer/tab closing) left the request running for up to the full bound,
+  // still holding the daemon's per-chat spawn-gate mutex, with nothing left
+  // on screen to show for it.
+  it('aborts the in-flight auto-revive as soon as the pane unmounts, not 120s later', async () => {
+    resumeChatFn.mockImplementation(neverAnswers())
+    const store = seedWorkspace([dormantChat({ id: 'c1' })])
+    const bufferId = openBuffer(store, 'c1', '')
+    let unmount!: () => void
+    await act(async () => {
+      const result = render(
+        createElement(
+          WorkspaceStoreContext.Provider,
+          { value: store },
+          createElement(PaneHost, { bufferId }),
+        ),
+      )
+      unmount = result.unmount
+    })
+
+    expect(resumeChatFn).toHaveBeenCalledTimes(1)
+    const signal = resumeChatFn.mock.calls[0]?.[2] as AbortSignal | undefined
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+
+    act(() => unmount())
+
+    expect(signal?.aborted).toBe(true)
+  })
+
   it('never gives up on a resume that is answering normally', { timeout: 60_000 }, async () => {
     vi.useFakeTimers()
     try {

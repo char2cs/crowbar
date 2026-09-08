@@ -110,7 +110,7 @@ describe('agent-api', () => {
       ],
     })
     const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1', { signal: undefined })
     expect(chat.liveRunnerId).toBe('r1')
     expect(chat.terminalSessionId).toBe('pty1')
     // Conversations succeed the deleted `segments`: pure append-only history, with

@@ -424,8 +424,8 @@ export function AgentChatPane({
   // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
   // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
   // this read says so, where waiting for a frame that is never coming would spin forever.
-  const adopt = useCallback(async (): Promise<boolean> => {
-    const chat = await getChat(wsId, shownChatId)
+  const adopt = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
+    const chat = await getChat(wsId, shownChatId, signal)
     const s = store.getState()
     s.upsertAgentChat(chat)
     s.setAgentChatWorking(chat.id, chat.working === true)
@@ -509,38 +509,58 @@ export function AgentChatPane({
   // before its session-start hook ever fired leaves one), and the CLI itself may be gone
   // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
   // still appears. It never retries by itself.
-  const revive = useCallback(async () => {
-    attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-    setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
-    revivesInFlight.current += 1
-    // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
-    // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
-    // refused resume does, which is the state that carries the Resume button. Giving
-    // up early costs nothing and cannot strand anybody: the resume is a no-op on a
-    // chat that is already live, and if the daemon does come back to life afterwards
-    // the chat goes live in the store and the attach effect below picks it straight
-    // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
-    // so it can only fire on a resume that was never going to answer.
-    const abort = new AbortController()
-    const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
-    try {
-      await resumeChat(wsId, shownChatId, abort.signal)
-      if (!(await adopt())) fail()
-    } catch (err: unknown) {
-      fail()
-      const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
-      // An abort reads as a DOMException about a cancelled fetch, which tells the user
-      // nothing about their chat. Say what actually happened instead.
-      toastSpawnFailure(
-        abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
-        name,
-        'resume',
-      )
-    } finally {
-      clearTimeout(bound)
-      revivesInFlight.current -= 1
-    }
-  }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
+  // `externalSignal` lets a CALLER's own cleanup (the auto-revive effect below)
+  // cancel a revive still in flight when it unmounts or re-runs — without it,
+  // an effect firing this and unmounting moments later (the pane's buffer/tab
+  // closing mid-resume) left the request running for up to the FULL bound,
+  // still holding the daemon's per-chat spawn-gate mutex, with nothing on
+  // screen left to show for it. Merged into the internal bound, not a
+  // replacement for it: the timeout still fires even for a caller (the Resume
+  // button) that passes none.
+  const revive = useCallback(
+    async (externalSignal?: AbortSignal) => {
+      attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
+      setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+      revivesInFlight.current += 1
+      // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
+      // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
+      // refused resume does, which is the state that carries the Resume button. Giving
+      // up early costs nothing and cannot strand anybody: the resume is a no-op on a
+      // chat that is already live, and if the daemon does come back to life afterwards
+      // the chat goes live in the store and the attach effect below picks it straight
+      // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
+      // so it can only fire on a resume that was never going to answer.
+      const abort = new AbortController()
+      const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
+      const forwardExternalAbort = () => abort.abort()
+      externalSignal?.addEventListener('abort', forwardExternalAbort)
+      try {
+        await resumeChat(wsId, shownChatId, abort.signal)
+        // SAME signal, not a second, unbounded request — adopt()'s own
+        // getChat read sits right after resumeChat's, and without a signal
+        // of its own it could hang forever with the bound above having
+        // already fired on the (by-then-irrelevant) resumeChat request:
+        // reproducing the exact "Resuming this chat…" wedge this pair of
+        // requests exists to eliminate, one call later, inside its own fix.
+        if (!(await adopt(abort.signal))) fail()
+      } catch (err: unknown) {
+        fail()
+        const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
+        // An abort reads as a DOMException about a cancelled fetch, which tells the user
+        // nothing about their chat. Say what actually happened instead.
+        toastSpawnFailure(
+          abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
+          name,
+          'resume',
+        )
+      } finally {
+        clearTimeout(bound)
+        externalSignal?.removeEventListener('abort', forwardExternalAbort)
+        revivesInFlight.current -= 1
+      }
+    },
+    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
+  )
 
   // A CHAT THE LIST NEVER MENTIONS.
   //
@@ -630,8 +650,15 @@ export function AgentChatPane({
       // already-attached chat has a liveRunnerId and never reaches here, so it keeps
       // its live PTY while hidden.
       if (isVisible && !attemptedRef.current.has(shownChatId)) {
-        void revive()
-        return
+        // Own controller, not a bare fire-and-forget: this effect has no way
+        // to reach into revive()'s OWN internal abort otherwise, so a pane
+        // that genuinely unmounts mid-resume (its buffer/tab closing) left
+        // the request running for up to the full REVIVE_REQUEST_BOUND_MS,
+        // still holding the daemon's per-chat spawn-gate mutex, with
+        // nothing left on screen to show for it.
+        const controller = new AbortController()
+        void revive(controller.signal)
+        return () => controller.abort()
       }
       // Budget spent, or hidden and waiting to become visible. Don't stomp a revive
       // still in flight, and don't overwrite a `failed` we have already earned with the
@@ -723,9 +750,14 @@ export function AgentChatPane({
     // must mistake for a chat needing revival.
     switchingRef.current = true
     setAttachment({ state: 'reviving', message: `Starting ${name}…` })
+    // Same bound as revive() and for the identical reason: switchProvider
+    // drives the SAME daemon-side per-chat spawn mutex a stuck resume does,
+    // behind the same buttonless "Starting {provider}…" spinner.
+    const abort = new AbortController()
+    const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
     try {
-      await switchProvider(wsId, shownChatId, providerId)
-      if (!(await adopt())) {
+      await switchProvider(wsId, shownChatId, providerId, abort.signal)
+      if (!(await adopt(abort.signal))) {
         fail()
         return false
       }
@@ -741,9 +773,17 @@ export function AgentChatPane({
       fail()
       // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
       // PATH for every failure sends the user hunting for a problem they do not have.
-      toastSpawnFailure(err, name, 'switch to')
+      // An abort itself reads as a DOMException about a cancelled fetch, which is
+      // status-less and tells the user nothing about their chat — say what actually
+      // happened instead, same as revive()'s own catch.
+      toastSpawnFailure(
+        abort.signal.aborted ? new Error('The daemon did not answer the switch.') : err,
+        name,
+        'switch to',
+      )
       return false
     } finally {
+      clearTimeout(bound)
       switchingRef.current = false
     }
   }
