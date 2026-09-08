@@ -254,9 +254,7 @@ describe('WorkingLine', () => {
   // A reasoning model spends most of a hard turn emitting nothing but this. With
   // no home for it the whole of that stretch was a spinner over a frozen chat.
   it('shows what the agent is thinking while it works', () => {
-    render(
-      <WorkingLine working activity={activity()} reasoning="**Clarifying** the wording" />,
-    )
+    render(<WorkingLine working activity={activity()} reasoning="**Clarifying** the wording" />)
     expect(screen.getByTestId('agent-reasoning')).toHaveTextContent('Clarifying the wording')
   })
 
@@ -350,7 +348,11 @@ describe('WorkingLine', () => {
   // would silently shorten the plan.
   it('still renders a step whose status it does not recognise', () => {
     render(
-      <WorkingLine working activity={activity()} plan={[{ text: 'Mystery', status: 'whoKnows' }]} />,
+      <WorkingLine
+        working
+        activity={activity()}
+        plan={[{ text: 'Mystery', status: 'whoKnows' }]}
+      />,
     )
     expect(screen.getByTestId('agent-plan')).toHaveTextContent('Mystery')
   })

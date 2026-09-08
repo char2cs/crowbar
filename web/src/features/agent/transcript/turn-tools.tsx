@@ -115,15 +115,7 @@ export function AgentTurnTools({
  *  content-addressed and can run to hundreds of KB per turn (see
  *  `AgentToolCall`'s own doc), so a `<details>` that fetched eagerly the
  *  instant its turn scrolled into view would be the opposite of "on demand". */
-function ToolRow({
-  call,
-  wsId,
-  chatId,
-}: {
-  call: AgentToolCall
-  wsId?: string
-  chatId?: string
-}) {
+function ToolRow({ call, wsId, chatId }: { call: AgentToolCall; wsId?: string; chatId?: string }) {
   const [open, setOpen] = useState(false)
   const summary = (
     <>

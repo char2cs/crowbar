@@ -205,11 +205,7 @@ export function describeTool(call: AgentToolCall): string {
  * ledger record is born already resolved, so it is driven by a live push instead
  * (see WorkingLine's `compactingLive`).
  */
-const PERSON_BLOCKING: ReadonlySet<string> = new Set([
-  'permission',
-  'notification',
-  'elicitation',
-])
+const PERSON_BLOCKING: ReadonlySet<string> = new Set(['permission', 'notification', 'elicitation'])
 
 export function blocksOnAPerson(interruption: AgentInterruption | null): boolean {
   return interruption !== null && PERSON_BLOCKING.has(interruption.kind)

@@ -218,7 +218,11 @@ describe('groupSubagentsByTurn', () => {
       subagent({ id: 'running', turnId: 't1', seq: 3, endedAt: undefined }),
     ]
 
-    expect(groupSubagentsByTurn(subagents).get('t1')?.map((s) => s.id)).toEqual(['b', 'a'])
+    expect(
+      groupSubagentsByTurn(subagents)
+        .get('t1')
+        ?.map((s) => s.id),
+    ).toEqual(['b', 'a'])
   })
 })
 
@@ -230,7 +234,11 @@ describe('AgentTurnSubagents', () => {
     render(
       <AgentTurnSubagents
         subagentsByTurn={groupSubagentsByTurn([
-          subagent({ agentType: 'reviewer', startedAt: '2026-08-17T12:00:00Z', endedAt: '2026-08-17T12:00:02Z' }),
+          subagent({
+            agentType: 'reviewer',
+            startedAt: '2026-08-17T12:00:00Z',
+            endedAt: '2026-08-17T12:00:02Z',
+          }),
         ])}
         turnId="turn-1"
       />,
@@ -240,9 +248,7 @@ describe('AgentTurnSubagents', () => {
   })
 
   it('renders nothing for a turn with no ended subagents', () => {
-    const { container } = render(
-      <AgentTurnSubagents subagentsByTurn={new Map()} turnId="turn-1" />,
-    )
+    const { container } = render(<AgentTurnSubagents subagentsByTurn={new Map()} turnId="turn-1" />)
     expect(container).toBeEmptyDOMElement()
   })
 })
@@ -254,7 +260,11 @@ describe('groupChoicesByTurn', () => {
       choice({ id: 'open', turnId: 't1', seq: 2, pending: true }),
     ]
 
-    expect(groupChoicesByTurn(choices).get('t1')?.map((c) => c.id)).toEqual(['a'])
+    expect(
+      groupChoicesByTurn(choices)
+        .get('t1')
+        ?.map((c) => c.id),
+    ).toEqual(['a'])
   })
 })
 
@@ -262,12 +272,7 @@ describe('AgentTurnChoices', () => {
   // Resolved choices were never rendered anywhere — no record of what was
   // approved or denied once the CLI stopped waiting on it.
   it('shows what a resolved permission was actually decided', () => {
-    render(
-      <AgentTurnChoices
-        choicesByTurn={groupChoicesByTurn([choice()])}
-        turnId="turn-1"
-      />,
-    )
+    render(<AgentTurnChoices choicesByTurn={groupChoicesByTurn([choice()])} turnId="turn-1" />)
     expect(screen.getByText('Bash · Allow')).toBeInTheDocument()
   })
 

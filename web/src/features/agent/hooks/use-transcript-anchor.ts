@@ -462,7 +462,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
     const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'] as const
     for (const type of INPUT_EVENTS) {
-      window.addEventListener(type, noteWheelOrTouchWithinContainer, { capture: true, passive: true })
+      window.addEventListener(type, noteWheelOrTouchWithinContainer, {
+        capture: true,
+        passive: true,
+      })
     }
     window.addEventListener('keydown', noteKeydownUnlessEditing, { capture: true, passive: true })
     window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
@@ -522,7 +525,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     // since a descendant's rect and its ancestor CONTENT element's rect move
     // together by the same amount as `el` scrolls.
     const base = el.lastElementChild as HTMLElement | null
-    pinnedTop.current = element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
+    pinnedTop.current =
+      element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
     // A turn starting is also the reader rejoining the live end — it is their
     // own prompt that just landed. Without this, a prompt sent after reading
     // back through history would reserve the room and then not move.

@@ -413,8 +413,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // gap instead of releasing it. `pinTurnToTop(null)` — the documented
     // release path — is the only way out of that once it has happened, and
     // nothing else in this file ever calls it.
-    const settled =
-      pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
+    const settled = pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
     if (!settled) anchor.pinTurnToTop(null)
     pinnedItem.current = null
   }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])

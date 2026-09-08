@@ -671,7 +671,10 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         // Clamped against what's left after the prefix: an unclamped suffix
         // match can overlap it (an identical string matches fully from BOTH
         // ends), which would otherwise make freshSuffix's length negative.
-        const keepSuffix = Math.min(commonSuffixLength(prevText, nextText), nextText.length - keepPrefix)
+        const keepSuffix = Math.min(
+          commonSuffixLength(prevText, nextText),
+          nextText.length - keepPrefix,
+        )
         const freshSuffix = nextText.slice(keepPrefix, nextText.length - keepSuffix)
         if (freshSuffix !== '') {
           recordBlockRuns(
