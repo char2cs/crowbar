@@ -282,7 +282,7 @@ func New(
 		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
 		// does not close (no WS-broadcast fix, only the read/reload path).
 		AgentChat: agentusecase.NewHomeCorrectedChats(
-			agentic.chat, workspaceGitStatusReader{workspace: workspaceUsecase}, repos.Node,
+			agentic.chat, workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories}, repos.Node,
 		),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
@@ -349,7 +349,7 @@ func newAgentWiring(
 	// separately above in New, this one is built here, independently, and was
 	// missed by that fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
-		repos.AgentChat, workspaceGitStatusReader{workspace: workspaceUsecase}, repos.Node,
+		repos.AgentChat, workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories}, repos.Node,
 	))
 	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {
@@ -386,7 +386,7 @@ func newAgentWiring(
 		repos.AgentChat,
 		chat,
 		chat.Work(),
-		workspaceGitStatusReader{workspace: workspaceUsecase},
+		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 		repos.Workspace,
 		// The SAME adapter the chat usecase's own WorktreeCreator is satisfied
 		// with, handed here a second time on purpose: a cascading delete and a
@@ -554,6 +554,9 @@ func (r agentChatReader) ListChats(
 // preview.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
+	// repos is used ONLY by RepoIDsForHome (SDD review fix round 3) — every
+	// other method here predates it and never touches it.
+	repos store.ScopedStore[domain.Repository, string]
 }
 
 // WorkingTreeSummary implements agentusecase.TreeWorkspaceGitStatus.
@@ -578,6 +581,34 @@ func (w workspaceGitStatusReader) RepoOf(
 		return "", err
 	}
 	return ws.RepoID, nil
+}
+
+// RepoIDsForHome implements agentusecase.TreeWorkspaceGitStatus. It answers
+// every repo id belonging to the SAME project as home workspace
+// homeWorkspaceID — the tree package's own counterpart to project.go's
+// repoIDSet, added in the SDD review's fix round 3: mergeHomeForest's
+// repo-phantom rows (domain.Node carries no project id of its own) must be
+// scoped the same way home-scoped CHAT rows already are (the review's
+// Critical 2 fix), or a bare-root chat/folder placement in one project
+// renumbers — and WRITES, via Nodes.SetOrder/.SetPlacement — another
+// project's repo Node row as a side effect.
+func (w workspaceGitStatusReader) RepoIDsForHome(
+	ctx context.Context,
+	homeWorkspaceID string,
+) (map[string]bool, error) {
+	ws, err := w.workspace.Get(ctx, homeWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := w.repos.FindWhere(ctx, domain.Repository{ProjectID: ws.ProjectID})
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		ids[r.ID] = true
+	}
+	return ids, nil
 }
 
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent

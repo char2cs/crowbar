@@ -44,6 +44,27 @@ func newHomeUsecase(
 	return chats, folders, nodes, uc
 }
 
+// newHomeUsecaseWithGitStatus is newHomeUsecase with the fake
+// WorkspaceGitStatus exposed, for the tests below that configure
+// RepoIDsForHome (SDD review fix round 3).
+func newHomeUsecaseWithGitStatus(
+	t *testing.T,
+) (
+	*mocks.AgentChatPlacements,
+	*mocks.NodePlacements,
+	*mocks.AgentWorkspaceGitStatus,
+	tree.Usecase,
+) {
+	t.Helper()
+	chats := mocks.NewAgentChatPlacements()
+	folders := mocks.NewFolderStore()
+	nodes := mocks.NewNodePlacements()
+	gitStatus := mocks.NewAgentWorkspaceGitStatus()
+	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
+		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
+	return chats, nodes, gitStatus, uc
+}
+
 // nodeRowFor returns the Node row a fake NodePlacements holds for id, failing
 // the test if there is none.
 func nodeRowFor(
@@ -202,6 +223,43 @@ func TestPlaceChat_Home_RefusesFilingUnderARepo(t *testing.T) {
 
 	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{ParentID: name("repo-1")})
 	assert.ErrorIs(t, err, tree.ErrNotAContainer)
+}
+
+// TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBareRoot
+// is project.go's TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeChats
+// (Critical 2) in the REVERSE direction: a chat placement in project A's home
+// must not renumber -- and WRITE, via Nodes.SetOrder/.SetPlacement -- project
+// B's own repo Node row sharing the same literal "" root (SDD review fix
+// round 3; mergeHomeForest's repo-phantom rows carry no project id of their
+// own, the same underlying gap Critical 2 closed for CHAT-kind rows).
+func TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBareRoot(t *testing.T) {
+	chats, nodes, gitStatus, uc := newHomeUsecaseWithGitStatus(t)
+	ctx := context.Background()
+	// Project A's home workspace (homeWorkspaceID) owns repo-A only --
+	// repo-B belongs to a DIFFERENT project's home, sharing the bare root.
+	gitStatus.SetHomeRepoMembers(homeWorkspaceID, "repo-A")
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
+	nodes.Rows = []domain.Node{
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
+		{ID: "repo-B", Kind: domain.NodeKindRepo, Order: 1},
+	}
+
+	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{Order: index(0)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "repo-B").Order,
+		"another project's repo sharing the bare root must be untouched")
+	for _, w := range nodes.Ordered {
+		assert.NotEqual(t, "repo-B", w.ID, "another project's repo must never be WRITTEN")
+	}
+	for _, w := range nodes.Placed {
+		assert.NotEqual(t, "repo-B", w.ID, "another project's repo must never be WRITTEN")
+	}
+	// This project's OWN repo still correctly densifies against the chat
+	// that just landed before it -- the fix scopes, it does not disable.
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "repo-A").Order,
+		"this project's own repo still shifts correctly")
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "c1").Order)
 }
 
 // The direct Node-native proof of Task 5's whole point: moving a home folder

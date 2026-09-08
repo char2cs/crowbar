@@ -1877,12 +1877,44 @@ type AgentWorkspaceGitStatus struct {
 	// same value the real home workspace's RepoOf answers.
 	Repos map[string]string
 	Err   error
+	// HomeRepoMembers answers RepoIDsForHome directly, keyed by home
+	// workspace id, to the repo id set that home workspace's own project
+	// owns — a test-friendly stand-in for the real adapter's
+	// workspace-then-project-then-repos join (SDD review fix round 3). A
+	// home workspace id never Set here answers nil (no filter), matching
+	// mergeHomeForest's own "nil means do not filter" contract.
+	HomeRepoMembers map[string]map[string]bool
+	RepoIDsErr      error
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
 // workspace summaries or repos recorded.
 func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
 	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}, Repos: map[string]string{}}
+}
+
+// SetHomeRepoMembers records homeWorkspaceID's own project's repo id set for
+// RepoIDsForHome to answer with.
+func (s *AgentWorkspaceGitStatus) SetHomeRepoMembers(homeWorkspaceID string, repoIDs ...string) {
+	if s.HomeRepoMembers == nil {
+		s.HomeRepoMembers = map[string]map[string]bool{}
+	}
+	ids := make(map[string]bool, len(repoIDs))
+	for _, id := range repoIDs {
+		ids[id] = true
+	}
+	s.HomeRepoMembers[homeWorkspaceID] = ids
+}
+
+// RepoIDsForHome implements tree.WorkspaceGitStatus.
+func (s *AgentWorkspaceGitStatus) RepoIDsForHome(
+	ctx context.Context,
+	homeWorkspaceID string,
+) (map[string]bool, error) {
+	if s.RepoIDsErr != nil {
+		return nil, s.RepoIDsErr
+	}
+	return s.HomeRepoMembers[homeWorkspaceID], nil
 }
 
 // SetRepo records workspaceID's owning repo for RepoOf to answer with.

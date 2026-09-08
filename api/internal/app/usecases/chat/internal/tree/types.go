@@ -202,31 +202,11 @@ type Agent interface {
 	) error
 }
 
-// WorkspaceGitStatus is the narrow read port DeletePreview needs off the
-// workspace usecase: each workspace's own already-synced Added/Deleted
-// working-tree counts (00 §5.3) — the same numbers the sidebar itself
-// renders, never a live git call. A preview runs before every idle delete
-// confirm, so it has to stay as cheap as the read model it draws from.
-type WorkspaceGitStatus interface {
-	WorkingTreeSummary(
-		ctx context.Context,
-		workspaceID string,
-	) (added, deleted int, err error)
-	// RepoOf answers the repo a workspace belongs to — "" for the project-home
-	// workspace, a real repo id otherwise (domain.Workspace.RepoID, straight
-	// off the same Get the adapter already makes for WorkingTreeSummary, no
-	// new dependency). checkFolderContainer's golden rule uses it to resolve
-	// the scope on the OTHER side of a folder-under-workspace-owning-row
-	// containment check: a folder's own scope is its stored RepoID (or, for a
-	// folder-under-folder check, the parent folder's own RepoID — no lookup
-	// needed there at all), but a folder filed under a BRANCH or forked CHAT
-	// row has to resolve that row's WorkspaceID back to a repo id to compare
-	// against.
-	RepoOf(
-		ctx context.Context,
-		workspaceID string,
-	) (repoID string, err error)
-}
+// WorkspaceGitStatus is defined in home_ports.go, moved there to keep this
+// file under the package's own 500-line layering ceiling — it is not a
+// home-only port (DeletePreview needs it for every scope), but RepoIDsForHome
+// (SDD review fix round 3) is, and the two ports sit together for the same
+// reason Folders/Nodes already do.
 
 // WorkspaceRoster is the boot backfill's census: every workspace the daemon
 // knows, across every repo, tombstones included (they are filtered here — see

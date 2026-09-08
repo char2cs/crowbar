@@ -95,6 +95,29 @@ func (u *chatFolderUsecase) correctHomePlacement(
 // cross-aggregate merge: every home-scope sibling now comes from ONE
 // Node.ListByParent walk.
 //
+// repoMemberIDs scopes which repo phantoms are actually included — the SAME
+// reason project.go's placeRepoAmongHomeSiblings needs repoIDSet/
+// homeChatIDSet (SDD review Critical 2): domain.Node carries no project id
+// of its own, so a repo sharing the bare root ("") belongs to SOME project,
+// not necessarily the caller's, and appending it unscoped would let a
+// densify in one project renumber — and WRITE, via writeHomeNode's
+// Nodes.SetOrder/.SetPlacement — another project's repo Node row. nil means
+// "do not filter": globalSnapshot/globalSnapshotAround (home folder CRUD)
+// call it that way today because CreateInput/MoveInput carry no project id
+// to resolve one from at all — a real, deliberately deferred gap (SDD
+// review fix round 3; the folder-CRUD half of this same class of bug,
+// tracked for Task 8/11, NOT closed here). workspaceSnapshotAround's home
+// branch, which DOES have a real homeWorkspaceID to resolve one from
+// (WorkspaceGitStatus.RepoIDsForHome), always passes a real set.
+//
+// Chat-kind rows never needed this: mergeHomeForest only ever CORRECTS an
+// existing entry already scoped to the caller's own workspace (via
+// ListByWorkspace), never APPENDS one — so an unrelated project's chat can
+// never enter baseRows through this path in the first place. Folder-kind
+// rows still leak across projects unconditionally at the bare root — the
+// SAME pre-existing, disclosed gap noted throughout this task's report
+// (domain.Folder has no project field at all to filter by).
+//
 // The returned homeIDs set is every id this walk discovered a Node row for —
 // writeRow's home/repo dispatch (see writeHomeNode, plan.go). A row this walk
 // never reaches (no Node row exists anywhere in its ancestor chain — the bare
@@ -103,6 +126,7 @@ func (u *chatFolderUsecase) correctHomePlacement(
 func (u *chatFolderUsecase) mergeHomeForest(
 	ctx context.Context,
 	baseRows []domain.Chat,
+	repoMemberIDs map[string]bool,
 ) ([]domain.Chat, map[string]bool, error) {
 	byID := make(map[string]int, len(baseRows))
 	for i, row := range baseRows {
@@ -123,37 +147,67 @@ func (u *chatFolderUsecase) mergeHomeForest(
 				continue
 			}
 			seen[n.ID] = true
-			homeIDs[n.ID] = true
-			switch n.Kind {
-			case domain.NodeKindFolder:
-				f, ferr := u.folders.FindByKey(ctx, n.ID)
-				if ferr != nil {
-					return nil, nil, fmt.Errorf("agent chat folder: home forest: folder %s: %w", n.ID, ferr)
-				}
-				if f == nil || f.RepoID != "" {
-					// An orphaned Node, or (should never happen post-Task-5) a
-					// repo-scoped folder row -- not this walk's to include.
-					continue
-				}
-				baseRows = append(baseRows, homeFolderView(*f, n))
-				queue = append(queue, n.ID)
-			case domain.NodeKindChat:
-				if i, ok := byID[n.ID]; ok {
-					baseRows[i].ParentID = n.ParentID
-					baseRows[i].Order = n.Order
-				}
-				queue = append(queue, n.ID)
-			case domain.NodeKindRepo:
-				baseRows = append(baseRows, domain.Chat{
-					ID: n.ID, Type: nodePhantomType, ParentID: n.ParentID, Order: n.Order,
-				})
-				// Repos are leaves: nothing files INTO a repo's own row.
-			case domain.NodeKindWorkspace:
-				// Not reachable at home before Task 7 -- ignore defensively.
+			included, childID, err := u.mergeHomeNode(ctx, n, byID, &baseRows, repoMemberIDs)
+			if err != nil {
+				return nil, nil, err
+			}
+			if included {
+				homeIDs[n.ID] = true
+			}
+			if childID != "" {
+				queue = append(queue, childID)
 			}
 		}
 	}
 	return baseRows, homeIDs, nil
+}
+
+// mergeHomeNode handles ONE Node mergeHomeForest's BFS discovered, factored
+// out to keep the walk's own loop under this package's gocyclo ceiling.
+// Mutates *baseRows in place (append or correct-in-place, matching
+// mergeHomeForest's own prior inline behaviour exactly). Returns whether n
+// counts toward homeIDs, and the ONE child id (if any) the walk should queue
+// next — folders and chats are containers (queued); repos are leaves
+// (never queued: nothing files INTO a repo's own row).
+func (u *chatFolderUsecase) mergeHomeNode(
+	ctx context.Context,
+	n domain.Node,
+	byID map[string]int,
+	baseRows *[]domain.Chat,
+	repoMemberIDs map[string]bool,
+) (included bool, childID string, err error) {
+	switch n.Kind {
+	case domain.NodeKindFolder:
+		f, ferr := u.folders.FindByKey(ctx, n.ID)
+		if ferr != nil {
+			return false, "", fmt.Errorf("agent chat folder: home forest: folder %s: %w", n.ID, ferr)
+		}
+		if f == nil || f.RepoID != "" {
+			// An orphaned Node, or (should never happen post-Task-5) a
+			// repo-scoped folder row -- not this walk's to include.
+			return false, "", nil
+		}
+		*baseRows = append(*baseRows, homeFolderView(*f, n))
+		return true, n.ID, nil
+	case domain.NodeKindChat:
+		if i, ok := byID[n.ID]; ok {
+			(*baseRows)[i].ParentID = n.ParentID
+			(*baseRows)[i].Order = n.Order
+		}
+		return true, n.ID, nil
+	case domain.NodeKindRepo:
+		if repoMemberIDs != nil && !repoMemberIDs[n.ID] {
+			return false, "", nil // another project's repo sharing the bare root -- see mergeHomeForest's doc
+		}
+		*baseRows = append(*baseRows, domain.Chat{
+			ID: n.ID, Type: nodePhantomType, ParentID: n.ParentID, Order: n.Order,
+		})
+		return true, "", nil
+	case domain.NodeKindWorkspace:
+		// Not reachable at home before Task 7 -- ignore defensively.
+		return false, "", nil
+	}
+	return false, "", nil
 }
 
 // homeSnapshotAround is workspaceSnapshotAround's home-scoped body: rows,
@@ -161,12 +215,28 @@ func (u *chatFolderUsecase) mergeHomeForest(
 // Node forest — see mergeHomeForest. subject is always treated as home here:
 // this is only ever called once workspaceSnapshotAround has confirmed
 // workspaceID itself is a project's home workspace.
+//
+// This is the ONE mergeHomeForest caller able to close the repo-phantom
+// cross-project leak (SDD review fix round 3): unlike folder CRUD
+// (globalSnapshotAround, no workspace in hand at all), a chat placement
+// always has a real homeWorkspaceID to resolve a project's own repos from —
+// see WorkspaceGitStatus.RepoIDsForHome.
 func (u *chatFolderUsecase) homeSnapshotAround(
 	ctx context.Context,
+	workspaceID string,
 	rows []domain.Chat,
 	subject domain.Chat,
 ) (*treeSnapshot, error) {
-	merged, homeIDs, err := u.mergeHomeForest(ctx, rows)
+	repoMemberIDs, err := u.workspaces.RepoIDsForHome(ctx, workspaceID)
+	if err != nil {
+		// Degrades to "do not filter" rather than failing the whole
+		// placement — the same posture homeChatIDSet (project.go) takes for
+		// an unresolvable home workspace. A resolution failure here means a
+		// bare-root densify is no worse scoped than it was before this fix,
+		// not that the operation itself should be refused.
+		repoMemberIDs = nil
+	}
+	merged, homeIDs, err := u.mergeHomeForest(ctx, rows, repoMemberIDs)
 	if err != nil {
 		return nil, err
 	}

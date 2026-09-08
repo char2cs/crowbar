@@ -89,6 +89,15 @@ func (u *chatFolderUsecase) globalSnapshot(
 // beyond the repo-scoped ListChats() read are merged in from Node.ListByParent
 // + Folder instead of ListByWorkspace("") + ChatTypeFolder rows — see
 // mergeHomeForest.
+//
+// Folder CRUD (Create/Move/Delete) has no workspace, and therefore no project,
+// to resolve a repo scope from — CreateInput/MoveInput carry no project id at
+// all — so this passes mergeHomeForest a nil repoMemberIDs (no filter). A
+// bare-root folder operation can therefore still renumber another project's
+// repo Node row sharing that container; a real, deliberately deferred gap
+// (SDD review fix round 3), unlike PlaceChat's identical risk, which
+// workspaceSnapshotAround below DOES close, because it has a real
+// homeWorkspaceID in hand to resolve a project from.
 func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
@@ -97,7 +106,7 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	merged, homeIDs, err := u.mergeHomeForest(ctx, rows)
+	merged, homeIDs, err := u.mergeHomeForest(ctx, rows, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +174,7 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 		return nil, err
 	}
 	if home {
-		return u.homeSnapshotAround(ctx, rows, subject)
+		return u.homeSnapshotAround(ctx, workspaceID, rows, subject)
 	}
 	all, err := u.chats.ListChats(ctx)
 	if err != nil {

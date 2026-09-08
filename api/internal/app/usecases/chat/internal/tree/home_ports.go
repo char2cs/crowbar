@@ -77,3 +77,43 @@ type Nodes interface {
 		id string,
 	) error
 }
+
+// WorkspaceGitStatus is the narrow read port DeletePreview needs off the
+// workspace usecase: each workspace's own already-synced Added/Deleted
+// working-tree counts (00 §5.3) — the same numbers the sidebar itself
+// renders, never a live git call. A preview runs before every idle delete
+// confirm, so it has to stay as cheap as the read model it draws from.
+//
+// It is not a home-only port (DeletePreview needs it for every scope) — it
+// lives in this file only because RepoIDsForHome (below) is, and moving the
+// whole interface here keeps types.go under this package's own 500-line
+// layering ceiling.
+type WorkspaceGitStatus interface {
+	WorkingTreeSummary(
+		ctx context.Context,
+		workspaceID string,
+	) (added, deleted int, err error)
+	// RepoOf answers the repo a workspace belongs to — "" for the project-home
+	// workspace, a real repo id otherwise (domain.Workspace.RepoID, straight
+	// off the same Get the adapter already makes for WorkingTreeSummary, no
+	// new dependency). checkFolderContainer's golden rule uses it to resolve
+	// the scope on the OTHER side of a folder-under-workspace-owning-row
+	// containment check: a folder's own scope is its stored RepoID (or, for a
+	// folder-under-folder check, the parent folder's own RepoID — no lookup
+	// needed there at all), but a folder filed under a BRANCH or forked CHAT
+	// row has to resolve that row's WorkspaceID back to a repo id to compare
+	// against.
+	RepoOf(
+		ctx context.Context,
+		workspaceID string,
+	) (repoID string, err error)
+	// RepoIDsForHome answers every repo id belonging to the SAME project as
+	// home workspace homeWorkspaceID — this package's own counterpart to
+	// project.go's repoIDSet. See mergeHomeForest's own doc (home_forest.go)
+	// for the cross-project leak this closes and the folder-CRUD half it
+	// deliberately does not.
+	RepoIDsForHome(
+		ctx context.Context,
+		homeWorkspaceID string,
+	) (map[string]bool, error)
+}
